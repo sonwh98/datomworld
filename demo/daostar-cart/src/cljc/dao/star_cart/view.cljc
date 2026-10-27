@@ -145,12 +145,6 @@
   (reduce + 0 (map #(* (:qty %) (or (:price %) 0)) lines)))
 
 
-(defn- header
-  [token cart-count]
-  (str "<header><h1>" (button "" token "TT GAME STOCK" "nav" "catalog") "</h1>"
-       "<nav>" (button "" token (str "Cart (" cart-count ")") "nav" "cart") "</nav></header>"))
-
-
 (defn- card
   [token item]
   (str "<article class=\"card\">"
@@ -210,25 +204,49 @@
        "</section>"))
 
 
-(defn- hero
-  "The catalog's hero banner, in the production site's voice."
+(defn- header
+  "The nav tabs strip (the projection's changing part of the header): the
+   brand and the search input live on the begin page, never patched."
+  [token cart-count]
+  (str "<nav class=\"tabs\">"
+       (button "" token "All Products" "nav" "catalog")
+       (button "" token (str "Cart (" cart-count ")") "nav" "cart")
+       "</nav>"))
+
+
+(defn- disclaimer-banner
   []
-  (str "<section class=\"hero\"><span class=\"tag\">Next-Gen Video Game Controllers</span>"
-       "<h2>TT Game Stock</h2>"
-       "<p>Wholesale game controllers, consoles and accessories. Every page here is a "
-       "projection of a server-side continuation — your cart lives in the session, never in a table.</p>"
-       "</section>"))
+  (str "<div class=\"disclaimer\"><span class=\"badge\">⚠ Notice</span>"
+       "<span class=\"main\">Used / AS-IS / BER / Returns / Refurbished</span>"
+       "<span class=\"sub\">Consoles, Controllers and Electronic Components</span></div>"))
+
+
+(defn- hero
+  "The landing hero, in the production site's voice and copy."
+  []
+  (str "<section class=\"hero\"><span class=\"tag\">⚡ Gaming Stock &amp; Controllers</span>"
+       "<h2>Gaming Hardware &amp; Controllers</h2>"
+       "<p>Browse our inventory of consoles, pro controllers, replacement parts, and gaming electronics.</p>"
+       "<div class=\"perks\">"
+       "<span class=\"perk\">⚠️ <strong>AS-IS / Refurbished</strong> Hardware</span>"
+       "<span class=\"perk\">🎮 <strong>Controllers &amp; Parts</strong> In Stock</span>"
+       "<span class=\"perk\">⚡ <strong>Fast Dispatch</strong> Worldwide Logistics</span>"
+       "<span class=\"perk\">🔒 <strong>Web3 &amp; Crypto</strong> Fast Checkout</span>"
+       "</div></section>"))
 
 
 (defn- catalog-page
   [catalog token q tagory]
-  (str (hero)
-       (tagory-chips token ((:tagories catalog)) tagory)
-       "<section class=\"grid\">"
-       (apply str (map #(card token %)
-                       (filter #(and (matches? q %) (in-tagory? tagory %))
-                               (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))))
-       "</section>"))
+  (let [shown (filter #(and (matches? q %) (in-tagory? tagory %))
+                      (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))]
+    (str (disclaimer-banner)
+         (hero)
+         (tagory-chips token ((:tagories catalog)) tagory)
+         "<div class=\"section-head\"><h2>All Products</h2>"
+         "<span class=\"count\">" (count shown) " items</span></div>"
+         "<section class=\"grid\">"
+         (apply str (map #(card token %) shown))
+         "</section>")))
 
 
 (defn- item-page
@@ -262,6 +280,17 @@
            (button "" token "Checkout" "checkout" nil) "</section>"))))
 
 
+(defn- footer
+  "The site footer, production copy, plus the demo's honesty note."
+  []
+  (str "<footer class=\"site\">"
+       "<div class=\"ftitle\">Inventory Condition Disclaimer</div>"
+       "<p>Used / AS-IS / BER / Returns / Refurbished</p>"
+       "<p>Consoles, Controllers and Electronic Components</p>"
+       "<p class=\"copy\">© 2026 TT Game Stock — dao.star cart demo. Catalog as of last page load.</p>"
+       "</footer>"))
+
+
 (defn shop-project
   "`(project-fn occurrence-id model)` for the shop, over `catalog`, a map of
    `:items (fn [])` and `:item (fn [slug])`.  Pure: re-projecting a stored
@@ -286,11 +315,14 @@
                   "cart" (cart-page catalog token cart)
                   "checkout" "<section class=\"cart\"><h2>Order received</h2><p>This is a demo: no payment was taken.</p></section>"
                   (catalog-page catalog token (:search model) (:tagory model)))
-                "</main><footer>Catalog as of last page load.</footer></div>")))))
+                "</main>" (footer) "</div>")))))
 
 
 (defn shop-begin
   [root]
-  (begin-page {:prefix "" :title "dao.star cart" :root root
+  (begin-page {:prefix "" :title "TT Game Stock | Next-Gen Video Game Controllers" :root root
                :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root) "}")
-               :pre (search-box root)}))
+               :pre (str "<header class=\"top\"><div class=\"brand\">"
+                         "<div class=\"name\">TT <span>GAME</span> STOCK</div>"
+                         "<div class=\"subtitle\">PRO CONTROLLERS &amp; GEAR</div>"
+                         "</div>" (search-box root) "</header>")}))
