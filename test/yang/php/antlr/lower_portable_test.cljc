@@ -131,9 +131,7 @@
         (is (= (:diag r) (vec (:diag f))) (name (:id f)))
         (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
     (testing "only the escalated and not-yet-recorded fixtures are still pending"
-      (is (= #{:closure-call-user-class :ref-cycle-var-dump :ref-cycle-compare
-               :call-spread-string-key-gap :foreach-ref-sort-inside-loop
-               :foreach-ref-array-reassigned-in-loop :call-unknown-named-later-arg-runs}
+      (is (= #{:foreach-ref-array-reassigned-in-loop}
              (set (map :id (filter #(= :pending (:oracle %)) all)))))
       (is (= 10 (count (filter #(= :typed-ref-candidates (:group %)) all)))
           "the S9 text candidates are all recorded"))))

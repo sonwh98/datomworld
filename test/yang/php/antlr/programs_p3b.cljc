@@ -335,7 +335,13 @@
    :typed-ref-row41-uninitialized-non-nullable {:out "Cannot access uninitialized non-nullable property C::$u by reference", :diag [], :uncaught nil}
    :typed-ref-row41-uninitialized-nullable {:out "NULL\n", :diag [], :uncaught nil}
    :typed-ref-row41-readonly-initialized {:out "Cannot modify readonly property C::$ro", :diag [], :uncaught nil}
-   :typed-ref-row44-unset-uninitializes {:out "Typed property C::$p must not be accessed before initialization", :diag [], :uncaught nil}})
+   :typed-ref-row44-unset-uninitializes {:out "Typed property C::$p must not be accessed before initialization", :diag [], :uncaught nil}
+   :ref-cycle-var-dump {:out "array(1) {\n  [0]=>\n  *RECURSION*\n}\n", :diag [], :uncaught nil}
+   :ref-cycle-compare {:out "", :diag [], :uncaught {:class "Error", :message "Nesting level too deep - recursive dependency?"}}
+   :call-spread-string-key-gap {:out "1", :diag [], :uncaught nil}
+   :foreach-ref-sort-inside-loop {:out "323", :diag [], :uncaught nil}
+   :call-unknown-named-later-arg-runs {:out "Unknown named parameter $z", :diag [], :uncaught nil}
+   :closure-call-user-class {:out "8", :diag [], :uncaught nil}})
 
 
 (def banner "php-8.3.35 shiva 2026-10-25")
@@ -442,9 +448,14 @@
    php-p3b-gate): the cycle guard, the departure sources of the ratified
    ledger rows (C25 spread, C26 iterator, C28 call validation order) and the
    user-class closure call held for P4. All wait for the next shiva pass."
-  [(fx :ref-cycle-var-dump :ref-lifecycle-v1 [18] #{:s4 :oracle-record}
+  [(fx :ref-cycle-var-dump :ref-lifecycle-v1 [18] #{:s4}
        "<?php $a = [1]; $a[0] = &$a; var_dump($a);" nil)
-   (fx :ref-cycle-compare :ref-lifecycle-v1 [18] #{:s4 :oracle-record}
+   (fx :ref-cycle-compare :ref-lifecycle-v1 [18] #{:s4 :nesting-is-fatal}
+       ;; recorded: PHP raises "Nesting level too deep - recursive dependency?"
+       ;; as an uncatchable fatal (uncaught, empty output). The engine's nesting
+       ;; error carries the same text but is a catchable Error, so the source's
+       ;; catch prints it where PHP prints nothing: held (C29) until the error
+       ;; can be raised as a fatal.
        (str "<?php $a = [1]; $a[0] = &$a; $b = [1]; $b[0] = &$b;"
             " try { var_dump($a == $b); } catch (Error $e) { echo $e->getMessage(); }")
        nil)
@@ -471,7 +482,7 @@
     :requires #{},
     :source "<?php $a = [1, 2]; foreach ($a as $k => &$v) { if ($k == 0) { $a = [7, 8]; } echo $v; }",
     :oracle :pending,
-    :note "C26: the unrelated-table clause of row 25 is not implemented; closes with the P3-c iterator registry"}
+    :note "C26: the unrelated-table clause of row 25 is not implemented; closes with the P3-c iterator registry. NOT PINNED: pass 5 recorded about 1.8 GB of output (the loop keeps iterating the reassigned array without bound), so the source must be bounded (for example a counter and break) and re-recorded; escalated"}
    {:id :call-unknown-named-later-arg-runs,
     :group :calls-v1,
     :rows [57],
@@ -489,9 +500,10 @@
     :source "<?php $f = fn($x) => $x * 2; echo $f->call(new stdClass, 4);",
     :oracle :pending,
     :note "recorded warning: PHP refuses to bind a closure to an internal class; P4's bind rules pin it"}
-   (fx :closure-call-user-class :closures-v1 [] #{:p4}
-       "<?php class P { public $v = 2; } $f = fn($x) => $x * $this->v; echo $f->call(new P, 4);"
-       "8")])
+   (assoc (fx :closure-call-user-class :closures-v1 [] #{:p4}
+              "<?php class P { public $v = 2; } $f = fn($x) => $x * $this->v; echo $f->call(new P, 4);"
+              "8")
+          :level :oracle-only)])
 
 
 (def all-fixtures

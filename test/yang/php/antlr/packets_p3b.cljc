@@ -71,6 +71,58 @@
               [:actualArguments [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
+    :ref-cycle-var-dump
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable
+           [:chain
+            [:chainOrigin
+             [:chainBase
+              [:keyedVariable
+               ["VarName" "$a"]
+               [:squareCurlyExpression
+                ["OpenSquareBracket" "["]
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]
+                ["CloseSquareBracket" "]"]]]]]]]
+          ["Eq" "="]
+          ["Ampersand" "&"]
+          [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "var_dump"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
     :foreach-ref-leftover-binding
     [:htmlDocument
      [:phpBlock

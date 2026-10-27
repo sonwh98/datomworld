@@ -1057,7 +1057,7 @@
          (if (= k :array)
            (let [id (php/cell-id v)]
              (if (php/path-has? path id 0)
-               (php/echo (data/str-concat ind amp "*RECURSION*\n"))
+               (php/echo (data/str-concat ind "*RECURSION*\n"))
                (do (php/echo (data/str-concat ind amp "array("
                                               (integer/format (php/array-count v))
                                               ") {\n"))
