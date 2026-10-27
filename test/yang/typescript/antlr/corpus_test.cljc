@@ -48,7 +48,7 @@
 (def ^:private corpus-names
   "The committed corpora, each `<name>_corpus.edn`, `<name>_oracle.edn` and
    `<name>_packets.edn`."
-  ["t1" "t2"])
+  ["t1" "t2" "t3"])
 
 
 (def ^:private enabled-steps

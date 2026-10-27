@@ -1549,21 +1549,30 @@
     ;; A function cell holds {:js/type :function :code (fn [this args] ..)
     ;; :this-mode :strict|:lexical :name s :length n :props om :proto ref
     ;; :extensible? true}; every call is (js/call f this args).
+    ;; `nt?` true means the code takes a third argument, the new.target
+    ;; (undefined under a plain call); `js/make-function` keeps the landed
+    ;; five-argument shape for the callers that never construct through
+    ;; new.target.
     [js/make-function
      (fn [name length this-mode kind code]
+       (js/make-function-nt name length this-mode kind code false))]
+    [js/make-function-nt
+     (fn [name length this-mode kind code nt?]
        (let [f (cell/new
-                 (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
-                                                                                :js/type
-                                                                                :function)
-                                                                         :code code)
-                                                                  :this-mode this-mode)
-                                                           :name name)
-                                                    :length length)
-                                             :props (js/om-new))
-                                      :proto js.rt/fn-proto)
-                               :extensible? true)
-                        :kind
-                        kind))]
+                 (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
+                                                                                       :js/type
+                                                                                       :function)
+                                                                                :code code)
+                                                                         :this-mode this-mode)
+                                                                  :name name)
+                                                           :length length)
+                                                    :props (js/om-new))
+                                             :proto js.rt/fn-proto)
+                                      :extensible? true)
+                               :kind
+                               kind)
+                        :nt?
+                        nt?))]
          (do (js/define-own! f
                              {:js/str "length"}
                              (js/slot (data/float64 length) false false true))
@@ -1581,33 +1590,54 @@
     [js/call
      (fn [f this args]
        (if (js/callable? f)
-         (let [c (cell/get f)]
-           ((get c :code)
-            (if (= (get c :this-mode) :lexical) :js/undefined this)
-            args))
+         (let [c (cell/get f)
+               k (get c :kind)]
+           (if (if (= k :class) true (= k :derived))
+             (js/throw-type-error
+               {:js/str "Class constructor cannot be invoked without 'new'"})
+             (let [t (if (= (get c :this-mode) :lexical) :js/undefined this)]
+               (if (= (get c :nt?) true)
+                 ((get c :code) t args :js/undefined)
+                 ((get c :code) t args)))))
          (js/throw-type-error {:js/str "value is not a function"})))]
     [js/is-constructor?
-     ;; [[Construct]] exists on :normal functions and on the builtins
-     ;; flagged :ctor?; arrows, methods, accessors and the rest have none
+     ;; [[Construct]] exists on :normal functions, class constructors and the
+     ;; builtins flagged :ctor?; arrows, methods, accessors and the rest have
+     ;; none
      (fn [v]
        (if (js/callable? v)
-         (let [c (cell/get v)]
-           (if (= (get c :kind) :normal)
+         (let [c (cell/get v)
+               k (get c :kind)]
+           (if (= k :normal)
              true
-             (if (= (get c :kind) :builtin) (= (get c :ctor?) true) false)))
+             (if (= k :class)
+               true
+               (if (= k :derived)
+                 true
+                 (if (= k :builtin) (= (get c :ctor?) true) false)))))
          false))]
-    [js/construct
-     (fn [f args]
+    [js/construct-with-nt
+     ;; [[Construct]](args, nt): a derived constructor allocates nothing (its
+     ;; `this` is bound by super()); every other kind allocates from
+     ;; nt.prototype. A bound function constructs its target, passing the
+     ;; target as new.target when nt is the bound function itself.
+     (fn [f args nt]
        (if (js/is-constructor? f)
          (let [c (cell/get f)]
            (if (nil? (get c :bound-target))
-             (let [pr (js/get-prop f {:js/str "prototype"})
-                   o (js/make-object (if (js/object? pr) pr js.rt/obj-proto))
-                   r ((get c :code) o args)]
-               (if (js/object? r) r o))
-             (js/construct (get c :bound-target)
-                           (data/into (get c :bound-args) args))))
+             (if (= (get c :kind) :derived)
+               ((get c :code) :js/undefined args nt)
+               (let [pr (js/get-prop nt {:js/str "prototype"})
+                     o (js/make-object (if (js/object? pr) pr js.rt/obj-proto))
+                     r (if (= (get c :nt?) true)
+                         ((get c :code) o args nt)
+                         ((get c :code) o args))]
+                 (if (js/object? r) r o)))
+             (js/construct-with-nt (get c :bound-target)
+                                   (data/into (get c :bound-args) args)
+                                   (if (= nt f) (get c :bound-target) nt))))
          (js/throw-type-error {:js/str "value is not a constructor"})))]
+    [js/construct (fn [f args] (js/construct-with-nt f args f))]
 
     ;; ---------------------------------------------------------- escapes
     ;; The dynamic context is one record in one cell, {:handlers}: every

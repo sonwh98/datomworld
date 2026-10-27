@@ -1,0 +1,121 @@
+{:header {:node "v25.6.1", :generated "2026-10-27", :generator "src/dev/yang_ts_oracle.clj"}
+ :entries [
+{:id :classes-declaration, :out ["function A 0 1"], :exit 0}
+{:id :classes-expression, :out ["B Named function undefined"], :exit 0}
+{:id :classes-call-without-new, :out ["TypeError"], :exit 0}
+{:id :classes-methods-nonenumerable, :out ["own 0 {\"own\":2}"], :exit 0}
+{:id :classes-constructor-link, :out ["true true false true"], :exit 0}
+{:id :classes-prototype-descriptor, :out ["false false false"], :exit 0}
+{:id :classes-tdz, :out ["ReferenceError"], :exit 0}
+{:id :classes-inner-name-const, :out ["TypeError" "5"], :exit 0}
+{:id :classes-anonymous-name, :out ["x k true"], :exit 0}
+{:id :classes-computed-key-order, :out ["a,b,c,end"], :exit 0}
+{:id :classes-accessor-descriptor, :out ["function function false true"], :exit 0}
+{:id :classes-accessor-getter-only, :out ["TypeError" "7 undefined"], :exit 0}
+{:id :classes-self-reference, :out ["true"], :exit 0}
+{:id :classes-block-scope, :out ["function" "undefined"], :exit 0}
+{:id :classes-length, :out ["2 0"], :exit 0}
+{:id :classes-method-this, :out ["3" "TypeError"], :exit 0}
+{:id :classes-default-constructor, :out ["object 0 true"], :exit 0}
+{:id :classes-method-name-length, :out ["m 2 get g"], :exit 0}
+{:id :classes-method-not-constructor, :out ["TypeError"], :exit 0}
+{:id :classes-constructor-return-object, :out ["1 false"], :exit 0}
+{:id :classes-constructor-return-primitive, :out ["1 true"], :exit 0}
+{:id :classes-numeric-string-keys, :out ["one 2"], :exit 0}
+{:id :classes-in-expression-position, :out ["4 true"], :exit 0}
+{:id :super-forward-args, :out ["5 1"], :exit 0}
+{:id :super-default-derived, :out ["9 true"], :exit 0}
+{:id :super-this-before-super, :out ["ReferenceError" "undefined"], :exit 0}
+{:id :super-called-twice, :out ["ReferenceError"], :exit 0}
+{:id :super-method-instance, :out ["AB"], :exit 0}
+{:id :super-method-static, :out ["sAsB"], :exit 0}
+{:id :super-method-arrow, :out ["A!"], :exit 0}
+{:id :super-accessor, :out ["11"], :exit 0}
+{:id :super-property-set, :out ["5,x"], :exit 0}
+{:id :super-return-override-object, :out ["1 false"], :exit 0}
+{:id :super-return-override-primitive, :out ["TypeError"], :exit 0}
+{:id :super-return-undefined-derived, :out ["2"], :exit 0}
+{:id :super-base-returns-object, :out ["1 2 false"], :exit 0}
+{:id :super-three-level, :out ["CBA nA"], :exit 0}
+{:id :super-prototype-chain, :out ["true true s"], :exit 0}
+{:id :super-extends-null, :out ["true true" "TypeError"], :exit 0}
+{:id :super-extends-expression, :out ["mixA true"], :exit 0}
+{:id :super-extends-function, :out ["8 true"], :exit 0}
+{:id :super-extends-non-constructor, :out ["TypeError" "TypeError"], :exit 0}
+{:id :super-method-sees-this, :out ["bee"], :exit 0}
+{:id :fields-definition-order, :out ["key1,key2,defined,init1,init2 1 2"], :exit 0}
+{:id :fields-define-over-setter, :out ["1"], :exit 0}
+{:id :fields-this, :out ["true true"], :exit 0}
+{:id :fields-read-earlier, :out ["1 2 3"], :exit 0}
+{:id :fields-order-base, :out ["field,body"], :exit 0}
+{:id :fields-order-derived, :out ["before,fa,A body,fb,after"], :exit 0}
+{:id :fields-without-initializer, :out ["x,y undefined true"], :exit 0}
+{:id :fields-new-target, :out ["undefined"], :exit 0}
+{:id :fields-no-semicolons, :out ["1 2 undefined 3"], :exit 0}
+{:id :fields-enumerable-data, :out ["true true true {\"x\":1}"], :exit 0}
+{:id :fields-per-instance, :out ["1 0 false"], :exit 0}
+{:id :fields-derived-sees-base, :out ["11"], :exit 0}
+{:id :private-read-write, :out ["5 6"], :exit 0}
+{:id :private-method, :out ["pm"], :exit 0}
+{:id :private-accessor, :out ["40"], :exit 0}
+{:id :private-static, :out ["4"], :exit 0}
+{:id :private-foreign-object, :out ["TypeError" "TypeError"], :exit 0}
+{:id :private-brand-check, :out ["true false false"], :exit 0}
+{:id :private-brand-check-primitive, :out ["TypeError"], :exit 0}
+{:id :private-brand-method, :out ["true false"], :exit 0}
+{:id :private-nested-class, :out ["42"], :exit 0}
+{:id :private-distinct-instances, :out ["1 2"], :exit 0}
+{:id :private-invisible, :out ["y {\"y\":2} y 0"], :exit 0}
+{:id :private-method-not-on-prototype, :out ["constructor undefined"], :exit 0}
+{:id :private-through-derived, :out ["1"], :exit 0}
+{:id :private-field-calls-private-method, :out ["init"], :exit 0}
+{:id :private-derived-brand-order, :out ["TypeError"], :exit 0}
+{:id :private-same-name-two-classes, :out ["a b" "TypeError"], :exit 0}
+{:id :private-getter-only-write, :out ["TypeError"], :exit 0}
+{:id :private-method-write, :out ["TypeError"], :exit 0}
+{:id :static-members, :out ["5 5 0"], :exit 0}
+{:id :static-inherited, :out ["m2 m1 false"], :exit 0}
+{:id :static-block-order, :out ["a,block1,b,block2"], :exit 0}
+{:id :static-initializer-class-name, :out ["true A blk"], :exit 0}
+{:id :static-field-shadows-parent, :out ["a b true"], :exit 0}
+{:id :static-block-this, :out ["true"], :exit 0}
+{:id :static-after-elements, :out ["function 1"], :exit 0}
+{:id :static-method-enumerable, :out ["f"], :exit 0}
+{:id :instanceof-chain, :out ["true true true false"], :exit 0}
+{:id :instanceof-primitives, :out ["false false false false"], :exit 0}
+{:id :instanceof-object-create, :out ["true false"], :exit 0}
+{:id :instanceof-non-callable, :out ["TypeError" "TypeError"], :exit 0}
+{:id :instanceof-bound, :out ["true true"], :exit 0}
+{:id :instanceof-null-prototype, :out ["TypeError"], :exit 0}
+{:id :instanceof-set-prototype, :out ["true false" "false true"], :exit 0}
+{:id :instanceof-builtins, :out ["true true true true false true"], :exit 0}
+{:id :instanceof-function-constructor, :out ["true true true"], :exit 0}
+{:id :instanceof-errors, :out ["true true false false"], :exit 0}
+{:id :errors-subclass, :out ["true true false MyErr boom MyErr: boom true [object Error]"], :exit 0}
+{:id :errors-hierarchy-dispatch, :out ["nf,denied,app,other"], :exit 0}
+{:id :errors-cause, :out ["true 0 false false"], :exit 0}
+{:id :errors-call-without-new, :out ["true x true TypeError"], :exit 0}
+{:id :errors-message-descriptor, :out ["m true false true false"], :exit 0}
+{:id :errors-intrinsic-subclasses, :out ["true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true,true"], :exit 0}
+{:id :errors-rethrow-identity, :out ["true"], :exit 0}
+{:id :errors-prototype-chain, :out ["true true Error: x"], :exit 0}
+{:id :errors-name-on-prototype, :out ["EProto: hi false"], :exit 0}
+{:id :errors-message-coercion, :out ["string 42" "false"], :exit 0}
+{:id :errors-stack-departure, :out ["string"], :exit 0}
+{:id :errors-capture-stack-trace-departure, :out ["function"], :exit 0}
+{:id :errors-thrown-in-method, :out ["x bad x true"], :exit 0}
+{:id :errors-error-of-error-class, :out ["true true true z"], :exit 0}
+{:id :newtarget-base-and-derived, :out ["true true false"], :exit 0}
+{:id :newtarget-plain-call, :out ["undefined false undefined"], :exit 0}
+{:id :newtarget-function-with-and-without-new, :out ["true" "false"], :exit 0}
+{:id :newtarget-through-arrow, :out ["true"], :exit 0}
+{:id :newtarget-abstract-idiom, :out ["TypeError abstract" "true"], :exit 0}
+{:id :newtarget-in-method, :out ["undefined"], :exit 0}
+{:id :newtarget-arrow-only, :out ["true false"], :exit 0}
+{:id :newtarget-construct-prototype, :out ["true true true"], :exit 0}
+{:id :builtin-subclass-array, :out ["3 true true true 1-2-3"], :exit 0}
+{:id :builtin-subclass-array-species-departure, :out ["true true"], :exit 0}
+{:id :builtin-subclass-object, :out ["1 true true"], :exit 0}
+{:id :builtin-subclass-string-departure, :out ["ok"], :exit 0}
+{:id :builtin-subclass-array-length, :out ["3" "6"], :exit 0}
+{:id :builtin-subclass-array-method, :out ["2 2"], :exit 0}]}
