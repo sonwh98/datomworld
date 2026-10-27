@@ -6,6 +6,7 @@
    memory log; subscription exchanges carry the required `:dao.lease/max`; the
    renewal intervals come from `lease/renewal-interval`, never by hand."
   (:require [dao.lease :as dl]
+            [dao.star-cart.begin-guard :as begin-guard]
             [dao.star.driver :as driver]
             [dao.star.lease :as lease]
             [dao.star.router :as router]
@@ -43,14 +44,16 @@
 
 (defn assemble
   "Wire one app.  Config: `:program`, `:project-fn` `(fn [occurrence model])`,
-   `:begin-fn` `(fn [root])`, and optional `:timing` merged over
+   `:begin-fn` `(fn [root])`, `:app-id` (the element id the projection
+   patches; default \"app-body\"), and optional `:timing` merged over
    `default-timing`.  Answers
      {:handler   the ring handler for this app's boundary
       :boundary  the boundary
       :driver :router
       :step!     (fn [now-ms]) one pass of every stepped part, ticks included
       :stop!     (fn [])}"
-  [{:keys [program project-fn begin-fn timing]}]
+  [{:keys [program project-fn begin-fn app-id timing]
+    :or {app-id "app-body"}}]
   (let [{:keys [tick-ms exchange-duration exchange-renew lineage-duration
                 lineage-renew subscription-max]} (merge default-timing timing)
         period {:ms tick-ms}
@@ -63,7 +66,8 @@
         facts (log!)
         lineage-lease (ring! 1024)
         exchange-lease (ring! 1024)
-        begin (ring! 256)
+        router-begin (ring! 256)
+        driver-begin (ring! 256)
         ticks {:driver (ring! 1024) :exchange (ring! 1024) :lineage (ring! 1024)}
         boundary (http/make-boundary
                    {:ingress {:dao.stream/handle ingress :dao.stream/surface #{:writer}}
@@ -74,7 +78,7 @@
                     :http/max-open 256 :http/max-body-bytes 65536})
         decl (lease/facts-declaration)
         drv (driver/make-driver
-              {:facts facts :egress egress :begin begin :tick (:driver ticks)
+              {:facts facts :egress egress :begin driver-begin :tick (:driver ticks)
                :lineage-lease lineage-lease :exchange-lease exchange-lease
                :program program :project-fn project-fn :begin-fn begin-fn
                :units units :lineage-renewal-interval lin-interval
@@ -92,9 +96,10 @@
               :retire! #(driver/retire! drv %) :units units :duration lin-dur
               :cadence period :tolerance {:ms 0} :facts-declaration decl})
         rt (router/make-router
-             {:ingress ingress :facts facts :lease lineage-lease :begin begin
+             {:ingress ingress :facts facts :lease lineage-lease :begin router-begin
               :co-located? true :facts-declaration decl
-              :session-medium #(driver/session-medium drv %)})]
+              :session-medium #(driver/session-medium drv %)})
+        guard (begin-guard/make router-begin driver-begin)]
     {:handler (jvm/handler boundary)
      :boundary boundary
      :driver drv
@@ -106,6 +111,7 @@
               (lease/exchange-lease-step! xl)
               (lease/lineage-lease-step! ll)
               (router/router-step! rt)
+              (begin-guard/step! guard egress app-id)
               (driver/driver-step! drv)
               (http/egress-step boundary))
      :stop! (fn [] (http/stop! boundary))}))

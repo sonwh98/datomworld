@@ -94,7 +94,7 @@
    stylesheet, base signals, a subscription to the lineage's token, and
    `pre` — markup placed before the app body (the search input renders there
    once, as a sibling of every patched element)."
-  [{:keys [prefix title signals root pre]}]
+  [{:keys [prefix title signals root pre app-id] :or {app-id "app-body"}}]
   (str "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
        "<title>" (esc title) "</title>"
@@ -102,7 +102,7 @@
        "<script type=\"module\" src=\"/js/datastar.js\"></script></head>"
        "<body data-signals=\"" (esc signals) "\" data-init=\"@get('" prefix "/s/" (esc root) "',{retry:'always'})\">"
        pre
-       "<div id=\"app-body\"><p class=\"loading\">Loading…</p></div></body></html>"))
+       "<div id=\"" app-id "\"><p class=\"loading\">Loading…</p></div></body></html>"))
 
 
 ;; -----------------------------------------------------------------------------

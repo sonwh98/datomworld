@@ -82,4 +82,5 @@
 (defn grid-begin
   [root]
   (v/begin-page {:prefix prefix :title "dao.star cart grid" :root root
+                 :app-id "app"
                  :signals "{act: '', arg: '', name: '', price: '', desc: '', img: '', tag: ''}"}))

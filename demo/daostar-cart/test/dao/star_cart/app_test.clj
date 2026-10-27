@@ -19,8 +19,14 @@
            (finally ((:stop! site)))))))
 
 
-(defn- port [] (:port *site*))
-(defn- named [] (remove #(sup/blank? (:name %)) (store/items (:store *site*))))
+(defn- port
+  []
+  (:port *site*))
+
+
+(defn- named
+  []
+  (remove #(sup/blank? (:name %)) (store/items (:store *site*))))
 
 
 (defn- subscribed
@@ -33,7 +39,9 @@
     {:sse sse :root root :token (sup/token-of @(:text sse))}))
 
 
-(defn- sse-text [{:keys [sse]}] @(:text sse))
+(defn- sse-text
+  [{:keys [sse]}]
+  @(:text sse))
 
 
 (deftest the-full-page-renders-the-real-catalog-with-real-image-urls
@@ -76,7 +84,7 @@
 
 (deftest add-to-cart-parks-and-resumes-with-state-intact
   (let [[a b] (take 2 (vals (into (sorted-map) (map (juxt (comp str/trim :name) identity)
-                                                        (filter #(pos? (:price %)) (named))))))
+                                                    (filter #(pos? (:price %)) (named))))))
         {:keys [sse token]} (subscribed "")
         add (fn [tok slug] (sup/token-of (sup/input! (port) "" tok {:act "add" :arg slug})))
         t1 (add token (:key a))
@@ -125,6 +133,7 @@
         old-price (str "$" (quot (:price a) 100) "." (format "%02d" (rem (:price a) 100)))
         grid (subscribed "/grid")]
     (testing "the grid lists every item"
+      (spit "/tmp/grid-sse.txt" (sse-text grid))
       (is (= 249 (sup/count-matches #"<li class=\"[^\"]*\"><span class=\"nm\">" (sse-text grid)))))
     (testing "select, then save a new price"
       (let [t1 (sup/token-of (sup/input! (port) "/grid" (:token grid) {:act "select" :arg (:key a)}))
