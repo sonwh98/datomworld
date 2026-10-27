@@ -318,11 +318,31 @@
                 "</main>" (footer) "</div>")))))
 
 
+(defn- landing
+  "The splash gate, the production site's structure: the full-viewport
+   landing.jpg background, gradient overlay, and the glass card.  The
+   Enter Store button hides the splash client-side (data-show); no stream
+   round trip.  The store renders beneath from the same subscription."
+  []
+  (str "<div class=\"landing-page\" data-show=\"!$entered\">"
+       "<img class=\"landing-bg\" src=\"/images/landing.jpg\" alt=\"Gamer holding a PS5 pro controller\">"
+       "<div class=\"landing-overlay\"></div>"
+       "<div class=\"landing-content\">"
+       "<div class=\"landing-tag\">⚡ TT GAME STOCK</div>"
+       "<h1 class=\"landing-title\">Gaming Hardware <span>&amp;</span> Pro Controllers</h1>"
+       "<p class=\"landing-subtitle\">Consoles, pro controllers, replacement parts, and gaming electronics — AS-IS, refurbished, and ready to ship.</p>"
+       "<div class=\"landing-notice\"><span class=\"warn-ico\">⚠</span>"
+       "<span><strong>Used / AS-IS / BER / Returns / Refurbished</strong> — Consoles, Controllers &amp; Electronic Components</span></div>"
+       "<button class=\"landing-enter\" data-on:click=\"$entered=true\">Enter Store →</button>"
+       "</div></div>"))
+
+
 (defn shop-begin
   [root]
   (begin-page {:prefix "" :title "TT Game Stock | Next-Gen Video Game Controllers" :root root
-               :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root) "}")
-               :pre (str "<header class=\"top\"><div class=\"brand\">"
+               :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root) ", entered: false}")
+               :pre (str (landing)
+                         "<header class=\"top\"><div class=\"brand\">"
                          "<div class=\"name\">TT <span>GAME</span> STOCK</div>"
                          "<div class=\"subtitle\">PRO CONTROLLERS &amp; GEAR</div>"
                          "</div>" (search-box root) "</header>")}))
