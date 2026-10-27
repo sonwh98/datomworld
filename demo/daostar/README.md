@@ -14,9 +14,29 @@ lambdacart code.
   images and tagories, create items. Saves are validated and transacted by a
   host effects interpreter and persist across restarts.
 
-Read `resources/dao_star_cart/README.md` for the operational notes (no auth on
-the grid, stale-until-navigation coherence, save semantics) and the data
-provenance.
+## Operational notes
+
+- **No authentication on the grid. Do not expose it.** The session token
+  identifies a session; it is not authorization.
+- **Coherence is stale-until-navigation.** A storefront view shows the catalog
+  as of its last projection; a grid save is visible after the shopper navigates
+  or reloads. There is no broadcast; the shop footer says so.
+- **A subscription ends once per hour** (the exchange lease's `:dao.lease/max`)
+  and the browser reconnects (the pages subscribe with `retry: 'always'`),
+  which re-projects the current cart.
+- **Saves go to `CATALOG_PATH`** (default `target/cart-catalog.edn`, created on
+  first boot from the seed, parent directories included). If a path cannot be
+  written the demo logs it and holds edits in memory only; with no path at all
+  it says so at boot.
+
+## Provenance
+
+`resources/dao_star_cart/catalog.edn` was extracted from the live lambdacart
+Datomic on 2026-10-26 (see the header comment in that file for the form): 249
+items including two empty placeholder records present in the source. Prices
+are minor units. Product images (`resources/dao_star_cart/public/images/`, 228
+files, 68 MB) belong to the shop and are gitignored; nothing here is to be
+published without the owner's say-so.
 
 ## Run it (local JVM)
 
