@@ -79,8 +79,11 @@
   (testing "the search input is a begin-page sibling of the patched body"
     (let [page (v/shop-begin "ROOT")]
       (is (str/includes? page "type=\"search\""))
-      (is (str/includes? page "$act='search'; $arg=event.target.value; @post('/k/ROOT')"))
-      (is (not (str/includes? page "value=\"")))))
+      (is (str/includes? page "data-bind:search"))
+      (is (str/includes? page "$act='search'; $arg=$search; @post('/k/ROOT')"))
+      (is (str/includes? page "search:"))
+      (is (not (str/includes? page "value=\"")))
+      (is (not (str/includes? page "event.target")))))
   (testing "the query filters the grid; the patch carries no input field"
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "alp"})]
       (is (str/includes? sse "Alpha &lt;b&gt;"))

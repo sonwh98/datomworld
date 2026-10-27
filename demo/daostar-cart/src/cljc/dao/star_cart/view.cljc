@@ -150,12 +150,15 @@
 (defn- search-box
   "The catalog's search field.  Rendered ONCE, on the begin page, and never
    re-projected: the input is outside every patched element, so typing is
-   never clobbered by a morph (the letters-disappearing bug).  Typing sets the
-   signals (debounced) and posts to the occurrence token; the program holds
-   the text, and the grid under the field filters on it."
+   never clobbered by a morph (the letters-disappearing bug).  The input
+   binds the `search` signal; the debounced handler reads `$search` from the
+   signal store — `event` is out of scope under `__debounce` (the console
+   TypeError this replaces) — and posts to the occurrence token; the program
+   holds the text, and the grid under the field filters on it."
   [token]
   (str "<section class=\"search\"><input type=\"search\" placeholder=\"Search products…\""
-       " data-on:input__debounce.150ms=\"$act='search'; $arg=event.target.value; @post('/k/"
+       " data-bind:search"
+       " data-on:input__debounce.150ms=\"$act='search'; $arg=$search; @post('/k/"
        (esc token) "')\""
        " autocomplete=\"off\"></section>"))
 
@@ -258,5 +261,5 @@
 (defn shop-begin
   [root]
   (begin-page {:prefix "" :title "dao.star cart" :root root
-               :signals "{act: '', arg: ''}"
+               :signals "{act: '', arg: '', search: ''}"
                :pre (search-box root)}))
