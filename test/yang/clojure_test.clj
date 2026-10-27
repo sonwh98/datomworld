@@ -89,7 +89,42 @@
       (is (= {:type :literal, :value [1 2 3]} (yang/compile [1 2 3]))))
     (testing "Maps"
       (is (= {:type :literal, :value {:a 1, :b 2}}
-             (yang/compile {:a 1, :b 2}))))))
+             (yang/compile {:a 1, :b 2}))))
+    (testing "Sets"
+      (is (= {:type :literal, :value #{1 2 3}}
+             (yang/compile #{1 2 3}))))))
+
+
+(deftest test-set-literal-round-trips
+  ;; the semantic lane carries a set literal as plain data (vm/plain-data?
+  ;; accepts collections of scalars) and the ast-walker returns it unchanged
+  (is (= #{1 2 3} (compile-and-run #{1 2 3})))
+  (is (= #{1 2 3} (compile-and-run '(quote #{1 2 3})))))
+
+
+(deftest test-set-literal-row-lane
+  ;; the row lane: equal sets under different orders mint one address (the
+  ;; code-as-tuples rule that literal maps and sets hash order-insensitively)
+  (is (= (get (encoder/project (encoder/source-envelope
+                                 :program "batch-1" [(yang/compile #{1 2 3})]))
+              :root)
+         (get (encoder/project (encoder/source-envelope
+                                 :program "batch-1" [(yang/compile #{3 2 1})]))
+              :root)))
+  ;; a set carrying a host function is not plain data and must be refused at
+  ;; the row boundary, exactly as for vectors/maps
+  (is (thrown? Exception
+        (encoder/project
+          (encoder/source-envelope
+            :program "batch-2"
+            [{:type :literal, :value #{clojure.core/+}}])))))
+
+
+(deftest test-set-in-application-position
+  ;; a set literal in operator position compiles (like the keyword/vector
+  ;; precedent) and fails at run time, not compile time
+  (is (thrown-with-msg? Exception #"apply"
+        (compile-and-run '((quote #{1 2}) 1)))))
 
 
 (deftest test-compile-variables

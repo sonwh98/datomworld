@@ -71,6 +71,7 @@
       (nil? form)
       (keyword? form)
       (vector? form)
+      (set? form)
       (map? form)))
 
 
