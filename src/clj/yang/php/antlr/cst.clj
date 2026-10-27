@@ -38,6 +38,15 @@
                  (:yang.cst/nodes pk))))
 
 
+(defn- line-starts
+  "The UTF-8 byte offsets at which each source line begins (the line side
+   table, section 17: derived at the parse boundary, where the source is
+   known, so no later stage needs the text)."
+  [^String source]
+  (let [bs (.getBytes source "UTF-8")]
+    (into [0] (keep-indexed (fn [i b] (when (= b 10) (inc i)))) bs)))
+
+
 (defn parse-source
   "Parse one complete PHP source string as unit `unit`: the CST packet, or
    `{:yang.php/not-php :generics}` when the parse uses the grammar's generics
@@ -47,4 +56,4 @@
    (let [pk (cst/parse-unit worker unit source)]
      (if (generics? pk)
        {:yang.php/not-php :generics}
-       pk))))
+       (assoc pk :yang.php/line-starts (line-starts source))))))
