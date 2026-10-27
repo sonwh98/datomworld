@@ -177,3 +177,28 @@
     (binding [*err* err]
       (store/open {:seed "resources/dao_star_cart/catalog.edn"}))
     (is (str/includes? (str err) "MEMORY ONLY"))))
+
+
+;; item creation
+
+(deftest a-new-item-is-created-with-a-derived-unique-slug
+  (let [st (fixture [(item "a")])]
+    (testing "a plain name creates the item; the shop's catalog sees it"
+      (is (= {:saved "cool-widget"}
+             (fx/apply-new! st {:new {:name "Cool Widget" :price 500 :description "d"}})))
+      (is (= "Cool Widget" (:name (store/item st "cool-widget"))))
+      (is (some #{"cool-widget"} (map :key (store/items st)))))
+    (testing "a name that slugs onto a taken slug gets a suffix"
+      (is (= {:saved "cool-widget-2"}
+             (fx/apply-new! st {:new {:name "cool!! widget" :price 1 :description ""}}))))
+    (testing "validation rejects bad input and leaves the db unchanged"
+      (is (contains? (fx/apply-new! st {:new {:name "" :price 1}}) :rejected))
+      (is (contains? (fx/apply-new! st {:new {:name "x" :price -5}}) :rejected))
+      (is (contains? (fx/apply-new! st {:new {:name "x" :price "NaN"}}) :rejected))
+      (is (contains? (fx/apply-new! st {:new "not a map"}) :rejected)))
+    (testing "the snapshot carries the created item"
+      (let [dir (sup/temp-dir)
+            path (str (io/file dir "reload.edn"))]
+        (spit path (slurp (:test-path st)))
+        (let [st2 (store/open {:path path :seed path})]
+          (is (some #{"cool-widget-2"} (map :key (store/items st2)))))))))

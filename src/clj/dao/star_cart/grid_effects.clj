@@ -37,9 +37,9 @@
 
 (defn- parse-price
   [p]
-  (cond (integer? p) p
+  (cond (and (integer? p) (not (neg? p))) p
         (and (string? p) (re-matches #"\d{1,12}" (str/trim p))) (Long/parseLong (str/trim p))
-        :else (reject! "price must be a whole number of cents")))
+        :else (reject! "price must be a whole number of cents, zero or more")))
 
 
 (defn- check-name
@@ -138,6 +138,48 @@
       (catch Exception e
         {:rejected (str "edit failed: " (.getMessage e))}))))
 
+(defn- slugify
+  "A lowercase dash slug of `name`; empty names become \"item\".  A taken
+   slug gets -2, -3, … appended (reviewed convention: uniqueness here, not in
+   the db)."
+  [db name']
+  (let [base (let [s (clojure.string/replace
+                       (clojure.string/replace (clojure.string/lower-case (str name'))
+                                               #"[^a-z0-9]+" "-")
+                       #"^-+|-+$" "")]
+               (if (clojure.string/blank? s) "item" s))]
+    (loop [s base n 2]
+      (if (catalog/item-eid db s) (recur (str base "-" n) (inc n)) s))))
+
+(defn apply-new!
+  "Validate and transact a new item (`{:new {:name .. :price .. :description ..}}`).
+   The slug is derived here — the VM program cannot do string work — and is
+   captured inside the transact function, so the confirmed slug is the one
+   actually stored.  Answers `{:saved slug}` or `{:rejected reason}`."
+  [store' {:keys [new]}]
+  (try
+    (when-not (map? new) (reject! "malformed new item"))
+    (let [n (check-name (:name new))
+          p (parse-price (:price new))
+          d (let [d' (str (:description new))]
+              (when (> (count d') max-description)
+                (reject! (str "description must be at most " max-description " characters")))
+              d')
+          slug (volatile! nil)]
+      (store/transact-edit!
+        store'
+        (fn [db]
+          (let [s (slugify db n)]
+            (vreset! slug s)
+            [{:db/id "tid_new_item" :item/slug s :item/name n :item/price p :item/description d}])))
+      {:saved @slug})
+    (catch clojure.lang.ExceptionInfo e
+      (if-let [r (::rejected (ex-data e))]
+        {:rejected r}
+        {:rejected (str "create failed: " (.getMessage e))}))
+    (catch Exception e
+      {:rejected (str "create failed: " (.getMessage e))})))
+
 
 (defn make-effects
   "`{:driver grid-driver :store store :asset-root path}`."
@@ -170,7 +212,8 @@
             r (lease/drain out cursor)]
         (swap! fx assoc-in [:cursors s] (:cursor r))
         (doseq [model (:values r)
-                :let [edit (:edit model)]
-                :when (map? edit)]
-          (confirm! driver s (apply-edit! store asset-root edit)))))
-    fx))
+                :when (map? model)]
+          (cond
+            (:edit model) (confirm! driver s (apply-edit! store asset-root (:edit model)))
+            (:new model) (confirm! driver s (apply-new! store (:new model))))))
+        fx)))

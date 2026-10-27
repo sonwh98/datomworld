@@ -52,6 +52,17 @@
     ""))
 
 
+(defn- new-item-form
+  "The create form, shown when no item is selected.  The typed fields ride
+   the `name`/`price`/`desc` signals; Create emits the `create` act."
+  [token]
+  (str "<section class=\"editor\"><h2>New item</h2>"
+       "<label>Name <input data-bind:name placeholder=\"name\"></label>"
+       "<label>Price (cents) <input data-bind:price inputmode=\"numeric\" placeholder=\"2400\"></label>"
+       "<label>Description <textarea data-bind:desc placeholder=\"description\"></textarea></label>"
+       "<div class=\"row\">" (btn token "Create" "create" nil) "</div></section>"))
+
+
 (defn grid-project
   "`(project-fn occurrence-id model)` for the grid, over `catalog` (`:items`,
    `:item`): the item list, and the editor for the selected item, read fresh."
@@ -64,7 +75,7 @@
            (status model)
            "<div class=\"cols\"><ul class=\"items\">"
            (apply str (map #(row token sel %) ((:items catalog))))
-           "</ul>" (if item (editor token item) "<section class=\"editor\"><p>Select an item.</p></section>")
+           "</ul>" (if item (editor token item) (new-item-form token))
            "</div></div>"))))
 
 
