@@ -398,3 +398,34 @@ header.top .icon {
 /* while the splash exists the page must not scroll (owner: no scrollbars on
    the splash); Enter Store removes the element, which restores scrolling */
 html:has(.landing-page), body:has(.landing-page) { overflow: hidden; }
+
+/* tagory strip (desktop): a production-style tab bar with left/right
+   navigators; on mobile the strip hides and the tagories live in the
+   hamburger drawer */
+.tagstrip { display: flex; align-items: stretch; gap: 6px; margin: 14px 0 20px; }
+.tagories {
+  display: flex; gap: 6px; overflow-x: auto; scroll-behavior: smooth;
+  scrollbar-width: none; flex: 1; min-width: 0;
+}
+.tagories::-webkit-scrollbar { display: none; }
+.tarr {
+  flex: 0 0 auto; background: var(--bg-card); border: 1px solid var(--border-card);
+  color: var(--text-secondary); border-radius: var(--radius-sm); padding: 6px 12px;
+  font-size: 1rem; line-height: 1;
+}
+.tarr:hover { color: var(--accent-cyan); border-color: rgba(0, 240, 255, 0.4); }
+.drawer-tagories { display: none; }
+
+@media (max-width: 768px) {
+  .tagstrip { display: none; }
+  .drawer-tagories {
+    display: flex; flex-direction: column; gap: 4px;
+    border-top: 1px solid var(--border-subtle); margin-top: 10px; padding-top: 10px;
+  }
+  .drawer-tagories .tbtn {
+    background: none; border: none; text-align: left; color: var(--text-secondary);
+    padding: 10px 14px; width: 100%; font-family: var(--font-body); font-weight: 400;
+  }
+  .drawer-tagories .tbtn:hover { color: var(--text-primary); }
+  .drawer-tagories .tbtn.on { color: var(--accent-cyan); }
+}

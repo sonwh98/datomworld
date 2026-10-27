@@ -190,17 +190,21 @@
       (some #(= tagory %) (:tagories item))))
 
 
-(defn- tagory-chips
+(defn- tagory-strip
   "The tagory row: All, then one chip per tagory; the selected one is
    highlighted.  A chip is a button with the `tagory` act."
   [token tagories selected]
-  (str "<section class=\"tagories\">"
+  (str "<section class=\"tagstrip\">"
+       "<button class=\"tarr\" aria-label=\"Scroll left\" data-on:click=\"document.querySelector('.tagories').scrollBy({left:-280,behavior:'smooth'})\">‹</button>"
+       "<section class=\"tagories\">"
        (button "" token "All" "tagory" "")
        (apply str (for [t tagories]
                     (str "<button type=\"button\" class=\"chip"
                          (when (= t selected) " on")
                          "\" data-on:click=\"" (act "" token "tagory" t) "\">"
                          (esc t) "</button>")))
+       "</section>"
+       "<button class=\"tarr\" aria-label=\"Scroll right\" data-on:click=\"document.querySelector('.tagories').scrollBy({left:280,behavior:'smooth'})\">›</button>"
        "</section>"))
 
 
@@ -211,12 +215,18 @@
    while the $menu signal is set (the drawer closes when a tab is clicked —
    each tab's action prepends $menu=false); on desktop a media query keeps
    the strip visible regardless."
-  [_token cart-count]
+  [_token cart-count tagories tagory]
   (str "<nav class=\"tabs\" data-class:open=\"$menu\">"
        "<button type=\"button\" data-on:click=\"$act='nav'; $arg='catalog'; $menu=false; @post('/k/'+$tok)\">All Products</button>"
        "<button type=\"button\" data-on:click=\"$act='nav'; $arg='cart'; $menu=false; @post('/k/'+$tok)\">"
        "Cart (" cart-count ")</button>"
-       "</nav>"))
+       "<div class=\"drawer-tagories\">"
+       (apply str (for [tg tagories]
+                    (str "<button type=\"button\" class=\"tbtn"
+                         (when (= tg tagory) " on")
+                         "\" data-on:click=\"$act='tagory'; $arg='" (js-lit tg) "'; $menu=false; @post('/k/'+$tok)\">"
+                         (esc tg) "</button>")))
+       "</div></nav>"))
 
 
 (defn- disclaimer-banner
@@ -246,7 +256,7 @@
                       (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))]
     (str (disclaimer-banner)
          (hero)
-         (tagory-chips token ((:tagories catalog)) tagory)
+         (tagory-strip token ((:tagories catalog)) tagory)
          "<div class=\"section-head\"><h2>All Products</h2>"
          "<span class=\"count\">" (count shown) " items</span></div>"
          "<section class=\"grid\">"
@@ -310,10 +320,11 @@
    stale-token defect the reviewer found)."
   [catalog token model]
   (let [cart (:cart model)
-        n (reduce + 0 (filter pos? (vals cart)))]
+        n (reduce + 0 (filter pos? (vals cart)))
+        tagories (when-some [tf (:tagories catalog)] (tf))]
     (str (sse-signals (str "{\"tok\":" (json-lit token) "}"))
          (sse-elements
-           (str "<div id=\"app-body\">" (header token n)
+           (str "<div id=\"app-body\">" (header token n tagories (:tagory model))
                 "<main>"
                 (case (:page model)
                   "item" (item-page catalog token (:item model))
