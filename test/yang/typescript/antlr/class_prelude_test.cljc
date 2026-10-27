@@ -8,6 +8,7 @@
     [clojure.test :refer [deftest is testing]]
     [clojure.walk :as walk]
     [dao.jing.cbor :as cbor]
+    [dao.test-slow :as slow]
     [yang.typescript.antlr.prelude :as prelude]
     [yang.typescript.antlr.prelude-parity-test :as parity]))
 
@@ -665,34 +666,47 @@
     true]])
 
 
-(deftest instanceof-test (check instanceof-cases))
+;; Each test loads the bundled prelude on four VMs (about 5 s on the JVM, the
+;; register VM's init alone is 3 s), so all are ^:slow.
+(deftest ^:slow instanceof-test
+  (slow/guard "instanceof-test" #(check instanceof-cases)))
 
 
-(deftest error-family-test (check error-cases))
+(deftest ^:slow error-family-test
+  (slow/guard "error-family-test" #(check error-cases)))
 
 
-(deftest builtin-subclass-test (check builtin-subclass-cases))
+(deftest ^:slow builtin-subclass-test
+  (slow/guard "builtin-subclass-test" #(check builtin-subclass-cases)))
 
 
-(deftest constructor-kinds-test (check kind-cases))
+(deftest ^:slow constructor-kinds-test
+  (slow/guard "constructor-kinds-test" #(check kind-cases)))
 
 
-(deftest new-target-dispatch-test (check new-target-cases))
+(deftest ^:slow new-target-dispatch-test
+  (slow/guard "new-target-dispatch-test" #(check new-target-cases)))
 
 
-(deftest bound-new-target-test (check bound-cases))
+(deftest ^:slow bound-new-target-test
+  (slow/guard "bound-new-target-test" #(check bound-cases)))
 
 
-(deftest class-heritage-test (check heritage-cases))
+(deftest ^:slow class-heritage-test
+  (slow/guard "class-heritage-test" #(check heritage-cases)))
 
 
-(deftest class-descriptor-test (check descriptor-cases))
+(deftest ^:slow class-descriptor-test
+  (slow/guard "class-descriptor-test" #(check descriptor-cases)))
 
 
-(deftest class-field-test (check field-cases))
+(deftest ^:slow class-field-test
+  (slow/guard "class-field-test" #(check field-cases)))
 
 
-(deftest class-private-test (check private-cases))
+(deftest ^:slow class-private-test
+  (slow/guard "class-private-test" #(check private-cases)))
 
 
-(deftest class-super-test (check super-cases))
+(deftest ^:slow class-super-test
+  (slow/guard "class-super-test" #(check super-cases)))
