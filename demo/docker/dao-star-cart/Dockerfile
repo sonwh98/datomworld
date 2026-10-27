@@ -8,22 +8,25 @@
 FROM clojure:temurin-21-tools-deps AS build
 WORKDIR /app
 # deps first, so the dependency layer caches
-COPY demo/deps.edn deps.edn
-RUN clj -P
+COPY demo/deps.edn demo/deps.edn
+RUN cd demo && clj -P
 COPY src/cljc src/cljc
 COPY src/clj src/clj
 COPY resources resources
 COPY demo/src demo/src
 COPY demo/resources demo/resources
+RUN cd demo && clj -P
 
 FROM clojure:temurin-21-tools-deps
 WORKDIR /app
 COPY --from=build /root/.m2 /root/.m2
 COPY --from=build /root/.clojure /root/.clojure
 COPY --from=build /app /app
+# the demo runs from /app/demo: its deps.edn reaches the library sources at ../src
+WORKDIR /app/demo
 ENV PORT=3004 \
     CATALOG_PATH=/data/catalog.edn \
-    ASSET_ROOT=/app/resources/dao_star_cart/public
+    ASSET_ROOT=/app/demo/resources/dao_star_cart/public
 VOLUME /data
 EXPOSE 3004
 CMD ["clj", "-M", "-m", "dao.star-cart.main"]
