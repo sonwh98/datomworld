@@ -40,13 +40,13 @@ published without the owner's say-so.
 
 ## Run it (local JVM)
 
-Prerequisites: Java 21, Clojure CLI. The images under
-`resources/dao_star_cart/public/images/` are gitignored — copy them from the
-build host or ask the owner (they are also in the running demo container).
+Prerequisites: Java 21, Clojure CLI. `datastar.js` ships with the repo at its
+pinned version. The images under `resources/dao_star_cart/public/images/` are
+gitignored — copy them from the build host or ask the owner (they are also in
+the running demo container).
 
 ```sh
 cd demo/daostar
-sh bin/datastar.sh   # once: fetch datastar.js (network)
 clj -M -m dao.star-cart.main                    # or: bb cart from the repo root
 ```
 
