@@ -1,0 +1,9 @@
+;; Library manifest for consumers that take this repo as a git dependency
+;; with :deps/root "src" (e.g. demo/daostar-cart/deps.edn): the paths are the
+;; library sources, relative to this directory.  Inert for every other build.
+{:paths ["cljc" "clj"]
+ :deps {org.clojure/core.async {:mvn/version "1.8.741"}
+        org.clojure/data.json {:mvn/version "2.5.0"}
+        http-kit/http-kit {:mvn/version "2.8.0"}
+        org.ring-clojure/ring-websocket-protocols {:mvn/version "1.14.1"}
+        io.github.rctcwyvrn/blake3 {:mvn/version "1.3"}}}
