@@ -1,16 +1,18 @@
 # dao.space.query.datomic — Datomic Client Query Compatibility
 
-Status: implementing. Phases 0, 1 and 4a are landed. Phase 4b slices
-4b-1 (the pure stepped cursor), 4b-2 (the single-node reader and the
-open-time descriptor) and 4b-3 (kernel integration) are implemented and
-this qualification slice (4b-4) records their evidence: bounded published-
-index execution is admitted for exactly the profile in *Phase 4b: checked
-published-index traversal* below (a `current` view with no `as-of`
-directly over a published value carrying a checked-read descriptor), and
-every other published path stays refused. The Client oracle
-qualification of this storage-execution work is Phase 5. No full
-compatibility qualification is claimed. Individual oracle cases retain
-their recorded provenance and verification status.
+Status: **Qualified** for the current profile (owner ratification recorded
+2026-10-27). All implementation phases are landed (0, 1, 4a, 4b, 2, 3), and
+the Client oracle qualification is executed: 109 of 120 corpus cases carry
+`oracle-executed` evidence against Datomic Local 1.0.301 via client-api
+1.0.69 — 60 agree with asserted DaoSpace values, 9 both-refuse (same
+refusal, different message/category), 13 agree with the contract
+expectation, 17 documented differences confirmed by measurement, 10 cases
+where Datomic accepts what DaoSpace deliberately refuses. 8 cases are
+inconclusive and 3 are not observed (no Client equivalent); both groups
+are excluded from the exact domain by name in the supported-domain table
+and the errata. Exclusions are unchanged (no conn/db/entity objects, no
+qseq, no fulltext, no ambient resolution); Datomic Local is the
+measurement backend, not a claim about Datomic Cloud.
 
 Target: `com.datomic/client-api` **1.0.69**, public
 `datomic.client.api/q`. This is a versioned, explicitly bounded
@@ -975,7 +977,7 @@ not the accepted feature boundary.
 | 0 — Contract and fixtures | Architect: this document. Engineer: corpus, README/errata/provenance, fixture namespace, conformance harness, oracle runner and dev-only dependency alias. | Every contract point classified; no fabricated oracle evidence; fixtures load portably; disputed behavior has explicit oracle cases; pending cases reported honestly. | 3–5 |
 | 1 — Adapter boundary and view workloads | Engineer: `src/cljc/dao/space/query/datomic.cljc`, `test/dao/space/query/datomic_test.cljc`, consumer fixtures and examples. | Both verified public arities; safe strings; argument/option validation; realized tuple/return-map output; pagination defaults/boundaries; finite pull profile validated; unsupported features refused; existing core result tests unchanged. | 4–7 |
 | 4a — Common bounded evaluator | Engineer: `query.cljc`, `query/execution.cljc`, adapter integration, affected pull/realization helpers and tests. | One state-passing evaluator for bounded and unbounded calls; checked materialized-source execution; preserved existential demand and rule scope; adapter entry-to-return accounting; fail-closed source admission; deterministic tests on all three hosts; unchanged public core contract and downstream behavior. | 20–32 total, including 4–6 already spent; 16–26 remaining |
-| 4b — Checked published-index traversal | Reviewed seam (`dao.data.btree.cursor`, `read-node-blob`, the published-read descriptor, the checked producer in `query.cljc`), then engineer implementation and portable read tests. **Status: 4b-1 through 4b-3 implemented; 4b-4 qualification recorded here, pending independent confirmation and architect sign-off.** | Per-fetch progress through root seek and subsequent traversal; one-in-flight guarantee on actual published indexes; no query state installed in borrowed trees; pull/special-form/fallback coverage; three-host counter evidence and lifecycle tests. Admitted profile: `current`, no `as-of`, directly over a descriptored published value; all else refused. | 20–32 implementation, plus 5–8 review |
+| 4b — Checked published-index traversal | Reviewed seam (`dao.data.btree.cursor`, `read-node-blob`, the published-read descriptor, the checked producer in `query.cljc`), then engineer implementation and portable read tests. **Status: COMPLETE — 4b-1 through 4b-4 landed; architect sign-off recorded (Gemini 4 Argon, 2026-10-25; conditions executed at merge).** | Per-fetch progress through root seek and subsequent traversal; one-in-flight guarantee on actual published indexes; no query state installed in borrowed trees; pull/special-form/fallback coverage; three-host counter evidence and lifecycle tests. Admitted profile: `current`, no `as-of`, directly over a descriptored published value; all else refused. | 20–32 implementation, plus 5–8 review |
 | 2 — Deterministic language coverage | Engineer: `query.cljc`, aggregate/numeric tests and adapter tests. | Six specified aggregate capabilities added; arities and parameters preserved; empty/grouped/`:with` cases; abbreviated current-fact patterns; special-form edges; three-host numeric-domain agreement. | 6–10 |
 | 3 — Rules and semantic conformance | Engineer: core rules and `test/dao/space/query_rules_test.cljc`; corpus expansion. | Required-bound heads; left/right/mutual finite positive recursion; cycles, alternatives and unbound entry calls; immutable tabling/fixed-point correction where necessary; unsupported recursion through negation refused; fresh-value work bounded by Phase 4; existing VM rules pass. | 8–14 |
 | 5 — Qualification and integration | Engineer: complete conformance, counters, ownership and downstream tests. Architect: final matrix and status headers. | Supported cases verified; differences/refusals executable; read budgets hold; downstream callers pass; no remaining unverified claim inside the qualified exact domain; docs match implementation. Additionally requires evidence that Phase 4a restrictions are removed only for paths qualified by Phase 4b. | 7–11 |
