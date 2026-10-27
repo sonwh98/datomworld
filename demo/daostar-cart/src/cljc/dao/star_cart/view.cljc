@@ -206,11 +206,16 @@
 
 (defn- header
   "The nav tabs strip (the projection's changing part of the header): the
-   brand and the search input live on the begin page, never patched."
-  [token cart-count]
-  (str "<nav class=\"tabs\">"
-       (button "" token "All Products" "nav" "catalog")
-       (button "" token (str "Cart (" cart-count ")") "nav" "cart")
+   brand, the search input and the mobile hamburger live on the begin page,
+   never patched.  On mobile the strip is the hamburger's drawer: it shows
+   while the $menu signal is set (the drawer closes when a tab is clicked —
+   each tab's action prepends $menu=false); on desktop a media query keeps
+   the strip visible regardless."
+  [_token cart-count]
+  (str "<nav class=\"tabs\" data-show=\"$menu\">"
+       "<button type=\"button\" data-on:click=\"$act='nav'; $arg='catalog'; $menu=false; @post('/k/'+$tok)\">All Products</button>"
+       "<button type=\"button\" data-on:click=\"$act='nav'; $arg='cart'; $menu=false; @post('/k/'+$tok)\">"
+       "Cart (" cart-count ")</button>"
        "</nav>"))
 
 
@@ -340,9 +345,13 @@
 (defn shop-begin
   [root]
   (begin-page {:prefix "" :title "TT Game Stock | Next-Gen Video Game Controllers" :root root
-               :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root) ", entered: false}")
+               :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root)
+                             ", entered: false, menu: false}")
                :pre (str (landing)
                          "<header class=\"top\"><div class=\"brand\">"
+                         "<span class=\"icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"6\" y1=\"12\" x2=\"10\" y2=\"12\"></line><line x1=\"8\" y1=\"10\" x2=\"8\" y2=\"14\"></line><line x1=\"15\" y1=\"13\" x2=\"15.01\" y2=\"13\"></line><line x1=\"18\" y1=\"11\" x2=\"18.01\" y2=\"11\"></line><rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\"></rect></svg></span>"
                          "<div class=\"name\">TT <span>GAME</span> STOCK</div>"
                          "<div class=\"subtitle\">PRO CONTROLLERS &amp; GEAR</div>"
-                         "</div>" (search-box root) "</header>")}))
+                         "</div>" (search-box root)
+                         "<button class=\"menu-toggle\" aria-label=\"Menu\" data-on:click=\"$menu = !$menu\">"
+                         "<span></span><span></span><span></span></button></header>")}))

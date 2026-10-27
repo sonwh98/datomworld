@@ -339,3 +339,58 @@ body { padding-top: 0; }
   transition: transform .2s ease, box-shadow .2s ease;
 }
 .landing-enter:hover { transform: translateY(-2px); box-shadow: 0 12px 36px rgba(0, 240, 255, 0.6); }
+
+/* brand icon */
+header.top { display: flex; align-items: center; gap: 18px; }
+header.top .brand { display: flex; align-items: center; gap: 12px; }
+header.top .icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--accent-cyan);
+  background: var(--accent-cyan-dim); border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: var(--radius-sm); padding: 8px;
+}
+.menu-toggle { display: none; flex-direction: column; gap: 4px; padding: 10px; }
+.menu-toggle span { display: block; width: 22px; height: 2px; background: var(--text-primary); border-radius: 2px; }
+.menu-toggle:hover span { background: var(--accent-cyan); }
+
+/* nav drawer: mobile-hidden until the hamburger opens it; always shown on desktop */
+@media (max-width: 768px) {
+  nav.tabs {
+    display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 1500;
+    flex-direction: column; width: 100%;
+    background: var(--bg-secondary); border-bottom: 1px solid var(--border-card);
+    box-shadow: var(--shadow-card); padding: 16px; backdrop-filter: blur(20px);
+  }
+  nav.tabs[data-show] { display: none; }
+  .menu-toggle { display: inline-flex; }
+  header.top .search { display: none; }
+  header.top { padding: 12px 16px; gap: 12px; }
+  header.top .brand .subtitle { display: none; }
+  .search { padding: 12px 16px 0; }
+  .disclaimer { flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 16px; }
+  .disclaimer .main { font-size: 1.05rem; }
+  .disclaimer .sub { font-size: .88rem; }
+  .hero { padding: 20px; }
+  .hero h2 { font-size: 1.4rem; }
+  .hero .perks { flex-direction: column; gap: 8px; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .card img { height: 160px; }
+  .card .row { flex-direction: column; align-items: stretch; }
+  .card .row button { width: 100%; }
+  .detail { grid-template-columns: 1fr; }
+  .cols { grid-template-columns: 1fr; }
+  .section-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .landing-content { padding: 28px 24px; }
+  .landing-title { font-size: 2.1rem; }
+  .landing-notice { font-size: .8rem; }
+}
+
+@media (min-width: 769px) {
+  nav.tabs { display: flex !important; }
+}
+
+@media (max-width: 900px) {
+  header.top { padding: 10px 16px 6px; }
+  .hero h2 { font-size: 1.7rem; }
+  .grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+}
