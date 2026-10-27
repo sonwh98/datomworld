@@ -12,7 +12,8 @@
 
 (def catalog
   {:items (fn [] items)
-   :item (fn [slug] (first (filter #(= slug (:key %)) items)))})
+   :item (fn [slug] (first (filter #(= slug (:key %)) items)))
+   :tagories (fn [] ["t" "other"])})
 
 
 (deftest datastar-sse-bytes-match-the-pinned-vocabulary
@@ -69,6 +70,7 @@
       (is (every? #(str/starts-with? % "/grid/") urls) (pr-str urls))
       (is (not (str/includes? sse "bad <price>")) "escaped"))))
 
+
 (deftest the-catalog-search-field-filters-items
   (testing "the field renders on the catalog with the act protocol and no value initially"
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search ""})]
@@ -90,4 +92,30 @@
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (str/includes? sse "Bravo")))
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
+      (is (str/includes? sse "Bravo")))))
+
+
+(deftest the-catalog-organizes-items-by-tagories
+  (testing "the tagory row renders All and one chip per tagory"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory ""})]
+      (is (str/includes? sse "class=\"tagories\""))
+      (is (str/includes? sse "$act=&#39;tagory&#39;; $arg=&#39;&#39;; @post('/k/TOK')"))
+      (is (str/includes? sse ">t</button>"))
+      (is (str/includes? sse ">other</button>"))))
+  (testing "a selected tagory is highlighted and filters the grid"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory "t"})]
+      (is (str/includes? sse "class=\"chip on\""))
+      (is (str/includes? sse "Alpha &lt;b&gt;"))
+      (is (not (str/includes? sse "&gt;Bravo&lt;"))))
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory "other"})]
+      (is (str/includes? sse "class=\"chip on\""))
+      (is (not (str/includes? sse "&gt;Alpha &lt;b&gt;&lt;/h3&gt;")))
+      (is (not (str/includes? sse "&gt;Bravo&lt;")))))
+  (testing "the tagory filter combines with the search text"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}
+                                             :search "bravo" :tagory "t"})]
+      (is (not (str/includes? sse "&gt;Bravo&lt;")))
+      (is (not (str/includes? sse "&gt;Alpha &lt;b&gt;&lt;/h3&gt;")))))
+  (testing "an empty tagory matches everything"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory ""})]
       (is (str/includes? sse "Bravo")))))

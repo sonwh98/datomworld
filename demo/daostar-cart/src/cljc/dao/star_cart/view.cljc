@@ -164,12 +164,35 @@
                        (str/lower-case t)))))
 
 
+(defn- in-tagory?
+  "An empty tagory selection matches everything; otherwise the item must
+   carry the tagory."
+  [tagory item]
+  (or (empty? (str/trim (str tagory)))
+      (some #(= tagory %) (:tagories item))))
+
+
+(defn- tagory-chips
+  "The tagory row: All, then one chip per tagory; the selected one is
+   highlighted.  A chip is a button with the `tagory` act."
+  [token tagories selected]
+  (str "<section class=\"tagories\">"
+       (button "" token "All" "tagory" "")
+       (apply str (for [t tagories]
+                    (str "<button type=\"button\" class=\"chip"
+                         (when (= t selected) " on")
+                         "\" data-on:click=\"" (act "" token "tagory" t) "\">"
+                         (esc t) "</button>")))
+       "</section>"))
+
+
 (defn- catalog-page
-  [catalog token q]
+  [catalog token q tagory]
   (str (search-box token q)
+       (tagory-chips token ((:tagories catalog)) tagory)
        "<section class=\"grid\">"
        (apply str (map #(card token %)
-                       (filter #(matches? q %)
+                       (filter #(and (matches? q %) (in-tagory? tagory %))
                                (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))))
        "</section>"))
 
@@ -220,7 +243,7 @@
              "item" (item-page catalog token (:item model))
              "cart" (cart-page catalog token cart)
              "checkout" "<section class=\"cart\"><h2>Order received</h2><p>This is a demo: no payment was taken.</p></section>"
-             (catalog-page catalog token (:search model)))
+             (catalog-page catalog token (:search model) (:tagory model)))
            "</main><footer>Catalog as of last page load.</footer></div>"))))
 
 

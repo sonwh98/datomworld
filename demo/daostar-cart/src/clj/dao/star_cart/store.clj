@@ -93,7 +93,8 @@
   "The pure view's catalog: `:items` and `:item`, each reading the store fresh."
   [store]
   {:items (fn [] (items store))
-   :item (fn [slug] (item store slug))})
+   :item (fn [slug] (item store slug))
+   :tagories (fn [] (catalog/tagories (db store)))})
 
 
 (defn snapshot!
@@ -103,8 +104,8 @@
   (when-let [path (:path store)]
     (try
       ((:write-fn store) path
-       (pr-str {:store/name (:store-name store)
-                :items (catalog/item-maps (db store))}))
+                         (pr-str {:store/name (:store-name store)
+                                  :items (catalog/item-maps (db store))}))
       true
       (catch Throwable t
         (log "cannot save " path ": " (.getMessage t) "; continuing in memory")
@@ -112,6 +113,8 @@
 
 
 #_{:clj-kondo/ignore [:locking-suspicious-lock]}
+
+
 (defn transact-edit!
   "Apply an edit.  `tx-fn` receives the current db value and answers tx-data (or
    throws, aborting the swap).  `prepare-tx` runs inside the `swap!`.  On
