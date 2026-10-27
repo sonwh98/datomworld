@@ -4,7 +4,7 @@
             [dao.star-cart.edge :as edge]))
 
 
-(def root "resources/dao_star_cart/public")
+(def root "resources/public")
 
 
 (defn- site

@@ -64,7 +64,7 @@
 
   cart
   {:doc "dao.star cart demo (shop + grid) on port 3004: runs the demo project in demo/"
-   :task (shell {:dir "demo/daostar" :shutdown nil} "clj" "-M" "-m" "dao.star-cart.main")}
+   :task (shell {:dir "demo/daostar-cart" :shutdown nil} "clj" "-M" "-m" "dao.star-cart.main")}
 
   demo
   {:doc "JVM: cooperative sum across two execution sites of one logical task"

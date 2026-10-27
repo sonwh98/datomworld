@@ -14,8 +14,8 @@
             [org.httpkit.server :as kit]))
 
 
-(def seed-path "resources/dao_star_cart/catalog.edn")
-(def default-asset-root "resources/dao_star_cart/public")
+(def seed-path "resources/catalog.edn")
+(def default-asset-root "resources/public")
 (def default-catalog-path
   "Where saves go when CATALOG_PATH is unset: a writable local file, so edits
    survive a restart.  The baked seed is copied there on first boot."

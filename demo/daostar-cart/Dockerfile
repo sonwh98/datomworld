@@ -4,7 +4,7 @@
 # Build context: this directory (demo/daostar).  The library comes from the
 # pinned datomworld GitHub commit in deps.edn, so the context needs only the
 # demo itself (with the gitignored images under
-# resources/dao_star_cart/public/images/).
+# resources/public/images/).
 #
 #   cd demo/daostar
 #   docker build -t dao-star-cart .
@@ -26,7 +26,7 @@ COPY --from=build /root/.clojure /root/.clojure
 COPY --from=build /app /app
 ENV PORT=3004 \
     CATALOG_PATH=/data/catalog.edn \
-    ASSET_ROOT=/app/resources/dao_star_cart/public \
+    ASSET_ROOT=/app/resources/public \
     LANG=C.UTF-8
 # LANG=C.UTF-8 sets sun.jnu.encoding so the static edge can serve the
 # catalog's non-ASCII image filenames (e.g. Joycon小手柄.jpg)

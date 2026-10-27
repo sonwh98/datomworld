@@ -18,7 +18,7 @@
   (:import [java.nio.file Files]))
 
 
-(def asset-root "resources/dao_star_cart/public")
+(def asset-root "resources/public")
 
 
 (defn- fixture
@@ -175,7 +175,7 @@
     (is (= "{}" (slurp path)) "missing parent directories are created"))
   (let [err (java.io.StringWriter.)]
     (binding [*err* err]
-      (store/open {:seed "resources/dao_star_cart/catalog.edn"}))
+      (store/open {:seed "resources/catalog.edn"}))
     (is (str/includes? (str err) "MEMORY ONLY"))))
 
 

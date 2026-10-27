@@ -12,8 +12,8 @@
             [dao.star-cart.support :as sup]))
 
 
-(def seed "resources/dao_star_cart/catalog.edn")
-(def asset-root "resources/dao_star_cart/public")
+(def seed "resources/catalog.edn")
+(def asset-root "resources/public")
 
 
 (def three

@@ -31,17 +31,17 @@ lambdacart code.
 
 ## Provenance
 
-`resources/dao_star_cart/catalog.edn` was extracted from the live lambdacart
+`resources/catalog.edn` was extracted from the live lambdacart
 Datomic on 2026-10-26 (see the header comment in that file for the form): 249
 items including two empty placeholder records present in the source. Prices
-are minor units. Product images (`resources/dao_star_cart/public/images/`, 228
+are minor units. Product images (`resources/public/images/`, 228
 files, 68 MB) belong to the shop and are gitignored; nothing here is to be
 published without the owner's say-so.
 
 ## Run it (local JVM)
 
 Prerequisites: Java 21, Clojure CLI. `datastar.js` ships with the repo at its
-pinned version. The images under `resources/dao_star_cart/public/images/` are
+pinned version. The images under `resources/public/images/` are
 gitignored — copy them from the build host or ask the owner (they are also in
 the running demo container).
 
@@ -61,7 +61,7 @@ Docker is not required; the JVM run above is the primary way to test. To run
 it in a container instead, from this directory (the build context is the demo
 itself; the library resolves from the commit pinned in `deps.edn`, so the
 build needs network; the product images must be present under
-`resources/dao_star_cart/public/images/`):
+`resources/public/images/`):
 
 ```sh
 docker build -t dao-star-cart .

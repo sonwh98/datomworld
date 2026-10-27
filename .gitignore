@@ -55,4 +55,4 @@ env.sh
 docs/agents/routing-status.md
 
 # dao.star demo: product images from the live shop; too large for git
-demo/daostar/resources/dao_star_cart/public/images/
+demo/daostar-cart/resources/public/images/
