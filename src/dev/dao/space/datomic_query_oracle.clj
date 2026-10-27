@@ -34,6 +34,7 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [dao.jing :as jing]
             [dao.space.datomic-query-fixtures :as fx]))
 
 
@@ -126,15 +127,30 @@
         conn (connect client {:db-name db-name})
         _ (transact conn {:tx-data (schema-for facts ref-attrs)})
         tempid (fn [e] (str "e" e))
-        data (mapv (fn [[e a v]]
-                     [:db/add (tempid e) a (if (and (contains? ref-attrs a) (integer? v))
-                                             (tempid v)
-                                             v)])
-                   facts)
+        entities (set (map first facts))
+        ;; Reference targets that never appear as an entity (graph sinks) have
+        ;; no datom of their own, so Datomic rejects the tempid. Materialize
+        ;; exactly those with :fx/id (the logical id), nothing else.
+        value-only (sort (remove entities
+                                 (set (keep (fn [[_ a v]]
+                                              (when (and (contains? ref-attrs a) (integer? v)) v))
+                                            facts))))
+        _ (when (seq value-only)
+            (transact conn {:tx-data [{:db/ident :fx/id
+                                       :db/valueType :db.type/long
+                                       :db/cardinality :db.cardinality/one}]}))
+        data (into (mapv (fn [[e a v]]
+                           [:db/add (tempid e) a (if (and (contains? ref-attrs a) (integer? v))
+                                                   (tempid v)
+                                                   v)])
+                         facts)
+                   (map (fn [n] [:db/add (tempid n) :fx/id n]))
+                   value-only)
         {:keys [tempids]} (transact conn {:tx-data data})]
     {:conn conn
+     :value-only-materialized (vec value-only)
      :logical->real (into {} (map (fn [e] [e (get tempids (tempid e))]))
-                          (distinct (map first facts)))}))
+                          (concat (distinct (map first facts)) value-only))}))
 
 
 (defn- normalize
@@ -193,8 +209,12 @@
               real->logical (into {} (for [{:keys [logical->real]} (vals dbs)
                                            [l r] logical->real]
                                        [r l]))
-              arg-map (merge {:query (fx/case-query c)
-                              :args (mapv #(input-value dbs %) (get c "inputs"))}
+              ;; only the case's enumerated entity-id positions are rewritten
+              [query args] (fx/substitute-entity-ids
+                             c (fx/case-query c)
+                             (mapv #(input-value dbs %) (get c "inputs"))
+                             (into {} (map (fn [[fid d]] [fid (:logical->real d)])) dbs))
+              arg-map (merge {:query query, :args args}
                              (fx/case-options c))]
           (try
             (let [raw ((client-fn 'q) arg-map)]
@@ -233,6 +253,11 @@
      :note "candidate observations only; never promoted automatically"
      :backend (if (= :unselected backend) :unselected (:client backend))
      :datomic-jars (jar-versions)
+     ;; what produced this file, so a later run supersedes it explicitly
+     :runner {:version "p5-r2"
+              :entity-ids "enumerated per-case positions (fx/substitute-entity-ids)"
+              :loader "ref attrs per backend :ref-attrs; value-only ref targets materialized with :fx/id"}
+     :corpus-blake3 (jing/blake3-bytes (.getBytes ^String (fx/read-text) "US-ASCII"))
      :observations
      (mapv (fn [c]
              (if (= :unselected backend)
@@ -250,7 +275,7 @@
             :storage-dir :mem
             :system "datomic-q-v1"}
    :db-name "datomic-q-v1-oracle"
-   :ref-attrs #{:person/friend :note/session}})
+   :ref-attrs #{:person/friend :note/session :e}})
 
 
 (defn- parse-args

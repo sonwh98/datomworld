@@ -28,6 +28,7 @@
 
 (def readme-path "test/resources/dao/space/datomic-q-v1.README.md")
 (def errata-path "test/resources/dao/space/datomic-q-v1.errata.md")
+(def observations-path "test/resources/dao/space/datomic-q-v1.oracle-observations.edn")
 (def provenance-path "test/resources/dao/space/datomic-q-v1.provenance.edn")
 
 
@@ -194,6 +195,63 @@
   [c]
   (when-let [o (get c "options")]
     (decode o)))
+
+
+;; ---------------------------------------------------------------------------
+;; Entity-id annotations (oracle runner)
+;; ---------------------------------------------------------------------------
+;; The corpus uses logical entity ids as literals, but a real Datomic allocates
+;; its own ids. A case that needs literals rewritten for an oracle run says so
+;; with "entity-ids": a list of {"source" <fixture id>, "path" [...]} naming
+;; ENUMERATED positions. The first path element is "query" or an input index;
+;; the rest index into the decoded form. Only those positions are rewritten, so
+;; an ordinary number that happens to equal a logical id (an age, an aggregate
+;; parameter, a data value) is never touched.
+
+(defn case-entity-ids
+  "The enumerated entity-id positions of a case: [{:source .. :path [..]}]."
+  [c]
+  (mapv (fn [p] {:source (get p "source"), :path (vec (get p "path"))})
+        (get c "entity-ids")))
+
+
+(defn- update-at
+  [coll i f]
+  (cond
+    (vector? coll) (assoc coll i (f (nth coll i)))
+    (seq? coll) (apply list (assoc (vec coll) i (f (nth (vec coll) i))))
+    :else (throw (ex-info "entity-id path crosses a non-sequence"
+                          {:coll coll, :index i}))))
+
+
+(defn- update-path
+  [form path f]
+  (if (empty? path)
+    (f form)
+    (update-at form (first path) (fn [x] (update-path x (rest path) f)))))
+
+
+(defn substitute-entity-ids
+  "Rewrite ONLY the annotated positions of [query inputs], each logical id
+   mapped through its source's logical->real map. `inputs` is the vector of
+   decoded inputs (db inputs are passed through untouched). A position that is
+   not an integer, or whose id is unmapped, throws: nothing is skipped."
+  [c query inputs logical->real]
+  (reduce (fn [[q ins] {:keys [source path]}]
+            (let [real (fn [x]
+                         (when-not (integer? x)
+                           (throw (ex-info "entity-id position is not an integer"
+                                           {:case (get c "id"), :path path, :value x})))
+                         (when-not (contains? (get logical->real source) x)
+                           (throw (ex-info "entity-id position names an unmapped id"
+                                           {:case (get c "id"), :path path, :value x})))
+                         (get-in logical->real [source x]))
+                  [head & more] path]
+              (if (= "query" head)
+                [(update-path q more real) ins]
+                [q (update-path ins path real)])))
+          [query (vec inputs)]
+          (case-entity-ids c)))
 
 
 (defn case-expected
