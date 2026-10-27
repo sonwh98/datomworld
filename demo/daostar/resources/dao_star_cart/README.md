@@ -28,7 +28,7 @@ appends `{:saved ..}` / `{:rejected ..}` back to the session; the UI shows
   holds edits in memory only; with no path at all it says so at boot.
 - **`public/js/datastar.js` must be vendored** at the pinned version
   (`dao.star-cart.view/datastar-version`, 1.0.0-RC.7) before the pages work in a
-  browser: `sh resources/dao_star_cart/vendor-datastar.sh`.
+  browser: `sh bin/vendor-datastar.sh   (from the repo root)`.
 
 ## Provenance
 
