@@ -48,7 +48,8 @@
 (deftest the-shop-projects-catalog-detail-and-cart
   (testing "catalog: escaped names, encoded image urls, blank-name items hidden"
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
-      (is (str/starts-with? sse "event: datastar-patch-elements\ndata: elements <div id=\"app-body\">"))
+      (is (str/starts-with? sse "event: datastar-patch-signals\ndata: signals {\"tok\":\"TOK\"}\n\n"))
+      (is (str/includes? sse "event: datastar-patch-elements\ndata: elements <div id=\"app-body\">"))
       (is (not (str/includes? sse "type=\"search\""))) "the search input is never patched"
       (is (str/ends-with? sse "\n\n"))
       (is (str/includes? sse "Alpha &lt;b&gt;"))
@@ -80,7 +81,8 @@
     (let [page (v/shop-begin "ROOT")]
       (is (str/includes? page "type=\"search\""))
       (is (str/includes? page "data-bind:search"))
-      (is (str/includes? page "$act='search'; $arg=$search; @post('/k/ROOT')"))
+      (is (str/includes? page "$act='search'; $arg=$search; @post('/k/'+$tok)"))
+      (is (str/includes? page "tok:") "the begin page seeds the token signal")
       (is (str/includes? page "search:"))
       (is (not (str/includes? page "value=\"")))
       (is (not (str/includes? page "event.target")))))

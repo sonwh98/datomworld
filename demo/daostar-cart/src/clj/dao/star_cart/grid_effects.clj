@@ -138,6 +138,7 @@
       (catch Exception e
         {:rejected (str "edit failed: " (.getMessage e))}))))
 
+
 (defn- slugify
   "A lowercase dash slug of `name`; empty names become \"item\".  A taken
    slug gets -2, -3, … appended (reviewed convention: uniqueness here, not in
@@ -151,6 +152,7 @@
     (loop [s base n 2]
       (if (catalog/item-eid db s) (recur (str base "-" n) (inc n)) s))))
 
+
 (defn apply-new!
   "Validate and transact a new item (`{:new {:name .. :price .. :description ..}}`).
    The slug is derived here — the VM program cannot do string work — and is
@@ -161,10 +163,14 @@
     (when-not (map? new) (reject! "malformed new item"))
     (let [n (check-name (:name new))
           p (parse-price (:price new))
-          d (let [d' (str (:description new))]
-              (when (> (count d') max-description)
-                (reject! (str "description must be at most " max-description " characters")))
-              d')
+          _ (when-not (<= 0 p max-price) (reject! "price out of range"))
+          d (let [raw (:description new)]
+              (when-not (or (nil? raw) (string? raw))
+                (reject! "description must be a string"))
+              (let [d' (str (or raw ""))]
+                (when (> (count d') max-description)
+                  (reject! (str "description must be at most " max-description " characters")))
+                d'))
           slug (volatile! nil)]
       (store/transact-edit!
         store'

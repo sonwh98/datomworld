@@ -42,6 +42,19 @@
             "'")))
 
 
+(defn json-lit
+  "A double-quoted JSON string literal (for signal patches)."
+  [s]
+  (str "\"" (-> (str s)
+                (str/replace "\\" "\\\\")
+                (str/replace "\"" "\\\"")
+                (str/replace "\r" "\\r")
+                (str/replace "\n" "\\n")
+                (str/replace "\u2028" "\\u2028")
+                (str/replace "\u2029" "\\u2029"))
+       "\""))
+
+
 (defn enc-path
   "Make an asset path safe inside an attribute and a URL: the characters that
    would end an attribute, a path or start a query are percent-encoded.  Other
@@ -98,6 +111,9 @@
   (str "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
        "<title>" (esc title) "</title>"
+       "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">"
+       "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>"
+       "<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Rajdhani:wght@600;700&display=swap\" rel=\"stylesheet\">"
        "<link rel=\"stylesheet\" href=\"/css/cart.css\">"
        "<script type=\"module\" src=\"/js/datastar.js\"></script></head>"
        "<body data-signals=\"" (esc signals) "\" data-init=\"@get('" prefix "/s/" (esc root) "',{retry:'always'})\">"
@@ -131,7 +147,7 @@
 
 (defn- header
   [token cart-count]
-  (str "<header><h1>" (button "" token "Shop" "nav" "catalog") "</h1>"
+  (str "<header><h1>" (button "" token "TT GAME STOCK" "nav" "catalog") "</h1>"
        "<nav>" (button "" token (str "Cart (" cart-count ")") "nav" "cart") "</nav></header>"))
 
 
@@ -150,16 +166,15 @@
 (defn- search-box
   "The catalog's search field.  Rendered ONCE, on the begin page, and never
    re-projected: the input is outside every patched element, so typing is
-   never clobbered by a morph (the letters-disappearing bug).  The input
-   binds the `search` signal; the debounced handler reads `$search` from the
-   signal store — `event` is out of scope under `__debounce` (the console
-   TypeError this replaces) — and posts to the occurrence token; the program
-   holds the text, and the grid under the field filters on it."
-  [token]
+   never clobbered by a morph.  The input binds the `search` signal; the
+   debounced handler reads `$search` (event is out of scope under
+   `__debounce`) and posts to `/k/` + the `tok` signal, which every
+   projection updates to the CURRENT occurrence — so the input never posts
+   to the long-consumed root token."
+  [root]
   (str "<section class=\"search\"><input type=\"search\" placeholder=\"Search products…\""
        " data-bind:search"
-       " data-on:input__debounce.150ms=\"$act='search'; $arg=$search; @post('/k/"
-       (esc token) "')\""
+       " data-on:input__debounce.150ms=\"$act='search'; $arg=$search; @post('/k/'+$tok)\""
        " autocomplete=\"off\"></section>"))
 
 
@@ -195,9 +210,20 @@
        "</section>"))
 
 
+(defn- hero
+  "The catalog's hero banner, in the production site's voice."
+  []
+  (str "<section class=\"hero\"><span class=\"tag\">Next-Gen Video Game Controllers</span>"
+       "<h2>TT Game Stock</h2>"
+       "<p>Wholesale game controllers, consoles and accessories. Every page here is a "
+       "projection of a server-side continuation — your cart lives in the session, never in a table.</p>"
+       "</section>"))
+
+
 (defn- catalog-page
   [catalog token q tagory]
-  (str (tagory-chips token ((:tagories catalog)) tagory)
+  (str (hero)
+       (tagory-chips token ((:tagories catalog)) tagory)
        "<section class=\"grid\">"
        (apply str (map #(card token %)
                        (filter #(and (matches? q %) (in-tagory? tagory %))
@@ -243,23 +269,28 @@
    its last projection.
 
    The patched element is `#app-body`: the search input on the begin page is
-   its SIBLING, so a morph never touches it while the user types."
+   its SIBLING, so a morph never touches it while the user types.  Every
+   projection is preceded by a signals patch updating `tok` to the current
+   occurrence: the persistent search input posts to `/k/${tok}`, so it
+   always names the CURRENT token, never the long-consumed root (the
+   stale-token defect the reviewer found)."
   [catalog token model]
   (let [cart (:cart model)
         n (reduce + 0 (filter pos? (vals cart)))]
-    (sse-elements
-      (str "<div id=\"app-body\">" (header token n)
-           "<main>"
-           (case (:page model)
-             "item" (item-page catalog token (:item model))
-             "cart" (cart-page catalog token cart)
-             "checkout" "<section class=\"cart\"><h2>Order received</h2><p>This is a demo: no payment was taken.</p></section>"
-             (catalog-page catalog token (:search model) (:tagory model)))
-           "</main><footer>Catalog as of last page load.</footer></div>"))))
+    (str (sse-signals (str "{\"tok\":" (json-lit token) "}"))
+         (sse-elements
+           (str "<div id=\"app-body\">" (header token n)
+                "<main>"
+                (case (:page model)
+                  "item" (item-page catalog token (:item model))
+                  "cart" (cart-page catalog token cart)
+                  "checkout" "<section class=\"cart\"><h2>Order received</h2><p>This is a demo: no payment was taken.</p></section>"
+                  (catalog-page catalog token (:search model) (:tagory model)))
+                "</main><footer>Catalog as of last page load.</footer></div>")))))
 
 
 (defn shop-begin
   [root]
   (begin-page {:prefix "" :title "dao.star cart" :root root
-               :signals "{act: '', arg: '', search: ''}"
+               :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root) "}")
                :pre (search-box root)}))
