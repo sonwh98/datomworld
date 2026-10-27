@@ -538,9 +538,18 @@
 ;; ---------------------------------------------------------------------------
 
 
+;; Suites whose jolt run is longer than the lane's default step budget: the
+;; step waits at least this long (a larger --timeout-ms still wins).
+;; yin.repl.python-antlr-test runs the ^:slow Python programs over the native
+;; parser: 7218 s alone on jupiter (J5; the JVM takes about 1200 s).
+(def ^:private step-timeout-ms
+  {"yin.repl.python-antlr-test" (* 3 3600000)})
+
+
 (defn- core-step
   [diag? timeout-ms ns]
   (let [log (str logs "/core/" (dash ns) ".log")
+        timeout-ms (max timeout-ms (get step-timeout-ms ns 0))
         r (run-jolt {:script core-runner :args [ns]
                      :log log :diag? diag? :timeout-ms timeout-ms})
         out (:out r)
