@@ -325,11 +325,13 @@
 
 (defn- landing
   "The splash gate, the production site's structure: the full-viewport
-   landing.jpg background, gradient overlay, and the glass card.  The
-   Enter Store button hides the splash client-side (data-show); no stream
-   round trip.  The store renders beneath from the same subscription."
+   landing.jpg background, gradient overlay, and the glass card.  Enter
+   Store removes the splash element and restores document scrolling — both
+   client-side; no stream round trip.  The store renders beneath from the
+   same subscription, and while the splash exists html:has(.landing-page)
+   keeps the scrollbars off (the owner's no-scrollbars-on-splash rule)."
   []
-  (str "<div class=\"landing-page\" data-show=\"!$entered\">"
+  (str "<div class=\"landing-page\">"
        "<img class=\"landing-bg\" src=\"/images/landing.jpg\" alt=\"Gamer holding a PS5 pro controller\">"
        "<div class=\"landing-overlay\"></div>"
        "<div class=\"landing-content\">"
@@ -338,15 +340,14 @@
        "<p class=\"landing-subtitle\">Consoles, pro controllers, replacement parts, and gaming electronics — AS-IS, refurbished, and ready to ship.</p>"
        "<div class=\"landing-notice\"><span class=\"warn-ico\">⚠</span>"
        "<span><strong>Used / AS-IS / BER / Returns / Refurbished</strong> — Consoles, Controllers &amp; Electronic Components</span></div>"
-       "<button class=\"landing-enter\" data-on:click=\"$entered=true\">Enter Store →</button>"
+       "<button class=\"landing-enter\" data-on:click=\"document.querySelector('.landing-page').remove(); document.documentElement.style.overflow='auto'\">Enter Store →</button>"
        "</div></div>"))
 
 
 (defn shop-begin
   [root]
   (begin-page {:prefix "" :title "TT Game Stock | Next-Gen Video Game Controllers" :root root
-               :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root)
-                             ", entered: false, menu: false}")
+               :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root) ", menu: false}")
                :pre (str (landing)
                          "<header class=\"top\"><div class=\"brand\">"
                          "<span class=\"icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"6\" y1=\"12\" x2=\"10\" y2=\"12\"></line><line x1=\"8\" y1=\"10\" x2=\"8\" y2=\"14\"></line><line x1=\"15\" y1=\"13\" x2=\"15.01\" y2=\"13\"></line><line x1=\"18\" y1=\"11\" x2=\"18.01\" y2=\"11\"></line><rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\"></rect></svg></span>"

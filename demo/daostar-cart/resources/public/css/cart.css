@@ -394,3 +394,7 @@ header.top .icon {
   .hero h2 { font-size: 1.7rem; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
 }
+
+/* while the splash exists the page must not scroll (owner: no scrollbars on
+   the splash); Enter Store removes the element, which restores scrolling */
+html:has(.landing-page), body:has(.landing-page) { overflow: hidden; }
