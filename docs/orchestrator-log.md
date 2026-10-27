@@ -13519,3 +13519,13 @@ Done: Owner: "vendor-datastar.sh should be in the bin dir". git mv demo/daostar/
 Decisions: during this move the worktree's HEAD turned out detached (an earlier commit landed on a detached head and master took it via merge); the worktree was re-anchored with checkout --detach bee3fe5f and the branch reset to master. The seat's recurring shell-cwd/tree slip is noted again in the 11:50 entry.
 Verification: script executed from bin/, output byte-identical to the previously vendored file; worktree status clean (images intact, 228).
 Next: owner browser check.
+
+## 2026-10-27 12:30:00 +0700 — demo READMEs consolidated into one (owner question: "why are there two README.md?")
+Completed-GMT: 2026-10-27 05:30:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f13ded09 (pushed); dao-star-demo = master; worktree re-anchored
+Done: Owner asked why demo/daostar had two READMEs. Cause: the inner resources/dao_star_cart/README.md predates the owner-requested start-here README; both were kept when the second was added. Consolidated: one README (demo/daostar/README.md) now carries the operational notes and provenance sections folded in; the inner file is deleted. Landed on master directly (ec820376 + restore f13ded09) rather than via the worktree after a cherry-pick conflict.
+Decisions/lessons: two tool-slip classes this round, both caught by verification and fixed: (a) a python str.replace that silently no-opped on a mismatched wrap (the "consolidated" log lied; the deleted inner file's content was briefly missing — restored with the Edit tool and re-committed); (b) the detached-HEAD worktree again (a commit landed on an orphan head; recovered via direct-on-master edit and branch reset). Rule going forward for this seat: multi-line text edits go through the Edit tool, never str.replace; git operations always git -C <tree>; after any worktree commit, verify the branch ref moved.
+Verification: master README contains Operational notes + Provenance (grep 2); inner README deleted; dao-star-demo = master f13ded09; pushed.
+Next: owner browser check.
