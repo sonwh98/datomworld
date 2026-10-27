@@ -437,3 +437,23 @@ html:has(.landing-page), body:has(.landing-page) { overflow: hidden; }
   .drawer-tagories .tbtn:hover { color: var(--text-primary); }
   .drawer-tagories .tbtn.on { color: var(--accent-cyan); }
 }
+
+/* the spreadsheet */
+.sheetwrap { overflow-x: auto; border: 1px solid var(--border-card); border-radius: var(--radius-md); }
+table.sheet { width: 100%; border-collapse: collapse; min-width: 980px; }
+table.sheet th, table.sheet td {
+  border-bottom: 1px solid var(--border-subtle); border-right: 1px solid var(--border-subtle);
+  padding: 6px 8px; text-align: left; vertical-align: middle;
+}
+table.sheet thead th {
+  position: sticky; top: 0; background: var(--bg-secondary); z-index: 1;
+  font-family: var(--font-display); font-size: .85rem; font-weight: 700;
+  letter-spacing: .5px; text-transform: uppercase; color: var(--text-secondary);
+}
+table.sheet td.th-img { width: 56px; }
+table.sheet td.th-img img { width: 48px; height: 48px; object-fit: contain; background: #fff; border-radius: 4px; display: block; }
+table.sheet td .noimg { width: 48px; height: 48px; background: var(--bg-card-hover); border-radius: 4px; }
+table.sheet td input { width: 100%; }
+table.sheet td.tagcell, table.sheet td.imgcell { min-width: 180px; }
+.newrow { display: flex; gap: 12px; flex-wrap: wrap; }
+.newrow label { flex: 1; min-width: 160px; }
