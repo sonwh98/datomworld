@@ -119,9 +119,14 @@ int main(int argc, char** argv) {
     st = jolt_parser_export(fake, reinterpret_cast<const uint8_t*>("1\n"), 2, &out, &len);
     expect(st == -1 && out == nullptr, "unrecognized worker", st);
     std::free(fake);
-    // one string token whose text alone passes the 64 MiB bound: few tokens,
-    // so the check is cheap even under ASan
-    std::string big = "s = '" + std::string(70u * 1024u * 1024u, 'a') + "'\n";
+    // J5: a source past the 4 MiB input bound is refused before parsing
+    std::string huge = "s = '" + std::string(70u * 1024u * 1024u, 'a') + "'\n";
+    run_export(w, huge, -6, "over-bound input refused (-6)");
+    run_export(w, ok, 0, "worker parses again after -6");
+    // a legal source (600 KB, nesting 0) whose answer passes the 64 MiB
+    // output bound: about 129 output bytes per input byte of `1\n`
+    std::string big;
+    for (int i = 0; i < 300000; ++i) big += "1\n";
     run_export(w, big, -4, "oversize answer refused (-4)");
     run_export(w, ok, 0, "worker parses again after -4");
     jolt_parser_worker_free(w);
