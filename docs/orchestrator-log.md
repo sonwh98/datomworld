@@ -13707,3 +13707,33 @@ Decisions: the contract status flip was executed under the argon/astra/glm sign-
 Verification: three-host 603/592/592 + downstream 256/39,276 at 8dbf6af2 (jupiter); step-10 59/214/0 on master post-flip; digest 692ba5a0 pinned 1x+1x.
 Delegates: glm-5.3 sign-off findings promoted (session 37072475); full Phase 5 chain archived.
 Next: owner ratification -> push (on explicit instruction). The track's standing follow-ups: Phase 5 inconclusives (fulltext needs a future profile; mixed-type ties need per-type fixtures if ever measured); the delegate-reference update for the argon calling instruction (gemini-4-argon bare, no --effort) noted in the log.
+
+## 2026-10-27 03:1x +0700 — P4 S0-S1 landed on branch (56dfe5a0), shiva-verified; S2 dispatched; T3 round 1 in flight
+Completed-GMT: 2026-10-26 19:1x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@949f3e55 (== origin); branch yang-php-p4 @ 56dfe5a0 (pushed); branch yang-ts-t3 uncommitted work in flight
+Done: (1) P4 S0-S1 delivered and landed on the branch: the class descriptor builder (inheritance, per-class private property identity per the review's F2, static sharing, once-only constant thunks, abstract/final, trait specialization with insteadof/as + collisions, enum cases), hoisting, interface-aware instanceof on cell objects, the anonymous-class refusal (correctly renumbered). Committed 56dfe5a0 (the engineer's scratch log removed pre-commit), pushed. Shiva: cljstyle rc=0; class-model suite 0 failures at the tip. (2) S2 dispatched (resume db2452f3): the row-53 new-init sequence, property access with private identity, :class-ctx method dispatch, counted exceptions, constructor fixtures authored :pending. (3) T3 round 1 in flight (33e13c5d): the grammar patch and F3 threading under way (8 files touched at last look).
+Decisions: the shiva p3b clone doubles as the p4 verification clone via a temp branch (p4tmp), then restores to origin/yang-php-p3b detached - avoiding a fourth clone for now; revisit if the two tracks' verifications ever overlap on shiva.
+Verification: shiva cljstyle + focused suite at 56dfe5a0.
+Delegates: claude-sonnet-5-5 (P4 S2, session db2452f3, IN FLIGHT; T3 round 1, session 33e13c5d, IN FLIGHT).
+Next: rounds return -> shiva verify -> commit/push -> next increments (P4: S3 finalization/clone/readonly/shutdown; T3: S0 goldens then class lowering steps).
+
+## 2026-10-27 04:0x +0700 — T3 S0-S1 landed on branch (05b49f4c), shiva-verified green incl. Node lane; S2 + oracle recording dispatched
+Completed-GMT: 2026-10-26 20:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@949f3e55 (== origin); branches yang-php-p4 @ 56dfe5a0 (S2 in flight) and yang-ts-t3 @ 05b49f4c (pushed)
+Done: (1) T3 S0-S1 delivered and landed on the branch: the ts-g4-2 grammar patch complete — rules (a)-(f) plus new.target, grammar id +ts-g4-2, parser digest re-pinned, T1/T2 packets regenerated with oracle outputs unchanged; lower/scope accept newOperand; new.target refuses :T3 pending its lowering. Two catches recorded: the ANTLR member-alternative ordering trap (a field-first order wins every accessor/method prediction because eos predicates read true in lookahead — accessors, then methods, then fields) and a pinned-Node restore (the engineer's shell had v26.1.0; oracle files restored to v25.6.1 pins; NEW RULE: all T3 oracle recording runs mise exec node@25.6.1). Committed 05b49f4c, pushed. (2) Shiva verification at the tip: cljstyle rc=0; Node subsystem 9 ns / 57 tests / 0 failures / pass. (3) S2 + the S0 oracle recording dispatched (resume 33e13c5d) with the pinned-node rule stated.
+Decisions: the pinned-Node oracle rule joins the standing block (pinned-version tooling for any oracle recording, never whatever the shell has).
+Verification: shiva at 05b49f4c (cljstyle rc=0, node-sub pass).
+Delegates: claude-sonnet-5-5 (T3 S2, session 33e13c5d, IN FLIGHT; P4 S2, session db2452f3, IN FLIGHT).
+Next: both S2 rounds -> shiva verify -> commit/push -> next increments per the plans' step lists (P4 S3 finalization/clone/readonly/shutdown; T3 S3 class prelude/heritage/brand checks).
+## 2026-10-28 00:30:00 +0700 — datomic-compat track: PUSHED — owner ratified; the Qualified claim is public; track closed
+Completed-GMT: 2026-10-27 17:30:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f2de4eac PUSHED to origin (949f3e55e..f2de4eaca; master and origin in sync); the pushed scope verified as exactly the 9 track commits (the dao-star demo working-tree files are another seat's in-flight work, untouched)
+Done: Owner ratified the final matrix and instructed "push". Executed: git push origin master. The datomic-compat track is CLOSED: six phases landed, contract status Qualified for the current profile (109/120 oracle-executed against Datomic Local 1.0.301 via client-api 1.0.69), archives committed, branch/worktree debris none, origin in sync.
+Decisions: none remaining. Standing non-blocking follow-ups (recorded in the prior entry): fulltext oracle measurement via a future profile; per-type ties fixtures if ever measured; the agy calling instruction for the delegate reference.
+Next: nothing for this seat. The adapter (dao.space.query.datomic/q) is the qualified Datomic-compatible surface; dao.space.query/q remains the engine with its own native contract.
