@@ -13591,3 +13591,37 @@ Decisions: implement orchestrator-direct (mechanical application of the search p
 Verification: 40 tests / 563 assertions / 0 failures; kondo clean; shiva live e2e over real HTTP: posted a tagory act ("PS4 console") to a live session — the re-projection shows the chips (all 13 + All), the selected chip highlighted, and exactly 1 item card (the PS4 console item).
 Delegates: none (orchestrator-direct).
 Next: owner browser check.
+
+## 2026-10-27 19:35:00 +0700 — datomic-compat track: ORACLE EXECUTED — 28/29 pending cases observed; 3 unexpected divergences ruled on by the architect (r11 in flight)
+Completed-GMT: 2026-10-27 12:35:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7; Phase 5 branch datomic-q-p5-ci @e4eed5f5 (reconciliation committed; pushed)
+Done: The oracle EXECUTED on real Datomic (Local 1.0.301 + client-api 1.0.69, pairing verified from the loaded jars): 110 eligible cases observed identically in the local run and the Docker run on jupiter (108/110 byte-identical observations; rand + row-order differ by nature). Reconciliation committed (docker/oracle/reconciliation.md @e4eed5f5): 28/29 pending cases observed (29th count correction: Phase 3 promoted rules.required-bound-head); 25 conclusive, 3 not comparable (bounds.* DaoSpace-specific limits). Classification: 10 executable cases confirm the contract's stated expectation; 4 agree apart from the documented :db/id pull difference; 3 CONFIRM the Phase 1 conservative find-shape treatment (Datomic's Client refuses scalar/tuple/collection finds); 7 are Datomic accepting what DaoSpace deliberately refuses (all documented rows: :ret ignored, unknown options, :query-stats, negative offset, 5-position patterns, recursive pull, list-form pull); 1 unexpected; 3 not comparable. THE HEADLINE: after the runner's id-mapping fix, ALL 10 re-run executable cases agree — left/right/both/mutual recursion, unbound entry, stratified negation: Datomic's rule semantics EQUAL the Phase 3 tabling semantics on every corpus shape. Recursion through negation is a bare StackOverflowError in Datomic vs DaoSpace's loud pre-evaluation refusal.
+Three unexpected divergences (U1 even-count median truncation vs our double-mean convention; U2 Datomic accepts non-positive aggregate params returning empty; U3 Datomic refuses schema-absent attributes vs schema-free no-rows) routed to the architect for rulings (r11, astra thread) — they are convention/compat decisions per the autonomous mandate.
+Decisions: reconciliation honest and complete; no fixture change made (the mixed-type ties cases stay DaoSpace-only: splitting would test a different property); the runner id-mapping must land before the 10 cases promote (mechanical carry).
+Verification: reconciliation committed on the branch; cross-execution consistency 108/110; r11 IN FLIGHT.
+Delegates: qa-engineer reconciliation (findings promoted); architect astra r11 IN FLIGHT (thread 01a16d38).
+Next: rulings -> promotion round (id-mapping lands; corpus E15/rows updated per rulings; re-digest) -> glm review -> architect sign-off on the QUALIFIED CLAIM -> owner ratification -> contract status flips -> track completion.
+
+## 2026-10-27 19:45:00 +0700 — datomic-compat track: U1-U3 RULED (astra r11); promotion round dispatched with the rulings as binding
+Completed-GMT: 2026-10-27 12:45:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7; Phase 5 branch datomic-q-p5-ci @e4eed5f5
+Done: astra r11 ruled all three divergences: U1 KEEP our median convention (double mean), median = documented difference with the architect's E15 text transcribed verbatim ([1 2 3 4 4 10] => 3 vs 3.5, [1.0 2.0] => 1.0 vs 1.5, mixed refusal); agg.median-with-multiplicity reclassified documented-difference. U2 MATCH Datomic — implement in the GENERIC core: (min/max n ?x) accept integer n; n<=0 => empty vector for an existing group; positives keep ordering/multiplicity/ties; non-integer/arity refusals stay. Promotion prerequisites: replace zero/negative refusal pins with result assertions, grouped+ungrouped min/max tests, MEASURE max 0/max -1 through the oracle (observations only establish min), E15/docs/provenance/digest updates, three-host affected suites. U3 KEEP schema-free with the architect's supported-domain row transcribed verbatim. Carry-forwards: the id-mapping becomes explicit source-scoped identity annotations/enumerated positions (never rewriting ordinary numerics) + a collision test + loader provenance; fulltext oracle qualification DEFERRED to a future profile (ambient.fulltext-refused stays executable-refusal, Datomic observation inconclusive — the compiler error proves neither refusal nor support); evidence-promotion precision: oracle-executed stays distinct from agreement/documented-difference/inconclusive; the qualified claim must name these boundaries.
+Decisions: promotion round dispatched with the rulings as binding acceptance criteria; the re-measurement of max 0/-1 through the oracle is REQUIRED before parity claims (the honest-evidence rule applied to the implementer's own promotion).
+Verification: promotion round IN FLIGHT.
+Delegates: architect r11 findings promoted; qa-engineer promotion IN FLIGHT (session 6e84b906).
+Next: promotion returns -> full battery -> glm review of the promotion + rulings application -> ARCHITECT SIGN-OFF on the qualified claim -> OWNER RATIFICATION (the human step) -> contract status flips -> merge -> archive -> track completion report.
+
+## 2026-10-27 17:40:00 +0700 — dao.star cart: the letters-disappearing search bug fixed (input excluded from the patched region)
+Completed-GMT: 2026-10-27 10:40:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master ab30b6c8 (pushed); dao-star-demo = master; worktree synced
+Done: Owner: "the search text is behaving weird. as i type, letters disappear". Root cause: every keystroke re-projected the whole app div, and the Datastar morph replaced the search input mid-typing — value resets and focus loss. Fix (ab30b6c8): the search input renders ONCE on the begin page (begin-page grew a :pre slot for pre-body markup) as a SIBLING of the patched element; the projection now emits #app-body (header, chips, grid, footer) and can never touch the input; the input debounces at 150ms so fast typing does not storm the boundary. Live-verified on shiva: begin page carries the debounced input and #app-body; the subscription patch targets app-body and contains zero input fields.
+Decisions: exclude-from-patch over morph-preservation tricks (idempotent, structural, no reliance on Datastar morph internals); the grid editor's own inputs were checked for the same class of bug and are safe (its fields post on save, not on input — no patches arrive mid-typing).
+Verification: 40 tests / 566 assertions / 0 failures; kondo clean; live: patch target app-body, patch-has-input 0, debounce present on the begin page.
+Delegates: none (orchestrator-direct).
+Next: owner browser re-check of typing behavior.
