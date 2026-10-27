@@ -1,0 +1,59 @@
+Completed-GMT: 2026-10-27 12:00:00 GMT
+Completed-Local: 2026-10-27 19:00:00 +07
+Coding-Agent: claude
+Session-ID: 6e84b906-f5ab-4551-bd47-73efc3d4a7c4
+
+The reconciliation report is committed as `e4eed5f5` on `datomic-q-p5-ci`. It is at `docker/oracle/reconciliation.md`, with the helper scripts in `docker/oracle/reconcile/`. The corpus, contract and digest are unchanged, and nothing is pushed. All three unexpected divergences below are for you to decide; the report only describes them.
+
+**Corrections to the brief**
+- **Local observations file:** `oracle-out/datomic-q-v1-observations.edn` is not in the worktree. I used my own earlier local run of the same runner, `target/p5-smoke.edn`, as the local side.
+- **Not-eligible cases:** The 3 are not the fixture-load-blocked ones. They are `api.db-first-refused`, `source.raw-vector-refused` and `source.current-d5-view`, excluded by the runner's "no Client equivalent" rule. The 3 fixture-load errors are eligible cases.
+- **Pending count:** There are 29 pending cases, not 30, because Phase 3 promoted `rules.required-bound-head`. 28 of the 29 were observed.
+
+**Local vs jupiter:** The Datomic jars and the 110 case ids are identical on both. On observation kind, normalized result, error message and phase, 108 of 110 are identical. The two that differ are expected: `rules.multiple-definitions` (same rows, different order) and `agg.rand-excluded` (a random value).
+
+**Headline for the owner**
+- 28 of the 29 pending cases now have an oracle observation. 25 are conclusive and 3 are not comparable (the `bounds.*` cases pin DaoSpace-specific limits with no Datomic Local equivalent).
+- Of the 28:
+  - 10 confirm the contract's stated expectation.
+  - 4 agree apart from the documented `:db/id` pull difference.
+  - 3 are Datomic refusing scalar, tuple and collection finds, which validates the Phase 1 conservative treatment.
+  - 7 are Datomic accepting what DaoSpace deliberately refuses, all documented:
+    - `:ret`, which Datomic ignores
+    - unknown options
+    - `:query-stats`
+    - a negative offset
+    - five-position patterns
+    - recursive pull
+    - the list-form pull option
+  - 1 is unexpected (U3 below).
+  - 3 are not comparable.
+- Across the 110:
+  - Executable (56): 41 agree directly and 10 more agree once logical ids are mapped to real ones (next paragraph). 1 is unexpected (U1), and 4 can't be compared or represented.
+  - Documented-difference rows (8): 7 are confirmed and 1 agrees.
+  - Refusals (18): 9 are the same refusal with a different message or category.
+
+**The recursion evidence:** The first pass showed 10 executable cases disagreeing: `in.relation`, `in.tuple` and 8 `rules.*` cases. That was a runner artifact. The corpus uses logical entity ids as literals, and Datomic allocates large real ids, so they matched nothing. I re-ran those 10 with ids mapped. All 10 agree, including left, right, both-sided and mutual recursion over a cycle, the unbound entry call and stratified negation. So Datomic's rule semantics equal the Phase 3 tabling semantics on every recursion shape in the corpus. The runner still needs this mapping before those cases can be promoted.
+
+**Unexpected divergences**
+- **U1, even-count `median`:** DaoSpace returns the mean of the middle pair as a double (3.5 for `[1 2 3 4 4 10]`).
+  - Datomic gives an integer truncating mean for longs: 3 for that case, `[1 2]` → 1, `[37 40]` → 38, `[-3 -4]` → -3.
+  - For doubles it gives `[1.0 2.0]` → 1.0, and a mixed `[1 2.0]` throws a ClassCastException.
+  - `agg.median` and `agg.median-grouped` look like agreement only because their means are exact integers.
+  - This contradicts the ratified Phase 2 convention (E15), so it needs an owner decision.
+- **U2, non-positive aggregate parameter:** `(min 0 ?a)` and `(min -1 ?a)` are accepted by Datomic and return an empty collection. DaoSpace refuses them.
+- **U3, attribute absent from the schema:** Datomic refuses a pattern naming an attribute with no schema (`:db.error/not-an-entity`). DaoSpace, being schema-free, returns no rows. This is shown by `agg.empty-input`, and `in.empty-source` fails the same way because an empty database has no schema. The contract doesn't state it.
+
+**Errors:** Recursion through negation is a bare `StackOverflowError` in Datomic, against DaoSpace's loud refusal before evaluation. Required-bound is `:db.error/insufficient-binding`, the same refusal as DaoSpace's `:invalid-request`. The other error cases are also the same refusal with a different message.
+
+**Fixture decision:** I made no fixture change and no re-digest. The `ties` fixture puts a long and a double under one attribute, which Datomic can't hold. Splitting it into per-type attributes would test a different property, so those 3 cases stay DaoSpace-only. `in.multiple-sources` can't be compared because Datomic gives each database different ids, so the cross-database join is empty.
+
+**Left for promotion review** (listed in the report):
+- The runner's id mapping, so the 10 re-run cases carry real observations.
+- `ambient.fulltext-refused` needs a fulltext-enabled attribute to say anything.
+- Your decisions on U1–U3.
+- The errata entries.
+
+One caveat: the 17 pending agreements are judged against the contract's stated expectation and each case note, not against a DaoSpace-side adapter result, since those pending cases have no pin.
+
+I did not commit the `docs/orchestrator-log.md` change that was already in the worktree, and I added no Co-Authored-By trailer.

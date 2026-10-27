@@ -1,0 +1,53 @@
+Completed-GMT: 2026-10-27 09:40:00 GMT
+Completed-Local: 2026-10-27 16:40:00 +07
+Coding-Agent: claude
+Session-ID: 6e84b906-f5ab-4551-bd47-73efc3d4a7c4
+
+The Datomic Local runner works. A full local run through `datomic.client.api` against Datomic Local gave 110 eligible cases observed (90 results, 20 errors) and 3 not eligible. The Docker image and `run-oracle.sh` are written but unrun, because docker isn't installed here. The work is committed as `e07f479b` on `datomic-q-p5-ci`, on top of master `f56dcaa7`, and is not pushed. That branch and its worktree already existed when I started, at that master commit.
+
+**Dependency pairing**
+- `com.datomic/local 1.0.301` declares `client-api 1.0.72`. The `:oracle` alias keeps `client-api 1.0.69`, and the tree shows 1.0.72 excluded by `:use-top`.
+- The 1.0.69 and 1.0.301 combination runs fine, so no contract change is needed. The mismatch is worth your noting. The observation file records the jar versions actually loaded: `client-api 1.0.69`, `local 1.0.301`, `client 1.0.146`, `peer 1.0.7364`.
+
+**Files**
+- `deps.edn`: the `:oracle` alias gains `com.datomic/local 1.0.301`, dev-scope only.
+- `src/dev/dao/space/datomic_query_oracle.clj`:
+  - `--backend datomic-local` is the Local client (`:storage-dir :mem`, `:system "datomic-q-v1"`) with a fresh database per fixture and ref attributes `#{:person/friend :note/session}`.
+  - Observations are unnormalised, with the raw result kept beside the mapped-ids copy that already existed.
+  - Errors are caught as `Throwable`, because Datomic's own `StackOverflowError` escaped the old `Exception` catch and aborted the run. Each error observation records `:phase` (`:query` or `:fixture-load`) and `:error-class`.
+  - A fixture Datomic can't hold becomes a `:fixture-load` error for each case that uses it. Without that, the whole run died on the first one.
+  - The output now records `:datomic-jars`. Output stays out of the frozen corpus.
+- `docker/oracle/Dockerfile`: `eclipse-temurin:21-jdk` plus the Clojure CLI 1.12.4.1602 from the official installer, nothing else.
+- `docker/oracle/run-oracle.sh`:
+  - It builds the image and mounts the checkout read-only.
+  - It adds a writable `OUT_DIR` (default `./oracle-out`) and the named volume `datomic-q-oracle-cache`, which holds the Maven, gitlibs and cpcache directories.
+  - It runs `clojure -M:oracle -m dao.space.datomic-query-oracle` and defaults to `--backend datomic-local`.
+  - I set the executable bit in git, because `chmod` was denied here.
+
+**Local verification**
+- `clj -M:oracle` resolves the Datomic dependencies.
+- The `--backend datomic-local` run is the one above. The 20 errors are real Datomic behaviour:
+  - Client `:find` accepts only find-rel (scalar, tuple and collection finds refused).
+  - Unbound-variable and too-few-inputs errors.
+  - `:db.error/insufficient-binding` for a required-bound call with an unbound argument.
+  - `:db.error/invalid-lookup-ref` for a vector in a call.
+  - `IllegalArgumentException` for `(count [1 2])`.
+  - `StackOverflowError` for both recursion-through-negation cases, where DaoSpace refuses before evaluation.
+  - A `ClassCastException` and an `ArityException` from the median aggregate.
+  - A compiler exception for fulltext.
+  - Three `:fixture-load` errors, on the `agg.median-tied-kinds*` cases.
+- `--backend unselected` gives 110 pending.
+- Kondo on the runner: 0 errors, 0 warnings.
+- `bash -n` on `run-oracle.sh` was denied for approval. I read it through but did not syntax-check it.
+- Scoped `git status` shows only my four files. `docs/orchestrator-log.md` was already modified when I started, and I left it alone.
+
+**What remains for the jupiter execution**
+1. Run `docker/oracle/run-oracle.sh` on the branch clone. I haven't tested the Dockerfile build or the container paths: the read-only mount with `HOME`, `CLJ_CONFIG` and `CLJ_CACHE` on `/cache`, and the `:mvn/local-repo` override. If the CLI install or cache redirection misbehaves, adjust there.
+2. Retrieve `oracle-out/datomic-q-v1-observations.edn`. It holds the observations and the jar versions.
+3. Human review of the promotion, outside this slice. Open items for that review:
+   - Fixture limits. `ties` mixes long and double under `:k/v`, and Datomic rejects that attribute. Those cases need a decision at review, such as per-type attributes. I did not change the fixture or the corpus. The runner derives each attribute's type from the first row only, so other mixed fixtures could surface the same way.
+   - Fulltext was observed only as a compiler exception, with no fulltext schema declared.
+   - The `StackOverflowError` observations are real Datomic behaviour for negation recursion.
+4. Corpus promotion and contract status flips are untouched, as instructed.
+
+I added no Co-Authored-By trailer, following your standing commit rule over the harness attribution reminder.
