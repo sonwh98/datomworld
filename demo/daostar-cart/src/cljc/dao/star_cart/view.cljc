@@ -117,7 +117,7 @@
        "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">"
        "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>"
        "<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Rajdhani:wght@600;700&display=swap\" rel=\"stylesheet\">"
-       "<link rel=\"stylesheet\" href=\"/css/cart.css?v=5\">"
+       "<link rel=\"stylesheet\" href=\"/css/cart.css?v=6\">"
        "<script type=\"module\" src=\"/js/datastar.js\"></script></head>"
        "<body data-signals=\"" (esc signals) "\" data-init=\"@get('" prefix "/s/" (esc root) "',{retry:'always'})\">"
        pre
