@@ -125,6 +125,8 @@
                     cst-manifest
                     {:parse (fn [source] (get packets source)),
                      :lower python.repl/lower,
+                     ;; a binding registers its own primitives (0f948408)
+                     :primitives python.repl/primitives,
                      :lower-session python.repl/lower-session,
                      :render python.repl/display-value}))
 
