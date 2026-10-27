@@ -9,7 +9,7 @@
  ;; Paths: the demo's own trees plus the library sources it composes
  ;; (dao.stream, dao.star, dao.space, dao.lease, dao.await, yin.vm).
  :paths ["src/clj" "src/cljc" "resources"
-         "../src/cljc" "../src/clj" "../resources"]
+         "../../src/cljc" "../../src/clj" "../../resources"]
  :aliases
  {:test
   {:extra-paths ["test"]
