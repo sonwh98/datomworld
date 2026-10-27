@@ -13509,3 +13509,13 @@ Done: Owner: "there can be more than one demo under the demo/ dir so put it unde
 Decisions: three shell-cwd slips in this session sent git operations to the wrong tree (commit to main repo, add from inside demo/daostar); all caught by verification and redone with explicit git -C — noted as a recurring failure mode for this seat: always git -C <tree> or cd immediately before.
 Verification: demo/daostar clj -M:test 39/550/0; shiva redeploy from master e39a4494: shop/grid/CJK images 200, no InvalidPathException, persisted probe intact.
 Next: owner browser check.
+
+## 2026-10-27 12:05:00 +0700 — demo: vendor-datastar.sh moved to bin/ (owner request); worktree re-anchored
+Completed-GMT: 2026-10-27 05:05:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 7627fcce... bee3fe5f (pushed); dao-star-demo branch reset to master; worktree detached at bee3fe5f with images intact
+Done: Owner: "vendor-datastar.sh should be in the bin dir". git mv demo/daostar/resources/dao_star_cart/vendor-datastar.sh -> bin/vendor-datastar.sh; the script now locates the demo js dir from its own location (works from any cwd); both READMEs updated; re-ran it from bin to prove it (30732 bytes, sha c9c8b997…, byte-identical bundle). Commit bee3fe5f on master via the worktree.
+Decisions: during this move the worktree's HEAD turned out detached (an earlier commit landed on a detached head and master took it via merge); the worktree was re-anchored with checkout --detach bee3fe5f and the branch reset to master. The seat's recurring shell-cwd/tree slip is noted again in the 11:50 entry.
+Verification: script executed from bin/, output byte-identical to the previously vendored file; worktree status clean (images intact, 228).
+Next: owner browser check.
