@@ -491,6 +491,7 @@
     :source (str "<?php function f($a) { return $a; } function side() { echo 'S'; return 1; }"
                  " try { f(1, z: 2, w: side()); } catch (Error $e) { echo $e->getMessage(); }"),
     :oracle :pending,
+    :zend "Unknown named parameter $z",
     :note "C28: PHP stops at the send of z (side() never runs); here php/call-named validates at entry, so side() runs first"}
    {:id :closure-call-stdclass,
     :group :closures-v1,

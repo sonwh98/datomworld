@@ -206,7 +206,8 @@
    (assoc (fx :exc-uncaught-fatal :exceptions-v1 [22] #{:p4-s4}
               "<?php class E extends Exception {} echo 'a'; throw new E('boom');"
               "a")
-          :throws true)
+          :throws true
+          :uncaught {:class "E", :message "boom"})
    (assoc (fx :exc-named-arg-validation-order :exceptions-v1 [57] #{:p4-s4}
               (str "<?php function f($a) { return $a; } function side() { echo 'S'; return 1; }"
                    " try { f(1, z: 2, w: side()); } catch (Error $e) { echo $e->getMessage(); }")
