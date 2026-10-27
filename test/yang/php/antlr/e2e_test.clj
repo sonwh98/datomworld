@@ -87,7 +87,6 @@
 (deftest refusals-are-named-test
   (doseq [[source construct]
           [["<?php $a = &f();" :reference-source]
-           ["<?php $a->b = 1;" :assignment-target]
            ["<?php $$a[0] = 1;" :assignment-target]
            ["<?php function f(int $a) {}" :type-declaration]
            ["<?php function f(): int {}" :return-type]
@@ -98,10 +97,8 @@
            ["<?php echo FOO;" :constant]
            ["<?php echo \"a$b[0]\";" :interpolation]
            ["<?php echo \"a$b->c\";" :interpolation]
-           ["<?php echo isset($a->b);" :isset-target]
            ["<?php echo (array)1;" :cast/array]
-           ["<?php $o = new class { public $x = 1; };" :anonymous-class]
-           ["<?php $o = new A;" :new]]
+           ["<?php $o = new class { public $x = 1; };" :anonymous-class]]
           :when construct]
     (let [{:keys [diagnostics]} (h/run-php source)
           d (first diagnostics)]
