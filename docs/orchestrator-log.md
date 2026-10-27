@@ -13569,3 +13569,14 @@ Done: Owner confirmed the observation that bin/datastar.sh simply downloads data
 Decisions: keep the version pin where it lives (dao.star-cart.view/datastar-version, asserted by the SSE byte tests); a future bump is a curl + commit, documented nowhere — acceptable for a demo, noted here.
 Verification: no references to bin/datastar or vendor-datastar remain under demo/; git status clean; origin/master a98377e7 includes the other seat's J4d merge (rebased cleanly).
 Next: owner browser check.
+
+## 2026-10-27 14:20:00 +0700 — dao.star cart library pinned via :deps/root src (master fce91d22); daostar-cart rename + flat resources landed; redeployed
+Completed-GMT: 2026-10-27 07:20:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f88fb31a (pushed); dao-star-demo = master; worktree re-anchored; shiva deploy moved to fresh ds3 at f88fb31a
+Done: Owner: pin demo deps.edn to the datomworld GitHub master hash; rename demo/daostar -> demo/daostar-cart; flatten its resources/ (dao_star_cart layer removed: resources/{catalog.edn,public/{images,css,js}}); Dockerfile at the daostar root; docker optional; docker instructions in the one README. The pin works via :deps/root "src": a new src/deps.edn at the repo root is the library manifest for git consumers (paths cljc+clj, the five resolvable deps, nothing else), and the demo's deps.edn pins sha fce91d22303f6246c38560ee2f9066f2b2a0fdf9. Verified: clj -P resolves from GitHub with zero errors and no escaping-path deprecations (the old ../ manifest paths are deprecated and were silently dropped by the current tools.deps — the direct cause of the debugging round); clj -M:test 39/550/0; shiva fresh-clone self-contained docker build and redeploy: shop/grid/ASCII/CJK all 200, persisted probe intact.
+Decisions/lessons: (1) :deps/root for git deps resolves relative to the CHECKOUT ROOT — "lib" failed while "demo/daostar-cart/lib" was the correct shape, and escaping ../ paths in a dep manifest are deprecated-and-dropped, which is why src/deps.edn exists at the repo root (inert for all other builds). (2) The seat's recurring failure mode struck repeatedly: multi-line text edits via python str.replace silently no-opped twice; git operations hit the wrong tree four times; ONE fabricated sha tail (caught before use by re-reading). Standing rules reaffirmed: Edit tool for text, git -C always, read back every fabricated value, verify branch moved after worktree commits. (3) Main-repo demo/daostar-cart now holds a local copy of the gitignored images for tests.
+Verification: as above; the deployed image was built from the self-contained context (no repo sources COPYed).
+Delegates: none (orchestrator-direct).
+Next: owner browser check; sha-bump procedure: update :git/sha, rm .cpcache, clj -P, clj -M:test, redeploy.
