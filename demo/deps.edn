@@ -1,0 +1,19 @@
+{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+        org.clojure/core.async {:mvn/version "1.8.741"}
+        org.clojure/data.json {:mvn/version "2.5.0"}
+        http-kit/http-kit {:mvn/version "2.8.0"}
+        ;; http-kit's websocket support requires ring.websocket.protocols
+        org.ring-clojure/ring-websocket-protocols {:mvn/version "1.14.1"}
+        io.github.rctcwyvrn/blake3 {:mvn/version "1.3"}}
+ ;; The demo needs none of datomic, postgres, antlr, jsoup or stigmergy/chp.
+ ;; Paths: the demo's own trees plus the library sources it composes
+ ;; (dao.stream, dao.star, dao.space, dao.lease, dao.await, yin.vm).
+ :paths ["src/clj" "src/cljc" "resources"
+         "../src/cljc" "../src/clj" "../resources"]
+ :aliases
+ {:test
+  {:extra-paths ["test"]
+   :extra-deps {io.github.cognitect-labs/test-runner
+                {:git/url "https://github.com/cognitect-labs/test-runner"
+                 :git/tag "v0.5.1" :git/sha "dfb30dd"}}
+   :main-opts ["-m" "cognitect.test-runner" "-d" "test"]}}}

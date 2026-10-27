@@ -2,17 +2,19 @@
 # images present at resources/dao_star_cart/public/images/ (gitignored; the
 # orchestrator copies them to the build host out of band).
 #
-#   docker build -f docker/dao-star-cart/Dockerfile -t dao-star-cart .
+#   docker build -f demo/docker/dao-star-cart/Dockerfile -t dao-star-cart .
 #   docker run -p 3004:3004 -v star-cart-data:/data -e CATALOG_PATH=/data/catalog.edn dao-star-cart
 
 FROM clojure:temurin-21-tools-deps AS build
 WORKDIR /app
 # deps first, so the dependency layer caches
-COPY docker/dao-star-cart/deps.edn deps.edn
+COPY demo/deps.edn deps.edn
 RUN clj -P
-COPY src/clj src/clj
 COPY src/cljc src/cljc
-COPY resources/dao_star_cart resources/dao_star_cart
+COPY src/clj src/clj
+COPY resources resources
+COPY demo/src demo/src
+COPY demo/resources demo/resources
 
 FROM clojure:temurin-21-tools-deps
 WORKDIR /app
