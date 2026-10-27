@@ -37,6 +37,16 @@
    :task (System/exit
            (:exit (shell {:continue true} "bb" "native/jolt-crypto/probes/run.clj")))}
 
+  test:jolt-j5
+  {:doc "J5 acceptance: one Python session through the JVM and jolt REPL entry points with the standard catalog (output equal line for line), the multiline probe sequence, and the unavailable-library REPL legs (needs bb build:jolt-native)"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "src/dev/jolt_j5_acceptance.clj")))}
+
+  probe:jolt-j5
+  {:doc "J5: the native Python parser's budget (input 4 MiB, nesting 256, stack-clamped) below/at/above both axes, 10x the old crash depths, the JVM's packets below the bound, the old crash depths refusing in children, injected C++ faults, the abort-is-a-failure harness property, and the unavailable-library legs (needs bb build:jolt-native)"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "src/dev/jolt_j5_run.clj")))}
+
   probe:jolt-file
   {:doc "J4a: native/jolt-file gates, each in a child process: JVM-identical frame bytes (both hash algorithms), F2 s32BE prefixes, strict reads, injected short/EINTR/zero-progress/error transfers, corrupt-open byte identity, idempotent close, no fd or native-memory leak, a full collection during a 1 GiB :blocking pwrite, missing/wrong-layout wrapper refused before guest work, exported-symbol allowlist (needs bb build:jolt-native)"
    :task (System/exit
