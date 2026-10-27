@@ -15,7 +15,6 @@
     #?@(:cljd [[yang.python.antlr.repl :as python.antlr.repl]
                [yang.python.antlr.parser :as python.antlr.parser]
                [yang.python.antlr.repl-probe :as python.antlr.probe]]
-        :jolt [] ; J5 installs the native Python parser.
         :default [[yang.python.antlr.repl :as python.antlr.repl]
                   [yang.python.antlr.parser :as python.antlr.parser]
                   [yang.python.antlr.repl-probe :as python.antlr.probe]])
@@ -78,7 +77,28 @@
                        :lower-session python.antlr.repl/lower-session,
                        :render python.antlr.repl/display-value,
                        :probe python.antlr.probe/probe})]
-        :jolt [] ; J5: Python is not installed, never a parser fallback.
+        ;; jolt (J5): installed over the C++ parser when native/jolt-parser
+        ;; is available; otherwise left out, so (lang :yang/python) answers
+        ;; unavailable-parser, never another parser
+        :jolt [(python.antlr.parser/available?)
+               (frontend/install
+                 (antlr-manifest)
+                 {;; a :parser-budget or :unavailable-parser refusal names
+                  ;; the language it refused
+                  :parse (fn [source]
+                           (try (python.antlr.parser/parse-source (str source "\n"))
+                                (catch Exception e
+                                  (if (#{:parser-budget :unavailable-parser}
+                                       (:diagnostic (ex-data e)))
+                                    (throw (ex-info (ex-message e)
+                                                    (assoc (ex-data e) :lang :yang/python)
+                                                    e))
+                                    (throw e))))),
+                  :lower python.antlr.repl/lower,
+                  :primitives python.antlr.repl/primitives,
+                  :lower-session python.antlr.repl/lower-session,
+                  :render python.antlr.repl/display-value,
+                  :probe python.antlr.probe/probe})]
         :default [true (frontend/install
                          (antlr-manifest)
                          {:parse (fn [source]
