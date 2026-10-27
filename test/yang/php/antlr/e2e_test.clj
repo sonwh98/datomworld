@@ -4,12 +4,18 @@
    the semantic, stack and register VMs). Every fixture of
    `yang.php.antlr.programs` prints the same text on all four."
   (:require
+    [clojure.edn :as edn]
+    [clojure.java.io :as io]
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.packets :as packets]
-    [yang.php.antlr.programs :as programs]))
+    [yang.php.antlr.packets-p3b :as packets-p3b]
+    [yang.php.antlr.permutations :as perms]
+    [yang.php.antlr.phpt :as phpt]
+    [yang.php.antlr.programs :as programs]
+    [yang.php.antlr.programs-p3b :as p3b]))
 
 
 (def ^:private vms [:ast-walker :semantic :stack :register])
@@ -80,18 +86,13 @@
 
 (deftest refusals-are-named-test
   (doseq [[source construct]
-          [["<?php $a = &$b;" :reference]
+          [["<?php $a = &f();" :reference-source]
            ["<?php $a->b = 1;" :assignment-target]
            ["<?php $$a[0] = 1;" :assignment-target]
-           ["<?php [$a, $b] = $c;" :list]
-           ["<?php echo [&$a];" :reference]
            ["<?php function f(int $a) {}" :type-declaration]
            ["<?php function f(): int {}" :return-type]
-           ["<?php function f(&$a) {}" :reference]
-           ["<?php function f(...$a) {}" :variadic]
-           ["<?php foreach ($a as &$b) {}" :reference]
-           ["<?php foreach ($a as [$b, $c]) {}" :list]
-           ["<?php global $a;" :global]
+           ["<?php function f(&...$a) {}" :variadic-reference]
+           ["<?php $a = &new B;" :reference]
            ["<?php static $a = 1;" :static]
            ["<?php return 1;" :return]
            ["<?php echo FOO;" :constant]
@@ -212,3 +213,157 @@
     (is (= "NULL\nstring(1) \"h\"\n"
            (h/run-walker (str "<?php function h() {} var_dump(set_error_handler('h'));"
                               " var_dump(set_error_handler(null));"))))))
+
+
+(deftest stage0-enabled-fixtures-on-the-walker-test
+  (doseq [{:keys [id source out diag uncaught level]} p3b/enabled
+          :when (= :program level)
+          :let [r (h/run-raw source)]]
+    (is (= out (h/latin1->text (:php/out r))) (name id))
+    (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
+    (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
+        (name id))))
+
+
+(deftest ^:slow stage0-enabled-fixtures-on-every-vm-test
+  (doseq [{:keys [id source level] :as fixture} p3b/enabled
+          :when (= :program level)
+          :let [out (rendered fixture)]]
+    (let [results (h/run-php source)]
+      (is (not (contains? results :diagnostics)) (pr-str results))
+      (doseq [k vms]
+        (is (= out (get results k)) (str (name id) " on " k))))))
+
+
+(deftest stage0-packets-match-source-test
+  (doseq [[id form] packets-p3b/forms
+          :let [{:keys [source]} (first (filter #(= id (:id %)) p3b/all-fixtures))]]
+    (is (= form (h/packet->form (cst/parse-source source))) (name id))))
+
+
+;; -----------------------------------------------------------------------------
+;; S10: permutation corpus and php-src selection
+;; -----------------------------------------------------------------------------
+
+(defn- read-edn-file
+  [path]
+  (let [f (io/file path)]
+    (when (.exists f) (edn/read-string (slurp f)))))
+
+
+(defn- engine-result
+  "`{:out :diag :uncaught}` of `source` on the walker, in the oracle's shape, or
+   `{:refused diagnostics}` / `{:threw message}`."
+  [source]
+  (try
+    (let [r (h/run-raw source)]
+      (if (:diagnostics r)
+        {:refused (mapv :message (:diagnostics r))}
+        {:out (h/latin1->text (:php/out r)),
+         :diag (mapv (juxt :errno :message) (:php/diag r)),
+         :uncaught (some-> (:php/uncaught r) (select-keys [:class :message]))}))
+    (catch Throwable t {:threw (str t)})))
+
+
+(defn- run-corpus
+  "Run `programs` against the recorded oracle map: `{:total :compared :mismatches}`
+   where a host throw or a refusal is always a mismatch."
+  [programs oracle]
+  (reduce (fn [acc {:keys [id source]}]
+            (let [r (engine-result source)
+                  want (get oracle id)
+                  bad (or (contains? r :threw) (contains? r :refused)
+                          (and want (not= (update want :diag vec) (update r :diag vec))))]
+              (cond-> (update acc :total inc)
+                want (update :compared inc)
+                bad (update :mismatches conj [id r]))))
+          {:total 0, :compared 0, :mismatches []}
+          programs))
+
+
+(deftest permutation-corpus-quick-test
+  (let [oracle (read-edn-file "test/yang/php/antlr/permutation_oracle_quick.edn")
+        {:keys [total compared mismatches]} (run-corpus (perms/quick) oracle)]
+    (is (= (* 2 (count perms/quick-ids)) total))
+    (is (empty? mismatches) (pr-str (take 3 mismatches)))
+    (when-not oracle
+      (println "permutation corpus: no recorded oracle yet, ran" total "programs without comparison"))
+    (when oracle
+      (is (= total compared) "every quick program has a recorded oracle result"))))
+
+
+(deftest ^:slow permutation-corpus-full-test
+  (let [oracle (read-edn-file "build/yang-php/permutation_oracle_full.edn")
+        {:keys [total mismatches]} (run-corpus (perms/full) oracle)]
+    (is (= (* 2 (count perms/full-ids)) total))
+    (is (empty? mismatches) (pr-str (take 3 mismatches)))))
+
+
+(deftest phpt-parsing-and-matching-test
+  (let [text "--TEST--\nt\n--FILE--\n<?php echo 1;\n--EXPECTF--\nint(%d) %s\n"
+        sections (phpt/parse-phpt text)]
+    (is (= "t" (get sections "TEST")))
+    (is (= "<?php echo 1;" (get sections "FILE")))
+    (is (phpt/matches-expect? sections "int(42) abc\n"))
+    (is (not (phpt/matches-expect? sections "int(x) abc")))
+    (is (phpt/matches-expect? (phpt/parse-phpt "--FILE--\nx\n--EXPECT--\nhi\n") "hi\n")))
+  (testing "classification"
+    (is (= :select (:status (phpt/classify {"FILE" "<?php function f(&$x){} f($a); echo count([]);",
+                                            "EXPECT" "x"}))))
+    (is (= :p4 (:needs (phpt/classify {"FILE" "<?php class A {} new A;", "EXPECT" "x"}))))
+    (is (= :unsupported-surface
+           (:reason (phpt/classify {"FILE" "<?php preg_match('/a/', 'a');", "EXPECT" "x"}))))
+    (is (= :unknown-functions
+           (:reason (phpt/classify {"FILE" "<?php mystery_fn(1);", "EXPECT" "x"}))))
+    (is (= :no-expectation (:reason (phpt/classify {"FILE" "<?php echo 1;"})))))
+  (testing "path predicates"
+    (is (phpt/selected-path? "Zend/tests/list/list_001.phpt"))
+    (is (phpt/selected-path? "ext/standard/tests/array/current_variation1.phpt"))
+    (is (not (phpt/selected-path? "ext/standard/tests/strings/sprintf_basic1.phpt")))))
+
+
+(deftest phpt-selection-runs-test
+  (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
+    (let [entries (remove :needs (:entries sel))
+          results (for [{:keys [id source expect expectf]} entries
+                        :let [r (engine-result source)]]
+                    (cond
+                      (:refused r) [:unsupported id]
+                      (:threw r) [:fail id]
+                      (phpt/matches-expect?
+                        (cond-> {} expect (assoc "EXPECT" expect) expectf (assoc "EXPECTF" expectf))
+                        (str (:out r)
+                             (when (:uncaught r)
+                               (str "Fatal error: Uncaught " (:class (:uncaught r)) ": "
+                                    (:message (:uncaught r))))))
+                      [:pass id]
+                      :else [:fail id]))
+          by (group-by first results)]
+      (println "php-src selection:" (count (:entries sel)) "entries;"
+               "pass" (count (:pass by)) "unsupported" (count (:unsupported by))
+               "fail" (count (:fail by)))
+      (is (empty? (:fail by)) (pr-str (take 5 (:fail by)))))
+    (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
+
+
+(deftest gate-fix-programs-test
+  (testing "var_dump of a self-referencing array terminates with *RECURSION*"
+    (let [r (engine-result "<?php $a = [1]; $a[0] = &$a; var_dump($a);")]
+      (is (str/includes? (:out r) "*RECURSION*") (pr-str r))
+      (is (nil? (:uncaught r)))))
+  (testing "comparing two cyclic arrays is a nesting Error"
+    (is (= "Nesting level too deep - recursive dependency?"
+           (:out (engine-result
+                   (str "<?php $a = [1]; $a[0] = &$a; $b = [1]; $b[0] = &$b;"
+                        " try { var_dump($a == $b); } catch (Error $e) { echo $e->getMessage(); }"))))))
+  (testing "C25: a string-key spread is refused with the named gap"
+    (let [r (engine-result (:source (first (filter #(= :call-spread-string-key-gap (:id %))
+                                                   p3b/all-fixtures))))]
+      (is (= {:class "Error",
+              :message "spread with string keys is not supported yet (yang.php known gap G-spread-string-keys)"}
+             (:uncaught r)))))
+  (testing "C28: a later named argument is evaluated before the unknown name is rejected"
+    (is (= "SUnknown named parameter $z"
+           (:out (engine-result
+                   (:source (first (filter #(= :call-unknown-named-later-arg-runs (:id %))
+                                           p3b/all-fixtures)))))))))

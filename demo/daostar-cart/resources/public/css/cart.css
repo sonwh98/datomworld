@@ -30,3 +30,10 @@ footer { margin-top:2rem; color:var(--mute); font-size:.85rem; }
 .imgs, .editor .tags { list-style:none; padding:0; } .imgs li { display:flex; gap:.5rem; align-items:center; margin:.25rem 0; } .imgs img { width:48px; height:48px; object-fit:contain; background:#fff; border-radius:4px; }
 .status { padding:.3rem .6rem; border-radius:6px; } .saving { color:var(--mute); } .saved { color:var(--ok); } .rejected { color:var(--bad); }
 .warn { color:var(--bad); font-size:.85rem; } .loading { color:var(--mute); }
+
+/* tagory chips */
+.tagories{display:flex;flex-wrap:wrap;gap:.5rem;margin:1rem 0}
+.tagories button{background:#1a1f2e;border:1px solid #2a3145;color:#aab4d0;
+  padding:.35rem .8rem;border-radius:999px;cursor:pointer;font-size:.85rem}
+.tagories button:hover{border-color:#5b7cff;color:#dfe6ff}
+.tagories button.chip.on{background:#5b7cff;border-color:#5b7cff;color:#fff}

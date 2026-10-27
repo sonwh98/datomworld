@@ -65,8 +65,7 @@
         imgs (group-by first
                        (sort-by second
                                 (rows db' '[:find ?s ?i ?u :where [?e :item/slug ?s]
-                                            [?e :item/images ?i] [?i :image/url ?u]])
-                                ))
+                                            [?e :item/images ?i] [?i :image/url ?u]])))
         tags (group-by first
                        (rows db' '[:find ?s ?n :where [?e :item/slug ?s]
                                    [?e :item/tagories ?t] [?t :tagory/name ?n]]))]
@@ -82,6 +81,13 @@
 (defn item
   [db' slug]
   (first (filter #(= slug (:key %)) (items db'))))
+
+
+(defn tagories
+  "The distinct tagory names, sorted."
+  [db']
+  (vec (sort (map first
+                  (query/collect (query/q '[:find ?n :where [?t :tagory/name ?n]] db'))))))
 
 
 (defn item-eid

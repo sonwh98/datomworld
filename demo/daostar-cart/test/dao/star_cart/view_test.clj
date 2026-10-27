@@ -12,7 +12,8 @@
 
 (def catalog
   {:items (fn [] items)
-   :item (fn [slug] (first (filter #(= slug (:key %)) items)))})
+   :item (fn [slug] (first (filter #(= slug (:key %)) items)))
+   :tagories (fn [] ["t" "other"])})
 
 
 (deftest datastar-sse-bytes-match-the-pinned-vocabulary
@@ -38,13 +39,17 @@
     (is (str/includes? page "src=\"/js/datastar.js\""))
     (is (str/includes? page "href=\"/css/cart.css\""))
     (is (str/includes? page "data-init=\"@get('/s/ROOT',{retry:'always'})\""))
-    (is (str/includes? (grid-view/grid-begin "ROOT") "data-init=\"@get('/grid/s/ROOT',{retry:'always'})\""))))
+    (is (str/includes? (grid-view/grid-begin "ROOT") "data-init=\"@get('/grid/s/ROOT',{retry:'always'})\""))
+    (is (str/includes? page "type=\"search\""))
+    (is (str/includes? page "data-on:input__debounce.150ms"))
+    (is (str/includes? page "id=\"app-body\""))))
 
 
 (deftest the-shop-projects-catalog-detail-and-cart
   (testing "catalog: escaped names, encoded image urls, blank-name items hidden"
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
-      (is (str/starts-with? sse "event: datastar-patch-elements\ndata: elements <div id=\"app\">"))
+      (is (str/starts-with? sse "event: datastar-patch-elements\ndata: elements <div id=\"app-body\">"))
+      (is (not (str/includes? sse "type=\"search\""))) "the search input is never patched"
       (is (str/ends-with? sse "\n\n"))
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (str/includes? sse "<img src=\"/images/a%20b.png\""))
@@ -69,19 +74,21 @@
       (is (every? #(str/starts-with? % "/grid/") urls) (pr-str urls))
       (is (not (str/includes? sse "bad <price>")) "escaped"))))
 
+
 (deftest the-catalog-search-field-filters-items
-  (testing "the field renders on the catalog with the act protocol and no value initially"
-    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search ""})]
-      (is (str/includes? sse "type=\"search\""))
-      (is (str/includes? sse "$act='search'; $arg=event.target.value; @post('/k/TOK')"))
-      (is (str/includes? sse "value=\"\"")))
-    (let [page (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
-      (is (str/includes? page "type=\"search\"")) "the field also renders when the model predates :search"))
-  (testing "a query keeps its text in the field and filters case-insensitively by name"
+  (testing "the search input is a begin-page sibling of the patched body"
+    (let [page (v/shop-begin "ROOT")]
+      (is (str/includes? page "type=\"search\""))
+      (is (str/includes? page "data-bind:search"))
+      (is (str/includes? page "$act='search'; $arg=$search; @post('/k/ROOT')"))
+      (is (str/includes? page "search:"))
+      (is (not (str/includes? page "value=\"")))
+      (is (not (str/includes? page "event.target")))))
+  (testing "the query filters the grid; the patch carries no input field"
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "alp"})]
-      (is (str/includes? sse "value=\"alp\""))
       (is (str/includes? sse "Alpha &lt;b&gt;"))
-      (is (not (str/includes? sse "Bravo"))))
+      (is (not (str/includes? sse "Bravo")))
+      (is (not (str/includes? sse "type=\"search\""))))
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "ALP"})]
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (not (str/includes? sse "Bravo")))))
@@ -90,4 +97,30 @@
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (str/includes? sse "Bravo")))
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
+      (is (str/includes? sse "Bravo")))))
+
+
+(deftest the-catalog-organizes-items-by-tagories
+  (testing "the tagory row renders All and one chip per tagory"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory ""})]
+      (is (str/includes? sse "class=\"tagories\""))
+      (is (str/includes? sse "$act=&#39;tagory&#39;; $arg=&#39;&#39;; @post('/k/TOK')"))
+      (is (str/includes? sse ">t</button>"))
+      (is (str/includes? sse ">other</button>"))))
+  (testing "a selected tagory is highlighted and filters the grid"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory "t"})]
+      (is (str/includes? sse "class=\"chip on\""))
+      (is (str/includes? sse "Alpha &lt;b&gt;"))
+      (is (not (str/includes? sse "&gt;Bravo&lt;"))))
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory "other"})]
+      (is (str/includes? sse "class=\"chip on\""))
+      (is (not (str/includes? sse "&gt;Alpha &lt;b&gt;&lt;/h3&gt;")))
+      (is (not (str/includes? sse "&gt;Bravo&lt;")))))
+  (testing "the tagory filter combines with the search text"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}
+                                             :search "bravo" :tagory "t"})]
+      (is (not (str/includes? sse "&gt;Bravo&lt;")))
+      (is (not (str/includes? sse "&gt;Alpha &lt;b&gt;&lt;/h3&gt;")))))
+  (testing "an empty tagory matches everything"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory ""})]
       (is (str/includes? sse "Bravo")))))

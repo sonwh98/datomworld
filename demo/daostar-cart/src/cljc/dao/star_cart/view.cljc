@@ -91,15 +91,18 @@
 
 (defn begin-page
   "The complete HTML document at the root: the vendored script, the
-   stylesheet, base signals, and a subscription to the lineage's token."
-  [{:keys [prefix title signals root]}]
+   stylesheet, base signals, a subscription to the lineage's token, and
+   `pre` — markup placed before the app body (the search input renders there
+   once, as a sibling of every patched element)."
+  [{:keys [prefix title signals root pre]}]
   (str "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
        "<title>" (esc title) "</title>"
        "<link rel=\"stylesheet\" href=\"/css/cart.css\">"
        "<script type=\"module\" src=\"/js/datastar.js\"></script></head>"
        "<body data-signals=\"" (esc signals) "\" data-init=\"@get('" prefix "/s/" (esc root) "',{retry:'always'})\">"
-       "<div id=\"app\"><p class=\"loading\">Loading…</p></div></body></html>"))
+       pre
+       "<div id=\"app-body\"><p class=\"loading\">Loading…</p></div></body></html>"))
 
 
 ;; -----------------------------------------------------------------------------
@@ -145,12 +148,18 @@
 
 
 (defn- search-box
-  "The catalog's search field.  Typing sets the signals and posts to the
-   occurrence token; `value` keeps the field's text across re-projections."
-  [token q]
+  "The catalog's search field.  Rendered ONCE, on the begin page, and never
+   re-projected: the input is outside every patched element, so typing is
+   never clobbered by a morph (the letters-disappearing bug).  The input
+   binds the `search` signal; the debounced handler reads `$search` from the
+   signal store — `event` is out of scope under `__debounce` (the console
+   TypeError this replaces) — and posts to the occurrence token; the program
+   holds the text, and the grid under the field filters on it."
+  [token]
   (str "<section class=\"search\"><input type=\"search\" placeholder=\"Search products…\""
-       " value=\"" (esc (or q "")) "\""
-       " data-on:input=\"$act='search'; $arg=event.target.value; @post('/k/" (esc token) "')\""
+       " data-bind:search"
+       " data-on:input__debounce.150ms=\"$act='search'; $arg=$search; @post('/k/"
+       (esc token) "')\""
        " autocomplete=\"off\"></section>"))
 
 
@@ -164,12 +173,34 @@
                        (str/lower-case t)))))
 
 
+(defn- in-tagory?
+  "An empty tagory selection matches everything; otherwise the item must
+   carry the tagory."
+  [tagory item]
+  (or (empty? (str/trim (str tagory)))
+      (some #(= tagory %) (:tagories item))))
+
+
+(defn- tagory-chips
+  "The tagory row: All, then one chip per tagory; the selected one is
+   highlighted.  A chip is a button with the `tagory` act."
+  [token tagories selected]
+  (str "<section class=\"tagories\">"
+       (button "" token "All" "tagory" "")
+       (apply str (for [t tagories]
+                    (str "<button type=\"button\" class=\"chip"
+                         (when (= t selected) " on")
+                         "\" data-on:click=\"" (act "" token "tagory" t) "\">"
+                         (esc t) "</button>")))
+       "</section>"))
+
+
 (defn- catalog-page
-  [catalog token q]
-  (str (search-box token q)
+  [catalog token q tagory]
+  (str (tagory-chips token ((:tagories catalog)) tagory)
        "<section class=\"grid\">"
        (apply str (map #(card token %)
-                       (filter #(matches? q %)
+                       (filter #(and (matches? q %) (in-tagory? tagory %))
                                (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))))
        "</section>"))
 
@@ -209,22 +240,26 @@
   "`(project-fn occurrence-id model)` for the shop, over `catalog`, a map of
    `:items (fn [])` and `:item (fn [slug])`.  Pure: re-projecting a stored
    model re-reads the catalog, so a stale view is a view of the catalog as of
-   its last projection."
+   its last projection.
+
+   The patched element is `#app-body`: the search input on the begin page is
+   its SIBLING, so a morph never touches it while the user types."
   [catalog token model]
   (let [cart (:cart model)
         n (reduce + 0 (filter pos? (vals cart)))]
     (sse-elements
-      (str "<div id=\"app\">" (header token n)
+      (str "<div id=\"app-body\">" (header token n)
            "<main>"
            (case (:page model)
              "item" (item-page catalog token (:item model))
              "cart" (cart-page catalog token cart)
              "checkout" "<section class=\"cart\"><h2>Order received</h2><p>This is a demo: no payment was taken.</p></section>"
-             (catalog-page catalog token (:search model)))
+             (catalog-page catalog token (:search model) (:tagory model)))
            "</main><footer>Catalog as of last page load.</footer></div>"))))
 
 
 (defn shop-begin
   [root]
   (begin-page {:prefix "" :title "dao.star cart" :root root
-               :signals "{act: '', arg: ''}"}))
+               :signals "{act: '', arg: '', search: ''}"
+               :pre (search-box root)}))

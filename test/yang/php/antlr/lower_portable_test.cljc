@@ -7,8 +7,10 @@
     [clojure.test :refer [deftest is testing]]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.packets :as packets]
+    [yang.php.antlr.packets-p3b :as packets-p3b]
     [yang.php.antlr.portable-harness :as h]
     [yang.php.antlr.programs :as programs]
+    [yang.php.antlr.programs-p3b :as p3b]
     [yang.core.uast :as u]))
 
 
@@ -47,10 +49,10 @@
 
 (deftest unsupported-rule-names-its-construct-test
   (is (= {:yang.php/diagnostic :yang.php/unsupported,
-          :rule "throwStatement",
-          :construct :throw}
+          :rule "gotoStatement",
+          :construct :goto}
          (diagnostic (h/packet [:htmlDocument
-                                [:phpBlock [:topStatement [:statement [:throwStatement]]]]
+                                [:phpBlock [:topStatement [:statement [:gotoStatement]]]]
                                 ["EOF" "<EOF>"]])))))
 
 
@@ -84,3 +86,52 @@
     (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
     (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
         (name id))))
+
+
+(deftest enabled-stage0-fixtures-run-from-packets-test
+  (let [enabled (filter #(= :program (:level %)) p3b/enabled)]
+    (testing "every enabled program fixture has a packet, and no stale packets"
+      (is (= (set (map :id enabled)) (set (keys packets-p3b/forms)))))
+    (doseq [{:keys [id out diag uncaught oracle]} enabled
+            :let [form (get packets-p3b/forms id)
+                  r (when form (h/run-packet-raw (h/packet form)))]
+            :when form]
+      (is (not= :pending oracle) (name id))
+      (is (= out (:php/out r)) (name id))
+      (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
+      (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
+          (name id)))))
+
+
+(deftest stage0-registry-and-activation-test
+  (let [all p3b/all-fixtures
+        ids (map :id all)]
+    (testing "ids are unique across the whole registry"
+      (is (= (count ids) (count (set ids))))
+      (is (empty? (filter (set (map :id programs/fixtures)) ids))))
+    (testing "every fixture declares group, level, requires and source"
+      (doseq [f all]
+        (is (every? #(contains? f %) [:id :group :level :requires :source :rows :oracle])
+            (name (:id f)))))
+    (testing "enabled is exactly the fixtures whose steps have landed"
+      (is (= (set (map :id p3b/enabled))
+             (set (map :id (filter p3b/enabled? all)))))
+      (is (every? #(contains? p3b/completed-steps %) (mapcat :requires p3b/enabled))))
+    (testing "an enabled fixture is never pending (activation fails the run)"
+      (is (empty? (filter #(= :pending (:oracle %)) p3b/enabled))))
+    (testing "the wiring fixtures stay disabled until their step lands"
+      (is (some #(= :closure-call-user-class (:id %)) all))
+      (is (not-any? #(= :closure-call-user-class (:id %)) p3b/enabled)))
+    (testing "every recorded oracle result equals the design-pinned expectation"
+      (doseq [f all
+              :let [r (get p3b/recorded (:id f))]
+              :when r]
+        (is (= p3b/banner (:oracle f)) (name (:id f)))
+        (is (= (:out r) (:out f)) (name (:id f)))
+        (is (= (:diag r) (vec (:diag f))) (name (:id f)))
+        (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
+    (testing "only the escalated and not-yet-recorded fixtures are still pending"
+      (is (= #{:foreach-ref-array-reassigned-in-loop}
+             (set (map :id (filter #(= :pending (:oracle %)) all)))))
+      (is (= 10 (count (filter #(= :typed-ref-candidates (:group %)) all)))
+          "the S9 text candidates are all recorded"))))

@@ -56,3 +56,6 @@ docs/agents/routing-status.md
 
 # dao.star demo: product images from the live shop; too large for git
 demo/daostar-cart/resources/public/images/
+
+# demo runtime state
+demo/daostar-cart/target/

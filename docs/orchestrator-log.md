@@ -13580,3 +13580,88 @@ Decisions/lessons: (1) :deps/root for git deps resolves relative to the CHECKOUT
 Verification: as above; the deployed image was built from the self-contained context (no repo sources COPYed).
 Delegates: none (orchestrator-direct).
 Next: owner browser check; sha-bump procedure: update :git/sha, rm .cpcache, clj -P, clj -M:test, redeploy.
+
+## 2026-10-27 17:10:00 +0700 — dao.star cart: the shop organizes items by tagories (owner domain clarification), live-verified
+Completed-GMT: 2026-10-27 10:10:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 3ea4ef63 + follow-up (pushed); dao-star-demo = master; worktree synced
+Done: Owner clarified the domain: items are organized by tagories (tag+category), 0-or-more per item. The data layer already matched (many-valued :item/tagories ref; the grid editor manages them); the SHOP now organizes by them: a tagory chip row on the catalog (All + one chip per tagory, selected highlighted), the selected tagory is a local of the session continuation (a "tagory" act, the same pattern as search), and the projection filters by tagory membership combined with the search text. Distinct tagory list via dao.space.query/q (catalog/tagories, 13 in the live data, non-ASCII included). Chip css added. Runtime artifact demo/daostar-cart/target/cart-catalog.edn was accidentally committed and is now untracked with target/ ignored.
+Decisions: implement orchestrator-direct (mechanical application of the search pattern). Verification slips this round: paren balances in hand-edited program.cljc (two attempts) and a dropped trailing def (caught by No such var); test assertions written against wrong fixture values and raw-vs-escaped HTML — all caught by the suite and fixed; final green.
+Verification: 40 tests / 563 assertions / 0 failures; kondo clean; shiva live e2e over real HTTP: posted a tagory act ("PS4 console") to a live session — the re-projection shows the chips (all 13 + All), the selected chip highlighted, and exactly 1 item card (the PS4 console item).
+Delegates: none (orchestrator-direct).
+Next: owner browser check.
+
+## 2026-10-27 19:35:00 +0700 — datomic-compat track: ORACLE EXECUTED — 28/29 pending cases observed; 3 unexpected divergences ruled on by the architect (r11 in flight)
+Completed-GMT: 2026-10-27 12:35:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7; Phase 5 branch datomic-q-p5-ci @e4eed5f5 (reconciliation committed; pushed)
+Done: The oracle EXECUTED on real Datomic (Local 1.0.301 + client-api 1.0.69, pairing verified from the loaded jars): 110 eligible cases observed identically in the local run and the Docker run on jupiter (108/110 byte-identical observations; rand + row-order differ by nature). Reconciliation committed (docker/oracle/reconciliation.md @e4eed5f5): 28/29 pending cases observed (29th count correction: Phase 3 promoted rules.required-bound-head); 25 conclusive, 3 not comparable (bounds.* DaoSpace-specific limits). Classification: 10 executable cases confirm the contract's stated expectation; 4 agree apart from the documented :db/id pull difference; 3 CONFIRM the Phase 1 conservative find-shape treatment (Datomic's Client refuses scalar/tuple/collection finds); 7 are Datomic accepting what DaoSpace deliberately refuses (all documented rows: :ret ignored, unknown options, :query-stats, negative offset, 5-position patterns, recursive pull, list-form pull); 1 unexpected; 3 not comparable. THE HEADLINE: after the runner's id-mapping fix, ALL 10 re-run executable cases agree — left/right/both/mutual recursion, unbound entry, stratified negation: Datomic's rule semantics EQUAL the Phase 3 tabling semantics on every corpus shape. Recursion through negation is a bare StackOverflowError in Datomic vs DaoSpace's loud pre-evaluation refusal.
+Three unexpected divergences (U1 even-count median truncation vs our double-mean convention; U2 Datomic accepts non-positive aggregate params returning empty; U3 Datomic refuses schema-absent attributes vs schema-free no-rows) routed to the architect for rulings (r11, astra thread) — they are convention/compat decisions per the autonomous mandate.
+Decisions: reconciliation honest and complete; no fixture change made (the mixed-type ties cases stay DaoSpace-only: splitting would test a different property); the runner id-mapping must land before the 10 cases promote (mechanical carry).
+Verification: reconciliation committed on the branch; cross-execution consistency 108/110; r11 IN FLIGHT.
+Delegates: qa-engineer reconciliation (findings promoted); architect astra r11 IN FLIGHT (thread 01a16d38).
+Next: rulings -> promotion round (id-mapping lands; corpus E15/rows updated per rulings; re-digest) -> glm review -> architect sign-off on the QUALIFIED CLAIM -> owner ratification -> contract status flips -> track completion.
+
+## 2026-10-27 19:45:00 +0700 — datomic-compat track: U1-U3 RULED (astra r11); promotion round dispatched with the rulings as binding
+Completed-GMT: 2026-10-27 12:45:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7; Phase 5 branch datomic-q-p5-ci @e4eed5f5
+Done: astra r11 ruled all three divergences: U1 KEEP our median convention (double mean), median = documented difference with the architect's E15 text transcribed verbatim ([1 2 3 4 4 10] => 3 vs 3.5, [1.0 2.0] => 1.0 vs 1.5, mixed refusal); agg.median-with-multiplicity reclassified documented-difference. U2 MATCH Datomic — implement in the GENERIC core: (min/max n ?x) accept integer n; n<=0 => empty vector for an existing group; positives keep ordering/multiplicity/ties; non-integer/arity refusals stay. Promotion prerequisites: replace zero/negative refusal pins with result assertions, grouped+ungrouped min/max tests, MEASURE max 0/max -1 through the oracle (observations only establish min), E15/docs/provenance/digest updates, three-host affected suites. U3 KEEP schema-free with the architect's supported-domain row transcribed verbatim. Carry-forwards: the id-mapping becomes explicit source-scoped identity annotations/enumerated positions (never rewriting ordinary numerics) + a collision test + loader provenance; fulltext oracle qualification DEFERRED to a future profile (ambient.fulltext-refused stays executable-refusal, Datomic observation inconclusive — the compiler error proves neither refusal nor support); evidence-promotion precision: oracle-executed stays distinct from agreement/documented-difference/inconclusive; the qualified claim must name these boundaries.
+Decisions: promotion round dispatched with the rulings as binding acceptance criteria; the re-measurement of max 0/-1 through the oracle is REQUIRED before parity claims (the honest-evidence rule applied to the implementer's own promotion).
+Verification: promotion round IN FLIGHT.
+Delegates: architect r11 findings promoted; qa-engineer promotion IN FLIGHT (session 6e84b906).
+Next: promotion returns -> full battery -> glm review of the promotion + rulings application -> ARCHITECT SIGN-OFF on the qualified claim -> OWNER RATIFICATION (the human step) -> contract status flips -> merge -> archive -> track completion report.
+
+## 2026-10-27 17:40:00 +0700 — dao.star cart: the letters-disappearing search bug fixed (input excluded from the patched region)
+Completed-GMT: 2026-10-27 10:40:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master ab30b6c8 (pushed); dao-star-demo = master; worktree synced
+Done: Owner: "the search text is behaving weird. as i type, letters disappear". Root cause: every keystroke re-projected the whole app div, and the Datastar morph replaced the search input mid-typing — value resets and focus loss. Fix (ab30b6c8): the search input renders ONCE on the begin page (begin-page grew a :pre slot for pre-body markup) as a SIBLING of the patched element; the projection now emits #app-body (header, chips, grid, footer) and can never touch the input; the input debounces at 150ms so fast typing does not storm the boundary. Live-verified on shiva: begin page carries the debounced input and #app-body; the subscription patch targets app-body and contains zero input fields.
+Decisions: exclude-from-patch over morph-preservation tricks (idempotent, structural, no reliance on Datastar morph internals); the grid editor's own inputs were checked for the same class of bug and are safe (its fields post on save, not on input — no patches arrive mid-typing).
+Verification: 40 tests / 566 assertions / 0 failures; kondo clean; live: patch target app-body, patch-has-input 0, debounce present on the begin page.
+Delegates: none (orchestrator-direct).
+Next: owner browser re-check of typing behavior.
+## 2026-10-27 22:15:00 +0700 — datomic-compat track: Phase 5 promotion committed; all gates GREEN; glm review dispatched (the final review before the qualified-claim sign-off)
+Completed-GMT: 2026-10-27 15:15:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7 untouched; Phase 5 branch datomic-q-p5-ci @8dbf6af2 (pushed, 3 commits: U2 core 0f51e4ee, runner identity 4ae6328f, promotion 8dbf6af2)
+Done: Promotion round delivered: U2 in the generic core (min/max accept n<=0 -> empty vector; positive behavior unchanged; oracle MEASURED max 0/max -1 before parity claims — all agree); runner identity correction (explicit entity-id positions + collision test + reference-loading provenance + runner-version/digest per observation file); THE PROMOTION: corpus now 120 cases (62 executable/12 difference/18 refusal/28 pending, digest 692ba5a0); 109 cases oracle-executed; 17 documented differences confirmed; errata E15/E16/E17; contract rows; both oracle runs preserved. Final numbers tabulated for the owner's ratification.
+Orchestrator verification: three-host 603/592/592 + downstream 256/39,276 all GREEN on jupiter at 8dbf6af2 (the U2 core change required them). glm final review dispatched.
+Delegates: promotion findings promoted (both worktree and main collab); reviewer glm-5.3 IN FLIGHT (session 37072475).
+Next: review -> argon or astra sign-off on the qualified claim -> OWNER RATIFICATION (the frozen-corpus human step: the final matrix + promotion decisions presented for approval) -> contract status flips -> merge -> archive -> track completion report.
+## 2026-10-27 17:20:00 +0700 — datomic-compat track: Phase 5 promotion review ENDORSE; the qualified-claim sign-off dispatched (r12)
+Completed-GMT: 2026-10-27 10:20:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7 untouched; Phase 5 branch datomic-q-p5-ci @8dbf6af2 (pushed)
+Done: glm final review: ENDORSE — "the qualified claim is exactly as strong as the evidence, no stronger." All 6 checklist PASS (U2 verified firsthand incl. the oracle-measured-before-parity discipline; promotion precision mechanically enforced in all directions; identity correction with collision pin; E15/E17 verbatim with real measurements; regression green; the arithmetic closes exactly 60+9+13+17+10=109, +8 inconclusive +3 unobserved = 120). One P3 (observation-linkage by textual containment; parse-based check deferred). The Phase-0 precondition is satisfied: Datomic Local 1.0.301 is a supported local Client backend via pinned client-api 1.0.69. Architect sign-off r12 dispatched on the qualified claim's scoping and evidence integrity.
+Decisions: the qualified-claim status flip + merge follow the sign-off; the OWNER RATIFICATION of the final matrix precedes any push (the frozen-corpus human step).
+Verification: review firsthand suites match all claims; gates reproduced earlier at this commit.
+Delegates: reviewer findings promoted (session 37072475); architect codex astra r12 IN FLIGHT (thread 01a16d38).
+Next: SIGNED OFF -> present the final matrix to the owner for ratification -> on ratification: merge, step-10, cleanup, archive, contract status flip (or flip-before-merge per the branch content), track completion report.
+## 2026-10-27 17:25:00 +0700 — datomic-compat track: Phase 5 sign-off blocked by codex reset (21:08 tonight); scheduled retry automation created
+Completed-GMT: 2026-10-27 10:25:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7 untouched; Phase 5 branch datomic-q-p5-ci @8dbf6af2 pushed; worktree .claude/worktrees/datomic-p5-oracle
+Done: The r12 qualified-claim sign-off dispatch hit the codex usage limit again (reset scheduled 21:08 +07 tonight — ~3h50m out). Argon re-probed: still exhausted (both tiers). Reroute analysis: fable at 93% and same-family as the implementer; cmd's charter excludes supported models; deepseek a lane downgrade for a claim sign-off. Decision: WAIT for the codex reset — a scheduled automation (automation-138ad192) re-dispatches the sign-off at 21:10 +07 from the already-written prompt file, with 30-minute-interval retries up to 3x, then executes the full landing-or-reconcile branch per the verdict.
+Decisions: waiting is correct — the architect sign-off is the landing authorization, and the only mis-scoped alternatives violate either independence or lane charters.
+Verification: prompt file exists and is complete; the automation holds the full landing procedure.
+Delegates: none this unit (scheduler).
+Next: automation fires at 21:10 -> sign-off -> landing or reconcile -> owner ratification of the qualified claim -> track completion.
+
+## 2026-10-27 17:55:00 +0700 — dao.star cart: the non-responsive search fixed (data-bind + signal read under __debounce)
+Completed-GMT: 2026-10-27 10:55:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 2bb04ee8 (amended, force-pushed — own just-pushed commit, no other pullers); dao-star-demo = master
+Done: Owner: "the search is non-responsive" with the browser console TypeError `can't access property "target", event is undefined` in datastar.js. Root cause: under data-on:input__debounce, Datastar (RC.7) defers the expression into a setTimeout where the event object is out of scope — every debounced keystroke threw and no request fired. Fix (1592d7acd, message amended 2bb04ee8 after a local-shell $-expansion mangled two words): the input binds the search signal (data-bind:search), the begin page's base signals declare it, and the debounced handler reads $search from the signal store — no event reference. Redeployed on shiva from ds3; live-verified: begin page has data-bind:search and $arg=$search with zero event.target references, and a POSTed search act ("switch") filters the live subscription to 1 item card with no input field in the patch.
+Decisions: data-bind + signal read is Datastar's own idiom for deferred handlers, over alternatives (capturing event.target.value into a signal via a second non-debounced attribute — redundant with data-bind; dropping debounce — request storm).
+Verification: 40 tests / 569 assertions / 0 failures; kondo clean; live per above. History-rewrite note: commit 1592d7acd was amended to 2bb04ee8 seconds after push (own commit, message mangling only, tree identical).
+Delegates: none (orchestrator-direct).
+Next: owner browser re-check of typing.
