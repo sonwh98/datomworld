@@ -1,5 +1,5 @@
 #!/bin/sh
-# Vendor the pinned Datastar bundle for the dao.star cart demo into
+# Fetch the pinned Datastar bundle for the dao.star cart demo into
 # resources/dao_star_cart/public/js/ (run once, with network, from anywhere;
 # the js dir is resolved relative to this script).  The pinned version is
 # dao.star-cart.view/datastar-version.
