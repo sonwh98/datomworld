@@ -13580,3 +13580,14 @@ Decisions/lessons: (1) :deps/root for git deps resolves relative to the CHECKOUT
 Verification: as above; the deployed image was built from the self-contained context (no repo sources COPYed).
 Delegates: none (orchestrator-direct).
 Next: owner browser check; sha-bump procedure: update :git/sha, rm .cpcache, clj -P, clj -M:test, redeploy.
+
+## 2026-10-27 17:10:00 +0700 — dao.star cart: the shop organizes items by tagories (owner domain clarification), live-verified
+Completed-GMT: 2026-10-27 10:10:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 3ea4ef63 + follow-up (pushed); dao-star-demo = master; worktree synced
+Done: Owner clarified the domain: items are organized by tagories (tag+category), 0-or-more per item. The data layer already matched (many-valued :item/tagories ref; the grid editor manages them); the SHOP now organizes by them: a tagory chip row on the catalog (All + one chip per tagory, selected highlighted), the selected tagory is a local of the session continuation (a "tagory" act, the same pattern as search), and the projection filters by tagory membership combined with the search text. Distinct tagory list via dao.space.query/q (catalog/tagories, 13 in the live data, non-ASCII included). Chip css added. Runtime artifact demo/daostar-cart/target/cart-catalog.edn was accidentally committed and is now untracked with target/ ignored.
+Decisions: implement orchestrator-direct (mechanical application of the search pattern). Verification slips this round: paren balances in hand-edited program.cljc (two attempts) and a dropped trailing def (caught by No such var); test assertions written against wrong fixture values and raw-vs-escaped HTML — all caught by the suite and fixed; final green.
+Verification: 40 tests / 563 assertions / 0 failures; kondo clean; shiva live e2e over real HTTP: posted a tagory act ("PS4 console") to a live session — the re-projection shows the chips (all 13 + All), the selected chip highlighted, and exactly 1 item card (the PS4 console item).
+Delegates: none (orchestrator-direct).
+Next: owner browser check.
