@@ -131,9 +131,14 @@ Evidence classes are separate from compatibility classifications:
 | `oracle-executed` | Recorded execution through the actual public Client API against an identified supported backend. |
 | `unverified` | Behavior not yet established by the necessary evidence. |
 
-The first two classes are available. Client oracle execution is pending.
-Agreement among DaoSpace implementations alone cannot establish Datomic
-compatibility.
+The first two classes are available. Phase 5 executed the public Client API
+against Datomic Local 1.0.301 (client-api 1.0.69). `oracle-executed` marks a
+conclusive recorded execution only; the corpus keeps the outcome separate in
+each case's `oracle` field (`agrees`, `agrees-refusal`,
+`agrees-contract-expectation`, `differs-documented`, `datomic-accepts`,
+`inconclusive`, `pending`). An `inconclusive` or unobserved case is not
+`oracle-executed` and is excluded from the exact domain. Agreement among
+DaoSpace implementations alone cannot establish Datomic compatibility.
 
 Inspected Client source establishes:
 
@@ -238,7 +243,8 @@ domain. It does not mean oracle verification has already occurred.
 | `:timeout` | Documented difference; staged implementation | Expiry is observed time greater than or equal to deadline. Phase 4a qualifies only admitted materialized-source paths after integration tests. Published-index paths remain refused until Phase 4b. |
 | `:dao.space.query.datomic/max-steps` | DaoSpace extension; staged implementation | Positive explicit work allowance, threaded through the whole invocation. The same Phase 4a source restrictions apply to step-only and timed calls. No ambient default. |
 | Eager evaluation before pagination | Documented difference | Limit does not bound total query work, memory or storage reads. |
-| Ambient function resolution, fulltext, randomness | Refused/deferred | Boundaries specified below. |
+| Ambient function resolution, fulltext, randomness | Refused/deferred | Boundaries specified below. Fulltext oracle qualification is deferred to a future fulltext profile; the Datomic observation is inconclusive. |
+| Attribute identifier absent from Datomic schema | Documented difference | DaoSpace fact matching requires no attribute-schema declaration: an unmatched attribute yields no bindings. The observed Datomic backend refuses unresolved attribute identifiers with `:db.error/not-an-entity`. DaoSpace does not infer or consult a schema solely to reproduce that refusal. |
 
 ### Input and output rules
 
@@ -338,6 +344,23 @@ Add:
 Aggregate parsing must preserve parameters and validate arity. These
 additions belong to generic core semantics, not adapter-supplied function
 closures.
+
+Median is a documented difference. DaoSpace preserves the middle operand for
+odd counts and computes the double mean of the middle pair for even counts,
+subject to its existing arithmetic-carrier restrictions. Datomic Local 1.0.301
+observations include `[1 2 3 4 4 10] → 3`, versus DaoSpace `3.5`;
+`[1.0 2.0] → 1.0`, versus DaoSpace `1.5`; and a mixed `[1 2.0]` refusal.
+These observations do not redefine DaoSpace's convention or establish
+behavior for unmeasured numeric domains.
+
+Parameterized `(min n ?x)` and `(max n ?x)` accept integer parameters within
+the supported parameter domain. For an existing aggregate group, `n <= 0`
+produces an empty vector; positive parameters retain the established
+ordering, multiplicity, and tie rules. Non-integer parameters and invalid
+arities remain refusals. This does not bypass query evaluation, source
+admission, or execution accounting. The empty vector occupies its normal
+result cell; it does not mean an empty result relation, and aggregation over
+zero input rows is a separate question (errata E7).
 
 Freeze empty-input results, grouping, duplicate elimination, `:with`
 multiplicity, variance convention, median behavior, numeric result types

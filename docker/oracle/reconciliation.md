@@ -11,6 +11,15 @@ commit). Nothing in the corpus or the contract was changed.
 This document is a candidate classification for human promotion review. It is
 not evidence the corpus can cite until reviewed.
 
+**Superseded in part by the promotion round.** The architect ruled on U1–U3
+(median kept and documented; `min`/`max` n <= 0 accepted; schema-free kept and
+documented), the runner's identity mapping became enumerated per-case
+`entity-ids` annotations (the ten rerun cases agree on the corrected runner,
+run `:local-r2`), and the corpus now carries the per-case `oracle` outcome. The
+authoritative record is the corpus, `datomic-q-v1.errata.md` (E15–E17) and
+`datomic-q-v1.oracle-observations.edn`; this file is kept as the first-pass
+reconciliation.
+
 ## 0. Corrections to the brief
 
 - The 3 not-eligible cases are NOT the fixture-load-blocked ones. They are

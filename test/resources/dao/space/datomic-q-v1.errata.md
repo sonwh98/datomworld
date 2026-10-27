@@ -68,10 +68,14 @@ explicitly.
 
 ## E7 — Aggregates over empty input return no row
 
-`[:find (count ?e) :where [?e :person/nothing _]]` returns `#{}`. Whether
-Datomic returns an empty result, a zero row, or something else is
-unmeasured. Case `agg.empty-input` is `unverified` and `pending`; the core
-result is recorded only as a regression pin.
+`[:find (count ?e) :where [?e :person/nothing _]]` returns `#{}`. Phase 5
+showed that case does NOT measure empty-input aggregation: `:person/nothing` is
+absent from the schema and Datomic refuses it (E17). The empty-input question
+is measured by `agg.empty-input-declared-count` and
+`agg.empty-input-declared-sum`, which name a declared attribute with no matching
+fact: Datomic Local 1.0.301 returns no row, as DaoSpace does (`#{}`). Only
+`count` and `sum` were measured; other aggregates over zero rows remain
+unmeasured.
 
 ## E8 — Cross-host float equality is unverified; hosts other than `clj` are unrun in phase 0
 
@@ -161,8 +165,15 @@ DSL.
 
 ## E16 — Phase 3 rule semantics: tabling, required-bound heads, negation
 
-Frozen DaoSpace-side behavior (every case is `oracle` pending; Client rule
-behavior is unmeasured):
+Frozen DaoSpace-side behavior. Phase 5 measured it against Datomic Local
+1.0.301: every positive-recursion case (left, right, both-sided, mutual, cycle,
+unbound entry call, multiple definitions, stratified negation, required-bound
+head) agrees. Datomic reports an unbound required argument as
+`:db.error/insufficient-binding` and a vector call argument as
+`:db.error/invalid-lookup-ref`; DaoSpace maps the former to
+`:invalid-request`/`:incorrect` (the same semantic refusal, a different
+category and message). Recursion through negation makes Datomic overflow the
+stack, where DaoSpace refuses before evaluation (documented difference, kept):
 
 - **Least fixed point.** Positive recursion is evaluated by an immutable
   naive fixed point per call key: a repeated call (same rule, same argument
@@ -203,10 +214,78 @@ behavior is unmeasured):
   demand is preserved: negation over a recursive rule stops at its first
   tuple.
 
+## E17 — Phase 5 oracle reconciliation: schema-free matching and unrepresentable fixtures
+
+- **Attribute identifier absent from the Datomic schema (documented
+  difference).** DaoSpace fact matching requires no attribute-schema
+  declaration: an unmatched attribute yields no bindings. The observed Datomic
+  backend refuses unresolved attribute identifiers with
+  `:db.error/not-an-entity`. DaoSpace does not infer or consult a schema solely
+  to reproduce that refusal. Cases `agg.empty-input` and `in.empty-source`
+  (an empty database has no schema) are `difference` cases with the DaoSpace
+  expectation retained.
+- **Unrepresentable fixture.** The `ties` fixture puts a long and a double
+  under one attribute (`:k/v`); a Datomic attribute has one value type
+  (`:db.error/wrong-type-for-attribute`), so `agg.median-tied-kinds`,
+  `agg.median-tied-kinds-odd` and `agg.median-tied-kinds-carrier-refused`
+  cannot be observed and are `inconclusive`. Per-type attributes would test a
+  different property, so the fixture is unchanged.
+- **Not comparable.** `in.multiple-sources` joins one entity id across two
+  databases, which Datomic allocates differently per database. The three
+  `bounds.*` cases pin DaoSpace work and admission semantics with no Datomic
+  Local equivalent. All are `inconclusive`.
+- **Fulltext is deferred.** `ambient.fulltext-refused` remains an executable
+  DaoSpace refusal; Datomic's compiler error (the fixture declares no
+  fulltext attribute) is `inconclusive` and proves neither an equivalent
+  refusal nor fulltext support. A future fulltext profile needs a
+  fulltext-enabled fixture and a valid backend query.
+- **Identity mapping.** The oracle runner rewrites entity-id literals only at
+  the positions a case enumerates in `entity-ids` (source-scoped), never an
+  ordinary number that equals a logical id; a collision test pins it. The
+  runner loads `:e` as a reference and materializes graph nodes that appear
+  only as reference targets with `:fx/id` (their logical id). The first oracle
+  run (`:jupiter-r1`) did not map ids; ten cases were meaningfully observed only
+  by `:local-r2`, and both runs are preserved in
+  `datomic-q-v1.oracle-observations.edn`.
+- **Datomic accepts what DaoSpace deliberately refuses** (`oracle`
+  `datomic-accepts`, all documented policy or scope): `rand`, ambient symbol
+  resolution, `:ret`, unknown options, `:query-stats`, a negative offset, a
+  five-position pattern, recursive pull and the list-form pull option. These
+  narrow DaoSpace relative to Datomic; the refusals stay.
+
 ## E15 — Phase 2 aggregate conventions and their limits
 
-Frozen DaoSpace-side conventions (Client behavior is unmeasured; every case
-is `oracle` pending):
+Frozen DaoSpace-side conventions. Phase 5 measured them against Datomic Local
+1.0.301; the outcomes are stated below where they differ or were established.
+
+- **Median is a documented difference.** DaoSpace preserves the middle operand
+  for odd counts and computes the double mean of the middle pair for even
+  counts, subject to its existing arithmetic-carrier restrictions. Datomic
+  Local 1.0.301 observations include `[1 2 3 4 4 10] -> 3`, versus DaoSpace
+  `3.5`; `[1.0 2.0] -> 1.0`, versus DaoSpace `1.5`; and a mixed `[1 2.0]`
+  refusal. These observations do not redefine DaoSpace's convention or
+  establish behavior for unmeasured numeric domains. (Architect ruling, Phase 5
+  U1: a deliberate convention choice, not a consequence of CBOR identity.)
+  `agg.median-with-multiplicity` is the `difference` case (DaoSpace
+  expectation retained). Other median cases that agree do so under their
+  declared comparator and imply no general median parity.
+- **Result-kind differences hidden by `numeric-value`** are recorded here, not
+  in the comparator: `agg.median` (Datomic returns the long 41, DaoSpace the
+  double 41.0) and `agg.median-grouped` (the long 7 against the double 7.0).
+- **Parameterized `min`/`max`: n <= 0 is a result (Phase 5 U2, matching
+  Datomic).** `(min n ?x)` and `(max n ?x)` accept integer parameters within
+  the supported parameter domain. For an existing aggregate group, `n <= 0`
+  produces an empty vector; positive parameters retain the established
+  ordering, multiplicity, and tie rules. Non-integer parameters and invalid
+  arities remain refusals. This does not bypass query evaluation, source
+  admission, or execution accounting. The empty vector occupies its normal
+  result cell; it does not mean an empty result relation, and this ruling does
+  not settle aggregation over zero input rows (see E7). Datomic Local 1.0.301
+  measured `min 0`, `min -1`, `max 0`, `max -1`, and grouped `min 0`/`max 0`
+  as empty vectors. The earlier "positive integer" refusal pins
+  (`agg.parameter-not-positive`) are now result assertions.
+
+Earlier-phase conventions, unchanged:
 
 - Aggregates fold the content-distinct rows projected to the `:find`,
   `:with` and aggregate-argument variables, so duplicates vanish unless
