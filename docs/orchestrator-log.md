@@ -13488,3 +13488,24 @@ Next: none pending on this track; browser check remains the owner's.
 
 ## 2026-10-27 10:3x +0700 — the kimi J4d review is quota-cut mid-write; the review reroutes to fable via plain claude
 The kimi-k3.1-pro cmd session (1cf0f4d2) completed the independent source and log review across 20 turns, then hit the CommandCode credit wall twice: first at the run's end (the findings file unwritten), and again at the resume (0 tokens). cmd credits are EXHAUSTED until top-up; recorded here as the destination's state. The review routes to fable via the plain claude CLI (the owner's 2026-10-24 relay: fable is available via claude, not claude-cloud) — dispatched with the same brief. The J4d review's substance is intact in the kimi run's log; if its verdict conflicts with fable's, the two are reconciled here. cmd joins argon (resets 2026-10-24, presumably reset but unverified) on the wait-for-top-up list. — jolt seat, ZCode GLM (sess_e5fe0df8)
+
+## 2026-10-27 00:4x +0700 — P3b oracle pass 5 complete (227/0, 7 records incl. the cycle pair and the user-class closure); fold in flight
+Completed-GMT: 2026-10-26 16:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@3a0d3e7b (== origin); branch yang-php-p3b @ 9629a153 + fold in flight; branch yang-ts-t2b LANDED (deleted)
+Done: (1) Oracle pass 5 completed after two operational detours recorded for the pattern library: (a) direct-ssh oracle runs that outlive their ssh session become orphans blocked on dead pipes - oracle passes MUST run in tmux via script files (the third such miss this week is now a rule); (b) the array-comparison nesting fixture HUNG a real PHP docker container for 27 minutes on the first attempt - docker kill freed the pass, and the completed run recorded PHP's actual behavior: :uncaught "Nesting level too deep - recursive dependency?" (PHP errors rather than hangs on the compare; the hang was a different fixture shape). Final: 227 targets, 0 failures, 7 RECORD lines - every P3b gate blocker now carries its oracle record, including :closure-call-user-class recording "8" from the gate-ordered user-class source (oracle-only until P4). Log attached: collab/oracle-p3b-pass5-php-8.3.35-shiva.log. (2) The fold dispatched to the engineer (resume c61cd179): 7 pins, the compare text matched to the engine's nesting error, :closure-call-user-class flagged oracle-only.
+Decisions: hung-container diagnosis belongs in the gate discipline - a stalled docker-php-entrypoint container during an oracle pass means a fixture that hangs real PHP; kill it, record the PHP behavior as the fixture's oracle fact, and note the departure.
+Verification: pass-5 counts above from the shiva log; the fold's local gates pending.
+Delegates: claude-sonnet-5-5 (fold-5, session c61cd179, IN FLIGHT).
+Next: fold returns -> commit/push -> fable re-confirm (resume the gate thread with the six blockers' closure evidence) -> P3b landing -> P4-proper and T3-proper dispatches from the amended plans of record.
+
+## 2026-10-27 11:50:00 +0700 — dao.star cart moved to demo/daostar (owner: demo/ holds one dir per demo); CJK image locale fix
+Completed-GMT: 2026-10-27 04:50:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master e39a4494 (pushed); dao-star-demo pushed; worktree kept
+Done: Owner: "there can be more than one demo under the demo/ dir so put it under demo/daostar". Moved demo/ to demo/daostar (git mv); deps.edn library paths to ../../; bb cart task dir demo/daostar; Dockerfile COPY/workdir/ASSET_ROOT paths updated; tests run from demo/daostar (39/550/0). While verifying the redeploy, the container log exposed a real pre-existing bug: 10 product images with non-ASCII (Chinese) filenames failed to serve — InvalidPathException, the container's POSIX locale makes sun.jnu.encoding non-UTF8. Fixed with LANG=C.UTF-8 in the image; both probed CJK filenames now serve 200 image/jpeg|png, zero InvalidPathException in the logs (commit f36b4386 lineage, merged master e39a4494).
+Decisions: three shell-cwd slips in this session sent git operations to the wrong tree (commit to main repo, add from inside demo/daostar); all caught by verification and redone with explicit git -C — noted as a recurring failure mode for this seat: always git -C <tree> or cd immediately before.
+Verification: demo/daostar clj -M:test 39/550/0; shiva redeploy from master e39a4494: shop/grid/CJK images 200, no InvalidPathException, persisted probe intact.
+Next: owner browser check.
