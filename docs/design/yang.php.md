@@ -23,9 +23,9 @@ S12) lands on branch `yang-php-p3b`; the oracle is the pinned `php-8.3.35`
   keyed, nested, one level of `&`), `try`/`catch`/`finally`, `throw`, `match`,
   `Closure::bind` and `bindTo`, the temporary list, and the typed-reference
   machinery at prelude level (rows 41 to 45; syntax stays P4).
-- Fixtures: 71 program-level fixtures are enabled and run on the AST walker,
+- Fixtures: 72 program-level fixtures are enabled and run on the AST walker,
   on the semantic, stack and register VMs, and parserless from checked-in CST
-  packets on Node; 83 oracle results are pinned in `programs_p3b`
+  packets on Node; 91 oracle results are pinned in `programs_p3b`
   (`recorded`), 13 further oracle-only sources record texts and the cyclic
   release evidence (R2 condition (a): `gc_collect_cycles()` collects the
   cycle, the engine only terminates, closed as a known gap in C1). The permutation
