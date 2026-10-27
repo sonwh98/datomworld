@@ -253,6 +253,17 @@
        "</div></section>"))
 
 
+(defn- section-title
+  "The production section title: the search query when searching, the
+   selected tagory when one is, All Products otherwise."
+  [q tagory]
+  (let [t (str/trim (str q))]
+    (cond
+      (seq t) (str "Search: \"" t "\"")
+      (seq (str/trim (str tagory))) tagory
+      :else "All Products")))
+
+
 (defn- catalog-page
   [catalog token q tagory]
   (let [shown (filter #(and (matches? q %) (in-tagory? tagory %))
@@ -260,7 +271,7 @@
     (str (disclaimer-banner)
          (hero)
          (tagory-strip token ((:tagories catalog)) tagory)
-         "<div class=\"section-head\"><h2>All Products</h2>"
+         "<div class=\"section-head\"><h2>" (esc (section-title q tagory)) "</h2>"
          "<span class=\"count\">" (count shown) " items</span></div>"
          "<section class=\"grid\">"
          (apply str (map #(card token %) shown))

@@ -124,6 +124,12 @@
                                              :search "bravo" :tagory "t"})]
       (is (not (str/includes? sse "&gt;Bravo&lt;")))
       (is (not (str/includes? sse "&gt;Alpha &lt;b&gt;&lt;/h3&gt;")))))
-  (testing "an empty tagory matches everything"
-    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory ""})]
-      (is (str/includes? sse "Bravo")))))
+  (testing "the section title tracks the filters"
+    (is (str/includes? (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory ""})
+                       "All Products"))
+    (is (str/includes? (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory "t"})
+                       "<h2>t</h2>"))
+    (is (str/includes? (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "alp" :tagory ""})
+                       "<h2>Search: &quot;alp&quot;</h2>"))
+    (is (not (str/includes? (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "alp" :tagory ""})
+                            "<h2>All Products</h2>")))))
