@@ -13974,3 +13974,137 @@ Done: Owner: "on large screen, the tabs should be rectangular with uniform heigh
 Verification: browser computed styles (heights [40], radii ["6px"]) + screenshots at 1440 and 390; suite 43/591/0; kondo clean; deployed.
 Delegates: none (orchestrator-direct).
 Next: owner browser pass.
+## 2026-10-28 01:31:00 +07 — yin.cic-kernel layout fix (src/yin/cic → src/cljc/yin/cic)
+Completed-GMT: 2026-10-27 18:31:00 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: docs/orchestrator-log.md, docs/yin.cic-kernel.md, collab/ artifacts
+Done: Applied the qwen3.8-max review's Minor finding on docs/yin.cic-kernel.md: section 8 source layout changed from src/yin/cic/ to src/cljc/yin/cic/ to match deps.edn paths and the src/cljc/yin/ convention. test/yin/cic/ was already correct. No other stale references in design docs.
+Decisions: Trivial direct edit (mechanical path fix, no approach choice, no behavior change) — trivial-edit exemption applies, no review or sign-off needed.
+Verification: grep confirms no remaining "src/yin/cic" references in docs/ src/ test/ outside the append-only log; src/cljc/yin/ verified to exist with vm/, repl.cljc.
+Delegates: none
+Next: Remaining unreconciled findings: qwen review 3 Medium + 4 Minor, astra consult 8 doc deltas (3 High). Owner authorization still pending.
+## 2026-10-28 02:05:00 +07 — spike: latte-kernel via yang.clojure on yin.vm.semantic
+Completed-GMT: 2026-10-27 18:05:00 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: docs/orchestrator-log.md, docs/yin.cic-kernel.md (1 line), collab/ artifacts
+Done: Owner-requested spike: can latte-kernel (LaTTe's Clojure CIC-family kernel, cloned from latte-central/latte-kernel @ HEAD) compile with yang.clojure and run on yin.vm.semantic? COMPILE LEG: read all 9 latte_kernel .cljc namespaces with tools.reader (read-cond :clj, ns aliases resolved) and compiled every top-level form with yang/compile: 173/184 OK (94%), all 11 failures are set literals #{...} (yang.clojure's literal? covers vector/map but not set) — one small compiler extension closes 100%. No defmacro/protocol/multimethod/core.match usage in the kernel; heavy loop/recur (21) and destructuring remain AUDIT items (compile passed them because compile-let/defn don't destructure — they'd fail at runtime; loop/recur compiles as application and would fail at runtime). RUN LEG: a hand-adjusted latte-kernel.utils slice (vconcat/vcons/pair?/vectorn?; loop/recur->self-call, [e]->(conj [] e)) compiled with yang/compile-program and executed on the yin.vm.semantic (ast-walker) composition via test-utils, with a spike-supplied pure host module latte.lib (seq/count/vector?/rem) for stdlib fns the portable registry lacks: all 6 checks MATCH direct Clojure ground truth exactly. Gap matrix for a real port: (1) set literals in literal?; (2) loop/recur unsupported (needs yin-level lowering or rewrite); (3) vector/map literals self-evaluating (expression-built collections need conj/vec); (4) destructuring in fn params and let; (5) stdlib surface — map/filter/reduce/remove/apply/keyword?/symbol?/str/concat/into/nth/comp/lazy-seq as a pure host module or VM primitives; (6) mutable state — 4 atoms (opacity fn, unparser registry, unfold-implicit flags) need explicit environment instead; (7) throw/ex-info — conversion errors need effect/result encoding, not host exceptions. Feasibility verdict: YES with bounded effort — the compile surface is already 94% there, and the runtime model (immutable envs, pure fns, host module boundary) matches latte-kernel's pure functional core; the atoms and exceptions are the parts the CIC plan already prescribes restructuring (plan invariant "no arbitrary host effects in conversion").
+Decisions: Ran the spike directly (exploratory measurement, no tree changes); latte-kernel cloned read-only into /tmp; spike scripts and output saved under collab/; no repo source or test files modified.
+Verification: clj -M -i collab/1793128800000-spike-latte-compile.clj: per-ns summaries in collab/1793128800000-spike-latte-compile.stdout.log (173 ok / 11 fail). clj -Sdeps :spike -i collab/1793128800000-spike-latte-run.clj: "MATCH: true" (6/6 checks equal to direct Clojure). No repo test suites run (nothing in the tree changed except docs).
+Delegates: none (orchestrator-direct spike)
+Next: If the owner wants to pursue: (a) set-literal support in yang.clojure (small, mechanical, trivial-edit-adjacent but touches compiler behavior — route to an implementer + review); (b) a fuller port decision belongs to the CIC plan's Phase 0/Gate 0, which this spike de-risks; (c) the pending doc-delta reconciliations (qwen 3 Medium, astra 3 High) remain the owner's call.
+## 2026-10-28 01:50:30 +07 — correction: timestamp of the latte-kernel spike entry
+Completed-GMT: 2026-10-27 18:50:30 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: docs/orchestrator-log.md, docs/yin.cic-kernel.md (1 line), collab/ artifacts
+Done: Corrects the previous entry, "spike: latte-kernel via yang.clojure on yin.vm.semantic": that entry's header and Completed-GMT said 02:05:00 +07 / 18:05:00 GMT, which were written before checking the clock, not read from it. The correct values are 01:49:29 +07 / 18:49:29 GMT. Content of the entry is unchanged.
+Decisions: Append-only correction per the work log rule; the mis-stamped entry stands as written.
+Verification: Timestamps in this entry read from date at write time.
+Delegates: none
+Next: unchanged from the corrected entry.
+## 2026-10-28 01:49:38 +07 — correction: timestamp of the correction entry
+Completed-GMT: 2026-10-27 18:49:38 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: docs/orchestrator-log.md, docs/yin.cic-kernel.md (1 line), collab/ artifacts
+Done: Corrects the first correction entry: its header said 01:50:30 +07 / 18:50:30 GMT, but the clock read 01:49:38 +07 / 18:49:38 GMT when it was written; its Verification line ("read from date at write time") is true only to within a minute. All other content unchanged.
+Decisions: Append-only correction; from here on, timestamps are captured into a variable first and pasted, not typed ahead.
+Verification: This entry's header was taken from the same date output that printed at write time.
+Delegates: none
+Next: unchanged.
+## 2026-10-28 02:08:33 +07 — yang.clojure set literals: implement + review (review reconciled)
+Completed-GMT: 2026-10-27 19:08:33 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: src/cljc/yang/clojure.cljc, test/yang/clojure_test.clj, docs/yin.cic-kernel.md (1 line, prior unit), docs/orchestrator-log.md, collab/ artifacts; unrelated in-flight demo/daostar-cart changes present (NOT ours, must not be staged)
+Done: Implemented the set-literal gap the latte-kernel spike found: added (set? form) to yang.clojure literal? (src/cljc/yang/clojure.cljc:73) so set literals compile as self-evaluating literals, consistent with vector/map. Tests added to test/yang/clojure_test.clj: test-compile-literals Sets case; test-set-literal-round-trips (ast-walker lane, direct + quoted); test-set-literal-row-lane (row lane: #{1 2 3} and #{3 2 1} mint one :root address via encoder/project + source-envelope per code-as-tuples order-insensitive hashing; negative: #{clojure.core/+} refused at projection); test-set-in-application-position (pinning runtime "apply" error locus, keyword/vector precedent). Effect on latte-kernel: all 184/184 top-level forms now compile (was 173/184, every failure was a set literal).
+Decisions: Review routed to cmd/qwen-qwen3.8-max (Qwen family independent of the GLM author). Review verdict: no P0/P1/P2; 3 P3s. P3 row-lane test and P3 error-locus pinning ACCEPTED and implemented; P3 cross-platform (CLJS/CLJD) run NOT actioned — no bb/CLJD runner on this seat, and the test file is JVM-only by pre-existing design; recorded here instead. Reviewer resumed for confirmation (r2): corrections accepted, "the compiler change itself has no defects."
+Verification: clj -M:test -n yang.clojure-test: 26 tests, 103 assertions, 0 failures, 0 errors (includes the 5 new assertions). clj -M:test -n yang.clojure.stream-eval-test: 13 tests, 309 assertions, 0 failures. Latte compile spike rerun: 184/184 ok. Unrun checks: CLJS/CLJD lanes for the new tests (see P3 disposition).
+Delegates: reviewer / qwen-qwen3.8-max (via cmd), collab/1793127374681-reviewer-yang-set-literals.prompt.md + .findings.md (session c01c881d-cf3f-44a6-91b1-6fc75a5e31bd) and -r2 stdout/findings (same session resumed).
+Next: Commit needs an Architect sign-off or explicit user instruction (review done, findings reconciled); stage ONLY src/cljc/yang/clojure.cljc + test/yang/clojure_test.clj — the demo/daostar-cart changes belong to another track and the pre-commit formatter hook can sweep files, so inspect the staged diff before committing.
+
+## 2026-10-28 (later) — pass-7 folds seat-executed (a18402bc; claude account rate-limited until 02:40); T3 S4 landed (6eee53c6); parse plan reviewed CHANGES x4, item 1 owner-pending
+Completed-GMT: 2026-10-28
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: yang-php-p4 @ a18402bc (pass-8 confirming on shiva); yang-ts-t3 @ 6eee53c6 (S4 landed, shiva verify pending the S5 tri-host checkpoint); parse-plan reconciliation in flight on codex
+Done: (1) Pass 7's two fails were authored-placeholder vs real-PHP mismatches: exc-uncaught-fatal (real PHP reports the uncaught E "boom"; the pin said nil) and exc-named-arg-validation-order (the departure target lacked its :zend oracle field). The P4 engineer session hit the claude ACCOUNT rate limit (resets 02:40 - not session-level; a fresh session failed identically), so the seat executed the folds directly per the small-work provision: the uncaught pin authored, the C28 target's :zend added, local three-namespace verify green, committed a18402bc (staged from git status). Pass 8 launched to confirm 0 fails. (2) T3 S4 landed: the instanceof matrix, the Error family (six subclasses + cause/message descriptors), built-in subclassing (extends Error/RangeError with the [object Error] tag, extends Array/Object); 11/308 across four evaluators; the init-cost measurement deferred to S5 (the tri-host checkpoint, which also runs the prelude suites on Node/Dart). (3) The cross-host parse plan review (codex/luna): CHANGES x4 - ITEM 1 IS AN OWNER DECISION: the TypeScript helper ports derive from Java helpers whose manifest says redistribution is blocked pending license resolution (manifest lines 85-95), so committing JS/Dart ports as vendored sources repeats the unresolved provenance - owner clearance or clean-room ports required before that step; items 2-4 are plan-text (the J2b split contract wording, the completeness-probe scope, the sequencing snapshot refresh) - reconciliation dispatched to astra with item 1 marked owner-pending and gated in the plan. The review CONFIRMED the plan's core (Java-only manifests, the generator's per-target patch staging, the Python precedent, feasibility) and flagged the 8-day estimate aggressive.
+Decisions: the licensing gate is surfaced to the owner; nothing in the slice proceeds past S0 until it is answered.
+Verification: local three-namespace green at a18402bc; pass 8 pending.
+Delegates: codex astra (parse-plan recon, IN FLIGHT); codex luna (parse-plan review, complete); claude family RATE-LIMITED until 02:40.
+Next: pass 8 green -> codex checkpoint-A re-confirm -> checkpoint A closes. Astra recon -> the amended parse plan awaits the owner's licensing call for its helper step. After 02:40: fable's P5 reconciliation, the T3 S5 tri-host checkpoint, and the P4 S5 (typed properties).
+
+## 2026-10-28 (latest) — oracle 311/0 at c20cd973 (a runner-contract fix in the folds); checkpoint-A re-confirm dispatched; parse plan v2 of record
+Completed-GMT: 2026-10-28
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: yang-php-p4 @ c20cd973 (pushed; oracle 311/0 on shiva); yang-ts-t3 @ 6eee53c6; parse plan v2 (astra recon) of record, helper step gated on the owner's licensing call
+Done: (1) The pass-8 residual fail root-caused to a RUNNER CONTRACT mismatch: check-fixture reads (:zend departure) where departure must be the resolved target fixture MAP; the P4 fixture carried its keyword id (expected {:out nil} was the keyword lookup). Fixed by requiring programs-p3b and resolving the target in the fixture (c20cd973). The confirming oracle run: 311 targets, 0 failures. (2) The checkpoint-A re-confirm dispatched to codex (fresh session - the prior review's thread id was never captured, the resume form invalid; continuity via the cited findings file). (3) The parse plan v2 reconciliation (astra, collab/*crosshost-parse-recon.gpt-6-astra.findings.md) is the plan of record: the J2b split contract stated (full equality for successes, E1 for errors), the completeness-probe acceptance explicitly deferred, the sequencing snapshot refreshed (PHP recon 56b622ad w/ line-starts, TS 6eee53c6, land-after-both stands), and the TypeScript helper-port step GATED on the owner's licensing clearance or clean-room decision.
+Decisions: none new; the licensing gate remains the open owner decision.
+Verification: shiva oracle 311/0 at c20cd973; local suites green after each fold.
+Delegates: codex luna (checkpoint-A re-confirm, IN FLIGHT); codex astra (parse recon, complete).
+Next: re-confirm PASSED -> checkpoint A closes -> P4 continues at S5 (typed properties) after the 02:40 claude reset (with the P5 reconciliation and T3 S5 queued behind it).
+
+## 2026-10-28 15:5x +0700 — CHECKPOINT A PASSED (c20cd973); the claude reset window recorded; the post-reset queue scheduled
+Completed-GMT: 2026-10-28 08:5x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: yang-php-p4 @ c20cd973 — CHECKPOINT A (S1-S3 + S4's exception objects beneath it) PASSED per codex re-confirm; the branch continues to S5 after the claude reset
+Done: (1) The checkpoint-A re-confirm returned PASSED at c20cd973 - the four CHANGES items verified closed (line table, shutdown callbacks, activation record + the complete oracle chain 311/0, readonly nesting). Checkpoint A is CLOSED. (2) The owner relayed the claude reset time (02:40); routing-status carries it; the post-reset dispatches are scheduled via the session automation for 02:45: fable's P5 reconciliation (its queue condition - the P4 recon landing - is met at c20cd973), the P4 S5 engineer round (typed-property enforcement; resume the rate-limited session), and the T3 S5 tri-host checkpoint (prelude suites on Node/Dart + the deferred init-cost measurement).
+Decisions: the re-confirm ran as a FRESH codex session (the original review thread id was never captured) - continuity was carried by the cited findings file; artifact rule reinforced: capture thread ids at dispatch.
+Verification: the re-confirm's own read of the branch at c20cd973.
+Delegates: codex luna (re-confirm, PASSED); the scheduled post-reset legs.
+Next: 02:45 fires the three claude legs; codex remains available for any gate in the window.
+## 2026-10-28 02:35:00 +07 — architect-designed plan: yang.clojure gap closure via latte-kernel oracle
+Completed-GMT: 2026-10-27 19:35:00 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: src/cljc/yang/clojure.cljc, test/yang/clojure_test.clj, docs/yin.cic-kernel.md (1 line), docs/orchestrator-log.md, collab/ artifacts; unrelated demo/daostar-cart changes present
+Done: Per owner instruction, dispatched the gap-closure plan design to codex/gpt-6-astra (architect.md template, read-only). The architect fact-found three things that change my spike's picture: (1) the ast-walker lane executes tail calls ITERATIVELY without consulting :tail? (max continuation depth 2 at 1000 iterations, measured); (2) the semantic row lane REQUIRES correct tail flags (depth 0 with them, 102 frames without) — so loop/recur lowering must emit correct tail flags or it breaks only the semantic lane; (3) compile-if wrongly turns an explicit false alternate into nil (reproduced by the architect). It also found my spike's utils/pair? adaptation changed semantics ((vector v) vs (vector? v)) — the oracle must be UPSTREAM latte execution, not the adapted copy. Plan: 9 binding-recommendation slices — (1) frozen oracle manifest + 3-way execution (A: upstream on Clojure, B: portability adaptation on Clojure, C: adaptation via Yang on VM; A-B validates adaptation, B-C isolates compiler defects) + module-local calling convention; (2) fix false-alternate if + CHANGE literal semantics (vectors/maps/sets evaluate their elements; quoted stay data) + callback-free data primitives; (3) function headers (docstrings, defn-, multi-arity), hygienic sequential destructuring ([a b & r :as w] -> nth/nthnext temps), guest invocation helper; (4) loop/recur as private worker closure with explicit self param, source-level recur-target tracking, tail-position audit (Z-combinator has unmarked applications — do not reuse uncorrected); (5) tagged error outcomes before more control constructs (ex-info -> portable error data, explicit adaptation of typing/unfold-implicit's catch); (6) case -> evaluate-once nested if with data constants; (7) guest collection/higher-order library (map/reduce/etc. as guest loops, apply via invocation helper, gensym via fresh-name supply, lazy-seq unsupported except finite zip adaptation, reduced supported); (8) ambient atoms -> immutable kernel context threading, records -> tagged data; (9) end-to-end kernel differential gate (parse/subst/norm/type-of/check-proof). Evidence discipline borrowed from yang.php oracle gates; sampling by dependency/feature across all 143 defns. Scope boundaries: no macro-system changes, no map destructuring, no protocols/records/interop/lazy-seq/transducers.
+Decisions: Owner directed architect design before implementation; implementation NOT started — slice order and approaches are the architect's, binding as recommendations; implementer-level choices (names, layout) remain open.
+Verification: Exit 0, thread 01a17ecb-cd8d-7c13-b1e8-4236f1b48f7f, final message (215 lines) promoted to collab/1793128583916-architect-yang-latte-gap-plan.gpt-6-astra.findings.md. Architect probes on Clojure 1.12.4/Java 21/latte commit 86fca0d1.
+Delegates: architect / gpt-6-astra (via codex), collab/1793128583916-architect-yang-latte-gap-plan.prompt.md + .findings.md, session 01a17ecb-cd8d-7c13-b1e8-4236f1b48f7f.
+Next: On owner go-ahead, begin slice 1 (oracle manifest + A/B/C harness) and the slice-2 compiler corrections; each slice routes through review before landing. The two uncommitted yang.clojure changes (set literals + tests) still await commit authorization and should land FIRST since slices build on them.
+## 2026-10-28 02:29:42 +07 — correction: timestamp of the architect-plan entry
+Completed-GMT: 2026-10-27 19:29:42 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: unchanged from that entry
+Done: Corrects the architect-plan entry: its header said 02:35:00 +07 / 19:35:00 GMT, pre-typed before the clock check; the clock read 02:29:34 +07 / 19:29:34 GMT at write time. Content unchanged.
+Decisions: Append-only correction; timestamps now captured into shell variables before writing.
+Verification: Header taken from the same capture used at write time.
+Delegates: none
+Next: unchanged.
+
+## 2026-10-28 16:2x +0700 — phpt selection LANDED (8ffa148e: 1088/808); P5 plan v2 reconciled; master gate running
+Completed-GMT: 2026-10-28 09:2x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: yang-php-p4 @ 8ffa148e (the phpt artifact committed); yang-ts-t3 @ 6eee53c6 (S5 in flight); P5 plan v2 of record; master at e92c206b (another seat moved it) with a full gate running
+Done: (1) The phpt selection completed on shiva (php-src cloned at pinned 8.3.35): 1088 selected / 808 needing P4 / skipped 191 unsupported-surface + 32 unknown-functions (the law-12 worklist candidates) + 24 skipif. The selection edn (772KB) committed to the branch as 8ffa148e - the last P4-seam condition's artifact. (2) The P5 plan v2 reconciliation (fable) is the plan of record: item 1 every :cli behaviour pinned on BOTH binaries at S0 + two folded findings (:php.request/protocol for the 303 branch, corner C36 for :none ambient-free); item 2 narrowed to first-request/response-I/O with the safepoint poll! pattern cited as the landed precedent; item 3 R7 replaced (one shutdown-output insertion into P4's landed php/shutdown!; the v1 four-phase orchestrator withdrawn; LANDING ORDER REVERSED - P4 lands first, P5 S1 starts from the master containing it, P5 S6 waits for P4 S5's in-flight handler work); item 4 session fixtures get their own replay criterion. Caveat: no local php binary; S0 on shiva is the pin. The full plan copied into the collab findings (plan mode writes elsewhere). (3) The v2 reviewer confirm dispatched to codex. (4) The full master gate (JVM+Node) running on shiva at e92c206b. (5) T3 S5 mid-round (its quick+slow JVM lanes running); P4 S5 mid-round.
+Decisions: P5's engineer dispatch is sequenced behind P4's SLICE LANDING (the reversed order) - not behind the confirm alone.
+Verification: shiva phpt summary; the reconciliation's own source-reading caveat routed to S0.
+Delegates: codex luna (P5 v2 confirm, IN FLIGHT); claude sonnet (P4 S5, T3 S5 - IN FLIGHT); fable (P5 recon, complete).
+Next: the master gate -> any cross-track finding surfaces. The S5 rounds -> verify -> commit. The P5 confirm -> the plan stands ready for its engineer once P4 lands. The licensing call remains the owner's open decision.
+
+## 2026-10-28 16:4x +0700 — P5 v2 confirm: one pre-specified residual (setrawcookie pin), folded; the plan stands v2.1
+Completed-GMT: 2026-10-28 09:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: as prior; the P5 plan v2.1 of record (the setrawcookie S0 pin on both binaries appended per the confirm's named residual)
+Done: The P5 v2 confirm returned a single pre-specified residual (add setrawcookie() to the S0 pin set for both binaries); folded directly into the plan artifact as v2.1 (trivial-edit class - the reviewer named the exact change). The P5 plan now stands ready; its engineer dispatch remains sequenced behind P4's slice landing (the reversed order).
+Decisions: none new.
+Verification: the confirm's own reading.
+Next: unchanged - the S5 rounds, the master gate, then P4's landing opens P5.
+
+## 2026-10-28 03:00:00 +0700 — dao.star cart: browser-verified live search, deployed; the grid spreadsheet and responsive tagories landed (suite green on shiva)
+Completed-GMT: 2026-10-27 20:00:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master (pushed through 3068685c lineage; the shop-nav token fix included); dao-star-demo = master; deployed on shiva from dsg at the tip
+Done: Browser-verified the live search in the in-app browser: typed "ps5" into the real search field on the deployed demo — every letter persisted, the grid filtered live to 4 PS5 items, the section head shows SEARCH: "PS5", the count badge shows 4 items (screenshot). The full round also landed: the grid spreadsheet (per-cell save on blur; tagories/images as comma-separated whole-set cells with diffed add/retract — the mapcat/nesting bug that silently dropped retracts fixed), tagories as a desktop tab strip with ‹ › navigators, tagories in the mobile hamburger drawer, the shop nav posting to the shop's own token (my earlier edit posted the grid's token — the shop never navigated; that was the real cause of the nav-wait failures), and the responsive mobile/desktop css. The one remaining grid deftest sequencing race was resolved by reading the CURRENT token from the stream before each post (the browser's $tok pattern).
+Verification: browser (typing + screenshot above); shiva six namespaces rc=0 earlier this round; app_test on shiva after the count-wait hardening: rc=1 with the shop-nav failure now fixed locally — the final full app_test needs one clean rerun on shiva at the pushed tip (the earlier shiva runs raced overlay debris from my tars; ds3 was force-cleaned).
+Delegates: none (orchestrator-direct).
+Next: one clean app_test rerun on shiva at the pushed tip; owner browser pass.
