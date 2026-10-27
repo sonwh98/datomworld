@@ -1,10 +1,13 @@
-# dao.star cart demo.  The build context is this directory (demo/daostar):
-# the library comes from the pinned datomworld GitHub commit in deps.edn, so
-# the context needs only the demo itself (with the gitignored images present
-# under resources/dao_star_cart/public/images/).
+# dao.star cart demo.  Docker is OPTIONAL: the demo runs with a plain JVM
+# (see README, "Run it").  This file is for running it in a container.
+#
+# Build context: this directory (demo/daostar).  The library comes from the
+# pinned datomworld GitHub commit in deps.edn, so the context needs only the
+# demo itself (with the gitignored images under
+# resources/dao_star_cart/public/images/).
 #
 #   cd demo/daostar
-#   docker build -f docker/dao-star-cart/Dockerfile -t dao-star-cart .
+#   docker build -t dao-star-cart .
 #   docker run -p 3004:3004 -v star-cart-data:/data -e CATALOG_PATH=/data/catalog.edn dao-star-cart
 
 FROM clojure:temurin-21-tools-deps AS build

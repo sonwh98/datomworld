@@ -55,15 +55,16 @@ Then open <http://localhost:3004/> (shop) and <http://localhost:3004/grid>
 `CATALOG_PATH` anywhere writable to keep them elsewhere. `PORT` changes the
 port, `ASSET_ROOT` the image/css/js root.
 
-## Run it (Docker)
+## Run it (Docker — optional)
 
-From this directory — the build context is the demo itself, and the library
-resolves from the datomworld commit pinned in `deps.edn` (network required at
-build time; the product images must be present under
+Docker is not required; the JVM run above is the primary way to test. To run
+it in a container instead, from this directory (the build context is the demo
+itself; the library resolves from the commit pinned in `deps.edn`, so the
+build needs network; the product images must be present under
 `resources/dao_star_cart/public/images/`):
 
 ```sh
-docker build -f docker/dao-star-cart/Dockerfile -t dao-star-cart .
+docker build -t dao-star-cart .
 docker run -d --name dao-star-cart -p 3004:3004 \
   -v star-cart-data:/data -e CATALOG_PATH=/data/catalog.edn dao-star-cart
 ```
