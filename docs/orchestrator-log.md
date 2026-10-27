@@ -13867,3 +13867,25 @@ Decisions/lessons: (1) the drawer's data-show reactivity worked, but my own blan
 Verification: browser at 390x844 — splash (photo bg, glass card, no scrollbars after the overflow fix), Enter Store → shop with hamburger; drawer opens (ALL PRODUCTS / CART (0) stacked) and closes on tab click with navigation; desktop 1440 — tabs always visible, hamburger hidden. Suite: 43 tests / 585 assertions / 0 failures; kondo clean. Shiva redeployed from master 3068685c.
 Delegates: none (orchestrator-direct).
 Next: owner review at both widths; library-level stale-subscribe follow-up when commissioned.
+
+## 2026-10-28 — xlang demo LANDED (2e1d09e6) after conditional sign-off; cross-host parsing slice commissioned (owner instruction)
+Completed-GMT: 2026-10-27 (entry written 2026-10-28)
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@2e1d09e6 (== origin, pushed); branch yang-cross-lang-demo landed and deleted; worktree datomworld-xlang removed; yang-ts-t3 S4 and yang-php-p4 recon still in flight
+Done: (1) The xlang demo landed after fable's CONDITIONAL sign-off (rename to .clj, lanes green on the renamed commit): renamed e31b4553; shiva verified JVM 0 failures, Node 57/0 (after an npm-ci clone-prep miss on the fresh xlang clone - the recurring fresh-clone rule again), Dart 57/0; merged --no-ff as 2e1d09e6, cleanup done, ledger 101 untouched. (2) The owner challenged the JVM-only-parsing claim; verification: gen:antlr generates ALL targets (Java/JS/Dart per manifest), Python's J2b proved strict cross-host packet equality at ZERO PINS (JVM adjudicated canonical; the parity harness test/yang/python/antlr/oracle_parity_test.cljc + the portable parser.cljc wrapper are the pattern), and "JVM-only parsing" is the TS/PHP PIPELINE ruling, not a capability limit. (3) OWNER INSTRUCTION: commission the cross-host parsing slice for TS/PHP in the J2b pattern with the tri-host cross-lang demo as acceptance. The architect commission dispatched to fable (session per prompt; the brief cites the Python precedent files, the ts-g4-2 grammar conflict with the active yang-ts-t3 branch, the PHP heredoc/mode-switch helper corners, the zero-pins bar, and the .clj->.cljc demo upgrade).
+Decisions: the slice bases off master; the plan must state the merge order with the in-flight t3 grammar work.
+Verification: shiva lane results above; the J2b record (merge b670cd4b, 71001526).
+Delegates: claude-fable-5-1 (cross-host parse plan, IN FLIGHT); claude-sonnet-5-5 (T3 S4, P4 recon - IN FLIGHT).
+Next: the plan returns -> second-family review -> engineer dispatch on a fresh worktree (parallel with the P4/T3 cycles where files permit). The P5 reconciliation still queued behind the P4 recon landing. Oracle pass 7 pending the recon.
+
+## 2026-10-28 01:20:00 +0700 — dao.star cart: the live-token fix for every button (browser-proven root cause); responsive tagories landed; reader charset fix
+Completed-GMT: 2026-10-27 18:20:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 5d55aa50 (pushed); dao-star-demo = master; deployed on shiva from dsg
+Done: Owner requested tagories as a desktop scrolling tab strip with left/right navigators and inside the mobile hamburger drawer; while browser-verifying, found the REAL root cause of the owner's interactive complaints: EVERY action button baked its occurrence token into the markup, so after the first consumed action all of them (Add/View/nav/chips/drawer) posted to a stale token — zero /k/ requests on click (verified with performance entries). The reviewer's HIGH finding was broader than the search input I had fixed. Fix: act posts to /k/ + the tok signal for both faces; the grid projection emits its own tok signals patch (the shop already did); the mobile drawer tagories carry $menu=false and the tok post. Also: the tagory strip with left/right navigator buttons (desktop, scrollBy client-side); tagories in the mobile drawer; shop-project nil-tolerant for catalogs without :tagories; the app_test SSE reader now uses an InputStreamReader (the per-chunk String decode split a multi-byte CJK filename at an 8KB boundary into replacement chars — the tagory-image mismatch).
+Decisions: browser-first debugging (performance entries + inline style reads) over more static analysis; tests on shiva per owner (all six namespaces rc=0 after the fixes; the earlier 112/249 laptop failure confirmed environmental).
+Verification: browser: Add click → Cart (0) → Cart (1) live; cart page renders the line; mobile drawer opens with 13 tagories, selection closes the drawer and filters; desktop strip scrolls via the right navigator (scrollLeft 245.5). Suite: 43/588/0; kondo clean; deployed.
+Delegates: none (orchestrator-direct).
+Next: owner browser pass at both widths; codex confirm of the tok-signal fix on request.
