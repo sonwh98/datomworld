@@ -91,15 +91,18 @@
 
 (defn begin-page
   "The complete HTML document at the root: the vendored script, the
-   stylesheet, base signals, and a subscription to the lineage's token."
-  [{:keys [prefix title signals root]}]
+   stylesheet, base signals, a subscription to the lineage's token, and
+   `pre` — markup placed before the app body (the search input renders there
+   once, as a sibling of every patched element)."
+  [{:keys [prefix title signals root pre]}]
   (str "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
        "<title>" (esc title) "</title>"
        "<link rel=\"stylesheet\" href=\"/css/cart.css\">"
        "<script type=\"module\" src=\"/js/datastar.js\"></script></head>"
        "<body data-signals=\"" (esc signals) "\" data-init=\"@get('" prefix "/s/" (esc root) "',{retry:'always'})\">"
-       "<div id=\"app\"><p class=\"loading\">Loading…</p></div></body></html>"))
+       pre
+       "<div id=\"app-body\"><p class=\"loading\">Loading…</p></div></body></html>"))
 
 
 ;; -----------------------------------------------------------------------------
@@ -145,12 +148,15 @@
 
 
 (defn- search-box
-  "The catalog's search field.  Typing sets the signals and posts to the
-   occurrence token; `value` keeps the field's text across re-projections."
-  [token q]
+  "The catalog's search field.  Rendered ONCE, on the begin page, and never
+   re-projected: the input is outside every patched element, so typing is
+   never clobbered by a morph (the letters-disappearing bug).  Typing sets the
+   signals (debounced) and posts to the occurrence token; the program holds
+   the text, and the grid under the field filters on it."
+  [token]
   (str "<section class=\"search\"><input type=\"search\" placeholder=\"Search products…\""
-       " value=\"" (esc (or q "")) "\""
-       " data-on:input=\"$act='search'; $arg=event.target.value; @post('/k/" (esc token) "')\""
+       " data-on:input__debounce.150ms=\"$act='search'; $arg=event.target.value; @post('/k/"
+       (esc token) "')\""
        " autocomplete=\"off\"></section>"))
 
 
@@ -188,8 +194,7 @@
 
 (defn- catalog-page
   [catalog token q tagory]
-  (str (search-box token q)
-       (tagory-chips token ((:tagories catalog)) tagory)
+  (str (tagory-chips token ((:tagories catalog)) tagory)
        "<section class=\"grid\">"
        (apply str (map #(card token %)
                        (filter #(and (matches? q %) (in-tagory? tagory %))
@@ -232,12 +237,15 @@
   "`(project-fn occurrence-id model)` for the shop, over `catalog`, a map of
    `:items (fn [])` and `:item (fn [slug])`.  Pure: re-projecting a stored
    model re-reads the catalog, so a stale view is a view of the catalog as of
-   its last projection."
+   its last projection.
+
+   The patched element is `#app-body`: the search input on the begin page is
+   its SIBLING, so a morph never touches it while the user types."
   [catalog token model]
   (let [cart (:cart model)
         n (reduce + 0 (filter pos? (vals cart)))]
     (sse-elements
-      (str "<div id=\"app\">" (header token n)
+      (str "<div id=\"app-body\">" (header token n)
            "<main>"
            (case (:page model)
              "item" (item-page catalog token (:item model))
@@ -250,4 +258,5 @@
 (defn shop-begin
   [root]
   (begin-page {:prefix "" :title "dao.star cart" :root root
-               :signals "{act: '', arg: ''}"}))
+               :signals "{act: '', arg: ''}"
+               :pre (search-box root)}))

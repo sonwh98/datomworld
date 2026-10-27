@@ -39,13 +39,17 @@
     (is (str/includes? page "src=\"/js/datastar.js\""))
     (is (str/includes? page "href=\"/css/cart.css\""))
     (is (str/includes? page "data-init=\"@get('/s/ROOT',{retry:'always'})\""))
-    (is (str/includes? (grid-view/grid-begin "ROOT") "data-init=\"@get('/grid/s/ROOT',{retry:'always'})\""))))
+    (is (str/includes? (grid-view/grid-begin "ROOT") "data-init=\"@get('/grid/s/ROOT',{retry:'always'})\""))
+    (is (str/includes? page "type=\"search\""))
+    (is (str/includes? page "data-on:input__debounce.150ms"))
+    (is (str/includes? page "id=\"app-body\""))))
 
 
 (deftest the-shop-projects-catalog-detail-and-cart
   (testing "catalog: escaped names, encoded image urls, blank-name items hidden"
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
-      (is (str/starts-with? sse "event: datastar-patch-elements\ndata: elements <div id=\"app\">"))
+      (is (str/starts-with? sse "event: datastar-patch-elements\ndata: elements <div id=\"app-body\">"))
+      (is (not (str/includes? sse "type=\"search\""))) "the search input is never patched"
       (is (str/ends-with? sse "\n\n"))
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (str/includes? sse "<img src=\"/images/a%20b.png\""))
@@ -72,18 +76,16 @@
 
 
 (deftest the-catalog-search-field-filters-items
-  (testing "the field renders on the catalog with the act protocol and no value initially"
-    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search ""})]
-      (is (str/includes? sse "type=\"search\""))
-      (is (str/includes? sse "$act='search'; $arg=event.target.value; @post('/k/TOK')"))
-      (is (str/includes? sse "value=\"\"")))
-    (let [page (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
-      (is (str/includes? page "type=\"search\"")) "the field also renders when the model predates :search"))
-  (testing "a query keeps its text in the field and filters case-insensitively by name"
+  (testing "the search input is a begin-page sibling of the patched body"
+    (let [page (v/shop-begin "ROOT")]
+      (is (str/includes? page "type=\"search\""))
+      (is (str/includes? page "$act='search'; $arg=event.target.value; @post('/k/ROOT')"))
+      (is (not (str/includes? page "value=\"")))))
+  (testing "the query filters the grid; the patch carries no input field"
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "alp"})]
-      (is (str/includes? sse "value=\"alp\""))
       (is (str/includes? sse "Alpha &lt;b&gt;"))
-      (is (not (str/includes? sse "Bravo"))))
+      (is (not (str/includes? sse "Bravo")))
+      (is (not (str/includes? sse "type=\"search\""))))
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "ALP"})]
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (not (str/includes? sse "Bravo")))))
