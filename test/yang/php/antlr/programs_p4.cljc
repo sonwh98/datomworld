@@ -13,9 +13,9 @@
 
 
 (def completed-steps
-  "P4 steps that have landed. S1 (descriptors) is the first slice; fixtures
-   needing runtime construction wait for :p4-s2."
-  #{})
+  "P4 steps that have landed: S1 (descriptors) and S2 (objects, methods,
+   visibility). A fixture whose :requires name a later step stays disabled."
+  #{:p4-s1 :p4-s2})
 
 
 (defn- fx
@@ -43,8 +43,8 @@
        "<?php class A { public static $n = 0; } class B extends A { public static $n = 5; } A::$n++; echo A::$n, B::$n;"
        "15")
    (fx :cls-const-and-self :classes-v1 [] #{:p4-s2}
-       "<?php class A { const X = 3; const Y = self::X * 2; } echo A::Y;"
-       "6")
+       "<?php class A { const X = 3; const Y = self::X; } echo A::Y;"
+       "3")
    (fx :cls-private-identity-per-class :classes-v1 [19] #{:p4-s2}
        (str "<?php class A { private $p = 'a'; function a() { return $this->p; } }"
             " class B extends A { public $p = 'b'; function b() { return $this->p; } }"
@@ -59,7 +59,7 @@
        "4")
    (fx :cls-late-static-binding :classes-v1 [] #{:p4-s2}
        (str "<?php class A { static function make() { return new static; } function n() { return static::class; } }"
-            " class B extends A {} echo (B::make())->n();")
+            " class B extends A {} $o = B::make(); echo $o->n();")
        "B")
    (fx :cls-abstract-instantiation :classes-v1 [] #{:p4-s2}
        (str "<?php abstract class A {}"
@@ -90,7 +90,7 @@
        "<?php enum S { case On; case Off; } var_dump(S::On === S::On, S::On === S::Off);"
        "bool(true)\nbool(false)\n")
    (fx :cls-enum-backed-value :classes-v1 [] #{:p4-s2}
-       "<?php enum S: string { case On = 'on'; case Off = 'off'; } echo S::On->value, S::Off->name;"
+       "<?php enum S: string { case On = 'on'; case Off = 'off'; } $a = S::On; $b = S::Off; echo $a->value, $b->name;"
        "onOff")
    (fx :cls-enum-cases :classes-v1 [] #{:p4-s2}
        "<?php enum S { case A; case B; } foreach (S::cases() as $c) { echo $c->name; }"

@@ -87,11 +87,9 @@
   "Grammar rules P1 does not lower, with the construct each names."
   {"gotoStatement" :goto,
    "declareStatement" :declare,
-   "classDeclaration" :class,
    "useDeclaration" :use,
    "namespaceDeclaration" :namespace,
    "globalConstantDeclaration" :const,
-   "enumDeclaration" :enum,
    "importStatement" :import,
    "newExpr" :new,
    "yieldExpression" :yield,
@@ -321,31 +319,87 @@
 
 
 (defn- checked-var
-  "`name` unless it is `$this`, which classes own (P4)."
-  [n name]
-  (if (= "$this" name) (unsupported! n :this) name))
+  "`name`; `$this` is read through the running method's function cell."
+  [_n name]
+  name)
+
+
+(defn- cc-node
+  "The calling class: the method's lexical `%cc`, null outside a class."
+  [ctx]
+  (if (:cc ctx) (u/v '%cc) (u/lit :php/null)))
+
+
+(defn- this-var?
+  [name]
+  (= "$this" name))
+
+
+(defn- this-node
+  [ctx]
+  (if (:fn ctx)
+    (app* 'php/this-of (u/v '%fn))
+    (app* 'php/throw-error (u/lit "Error") (u/lit "Using $this when not in object context"))))
+
+
+(declare class-ref-node class-name-node leftmost-token-text lower-class lower-new
+         lower-class-constant lower-initializer-part class-spec*)
+
+
+(defn- static-var?
+  "A static property is a variable named `::Class::prop`."
+  [name]
+  (str/starts-with? name "::"))
+
+
+(defn- static-parts
+  [name]
+  (let [[_ cls prop] (str/split name #"::")]
+    [cls prop]))
+
+
+(defn- cv-node
+  "The holder cell node of variable `name` in the current scope, or nil for a
+   global."
+  [ctx name]
+  (cond
+    (static-var? name)
+    (let [[cls prop] (static-parts name)]
+      (app* 'php/sprop-cell (class-ref-node ctx nil cls) (u/lit prop) (cc-node ctx)))
+    (:fn ctx) (u/v (symbol name))
+    :else nil))
+
+
+(defn- display-name
+  [name]
+  (if (static-var? name) (second (static-parts name)) (bare name)))
 
 
 (defn- read-var
   [ctx name]
-  (if (:fn ctx)
-    (app* 'php/local-get (u/v (symbol name)) (u/lit (bare name)))
-    (app* 'php/global-get (u/lit (bare name)))))
+  (if (this-var? name)
+    (this-node ctx)
+    (if-let [cv (cv-node ctx name)]
+      (app* 'php/local-get cv (u/lit (display-name name)))
+      (app* 'php/global-get (u/lit (bare name))))))
 
 
 (defn- peek-var
   "The variable's value, null when unset, with no warning."
   [ctx name]
-  (if (:fn ctx)
-    (app* 'php/local-peek (u/v (symbol name)))
-    (app* 'php/global-peek (u/lit (bare name)))))
+  (if (this-var? name)
+    (if (:fn ctx) (app* 'php/this-or-null (u/v '%fn)) (u/lit :php/null))
+    (if-let [cv (cv-node ctx name)]
+      (app* 'php/local-peek cv)
+      (app* 'php/global-peek (u/lit (bare name))))))
 
 
 (defn- write-var
   "Assign `node` to the variable; the expression's value is the value."
   [ctx name node]
-  (if (:fn ctx)
-    (app* 'php/local-set! (u/v (symbol name)) node)
+  (when (this-var? name) (compile-error! {} "Cannot re-assign $this"))
+  (if-let [cv (cv-node ctx name)]
+    (app* 'php/local-set! cv node)
     (app* 'php/global-set! (u/lit (bare name)) node)))
 
 
@@ -353,38 +407,43 @@
   "Write back a container the variable already owns: through a marker, with
    no counting."
   [ctx name node]
-  (if (:fn ctx)
-    (app* 'php/local-put! (u/v (symbol name)) node)
-    (app* 'php/global-put! (u/lit (bare name)) node)))
+  (if (this-var? name)
+    node
+    (if-let [cv (cv-node ctx name)]
+      (app* 'php/local-put! cv node)
+      (app* 'php/global-put! (u/lit (bare name)) node))))
 
 
 (defn- make-ref-var
   "The reference marker of the variable, made on first use."
   [ctx name]
-  (if (:fn ctx)
-    (app* 'php/make-ref-cv (u/v (symbol name)))
+  (if-let [cv (cv-node ctx name)]
+    (app* 'php/make-ref-cv cv)
     (app* 'php/global-make-ref! (u/lit (bare name)))))
 
 
 (defn- bind-var
   "Bind the variable to the marker `m` (`$x =& ...`)."
   [ctx name m]
-  (if (:fn ctx)
-    (app* 'php/bind-marker (u/v (symbol name)) m)
+  (if-let [cv (cv-node ctx name)]
+    (app* 'php/bind-marker cv m)
     (app* 'php/global-bind! (u/lit (bare name)) m)))
 
 
 (defn- isset-var
   [ctx name]
-  (if (:fn ctx)
-    (app* 'php/local-isset? (u/v (symbol name)))
-    (app* 'php/global-isset? (u/lit (bare name)))))
+  (if (this-var? name)
+    (u/lit (boolean (:fn ctx)))
+    (if-let [cv (cv-node ctx name)]
+      (app* 'php/local-isset? cv)
+      (app* 'php/global-isset? (u/lit (bare name))))))
 
 
 (defn- unset-var
   [ctx name]
-  (if (:fn ctx)
-    (app* 'php/local-unset! (u/v (symbol name)))
+  (when (this-var? name) (compile-error! {} "Cannot unset $this"))
+  (if-let [cv (cv-node ctx name)]
+    (app* 'php/local-unset! cv)
     (app* 'php/global-unset! (u/lit (bare name)))))
 
 
@@ -506,21 +565,38 @@
 ;; store into a holder is `write-var`, so the handle branches of P3 land in
 ;; the prelude without touching this section.
 
+(declare base-location)
+
+
+(defn- offset-keys
+  [ctx offsets]
+  (mapv (fn [sq] (or (first (core/rules ctx sq "expression")) :php/append)) offsets))
+
+
+(defn- property-steps
+  "The path steps of a property `memberAccess` (no call): the property, then
+   its own `[k]` offsets; nil when the access is a call or dynamic."
+  [ctx ma]
+  (when-not (seq (core/rules ctx ma "actualArguments"))
+    (let [fname (first (core/rules ctx ma "keyedFieldName"))
+          simple (when fname (first (core/kids ctx fname)))
+          [ident & offsets] (when (and simple (p/rule? simple "keyedSimpleFieldName"))
+                              (core/kids ctx simple))]
+      (when (and ident (p/rule? ident "identifier"))
+        (into [{:prop-step (leftmost-token-text ctx ident)}] (offset-keys ctx offsets))))))
+
+
 (defn- chain-location
-  "The location of `chain`, when it is one variable and its `[k]`, `[]` and
-   `{k}` offsets, else nil."
+  "The location of `chain`, when it is one variable (or static property), its
+   `->prop` steps and `[k]`, `[]` and `{k}` offsets, else nil."
   [ctx chain]
-  (let [ks (core/kids ctx chain)]
-    (when (= 1 (count ks))
-      (let [o (first (core/kids ctx (first ks)))]
-        (when (p/rule? o "chainBase")
-          (let [bks (core/kids ctx o)]
-            (when (and (= 1 (count bks)) (p/rule? (first bks) "keyedVariable"))
-              (let [[v & offsets] (core/kids ctx (first bks))]
-                (when (and (p/token? v) (= "VarName" (:type v)))
-                  {:var (:text v),
-                   :path (mapv (fn [sq] (or (first (core/rules ctx sq "expression")) :php/append))
-                               offsets)})))))))))
+  (let [[origin & mas] (core/kids ctx chain)
+        o (first (core/kids ctx origin))]
+    (when (p/rule? o "chainBase")
+      (let [steps (mapv #(property-steps ctx %) mas)]
+        (when (every? some? steps)
+          (when-let [base (base-location ctx o)]
+            (update base :path into (mapcat identity steps))))))))
 
 
 (defn- expression-location
@@ -545,11 +621,24 @@
     (compile-error! n message)))
 
 
+(defn- prop-step-node
+  [ctx step]
+  (app* 'php/prop-key (u/lit (:prop-step step)) (cc-node ctx)))
+
+
+(defn- lower-key
+  [ctx k]
+  (cond
+    (= :php/append k) k
+    (:prop-step k) (prop-step-node ctx k)
+    :else (lower ctx k)))
+
+
 (defn- lower-path
   "`loc` with its keys lowered in place: nested applications evaluate them
    left to right, interleaved with the fetches, as Zend does for a read."
   [ctx loc]
-  (update loc :path (fn [path] (mapv #(if (= :php/append %) % (lower ctx %)) path))))
+  (update loc :path (fn [path] (mapv #(lower-key ctx %) path))))
 
 
 (defn- with-keys
@@ -560,7 +649,7 @@
         (reduce (fn [[bindings path] k]
                   (if (= :php/append k)
                     [bindings (conj path k)]
-                    (let [node (lower ctx k)]
+                    (let [node (lower-key ctx k)]
                       (if (= :literal (:type node))
                         [bindings (conj path node)]
                         (let [sym (core/gen "k" k)]
@@ -643,11 +732,21 @@
             (u/if-node (app* '= (u/v t) (u/lit :php/null)) (lower ctx b) (u/v t)))))
 
 
+(defn- lower-instanceof
+  [ctx n a b]
+  (when (or (not (p/rule? b "typeRef")) (seq (core/rules ctx b "anonymousClass"))
+            (empty? (core/rules ctx b "qualifiedNamespaceName")))
+    (unsupported! n :instanceof))
+  (app* 'php/instance-of
+        (lower ctx a)
+        (app* 'php/lc (class-name-node ctx (leftmost-token-text ctx b)))))
+
+
 (defn- lower-binary
   [ctx n [a op b]]
   (case (:type op)
     "NullCoalescing" (lower-null-coalesce ctx n a b)
-    "InstanceOf" (unsupported! n :instanceof)
+    "InstanceOf" (lower-instanceof ctx n a b)
     (let [x (lower ctx a)
           y (lower ctx b)]
       (case (:type op)
@@ -1197,16 +1296,29 @@
                   (reverse (keep identity temps))))))))
 
 
+(defn- class-designator
+  "The written class name (`self`, `static`, `parent` or a name) of a
+   `qualifiedStaticTypeRef`/`typeRef`, or of the `parent` token."
+  [ctx n]
+  (if (p/token? n) (str/lower-case (:text n)) (leftmost-token-text ctx n)))
+
+
 (defn- base-location
-  "The location of a `chainBase` that is one variable and its offsets."
+  "The location of a `chainBase`: a variable and its offsets, or a static
+   property `Class::$name` and its offsets."
   [ctx base]
   (let [bks (core/kids ctx base)]
-    (when (and (= 1 (count bks)) (p/rule? (first bks) "keyedVariable"))
+    (cond
+      (and (= 1 (count bks)) (p/rule? (first bks) "keyedVariable"))
       (let [[v & offsets] (core/kids ctx (first bks))]
         (when (and (p/token? v) (= "VarName" (:type v)))
-          {:var (:text v),
-           :path (mapv (fn [sq] (or (first (core/rules ctx sq "expression")) :php/append))
-                       offsets)})))))
+          {:var (:text v), :path (offset-keys ctx offsets)}))
+      (and (= 3 (count bks)) (p/rule? (first bks) "qualifiedStaticTypeRef")
+           (p/rule? (nth bks 2) "keyedVariable"))
+      (let [[v & offsets] (core/kids ctx (nth bks 2))]
+        (when (and (p/token? v) (= "VarName" (:type v)))
+          {:var (str "::" (class-designator ctx (first bks)) "::" (bare (:text v))),
+           :path (offset-keys ctx offsets)})))))
 
 
 (defn- callee-value
@@ -1361,22 +1473,75 @@
                     (reverse arms)))))
 
 
+(defn- class-ref-node
+  "The class descriptor node of the written class `written` (`self`, `static`,
+   `parent` or a name). `n` is the CST node for diagnostics."
+  [ctx _n written]
+  (let [no-class (fn [what]
+                   (app* 'php/throw-error
+                         (u/lit "Error")
+                         (u/lit (str "Cannot use \"" what "\" when no class scope is active"))))]
+    (case (str/lower-case written)
+      "self" (if (:cc ctx) (app* 'php/class-by-name (u/v '%cc)) (no-class "self"))
+      "parent" (if (:cc ctx)
+                 (app* 'php/class-by-name (app* 'php/parent-of (u/v '%cc)))
+                 (no-class "parent"))
+      "static" (if (:fn ctx)
+                 (app* 'php/class-by-name (app* 'php/static-of (u/v '%fn)))
+                 (if (:cc ctx) (app* 'php/class-by-name (u/v '%cc)) (no-class "static")))
+      (app* 'php/class-by-name (u/lit written)))))
+
+
+(defn- class-name-node
+  "The class name node (a string at run time) of written class `written`."
+  [ctx written]
+  (case (str/lower-case written)
+    "self" (if (:cc ctx) (u/v '%cc) (u/lit "self"))
+    "parent" (if (:cc ctx) (app* 'php/parent-of (u/v '%cc)) (u/lit "parent"))
+    "static" (if (:fn ctx) (app* 'php/static-of (u/v '%fn)) (u/lit "static"))
+    (u/lit written)))
+
+
 (defn- member-call
-  "Fold one `memberAccess` (`->name(args)`) over the object node `o`."
+  "Fold one `memberAccess` over the object node `o`: `->name(args)` is a
+   method call, `->name` (with its offsets) a property read."
   [ctx n o ma]
   (let [fname (first (core/rules ctx ma "keyedFieldName"))
         simple (when fname (first (core/kids ctx fname)))
-        ident (when (and simple (p/rule? simple "keyedSimpleFieldName"))
-                (first (core/kids ctx simple)))
+        [ident & offsets] (when (and simple (p/rule? simple "keyedSimpleFieldName"))
+                            (core/kids ctx simple))
         args (first (core/rules ctx (first (core/rules ctx ma "actualArguments")) "arguments"))]
-    (when-not (and ident (p/rule? ident "identifier") args)
+    (when-not (and ident (p/rule? ident "identifier"))
       (unsupported! n :member-access))
-    (let [recv (core/gen "o" n)
-          [pos _] (lower-arguments ctx args)]
-      (u/let1 recv o
-              (app* 'php/tmp!
-                    (app* 'php/method-call (u/v recv)
-                          (u/lit (leftmost-token-text ctx ident)) pos))))))
+    (let [name (leftmost-token-text ctx ident)]
+      (if args
+        (let [recv (core/gen "o" n)
+              [pos named] (lower-arguments ctx args)]
+          (when named (unsupported! n :named-method-arguments))
+          (u/let1 recv
+                  o
+                  (app* 'php/tmp!
+                        (app* 'php/method-call (u/v recv) (u/lit name) pos (cc-node ctx)))))
+        (reduce (fn [acc k] (app* 'php/dim-get acc (lower ctx k)))
+                (app* 'php/dim-get o (prop-step-node ctx {:prop-step name}))
+                (offset-keys ctx offsets))))))
+
+
+(defn- static-call
+  "`Class::name(args)`: `ref` is the `qualifiedStaticTypeRef` or `parent` token."
+  [ctx n ref name arguments]
+  (let [written (class-designator ctx ref)
+        forward? (contains? #{"self" "parent" "static"} (str/lower-case written))
+        [pos named] (lower-arguments ctx arguments)]
+    (when named (unsupported! n :named-method-arguments))
+    (app* 'php/tmp!
+          (app* 'php/static-call
+                (class-ref-node ctx n written)
+                (u/lit name)
+                pos
+                (cc-node ctx)
+                (if (:fn ctx) (app* 'php/this-or-nil (u/v '%fn)) (u/lit nil))
+                (if (and forward? (:fn ctx)) (app* 'php/static-or-nil (u/v '%fn)) (u/lit nil))))))
 
 
 (defn- closure-static
@@ -1399,7 +1564,14 @@
     (if-let [[_ m] (closure-static ctx fname)]
       (let [[pos _] (lower-arguments ctx (first (core/rules ctx args "arguments")))]
         (app* 'php/closure-static (u/lit (str/lower-case m)) (u/lit m) pos))
-      (lower-call-plain ctx n call))))
+      (let [cc (first (core/kids ctx fname))
+            [ref _ ident] (when (p/rule? cc "classConstant") (core/kids ctx cc))]
+        (if (and ident
+                 (or (p/token? ref) (p/rule? ref "qualifiedStaticTypeRef"))
+                 (p/rule? ident "identifier"))
+          (static-call ctx n ref (leftmost-token-text ctx ident)
+                       (first (core/rules ctx args "arguments")))
+          (lower-call-plain ctx n call))))))
 
 
 (defn- lower-chain
@@ -1415,13 +1587,27 @@
                      (forbid-append! n loc "Cannot use [] for reading")
                      (read-loc ctx (lower-path ctx loc)))
                  (unsupported! n :variable))
-               :else (unsupported! n :new))]
+               :else (lower-new ctx (first (core/rules ctx origin "newExpr"))))]
     (reduce (fn [acc ma]
               (if (p/rule? ma "memberAccess")
                 (member-call ctx n acc ma)
                 (unsupported! n :member-access)))
             base
             (rest ks))))
+
+
+(defn- lower-class-constant
+  "`Class::NAME` and `Class::class`."
+  [ctx n cc]
+  (let [[ref _ ident] (core/kids ctx cc)]
+    (when-not (and (or (p/token? ref) (p/rule? ref "qualifiedStaticTypeRef"))
+                   (p/rule? ident "identifier"))
+      (unsupported! n :class-constant))
+    (let [written (class-designator ctx ref)
+          nm (leftmost-token-text ctx ident)]
+      (if (= "class" (str/lower-case nm))
+        (class-name-node ctx written)
+        (app* 'php/class-const-in (class-ref-node ctx n written) (u/lit nm) (cc-node ctx))))))
 
 
 (defn- lower-constant
@@ -1444,6 +1630,7 @@
         (if (and (= 1 (count (core/kids ctx k))) (= 1 (count names)))
           (constant-node n (:text (first (core/kids ctx (first names)))))
           (unsupported! n :namespace)))
+      (p/rule? k "classConstant") (lower-class-constant ctx n k)
       :else (core/default-arm diagnostic-ns "PHP" unsupported-rules k))))
 
 
@@ -1487,6 +1674,7 @@
         "arrayCreation" (lower-array ctx k0)
         "lambdaFunctionExpr" (lower-lambda ctx k0)
         "matchExpr" (lower-match ctx k0)
+        "newExpr" (lower-new ctx k0)
         "parentheses" (lower ctx (first (core/rule-kids ctx k0)))
         (core/default-arm diagnostic-ns "PHP" unsupported-rules k0))
       (and (= 1 cnt) (p/token? k0)) (constant-node n (:text k0))
@@ -1527,7 +1715,7 @@
   "`node` followed by the release of the temporaries it registered, when the
    statement `n` holds a call that can leave one (row 37)."
   [ctx n node]
-  (if (core/contains-rule? ctx n "functionCall" #{})
+  (if (some #(core/contains-rule? ctx n % #{}) ["functionCall" "newExpr" "memberAccess"])
     (let [mark (core/gen "tm" n)]
       (u/let1 mark (app* 'php/tmp-mark) (u/then node (app* 'php/release-tmps (u/v mark)))))
     node))
@@ -2034,12 +2222,23 @@
     (cond
       (and (= 1 (count ks)) (p/rule? k0 "constant")) (lower ctx k0)
       (and (= 1 (count ks)) (p/rule? k0 "string")) (string-node ctx k0)
-      (and (= 2 (count ks)) (p/token? k0))
-      (case (:type k0)
-        "Plus" (app* 'php/plus (lower-initializer ctx (second ks)))
-        "Minus" (app* 'php/neg (lower-initializer ctx (second ks)))
-        (unsupported! n :constant-expression))
-      :else (unsupported! n :array))))
+      (and (= 2 (count ks)) (p/token? k0) (contains? #{"Plus" "Minus"} (:type k0)))
+      (if (= "Plus" (:type k0))
+        (app* 'php/plus (lower-initializer ctx (second ks)))
+        (app* 'php/neg (lower-initializer ctx (second ks))))
+      (some #(p/token? % ".") ks)
+      (reduce (fn [acc k] (app* 'php/concat acc (lower-initializer-part ctx k)))
+              (lower-initializer-part ctx k0)
+              (rest (remove #(p/token? % ".") ks)))
+      (some #(p/rule? % "arrayItemList") ks) (lower-array ctx n)
+      (and (p/token? k0) (contains? #{"OpenSquareBracket" "Array"} (:type k0)))
+      (app* 'php/empty-array)
+      :else (unsupported! n :constant-expression))))
+
+
+(defn- lower-initializer-part
+  [ctx k]
+  (if (p/rule? k "string") (string-node ctx k) (lower ctx k)))
 
 
 (defn- lower-static
@@ -2131,7 +2330,9 @@
    makes the body the value of an expression."
   [ctx n written {:keys [captures arrow?]}]
   (let [ks (core/kids ctx n)
-        _ (when (some #(p/token? % ":") ks) (unsupported! n :return-type))
+        _ (when (or (some #(p/token? % ":") ks) (seq (core/rules ctx n "returnTypeDecl")))
+            (unsupported! n :return-type))
+        _ (when (seq (core/rules ctx n "baseCtorCall")) (unsupported! n :base-constructor-call))
         _ (when (some #(p/token? % "&") (take-while #(not (p/token? % "(")) ks))
             (unsupported! n :reference))
         _ (when (seq (core/rules ctx n "attributes")) (unsupported! n :attribute))
@@ -2146,7 +2347,10 @@
         locals (remove #(or (contains? param-names %) (contains? static-names %)
                             (contains? capture-names %) (= "$this" %))
                        (:vars scope))
-        block (first (core/rules ctx n "blockStatement"))
+        block (or (first (core/rules ctx n "blockStatement"))
+                  (some->> (first (core/rules ctx n "methodBody"))
+                           (#(core/rules ctx % "blockStatement"))
+                           first))
         has-return? (and block
                          (core/contains-rule? ctx
                                               block
@@ -2267,6 +2471,228 @@
             (reverse caps))))
 
 
+;; -----------------------------------------------------------------------------
+;; Objects and classes (P4 S1/S2)
+;; -----------------------------------------------------------------------------
+
+(defn- lower-new
+  "`new Class(args)`: the class is resolved and refused first (row 53), the
+   object is created, then the arguments run, then the constructor."
+  [ctx n]
+  (let [t (first (core/rules ctx n "typeRef"))]
+    (when (and t (seq (core/rules ctx t "anonymousClass")))
+      (unsupported! n :anonymous-class))
+    (when (or (nil? t) (empty? (core/rules ctx t "qualifiedNamespaceName")))
+      (unsupported! n :new))
+    (let [written (leftmost-token-text ctx t)
+          arguments (first (core/rules ctx n "arguments"))
+          [pos named] (if arguments (lower-arguments ctx arguments) [(u/lit []) nil])
+          o (core/gen "n" n)]
+      (when named (unsupported! n :named-constructor-arguments))
+      (u/let1 o
+              (app* 'php/new-begin (class-ref-node ctx n written) (u/lit 0))
+              (app* 'php/new-finish (u/v o) pos (cc-node ctx))))))
+
+
+(defn- spec-node
+  "The guest map of keyword to node `m`."
+  [m]
+  (apply app* 'assoc (u/lit {}) (mapcat (fn [[k v]] [(u/lit k) v]) m)))
+
+
+(defn- member-mods
+  "The set of modifier keywords under the `memberModifiers` of `n`."
+  [ctx n]
+  (set (keep (fn [m]
+               (when (p/rule? m "memberModifier")
+                 (keyword (str/lower-case (leftmost-token-text ctx m)))))
+             (mapcat #(core/kids ctx %) (core/rules ctx n "memberModifiers")))))
+
+
+(defn- member-vis
+  [mods]
+  (cond (:private mods) :private (:protected mods) :protected :else :public))
+
+
+(defn- class-thunk
+  "A thunk of the initializer `init`, run with `%cc` the class `cname`."
+  [ctx cname init]
+  (u/lam [] (u/let1 '%cc (u/lit cname) (lower-initializer (assoc ctx :cc true) init))))
+
+
+(defn- const-entries
+  [ctx cname st]
+  (let [mods (member-mods ctx st)]
+    (mapv (fn [ii]
+            (let [[idn _ init] (core/kids ctx ii)]
+              (spec-node {:name (u/lit (leftmost-token-text ctx idn)),
+                          :vis (u/lit (member-vis mods)),
+                          :final? (u/lit (boolean (:final mods))),
+                          :thunk (class-thunk ctx cname init)})))
+          (core/rules ctx st "identifierInitializer"))))
+
+
+(defn- property-entries
+  [ctx cname st]
+  (let [pm (first (core/rules ctx st "propertyModifiers"))
+        mods (member-mods ctx pm)]
+    (when (seq (core/rules ctx st "typeHint")) (unsupported! st :type-declaration))
+    (mapv (fn [vi]
+            (let [[v _ init] (core/kids ctx vi)]
+              (spec-node (cond-> {:name (u/lit (bare (:text v))),
+                                  :vis (u/lit (member-vis mods)),
+                                  :static? (u/lit (boolean (:static mods)))}
+                           init (assoc :thunk (class-thunk ctx cname init))))))
+          (core/rules ctx st "variableInitializer"))))
+
+
+(defn- method-entry
+  "The method declared by `st` (a `classStatement` or a `functionDeclaration`);
+   its modifiers sit under `mods-src`."
+  [ctx st mods-src]
+  (let [mods (member-mods ctx mods-src)
+        written (function-written ctx st)
+        block (or (first (core/rules ctx st "blockStatement"))
+                  (some->> (first (core/rules ctx st "methodBody"))
+                           (#(core/rules ctx % "blockStatement"))
+                           first))
+        base {:name (u/lit written),
+              :vis (u/lit (member-vis mods)),
+              :static? (u/lit (boolean (:static mods))),
+              :abstract? (u/lit (boolean (or (:abstract mods) (nil? block)))),
+              :final? (u/lit (boolean (:final mods)))}]
+    (if block
+      (let [[lam spec statics] (function-lam (assoc ctx :cc true) st written {})]
+        (spec-node (assoc base
+                          :make (u/lam ['%cc]
+                                       (app* 'php/make-function (u/lit written) (u/lit spec) lam
+                                             (u/lit statics))))))
+      (spec-node base))))
+
+
+(defn- type-names
+  "The written names of the `qualifiedNamespaceName`s below `n`."
+  [ctx n]
+  (if n (mapv #(leftmost-token-text ctx %) (core/rule-kids ctx n)) []))
+
+
+(defn- trait-rules
+  "`[traits rules-node]` of the `use` statements `uses` of a class."
+  [ctx uses]
+  (let [lists (map #(first (core/rules ctx % "qualifiedNamespaceNameList")) uses)
+        adaptations (mapcat #(core/rules ctx % "traitAdaptations") uses)
+        stmts (mapcat #(core/rule-kids ctx %) (mapcat #(core/rule-kids ctx %) adaptations))
+        insteadof (mapv (fn [st]
+                          (when (p/rule? st "traitPrecedence")
+                            (let [[t _ m] (core/kids ctx st)
+                                  excluded (type-names ctx (first (core/rules ctx st "qualifiedNamespaceNameList")))]
+                              (spec-node {:trait (u/lit (leftmost-token-text ctx t)),
+                                          :method (u/lit (leftmost-token-text ctx m)),
+                                          :excluded (args-vector (map u/lit excluded))}))))
+                        stmts)
+        aliases (mapv (fn [st]
+                        (when (p/rule? st "traitAlias")
+                          (let [ref (first (core/rules ctx st "traitMethodReference"))
+                                t (first (core/rules ctx ref "qualifiedNamespaceName"))
+                                m (last (core/rules ctx ref "identifier"))
+                                after (drop-while #(not (and (p/token? %) (= "As" (:type %)))) (core/kids ctx st))
+                                mod (first (filter #(p/rule? % "memberModifier") after))
+                                alias (first (filter #(p/rule? % "identifier") after))]
+                            (spec-node (cond-> {:method (u/lit (leftmost-token-text ctx m))}
+                                         t (assoc :trait (u/lit (leftmost-token-text ctx t)))
+                                         alias (assoc :alias (u/lit (leftmost-token-text ctx alias)))
+                                         mod (assoc :vis (u/lit (keyword (str/lower-case (leftmost-token-text ctx mod))))))))))
+                      stmts)]
+    [(mapcat #(type-names ctx %) lists)
+     (spec-node {:insteadof (args-vector (keep identity insteadof)),
+                 :as (args-vector (keep identity aliases))})]))
+
+
+(defn- enum-spec
+  "`[name spec-node]` of the `enumDeclaration` `n`."
+  [ctx n]
+  (let [ks (core/kids ctx n)
+        cname (leftmost-token-text ctx (first (core/rules ctx n "identifier")))
+        backing (some #(when (and (p/token? %) (contains? #{"IntType" "StringType"} (:type %)))
+                         (if (= "IntType" (:type %)) :int :string))
+                      ks)
+        items (core/rules ctx n "enumItem")
+        tok (fn [it] (some #(when (p/token? %) (:type %)) (core/kids ctx it)))
+        cases (mapv (fn [it]
+                      (let [id (first (core/rules ctx it "identifier"))
+                            e (first (core/rules ctx it "expression"))]
+                        (spec-node (cond-> {:name (u/lit (leftmost-token-text ctx id))}
+                                     e (assoc :value (lower ctx e))))))
+                    (filter #(= "Case" (tok %)) items))
+        methods (mapv #(method-entry ctx (first (core/rules ctx % "functionDeclaration")) %)
+                      (filter #(seq (core/rules ctx % "functionDeclaration")) items))
+        [traits rules] (trait-rules ctx (filter #(= "Use" (tok %)) items))]
+    [cname
+     (spec-node (cond-> {:name (u/lit cname),
+                         :kind (u/lit :enum),
+                         :interfaces (args-vector
+                                       (map u/lit (type-names ctx (first (core/rules ctx n "interfaceList"))))),
+                         :traits (args-vector (map u/lit traits)),
+                         :trait-rules rules,
+                         :cases (args-vector cases),
+                         :methods (args-vector methods)}
+                  backing (assoc :backing (u/lit backing))))]))
+
+
+(defn- class-spec
+  "`[name spec-node]` of the `classDeclaration` or `enumDeclaration` `n`."
+  [ctx n]
+  (if (p/rule? n "enumDeclaration") (enum-spec ctx n) (class-spec* ctx n)))
+
+
+(defn- class-spec*
+  [ctx n]
+  (let [ks (core/kids ctx n)
+        cname (leftmost-token-text ctx (first (core/rules ctx n "identifier")))
+        interface? (boolean (some #(and (p/token? %) (= "Interface" (:type %))) ks))
+        entry-type (some-> (first (core/rules ctx n "classEntryType")) (->> (leftmost-token-text ctx))
+                           str/lower-case)
+        kind (cond interface? :interface (= "trait" entry-type) :trait :else :class)
+        mods (set (keep #(when (p/rule? % "modifier") (keyword (str/lower-case (leftmost-token-text ctx %))))
+                        ks))
+        parent (when-not interface?
+                 (some->> (drop-while #(not (and (p/token? %) (= "Extends" (:type %)))) ks)
+                          second
+                          (leftmost-token-text ctx)))
+        interfaces (cond
+                     interface? (type-names ctx (first (core/rules ctx n "interfaceList")))
+                     :else (type-names ctx (first (core/rules ctx n "interfaceList"))))
+        statements (core/rules ctx n "classStatement")
+        _ (doseq [st statements]
+            (when (seq (core/rules ctx st "attributes")) (unsupported! st :attribute)))
+        tok (fn [st] (some #(when (p/token? %) (:type %)) (core/kids ctx st)))
+        consts (mapcat #(const-entries ctx cname %) (filter #(= "Const" (tok %)) statements))
+        props (mapcat #(property-entries ctx cname %)
+                      (filter #(seq (core/rules ctx % "propertyModifiers")) statements))
+        methods (mapv #(method-entry ctx % %) (filter #(= "Function_" (tok %)) statements))
+        uses (filter #(= "Use" (tok %)) statements)
+        [traits rules] (trait-rules ctx uses)]
+    [cname
+     (spec-node (cond-> {:name (u/lit cname),
+                         :kind (u/lit kind),
+                         :abstract? (u/lit (boolean (:abstract mods))),
+                         :final? (u/lit (boolean (:final mods))),
+                         :interfaces (args-vector (map u/lit interfaces)),
+                         :traits (args-vector (map u/lit traits)),
+                         :trait-rules rules,
+                         :consts (args-vector consts),
+                         :props (args-vector props),
+                         :methods (args-vector methods)}
+                  parent (assoc :parent (u/lit parent))))]))
+
+
+(defn- lower-class
+  "A class declared in place (nested or conditional): declared when reached."
+  [ctx n]
+  (let [[_ spec] (class-spec ctx n)]
+    (u/then (app* 'php/declare-class! spec) (u/lit :php/null))))
+
+
 (defn- lower
   "The node of CST rule node `n`."
   [ctx n]
@@ -2301,9 +2727,7 @@
     "functionDeclaration" (lower-function ctx n)
     "constant" (lower-constant ctx n)
     "arrayCreation" (lower-array ctx n)
-    "newExpr" (if (some #(seq (core/rules ctx % "anonymousClass")) (core/rules ctx n "typeRef"))
-                (unsupported! n :anonymous-class)
-                (core/default-arm diagnostic-ns "PHP" unsupported-rules n))
+    ("classDeclaration" "enumDeclaration") (lower-class ctx n)
     (core/default-arm diagnostic-ns "PHP" unsupported-rules n)))
 
 
@@ -2375,13 +2799,38 @@
           hoisted))
 
 
+(defn- class-item?
+  [ctx item]
+  (and (p/rule? item "topStatement")
+       (contains? #{"classDeclaration" "enumDeclaration"} (:rule (first (core/rule-kids ctx item))))))
+
+
 (defn- unit-body
-  "The unit's statements as one node, hoisted function declarations first."
+  "The unit's statements as one node, hoisted function declarations first,
+   then the classes that can be declared at that point (PHP hoists a class
+   whose parent, interfaces and traits already exist); a hoisted class is
+   skipped when execution reaches it."
   [ctx]
   (let [items (unit-items ctx)
-        hoisted (filterv #(hoisted? ctx %) items)]
+        hoisted (filterv #(hoisted? ctx %) items)
+        classes (mapv (fn [item]
+                        (let [c (first (core/rule-kids ctx item))
+                              [_ spec] (class-spec ctx c)]
+                          [(:id item) (symbol (str "%class-" (:id c))) spec]))
+                      (filter #(class-item? ctx %) items))
+        syms (into {} (map (fn [[id sym _]] [id sym])) classes)
+        in-place (fn [item]
+                   (if-let [sym (get syms (:id item))]
+                     (app* 'php/declare-late! (u/v sym))
+                     (lower ctx item)))]
     (check-hoisted! ctx hoisted)
-    (sequence-node (mapv #(lower ctx %) (concat hoisted (remove #(hoisted? ctx %) items))))))
+    (let [body (sequence-node
+                 (concat (mapv #(lower ctx %) hoisted)
+                         (mapv (fn [[_ sym _]] (app* 'php/hoist-class! (u/v sym))) classes)
+                         (mapv in-place (remove #(hoisted? ctx %) items))))]
+      (reduce (fn [inner [_ sym spec]] (u/let1 sym (u/lam [] spec) inner))
+              body
+              (reverse classes)))))
 
 
 (defn lower-module-body

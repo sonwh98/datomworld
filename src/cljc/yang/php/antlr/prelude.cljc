@@ -255,6 +255,14 @@
     ;; ---------------------------------------------------------------- errors
     [php/make-error
      (fn [cls msg]
+       (let [c (php/class-lookup cls)]
+         (if (if (nil? c) true (= (data/count (get c :methods)) 0))
+           (php/make-error-map cls msg)
+           (let [o (php/instantiate c)]
+             (do (php/obj-set-props! o (php/table-set (get (php/obj-state o) :props) "message" msg))
+                 o)))))]
+    [php/make-error-map
+     (fn [cls msg]
        (let [n (cell/get php.rt/next-ord)]
          (do (cell/set! php.rt/next-ord (+ n 1))
              (assoc (assoc (assoc (assoc {} :php/type :obj) :class cls) :ord n)
@@ -264,8 +272,11 @@
     [php/throw-error (fn [cls msg] (php/raise (php/make-error cls msg)))]
     [php/snapshot-exc
      (fn [e]
-       (assoc (assoc {} :class (get e :class))
-              :message (get (get e :props) "message")))]
+       (if (nil? (get e :php/obj))
+         (assoc (assoc {} :class (get e :class))
+                :message (get (get e :props) "message"))
+         (assoc (assoc {} :class (get (php/obj-state e) :class))
+                :message (php/prop-raw e "message"))))]
     [php/warn-record
      (fn [errno msg]
        (assoc (assoc (assoc {} :php.diag/warning true) :errno errno)
@@ -573,7 +584,9 @@
                          (if (= k :float) (php/float-text v 14)
                              (if (= k :array)
                                (do (php/warn 2 "Array to string conversion") "Array")
-                               (php/throw-error "Error" "Object could not be converted to string")))))))))]
+                               (if (nil? (get v :php/obj))
+                                 (php/throw-error "Error" "Object could not be converted to string")
+                                 (php/obj-to-string v))))))))))]
     [php/str->number
      ;; the number a string casts to: its prefix, else 0
      (fn [s]
@@ -1056,17 +1069,47 @@
                    "")
              v (php/deref slot)
              k (php/kind v)]
-         (if (= k :array)
-           (let [id (php/cell-id v)]
-             (if (php/path-has? path id 0)
-               (php/echo (data/str-concat ind "*RECURSION*\n"))
-               (do (php/echo (data/str-concat ind amp "array("
-                                              (integer/format (php/array-count v))
-                                              ") {\n"))
-                   (php/var-dump-items v ind 0 (php/array-count v)
-                                       (if (nil? id) path (php/vconj path id)))
-                   (php/echo (data/str-concat ind "}\n")))))
-           (php/echo (data/str-concat ind amp (php/scalar-dump v k))))))]
+         (if (if (= k :obj) (not (nil? (get v :php/obj))) false)
+           (php/var-dump-obj v ind amp path)
+           (if (= k :array)
+             (let [id (php/cell-id v)]
+               (if (php/path-has? path id 0)
+                 (php/echo (data/str-concat ind "*RECURSION*\n"))
+                 (do (php/echo (data/str-concat ind amp "array("
+                                                (integer/format (php/array-count v))
+                                                ") {\n"))
+                     (php/var-dump-items v ind 0 (php/array-count v)
+                                         (if (nil? id) path (php/vconj path id)))
+                     (php/echo (data/str-concat ind "}\n")))))
+             (php/echo (data/str-concat ind amp (php/scalar-dump v k)))))))]
+    [php/var-dump-obj
+     (fn [v ind amp path]
+       (let [st (php/obj-state v)
+             id (get st :id)
+             props (get st :props)]
+         (if (php/path-has? path id 0)
+           (php/echo (data/str-concat ind "*RECURSION*\n"))
+           (do (php/echo (data/str-concat ind amp "object(" (get st :class) ")#"
+                                          (integer/format (get st :ord)) " ("
+                                          (integer/format (php/array-count props)) ") {\n"))
+               (php/var-dump-obj-items v props ind 0 (php/array-count props) (php/vconj path id))
+               (php/echo (data/str-concat ind "}\n"))))))]
+    [php/var-dump-obj-items
+     (fn [v props ind i n path]
+       (if (< i n)
+         (let [k (get (php/array-order props) i)
+               e (php/vfind (get (php/obj-class v) :props-decl) :id k 0)
+               label (if (nil? e)
+                       (data/str-concat "\"" k "\"")
+                       (if (= (get e :vis) :protected)
+                         (data/str-concat "\"" (get e :name) "\":protected")
+                         (if (= (get e :vis) :private)
+                           (data/str-concat "\"" (get e :name) "\":\"" (get e :declaring) "\":private")
+                           (data/str-concat "\"" (get e :name) "\""))))]
+           (do (php/echo (data/str-concat ind "  [" label "]=>\n"))
+               (php/var-dump-at (php/slot-get props k) (data/str-concat ind "  ") path)
+               (php/var-dump-obj-items v props ind (+ i 1) n path)))
+         :php/null))]
     [php/path-has?
      (fn [path id i]
        (if (nil? id)
@@ -1668,36 +1711,42 @@
     [php/dim-get
      (fn [c k]
        (let [kind (php/kind c)]
-         (if (= kind :array)
-           (let [key (php/array-key k)
-                 v (php/array-get c key)]
-             (if (nil? v)
-               (do (php/warn 2 (php/undef-key-msg key)) :php/null)
-               v))
-           (if (= kind :string)
-             (php/string-dim-get c k)
-             (if (= kind :obj)
-               (php/throw-error "Error" "Cannot use object as array")
-               (do (php/warn 2 (data/str-concat
-                                 "Trying to access array offset on "
-                                 (if (= kind :bool)
-                                   (if c "true" "false")
-                                   (php/type-name kind))))
-                   :php/null))))))]
+         (if (php/prop-key? k)
+           (if (= kind :obj)
+             (php/prop-read c (get k :php/prop) (get k :ctx))
+             (php/prop-read-nonobj c (get k :php/prop)))
+           (if (= kind :array)
+             (let [key (php/array-key k)
+                   v (php/array-get c key)]
+               (if (nil? v)
+                 (do (php/warn 2 (php/undef-key-msg key)) :php/null)
+                 v))
+             (if (= kind :string)
+               (php/string-dim-get c k)
+               (if (= kind :obj)
+                 (php/throw-error "Error" "Cannot use object as array")
+                 (do (php/warn 2 (data/str-concat
+                                   "Trying to access array offset on "
+                                   (if (= kind :bool)
+                                     (if c "true" "false")
+                                     (php/type-name kind))))
+                     :php/null)))))))]
     [php/dim-peek
      ;; no diagnostic for a missing key or a non-array: null
      (fn [c k]
        (let [kind (php/kind c)]
-         (if (= kind :array)
-           (let [v (php/array-get c
-                                  (php/array-key2 k "Cannot access offset of type " " in isset or empty"))]
-             (if (nil? v) :php/null v))
-           (if (= kind :string)
-             (let [i (php/string-peek-int k)]
-               (if (nil? i)
-                 :php/null
-                 (let [ch (php/string-char c i)] (if (nil? ch) :php/null ch))))
-             :php/null))))]
+         (if (php/prop-key? k)
+           (if (= kind :obj) (php/prop-peek c (get k :php/prop) (get k :ctx)) :php/null)
+           (if (= kind :array)
+             (let [v (php/array-get c
+                                    (php/array-key2 k "Cannot access offset of type " " in isset or empty"))]
+               (if (nil? v) :php/null v))
+             (if (= kind :string)
+               (let [i (php/string-peek-int k)]
+                 (if (nil? i)
+                   :php/null
+                   (let [ch (php/string-char c i)] (if (nil? ch) :php/null ch))))
+               :php/null)))))]
 
     ;; dimension writes: the holder's value is read, updated purely, stored back
     [php/str-write-error
@@ -1728,47 +1777,51 @@
     [php/path-assign-at
      (fn [c ks i v]
        (let [kind (php/kind c)]
-         (if (= kind :array)
-           (php/assign-into c ks i v)
-           (if (= kind :null)
-             (php/assign-into (php/empty-array) ks i v)
-             (if (= kind :bool)
-               (if c
-                 (php/throw-error "Error" "Cannot use a scalar value as an array")
-                 (do (php/warn 8192 "Automatic conversion of false to array is deprecated")
-                     (php/assign-into (php/empty-array) ks i v)))
-               (if (= kind :string)
-                 (php/str-write-error)
-                 (if (= kind :obj)
-                   (php/throw-error "Error" "Cannot use object as array")
-                   (php/throw-error "Error" "Cannot use a scalar value as an array"))))))))]
+         (if (php/prop-key? (get ks i))
+           (php/assign-prop-path c ks i v)
+           (if (= kind :array)
+             (php/assign-into c ks i v)
+             (if (= kind :null)
+               (php/assign-into (php/empty-array) ks i v)
+               (if (= kind :bool)
+                 (if c
+                   (php/throw-error "Error" "Cannot use a scalar value as an array")
+                   (do (php/warn 8192 "Automatic conversion of false to array is deprecated")
+                       (php/assign-into (php/empty-array) ks i v)))
+                 (if (= kind :string)
+                   (php/str-write-error)
+                   (if (= kind :obj)
+                     (php/throw-error "Error" "Cannot use object as array")
+                     (php/throw-error "Error" "Cannot use a scalar value as an array")))))))))]
     [php/path-assign (fn [c ks v] (php/path-assign-at c ks 0 v))]
     [php/path-unset-at
      ;; never vivifies: a missing key or null at any level changes nothing
      (fn [c ks i]
        (let [kind (php/kind c)]
-         (if (= kind :array)
-           (let [key (php/array-key2 (get ks i) "Cannot unset offset of type " " on array")]
-             (if (= (+ i 1) (data/count ks))
-               (php/unset-dim (php/separate c) key)
-               (let [raw (php/slot-get c key)]
-                 (if (nil? raw)
-                   c
-                   (let [a (php/separate c)]
-                     (if (= (php/slot-kind raw) :ref-marker)
-                       (do (php/ref-set! raw (php/path-unset-at (php/ref-value raw) ks (+ i 1)))
-                           a)
-                       (php/store a key (php/path-unset-at raw ks (+ i 1)))))))))
-           (if (= kind :null)
-             c
-             (if (= kind :bool)
-               (if c
-                 (php/throw-error "Error" "Cannot unset offset in a non-array variable")
-                 (do (php/warn 8192 "Automatic conversion of false to array is deprecated")
-                     c))
-               (if (= kind :string)
-                 (php/throw-error "Error" "Cannot unset string offsets")
-                 (php/throw-error "Error" "Cannot unset offset in a non-array variable")))))))]
+         (if (php/prop-key? (get ks i))
+           (php/unset-prop-path c ks i)
+           (if (= kind :array)
+             (let [key (php/array-key2 (get ks i) "Cannot unset offset of type " " on array")]
+               (if (= (+ i 1) (data/count ks))
+                 (php/unset-dim (php/separate c) key)
+                 (let [raw (php/slot-get c key)]
+                   (if (nil? raw)
+                     c
+                     (let [a (php/separate c)]
+                       (if (= (php/slot-kind raw) :ref-marker)
+                         (do (php/ref-set! raw (php/path-unset-at (php/ref-value raw) ks (+ i 1)))
+                             a)
+                         (php/store a key (php/path-unset-at raw ks (+ i 1)))))))))
+             (if (= kind :null)
+               c
+               (if (= kind :bool)
+                 (if c
+                   (php/throw-error "Error" "Cannot unset offset in a non-array variable")
+                   (do (php/warn 8192 "Automatic conversion of false to array is deprecated")
+                       c))
+                 (if (= kind :string)
+                   (php/throw-error "Error" "Cannot unset string offsets")
+                   (php/throw-error "Error" "Cannot unset offset in a non-array variable"))))))))]
     [php/path-unset (fn [c ks] (php/path-unset-at c ks 0))]
     [php/path-ref-at
      ;; [container' marker] for `&$c[ks...]`; vivifies, separates, reuses a marker
@@ -2466,7 +2519,9 @@
     [php/make-static
      (fn [declaring s]
        (assoc s :vis (php/or-default (get s :vis) :public) :declaring declaring
-              :cell (cell/new (php/or-default (get s :default) :php/null))))]
+              :cell (cell/new (if (nil? (get s :thunk))
+                                (php/or-default (get s :default) :php/null)
+                                ((get s :thunk))))))]
     [php/class-static-cell
      (fn [c name]
        (let [e (php/vfind (get c :static-props) :name name 0)]
@@ -2695,13 +2750,30 @@
                                      "value" (get case :value)))))]
     [php/enum-state
      (fn [st name spec]
-       (php/vfold
-         (fn [s case]
-           (assoc s :consts
-                  (php/vput (get s :consts) :name
-                            (php/make-const name (assoc {} :name (get case :name)
-                                                        :value (php/enum-case-obj name case (get spec :backing)))))))
-         st (php/or-default (get spec :cases) []) 0))]
+       (php/enum-members
+         (php/vfold
+           (fn [s case]
+             (assoc s :consts
+                    (php/vput (get s :consts) :name
+                              (php/make-const name (assoc {} :name (get case :name)
+                                                          :value (php/enum-case-obj name case (get spec :backing)))))))
+           st (php/or-default (get spec :cases) []) 0)
+         name spec))]
+    [php/enum-members
+     ;; the `name`/`value` properties and the static `cases()` of an enum
+     (fn [st name spec]
+       (if (= (get spec :kind) :enum)
+         (let [p1 (php/vput (get st :props) :id
+                            (php/make-prop name (assoc {} :name "name" :vis :public :typed? true)))
+               p2 (if (nil? (get spec :backing))
+                    p1
+                    (php/vput p1 :id (php/make-prop name (assoc {} :name "value" :vis :public :typed? true))))]
+           (assoc st :props p2
+                  :methods (php/put-method
+                             (get st :methods)
+                             (assoc {} :name "cases" :lc "cases" :vis :public :static? true :final? true
+                                    :declaring name :native :cases))))
+         st))]
     [php/finish-class
      (fn [spec name kind parent ifaces traits st]
        (assoc {} :php/type :class :name name :kind kind
@@ -2746,6 +2818,401 @@
            (php/throw-error "Error"
                             (data/str-concat "Cannot declare " (php/kind-word kind) " " name
                                              ", because the name is already in use")))))]
+    ;; ---------------------------------------------------------------- objects (P4 S2)
+    ;; An object is `{:php/obj cell}`; the cell holds {:class name :props table
+    ;; :id :rc :ord}. The props table is keyed by property identity (`:id` of the
+    ;; descriptor entry; a dynamic property is keyed by its name). `ctx` is the
+    ;; calling class name, or :php/null outside a class (lexical, threaded by
+    ;; the lowering as `%cc`).
+    [php/prop-key (fn [name ctx] (assoc {} :php/prop name :ctx ctx))]
+    [php/prop-key? (fn [k] (not (nil? (get k :php/prop))))]
+    [php/this-of
+     (fn [f]
+       (let [t (get (cell/get f) :this)]
+         (if (nil? t) (php/throw-error "Error" "Using $this when not in object context") t)))]
+    [php/this-or-nil (fn [f] (get (cell/get f) :this))]
+    [php/this-or-null
+     (fn [f] (let [t (get (cell/get f) :this)] (if (nil? t) :php/null t)))]
+    [php/static-or-nil (fn [f] (get (cell/get f) :static))]
+    [php/hoist-class!
+     ;; declared before the unit runs when everything it needs already exists
+     (fn [thunk]
+       (let [spec (thunk)]
+         (if (php/class-declarable? spec)
+           (if (nil? (php/class-lookup (get spec :name))) (php/declare-class! spec) :php/null)
+           :php/null)))]
+    [php/declare-late!
+     ;; the declaration statement itself: a no-op when the class was hoisted
+     (fn [thunk]
+       (let [spec (thunk)]
+         (if (nil? (php/class-lookup (get spec :name))) (php/declare-class! spec) :php/null)))]
+    [php/static-of
+     (fn [f]
+       (let [s (get (cell/get f) :static)]
+         (if (nil? s)
+           (php/throw-error "Error" "Cannot use \"static\" when no class scope is active")
+           s)))]
+    [php/parent-of
+     (fn [cc]
+       (let [p (get (php/class-lookup cc) :parent)]
+         (if (= p :php/null)
+           (php/throw-error "Error" "Cannot use \"parent\" when current class scope has no parent")
+           p)))]
+    [php/class-by-name (fn [name] (php/need-class name "Class"))]
+    [php/obj-state (fn [o] (cell/get (get o :php/obj)))]
+    [php/obj-class (fn [o] (php/class-lookup (get (php/obj-state o) :class)))]
+    [php/related-class?
+     ;; protected access: `ctx` and `declaring` share a line of inheritance
+     (fn [ctx declaring]
+       (if (= ctx :php/null)
+         false
+         (if (php/class-is? ctx (php/lc declaring)) true (php/class-is? declaring (php/lc ctx)))))]
+    [php/visible?
+     (fn [vis declaring ctx]
+       (if (= vis :public)
+         true
+         (if (= ctx :php/null)
+           false
+           (if (= vis :private)
+             (= (php/lc ctx) (php/lc declaring))
+             (php/related-class? ctx declaring)))))]
+    [php/scope-text
+     (fn [ctx]
+       (if (= ctx :php/null) "global scope" (data/str-concat "scope " ctx)))]
+    [php/vis-word (fn [vis] (if (= vis :private) "private" (if (= vis :protected) "protected" "public")))]
+    [php/prop-find
+     ;; {:kind :ok | :denied | :none :entry e} for property `name` of class `c`
+     ;; seen from `ctx`
+     (fn [c name ctx]
+       (let [priv (if (= ctx :php/null)
+                    nil
+                    (php/vfind (get c :props-decl) :id (data/str-concat ctx "::" name) 0))]
+         (if (nil? priv)
+           (let [e (php/vfind (get c :props-decl) :id name 0)]
+             (if (nil? e)
+               (let [hidden (php/vfind (get c :props-decl) :name name 0)]
+                 (if (nil? hidden)
+                   (assoc {} :kind :none)
+                   (assoc {} :kind :denied :entry hidden)))
+               (if (php/visible? (get e :vis) (get e :declaring) ctx)
+                 (assoc {} :kind :ok :entry e)
+                 (assoc {} :kind :denied :entry e))))
+           (assoc {} :kind :ok :entry priv))))]
+    [php/denied-error
+     (fn [o e name]
+       (php/throw-error "Error"
+                        (data/str-concat "Cannot access " (php/vis-word (get e :vis)) " property "
+                                         (get (php/obj-state o) :class) "::$" name)))]
+    [php/arr-from-vec
+     (fn [v i acc]
+       (if (< i (data/count v)) (php/arr-from-vec v (+ i 1) (php/array-append acc (get v i))) acc))]
+    [php/bind-method
+     (fn [m this static]
+       (let [st (cell/get (if (nil? (get m :native)) (get m :code) (php/native-cell m)))]
+         (cell/new (if (nil? this) (assoc st :static static) (assoc st :this this :static static)))))]
+    [php/invoke
+     (fn [m this static args] (php/call (php/bind-method m this static) args))]
+    [php/magic-call
+     ;; user method `lc` of object `o` with arguments `v`
+     (fn [o c lc v]
+       (php/invoke (php/class-method c lc) o (get (php/obj-state o) :class) v))]
+    [php/prop-fetch
+     (fn [o st e]
+       (let [v (php/array-get (get st :props) (get e :id))]
+         (if (nil? v)
+           (php/throw-error
+             "Error"
+             (data/str-concat "Typed property " (get e :declaring) "::$" (get e :name)
+                              " must not be accessed before initialization"))
+           v)))]
+    [php/prop-read
+     (fn [o name ctx]
+       (let [st (php/obj-state o)
+             c (php/class-lookup (get st :class))
+             r (php/prop-find c name ctx)
+             kind (get r :kind)]
+         (if (= kind :ok)
+           (php/prop-fetch o st (get r :entry))
+           (if (= kind :denied)
+             (if (nil? (php/class-method c "__get"))
+               (php/denied-error o (get r :entry) name)
+               (php/magic-call o c "__get" (php/vconj [] name)))
+             (let [v (php/array-get (get st :props) name)]
+               (if (nil? v)
+                 (if (nil? (php/class-method c "__get"))
+                   (do (php/warn 2 (data/str-concat "Undefined property: " (get st :class) "::$" name))
+                       :php/null)
+                   (php/magic-call o c "__get" (php/vconj [] name)))
+                 v))))))]
+    [php/prop-peek
+     (fn [o name ctx]
+       (let [st (php/obj-state o)
+             c (php/class-lookup (get st :class))
+             r (php/prop-find c name ctx)
+             kind (get r :kind)
+             v (if (= kind :ok)
+                 (php/array-get (get st :props) (get (get r :entry) :id))
+                 (if (= kind :none) (php/array-get (get st :props) name) nil))]
+         (if (nil? v)
+           (if (if (= kind :ok) false (not (nil? (php/class-method c "__isset"))))
+             (if (php/to-bool (php/magic-call o c "__isset" (php/vconj [] name)))
+               (if (nil? (php/class-method c "__get"))
+                 :php/null
+                 (php/magic-call o c "__get" (php/vconj [] name)))
+               :php/null)
+             :php/null)
+           v)))]
+    [php/prop-store!
+     (fn [o id v]
+       (php/obj-set-props! o (php/assign-slot (get (php/obj-state o) :props) id v :owned)))]
+    [php/prop-write!
+     ;; `$o->name = v`; `v` is owned
+     (fn [o name ctx v]
+       (let [st (php/obj-state o)
+             c (php/class-lookup (get st :class))
+             r (php/prop-find c name ctx)
+             kind (get r :kind)]
+         (if (= kind :ok)
+           (php/prop-store! o (get (get r :entry) :id) v)
+           (if (if (= kind :none) (not (nil? (php/slot-get (get st :props) name))) false)
+             (php/prop-store! o name v)
+             (if (nil? (php/class-method c "__set"))
+               (if (= kind :denied)
+                 (php/denied-error o (get r :entry) name)
+                 (php/prop-store! o name v))
+               (php/magic-call o c "__set" (php/vconj (php/vconj [] name) v)))))))]
+    [php/prop-nested-slot
+     ;; [id current-value] of a property about to be written through a path
+     (fn [o name ctx]
+       (let [st (php/obj-state o)
+             c (php/class-lookup (get st :class))
+             r (php/prop-find c name ctx)
+             kind (get r :kind)]
+         (if (= kind :denied)
+           (php/denied-error o (get r :entry) name)
+           (let [id (if (= kind :ok) (get (get r :entry) :id) name)
+                 cur (php/array-get (get st :props) id)]
+             (php/pair id (if (nil? cur) :php/null cur))))))]
+    [php/assign-prop-path
+     (fn [c ks i v]
+       (let [pk (get ks i)
+             name (get pk :php/prop)
+             ctx (get pk :ctx)]
+         (if (= (php/kind c) :obj)
+           (if (= (+ i 1) (data/count ks))
+             (do (php/prop-write! c name ctx v) c)
+             (let [slot (php/prop-nested-slot c name ctx)
+                   cur (get slot 1)
+                   nv (php/path-assign-at cur ks (+ i 1) v)]
+               (do (if (= (php/kind nv) :obj)
+                     (if (= nv cur) :php/null (php/obj-set-props! c (php/store (get (php/obj-state c) :props) (get slot 0) nv)))
+                     (php/obj-set-props! c (php/store (get (php/obj-state c) :props) (get slot 0) nv)))
+                   c)))
+           (php/throw-error "Error"
+                            (data/str-concat "Attempt to assign property \"" name "\" on "
+                                             (php/type-name (php/kind c)))))))]
+    [php/prop-unset!
+     (fn [o name ctx]
+       (let [st (php/obj-state o)
+             c (php/class-lookup (get st :class))
+             r (php/prop-find c name ctx)
+             kind (get r :kind)]
+         (if (= kind :ok)
+           (php/obj-unset-prop o (get (get r :entry) :id))
+           (if (if (= kind :none) (not (nil? (php/slot-get (get st :props) name))) false)
+             (php/obj-unset-prop o name)
+             (if (nil? (php/class-method c "__unset"))
+               (if (= kind :denied) (php/denied-error o (get r :entry) name) :php/null)
+               (php/magic-call o c "__unset" (php/vconj [] name)))))))]
+    [php/unset-prop-path
+     (fn [c ks i]
+       (let [pk (get ks i)
+             name (get pk :php/prop)
+             ctx (get pk :ctx)]
+         (if (= (php/kind c) :obj)
+           (if (= (+ i 1) (data/count ks))
+             (do (php/prop-unset! c name ctx) c)
+             (let [slot (php/prop-nested-slot c name ctx)
+                   cur (get slot 1)]
+               (if (= cur :php/null)
+                 c
+                 (let [nv (php/path-unset-at cur ks (+ i 1))]
+                   (do (if (= (php/kind nv) :obj)
+                         :php/null
+                         (php/obj-set-props! c (php/store (get (php/obj-state c) :props) (get slot 0) nv)))
+                       c)))))
+           c)))]
+    [php/prop-read-nonobj
+     (fn [c name]
+       (do (php/warn 2 (data/str-concat "Attempt to read property \"" name "\" on "
+                                        (php/type-name (php/kind c))))
+           :php/null))]
+    ;; ---- construction (row 53): resolve and refuse, create, then run the constructor
+    [php/init-props
+     (fn [props decls i n]
+       (if (< i n)
+         (let [e (get decls i)]
+           (php/init-props
+             (if (nil? (get e :thunk))
+               (if (nil? (get e :default))
+                 (if (= (get e :typed?) true) props (php/table-set props (get e :id) :php/null))
+                 (php/table-set props (get e :id) (get e :default)))
+               (php/table-set props (get e :id) ((get e :thunk))))
+             decls (+ i 1) n))
+         props))]
+    [php/instantiate
+     (fn [c]
+       (php/new-obj (get c :name)
+                    (php/init-props (php/empty-array) (get c :props-decl) 0
+                                    (data/count (get c :props-decl)))))]
+    [php/new-check
+     (fn [c]
+       (let [k (php/or-default (get c :kind) :class)]
+         (if (= k :class)
+           (if (= (get c :abstract?) true)
+             (php/throw-error "Error" (data/str-concat "Cannot instantiate abstract class " (get c :name)))
+             c)
+           (php/throw-error "Error" (data/str-concat "Cannot instantiate " (php/kind-word k) " " (get c :name))))))]
+    [php/new-begin
+     ;; the object, rc 1, held by the statement's temporary list
+     (fn [c line]
+       (let [o (php/instantiate (php/new-check c))]
+         (do (if (php/class-is? (get c :name) "throwable")
+               (php/obj-set-props! o (php/table-set (get (php/obj-state o) :props) "line" line))
+               :php/null)
+             (php/tmp! o))))]
+    [php/new-finish
+     (fn [o args ctx]
+       (let [c (php/obj-class o)
+             m (php/class-method c "__construct")]
+         (if (nil? m)
+           o
+           (if (php/visible? (get m :vis) (get m :declaring) ctx)
+             (do (php/invoke m o (get c :name) args) o)
+             (php/throw-error
+               "Error"
+               (data/str-concat "Call to " (php/vis-word (get m :vis)) " " (get c :name)
+                                "::__construct() from " (php/scope-text ctx)))))))]
+    ;; ---- methods
+    [php/method-denied
+     (fn [cname m ctx]
+       (php/throw-error
+         "Error"
+         (data/str-concat "Call to " (php/vis-word (get m :vis)) " method " cname "::" (get m :name)
+                          "() from " (php/scope-text ctx))))]
+    [php/private-override
+     ;; a private method of the calling class wins over the object's own
+     (fn [m0 o ctx lc]
+       (if (= ctx :php/null)
+         m0
+         (let [cm (php/class-method (php/class-lookup ctx) lc)]
+           (if (nil? cm)
+             m0
+             (if (= (get cm :vis) :private)
+               (if (= (php/lc (get cm :declaring)) (php/lc ctx))
+                 (if (php/class-is? (get (php/obj-state o) :class) (php/lc ctx)) cm m0)
+                 m0)
+               m0)))))]
+    [php/call-obj-method
+     (fn [o name args ctx]
+       (let [cname (get (php/obj-state o) :class)
+             c (php/class-lookup cname)
+             lc (php/lc name)
+             m (php/private-override (php/class-method c lc) o ctx lc)]
+         (if (nil? m)
+           (if (nil? (php/class-method c "__call"))
+             (php/throw-error "Error" (data/str-concat "Call to undefined method " cname "::" name "()"))
+             (php/magic-call o c "__call" (php/vconj (php/vconj [] name) (php/arr-from-vec args 0 (php/empty-array)))))
+           (if (php/visible? (get m :vis) (get m :declaring) ctx)
+             (php/invoke m (if (= (get m :static?) true) nil o) cname args)
+             (if (nil? (php/class-method c "__call"))
+               (php/method-denied cname m ctx)
+               (php/magic-call o c "__call" (php/vconj (php/vconj [] name) (php/arr-from-vec args 0 (php/empty-array)))))))))]
+    [php/static-call
+     ;; `C::name(args)`: `this` is the calling method's object or nil; `fwd` the
+     ;; forwarded static class (self::, parent::, static::) or nil
+     (fn [c name args ctx this fwd]
+       (let [cname (get c :name)
+             lc (php/lc name)
+             m (php/class-method c lc)]
+         (if (nil? m)
+           (if (nil? (php/class-method c "__callstatic"))
+             (php/throw-error "Error" (data/str-concat "Call to undefined method " cname "::" name "()"))
+             (php/invoke (php/class-method c "__callstatic") nil cname
+                         (php/vconj (php/vconj [] name) (php/arr-from-vec args 0 (php/empty-array)))))
+           (if (php/visible? (get m :vis) (get m :declaring) ctx)
+             (if (= (get m :static?) true)
+               (php/invoke m nil (php/or-default fwd cname) args)
+               (if (if (nil? this) false (php/class-is? (get (php/obj-state this) :class) (php/lc cname)))
+                 (php/invoke m this (get (php/obj-state this) :class) args)
+                 (php/throw-error "Error" (data/str-concat "Non-static method " (get m :declaring) "::"
+                                                           (get m :name) "() cannot be called statically"))))
+             (php/method-denied cname m ctx)))))]
+    [php/sprop-cell
+     (fn [c name ctx]
+       (let [e (php/vfind (get c :static-props) :name name 0)]
+         (if (nil? e)
+           (php/throw-error "Error"
+                            (data/str-concat "Access to undeclared static property " (get c :name) "::$" name))
+           (if (php/visible? (get e :vis) (get e :declaring) ctx)
+             (get e :cell)
+             (php/throw-error "Error"
+                              (data/str-concat "Cannot access " (php/vis-word (get e :vis))
+                                               " property " (get c :name) "::$" name))))))]
+    [php/class-const-in
+     (fn [c name ctx]
+       (let [e (php/vfind (get c :constants) :name name 0)]
+         (if (nil? e)
+           (php/throw-error "Error" (data/str-concat "Undefined constant " (get c :name) "::" name))
+           (if (php/visible? (get e :vis) (get e :declaring) ctx)
+             (php/class-const c name)
+             (php/throw-error "Error"
+                              (data/str-concat "Cannot access " (php/vis-word (get e :vis))
+                                               " constant " (get c :name) "::" name))))))]
+    [php/obj-to-string
+     (fn [o]
+       (let [c (php/obj-class o)]
+         (if (nil? (php/class-method c "__tostring"))
+           (php/throw-error "Error" (data/str-concat "Object of class " (get c :name)
+                                                     " could not be converted to string"))
+           (php/magic-call o c "__tostring" []))))]
+    [php/bi-get-class
+     (fn [args]
+       (if (= (php/kind (get args 0)) :obj)
+         (get (php/obj-state (get args 0)) :class)
+         (php/throw-error "TypeError" "get_class(): Argument #1 ($object) must be of type object")))]
+    ;; ---- Throwable natives: seeded method entries carry `:native`, bound lazily
+    [php/prop-raw
+     (fn [o id] (let [v (php/array-get (get (php/obj-state o) :props) id)] (if (nil? v) :php/null v)))]
+    [php/native-run
+     (fn [kind decl f args]
+       (if (= kind :cases)
+         (php/enum-cases (php/class-lookup (get (cell/get f) :static)) 0 (php/empty-array))
+         (let [o (php/this-of f)
+               n (data/count args)]
+           (if (= kind :ctor)
+             (do (if (> n 0) (php/prop-store! o "message" (php/to-string (get args 0))) :php/null)
+                 (if (> n 1) (php/prop-store! o "code" (get args 1)) :php/null)
+                 (if (> n 2)
+                   (php/prop-store! o (data/str-concat decl "::previous") (php/addref (get args 2)))
+                   :php/null)
+                 :php/null)
+             (if (= kind :message) (php/prop-raw o "message")
+                 (if (= kind :code) (php/prop-raw o "code")
+                     (if (= kind :previous) (php/prop-raw o (data/str-concat decl "::previous"))
+                         (if (= kind :file) (php/prop-raw o "file")
+                             (if (= kind :line) (php/prop-raw o "line")
+                                 (if (= kind :trace) (php/empty-array) "#0 {main}"))))))))))]
+    [php/enum-cases
+     (fn [c i acc]
+       (if (< i (data/count (get c :cases)))
+         (php/enum-cases c (+ i 1) (php/array-append acc (php/class-const c (get (get c :cases) i))))
+         acc))]
+    [php/native-cell
+     (fn [m]
+       (php/make-function (get m :name) :php/null
+                          (fn [f args] (php/native-run (get m :native) (get m :declaring) f args))
+                          []))]
     ;; ---------------------------------------------------------------- throwables, match, methods
     [php/class-is?
      (fn [name lc]
@@ -2808,16 +3275,18 @@
                  "Error"
                  (data/str-concat "Closure::" name "() needs objects (arrive with P4)")))))]
     [php/method-call
-     ;; `$o->name(args)`: the seam P4's class model replaces
-     (fn [o name args]
+     ;; `$o->name(args)` from class scope `ctx`
+     (fn [o name args ctx]
        (let [lc (php/lc name)]
-         (if (php/throwable? o)
-           (php/throwable-method o lc name)
-           (if (php/closure? o)
-             (php/closure-method o lc name args)
-             (php/throw-error "Error"
-                              (data/str-concat "Call to a member function " name "() on "
-                                               (php/type-name (php/kind o))))))))]
+         (if (nil? (get o :php/obj))
+           (if (php/throwable? o)
+             (php/throwable-method o lc name)
+             (if (php/closure? o)
+               (php/closure-method o lc name args)
+               (php/throw-error "Error"
+                                (data/str-concat "Call to a member function " name "() on "
+                                                 (php/type-name (php/kind o))))))
+           (php/call-obj-method o name args ctx))))]
     [php/closure-static
      ;; `Closure::bind($f, $newThis, $scope)` and `Closure::fromCallable($c)`
      (fn [lc name args]
@@ -2864,7 +3333,12 @@
          (php/resolve-fn (php/lc v) v)
          (if (= (get v :php/type) :closure)
            (get v :php/closure)
-           (php/throw-error "Error" "Value not callable"))))]
+           (if (nil? (get v :php/obj))
+             (php/throw-error "Error" "Value not callable")
+             (let [m (php/class-method (php/obj-class v) "__invoke")]
+               (if (nil? m)
+                 (php/throw-error "Error" "Object of type is not callable")
+                 (php/bind-method m v (get (php/obj-state v) :class))))))))]
     [php/callable-fn (fn [h] (php/callable-of h))]
     [php/call-value (fn [v args] (php/call (php/callable-of v) args))]
     [php/args-spread
@@ -3410,30 +3884,58 @@
    ["UnexpectedValueException" :class "RuntimeException" []]])
 
 
+(defn- throwable-members
+  "The properties and native methods Exception and Error declare, which every
+   subclass inherits."
+  [nm]
+  {:props-decl (mapv (fn [[pn vis default]]
+                       {:name pn,
+                        :vis vis,
+                        :declaring nm,
+                        :id (if (= vis :private) (str nm "::" pn) pn),
+                        :default default})
+                     [["message" :protected ""] ["code" :protected 0] ["file" :protected ""]
+                      ["line" :protected 0] ["previous" :private :php/null]]),
+   :methods (mapv (fn [[mn kind]]
+                    {:name mn,
+                     :lc (str/lower-case mn),
+                     :vis :public,
+                     :declaring nm,
+                     :final? (not= kind :ctor),
+                     :native kind})
+                  [["__construct" :ctor] ["getMessage" :message] ["getCode" :code]
+                   ["getPrevious" :previous] ["getFile" :file] ["getLine" :line]
+                   ["getTrace" :trace] ["getTraceAsString" :trace-string]])})
+
+
 (def ^:private seed-table
-  "Name to descriptor skeleton (no members yet), with the lower-cased
-   `:ancestors` the declaration code reads."
+  "Name to descriptor, with the lower-cased `:ancestors` the declaration code
+   reads. The Throwable family carries its inherited members."
   (reduce (fn [table [nm kind parent ifaces final?]]
             (let [lc (str/lower-case nm)
                   anc (reduce (fn [acc x] (into acc (remove (set acc)) (:ancestors (get table x))))
                               [lc]
-                              (concat (when parent [parent]) ifaces))]
+                              (concat (when parent [parent]) ifaces))
+                  members (if (contains? #{"Exception" "Error"} nm)
+                            (throwable-members nm)
+                            (select-keys (get table parent) [:props-decl :methods]))]
               (assoc table
-                     nm {:php/type :class,
-                         :name nm,
-                         :kind kind,
-                         :parent (or parent :php/null),
-                         :interfaces ifaces,
-                         :traits [],
-                         :ancestors anc,
-                         :abstract? false,
-                         :final? (boolean final?),
-                         :constants [],
-                         :props-decl [],
-                         :static-props [],
-                         :methods [],
-                         :cases [],
-                         :attrs []})))
+                     nm (merge {:php/type :class,
+                                :name nm,
+                                :kind kind,
+                                :parent (or parent :php/null),
+                                :interfaces ifaces,
+                                :traits [],
+                                :ancestors anc,
+                                :abstract? false,
+                                :final? (boolean final?),
+                                :constants [],
+                                :props-decl [],
+                                :static-props [],
+                                :methods [],
+                                :cases [],
+                                :attrs []}
+                               members))))
           {}
           seed-classes))
 
