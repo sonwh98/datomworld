@@ -42,6 +42,11 @@
    :task (System/exit
            (:exit (shell {:continue true} "bb" "native/jolt-file/probes/run.clj")))}
 
+  probe:jolt-udp
+  {:doc "J0b probe: raw nonblocking SOCK_DGRAM over jolt.ffi on macOS arm64 and Linux x86_64, printing the platform header first (needs bb bootstrap:jolt)"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "src/dev/jolt_udp_probe.sh")))}
+
   build:jolt-native
   {:doc "Fetch (by pinned SHA-256, only when absent) and build the jolt-toolchain.edn :native sources with the mise-pinned CMake into build/native/<platform>/"
    :task (System/exit
