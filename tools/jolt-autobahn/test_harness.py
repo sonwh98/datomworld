@@ -67,11 +67,55 @@ class ReportPolicy(unittest.TestCase):
                 self.put('7.13.1', behavior=behavior, behaviorClose='INFORMATIONAL', remoteCloseCode=code)
                 self.assertEqual(expected, self.result()['accepted'])
 
+    def test_7_1_6_close_race_assertions(self):
+        for file in self.raw.glob('*.json'):
+            file.unlink()
+        ok = dict(behavior='INFORMATIONAL', behaviorClose='INFORMATIONAL', remoteCloseCode=1000,
+                  rxFrameStats={'1': 1, '8': 1}, createStats=True)
+        cases = [({}, True),
+                 (dict(rxFrameStats={'8': 1}), True),
+                 (dict(rxFrameStats={'1': 1, '8': 1, '10': 1}), False),  # Pong after Close
+                 (dict(remoteCloseCode=1002), False),
+                 (dict(remoteCloseCode=None), False),
+                 (dict(behavior='OK'), False),
+                 (dict(behavior='FAILED'), False),
+                 (dict(rxFrameStats=None), False),
+                 (dict(createStats=False), False),
+                 (dict(createStats=False, rxFrameStats={}), False),
+                 (dict(createStats=None), False),
+                 (dict(createStats=1), False),
+                 (dict(createStats='true'), False),
+                 (dict(rxFrameStats={'10': None}), False),
+                 (dict(rxFrameStats={'10': False}), False),
+                 (dict(rxFrameStats={'10': -1}), False),
+                 (dict(rxFrameStats={'10': '1'}), False),
+                 (dict(rxFrameStats={'1': None, '8': 1}), False),
+                 (dict(rxFrameStats={'10': 0, '8': 1}), True),
+                 (dict(wasCloseHandshakeTimeout=True), False)]
+        with patch.object(h, 'selected', return_value=['7.1.6']):
+            for role, is_server in (('client', True), ('server', False)):
+                for change, expected in cases:
+                    with self.subTest(role=role, change=change):
+                        self.put('7.1.6', isServer=is_server, **dict(ok, **change))
+                        self.assertEqual(expected, h.evaluate(self.raw, role, 'stub', 'smoke')['accepted'])
+                self.put('7.1.6', isServer=is_server, behavior='INFORMATIONAL', behaviorClose='INFORMATIONAL',
+                         remoteCloseCode=1000)  # no rxFrameStats at all
+                self.assertFalse(h.evaluate(self.raw, role, 'stub', 'smoke')['accepted'])
+                self.put('7.1.6', isServer=is_server, behavior='INFORMATIONAL', behaviorClose='INFORMATIONAL',
+                         remoteCloseCode=1000, rxFrameStats={})  # createStats missing
+                self.assertFalse(h.evaluate(self.raw, role, 'stub', 'smoke')['accepted'])
+
     def test_catalogue_and_exact_role_coverage(self):
         _, rows, exceptions = h.policy()
         self.assertEqual(517, len(rows))
         self.assertEqual(301, len(h.selected(rows, 'gate-proposal')))
-        self.assertEqual(4, len(exceptions))
+        self.assertEqual(6, len(exceptions))
+        classes = [r['class'] for r in rows]
+        self.assertEqual((298, 3, 216), tuple(classes.count(c) for c in
+                         ('must-pass', 'exception-listed', 'not-applicable')))
+        self.assertEqual(['7.1.6', '7.13.1', '7.13.2'],
+                         [r['id'] for r in rows if r['class'] == 'exception-listed'])
+        self.assertEqual(1204, 4 * len(h.selected(rows, 'gate-proposal')))
 
 
 if __name__ == '__main__':

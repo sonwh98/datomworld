@@ -1284,6 +1284,9 @@ fragments; a peer that never answers close.
 
 ### 9.6 J6 gates (both platforms)
 
+- Handshake gate (extensions): the client never offers an extension and fails an
+  unsolicited extension in the 101; the server ignores offers and negotiates
+  none; RSV bits set without negotiation close 1002.
 - Handshake: SHA-1 known-answer; invalid handshakes; version mismatch (426);
   subprotocol negotiation exactness (exact offer, endpoint-order pick, mismatch
   fails, no downgrade); the 400 refusals; canonical-path cases.
@@ -1466,12 +1469,13 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 
 **J6 harness amendment proposal (2026-10-27; not an adopted gate change).**
 The [Autobahn prep and proposed gate](../../tools/jolt-autobahn/README.md#5-proposed-j6-amendment-for-owner-ruling)
-pins official 25.10.1 by image digest and inventories 517 exact cases: 299
-must-pass, two assertion-constrained informational cases, 216 compression
-cases not applicable without extension negotiation. The proposed gate runs
+pins official 25.10.1 by image digest and inventories 517 exact cases: 298
+must-pass, three assertion-constrained informational cases (7.1.6, 7.13.1, 7.13.2), 216 compression
+cases not applicable without extension negotiation (offers ignored, none negotiated). The proposed gate runs
 301 cases in each native testee role on both platforms, zero unlisted
 non-strict outcomes, with raw evidence retained; all existing §9.6 and real
-jolt↔JVM/Node/Dart peer gates remain. The included jolt echo stub verifies
+jolt↔JVM/Node/Dart peer gates remain. Re-pinned 2026-10-28 (J6a) from 299/2/216
+to 298/3/216: upstream 7.1.6 labels both behaviors INFORMATIONAL unconditionally. The included jolt echo stub verifies
 harness plumbing only and makes no RFC 6455 or J6 conformance claim. Owner
 approval is required for the case/exception policy. This proposal does not
 transfer the J7 UDP no-`full` policy to WebSocket or change WS backpressure.

@@ -1,6 +1,34 @@
 {
   "exceptions": [
     {
+      "case": "7.1.6",
+      "equals": {
+        "behavior": "INFORMATIONAL",
+        "behaviorClose": "INFORMATIONAL",
+        "remoteCloseCode": 1000
+      },
+      "forbid_rx_opcodes": [
+        10
+      ],
+      "proposal": "2026-10-28 J6a re-pin (amendment 1); owner approval pending",
+      "reason": "Upstream case 7.1.6 overwrites both behaviors with INFORMATIONAL unconditionally, so OK/OK is unsatisfiable. Constrain the close outcome (1000) and require no Pong in the fuzzer's rxFrameStats (opcode 10, JSON key \"10\"). Pre-close echo may complete or be cut and is not asserted. No FAILED waiver.",
+      "role": "client"
+    },
+    {
+      "case": "7.1.6",
+      "equals": {
+        "behavior": "INFORMATIONAL",
+        "behaviorClose": "INFORMATIONAL",
+        "remoteCloseCode": 1000
+      },
+      "forbid_rx_opcodes": [
+        10
+      ],
+      "proposal": "2026-10-28 J6a re-pin (amendment 1); owner approval pending",
+      "reason": "Upstream case 7.1.6 overwrites both behaviors with INFORMATIONAL unconditionally, so OK/OK is unsatisfiable. Constrain the close outcome (1000) and require no Pong in the fuzzer's rxFrameStats (opcode 10, JSON key \"10\"). Pre-close echo may complete or be cut and is not asserted. No FAILED waiver.",
+      "role": "server"
+    },
+    {
       "case": "7.13.1",
       "equals": {
         "behavior": "INFORMATIONAL",
@@ -8,7 +36,7 @@
         "remoteCloseCode": 1002
       },
       "proposal": "2026-10-27 J6 gate proposal; owner approval pending",
-      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead. No FAILED waiver.",
+      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead (1002 per the jolt row of dao.stream.ws.md Host wire codes, a host-profile choice). No FAILED waiver.",
       "role": "client"
     },
     {
@@ -19,7 +47,7 @@
         "remoteCloseCode": 1002
       },
       "proposal": "2026-10-27 J6 gate proposal; owner approval pending",
-      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead. No FAILED waiver.",
+      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead (1002 per the jolt row of dao.stream.ws.md Host wire codes, a host-profile choice). No FAILED waiver.",
       "role": "server"
     },
     {
@@ -30,7 +58,7 @@
         "remoteCloseCode": 1002
       },
       "proposal": "2026-10-27 J6 gate proposal; owner approval pending",
-      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead. No FAILED waiver.",
+      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead (1002 per the jolt row of dao.stream.ws.md Host wire codes, a host-profile choice). No FAILED waiver.",
       "role": "client"
     },
     {
@@ -41,7 +69,7 @@
         "remoteCloseCode": 1002
       },
       "proposal": "2026-10-27 J6 gate proposal; owner approval pending",
-      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead. No FAILED waiver.",
+      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead (1002 per the jolt row of dao.stream.ws.md Host wire codes, a host-profile choice). No FAILED waiver.",
       "role": "server"
     }
   ],

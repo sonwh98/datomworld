@@ -114,19 +114,22 @@ No wildcard selection or silent skip is used.
 | 4 opcodes | 10 | Must pass |
 | 5 fragmentation | 20 | Must pass |
 | 6 UTF-8 | 145 | Must pass |
-| 7 close | 37 | 35 must pass; 7.13.1 and 7.13.2 explicit exceptions below |
+| 7 close | 37 | 34 must pass; 7.1.6, 7.13.1 and 7.13.2 explicit exceptions below |
 | 9 limits/performance | 54 | Must pass under declared test bounds; no speed waiver |
 | 10.1.1 auto-fragmentation | 1 | Supplemental must-pass inbound fragmentation check |
 | 12 compression | 90 | N/A: no permessage-deflate negotiated |
 | 13 compression parameters | 126 | N/A: no permessage-deflate negotiated |
 
-Total: **299 must-pass + 2 exception-listed = 301 executed per role**, 216 N/A.
+Total: **298 must-pass + 3 exception-listed = 301 executed per role**, 216 N/A
+(1,204 executions across both roles on both platforms).
 The proposal is additive to §9.6 groups 1–7/9. Large valid-message tests use a
 declared 64 MiB message/frame ceiling; separately run production bounded-frame
 refusal tests, including sender-declared 1009 versus wire-truncated 1006. Do
 not turn protocol violations into passes by lifting validation. Compression
-N/A requires the testee actually decline extension offers; enabling extensions
-invalidates this policy and requires a new reviewed inventory.
+N/A requires the testee to ignore extension offers and negotiate none: the
+client never offers and fails an unsolicited extension in the 101; RSV frames
+close 1002 (group 3). Enabling extensions invalidates this policy and requires
+a new reviewed inventory. No group 12/13 sentinel cases are in the policy.
 
 `exceptions.json` rows name an exact case and testee role, rationale,
 owner-proposal reference, and exact raw-result assertions. No wildcard or
@@ -134,8 +137,22 @@ blanket FAILED permission exists. Upstream deliberately gives **7.13.1 (5000)**
 and **7.13.2 (65535)** `INFORMATIONAL` for both behavior fields. The proposed
 exception accepts those labels only when the peer returns **1002**, with no
 handshake/drop timeouts. This preserves invalid-close-code rejection; it does
-not accept the suite's broad “undefined” response. Four rows cover both cases
-in both roles. These exceptions are **not owner-approved yet**.
+not accept the suite's broad “undefined” response. The 1002 is the jolt row of
+[dao.stream.ws.md Host wire codes](../../docs/design/dao.stream.ws.md), a
+host-profile choice, not an RFC necessity.
+
+**7.1.6** (256K message, then Close, then Ping) is also exception-listed:
+upstream `Case7_1_6.onConnectionLost` overwrites both behaviors with
+`INFORMATIONAL` unconditionally (verified at pinned source commit 6ed6f439), so
+OK/OK is unsatisfiable. The exception requires `remoteCloseCode` 1000, no
+handshake/drop timeouts, and, through the exception row's `forbid_rx_opcodes`,
+no Pong (opcode 10) in the report's `rxFrameStats`. That field is always
+present in the pinned per-case report, keyed by received opcode (JSON string
+keys, so `"10"`); a missing field fails. Whether the pre-close echo completes
+or is cut is not asserted.
+
+Six rows cover the three cases in both roles. These exceptions are **not
+owner-approved yet**.
 
 Strict threshold: every selected case present exactly once, correct agent and
 role, every ordinary `behavior` and `behaviorClose` exactly `OK`; only the
@@ -181,7 +198,7 @@ It is intentionally not runnable until J6 supplies that executable.
 ## 5. Proposed J6 amendment for owner ruling
 
 Before J6 closes: owner approves this pinned 517-case classification and the
-four exact exception rows (or requests a revision); native jolt **client and
+six exact exception rows (or requests a revision); native jolt **client and
 server** each execute all 301 selected cases on **macOS arm64 and Linux
 x86_64** with the strict threshold above (1,204 selected results, no unexplained
 skips). Retain raw/summary reports, commit/toolchain/OS/architecture/image IDs,

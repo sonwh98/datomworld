@@ -1928,12 +1928,12 @@
     },
     {
       "category": "Close Handling",
-      "class": "must-pass",
+      "class": "exception-listed",
       "description": "Send 256K message followed by close then a ping",
       "expectation": "Case outcome depends on implementation defined close behavior. Message and close frame are sent back to back. If the close frame is processed before the text message write is complete (as can happen in asynchronous processing models) the close frame is processed first and the text message may not be received or may only be partially received.",
       "id": "7.1.6",
       "index": 215,
-      "reason": "Base RFC 6455 framing/echo behavior is required at the raw host-adapter seam; CBOR admission is tested separately."
+      "reason": "Upstream overwrites both behaviors with INFORMATIONAL (implementation-defined echo/close race); require remoteCloseCode=1000, no timeouts and no Pong in rxFrameStats after the Close, in both roles. Pre-close echo may complete or be cut and is not asserted."
     },
     {
       "category": "Close Handling",
@@ -2203,7 +2203,7 @@
       "expectation": "Actual events are undefined by the spec.",
       "id": "7.13.1",
       "index": 245,
-      "reason": "Upstream deliberately labels this invalid-close-code probe INFORMATIONAL; require remoteCloseCode=1002 and no timeouts, in both roles."
+      "reason": "Upstream deliberately labels this invalid-close-code probe INFORMATIONAL; require remoteCloseCode=1002 and no timeouts, in both roles. The 1002 answer is the jolt row of dao.stream.ws.md Host wire codes (a host-profile choice)."
     },
     {
       "category": "Close Handling",
@@ -2212,7 +2212,7 @@
       "expectation": "Actual events are undefined by the spec.",
       "id": "7.13.2",
       "index": 246,
-      "reason": "Upstream deliberately labels this invalid-close-code probe INFORMATIONAL; require remoteCloseCode=1002 and no timeouts, in both roles."
+      "reason": "Upstream deliberately labels this invalid-close-code probe INFORMATIONAL; require remoteCloseCode=1002 and no timeouts, in both roles. The 1002 answer is the jolt row of dao.stream.ws.md Host wire codes (a host-profile choice)."
     },
     {
       "category": "Limits/Performance",
@@ -2716,7 +2716,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.1.1",
       "index": 302,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2725,7 +2725,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.1.2",
       "index": 303,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2734,7 +2734,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "12.1.3",
       "index": 304,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2743,7 +2743,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "12.1.4",
       "index": 305,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2752,7 +2752,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.5",
       "index": 306,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2761,7 +2761,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.6",
       "index": 307,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2770,7 +2770,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.7",
       "index": 308,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2779,7 +2779,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.8",
       "index": 309,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2788,7 +2788,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.9",
       "index": 310,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2797,7 +2797,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.10",
       "index": 311,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2806,7 +2806,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.11",
       "index": 312,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2815,7 +2815,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.12",
       "index": 313,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2824,7 +2824,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.13",
       "index": 314,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2833,7 +2833,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.14",
       "index": 315,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2842,7 +2842,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.15",
       "index": 316,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2851,7 +2851,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.16",
       "index": 317,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2860,7 +2860,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.17",
       "index": 318,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2869,7 +2869,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.1.18",
       "index": 319,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2878,7 +2878,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.2.1",
       "index": 320,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2887,7 +2887,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.2.2",
       "index": 321,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2896,7 +2896,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "12.2.3",
       "index": 322,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2905,7 +2905,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "12.2.4",
       "index": 323,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2914,7 +2914,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.5",
       "index": 324,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2923,7 +2923,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.6",
       "index": 325,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2932,7 +2932,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.7",
       "index": 326,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2941,7 +2941,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.8",
       "index": 327,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2950,7 +2950,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.9",
       "index": 328,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2959,7 +2959,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.10",
       "index": 329,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2968,7 +2968,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.11",
       "index": 330,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2977,7 +2977,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.12",
       "index": 331,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2986,7 +2986,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.13",
       "index": 332,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -2995,7 +2995,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.14",
       "index": 333,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3004,7 +3004,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.15",
       "index": 334,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3013,7 +3013,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.16",
       "index": 335,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3022,7 +3022,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.17",
       "index": 336,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3031,7 +3031,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.2.18",
       "index": 337,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3040,7 +3040,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.3.1",
       "index": 338,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3049,7 +3049,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.3.2",
       "index": 339,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3058,7 +3058,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "12.3.3",
       "index": 340,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3067,7 +3067,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "12.3.4",
       "index": 341,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3076,7 +3076,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.5",
       "index": 342,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3085,7 +3085,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.6",
       "index": 343,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3094,7 +3094,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.7",
       "index": 344,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3103,7 +3103,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.8",
       "index": 345,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3112,7 +3112,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.9",
       "index": 346,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3121,7 +3121,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.10",
       "index": 347,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3130,7 +3130,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.11",
       "index": 348,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3139,7 +3139,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.12",
       "index": 349,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3148,7 +3148,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.13",
       "index": 350,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3157,7 +3157,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.14",
       "index": 351,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3166,7 +3166,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.15",
       "index": 352,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3175,7 +3175,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.16",
       "index": 353,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3184,7 +3184,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.17",
       "index": 354,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3193,7 +3193,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.3.18",
       "index": 355,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3202,7 +3202,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.4.1",
       "index": 356,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3211,7 +3211,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.4.2",
       "index": 357,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3220,7 +3220,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "12.4.3",
       "index": 358,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3229,7 +3229,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "12.4.4",
       "index": 359,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3238,7 +3238,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.5",
       "index": 360,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3247,7 +3247,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.6",
       "index": 361,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3256,7 +3256,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.7",
       "index": 362,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3265,7 +3265,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.8",
       "index": 363,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3274,7 +3274,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.9",
       "index": 364,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3283,7 +3283,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.10",
       "index": 365,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3292,7 +3292,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.11",
       "index": 366,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3301,7 +3301,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.12",
       "index": 367,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3310,7 +3310,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.13",
       "index": 368,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3319,7 +3319,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.14",
       "index": 369,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3328,7 +3328,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.15",
       "index": 370,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3337,7 +3337,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.16",
       "index": 371,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3346,7 +3346,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.17",
       "index": 372,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3355,7 +3355,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.4.18",
       "index": 373,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3364,7 +3364,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.5.1",
       "index": 374,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3373,7 +3373,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "12.5.2",
       "index": 375,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3382,7 +3382,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "12.5.3",
       "index": 376,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3391,7 +3391,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "12.5.4",
       "index": 377,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3400,7 +3400,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.5",
       "index": 378,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3409,7 +3409,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.6",
       "index": 379,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3418,7 +3418,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.7",
       "index": 380,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3427,7 +3427,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.8",
       "index": 381,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3436,7 +3436,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.9",
       "index": 382,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3445,7 +3445,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.10",
       "index": 383,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3454,7 +3454,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.11",
       "index": 384,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3463,7 +3463,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.12",
       "index": 385,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3472,7 +3472,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.13",
       "index": 386,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3481,7 +3481,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.14",
       "index": 387,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3490,7 +3490,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.15",
       "index": 388,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3499,7 +3499,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.16",
       "index": 389,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3508,7 +3508,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.17",
       "index": 390,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different payloads)",
@@ -3517,7 +3517,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "12.5.18",
       "index": 391,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3526,7 +3526,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.1.1",
       "index": 392,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3535,7 +3535,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.1.2",
       "index": 393,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3544,7 +3544,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "13.1.3",
       "index": 394,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3553,7 +3553,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "13.1.4",
       "index": 395,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3562,7 +3562,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.5",
       "index": 396,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3571,7 +3571,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.6",
       "index": 397,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3580,7 +3580,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.7",
       "index": 398,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3589,7 +3589,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.8",
       "index": 399,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3598,7 +3598,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.9",
       "index": 400,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3607,7 +3607,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.10",
       "index": 401,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3616,7 +3616,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.11",
       "index": 402,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3625,7 +3625,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.12",
       "index": 403,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3634,7 +3634,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.13",
       "index": 404,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3643,7 +3643,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.14",
       "index": 405,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3652,7 +3652,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.15",
       "index": 406,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3661,7 +3661,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.16",
       "index": 407,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3670,7 +3670,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.17",
       "index": 408,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3679,7 +3679,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.1.18",
       "index": 409,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3688,7 +3688,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.2.1",
       "index": 410,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3697,7 +3697,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.2.2",
       "index": 411,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3706,7 +3706,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "13.2.3",
       "index": 412,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3715,7 +3715,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "13.2.4",
       "index": 413,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3724,7 +3724,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.5",
       "index": 414,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3733,7 +3733,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.6",
       "index": 415,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3742,7 +3742,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.7",
       "index": 416,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3751,7 +3751,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.8",
       "index": 417,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3760,7 +3760,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.9",
       "index": 418,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3769,7 +3769,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.10",
       "index": 419,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3778,7 +3778,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.11",
       "index": 420,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3787,7 +3787,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.12",
       "index": 421,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3796,7 +3796,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.13",
       "index": 422,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3805,7 +3805,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.14",
       "index": 423,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3814,7 +3814,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.15",
       "index": 424,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3823,7 +3823,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.16",
       "index": 425,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3832,7 +3832,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.17",
       "index": 426,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3841,7 +3841,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.2.18",
       "index": 427,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3850,7 +3850,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.3.1",
       "index": 428,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3859,7 +3859,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.3.2",
       "index": 429,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3868,7 +3868,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "13.3.3",
       "index": 430,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3877,7 +3877,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "13.3.4",
       "index": 431,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3886,7 +3886,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.5",
       "index": 432,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3895,7 +3895,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.6",
       "index": 433,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3904,7 +3904,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.7",
       "index": 434,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3913,7 +3913,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.8",
       "index": 435,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3922,7 +3922,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.9",
       "index": 436,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3931,7 +3931,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.10",
       "index": 437,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3940,7 +3940,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.11",
       "index": 438,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3949,7 +3949,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.12",
       "index": 439,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3958,7 +3958,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.13",
       "index": 440,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3967,7 +3967,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.14",
       "index": 441,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3976,7 +3976,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.15",
       "index": 442,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3985,7 +3985,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.16",
       "index": 443,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -3994,7 +3994,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.17",
       "index": 444,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4003,7 +4003,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.3.18",
       "index": 445,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4012,7 +4012,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.4.1",
       "index": 446,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4021,7 +4021,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.4.2",
       "index": 447,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4030,7 +4030,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "13.4.3",
       "index": 448,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4039,7 +4039,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "13.4.4",
       "index": 449,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4048,7 +4048,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.5",
       "index": 450,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4057,7 +4057,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.6",
       "index": 451,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4066,7 +4066,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.7",
       "index": 452,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4075,7 +4075,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.8",
       "index": 453,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4084,7 +4084,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.9",
       "index": 454,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4093,7 +4093,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.10",
       "index": 455,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4102,7 +4102,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.11",
       "index": 456,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4111,7 +4111,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.12",
       "index": 457,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4120,7 +4120,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.13",
       "index": 458,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4129,7 +4129,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.14",
       "index": 459,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4138,7 +4138,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.15",
       "index": 460,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4147,7 +4147,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.16",
       "index": 461,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4156,7 +4156,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.17",
       "index": 462,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4165,7 +4165,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.4.18",
       "index": 463,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4174,7 +4174,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.5.1",
       "index": 464,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4183,7 +4183,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.5.2",
       "index": 465,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4192,7 +4192,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "13.5.3",
       "index": 466,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4201,7 +4201,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "13.5.4",
       "index": 467,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4210,7 +4210,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.5",
       "index": 468,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4219,7 +4219,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.6",
       "index": 469,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4228,7 +4228,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.7",
       "index": 470,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4237,7 +4237,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.8",
       "index": 471,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4246,7 +4246,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.9",
       "index": 472,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4255,7 +4255,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.10",
       "index": 473,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4264,7 +4264,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.11",
       "index": 474,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4273,7 +4273,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.12",
       "index": 475,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4282,7 +4282,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.13",
       "index": 476,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4291,7 +4291,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.14",
       "index": 477,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4300,7 +4300,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.15",
       "index": 478,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4309,7 +4309,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.16",
       "index": 479,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4318,7 +4318,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.17",
       "index": 480,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4327,7 +4327,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.5.18",
       "index": 481,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4336,7 +4336,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.6.1",
       "index": 482,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4345,7 +4345,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.6.2",
       "index": 483,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4354,7 +4354,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "13.6.3",
       "index": 484,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4363,7 +4363,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "13.6.4",
       "index": 485,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4372,7 +4372,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.5",
       "index": 486,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4381,7 +4381,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.6",
       "index": 487,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4390,7 +4390,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.7",
       "index": 488,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4399,7 +4399,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.8",
       "index": 489,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4408,7 +4408,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.9",
       "index": 490,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4417,7 +4417,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.10",
       "index": 491,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4426,7 +4426,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.11",
       "index": 492,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4435,7 +4435,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.12",
       "index": 493,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4444,7 +4444,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.13",
       "index": 494,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4453,7 +4453,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.14",
       "index": 495,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4462,7 +4462,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.15",
       "index": 496,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4471,7 +4471,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.16",
       "index": 497,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4480,7 +4480,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.17",
       "index": 498,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4489,7 +4489,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.6.18",
       "index": 499,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4498,7 +4498,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.7.1",
       "index": 500,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4507,7 +4507,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 60 secs.",
       "id": "13.7.2",
       "index": 501,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4516,7 +4516,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 120 secs.",
       "id": "13.7.3",
       "index": 502,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4525,7 +4525,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 240 secs.",
       "id": "13.7.4",
       "index": 503,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4534,7 +4534,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.5",
       "index": 504,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4543,7 +4543,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.6",
       "index": 505,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4552,7 +4552,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.7",
       "index": 506,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4561,7 +4561,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.8",
       "index": 507,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4570,7 +4570,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.9",
       "index": 508,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4579,7 +4579,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.10",
       "index": 509,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4588,7 +4588,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.11",
       "index": 510,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4597,7 +4597,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.12",
       "index": 511,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4606,7 +4606,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.13",
       "index": 512,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4615,7 +4615,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.14",
       "index": 513,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4624,7 +4624,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.15",
       "index": 514,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4633,7 +4633,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.16",
       "index": 515,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4642,7 +4642,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.17",
       "index": 516,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     },
     {
       "category": "WebSocket Compression (different parameters)",
@@ -4651,7 +4651,7 @@
       "expectation": "Receive echo'ed messages (with payload as sent). Timeout case after 480 secs.",
       "id": "13.7.18",
       "index": 517,
-      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; reject extension offers. Re-triage if extensions are enabled."
+      "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     }
   ],
   "policy_status": "proposal, owner approval required",

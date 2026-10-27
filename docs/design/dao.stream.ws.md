@@ -527,6 +527,12 @@ seam for; two hosts cannot put them on the wire, and their seams say so:
   abort; the cleared buffers keep their capacity until the aborted
   connection is released. 1013 is only ever sent by served connections, so
   the client never hits it in practice.
+- jolt: any inbound close code outside 1000–1003, 1007–1014, and 3000–4999
+  (so 0–999, 1004–1006, 1015–2999, and 5000 and above) is answered with a 1002
+  close frame and exactly one terminal `:ws/closed` event. This is a
+  host-profile choice for the no-extension profile, not an RFC 6455
+  necessity, and is distinct from the application-level 4002. The Autobahn
+  7.13.x exception rows cite it.
 
 ## Envelope
 

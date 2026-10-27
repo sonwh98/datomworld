@@ -121,6 +121,20 @@ def evaluate(raw, role, agent, mode):
             for key, val in required.items():
                 if r.get(key) != val:
                     errors.append('%s: expected %r, got %r' % (key, val, r.get(key)))
+            if (e or {}).get('forbid_rx_opcodes') and r.get('createStats') is not True:
+                # Upstream counts frames only when createStats is true; else the check is vacuous.
+                errors.append('malformed field: createStats')
+            for op in (e or {}).get('forbid_rx_opcodes', []):
+                # rxFrameStats is keyed by received opcode (JSON object keys are strings).
+                stats = r.get('rxFrameStats')
+                if not isinstance(stats, dict):
+                    errors.append('missing field: rxFrameStats')
+                    break
+                if any(not isinstance(k, str) or type(v) is not int or v < 0 for k, v in stats.items()):
+                    errors.append('malformed field: rxFrameStats')
+                    break
+                if stats.get(str(op)):
+                    errors.append('rxFrameStats: unexpected opcode %d frame(s) received' % op)
             if r.get('behavior') == 'FAILED' or r.get('behaviorClose') == 'FAILED':
                 errors.append('FAILED is never waived')
         output.append({'case': cid, 'accepted': not errors, 'errors': errors,
