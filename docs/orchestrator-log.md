@@ -13463,3 +13463,15 @@ Session-ID: not-applicable (interactive seat)
 Tree: master 8f34bc06 (pushed)
 Done: Corrects the "2026-10-27 02:35:00 +0700" dao.star cart closure entry: its actual time was 2026-10-27 01:33:38 +0700 (18:33:38 GMT). Same failure mode as the correction recorded in the Mode 1 track (2026-10-26 22:37 entry): an estimated timestamp written without reading the clock. The substantive content stands as written.
 Next: none.
+
+## 2026-10-27 05:35:00 +0700 — dao.star cart: search field + grid item creation, live-verified e2e; owner routing relay recorded
+Completed-GMT: 2026-10-26 22:35:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 1fb5fa23 (pushed); dao-star-demo branch pushed; worktree kept (images + demo)
+Done: Two owner-requested features, implemented orchestrator-directly on the demo (both mechanical applications of the signed-off patterns): (1) shop search field — the query is a local of the session continuation (a "search" act), filtering in the pure projection (search commits d2976fb8, merge into master; live-verified: POSTed a search act over HTTP, the subscription re-projects with the query in the field). (2) grid item creation — empty-selection pane is a create form; program emits a :new payload; effects interpreter derives the slug (VM cannot do strings), enforces uniqueness (-N suffix), validates (and now rejects negative prices — a pre-existing parse-price gap the new tests caught), confirms {:saved slug} (commits 8c051dfd4 + fixes 05ac432c3, 1fb5fa23). Live e2e on shiva over real HTTP: create via POST to /grid/k/<token> → "saved", the item renders in the grid list, the shop's search finds it, and /data/catalog.edn on the volume contains it (persisted).
+Decisions: Two self-inflicted detours, both caught and fixed before landing: (a) the grid emit's 4th argument lands under :edit, so the create payload needed unwrapping in the effects loop (observed live as "malformed edit" then "malformed new item" — the double-unwrap was fixed by passing the whole effect to apply-new!, which destructures :new itself); (b) test suites ran twice from the main repo cwd where the gitignored images do not exist, producing 280 and 8 bogus failures — worktree-root cwd is required for demo tests. Demo changes are small mechanical applications of ruled patterns, taken under the trivial-edit exemption; the reviewer was not re-dispatched for these two features.
+Verification: orchestrator-run from worktree root: 39 tests / 550 assertions / 0 failures; kondo clean; live e2e over HTTP on shiva (create → saved → grid list → shop search hit → persisted to volume).
+Owner relay recorded: claude, codex, glm, cmd models all available (2026-10-27).
+Delegates: none (orchestrator-direct).
+Next: owner browser check at http://192.168.1.2:3004/ (shop; /grid editor, no auth). Reviewer confirmation of the two new features available on request.
