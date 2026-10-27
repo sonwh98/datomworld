@@ -1629,6 +1629,9 @@
                ((get c :code) :js/undefined args nt)
                (let [pr (js/get-prop nt {:js/str "prototype"})
                      o (js/make-object (if (js/object? pr) pr js.rt/obj-proto))
+                     _ (if (= (get c :kind) :class)
+                         (do (js/brand! o f) (js/run-fields! f o))
+                         :js/undefined)
                      r (if (= (get c :nt?) true)
                          ((get c :code) o args nt)
                          ((get c :code) o args))]
@@ -3192,6 +3195,285 @@
              :js/undefined)))]])
 
 
+(defquoted ^:private class-definitions
+  "T3 S3: classes. Heritage, the class constructor cell, descriptors, fields,
+   private names and brand checks, and `super`. A class constructor cell is
+   a function cell of kind :class or :derived with :nt? true, :fields
+   [[key init] ...] (instance fields, init a host lambda of `this` or
+   undefined) and :priv-methods [[pn entry] ...] (the private methods and
+   accessors branded onto each instance). Private state lives in :privs
+   {pn-ref entry} on the object's own cell, outside :props, so no reflection
+   path sees it; an entry is {:kind :field :value v}, {:kind :method :fn f}
+   or {:kind :accessor :get g :set s}. The map is looked up only."
+  '[;; ------------------------------------------------------ heritage
+    [js/class-heritage
+     ;; `p` is :js/none for a class without extends. Answers
+     ;; {:proto-parent .. :ctor-parent ..}.
+     (fn [p]
+       (if (= p :js/none)
+         (assoc (assoc {} :proto-parent js.rt/obj-proto)
+                :ctor-parent js.rt/fn-proto)
+         (if (= p :js/null)
+           (assoc (assoc {} :proto-parent :js/null) :ctor-parent js.rt/fn-proto)
+           (if (js/is-constructor? p)
+             (let [pp (js/get-prop p {:js/str "prototype"})]
+               (if (if (js/object? pp) true (= pp :js/null))
+                 (assoc (assoc {} :proto-parent pp) :ctor-parent p)
+                 (js/throw-type-error
+                   {:js/str "Class extends value does not have valid prototype property"})))
+             (js/throw-type-error
+               {:js/str "Class extends value is not a constructor or null"})))))]
+    [js/make-class
+     ;; the constructor cell, its prototype link and the back-link
+     (fn [name length derived? ctor-parent proto code]
+       (let [f (js/make-function-nt name
+                                    length
+                                    :strict
+                                    (if derived? :derived :class)
+                                    code
+                                    true)]
+         (do (cell/set! f
+                        (assoc (assoc (assoc (cell/get f) :proto ctor-parent)
+                                      :fields
+                                      [])
+                               :priv-methods
+                               []))
+             (js/define-own! f
+                             {:js/str "prototype"}
+                             (js/slot proto false false false))
+             (js/define-own! proto
+                             {:js/str "constructor"}
+                             (js/slot f true false true))
+             f)))]
+
+    ;; ------------------------------------------------------ elements
+    [js/def-class-method!
+     (fn [target key f] (js/define-own! target key (js/slot f true false true)))]
+    [js/def-class-accessor!
+     ;; kind :get or :set; the halves of a pair merge
+     (fn [target key kind f]
+       (js/define-accessor-half! target key kind f false))]
+    [js/private-name
+     (fn [desc]
+       (cell/new (assoc (assoc {} :js/type :private-name) :description desc)))]
+    [js/private-name?
+     (fn [k]
+       (if (js/cell? k)
+         (= (get (cell/get k) :js/type) :private-name)
+         false))]
+    [js/private-text
+     (fn [pn] (get (cell/get pn) :description))]
+    [js/add-field!
+     (fn [f key init]
+       (let [c (cell/get f)]
+         (cell/set! f (assoc c :fields (conj (get c :fields) (conj (conj [] key) init))))))]
+    [js/define-field!
+     ;; define semantics: a public field is CreateDataPropertyOrThrow, a
+     ;; private one a new private entry
+     (fn [o key v]
+       (if (js/private-name? key)
+         (js/priv-define! o key (assoc (assoc {} :kind :field) :value v))
+         (js/define-property-or-throw
+           o
+           key
+           (assoc (assoc (assoc (assoc {} :value v) :writable true)
+                         :enumerable
+                         true)
+                  :configurable
+                  true))))]
+    [js/run-fields-from
+     (fn [fields o i]
+       (if (< i (data/count fields))
+         (let [fd (get fields i)
+               init (get fd 1)]
+           (do (js/define-field! o
+                                 (get fd 0)
+                                 (if (= init :js/undefined) :js/undefined (init o)))
+               (js/run-fields-from fields o (+ i 1))))
+         :js/undefined))]
+    [js/run-fields!
+     (fn [f o] (js/run-fields-from (get (cell/get f) :fields) o 0))]
+    [js/run-static-from
+     (fn [thunks f i]
+       (if (< i (data/count thunks))
+         (do ((get thunks i) f) (js/run-static-from thunks f (+ i 1)))
+         :js/undefined))]
+    [js/static-init! (fn [f thunks] (js/run-static-from thunks f 0))]
+
+    ;; ------------------------------------------------------ private names
+    [js/priv-entry
+     (fn [o pn] (get (get (cell/get o) :privs {}) pn))]
+    [js/priv-put!
+     (fn [o pn entry]
+       (let [c (cell/get o)]
+         (cell/set! o (assoc c :privs (assoc (get c :privs {}) pn entry)))))]
+    [js/priv-define!
+     (fn [o pn entry]
+       (if (nil? (js/priv-entry o pn))
+         (js/priv-put! o pn entry)
+         (js/throw-type-error
+           (js/str-concat {:js/str "Cannot initialize "}
+                          (js/str-concat (js/private-text pn)
+                                         {:js/str " twice on the same object"})))))]
+    [js/priv-missing
+     (fn [pn verb]
+       (js/throw-type-error
+         (js/str-concat
+           {:js/str "Cannot "}
+           (js/str-concat
+             verb
+             (js/str-concat
+               {:js/str " private member "}
+               (js/str-concat
+                 (js/private-text pn)
+                 {:js/str " from an object whose class did not declare it"}))))))]
+    [js/priv-entry-of
+     (fn [o pn verb]
+       (if (js/object? o)
+         (let [e (js/priv-entry o pn)]
+           (if (nil? e) (js/priv-missing pn verb) e))
+         (js/priv-missing pn verb)))]
+    [js/priv-get
+     (fn [o pn]
+       (let [e (js/priv-entry-of o pn {:js/str "read"})
+             k (get e :kind)]
+         (if (= k :field)
+           (get e :value)
+           (if (= k :method)
+             (get e :fn)
+             (if (= (get e :get) :js/undefined)
+               (js/throw-type-error
+                 (js/str-concat (js/private-text pn)
+                                {:js/str " was defined without a getter"}))
+               (js/call (get e :get) o []))))))]
+    [js/priv-set
+     (fn [o pn v]
+       (let [e (js/priv-entry-of o pn {:js/str "write"})
+             k (get e :kind)]
+         (if (= k :field)
+           (js/priv-put! o pn (assoc e :value v))
+           (if (= k :method)
+             (js/throw-type-error
+               (js/str-concat {:js/str "Private method "}
+                              (js/str-concat (js/private-text pn)
+                                             {:js/str " is not writable"})))
+             (if (= (get e :set) :js/undefined)
+               (js/throw-type-error
+                 (js/str-concat (js/private-text pn)
+                                {:js/str " was defined without a setter"}))
+               (do (js/call (get e :set) o (js/vconj [] v)) :js/undefined))))))]
+    [js/priv-has
+     (fn [o pn]
+       (if (js/object? o)
+         (not (nil? (js/priv-entry o pn)))
+         (js/throw-type-error
+           {:js/str "Cannot use 'in' operator to search for a private field in a non-object"})))]
+    [js/priv-merge
+     ;; the entry after adding a method (:method) or an accessor half
+     ;; (:get / :set) `f` to `cur`
+     (fn [cur kind f]
+       (if (= kind :method)
+         (assoc (assoc {} :kind :method) :fn f)
+         (let [acc? (if (nil? cur) false (= (get cur :kind) :accessor))
+               g (if (= kind :get) f (if acc? (get cur :get) :js/undefined))
+               s (if (= kind :set) f (if acc? (get cur :set) :js/undefined))]
+           (assoc (assoc (assoc {} :kind :accessor) :get g) :set s))))]
+    [js/def-static-private!
+     ;; a static private method or accessor half, installed on `f` itself
+     (fn [f pn kind fn-value]
+       (js/priv-put! f pn (js/priv-merge (js/priv-entry f pn) kind fn-value)))]
+    [js/priv-methods-put
+     (fn [ms pn entry i]
+       (if (< i (data/count ms))
+         (if (= (get (get ms i) 0) pn)
+           (js/priv-methods-splice ms (conj (conj [] pn) entry) i)
+           (js/priv-methods-put ms pn entry (+ i 1)))
+         (conj ms (conj (conj [] pn) entry))))]
+    [js/priv-methods-splice
+     (fn [ms new-entry at]
+       (js/priv-methods-splice-from ms new-entry at 0 []))]
+    [js/priv-methods-splice-from
+     (fn [ms new-entry at i acc]
+       (if (< i (data/count ms))
+         (js/priv-methods-splice-from ms new-entry at (+ i 1)
+                                      (conj acc (if (= i at) new-entry (get ms i))))
+         acc))]
+    [js/priv-methods-find
+     (fn [ms pn i]
+       (if (< i (data/count ms))
+         (if (= (get (get ms i) 0) pn) (get (get ms i) 1) (js/priv-methods-find ms pn (+ i 1)))
+         nil))]
+    [js/add-priv-method!
+     ;; an instance private method or accessor half, branded onto each
+     ;; instance by `js/brand!`
+     (fn [f pn kind fn-value]
+       (let [c (cell/get f)
+             ms (get c :priv-methods)
+             entry (js/priv-merge (js/priv-methods-find ms pn 0) kind fn-value)]
+         (cell/set! f (assoc c :priv-methods (js/priv-methods-put ms pn entry 0)))))]
+    [js/brand-from
+     (fn [o ms i]
+       (if (< i (data/count ms))
+         (do (js/priv-define! o (get (get ms i) 0) (get (get ms i) 1))
+             (js/brand-from o ms (+ i 1)))
+         :js/undefined))]
+    [js/brand!
+     ;; install `f`'s private methods and accessors on the instance `o`,
+     ;; before any field initializer runs
+     (fn [o f] (js/brand-from o (get (cell/get f) :priv-methods) 0))]
+
+    ;; ------------------------------------------------------ super
+    [js/super-call
+     ;; super(...args) in the derived constructor `f` (design order, F7):
+     ;; construct the parent with new.target, then check the this-cell is
+     ;; still uninitialized, bind it, brand, run the field initializers
+     (fn [f nt thisc args]
+       (let [parent (get (cell/get f) :proto)]
+         (if (js/is-constructor? parent)
+           (let [o (js/construct-with-nt parent args nt)]
+             (if (= (cell/get thisc) :js/tdz)
+               (do (cell/set! thisc o)
+                   (js/brand! o f)
+                   (js/run-fields! f o)
+                   o)
+               (js/throw-reference-error
+                 {:js/str "Super constructor may only be called once"})))
+           (js/throw-type-error
+             {:js/str "Super constructor is not a constructor"}))))]
+    [js/this-after-super
+     (fn [thisc]
+       (let [v (cell/get thisc)]
+         (if (= v :js/tdz)
+           (js/throw-reference-error
+             {:js/str "Must call super constructor in derived class before accessing 'this' or returning from derived constructor"})
+           v)))]
+    [js/derived-result
+     ;; the completion of a derived constructor body that finished with `r`
+     (fn [thisc r]
+       (if (js/object? r)
+         r
+         (if (= r :js/undefined)
+           (js/this-after-super thisc)
+           (js/throw-type-error
+             {:js/str "Derived constructors may only return object or undefined"}))))]
+    [js/super-parent
+     (fn [home]
+       (let [p (get (cell/get home) :proto)]
+         (if (= p :js/null)
+           (js/throw-type-error
+             {:js/str "Cannot read properties of null (super)"})
+           p)))]
+    [js/super-get
+     (fn [home key receiver] (js/get-prop-r (js/super-parent home) key receiver))]
+    [js/super-set
+     (fn [home key v receiver]
+       (if (js/set-prop (js/super-parent home) key v receiver)
+         v
+         (js/throw-type-error
+           (js/str-concat {:js/str "Cannot assign to read only property '"}
+                          (js/str-concat (js/key-text key) {:js/str "'"})))))]])
+
+
 (defquoted ^:private json-definitions
   "Stage 0 S8: JSON.stringify (replacer function and array, space, toJSON,
    cycles, BigInt, well-formed output for lone surrogates) and JSON.parse
@@ -3710,8 +3992,10 @@
   "The single definition list, `[store-key form]` in definition order:
    every prelude function, the literal state slot, then `js/init!`.
    Defining them runs nothing."
-  (into (into (into (into core-definitions object-definitions) array-definitions)
-              json-definitions)
+  (into (into (into (into (into core-definitions object-definitions)
+                          array-definitions)
+                    json-definitions)
+              class-definitions)
         [['js.rt/state :js/uninit] ['js/init! (init-form)]]))
 
 

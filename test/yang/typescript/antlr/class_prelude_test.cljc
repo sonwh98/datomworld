@@ -199,6 +199,324 @@
     true]])
 
 
+;; ------------------------------------------------------------------- S3
+
+(def ^:private heritage-cases
+  [['(let [h (js/class-heritage :js/none)]
+       [(= (get h :proto-parent) js.rt/obj-proto)
+        (= (get h :ctor-parent) js.rt/fn-proto)])
+    [true true]]
+   ['(let [h (js/class-heritage :js/null)]
+       [(= (get h :proto-parent) :js/null)
+        (= (get h :ctor-parent) js.rt/fn-proto)])
+    [true true]]
+   [(throws '(js/class-heritage {:n 1})) (k "TypeError")]
+   [(throws '(js/class-heritage (js/make-function-nt {:js/str "a"} 0 :lexical :arrow
+                                                     (fn [t a] t)
+                                                     false)))
+    (k "TypeError")]
+   ['(let [p (js/make-function {:js/str "P"} 0 :strict :normal (fn [t a] t))
+           h (js/class-heritage p)]
+       [(= (get h :ctor-parent) p)
+        (= (get h :proto-parent) (js/get-prop p {:js/str "prototype"}))])
+    [true true]]
+   [(throws '(let [p (js/make-function {:js/str "P"} 0 :strict :normal (fn [t a] t))]
+               (do (js/define-own! p
+                                   {:js/str "prototype"}
+                                   (js/slot {:n 1} true false false))
+                   (js/class-heritage p))))
+    (k "TypeError")]])
+
+
+(def ^:private descriptor-cases
+  [;; own keys, prototype and constructor descriptors
+   ['(let [proto (js/make-object js.rt/obj-proto)
+           f (js/make-class {:js/str "A"} 2 false js.rt/fn-proto proto
+                            (fn [this args nt] this))
+           sp (js/get-own f {:js/str "prototype"})
+           sc (js/get-own proto {:js/str "constructor"})]
+       [(js/own-string-keys f)
+        [(get sp :writable) (get sp :enumerable) (get sp :configurable)]
+        [(get sc :writable) (get sc :enumerable) (get sc :configurable)]
+        (= (get sc :value) f)
+        (js/get-prop f {:js/str "name"})
+        (js/get-prop f {:js/str "length"})
+        (= (get (cell/get f) :kind) :class)])
+    [[(k "length") (k "name") (k "prototype")]
+     [false false false]
+     [true false true]
+     true
+     (k "A")
+     {:n 2}
+     true]]
+   ;; the class prototype is the constructor-parent for a derived class
+   ['(let [p (js/make-class {:js/str "P"} 0 false js.rt/fn-proto
+                            (js/make-object js.rt/obj-proto)
+                            (fn [this args nt] this))
+           d (js/make-class {:js/str "D"} 0 true p
+                            (js/make-object (js/get-prop p {:js/str "prototype"}))
+                            (fn [this args nt] this))]
+       [(= (get (cell/get d) :proto) p)
+        (= (get (cell/get d) :kind) :derived)])
+    [true true]]
+   ;; methods are non-enumerable and writable; accessor halves merge
+   ['(let [proto (js/make-object js.rt/obj-proto)
+           m (js/make-function-nt {:js/str "m"} 0 :strict :method (fn [t a] t) false)
+           g (js/make-function-nt {:js/str "get x"} 0 :strict :method (fn [t a] 1) false)
+           s (js/make-function-nt {:js/str "set x"} 1 :strict :method (fn [t a] t) false)]
+       (do (js/def-class-method! proto {:js/str "m"} m)
+           (js/def-class-accessor! proto {:js/str "x"} :get g)
+           (js/def-class-accessor! proto {:js/str "x"} :set s)
+           (let [sm (js/get-own proto {:js/str "m"})
+                 sx (js/get-own proto {:js/str "x"})]
+             [(get sm :enumerable) (get sm :writable) (get sm :configurable)
+              (= (get sx :get) g) (= (get sx :set) s)
+              (get sx :enumerable) (get sx :configurable)])))
+    [false true true true true false true]]])
+
+
+(def ^:private field-cases
+  [;; define semantics: a prototype setter is shadowed, not invoked
+   ['(let [hit (cell/new false)
+           proto (js/make-object js.rt/obj-proto)
+           f (js/make-class {:js/str "A"} 0 false js.rt/fn-proto proto
+                            (fn [this args nt] this))]
+       (do (js/def-class-accessor!
+             proto
+             {:js/str "x"}
+             :set
+             (js/make-function-nt {:js/str "set x"} 1 :strict :method
+                                  (fn [t a] (do (cell/set! hit true) :js/undefined))
+                                  false))
+           (js/add-field! f {:js/str "x"} (fn [this] {:n 7}))
+           (let [o (js/construct f [])
+                 sl (js/get-own o {:js/str "x"})]
+             [(cell/get hit) (get sl :value) (get sl :writable)
+              (get sl :enumerable) (get sl :configurable)])))
+    [false {:n 7} true true true]]
+   ;; fields run in definition order, each seeing the earlier ones, with
+   ;; a missing initializer defining undefined
+   ['(let [f (js/make-class {:js/str "A"} 0 false js.rt/fn-proto
+                            (js/make-object js.rt/obj-proto)
+                            (fn [this args nt] this))]
+       (do (js/add-field! f {:js/str "a"} (fn [this] {:n 1}))
+           (js/add-field! f {:js/str "b"}
+                          (fn [this] (js/add (js/get-prop this {:js/str "a"}) {:n 1})))
+           (js/add-field! f {:js/str "c"} :js/undefined)
+           (let [o (js/construct f [])]
+             [(js/own-string-keys o)
+              (js/get-prop o {:js/str "b"})
+              (js/has-property o {:js/str "c"})])))
+    [[(k "a") (k "b") (k "c")] {:n 2} true]]
+   ;; static initializers run in order with this = the class
+   ['(let [lg (cell/new [])
+           f (js/make-class {:js/str "A"} 0 false js.rt/fn-proto
+                            (js/make-object js.rt/obj-proto)
+                            (fn [this args nt] this))]
+       (do (js/static-init!
+             f
+             (js/vconj
+               (js/vconj [] (fn [this] (cell/set! lg (conj (cell/get lg) (= this f)))))
+               (fn [this] (cell/set! lg (conj (cell/get lg) {:js/str "two"})))))
+           (cell/get lg)))
+    [true (k "two")]]])
+
+
+(def ^:private private-cases
+  [;; field read, write, has, and the foreign-object errors
+   ['(let [pn (js/private-name {:js/str "#x"})
+           o (js/make-object js.rt/obj-proto)
+           other (js/make-object js.rt/obj-proto)]
+       (do (js/priv-define! o pn (assoc (assoc {} :kind :field) :value {:n 1}))
+           (js/priv-set o pn {:n 5})
+           [(js/priv-get o pn) (js/priv-has o pn) (js/priv-has other pn)]))
+    [{:n 5} true false]]
+   [(throws '(let [pn (js/private-name {:js/str "#x"})]
+               (js/priv-get (js/make-object js.rt/obj-proto) pn)))
+    (k "TypeError")]
+   [(throws '(let [pn (js/private-name {:js/str "#x"})]
+               (js/priv-set (js/make-object js.rt/obj-proto) pn {:n 1})))
+    (k "TypeError")]
+   [(throws '(js/priv-has {:n 1} (js/private-name {:js/str "#x"})))
+    (k "TypeError")]
+   [(throws '(let [pn (js/private-name {:js/str "#x"})
+                   o (js/make-object js.rt/obj-proto)
+                   e (assoc (assoc {} :kind :field) :value {:n 1})]
+               (do (js/priv-define! o pn e) (js/priv-define! o pn e))))
+    (k "TypeError")]
+   ;; private state is invisible to reflection
+   ['(let [pn (js/private-name {:js/str "#x"})
+           o (js/make-object js.rt/obj-proto)]
+       (do (js/priv-define! o pn (assoc (assoc {} :kind :field) :value {:n 1}))
+           [(js/own-string-keys o) (= (data/count (js/own-symbol-keys o)) 0)
+            (= (data/count (js/own-keys-any o)) 0)]))
+    [[] true true]]
+   ;; two names with one description are distinct
+   ['(let [a (js/private-name {:js/str "#x"})
+           b (js/private-name {:js/str "#x"})
+           o (js/make-object js.rt/obj-proto)]
+       (do (js/priv-define! o a (assoc (assoc {} :kind :field) :value {:n 1}))
+           [(js/priv-has o a) (js/priv-has o b)]))
+    [true false]]
+   ;; methods and accessors: branded before fields, the field initializer
+   ;; calling the private method; a setter-less write is a TypeError
+   ['(let [m (js/private-name {:js/str "#m"})
+           g (js/private-name {:js/str "#g"})
+           f (js/make-class {:js/str "A"} 0 false js.rt/fn-proto
+                            (js/make-object js.rt/obj-proto)
+                            (fn [this args nt] this))
+           mf (js/make-function-nt {:js/str "#m"} 0 :strict :method (fn [t a] {:n 11}) false)
+           gf (js/make-function-nt {:js/str "get #g"} 0 :strict :method (fn [t a] {:n 22}) false)]
+       (do (js/add-priv-method! f m :method mf)
+           (js/add-priv-method! f g :get gf)
+           (js/add-field! f {:js/str "v"}
+                          (fn [this] (js/call (js/priv-get this m) this [])))
+           (let [o (js/construct f [])]
+             [(js/get-prop o {:js/str "v"})
+              (= (js/priv-get o m) mf)
+              (js/priv-get o g)
+              (js/own-string-keys o)])))
+    [{:n 11} true {:n 22} [(k "v")]]]
+   [(throws '(let [g (js/private-name {:js/str "#g"})
+                   f (js/make-class {:js/str "A"} 0 false js.rt/fn-proto
+                                    (js/make-object js.rt/obj-proto)
+                                    (fn [this args nt] this))]
+               (do (js/add-priv-method! f g :get
+                                        (js/make-function-nt {:js/str "get #g"} 0 :strict
+                                                             :method (fn [t a] 1) false))
+                   (js/priv-set (js/construct f []) g {:n 1}))))
+    (k "TypeError")]
+   [(throws '(let [m (js/private-name {:js/str "#m"})
+                   f (js/make-class {:js/str "A"} 0 false js.rt/fn-proto
+                                    (js/make-object js.rt/obj-proto)
+                                    (fn [this args nt] this))]
+               (do (js/add-priv-method! f m :method
+                                        (js/make-function-nt {:js/str "#m"} 0 :strict
+                                                             :method (fn [t a] 1) false))
+                   (js/priv-set (js/construct f []) m {:n 1}))))
+    (k "TypeError")]
+   ;; accessor halves merge; static private methods live on the class
+   ['(let [g (js/private-name {:js/str "#g"})
+           s (js/private-name {:js/str "#s"})
+           f (js/make-class {:js/str "A"} 0 false js.rt/fn-proto
+                            (js/make-object js.rt/obj-proto)
+                            (fn [this args nt] this))
+           cell-v (cell/new {:n 0})
+           getter (js/make-function-nt {:js/str "get"} 0 :strict :method
+                                       (fn [t a] (cell/get cell-v)) false)
+           setter (js/make-function-nt {:js/str "set"} 1 :strict :method
+                                       (fn [t a] (cell/set! cell-v (js/arg a 0))) false)]
+       (do (js/add-priv-method! f g :get getter)
+           (js/add-priv-method! f g :set setter)
+           (js/def-static-private! f s :method getter)
+           (let [o (js/construct f [])]
+             (do (js/priv-set o g {:n 9})
+                 [(js/priv-get o g) (= (js/priv-get f s) getter)
+                  (js/priv-has o s)]))))
+    [{:n 9} true false]]])
+
+
+(def ^:private super-cases
+  [;; the F7 ordering: parent first, then check, bind, brand, fields, return
+   ['(let [lg (cell/new [])
+           push (fn [s] (cell/set! lg (conj (cell/get lg) s)))
+           dcell (cell/new :js/undefined)
+           p (js/make-class {:js/str "P"} 0 false js.rt/fn-proto
+                            (js/make-object js.rt/obj-proto)
+                            (fn [this args nt] (do (push {:js/str "P"}) this)))
+           pn (js/private-name {:js/str "#m"})
+           d (js/make-class {:js/str "D"} 0 true p
+                            (js/make-object (js/get-prop p {:js/str "prototype"}))
+                            (fn [this args nt]
+                              (let [thisc (cell/new :js/tdz)]
+                                (do (push {:js/str "enter"})
+                                    (js/super-call (cell/get dcell) nt thisc args)
+                                    (push {:js/str "after"})
+                                    (js/derived-result thisc :js/undefined)))))]
+       (do (cell/set! dcell d)
+           (js/add-priv-method!
+             d pn :method
+             (js/make-function-nt {:js/str "#m"} 0 :strict :method (fn [t a] 1) false))
+           (js/add-field! d {:js/str "f"}
+                          (fn [this]
+                            (do (push (if (js/priv-has this pn)
+                                        {:js/str "branded"}
+                                        {:js/str "unbranded"}))
+                                {:n 1})))
+           (let [o (js/construct d [])]
+             [(cell/get lg)
+              (= (get (cell/get o) :proto) (js/get-prop d {:js/str "prototype"}))
+              (js/get-prop o {:js/str "f"})])))
+    [[(k "enter") (k "P") (k "branded") (k "after")] true {:n 1}]]
+   ;; duplicate super(): the parent runs again, then ReferenceError
+   ['(let [lg (cell/new [])
+           dcell (cell/new :js/undefined)
+           p (js/make-class {:js/str "P"} 0 false js.rt/fn-proto
+                            (js/make-object js.rt/obj-proto)
+                            (fn [this args nt]
+                              (do (cell/set! lg (conj (cell/get lg) {:js/str "P"})) this)))
+           d (js/make-class {:js/str "D"} 0 true p
+                            (js/make-object (js/get-prop p {:js/str "prototype"}))
+                            (fn [this args nt]
+                              (let [thisc (cell/new :js/tdz)]
+                                (do (js/super-call (cell/get dcell) nt thisc args)
+                                    (js/super-call (cell/get dcell) nt thisc args)
+                                    (js/derived-result thisc :js/undefined)))))]
+       (do (cell/set! dcell d)
+           [(js/try (fn [] (js/construct d []))
+                    (fn [e] (js/get-prop e {:js/str "name"})))
+            (= (data/count (cell/get lg)) 2)]))
+    [(k "ReferenceError") true]]
+   ;; a throwing parent leaves the this-cell uninitialized
+   ['(let [thisc (cell/new :js/tdz)
+           dcell (cell/new :js/undefined)
+           p (js/make-class {:js/str "P"} 0 false js.rt/fn-proto
+                            (js/make-object js.rt/obj-proto)
+                            (fn [this args nt] (js/throw-type-error {:js/str "boom"})))
+           d (js/make-class {:js/str "D"} 0 true p
+                            (js/make-object (js/get-prop p {:js/str "prototype"}))
+                            (fn [this args nt] this))]
+       [(js/try (fn [] (js/super-call d d thisc []))
+                (fn [e] (js/get-prop e {:js/str "name"})))
+        (= (cell/get thisc) :js/tdz)])
+    [(k "TypeError") true]]
+   ;; a non-constructor parent
+   [(throws '(let [d (js/make-class {:js/str "D"} 0 true js.rt/fn-proto
+                                    (js/make-object js.rt/obj-proto)
+                                    (fn [this args nt] this))]
+               (js/super-call d d (cell/new :js/tdz) [])))
+    (k "TypeError")]
+   ;; derived completion
+   ['(let [o (js/make-object js.rt/obj-proto)
+           bound (cell/new o)
+           tdz (cell/new :js/tdz)]
+       [(= (js/derived-result tdz o) o)
+        (= (js/derived-result bound :js/undefined) o)])
+    [true true]]
+   [(throws '(js/derived-result (cell/new :js/tdz) :js/undefined)) (k "ReferenceError")]
+   [(throws '(js/derived-result (cell/new (js/make-object js.rt/obj-proto)) {:n 1}))
+    (k "TypeError")]
+   ;; super property reads use the receiver; writes define on the receiver
+   ['(let [parent (js/make-object js.rt/obj-proto)
+           home (js/make-object parent)
+           r (js/make-object js.rt/obj-proto)]
+       (do (js/def-class-accessor!
+             parent
+             {:js/str "who"}
+             :get
+             (js/make-function-nt {:js/str "get who"} 0 :strict :method
+                                  (fn [t a] (js/get-prop t {:js/str "tag"}))
+                                  false))
+           (js/define-own! r {:js/str "tag"} (js/slot {:n 3} true true true))
+           (js/super-set home {:js/str "w"} {:n 4} r)
+           [(js/super-get home {:js/str "who"} r)
+            (js/get-prop r {:js/str "w"})
+            (nil? (js/own-slot home {:js/str "w"}))]))
+    [{:n 3} {:n 4} true]]
+   [(throws '(js/super-get (js/make-object :js/null) {:js/str "x"} :js/undefined))
+    (k "TypeError")]])
+
+
 (deftest constructor-kinds-test (check kind-cases))
 
 
@@ -206,3 +524,18 @@
 
 
 (deftest bound-new-target-test (check bound-cases))
+
+
+(deftest class-heritage-test (check heritage-cases))
+
+
+(deftest class-descriptor-test (check descriptor-cases))
+
+
+(deftest class-field-test (check field-cases))
+
+
+(deftest class-private-test (check private-cases))
+
+
+(deftest class-super-test (check super-cases))
