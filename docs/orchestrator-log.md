@@ -13559,3 +13559,13 @@ Tree: master 28cc9e6b (pushed); dao-star-demo = master; worktree re-anchored, im
 Done: Owner: "vendor-datastar.sh should simply be datastar.sh". Renamed demo/daostar/bin/vendor-datastar.sh -> bin/datastar.sh (git mv); README run line updated; executed from the new name (30732 bytes, sha c9c8b997 — identical). Worktree re-anchored after clearing stale untracked duplicates.
 Verification: script run + sha match; branch/worktree at 28cc9e6b.
 Next: owner browser check.
+
+## 2026-10-27 13:15:00 +0700 — demo: datastar fetch script deleted (owner confirmed it is redundant — datastar.js ships with the repo)
+Completed-GMT: 2026-10-27 06:15:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master a98377e7 (pushed, rebased onto origin with the J4d merge from the other seat); dao-star-demo = origin/master; worktree re-anchored, images intact
+Done: Owner confirmed the observation that bin/datastar.sh simply downloads datastar.js, and approved removal. Deleted the script and the bin/ dir in both trees; the README (single file) no longer mentions a fetch step — datastar.js is committed at its pinned version (30732 bytes, sha c9c8b997) and the Docker image bakes in the committed file, so nothing needs network for the datastar leg anymore (deps resolution still needs it at build). Final demo layout: Dockerfile, README.md, deps.edn, src/, test/, resources/.
+Decisions: keep the version pin where it lives (dao.star-cart.view/datastar-version, asserted by the SSE byte tests); a future bump is a curl + commit, documented nowhere — acceptable for a demo, noted here.
+Verification: no references to bin/datastar or vendor-datastar remain under demo/; git status clean; origin/master a98377e7 includes the other seat's J4d merge (rebased cleanly).
+Next: owner browser check.
