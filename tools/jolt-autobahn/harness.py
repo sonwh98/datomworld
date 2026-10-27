@@ -5,6 +5,8 @@ import hashlib
 import html
 import json
 import os
+import platform
+import re
 from pathlib import Path
 import signal
 import socket
@@ -41,7 +43,7 @@ def policy():
     if len(ids) != pin['case_count'] or len(set(ids)) != len(ids):
         raise ValueError('missing/duplicate catalogue cases')
     if [r['index'] for r in rows] != list(range(1, len(rows) + 1)):
-        raise ValueError('upstream runCase indexes changed')
+        raise ValueError('upstream catalogue indexes changed')
     by_id = {r['id']: r for r in rows}
     seen = set()
     for e in exceptions['exceptions']:
@@ -84,8 +86,12 @@ def evaluate(raw, role, agent, mode):
     wanted = selected(rows, mode)
     records, issues = {}, []
     for path in sorted(Path(raw).glob('*.json')):
-        r = read(path)
         if path.name == 'index.json':
+            continue
+        try:
+            r = read(path)
+        except (ValueError, OSError) as e:
+            issues.append('unreadable raw report: %s: %s' % (path.name, e))
             continue
         if not isinstance(r, dict) or 'id' not in r:
             issues.append('unrecognized raw report: ' + path.name)
@@ -169,6 +175,14 @@ def run(args):
     pin, rows, _ = policy()
     if not args.adapter or args.adapter[0] != '--':
         raise ValueError('supply -- followed by the testee command (no shell)')
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', args.agent):
+        raise ValueError('agent must be URL-safe: letters, numbers, underscore or hyphen')
+    if not 1024 <= args.port <= 65535 or args.timeout <= 0:
+        raise ValueError('invalid unprivileged port or timeout')
+    # Refuse to attach to an unrelated listener left by another run.
+    with socket.socket() as probe:
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        probe.bind(('127.0.0.1', args.port))
     command = args.adapter[1:]
     if not command:
         raise ValueError('missing testee command')
@@ -179,10 +193,12 @@ def run(args):
     (out / 'raw').mkdir()
     ids = selected(rows, args.mode)
     write(out / 'spec.json', configuration(args.role, ids, args.port, args.agent))
-    (out / 'case-indexes.txt').write_text(','.join(str(r['index']) for r in rows if r['id'] in ids))
+    # FuzzingServer /runCase indexes the FILTERED specCases, not all Cases.
+    (out / 'case-indexes.txt').write_text(','.join(str(i) for i in range(1, len(ids) + 1)))
     env = dict(os.environ, J6_ROLE=args.role, J6_PORT=str(args.port), J6_AGENT=args.agent,
                J6_URL='ws://127.0.0.1:%d' % args.port,
-               J6_CASE_INDEXES=str(out / 'case-indexes.txt'), J6_MODE=args.mode)
+               J6_CASE_INDEXES=str(out / 'case-indexes.txt'), J6_MODE=args.mode,
+               J6_FRAME_LIMIT='67108864', J6_MESSAGE_LIMIT='67108864')
     name = 'datom-j6-' + uuid.uuid4().hex[:12]
     docker = ['docker', 'run', '--rm', '--name', name, '--platform', pin['platform'],
               '--network', 'host', '--user', '%d:%d' % (os.getuid(), os.getgid()),
@@ -229,6 +245,11 @@ def run(args):
     result['accepted'] = result['accepted'] and not failures
     result['elapsed_seconds'] = round(time.time() - start, 3)
     result['command'] = command
+    result['runner_platform'] = platform.platform()
+    result['runner_machine'] = platform.machine()
+    result['python_version'] = platform.python_version()
+    result['declared_test_frame_limit'] = int(env['J6_FRAME_LIMIT'])
+    result['declared_test_message_limit'] = int(env['J6_MESSAGE_LIMIT'])
     result['source_commit'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
     render(result, out)
     print(json.dumps({k: result[k] for k in ['scope', 'accepted', 'expected', 'received', 'issues']}))
@@ -239,6 +260,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest='action', required=True)
     sub.add_parser('check')
+    cat = sub.add_parser('verify-catalogue')
+    cat.add_argument('exported')
     ev = sub.add_parser('evaluate')
     rn = sub.add_parser('run')
     for parser in (ev, rn):
@@ -251,6 +274,15 @@ def main():
     rn.add_argument('--timeout', type=int, default=1800)
     rn.add_argument('adapter', nargs=argparse.REMAINDER)
     a = ap.parse_args()
+    if a.action == 'verify-catalogue':
+        pin, rows, _ = policy()
+        exported = read(a.exported)
+        keys = ['id', 'index', 'category', 'description', 'expectation']
+        expected = [{k: r[k] for k in keys} for r in rows]
+        if exported != {'version': pin['release'], 'cases': expected}:
+            raise ValueError('exported upstream catalogue differs from pinned inventory')
+        print('Verified all 517 upstream case records against pinned inventory')
+        return 0
     if a.action == 'check':
         pin, rows, exceptions = policy()
         print(json.dumps({'image': pin['image'], 'cases': len(rows), 'exceptions': len(exceptions),

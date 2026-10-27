@@ -40,6 +40,10 @@ class ReportPolicy(unittest.TestCase):
         (self.raw / 'duplicate.json').write_bytes((self.raw / (h.SMOKE[0]+'.json')).read_bytes())
         self.assertFalse(self.result()['accepted'])
 
+    def test_malformed_report(self):
+        (self.raw / 'broken.json').write_text('{')
+        self.assertFalse(self.result()['accepted'])
+
     def test_unexpected_case(self):
         self.put('99.9')
         self.assertFalse(self.result()['accepted'])

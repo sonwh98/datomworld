@@ -47,6 +47,7 @@ docker pull --platform linux/amd64 "$IMAGE"
 docker run --rm --platform linux/amd64 --network none \
   -v "$PWD/tools/jolt-autobahn/export_cases.py:/export_cases.py:ro" \
   "$IMAGE" python /export_cases.py > build/autobahn-catalogue.json
+python3 tools/jolt-autobahn/harness.py verify-catalogue build/autobahn-catalogue.json
 ```
 
 Compare exported `version`, each ID, index, category, description and expectation
@@ -59,12 +60,17 @@ exception reapproval; never refresh hashes to excuse a result. See NOTICE.md.
 | Testee role | Autobahn process | Testee obligation |
 |---|---|---|
 | server | `wstest -m fuzzingclient -s /config/spec.json` | Listen on loopback `J6_PORT`; stay alive until the driver stops it. |
-| client | `wstest -m fuzzingserver -s /config/spec.json` | Connect to `/runCase?case=N&agent=AGENT` for every upstream index in `J6_CASE_INDEXES`; then `/updateReports?agent=AGENT`, await completion and exit zero. |
+| client | `wstest -m fuzzingserver -s /config/spec.json` | Connect to `/runCase?case=N&agent=AGENT` for every selected-case index in `J6_CASE_INDEXES`; then `/updateReports?agent=AGENT`, await completion and exit zero. |
 
 The driver invokes an argv vector after `--`, never a shell expansion.
 `J6_ROLE`, `J6_PORT`, `J6_URL`, `J6_AGENT`, `J6_CASE_INDEXES` (file path), and
-`J6_MODE` are the test-launch contract. IDs and runCase numeric indexes are
-separate: always use the extracted index. Use a unique URL-safe agent name.
+`J6_MODE` are the test-launch contract. `J6_FRAME_LIMIT` and
+`J6_MESSAGE_LIMIT` declare the proposed 64 MiB conformance profile; the real
+launcher must apply and report these, while the smoke stub keeps its own
+small fixed bounds. IDs and runCase numeric indexes are
+separate: `/runCase` indexes the filtered configuration (1 through selected
+count), not the full 517-case catalogue. The driver emits those filtered
+indexes; the catalogue index remains upstream-inventory provenance. Use a unique URL-safe agent name.
 Logs, exact config, command, source commit, image/policy hashes, raw case JSON
 and upstream HTML, plus `summary.json`/`summary.html` are retained in a **new**
 output directory. Nonzero exit is failure, never an exclusion. The driver
