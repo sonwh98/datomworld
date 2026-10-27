@@ -50,7 +50,13 @@
                                     (if (= a "rmtag")
                                       (do (emit sel "saving" "" (change sel (assoc {} :remove-tagory arg)))
                                           (lp sel))
-                                      (do (emit sel "" "" nil) (lp sel))))))))))))))
+                                      (if (= a "create")
+                                        (do (emit sel "saving" ""
+                                                  (assoc {} :new (assoc (assoc (assoc {} :name (get s :name))
+                                                                                  :price (get s :price))
+                                                                          :description (get s :desc))))
+                                            (lp sel))
+                                        (do (emit sel "" "" nil) (lp sel)))))))))))))))
         (emit nil "" "" nil)
         (lp nil)))])
 
