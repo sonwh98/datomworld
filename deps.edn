@@ -103,7 +103,10 @@
            ;; docs/design/dao.space.query.datomic-compat.md); never a production
            ;; dependency. Backend deps/config are pinned separately once selected.
            :oracle {:extra-paths ["src/dev" "test"]
-                    :extra-deps {com.datomic/client-api {:mvn/version "1.0.69"}}}
+                    :extra-deps {com.datomic/client-api {:mvn/version "1.0.69"}
+                                 ;; oracle backend: Datomic Local, in-process,
+                                 ;; run in docker/oracle (dev-scope only)
+                                 com.datomic/local {:mvn/version "1.0.301"}}}
            :dbg {:extra-paths ["test"]
                  :main-opts ["-m" "debug-cljd"]
                  :cljd/opts {:kind :flutter :main datomworld.demo.main}}

@@ -25,7 +25,12 @@
    many when one entity repeats an attribute, and :db.type/ref only for
    attributes listed in :ref-attrs (the corpus records no schema).
 
-   Run: clj -M:oracle -m dao.space.datomic-query-oracle --backend unselected"
+   `--backend datomic-local` selects Datomic Local (:server-type
+   :datomic-local, :storage-dir :mem), the owner-chosen oracle backend; the
+   observation document records the Datomic jar versions actually loaded.
+
+   Run: clj -M:oracle -m dao.space.datomic-query-oracle --backend unselected
+        clj -M:oracle -m dao.space.datomic-query-oracle --backend datomic-local"
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -164,35 +169,56 @@
         delete (client-fn 'delete-database)
         fixture-ids (vec (distinct (keep #(get % "db") (get c "inputs"))))
         names (into {} (map-indexed (fn [i fid] [fid (str db-name "-" i)])) fixture-ids)
-        dbs (into {} (map (fn [fid] [fid (load-fixture! cl (get names fid) fid ref-attrs)]))
-                  fixture-ids)
-        real->logical (into {} (for [{:keys [logical->real]} (vals dbs)
-                                     [l r] logical->real]
-                                 [r l]))
-        arg-map (merge {:query (fx/case-query c)
-                        :args (mapv #(input-value dbs %) (get c "inputs"))}
-                       (fx/case-options c))
         base {:id (get c "id")
               :api "datomic.client.api/q"
               :api-version "1.0.69"
               :backend client
-              :arg-map-options (fx/case-options c)}]
+              :arg-map-options (fx/case-options c)}
+        error (fn [phase e]
+                (assoc base
+                       :observation :error
+                       :phase phase
+                       :error-class (.getName (class e))
+                       :message (ex-message e)
+                       :data (ex-data e)))]
     (try
+      ;; Throwable throughout: a backend StackOverflowError is an observation
+      ;; too. A fixture Datomic cannot hold (for example one attribute with
+      ;; both long and double values) is a :fixture-load observation for
+      ;; every case that names it, not a runner failure.
       (try
-        (let [raw ((client-fn 'q) arg-map)]
-          (assoc base
-                 :observation :result
-                 :raw raw
-                 :normalized (normalize real->logical raw)))
-        (catch Exception e
-          (assoc base
-                 :observation :error
-                 :message (ex-message e)
-                 :data (ex-data e))))
+        (let [dbs (into {} (map (fn [fid]
+                                  [fid (load-fixture! cl (get names fid) fid ref-attrs)]))
+                        fixture-ids)
+              real->logical (into {} (for [{:keys [logical->real]} (vals dbs)
+                                           [l r] logical->real]
+                                       [r l]))
+              arg-map (merge {:query (fx/case-query c)
+                              :args (mapv #(input-value dbs %) (get c "inputs"))}
+                             (fx/case-options c))]
+          (try
+            (let [raw ((client-fn 'q) arg-map)]
+              (assoc base
+                     :observation :result
+                     :raw raw
+                     :normalized (normalize real->logical raw)))
+            (catch Throwable e (error :query e))))
+        (catch Throwable e (error :fixture-load e)))
       (finally
         (doseq [fid fixture-ids]
           (try (delete cl {:db-name (get names fid)})
                (catch Exception _ nil)))))))
+
+
+(defn- jar-versions
+  "Versions of the Datomic jars actually on the classpath, so an observation
+   file records what ran rather than what was requested."
+  []
+  (into (sorted-map)
+        (keep (fn [p]
+                (when-let [[_ a v] (re-find #"/com/datomic/([^/]+)/([^/]+)/[^/]+\.jar$" p)]
+                  [a v])))
+        (str/split (System/getProperty "java.class.path") #":")))
 
 
 (defn run
@@ -206,6 +232,7 @@
      :candidate? true
      :note "candidate observations only; never promoted automatically"
      :backend (if (= :unselected backend) :unselected (:client backend))
+     :datomic-jars (jar-versions)
      :observations
      (mapv (fn [c]
              (if (= :unselected backend)
@@ -215,14 +242,26 @@
      :not-eligible (mapv #(get % "id") skipped)}))
 
 
+(def datomic-local-backend
+  "`--backend datomic-local`: Datomic Local (com.datomic/local, in-process)
+   through the public client API. :storage-dir :mem is the documented CI
+   mode; nothing touches disk and no FileChannel is involved."
+  {:client {:server-type :datomic-local
+            :storage-dir :mem
+            :system "datomic-q-v1"}
+   :db-name "datomic-q-v1-oracle"
+   :ref-attrs #{:person/friend :note/session}})
+
+
 (defn- parse-args
   [args]
   (loop [m {:backend :unselected :out default-output}
          [a v & more :as all] args]
     (cond
       (empty? all) m
-      (= "--backend" a) (recur (assoc m :backend (if (= "unselected" v)
-                                                   :unselected
+      (= "--backend" a) (recur (assoc m :backend (case v
+                                                   "unselected" :unselected
+                                                   "datomic-local" datomic-local-backend
                                                    (edn/read-string v)))
                                more)
       (= "--out" a) (recur (assoc m :out v) more)
