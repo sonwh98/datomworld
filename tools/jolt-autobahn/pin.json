@@ -1,0 +1,13 @@
+{
+  "case_count": 517,
+  "cases_sha256": "0731e59a2af755c91c725c0e4cd88edb2b2853f025cacbb21fa683c6b1f86eb1",
+  "exceptions_sha256": "75e7f3418127c7845bbfc842026861020143c0eacf1dcac13269129678425c52",
+  "image": "crossbario/autobahn-testsuite@sha256:519915fb568b04c9383f70a1c405ae3ff44ab9e35835b085239c258b6fac3074",
+  "image_source_commit": "6ed6f439dc7ed0d7432fe2cf7481b110905ecc5c",
+  "packaging": "Official immutable Docker image; no host Python 2 environment",
+  "platform": "linux/amd64",
+  "policy_status": "proposal, owner approval required",
+  "release": "25.10.1",
+  "schema": 1,
+  "upstream": "https://github.com/crossbario/autobahn-testsuite"
+}
