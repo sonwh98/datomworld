@@ -63,8 +63,8 @@
            (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j2_lane.clj" "probe" *command-line-args*)))}
 
   cart
-  {:doc "dao.star cart demo (shop + grid) on port 3004: clj -M -m dao.star-cart.main"
-   :task (shell {:shutdown nil} "clj" "-M" "-m" "dao.star-cart.main")}
+  {:doc "dao.star cart demo (shop + grid) on port 3004: runs the demo project in demo/"
+   :task (shell {:dir "demo" :shutdown nil} "clj" "-M" "-m" "dao.star-cart.main")}
 
   demo
   {:doc "JVM: cooperative sum across two execution sites of one logical task"
