@@ -13665,3 +13665,45 @@ Decisions: data-bind + signal read is Datastar's own idiom for deferred handlers
 Verification: 40 tests / 569 assertions / 0 failures; kondo clean; live per above. History-rewrite note: commit 1592d7acd was amended to 2bb04ee8 seconds after push (own commit, message mangling only, tree identical).
 Delegates: none (orchestrator-direct).
 Next: owner browser re-check of typing.
+
+## 2026-10-27 01:3x +0700 — P3b re-confirm: GATE CHANGES narrowed to docs+evidence; the docs commit landed (b721e1de); sha check in flight
+Completed-GMT: 2026-10-26 17:3x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@3a0d3e7b (== origin); branch yang-php-p3b @ b721e1de (pushed, tree clean); branch yang-ts-t2b landed and deleted
+Done: (1) The P3b re-confirm returned GATE CHANGES narrowed to two docs items + one evidence item, no code, with the review itself constituting the architect sign-off for one docs commit ("the re-confirm after that commit is a sha check, not another review"): (a) the engineer's 158-line docs/design/yang.php.md amendment (C24-C29, status note, section 15 narrowing, row 45 rule) was UNCOMMITTED - my "worktree clean" claim in the re-confirm brief was wrong, now corrected and the lesson standing; (b) row 43's design text was stale vs the oracle ("Cannot increment property" vs "Cannot increment a reference held by property"), plus two stale lines in the uncommitted text (pinned count 91 not 83; C29's texts recorded in pass 5, not at the P4 seam); (c) the Dart run had no attached artifact. All three executed: the amendment committed with the corrections applied (b721e1de, pushed), and the Dart log attached as collab/dart3-yang-php-p3b-293b59a0.shiva.log. (2) The sha check dispatched to fable (resume of the gate thread) - its PASSED line triggers the landing.
+Decisions: the seat's own verification claim ("worktree clean") was false because the fold-4 and fold-5 rounds left the doc uncommitted while I added only src/test paths - the brief-claims-vs-status-check rule from the T2b gate applies to the orchestrator too.
+Verification: the review's own re-run at the tip (77 tests / 2939 assertions / 0 failures) matched the recorded lane result; b721e1de diff is docs-only.
+Delegates: claude-fable-5-1 (re-confirm + sha check, thread 77300b2d).
+Next: sha check PASSED -> merge yang-php-p3b to master --no-ff (ledger count check), push, cleanup -> P4-proper and T3-proper engineer dispatches from the staged amended plans.
+
+## 2026-10-27 02:0x +0700 — P3b LANDED (949f3e55) after GATE PASSED; P4-proper and T3-proper engineers dispatched
+Completed-GMT: 2026-10-26 18:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@949f3e55 (== origin, pushed); branches yang-ts-t2b and yang-php-p3b both LANDED and deleted; new worktrees datomworld-php-p4 (yang-php-p4) and datomworld-ts-t3 (yang-ts-t3), both off 949f3e55 with prereqs
+Done: (1) The sha check returned GATE CHANGES one last time - line 28 of the design doc still said "83 oracle results pinned / 71 fixtures enabled" (the recorded map is 91, enabled 72 with :ref-cycle-var-dump). Corrected in 0212cd08; the corrected sha check returned GATE PASSED: P3b @ 0212cd08 ready to land. (2) LANDED: merged --no-ff as 949f3e55 (ledger 101 rows on parents and result, union verified), pushed; worktree and branch deleted under the landing rule. Both Stage 0s (T2b and P3b) are now on master. (3) The staged dispatches fired: the P4-proper engineer (sonnet, session db2452f3, worktree datomworld-php-p4) on the amended plan of record (landed-state summary, S0-S12, D6-into-C1, the P3-c slice before P4-b, the corner renumbering); the T3-proper engineer (sonnet, session 33e13c5d, worktree datomworld-ts-t3) starting at the ts-g4-2 grammar patch (a)-(f) including the :G-new/:G-is fixes, with the T2b surface beneath it and the standing rules (incl. the no->2^53-literal rule).
+Decisions: both dispatches carry the consolidated standing-rules block (pins vs :pending + escalation, no commits, no collab writes, ^:slow tagging, no Dart lanes locally, cljstyle not runner-accessible, J2-scope note) - the same block every round has converged on, now written once per brief.
+Verification: GATE PASSED at 0212cd08 (fable, sha check); the merge's ledger count 101 verified; the P3b evidence chain across oracle passes 1-5 and the tri-host runs recorded in prior entries.
+Delegates: claude-sonnet-5-5 (P4, session db2452f3; T3, session 33e13c5d - both IN FLIGHT); claude-fable-5-1 (P3b sha checks).
+Next: P4 rounds -> shiva verify -> commit/push -> gates per the plan's checkpoints (oracle recording passes on shiva between rounds). T3 likewise. Both tracks' remaining arcs: P4 S0-S12 with checkpoints A-D; T3 grammar patch -> lowering -> corpus -> gate.
+## 2026-10-27 22:30:00 +0700 — datomic-compat track: owner reroutes the Phase 5 sign-off to glm-5.3 (architect seat, same-model caveat accepted); dispatched
+Completed-GMT: 2026-10-27 15:30:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7 untouched; Phase 5 branch datomic-q-p5-ci @8dbf6af2 pushed
+Done: Owner instructed "use glm-5.3" for the Phase 5 qualified-claim sign-off after the argon probe still returned account-level quota exhaustion WITH the correct invocation (gemini-4-argon bare, no --effort — the calling instruction is now documented in the log from the 6d-b precedent). Dispatched on the RESUMED glm session (37072475 — it was the Phase 5 promotion reviewer) with the role change disclosed IN the brief: same-model caveat (glm reviews its own ENDORSE) accepted by owner instruction; the sign-off questions are the mechanical ones (arithmetic closure, enforcement probes, claim scoping) plus the one open P3 disposition. Scheduled codex-retry automation deleted (superseded by this instruction).
+Decisions: owner instruction overrides the family-independence preference for this one sign-off; disclosed rather than silent; argon remains unavailable (account quota, resets ~Nov 2 — calling instruction gemini-4-argon/no-effort now documented in the log for the delegate-reference update).
+Verification: dispatch IN FLIGHT.
+Delegates: qa-engineer/sign-off glm-5.3 (session 37072475, log collab/1793093377000-architect-datomic-q-phase5-signoff.glm-5.3.stdout.log).
+Next: verdict -> on SIGNED OFF: merge datomic-q-p5-ci, step-10, cleanup, archive, contract status flip -> track completion report + owner ratification of the qualified claim.
+## 2026-10-27 23:59:00 +0700 — datomic-compat track: TRACK COMPLETE — Phase 5 landed; contract status QUALIFIED (glm sign-off; owner ratification pending on the push)
+Completed-GMT: 2026-10-27 16:59:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 986b521b (Phase 5 merge 3ea876f2 + status flip 986b521b) + archive e803f20e; branch/worktree deleted; pushed: NO — push awaits owner ratification
+Done: glm-5.3 (architect seat, same-model caveat owner-accepted, disclosed in its response) SIGNED OFF the Phase 5 qualified claim: arithmetic independently re-derived and closes; enforcement probed mechanically beyond the harness (line-anchored 117-entry cover); claim scoping ruled within the evidence ("measured where measured, named where not"); the open P3 accepted/deferred non-blocking. Landed: merged datomic-q-p5-ci (3 commits: U2 core, runner identity, promotion) via the synced branch; contract status flipped to QUALIFIED for the current profile (status header rewritten: 109/120 oracle-executed with the full outcome split, 8 inconclusive + 3 not-observed excluded by name, exclusions unchanged, Local = measurement backend not a Cloud claim; 4b row status COMPLETE); step-10 conformance+aggregates+rules 59/214/0; branch+worktree removed; 12 collab artifacts archived (e803f20e). All six phases of the track are now landed and closed.
+Decisions: the contract status flip was executed under the argon/astra/glm sign-off chain per the commit-authority clause; the GIT PUSH and the public "qualified" statement await the owner's ratification of the final matrix (the frozen-corpus human step) — presented in this seat's final report.
+Verification: three-host 603/592/592 + downstream 256/39,276 at 8dbf6af2 (jupiter); step-10 59/214/0 on master post-flip; digest 692ba5a0 pinned 1x+1x.
+Delegates: glm-5.3 sign-off findings promoted (session 37072475); full Phase 5 chain archived.
+Next: owner ratification -> push (on explicit instruction). The track's standing follow-ups: Phase 5 inconclusives (fulltext needs a future profile; mixed-type ties need per-type fixtures if ever measured); the delegate-reference update for the argon calling instruction (gemini-4-argon bare, no --effort) noted in the log.
