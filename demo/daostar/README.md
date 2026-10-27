@@ -57,17 +57,18 @@ port, `ASSET_ROOT` the image/css/js root.
 
 ## Run it (Docker)
 
-From the **repository root** (the build context is the repo; the product
-images must be present at `demo/daostar/resources/dao_star_cart/public/images/`):
+From this directory — the build context is the demo itself, and the library
+resolves from the datomworld commit pinned in `deps.edn` (network required at
+build time; the product images must be present under
+`resources/dao_star_cart/public/images/`):
 
 ```sh
-docker build -f demo/daostar/docker/dao-star-cart/Dockerfile -t dao-star-cart .
+docker build -f docker/dao-star-cart/Dockerfile -t dao-star-cart .
 docker run -d --name dao-star-cart -p 3004:3004 \
   -v star-cart-data:/data -e CATALOG_PATH=/data/catalog.edn dao-star-cart
 ```
 
-The image sets `LANG=C.UTF-8` (the catalog has non-ASCII image filenames) and
-runs from `/app/demo/daostar`, which is where its `deps.edn` expects to be.
+The image sets `LANG=C.UTF-8` (the catalog has non-ASCII image filenames).
 
 ## Test it
 

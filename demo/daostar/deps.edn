@@ -1,4 +1,20 @@
-{:deps {org.clojure/clojure {:mvn/version "1.12.0"}
+;; The dao.star cart demo: a self-contained project.
+;;
+;; The library it composes (dao.stream, dao.star, dao.space, dao.lease,
+;; dao.await, yin.vm) is not a path dependency: it is pinned to one datomworld
+;; master commit and resolved from GitHub, so this demo builds and runs
+;; reproducibly from a clean checkout.  `:deps/root "demo/daostar"` points
+;; tools.deps at the manifest inside that checkout whose :paths reach the
+;; library sources; this file's own :paths shadow the demo sources locally.
+;;
+;; Bump :git/sha deliberately: the demo freezes the design it showcases.
+
+{:paths ["src" "resources"]
+ :deps {datomworld/datomworld
+        {:git/url "https://github.com/sonwh98/datomworld.git"
+         :git/sha "bc6a32ea5e1b76dc4ac1f031f1dd71fe3e9878fd"
+         :deps/root "demo/daostar"}
+        org.clojure/clojure {:mvn/version "1.12.0"}
         org.clojure/core.async {:mvn/version "1.8.741"}
         org.clojure/data.json {:mvn/version "2.5.0"}
         http-kit/http-kit {:mvn/version "2.8.0"}
@@ -6,10 +22,6 @@
         org.ring-clojure/ring-websocket-protocols {:mvn/version "1.14.1"}
         io.github.rctcwyvrn/blake3 {:mvn/version "1.3"}}
  ;; The demo needs none of datomic, postgres, antlr, jsoup or stigmergy/chp.
- ;; Paths: the demo's own trees plus the library sources it composes
- ;; (dao.stream, dao.star, dao.space, dao.lease, dao.await, yin.vm).
- :paths ["src/clj" "src/cljc" "resources"
-         "../../src/cljc" "../../src/clj" "../../resources"]
  :aliases
  {:test
   {:extra-paths ["test"]
