@@ -3,9 +3,7 @@
 ;; equivalence E1 (collab/1792491122000-architect-j0c-error-parity...).
 ;;
 ;;   . build/tools/jolt-env.sh
-;;   "$JOLT_HOME"/bin/jolt -Srepro \
-;;     -Sdeps '{:aliases {:j0c-probe-stub {:extra-paths ["src/dev/jolt-j0c-probe-stub"]}}}' \
-;;     -M:jolt:j0c-probe-stub src/dev/jolt_j0c_parity.clj
+;;   "$JOLT_HOME"/bin/jolt -Srepro -M:jolt src/dev/jolt_j0c_parity.clj
 ;;
 ;; For every jolt_j0c_corpus.edn entry, the packet from the jolt adapter
 ;; (src/jolt/yang/antlr/cst.jolt, the ANTLR4 C++ parser marshalled into the
@@ -27,11 +25,10 @@
 ;; yang.python.antlr.repl-probe/probe runs under jolt and must answer as on the
 ;; JVM, making the same cst/first-failure calls with the same results.
 ;;
-;; repl-probe requires yang.python.antlr.parser, whose :clj branch imports the
-;; generated Java recognizers; the command above therefore puts a stand-in
-;; yang.python.antlr.parser (src/dev/jolt-j0c-probe-stub, holding only
-;; `make-worker`, the probe's one use of it, and the grammar id) on a root
-;; before the :jolt roots. The probe's own code is the tracked source.
+;; repl-probe requires yang.python.antlr.parser. Since J5 that namespace loads
+;; on jolt through its :jolt arms (the recognizers are the C++ ones behind the
+;; jolt yang.antlr.cst, its rule-name table the native one), so the J0c-era
+;; stand-in is retired and the probe and parser are both the tracked source.
 ;;
 ;; Prints PASS/DIVERGES per entry with a minimal diff, RECORD lines for the
 ;; observations, and exits nonzero on any divergence or failure.
@@ -49,6 +46,14 @@
 
 
 (def ^:private added (sort (remove before (loaded-libs))))
+
+
+;; J5: yang.antlr.cst loads the native library on first use; load it before
+;; any raw jolt_parser_* binding below is called
+(when-not (cst/available?)
+  (println "FAIL the native parser library did not load")
+  (System/exit 1))
+
 
 (def corpus-path "test/yang/python/antlr/fixtures/jolt_j0c_corpus.edn")
 (def oracle-path "test/yang/python/antlr/fixtures/jolt_j0c_oracle.edn")
@@ -394,15 +399,17 @@
       (check (str "[invalid UTF-8] " label " fails closed: -2, no JPX1 buffer")
              (and (= -2 (:status r)) (not= :jpx1 (:buffer r)))
              r)))
-  ;; one string token whose text alone passes the bound: cheap to lex
-  (let [big (str "s = '" (apply str (repeat (* 70 1024) (apply str (repeat 1024 "a")))) "'\n")
+  ;; J5: the 4 MiB input bound refuses a long source before the parse, so
+  ;; the output bound is reached by a legal source: 300,000 one-line
+  ;; statements (600 KB, nesting 0), about 129 output bytes per input byte
+  (let [big (apply str (repeat 300000 "1\n"))
         t0 (System/nanoTime)
         r (try (cst/parse-unit w [:unit 0] big) :packet
                (catch Throwable e (ex-data e)))]
-    (println "RECORD [oversize] parse-unit on the 70 MiB source"
+    (println "RECORD [oversize] parse-unit on the 600 KB source"
              (pr-str {:ms (long (/ (- (System/nanoTime) t0) 1e6))}))
     (when-not (= -4 (:status r)) (swap! input-failed conj :oversize))
-    (check "[oversize] output past 64 MiB (one 70 MiB string token) answers -4 and no packet"
+    (check "[oversize] output past 64 MiB (300,000 statements in a 600 KB source) answers -4 and no packet"
            (= -4 (:status r)) r)
     (check "[oversize] the same worker parses again afterwards"
            (= (:packet (first (:entries oracle)))
@@ -427,10 +434,13 @@
 (require '[yang.python.antlr.repl-probe :as probe])
 
 
-(check "repl-probe's parser is the stand-in (no rule-names: the tracked parser.cljc did not load) with the same grammar id"
-       (and (nil? (resolve 'yang.python.antlr.parser/rule-names))
-            (= grammar-id @(resolve 'yang.python.antlr.parser/grammar-id)))
-       @(resolve 'yang.python.antlr.parser/grammar-id))
+(check "repl-probe's parser is the tracked parser.cljc (J5: its :jolt arms), with the native rule-name table and the same grammar id"
+       (let [names @(resolve 'yang.python.antlr.parser/rule-names)]
+         (and (true? ((resolve 'yang.python.antlr.parser/available?)))
+              (vector? names) (some #{"file_input"} names)
+              (= grammar-id @(resolve 'yang.python.antlr.parser/grammar-id))))
+       {:grammar-id @(resolve 'yang.python.antlr.parser/grammar-id),
+        :rules (count @(resolve 'yang.python.antlr.parser/rule-names))})
 
 
 (doseq [{:keys [text first-failure-calls], answer :probe} (:probe oracle)]

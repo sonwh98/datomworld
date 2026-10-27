@@ -32,6 +32,13 @@
     [yang.antlr.cst :as cst]))
 
 
+;; J5: yang.antlr.cst loads the native library on first use; load it before
+;; any raw jolt_parser_* binding below is called
+(when-not (cst/available?)
+  (println "FAIL the native parser library did not load")
+  (System/exit 1))
+
+
 (def failures (atom 0))
 
 
@@ -252,6 +259,52 @@
          (= "jolt parser worker is closed"
             (try (parse w "1\n") nil (catch Throwable e (ex-message e))))
          :closed))
+
+
+;; -- 6. J5: the stage owns its worker; reset remakes it, close disposes it -------
+
+(require '[yang.python.antlr.parser :as parser])
+
+
+(let [s0 {:yang.python.antlr.parser/worker (parser/make-worker)}
+      w0 (:yang.python.antlr.parser/worker s0)
+      before (parse w0 (sources 0))
+      s1 (parser/reset-stage s0)
+      w1 (:yang.python.antlr.parser/worker s1)
+      old (try (parse w0 (sources 0)) nil (catch Throwable e (ex-message e)))
+      after (parse w1 (sources 0))]
+  ;; the stage's worker carries the Python profile's grammar id, so its
+  ;; packet is compared with itself across the reset, not with `isolated`
+  (check "reset-stage disposes the stage's worker (it then refuses) and installs a fresh one that answers the same packet"
+         (and (some? before) (= before after) (not (identical? w0 w1))
+              (= "jolt parser worker is closed" old))
+         {:old old, :same (= before after)})
+  (parser/close-stage s1)
+  (check "close-stage disposes the stage's worker"
+         (= "jolt parser worker is closed"
+            (try (parse w1 (sources 0)) nil (catch Throwable e (ex-message e))))
+         :closed))
+
+
+;; -- 7. J5: two composed REPL sessions, one reset, isolated ---------------------
+
+(require '[yin.repl :as repl] '[yin.repl.frontends :as frontends])
+
+
+(let [run (fn [st line] (repl/eval-input st line))
+      fresh #(first (run (frontends/create-state {}) "(lang :yang/python)"))
+      [a1 ta1] (run (fresh) "x = 10")
+      [b1 tb1] (run (fresh) "x = 20")
+      [a2 ta2] (run a1 "x + 1")
+      [b2 tb2] (run b1 "x + 1")
+      [a3 ta3] (run a2 "(reset)")
+      [b3 tb3] (run b2 "x * 2")
+      [a4 ta4] (run (first (run a3 "(lang :yang/python)")) "y = 3")
+      [_ ta5] (run a4 "y + 1")
+      [_ tb4] (run b3 "x")]
+  (check "two composed REPL sessions interleave Python with independent results, and a reset of one leaves the other's state intact"
+         (and (= "11" ta2) (= "21" tb2) (= "40" tb3) (= "4" ta5) (= "20" tb4))
+         {:a [ta1 ta2 ta3 ta5], :b [tb1 tb2 tb3 tb4]}))
 
 
 (cst/close-worker init-worker)
