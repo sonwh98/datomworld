@@ -13781,3 +13781,23 @@ Done: Ran both lanes concurrently per owner. (1) Restyle: the production site's 
 Verification (shiva, per-namespace): view 7/65, app 9/313, edge 4/58, catalog 10/75, fixes 10/60, begin-guard 3/14 — 0 failures; kondo 0/0; deployed: shop 200, fonts+tok present in the begin page, subscription opens with the tok signals patch, stale-token subscribe answers the expired event-stream.
 Delegates: codex gpt-6.1-sol (1793112338290, promoted findings); architect claude-fable-5-1 (1793113510518, promoted).
 Next: owner browser re-check (style + repeated search after actions); library-level stale-subscribe follow-up when commissioned; codex confirm of the fix round on request.
+
+## 2026-10-27 07:0x +0700 — P4 S3 landed (ec54182f, checkpoint A closes); S4 + checkpoint-A review dispatched in parallel
+Completed-GMT: 2026-10-26 23:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@949f3e55 (== origin); yang-php-p4 @ ec54182f (pushed, shiva-verified: cljstyle rc=0, all 8 focused namespaces 0 failures); S4 + checkpoint review in flight
+Done: (1) P4 S3 landed: the finalizable registry, destructor timing + pending-destructor chaining, clone with readonly reinitialization, ctor-failed release, the shutdown sequence, and the S2 two-step property-write shadowing fix (self-caught: both property keys bound to one generated name; unique step ids now). The engineer's declared gaps staged for the gate: in-flight-exception set-aside, exit-in-destructor + row 51, shutdown-output ordering, shutdown functions, enum clone errors, getLine=0. (2) Checkpoint A closes per the plan (S1-S3, the object substrate); its review dispatched to codex/gpt-6-luna IN PARALLEL with the engineer's S4 (exceptions as throwables, throw, try/catch/finally, match on objects) - the review examines the committed tip only, the engineer keeps moving. First codex dispatch since the availability relay.
+Decisions: checkpoint reviews run on the committed tip while engineering continues - the review-verdict -> fix cycle attaches at the next step boundary, not mid-edit.
+Verification: shiva at ec54182f (the 8-namespace run).
+Delegates: codex gpt-6-luna (checkpoint A review, IN FLIGHT); claude-sonnet-5-5 (P4 S4 db2452f3; T3 S3 33e13c5d; xlang demo - all IN FLIGHT); claude-fable-5-1 (P5 plan, IN FLIGHT); shiva seam compute running.
+Next: six concurrent lanes. Checkpoint-A verdict -> reconcile at the S4 boundary. T3 S3 -> verify -> S4. P5 plan -> review. Seam compute -> attach artifacts. Xlang demo -> verify -> gate-lite.
+
+## 2026-10-27 22:55:00 +0700 — dao.star cart: the landing page mimics the production site
+Completed-GMT: 2026-10-27 15:55:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 5a14c263 (pushed); deployed on shiva from dsg
+Done: Owner: "what about the landing page?". Brought the production landing's structure over from lambdacart's own template/code (read for reference at owner request): the brand header (TT GAME STOCK, GAME in cyan, PRO CONTROLLERS & GEAR) now renders on the never-patched begin page with the search input beside it; the projection opens with the sticky nav-tabs strip (All Products / Cart (n)); the notice disclaimer banner; the production hero copy (⚡ Gaming Stock & Controllers / Gaming Hardware & Controllers / four perks); an ALL PRODUCTS section head with a live item count badge; the site footer (Inventory Condition Disclaimer + © line). Page title now the production one. All dynamic parts remain in the projection; the search input remains outside every patch.
+Verification: shiva six namespaces rc=0 (view 7/65, app 9/313, edge 4/58, catalog 10/75, fixes 10/60, begin-guard 3/14); kondo 0/0; deployed: brand+title on the begin page; perks/disclaimer/section-head/footer/count-badge (248 items) confirmed in the live subscription.
+Next: owner browser re-check.
