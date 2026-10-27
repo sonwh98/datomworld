@@ -13529,3 +13529,13 @@ Done: Owner asked why demo/daostar had two READMEs. Cause: the inner resources/d
 Decisions/lessons: two tool-slip classes this round, both caught by verification and fixed: (a) a python str.replace that silently no-opped on a mismatched wrap (the "consolidated" log lied; the deleted inner file's content was briefly missing — restored with the Edit tool and re-committed); (b) the detached-HEAD worktree again (a commit landed on an orphan head; recovered via direct-on-master edit and branch reset). Rule going forward for this seat: multi-line text edits go through the Edit tool, never str.replace; git operations always git -C <tree>; after any worktree commit, verify the branch ref moved.
 Verification: master README contains Operational notes + Provenance (grep 2); inner README deleted; dao-star-demo = master f13ded09; pushed.
 Next: owner browser check.
+
+## 2026-10-27 12:40:00 +0700 — vendor-datastar.sh moved to the demo's own bin/ (owner: demo/daostar/bin)
+Completed-GMT: 2026-10-27 05:40:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master a67ae0ab (pushed); dao-star-demo = master; worktree detached at master, images intact
+Done: Owner: "vendor-datastar.sh should be in the bin under the demo/daostar". Moved bin/vendor-datastar.sh -> demo/daostar/bin/vendor-datastar.sh (git mv, commit a67ae0ab, pushed); the script resolves the js dir relative to itself (bin/../resources/...), so it runs from anywhere; README run line now says `sh bin/vendor-datastar.sh` from demo/daostar. Re-ran from the new home: 30732 bytes, sha c9c8b997 — byte-identical, running demo unaffected.
+Decisions: work done directly on master (worktree stays a synced checkout) — the detached-HEAD failure mode of the previous rounds is avoided by not committing in the worktree at all.
+Verification: script executed from demo/daostar/bin; output byte-identical; branch and worktree re-anchored at a67ae0ab.
+Next: owner browser check.
