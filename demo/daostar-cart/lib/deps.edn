@@ -1,0 +1,12 @@
+;; The library manifest for the pinned datomworld git dep: when the demo's
+;; deps.edn resolves datomworld/datomworld with :deps/root "lib", tools.deps
+;; reads THIS file inside the checkout.  It puts the library sources
+;; (dao.stream, dao.star, dao.space, dao.lease, dao.await, yin.vm) on the
+;; classpath and nothing else — notably not demo/daostar-cart/src, whose
+;; local copy must win.  Paths are relative to this directory.
+{:paths ["../../src/cljc" "../../src/clj" "../../resources"]
+ :deps {org.clojure/core.async {:mvn/version "1.8.741"}
+        org.clojure/data.json {:mvn/version "2.5.0"}
+        http-kit/http-kit {:mvn/version "2.8.0"}
+        org.ring-clojure/ring-websocket-protocols {:mvn/version "1.14.1"}
+        io.github.rctcwyvrn/blake3 {:mvn/version "1.3"}}}
