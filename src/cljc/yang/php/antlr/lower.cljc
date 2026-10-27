@@ -1409,7 +1409,7 @@
     (u/if-node test
                (if var
                  (u/then (write-var ctx var e) body)
-                 (u/then body (app* 'php/delref e)))
+                 (u/then (app* 'php/delref e) body))
                rest)))
 
 
@@ -2490,6 +2490,15 @@
 ;; Objects and classes (P4 S1/S2)
 ;; -----------------------------------------------------------------------------
 
+(defn- line-of
+  "The source line of CST node `n` from the packet's line side table, 0 when
+   the packet carries none."
+  [ctx n]
+  (let [starts (:yang.php/line-starts (:pk ctx))
+        at (first (:span n))]
+    (if (and (seq starts) at) (count (take-while #(<= % at) starts)) 0)))
+
+
 (defn- lower-new
   "`new Class(args)`: the class is resolved and refused first (row 53), the
    object is created, then the arguments run, then the constructor."
@@ -2505,7 +2514,7 @@
           o (core/gen "n" n)]
       (when named (unsupported! n :named-constructor-arguments))
       (u/let1 o
-              (app* 'php/new-begin (class-ref-node ctx n written) (u/lit 0))
+              (app* 'php/new-begin (class-ref-node ctx n written) (u/lit (line-of ctx n)))
               (app* 'php/new-finish (u/v o) pos (cc-node ctx))))))
 
 

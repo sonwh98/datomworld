@@ -2832,6 +2832,7 @@
                                          (get st3 :methods))
                  c (php/finish-class spec name kind parent ifaces traits st3)]
              (do (cell/set! php.rt/classes (assoc (cell/get php.rt/classes) name c))
+                 (cell/set! php.rt/class-order (php/vconj (cell/get php.rt/class-order) name))
                  (cell/set! php.rt/class-index (assoc (cell/get php.rt/class-index) (php/lc name) name))
                  c))
            (php/throw-error "Error"
@@ -3013,7 +3014,11 @@
            (php/denied-error o (get r :entry) name)
            (let [id (if (= kind :ok) (get (get r :entry) :id) name)
                  cur (php/array-get (get st :props) id)]
-             (if (if (= kind :ok) (if (= (get (get r :entry) :readonly?) true) (not (nil? cur)) false) false)
+             (if (if (= kind :ok)
+                   (if (= (get (get r :entry) :readonly?) true)
+                     (if (nil? cur) false (nil? (get cur :php/obj)))
+                     false)
+                   false)
                (php/throw-error "Error"
                                 (data/str-concat "Cannot modify readonly property "
                                                  (get (get r :entry) :declaring) "::$" name))
@@ -3303,11 +3308,59 @@
                      (php/run-destructor x)))
                (php/shutdown-finalizable objs (+ i 1))))
          :php/null))]
+    [php/run-shutdown-fns
+     ;; callbacks in registration order; one may register more
+     (fn [i]
+       (let [fns (cell/get php.rt/shutdown-fns)]
+         (if (< i (data/count fns))
+           (do (php/call-value (get (get fns i) 0) (get (get fns i) 1))
+               (php/run-shutdown-fns (+ i 1)))
+           :php/null)))]
+    [php/args-tail
+     (fn [args i acc]
+       (if (< i (data/count args)) (php/args-tail args (+ i 1) (php/vconj acc (get args i))) acc))]
+    [php/bi-register-shutdown-function
+     (fn [args]
+       (do (cell/set! php.rt/shutdown-fns
+                      (php/vconj (cell/get php.rt/shutdown-fns)
+                                 (php/pair (get args 0) (php/args-tail args 1 []))))
+           :php/null))]
+    [php/freeze-finalizable
+     ;; step 4 frees without destructors: whatever is left counts as destructed
+     (fn [objs i]
+       (if (< i (data/count objs))
+         (do (cell/set! (get (get objs i) :php/obj) (assoc (php/obj-state (get objs i)) :destructed? true))
+             (php/freeze-finalizable objs (+ i 1)))
+         :php/null))]
+    [php/release-globals
+     (fn [order i]
+       (if (< i 0)
+         :php/null
+         (do (php/global-unset! (get order i)) (php/release-globals order (- i 1)))))]
+    [php/release-statics
+     (fn [names i]
+       (if (< i (data/count names))
+         (do (php/release-static-cells (get (php/class-lookup (get names i)) :static-props) 0)
+             (php/release-statics names (+ i 1)))
+         :php/null))]
+    [php/release-static-cells
+     (fn [entries i]
+       (if (< i (data/count entries))
+         (do (php/unset-cv (get (get entries i) :cell)) (php/release-static-cells entries (+ i 1)))
+         :php/null))]
     [php/shutdown!
-     ;; row 22, destructor phase; a destructor's exception ends it
+     ;; row 22: shutdown functions, the destructor phase, then the release of
+     ;; the globals and the static tables without destructors; an exception
+     ;; from a callback or destructor ends the sequence
      (fn []
-       (do (php/shutdown-globals)
+       (do (php/run-shutdown-fns 0)
+           (php/shutdown-globals)
            (php/shutdown-finalizable (cell/get php.rt/finalizable) 0)
+           (php/flush-pending!)
+           (php/freeze-finalizable (cell/get php.rt/finalizable) 0)
+           (php/release-globals (get (cell/get php.rt/globals) :order)
+                                (- (data/count (get (cell/get php.rt/globals) :order)) 1))
+           (php/release-statics (cell/get php.rt/class-order) 0)
            (php/flush-pending!)))]
     [php/clone-members
      ;; the properties of the copy: DUP semantics for an instance table
@@ -4205,6 +4258,8 @@
                          (into {} (map (fn [nm] [(str/lower-case nm) nm])) (keys seed-table))))
                  (define 'php.rt/next-ord '(cell/new 1))
                  (define 'php.rt/finalizable '(cell/new []))
+                 (define 'php.rt/class-order '(cell/new []))
+                 (define 'php.rt/shutdown-fns '(cell/new []))
                  (define 'php.rt/pending-exc '(cell/new :php/null))
                  (define 'php.rt/cmp-depth '(cell/new 0))
                  (define 'php.rt/tmps '(cell/new []))
@@ -4257,7 +4312,7 @@
 (def runtime-keys
   "Every key `php/init!` allocates, the ready flag aside, sorted."
   '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
-    php.rt/finalizable php.rt/pending-exc
+    php.rt/class-order php.rt/finalizable php.rt/pending-exc php.rt/shutdown-fns
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
     php.rt/out php.rt/tmps])

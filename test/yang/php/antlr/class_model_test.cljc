@@ -289,7 +289,7 @@
 (deftest p4-registry-is-inert-test
   (testing "S0: the P4 fixtures are registered unconditionally, unrecorded, and none runs yet"
     (is (apply distinct? (map :id p4/all-fixtures)))
-    (is (every? #(= :pending (:oracle %)) p4/all-fixtures))
+    (is (every? #(or (= :pending (:oracle %)) (= p4/banner (:oracle %))) p4/all-fixtures))
     (is (= #{:classes-v1 :constructor-v1 :exceptions-v1 :readonly-v1 :f3-v1}
            (set (map :group p4/all-fixtures))))
     (is (every? #(and (string? (:source %)) (seq (:requires %))) p4/all-fixtures))

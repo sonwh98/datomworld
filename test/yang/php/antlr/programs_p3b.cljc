@@ -480,9 +480,9 @@
     :rows [25],
     :level :oracle-only,
     :requires #{},
-    :source "<?php $a = [1, 2]; foreach ($a as $k => &$v) { if ($k == 0) { $a = [7, 8]; } echo $v; }",
+    :source "<?php $a = [1, 2]; $n = 0; foreach ($a as $k => &$v) { if ($k == 0) { $a = [7, 8]; } echo $v; if (++$n > 5) { break; } }",
     :oracle :pending,
-    :note "C26: the unrelated-table clause of row 25 is not implemented; closes with the P3-c iterator registry. NOT PINNED: pass 5 recorded about 1.8 GB of output (the loop keeps iterating the reassigned array without bound), so the source must be bounded (for example a counter and break) and re-recorded; escalated"}
+    :note "C26: the unrelated-table clause of row 25 is not implemented; closes with the P3-c iterator registry. Bounded (counter and break) after pass 5 recorded about 1.8 GB from the unbounded source; awaiting the pass-7 record"}
    {:id :call-unknown-named-later-arg-runs,
     :group :calls-v1,
     :rows [57],

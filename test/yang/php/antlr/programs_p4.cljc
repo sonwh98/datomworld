@@ -147,7 +147,7 @@
        (str "<?php class A { public $x; function __construct() { $this->x = 'a'; } }"
             " class B extends A { function __construct() { parent::__construct(); echo $this->x; } } new B;")
        "a")
-   (fx :ctor-destruct-order-at-end :constructor-v1 [22 48] #{:p4-s3}
+   (fx :ctor-destruct-order-at-end :constructor-v1 [22 48] #{:p4-s5}
        (str "<?php class A { function __construct(public $n) {} function __destruct() { echo $this->n; } }"
             " $a = new A(1); $b = new A(2); echo 'x';")
        nil)
@@ -193,7 +193,7 @@
        (str "<?php class E extends Exception { function __construct($m) { parent::__construct('x' . $m); } }"
             " try { throw new E('abc'); } catch (E $e) { echo $e->getMessage(); }")
        "xabc")
-   (fx :exc-line-number :exceptions-v1 [] #{:p4-s4 :p4-loc}
+   (fx :exc-line-number :exceptions-v1 [] #{:p4-s4}
        "<?php\n\ntry { throw new Exception('x'); } catch (Exception $e) { echo $e->getLine(); }"
        "3")
    (fx :exc-destructor-throws :exceptions-v1 [50] #{:p4-s4}
@@ -207,10 +207,12 @@
               "<?php class E extends Exception {} echo 'a'; throw new E('boom');"
               "a")
           :throws true)
-   (fx :exc-named-arg-validation-order :exceptions-v1 [57] #{:p4-s4}
-       (str "<?php function f($a) { return $a; } function side() { echo 'S'; return 1; }"
-            " try { f(1, z: 2, w: side()); } catch (Error $e) { echo $e->getMessage(); }")
-       nil)])
+   (assoc (fx :exc-named-arg-validation-order :exceptions-v1 [57] #{:p4-s4}
+              (str "<?php function f($a) { return $a; } function side() { echo 'S'; return 1; }"
+                   " try { f(1, z: 2, w: side()); } catch (Error $e) { echo $e->getMessage(); }")
+              nil)
+          :departure :call-unknown-named-later-arg-runs
+          :impl-out "SUnknown named parameter $z")])
 
 
 (def readonly-v1
@@ -260,7 +262,16 @@
        (str "<?php class C { public readonly int $v; function __construct($v) { $this->v = $v; }"
             " function __clone() { $this->v = 9; } function again() { $this->v = 1; } }"
             " $c = new C(1); $d = clone $c; try { $d->again(); } catch (Error $e) { echo $e->getMessage(); }")
-       "Cannot modify readonly property C::$v")])
+       "Cannot modify readonly property C::$v")
+   (fx :ro-nested-object-write-allowed :readonly-v1 [66] #{:p4-s3}
+       (str "<?php class D { public $x = 1; } class C { public readonly D $d;"
+            " function __construct() { $this->d = new D; } }"
+            " $c = new C; $c->d->x = 5; echo $c->d->x;")
+       "5")
+   (fx :ro-nested-array-write-refused :readonly-v1 [66] #{:p4-s3}
+       (str "<?php class C { public readonly array $a; function __construct() { $this->a = [1]; } }"
+            " $c = new C; try { $c->a[0] = 2; } catch (Error $e) { echo $e->getMessage(); }")
+       "Cannot modify readonly property C::$a")])
 
 
 (def f3-v1
@@ -329,12 +340,127 @@
    (fx :f3-exception-without-variable-destructs :f3-v1 [48] #{:p4-s3}
        (str "<?php class E extends Exception { function __destruct() { echo 'D'; } }"
             " try { throw new E('m'); } catch (E) { echo 'c'; } echo 'x';")
-       "cDx")])
+       "Dcx")
+   (fx :f3-shutdown-function-runs-first :f3-v1 [22] #{:p4-s3}
+       (str "<?php class A { function __destruct() { echo 'D'; } }"
+            " $a = new A; register_shutdown_function(function () { echo 'S'; }); echo 'x';")
+       "xSD")
+   (fx :f3-shutdown-functions-in-order :f3-v1 [22] #{:p4-s3}
+       (str "<?php register_shutdown_function(function () { echo 'a'; });"
+            " register_shutdown_function(function () { echo 'b'; }); echo 'x';")
+       "xab")
+   (fx :f3-shutdown-function-registers-another :f3-v1 [22] #{:p4-s3}
+       (str "<?php register_shutdown_function(function () {"
+            " echo 'a'; register_shutdown_function(function () { echo 'c'; }); });"
+            " register_shutdown_function(function () { echo 'b'; }); echo 'x';")
+       "xabc")
+   (fx :f3-shutdown-function-arguments :f3-v1 [22] #{:p4-s3}
+       "<?php register_shutdown_function(function ($m, $n) { echo $m, $n; }, 'p', 'q'); echo 'x';"
+       "xpq")
+   (assoc (fx :f3-shutdown-after-uncaught :f3-v1 [22] #{:p4-s3}
+              "<?php register_shutdown_function(function () { echo 'S'; }); throw new Exception('e');"
+              nil)
+          :throws true)])
+
+
+(def banner "php-8.3.35 shiva 2026-10-25")
+
+
+(def recorded
+  "Oracle RECORD values from shiva pass 6 (php-8.3.35, docker php:8.3-cli, branch
+   tip ec54182f), copied exactly from the pass log. :exc-user-ctor-override is
+   absent: pass 6 ran its earlier source (strtoupper), which has since changed."
+  {:cls-new-and-method {:out "1", :diag [], :uncaught nil}
+   :cls-static-prop-shared {:out "22", :diag [], :uncaught nil}
+   :cls-static-prop-redeclared-unshared {:out "15", :diag [], :uncaught nil}
+   :cls-const-and-self {:out "3", :diag [], :uncaught nil}
+   :cls-private-identity-per-class {:out "ab", :diag [], :uncaught nil}
+   :cls-private-not-visible-outside {:out "Cannot access private property A::$p", :diag [], :uncaught nil}
+   :cls-protected-from-subclass {:out "4", :diag [], :uncaught nil}
+   :cls-late-static-binding {:out "B", :diag [], :uncaught nil}
+   :cls-abstract-instantiation {:out "Cannot instantiate abstract class A", :diag [], :uncaught nil}
+   :cls-interface-instanceof {:out "bool(true)\n", :diag [], :uncaught nil}
+   :cls-interface-constant {:out "kk", :diag [], :uncaught nil}
+   :cls-trait-method {:out "hi", :diag [], :uncaught nil}
+   :cls-trait-static-per-user {:out "31", :diag [], :uncaught nil}
+   :cls-trait-self-is-user {:out "A", :diag [], :uncaught nil}
+   :cls-trait-conflict-insteadof {:out "12", :diag [], :uncaught nil}
+   :cls-enum-pure {:out "bool(true)\nbool(false)\n", :diag [], :uncaught nil}
+   :cls-enum-backed-value {:out "onOff", :diag [], :uncaught nil}
+   :cls-enum-cases {:out "AB", :diag [], :uncaught nil}
+   :cls-enum-from-tryfrom {:out "OneNULL\n2 is not a valid backing value for enum S", :diag [], :uncaught nil}
+   :cls-hoisting {:out "7", :diag [], :uncaught nil}
+   :cls-anonymous-refused {:out "1", :diag [], :uncaught nil}
+   :cls-magic-get-set-call {:out "5nonego2", :diag [], :uncaught nil}
+   :cls-magic-tostring {:out "str3", :diag [], :uncaught nil}
+   :cls-object-var-dump {:out "object(P)#1 (3) {\n  [\"a\"]=>\n  int(1)\n  [\"b\":protected]=>\n  int(2)\n  [\"c\":\"P\":private]=>\n  int(3)\n}\n", :diag [], :uncaught nil}
+   :cls-iterate-properties-visibility {:out "aab", :diag [], :uncaught nil}
+   :ctor-runs-with-args {:out "5", :diag [], :uncaught nil}
+   :ctor-promotion {:out "34", :diag [], :uncaught nil}
+   :ctor-arg-throws-skips-destructor {:out "caught", :diag [], :uncaught nil}
+   :ctor-throws-skips-destructor {:out "caught", :diag [], :uncaught nil}
+   :ctor-named-args {:out "19", :diag [], :uncaught nil}
+   :ctor-parent-call {:out "a", :diag [], :uncaught nil}
+   :ctor-destruct-order-at-end {:out "x21", :diag [], :uncaught nil}
+   :ctor-destruct-on-unset {:out "Dx", :diag [], :uncaught nil}
+   :ctor-destruct-resurrect {:out "Dxy", :diag [], :uncaught nil}
+   :ctor-clone {:out "C12", :diag [], :uncaught nil}
+   :exc-throw-catch-object {:out "Em", :diag [], :uncaught nil}
+   :exc-hierarchy-catch-base {:out "L", :diag [], :uncaught nil}
+   :exc-error-not-exception {:out "T", :diag [], :uncaught nil}
+   :exc-multi-catch {:out "TypeError", :diag [], :uncaught nil}
+   :exc-catch-without-variable {:out "c", :diag [], :uncaught nil}
+   :exc-previous-chain {:out "p3", :diag [], :uncaught nil}
+   :exc-finally-overrides-return {:out "2", :diag [], :uncaught nil}
+   :exc-finally-rethrow-runs {:out "Fa", :diag [], :uncaught nil}
+   :exc-line-number {:out "3", :diag [], :uncaught nil}
+   :exc-destructor-throws {:out "d", :diag [], :uncaught nil}
+   :exc-match-unhandled {:out "Unhandled match case 5", :diag [], :uncaught nil}
+   :exc-uncaught-fatal {:out "a", :diag [], :uncaught {:class "E", :message "boom"}}
+   :exc-named-arg-validation-order {:out "Unknown named parameter $z", :diag [], :uncaught nil}
+   :ro-init-once {:out "1", :diag [], :uncaught nil}
+   :ro-modify-throws {:out "Cannot modify readonly property C::$v", :diag [], :uncaught nil}
+   :ro-init-outside-scope {:out "Cannot initialize readonly property C::$v from global scope", :diag [], :uncaught nil}
+   :ro-unset-uninitialized-in-scope {:out "5", :diag [], :uncaught nil}
+   :ro-unset-initialized {:out "Cannot unset readonly property C::$v", :diag [], :uncaught nil}
+   :ro-unset-outside-scope {:out "Cannot unset readonly property C::$v from global scope", :diag [], :uncaught nil}
+   :ro-increment {:out "Cannot modify readonly property C::$v", :diag [], :uncaught nil}
+   :ro-reference-refused {:out "Cannot modify readonly property C::$v", :diag [], :uncaught nil}
+   :ro-clone-keeps-value {:out "3", :diag [], :uncaught nil}
+   :ro-clone-reinit-in-clone {:out "12", :diag [], :uncaught nil}
+   :ro-clone-flag-clears {:out "Cannot modify readonly property C::$v", :diag [], :uncaught nil}
+   :f3-unset-destructs {:out "Dx", :diag [], :uncaught nil}
+   :f3-reassign-destructs {:out "Dx", :diag [], :uncaught nil}
+   :f3-temporary-destructs-at-statement-end {:out "Dx", :diag [], :uncaught nil}
+   :f3-scope-exit-destructs {:out "inDout", :diag [], :uncaught nil}
+   :f3-last-holder {:out "xDy", :diag [], :uncaught nil}
+   :f3-resurrection-destructs-once {:out "Dxy", :diag [], :uncaught nil}
+   :f3-destructor-throws-propagates {:out "dz", :diag [], :uncaught nil}
+   :f3-destructor-throw-completes-releases {:out "ABd", :diag [], :uncaught nil}
+   :f3-shutdown-order {:out "x21", :diag [], :uncaught nil}
+   :f3-shutdown-shared-object-ord-order {:out "x12", :diag [], :uncaught nil}
+   :f3-clone-copies-properties {:out "12", :diag [], :uncaught nil}
+   :f3-clone-is-shallow {:out "2", :diag [], :uncaught nil}
+   :f3-clone-runs-clone-method {:out "C15", :diag [], :uncaught nil}
+   :f3-clone-destructs-both {:out "DxDy", :diag [], :uncaught nil}
+   :f3-clone-non-object {:out "__clone method called on non-object", :diag [], :uncaught nil}
+   :f3-exception-caught-var-owns {:out "cxDy", :diag [], :uncaught nil}
+   :f3-exception-without-variable-destructs {:out "Dcx", :diag [], :uncaught nil}})
+
+
+(defn- pin
+  "The fixture with its recorded oracle result folded in: `:oracle` becomes the
+   banner and a fixture without a pinned `:out` takes the recorded one."
+  [fixture]
+  (if-let [r (get recorded (:id fixture))]
+    (cond-> (assoc fixture :oracle banner)
+      (not (contains? fixture :out)) (assoc :out (:out r)))
+    fixture))
 
 
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
-  (vec (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1)))
+  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1)))
 
 
 (defn enabled?

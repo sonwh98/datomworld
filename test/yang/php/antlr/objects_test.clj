@@ -26,7 +26,8 @@
 
 
 (deftest enabled-p4-fixtures-test
-  (doseq [{:keys [id source throws] expected :out} p4/enabled]
+  (doseq [{:keys [id source throws impl-out] oracle-out :out} p4/enabled
+          :let [expected (or impl-out oracle-out)]]
     (let [r (h/run-raw source)]
       (when-not throws (is (nil? (:php/uncaught r)) (name id)))
       (when expected
