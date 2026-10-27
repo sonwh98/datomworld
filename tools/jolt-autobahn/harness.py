@@ -200,8 +200,12 @@ def run(args):
                J6_CASE_INDEXES=str(out / 'case-indexes.txt'), J6_MODE=args.mode,
                J6_FRAME_LIMIT='67108864', J6_MESSAGE_LIMIT='67108864')
     name = 'datom-j6-' + uuid.uuid4().hex[:12]
-    docker = ['docker', 'run', '--rm', '--name', name, '--platform', pin['platform'],
-              '--network', 'host', '--user', '%d:%d' % (os.getuid(), os.getgid()),
+    # Upstream listenWS does not bind to the URL's loopback host. Publish
+    # its server through Docker's loopback-only port mapping instead.
+    network = (['--network', 'host'] if args.role == 'server' else
+               ['-p', '127.0.0.1:%d:%d' % (args.port, args.port)])
+    docker = ['docker', 'run', '--rm', '--name', name, '--platform', pin['platform']] + network + [
+              '--user', '%d:%d' % (os.getuid(), os.getgid()),
               '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
               '-v', str(out) + ':/reports', '-v', str(out / 'spec.json') + ':/config/spec.json:ro',
               pin['image'], 'wstest', '-m', 'fuzzingclient' if args.role == 'server' else 'fuzzingserver',

@@ -24,13 +24,19 @@ runtime is preferable to maintaining an unsupported host Python 2 venv. It
 also avoids inventing a replacement suite or trusting an unqualified fork.
 The pinned source/package, rather than a current documentation example,
 defines the cases. No Python 3 port is assumed. The host driver is Python 3
-standard library only. Docker and a native jolt installation are prerequisites.
+standard library only. Inspection of the actual pinned image found Python
+2.7.18 / PyPy 7.3.20, OpenSSL 3.0.12 and Autobahn 0.10.9; do not infer
+its dependency versions from an older upstream Dockerfile. Docker and a
+native jolt installation are prerequisites.
 No suite code is imported into production.
 
 Use an isolated development host: the old suite runtime is not an exposed
 service. Connections are loopback only. Docker runs as the calling UID, drops
 capabilities, sets no-new-privileges, and receives only a fresh report directory
-and configuration. Host networking is required. On macOS arm64, Docker Desktop
+and configuration. The fuzzing client uses host networking to reach the
+native testee server. The fuzzing server uses a Docker bridge and an explicit
+`127.0.0.1:PORT:PORT` publication: upstream `listenWS` does not restrict its
+listener to the URL host. On macOS arm64, Docker Desktop
 must explicitly support/enable host networking and linux/amd64 emulation;
 record that runtime separately from the **native macOS arm64 testee**. A Docker
 image passing on Linux does not qualify the macOS testee. If that setup is
