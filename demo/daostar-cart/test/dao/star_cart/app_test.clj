@@ -136,9 +136,9 @@
         ;; advances the occurrence, so each post goes to the CURRENT token:
         ;; wait until the stream's tok differs from the one already used,
         ;; exactly as the browser's $tok signal does between actions
-        next-tok (fn [used]
-                   (sup/wait-for 8000 #(not= used (sup/token-of (sse-text grid))))
-                   (sup/token-of (sse-text grid)))
+        next-tok (fn [sse used]
+                   (sup/wait-for 8000 #(not= used (sup/token-of (sse-text sse))))
+                   (sup/token-of (sse-text sse)))
         cell (fn [tok slug field val]
                (sup/input! (port) "/grid" tok
                            {:act "cell" :arg (str slug "|" field) :val val}))]
@@ -158,22 +158,22 @@
     (testing "the shop's open view is stale until navigation"
       (is (not (str/includes? (sse-text shop) "$42.42")))
       (is (str/includes? (sse-text shop) old-price))
-      (let [r (sup/input! (port) "" (next-tok (:token shop)) {:act "nav" :arg "catalog"})]
+      (let [r (sup/input! (port) "" (next-tok shop (:token shop)) {:act "nav" :arg "catalog"})]
         (is (sup/wait-for 8000 #(str/includes? (sse-text shop) "$42.42"))
             "the next navigation runs a fresh query")))
     (testing "a rejected cell reports why and changes nothing"
-      (let [tok (next-tok (sup/token-of (sse-text grid)))
+      (let [tok (next-tok grid (sup/token-of (sse-text grid)))
             _ (cell tok (:key a) "price" "-5")]
         (is (sup/wait-for 8000 #(str/includes? (sse-text grid) "rejected: price must be a whole number")))
         (is (= 4242 (:price (store/item (:store *site*) (:key a)))))))
     (testing "the tagories cell applies the whole set (add and remove)"
-      (let [tok (next-tok (sup/token-of (sse-text grid)))
+      (let [tok (next-tok grid (sup/token-of (sse-text grid)))
             _ (cell tok (:key a) "tagories" "Alpha Tag, Beta Tag")]
         (is (sup/wait-for 8000 #(= ["Alpha Tag" "Beta Tag"]
                                    (:tagories (store/item (:store *site*) (:key a))))))
         (is (= ["Alpha Tag" "Beta Tag"] (:tagories (store/item (:store *site*) (:key a)))))))
     (testing "the images cell rejects unknown paths and changes nothing"
-      (let [tok (next-tok (sup/token-of (sse-text grid)))
+      (let [tok (next-tok grid (sup/token-of (sse-text grid)))
             before (:images (store/item (:store *site*) (:key a)))
             _ (cell tok (:key a) "images" "/images/36.png, /images/nope.png")]
         (is (sup/wait-for 8000 #(str/includes? (sse-text grid) "rejected: image file does not exist")))
