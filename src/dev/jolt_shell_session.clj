@@ -56,7 +56,7 @@
   [host args]
   (case host
     :jolt (into ["sh" "-c"
-                 ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-yin-repl \"$@\""
+                 ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-yin-repl --no-state \"$@\""
                  "jolt"] args)
     :jvm (into ["clj" "-M:clj-yin-repl" "--no-state"] args)))
 

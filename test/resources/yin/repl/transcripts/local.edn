@@ -53,11 +53,7 @@
   :startup-only true :hosts [:jolt]
   :out {:re "(?s)no host WebSocket package is composed for this build:.*"} :exit 1
   :capability {:owner :J6 :reason "no jolt socket adapter yet"}}
- {:id :file-refusal :args ["--index-store" "file:x"]
-  :startup-only true :hosts [:jolt]
-  :out "durable index stores arrive at J4 (dht: J7) on jolt" :exit 1
-  :capability {:owner :J4 :reason "durable stores refused before composition"}}
  {:id :dht-refusal :args ["--index-store" "dht:x"]
   :startup-only true :hosts [:jolt]
-  :out "durable index stores arrive at J4 (dht: J7) on jolt" :exit 1
+  :out "the dht: index store arrives at J7 on jolt" :exit 1
   :capability {:owner :J7 :reason "DHT stores refused before composition"}}]
