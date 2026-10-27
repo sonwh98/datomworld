@@ -13625,3 +13625,43 @@ Decisions: exclude-from-patch over morph-preservation tricks (idempotent, struct
 Verification: 40 tests / 566 assertions / 0 failures; kondo clean; live: patch target app-body, patch-has-input 0, debounce present on the begin page.
 Delegates: none (orchestrator-direct).
 Next: owner browser re-check of typing behavior.
+## 2026-10-27 22:15:00 +0700 — datomic-compat track: Phase 5 promotion committed; all gates GREEN; glm review dispatched (the final review before the qualified-claim sign-off)
+Completed-GMT: 2026-10-27 15:15:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7 untouched; Phase 5 branch datomic-q-p5-ci @8dbf6af2 (pushed, 3 commits: U2 core 0f51e4ee, runner identity 4ae6328f, promotion 8dbf6af2)
+Done: Promotion round delivered: U2 in the generic core (min/max accept n<=0 -> empty vector; positive behavior unchanged; oracle MEASURED max 0/max -1 before parity claims — all agree); runner identity correction (explicit entity-id positions + collision test + reference-loading provenance + runner-version/digest per observation file); THE PROMOTION: corpus now 120 cases (62 executable/12 difference/18 refusal/28 pending, digest 692ba5a0); 109 cases oracle-executed; 17 documented differences confirmed; errata E15/E16/E17; contract rows; both oracle runs preserved. Final numbers tabulated for the owner's ratification.
+Orchestrator verification: three-host 603/592/592 + downstream 256/39,276 all GREEN on jupiter at 8dbf6af2 (the U2 core change required them). glm final review dispatched.
+Delegates: promotion findings promoted (both worktree and main collab); reviewer glm-5.3 IN FLIGHT (session 37072475).
+Next: review -> argon or astra sign-off on the qualified claim -> OWNER RATIFICATION (the frozen-corpus human step: the final matrix + promotion decisions presented for approval) -> contract status flips -> merge -> archive -> track completion report.
+## 2026-10-27 17:20:00 +0700 — datomic-compat track: Phase 5 promotion review ENDORSE; the qualified-claim sign-off dispatched (r12)
+Completed-GMT: 2026-10-27 10:20:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7 untouched; Phase 5 branch datomic-q-p5-ci @8dbf6af2 (pushed)
+Done: glm final review: ENDORSE — "the qualified claim is exactly as strong as the evidence, no stronger." All 6 checklist PASS (U2 verified firsthand incl. the oracle-measured-before-parity discipline; promotion precision mechanically enforced in all directions; identity correction with collision pin; E15/E17 verbatim with real measurements; regression green; the arithmetic closes exactly 60+9+13+17+10=109, +8 inconclusive +3 unobserved = 120). One P3 (observation-linkage by textual containment; parse-based check deferred). The Phase-0 precondition is satisfied: Datomic Local 1.0.301 is a supported local Client backend via pinned client-api 1.0.69. Architect sign-off r12 dispatched on the qualified claim's scoping and evidence integrity.
+Decisions: the qualified-claim status flip + merge follow the sign-off; the OWNER RATIFICATION of the final matrix precedes any push (the frozen-corpus human step).
+Verification: review firsthand suites match all claims; gates reproduced earlier at this commit.
+Delegates: reviewer findings promoted (session 37072475); architect codex astra r12 IN FLIGHT (thread 01a16d38).
+Next: SIGNED OFF -> present the final matrix to the owner for ratification -> on ratification: merge, step-10, cleanup, archive, contract status flip (or flip-before-merge per the branch content), track completion report.
+## 2026-10-27 17:25:00 +0700 — datomic-compat track: Phase 5 sign-off blocked by codex reset (21:08 tonight); scheduled retry automation created
+Completed-GMT: 2026-10-27 10:25:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master f56dcaa7 untouched; Phase 5 branch datomic-q-p5-ci @8dbf6af2 pushed; worktree .claude/worktrees/datomic-p5-oracle
+Done: The r12 qualified-claim sign-off dispatch hit the codex usage limit again (reset scheduled 21:08 +07 tonight — ~3h50m out). Argon re-probed: still exhausted (both tiers). Reroute analysis: fable at 93% and same-family as the implementer; cmd's charter excludes supported models; deepseek a lane downgrade for a claim sign-off. Decision: WAIT for the codex reset — a scheduled automation (automation-138ad192) re-dispatches the sign-off at 21:10 +07 from the already-written prompt file, with 30-minute-interval retries up to 3x, then executes the full landing-or-reconcile branch per the verdict.
+Decisions: waiting is correct — the architect sign-off is the landing authorization, and the only mis-scoped alternatives violate either independence or lane charters.
+Verification: prompt file exists and is complete; the automation holds the full landing procedure.
+Delegates: none this unit (scheduler).
+Next: automation fires at 21:10 -> sign-off -> landing or reconcile -> owner ratification of the qualified claim -> track completion.
+
+## 2026-10-27 17:55:00 +0700 — dao.star cart: the non-responsive search fixed (data-bind + signal read under __debounce)
+Completed-GMT: 2026-10-27 10:55:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 2bb04ee8 (amended, force-pushed — own just-pushed commit, no other pullers); dao-star-demo = master
+Done: Owner: "the search is non-responsive" with the browser console TypeError `can't access property "target", event is undefined` in datastar.js. Root cause: under data-on:input__debounce, Datastar (RC.7) defers the expression into a setTimeout where the event object is out of scope — every debounced keystroke threw and no request fired. Fix (1592d7acd, message amended 2bb04ee8 after a local-shell $-expansion mangled two words): the input binds the search signal (data-bind:search), the begin page's base signals declare it, and the debounced handler reads $search from the signal store — no event reference. Redeployed on shiva from ds3; live-verified: begin page has data-bind:search and $arg=$search with zero event.target references, and a POSTed search act ("switch") filters the live subscription to 1 item card with no input field in the patch.
+Decisions: data-bind + signal read is Datastar's own idiom for deferred handlers, over alternatives (capturing event.target.value into a signal via a second non-debounced attribute — redundant with data-bind; dropping debounce — request storm).
+Verification: 40 tests / 569 assertions / 0 failures; kondo clean; live per above. History-rewrite note: commit 1592d7acd was amended to 2bb04ee8 seconds after push (own commit, message mangling only, tree identical).
+Delegates: none (orchestrator-direct).
+Next: owner browser re-check of typing.
