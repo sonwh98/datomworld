@@ -152,15 +152,22 @@ not here.
 
 ## Work log
 
-[`docs/orchestrator-log.md`](../../orchestrator-log.md) is the seat's durable
-memory: conversational context dies with its session, and the log is what
-lets a different model, in a fresh session with no shared history, continue
-the work. Three entry kinds only: one per coherent unit (a delegated round, a
-fix, a review reconciliation, a readiness report), an unfinished-work entry
-when work stops before the next unit finishes, and a final handoff entry when
-the seat is passed on. It records completed and stopped units only; in-flight
-state lives in `collab/`, referenced by filename and session ID rather than
-duplicated.
+Every orchestrator session starts its own log at session start. Create it at
+the repository root as
+`orchestrator-logs/<unix-time-stamp>-<brief-orchestrator-descriptive-name>.md`,
+using the actual Unix timestamp (`date +%s`) and a short lowercase,
+hyphen-separated description. Each orchestration is independent: never append
+to `docs/orchestrator-log.md` or to another session's file, even when the new
+session continues an earlier task. When continuing a task, reference the prior
+session's log path in the new log's first entry and final handoff instead of
+sharing or copying the file.
+
+The current session's log is the seat's durable memory. Three entry kinds
+only: one per coherent unit (a delegated round, a fix, a review reconciliation,
+a readiness report), an unfinished-work entry when work stops before the next
+unit finishes, and a final handoff entry when the seat is passed on. It records
+completed and stopped units only; in-flight state lives in `collab/`,
+referenced by filename and session ID rather than duplicated.
 
 Start every entry with actual timestamps and identity fields (never fabricate
 them), then state what `git log` alone cannot re-derive:
@@ -178,13 +185,14 @@ Delegates: <role/model, prompt and findings filenames, session IDs> | none
 Next: <the next coherent unit, open risks, blockers>
 ```
 
-The log is append-only: never edit, reorder, or delete an earlier entry — a
-correction is a new entry naming what it corrects. When an entry names a
-`collab/` artifact, repeat its session ID so a successor can resume that
-session under the continuity rules above. The log may describe work that was
-never committed or has since been superseded: the tree is canonical, so a
-successor still re-derives state from `git log`, `git status`, and the real
-diff, treating every log entry as a claim to verify rather than authority.
+Within its owning session, the log is append-only: never edit, reorder, or
+delete an earlier entry — a correction is a new entry naming what it corrects.
+When an entry names a `collab/` artifact, repeat its session ID so a successor
+can resume that session under the continuity rules above. The log may describe
+work that was never committed or has since been superseded: the tree is
+canonical, so a successor creates its own log and still re-derives state from
+`git log`, `git status`, and the real diff, treating every prior log entry as a
+claim to verify rather than authority.
 
 ## Authorization and security
 
@@ -204,15 +212,17 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
 
 1. **Establish the seat.** The harness must be able to read and write the working
    tree, run every affected host's checks, and invoke delegate CLIs. Establish
-   those capabilities before accepting work. If a required capability is
-   missing, report it and do not issue a blind sign-off.
+   those capabilities before accepting work. At session start, create this
+   session's own `orchestrator-logs/<unix-time-stamp>-<brief-orchestrator-descriptive-name>.md`
+   file under the repository root as specified in Work log. If a required
+   capability is missing, report it and do not issue a blind sign-off.
 2. **Re-derive state and authority.** Read `git log`, `git status`, and the real
-   diff; snapshots and phase summaries may be stale. Read the tail of
-   [`docs/orchestrator-log.md`](../../orchestrator-log.md) for the previous
-   seat's record and [`docs/agents/routing-status.md`](../routing-status.md)
-   for current owner-relayed delegate availability and budget constraints —
-   neither survives in any model's own memory across a fresh session. Bound
-   the user's authorized files, tools, payloads, and external destinations.
+   diff; snapshots and phase summaries may be stale. Read
+   [`docs/agents/routing-status.md`](../routing-status.md) for current
+   owner-relayed delegate availability and budget constraints. When explicitly
+   continuing an earlier orchestration, read its referenced prior log as
+   historical claims, never as a file to append to. Bound the user's authorized
+   files, tools, payloads, and external destinations.
 3. **Define the contract.** Express the task as tests or equally precise
    acceptance criteria, invariants, phase-completion criteria, and bounded file
    ownership.
@@ -260,7 +270,7 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
 8. **Report readiness.** Report exact commands, assertion counts, reviewer
    sign-off, unrun checks, unreviewed changes, unresolved risks, and any tool or
    hook noise. Do not let the summary outrun the evidence. Append the unit's
-   entry to `docs/orchestrator-log.md` in the same terms.
+   entry to this session's own file under `orchestrator-logs/` in the same terms.
 9. **Stage, commit, and merge only when authorized** under the coordination
    contract's commit authority. Stage only the authorized work, inspect the
    staged diff immediately before committing, and commit only that diff.
@@ -340,18 +350,19 @@ Read first:
 - <governing-design-file>
 - <current-phase-status>
 - <relevant-source-and-test-files>
-- `docs/orchestrator-log.md` (tail — the previous seat's running record)
+- <prior-orchestrator-log-path-if-explicit-continuation> (historical claims only; do not append)
 - `docs/agents/routing-status.md` (current owner-relayed delegate availability and budget status)
 - `docs/agents/delegate-invocation-reference.md` (session-ID mechanics, CLI flags, and recipes)
 
-Every claim in this brief, in the log, and in routing-status.md is something
-the outgoing seat believed at handoff time, not verified fact — re-derive
-tree state yourself from `git log`, `git status`, and the real diff before
-acting on any of it, the same posture this role's own Work Log section
-requires of any successor.
+Every claim in this brief, in any prior orchestrator log, and in
+routing-status.md is something the outgoing seat believed at handoff time, not
+verified fact — re-derive tree state yourself from `git log`, `git status`, and
+the real diff before acting on any of it, the same posture this role's own Work
+Log section requires of any successor.
 
 Required workflow:
 - Follow `docs/agents/roles/orchestrator.md#workflow` in order.
+- Create a new session log at `orchestrator-logs/<unix-time-stamp>-<brief-orchestrator-descriptive-name>.md`; never append to the prior session's log.
 - Run <focused-test-command> and <lint-command> locally.
 
 Do not broaden scope; do not stage, commit, or merge without an Architect
@@ -367,8 +378,8 @@ Session-ID: <exact initial Session-ID value, with provider-generated value promo
 
 Then report delegated roles/models, prompts and session IDs, verified findings,
 test outcomes, unresolved risks, and whether the phase is ready to commit.
-Append the final handoff entry to `docs/orchestrator-log.md` before
-responding.
+Append the final handoff entry to this session's new log before responding,
+referencing the prior session's log path when continuing earlier work.
 ```
 
 ## Delegate Invocation Reference
