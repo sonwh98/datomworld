@@ -9,8 +9,11 @@
 // source, a lexer-error source, invalid UTF-8, a BOM source and a NUL source;
 // the round-1 entry parses an ok and an error source; the three fault modes
 // run on both entries; the stats seams are read; every buffer is freed and the
-// worker disposed. Invalid arguments and an oversize answer run once.
+// worker disposed. Invalid arguments and an oversize answer run once, and
+// the J5 stack clamp runs once on a thread with a 128 KiB stack.
 // Prints a line per check and `HARNESS ok` / `HARNESS FAILED n`.
+#include <pthread.h>
+
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -29,6 +32,7 @@ int32_t jolt_parser_worker_cache_stats(void*, uint64_t*);
 int32_t jolt_parser_thread_info(uint64_t*);
 uint64_t jolt_parser_heap_in_use(void);
 int32_t jolt_parser_export_layout_version(void);
+int32_t jolt_parser_budget(uint64_t*);
 }
 
 namespace {
@@ -60,6 +64,43 @@ void run_parse(const std::string& src, int32_t want, const char* what) {
                                  src.size(), &out, &len);
   expect(st == want, what, st);
   jolt_parser_free(out);
+}
+
+// J5 stack clamp, run on a thread whose stack is a quarter of the 512 KiB
+// derivation basis: the depth bound read there is 256 / 4 = 64, nesting 65
+// and 200 (fine on a full-size stack) refuse with -7 before any parse, and a
+// shallow source still parses. No deep parse runs, so the leg is safe under
+// ASan's larger frames.
+constexpr size_t kSmallStack = size_t{128} << 10;
+
+void* clamp_leg(void* arg) {
+  void* w = arg;
+  uint64_t b[5] = {0, 0, 0, 0, 0};
+  expect(jolt_parser_budget(b) == 0, "budget on the small-stack thread", 0);
+  std::printf("RECORD clamp budget input %llu depth %llu depth-here %llu stack %llu basis %llu\n",
+              static_cast<unsigned long long>(b[0]), static_cast<unsigned long long>(b[1]),
+              static_cast<unsigned long long>(b[2]), static_cast<unsigned long long>(b[3]),
+              static_cast<unsigned long long>(b[4]));
+  // the stack read may round the requested size up to a page multiple
+  uint64_t want = b[1] * b[3] / b[4];
+  expect(b[3] >= kSmallStack && b[3] < b[4] && b[2] == want && b[2] < b[1],
+         "the bound clamps down on a small stack (depth-here = 256 * stack / basis)", 0);
+  for (uint64_t n : {b[2] + 1, uint64_t{200}}) {
+    std::string src = "x = " + std::string(n, '(') + "1" + std::string(n, ')') + "\n";
+    uint8_t* out = nullptr;
+    size_t len = 0;
+    int32_t st = jolt_parser_export(w, reinterpret_cast<const uint8_t*>(src.data()),
+                                    src.size(), &out, &len);
+    std::string msg = out ? std::string(reinterpret_cast<char*>(out), len) : "";
+    std::string expected = "nesting " + std::to_string(n) + " " + std::to_string(b[2]);
+    std::printf("RECORD clamp nesting %llu status %d message %s\n",
+                static_cast<unsigned long long>(n), st, msg.c_str());
+    expect(st == -7 && msg == expected,
+           "an over-clamp nesting refuses with -7 on the small-stack thread", st);
+    jolt_parser_free(out);
+  }
+  run_export(w, "x = (1)\n", 0, "a shallow source parses on the small-stack thread");
+  return nullptr;
 }
 
 }  // namespace
@@ -131,6 +172,21 @@ int main(int argc, char** argv) {
     run_export(w, ok, 0, "worker parses again after -4");
     jolt_parser_worker_free(w);
     jolt_parser_worker_free(nullptr);
+  }
+
+  // once: the stack clamp on a 128 KiB thread (the worker is made here and
+  // used by that thread alone)
+  {
+    void* w = jolt_parser_worker_new();
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    expect(pthread_attr_setstacksize(&attr, kSmallStack) == 0, "set a 128 KiB stack", 0);
+    pthread_t t;
+    int rc = pthread_create(&t, &attr, clamp_leg, w);
+    expect(rc == 0, "start the small-stack thread", rc);
+    if (rc == 0) pthread_join(t, nullptr);
+    pthread_attr_destroy(&attr);
+    jolt_parser_worker_free(w);
   }
 
   std::printf("cycles %ld\n", cycles);
