@@ -1259,9 +1259,8 @@
         (let [fail-wire (wire (close-f 1002 "stand-in: unsupported opcode"))
               {:keys [a b p events h] :as c} (fresh)]
           (feed! p a b (into [0x83 0x00] (wire (ping 1))))
-          (check "A5 fail: the unparsed rest is dropped and read interest cleared; only the close frame is queued or sent"
-                 (and (not (pump/read-interest? h))
-                      (every? #(= :close (first %)) (pump/pending-tags h)))
+          (check "A5 fail: the unparsed rest is dropped; only the close frame is queued or sent"
+                 (and (every? #(= :close (first %)) (pump/pending-tags h)))
                  {:tags (pump/pending-tags h)})
           (drain-rounds! w p h 50)
           (pump/pump! p [])
@@ -1299,6 +1298,22 @@
               (pump/pump! p [])))
           (check "A5 fail: a reset before the close frame is written reports 1006"
                  (let [t (terminals events)] (and (= 1 (count t)) (= 1006 (second (first t)))))
+                 {:terminals (terminals events)})
+          (done c))
+        ;; EOF before the close frame is written: 1006 (A5 unchanged)
+        (let [{:keys [a b p events h] :as c} (fresh)
+              calls (atom 0)]
+          (with-redefs-fn {send-var (scripted-send calls (fn [_ _] :eagain))
+                           recv-var (let [n (atom 0)]
+                                      (fn [fd buf cnt]
+                                        (if (= 1 (swap! n inc)) (orig-recv fd buf cnt) [0 0])))}
+            (fn []
+              (feed! p a b [0x83 0x00])
+              (check "A5 fail: still reading for EOF with the close frame unwritten"
+                     (and (pump/read-interest? h) (= 1 (count (pump/pending-tags h)))) {})
+              (pump/pump! p [[a native/pollin]])))
+          (check "A5 fail: EOF before the close frame is written reports 1006 (:eof), pending released"
+                 (and (= [[:closed 1006 :eof]] (terminals events)) (zero? (pump/queued-bytes h)))
                  {:terminals (terminals events)})
           (done c))
         (let [{:keys [h] :as c} (fresh)]

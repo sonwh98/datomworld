@@ -57,8 +57,8 @@
    transfer failure without a peer close reports 1006; deadline expiry in
    any state reports 1006. A parser `:fail` without `:close?` fails the
    connection (RFC 6455 section 7.1.7) and opens no handshake: the record
-   gets `:failed? true`, the close frame takes the reserved slot, reading
-   stops, and once the frame is written the terminal is the local code with
+   gets `:failed? true`, the close frame takes the reserved slot, input is
+   read only to see end of stream and discarded, and once the frame is written the terminal is the local code with
    cause `:fail`; the peer's reply is never parsed. 1005 and 1006 are never
    put on the wire.
 
@@ -318,8 +318,8 @@
 (defn read-interest?
   "Whether `h` is asking to be read."
   [h]
-  (let [{:keys [reading? pongs remainder close]} (cell h)]
-    (boolean (and reading? (< pongs max-pongs) (nil? remainder) (not (:failed? close))))))
+  (let [{:keys [reading? pongs remainder]} (cell h)]
+    (boolean (and reading? (< pongs max-pongs) (nil? remainder)))))
 
 
 ;; =============================================================================
@@ -534,15 +534,15 @@
 
 (defn- fail-connection!
   "A parser :fail without :close? fails the connection (RFC 6455 section
-   7.1.7): the close frame takes the reserved slot, reading stops and the
-   unparsed rest is dropped. The peer's reply is never parsed: the terminal
+   7.1.7): the close frame takes the reserved slot, later input is discarded
+   unparsed (read only to see EOF or reset) and the unparsed rest is dropped. The peer's reply is never parsed: the terminal
    is `:fail` with the local code once the frame is written."
   [p h code reason]
   (let [{:keys [status mode close]} (cell h)]
     (when (and (= :open status) (= :ws mode) (nil? (:local close)) (nil? (:peer close)))
       (let [bs (close-frame h code reason)]
         (cell! h #(-> %
-                      (assoc :reading? false :remainder nil)
+                      (assoc :remainder nil)
                       (update :close (fn [c]
                                        (-> (start-close c :local (:close-deadline-ms %))
                                            (assoc :local :queued :code code :reason reason
@@ -642,7 +642,9 @@
       (:error r) (do (fail! p h r) true)
       :else (let [chunk (ffi/read-array rbuf (:n r))]
               (if ws?
-                (parse-input! p h chunk 0)
+                ;; a failed connection reads only to see EOF or reset: the
+                ;; input is discarded, never parsed
+                (when-not (:failed? (:close (cell h))) (parse-input! p h chunk 0))
                 (when-let [f (:on-data (cell h))] (f chunk)))
               true))))
 
