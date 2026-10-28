@@ -144,6 +144,16 @@
             "Cannot use string as default value for property A::$x of type float"]
            ["<?php class A { public int $x = null; }"
             "Default value for property of type int may not be null. Use the nullable type ?int to allow null default value"]
+           ["<?php class A { public int $x = 1.5; }"
+            "Cannot use float as default value for property A::$x of type int"]
+           ["<?php class A { public int $x = -1.5; }"
+            "Cannot use float as default value for property A::$x of type int"]
+           ["<?php class A { public int $x = []; }"
+            "Cannot use array as default value for property A::$x of type int"]
+           ["<?php class A { public array $x = 1; }"
+            "Cannot use int as default value for property A::$x of type array"]
+           ["<?php function f(int $x = 1.5) {}"
+            "Cannot use float as default value for parameter $x of type int"]
            ["<?php function f(int $x = 'bad') {}"
             "Cannot use string as default value for parameter $x of type int"]
            ["<?php switch (1) { default: echo 1; default: echo 2; }"

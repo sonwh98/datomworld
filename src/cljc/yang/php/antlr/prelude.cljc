@@ -2125,6 +2125,24 @@
                (cell/set! slot (php/new-ref (thunk)))
                :php/null)
              (php/bind-marker cv (cell/get slot)))))]
+    [php/check-param-cell!
+     ;; a passed argument against its declared type, once the parameter cell
+     ;; exists: coerced in place, or `TypeError`. A reference with typed
+     ;; sources must already satisfy the type without conversion.
+     (fn [cell type fname idx pname]
+       (let [cur0 (cell/get cell)
+             marker? (= (php/slot-kind cur0) :ref-marker)
+             cur (if marker? (php/ref-value cur0) cur0)
+             srcs (if marker? (php/ref-sources cur0) [])
+             r (if (> (data/count srcs) 0)
+                 (if (php/type-exact? type cur) cur :php/undef)
+                 (php/type-accepts type cur (cell/get php.rt/strict)))]
+         (if (= r :php/undef)
+           (php/throw-error
+             "TypeError"
+             (data/str-concat fname "(): Argument #" (php/to-string idx) " ($" pname ") must be of type "
+                              (php/type-str type) ", " (php/given-name cur) " given"))
+           (if (= r cur) :php/null (if marker? (php/ref-set! cur0 r) (cell/set! cell r))))))]
     [php/param-ref-typed
      ;; the marker as `param-ref` makes it; the value it holds is checked, and
      ;; written back coerced, as PHP coerces the caller's variable in place
@@ -2274,9 +2292,11 @@
                (if (= k :obj) "object"
                    (if (= k :callable) "callable"
                        (if (= k :iterable) "iterable"
-                           (if (= k :void) "void"
-                               (if (= k :false) "false"
-                                   (if (= k :true) "true" (php/type-name k)))))))))))]
+                           (if (= k :static) "static"
+                               (if (= k :never) "never"
+                                   (if (= k :void) "void"
+                                       (if (= k :false) "false"
+                                           (if (= k :true) "true" (php/type-name k)))))))))))))]
     [php/type-union-str
      (fn [ts i n acc]
        (if (< i n)
@@ -2305,17 +2325,38 @@
                        :php/undef)
                      (php/coerce-simple t v strict)))))))))]
     [php/callable?
+     ;; callability from the global scope: public methods only
      (fn [v]
        (let [k (php/kind v)]
          (if (= k :string)
-           (not (nil? (get (cell/get php.rt/functions) (php/lc v))))
-           (if (= k :obj)
-             (if (php/closure? v)
-               true
-               (if (nil? (get v :php/obj))
-                 false
-                 (not (nil? (php/class-method (php/obj-class v) "__invoke")))))
-             false))))]
+           (let [i (php/dcolon-at v 0 (data/str-length v))]
+             (if (< i 0)
+               (not (nil? (get (cell/get php.rt/functions) (php/lc v))))
+               (php/public-method? (php/class-lookup (data/substring v 0 i))
+                                   (data/substring v (+ i 2) (data/str-length v)))))
+           (if (= k :array)
+             (if (= (php/array-count v) 2)
+               (let [t (php/array-get v 0)
+                     m (php/array-get v 1)]
+                 (if (= (php/kind m) :string)
+                   (if (= (php/kind t) :obj)
+                     (if (nil? (get t :php/obj)) false (php/public-method? (php/obj-class t) m))
+                     (if (= (php/kind t) :string) (php/public-method? (php/class-lookup t) m) false))
+                   false))
+               false)
+             (if (= k :obj)
+               (if (php/closure? v)
+                 true
+                 (if (nil? (get v :php/obj))
+                   false
+                   (not (nil? (php/class-method (php/obj-class v) "__invoke")))))
+               false)))))]
+    [php/public-method?
+     (fn [c name]
+       (if (nil? c)
+         false
+         (let [m (php/class-method c (php/lc name))]
+           (if (nil? m) false (= (get m :vis) :public)))))]
     [php/coerce-simple
      (fn [t v strict]
        (let [k (get t :t)
@@ -3002,6 +3043,32 @@
              (data/str-concat fname "(): Return value must be of type " (php/type-str type) ", "
                               (php/given-name v) " returned"))
            r)))]
+    [php/subst-static
+     ;; the `static` atoms of a return type become the called class
+     (fn [type cls]
+       (if (= (get type :t) :union)
+         (assoc type :of (php/subst-atoms (get type :of) cls 0 []))
+         (if (= (get type :t) :static) (assoc {} :t :class :name cls) type)))]
+    [php/subst-atoms
+     (fn [ts cls i acc]
+       (if (< i (data/count ts))
+         (php/subst-atoms ts cls (+ i 1) (php/vconj acc (php/subst-static (get ts i) cls)))
+         acc))]
+    [php/coerce-return-s
+     (fn [v type fname static]
+       (let [r (php/type-accepts (if (nil? static) type (php/subst-static type static)) v
+                                 (cell/get php.rt/strict))]
+         (if (= r :php/undef)
+           (php/throw-error
+             "TypeError"
+             (data/str-concat fname "(): Return value must be of type " (php/type-str type) ", "
+                              (php/given-name v) " returned"))
+           r)))]
+    [php/never-returned
+     (fn [fname]
+       (php/throw-error
+         "TypeError"
+         (data/str-concat fname "(): never-returning function must not implicitly return")))]
     [php/return-none
      (fn [type fname]
        (php/throw-error
@@ -3027,6 +3094,7 @@
        (let [t (get (cell/get f) :this)]
          (if (nil? t) (php/throw-error "Error" "Using $this when not in object context") t)))]
     [php/this-or-nil (fn [f] (get (cell/get f) :this))]
+    [php/has-this? (fn [f] (not (nil? (get (cell/get f) :this))))]
     [php/this-or-null
      (fn [f] (let [t (get (cell/get f) :this)] (if (nil? t) :php/null t)))]
     [php/static-or-nil (fn [f] (get (cell/get f) :static))]
@@ -3784,13 +3852,51 @@
      (fn [v] (if (= (php/kind v) :obj) (= (get v :php/type) :closure) false))]
     [php/closure-copy
      (fn [v] (php/make-closure (cell/new (cell/get (get v :php/closure)))))]
+    [php/closure-env
+     ;; a closure made inside a method keeps the method's `$this` and static class
+     (fn [f this static]
+       (do (if (nil? this) :php/null (cell/set! f (assoc (cell/get f) :this this)))
+           (if (nil? static) :php/null (cell/set! f (assoc (cell/get f) :static static)))
+           f))]
+    [php/scope-of
+     ;; the class scope a closure runs in: a rebinding's, else the enclosing one
+     (fn [f outer]
+       (let [sc (get (cell/get f) :scope)] (if (nil? sc) outer sc)))]
+    [php/arg-or (fn [args i d] (if (< i (data/count args)) (get args i) d))]
+    [php/closure-bind
+     ;; `Closure::bind` / `bindTo`: a copy with `$this` replaced; `scope` is an
+     ;; object (its class), a class name, or "static" (the scope stays)
+     (fn [c new-this scope]
+       (let [st (cell/get (get c :php/closure))
+             this2 (if (= new-this :php/null) nil new-this)
+             sc (if (= (php/kind scope) :obj)
+                  (php/scope-name scope)
+                  (if (= (php/kind scope) :string)
+                    (if (= scope "static") (get st :scope) (get (php/need-class scope "Class") :name))
+                    (get st :scope)))
+             st2 (assoc (assoc st :this this2) :scope sc)
+             st3 (if (nil? this2)
+                   st2
+                   (assoc st2 :static (get (php/obj-state this2) :class)))]
+         (php/make-closure (cell/new st3))))]
+    [php/scope-name
+     (fn [o] (if (nil? (get o :php/obj)) (get o :class) (get (php/obj-state o) :class)))]
+    [php/closure-call
+     ;; `$f->call($newThis, ...$args)`: bound to `$newThis` and its class for one call
+     (fn [c args]
+       (let [new-this (php/arg-or args 0 :php/null)
+             bound (php/closure-bind c new-this new-this)]
+         (php/call (get bound :php/closure) (php/args-prefix-from args 1 []))))]
+    [php/args-prefix-from
+     (fn [args i acc]
+       (if (< i (data/count args)) (php/args-prefix-from args (+ i 1) (php/vconj acc (get args i))) acc))]
     [php/closure-method
      (fn [o lc name args]
-       (if (= lc "bindto") (php/closure-copy o)
-           (if (= lc "__invoke") (php/call-value o args)
-               (php/throw-error
-                 "Error"
-                 (data/str-concat "Closure::" name "() needs objects (arrive with P4)")))))]
+       (if (= lc "bindto") (php/closure-bind o (php/arg-or args 0 :php/null) (php/arg-or args 1 "static"))
+           (if (= lc "call") (php/closure-call o args)
+               (if (= lc "__invoke") (php/call-value o args)
+                   (php/throw-error "Error"
+                                    (data/str-concat "Call to undefined method Closure::" name "()"))))))]
     [php/method-call
      ;; `$o->name(args)` from class scope `ctx`
      (fn [o name args ctx]
@@ -3806,13 +3912,13 @@
            (php/call-obj-method o name args ctx))))]
     [php/closure-static
      ;; `Closure::bind($f, $newThis, $scope)` and `Closure::fromCallable($c)`
-     (fn [lc name args]
+     (fn [lc name args ctx]
        (if (= lc "bind")
-         (php/closure-copy (get args 0))
+         (php/closure-bind (get args 0) (php/arg-or args 1 :php/null) (php/arg-or args 2 "static"))
          (if (= lc "fromcallable")
            (if (php/closure? (get args 0))
              (get args 0)
-             (php/make-closure (php/callable-of (get args 0))))
+             (php/make-closure (php/callable-in (get args 0) ctx)))
            (php/throw-error "Error"
                             (data/str-concat "Call to undefined method Closure::" name "()")))))]
     ;; the temporary list (rows 32 to 40): an owned counted value is
@@ -3843,20 +3949,57 @@
     [php/make-closure
      ;; a Closure value (an object, `kind` :obj) around the function cell
      (fn [f] (assoc (assoc {} :php/type :closure) :php/closure f))]
-    [php/callable-of
-     ;; the function cell of a callable value: a name or a Closure
-     (fn [v]
-       (if (= (php/kind v) :string)
-         (php/resolve-fn (php/lc v) v)
-         (if (= (get v :php/type) :closure)
-           (get v :php/closure)
-           (if (nil? (get v :php/obj))
-             (php/throw-error "Error" "Value not callable")
-             (let [m (php/class-method (php/obj-class v) "__invoke")]
-               (if (nil? m)
-                 (php/throw-error "Error" "Object of type is not callable")
-                 (php/bind-method m v (get (php/obj-state v) :class))))))))]
+    [php/callable-of (fn [v] (php/callable-in v :php/null))]
     [php/callable-fn (fn [h] (php/callable-of h))]
+    [php/callable-in
+     ;; the function cell of a callable value seen from class scope `ctx`: a
+     ;; function name, `"Class::method"`, `[object-or-class, "method"]`, a
+     ;; Closure or an object with `__invoke`
+     (fn [v ctx]
+       (let [k (php/kind v)]
+         (if (= k :string)
+           (let [i (php/dcolon-at v 0 (data/str-length v))]
+             (if (< i 0)
+               (php/resolve-fn (php/lc v) v)
+               (php/callable-method (php/class-by-name (data/substring v 0 i))
+                                    nil (data/substring v (+ i 2) (data/str-length v)) ctx)))
+           (if (= k :array)
+             (if (= (php/array-count v) 2)
+               (let [t (php/array-get v 0)
+                     m (php/array-get v 1)]
+                 (if (= (php/kind t) :obj)
+                   (php/callable-method (php/obj-class t) t m ctx)
+                   (if (= (php/kind t) :string)
+                     (php/callable-method (php/class-by-name t) nil m ctx)
+                     (php/throw-error "Error" "Array callback must have exactly two elements"))))
+               (php/throw-error "Error" "Array callback must have exactly two elements"))
+             (if (= (get v :php/type) :closure)
+               (get v :php/closure)
+               (if (nil? (get v :php/obj))
+                 (php/throw-error "Error" "Value not callable")
+                 (let [m (php/class-method (php/obj-class v) "__invoke")]
+                   (if (nil? m)
+                     (php/throw-error "Error" "Object of type is not callable")
+                     (php/bind-method m v (get (php/obj-state v) :class))))))))))]
+    [php/dcolon-at
+     (fn [s i n]
+       (if (< (+ i 1) n)
+         (if (= (data/substring s i (+ i 2)) "::") i (php/dcolon-at s (+ i 1) n))
+         -1))]
+    [php/callable-method
+     ;; the bound method `name` of class `c` for object `this` (nil for a static call)
+     (fn [c this name ctx]
+       (let [m (php/class-method c (php/lc name))]
+         (if (nil? m)
+           (php/throw-error "Error" (data/str-concat "Call to undefined method " (get c :name) "::" name "()"))
+           (if (php/visible? (get m :vis) (get m :declaring) ctx)
+             (if (= (get m :static?) true)
+               (php/bind-method m nil (if (nil? this) (get c :name) (get (php/obj-state this) :class)))
+               (if (nil? this)
+                 (php/throw-error "Error" (data/str-concat "Non-static method " (get m :declaring) "::"
+                                                           (get m :name) "() cannot be called statically"))
+                 (php/bind-method m this (get (php/obj-state this) :class))))
+             (php/method-denied (get c :name) m ctx)))))]
     [php/call-value (fn [v args] (php/call (php/callable-of v) args))]
     [php/args-spread
      ;; `f(...$xs)`: the values of `xs` appended to the argument vector; a

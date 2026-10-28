@@ -342,7 +342,7 @@
     (app* 'php/throw-error (u/lit "Error") (u/lit "Using $this when not in object context"))))
 
 
-(declare member-vis class-ref-node class-name-node leftmost-token-text lower-class lower-new
+(declare chain-calls member-vis class-ref-node class-name-node leftmost-token-text lower-class lower-new
          lower-class-constant lower-initializer-part class-spec*)
 
 
@@ -433,7 +433,7 @@
 (defn- isset-var
   [ctx name]
   (if (this-var? name)
-    (u/lit (boolean (:fn ctx)))
+    (if (:fn ctx) (app* 'php/has-this? (u/v '%fn)) (u/lit false))
     (if-let [cv (cv-node ctx name)]
       (app* 'php/local-isset? cv)
       (app* 'php/global-isset? (u/lit (bare name))))))
@@ -1350,7 +1350,7 @@
                         (reduce (fn [acc g]
                                   (let [f (core/gen "f" g)]
                                     (u/let1 f
-                                            (app* 'php/callable-of acc)
+                                            (app* 'php/callable-in acc (cc-node ctx))
                                             (call-node ctx (u/v f) g nil))))
                                 callee-node
                                 more))]
@@ -1359,7 +1359,7 @@
       (let [f (core/gen "f" n)]
         (chain-dynamic
           (u/let1 f
-                  (app* 'php/callable-of (callee-value ctx n fname))
+                  (app* 'php/callable-in (callee-value ctx n fname) (cc-node ctx))
                   (app* 'php/tmp! (call-node ctx (u/v f) arguments nil)))
           (rest groups)))
       (chain-dynamic
@@ -1524,18 +1524,22 @@
         simple (when fname (first (core/kids ctx fname)))
         [ident & offsets] (when (and simple (p/rule? simple "keyedSimpleFieldName"))
                             (core/kids ctx simple))
-        args (first (core/rules ctx (first (core/rules ctx ma "actualArguments")) "arguments"))]
+        groups (core/rules ctx (first (core/rules ctx ma "actualArguments")) "arguments")
+        args (first groups)]
     (when-not (and ident (p/rule? ident "identifier"))
       (unsupported! n :member-access))
     (let [name (leftmost-token-text ctx ident)]
       (if args
         (let [recv (core/gen "o" n)
               [pos named] (lower-arguments ctx args)]
-          (u/let1 recv
-                  o
-                  (app* 'php/tmp!
-                        (app* 'php/method-call (u/v recv) (u/lit name) (with-named-arg pos named)
-                              (cc-node ctx)))))
+          (chain-calls
+            ctx
+            (u/let1 recv
+                    o
+                    (app* 'php/tmp!
+                          (app* 'php/method-call (u/v recv) (u/lit name) (with-named-arg pos named)
+                                (cc-node ctx))))
+            (rest groups)))
         (reduce (fn [acc k] (app* 'php/dim-get acc (lower ctx k)))
                 (app* 'php/dim-get o (prop-step-node ctx {:prop-step name}))
                 (offset-keys ctx offsets))))))
@@ -1571,19 +1575,35 @@
           ["Closure" (leftmost-token-text ctx ident)])))))
 
 
+(defn- chain-calls
+  "`node` called again with each further argument group of `groups`: `f()()`."
+  [ctx node groups]
+  (reduce (fn [acc g]
+            (let [f (core/gen "f" g)]
+              (u/let1 f
+                      (app* 'php/callable-in acc (cc-node ctx))
+                      (call-node ctx (u/v f) g nil))))
+          node
+          groups))
+
+
 (defn- lower-call
   [ctx n call]
-  (let [[fname args] (core/rule-kids ctx call)]
+  (let [[fname args] (core/rule-kids ctx call)
+        groups (core/rules ctx args "arguments")]
     (if-let [[_ m] (closure-static ctx fname)]
-      (let [[pos _] (lower-arguments ctx (first (core/rules ctx args "arguments")))]
-        (app* 'php/closure-static (u/lit (str/lower-case m)) (u/lit m) pos))
+      (let [[pos _] (lower-arguments ctx (first groups))]
+        (chain-calls ctx
+                     (app* 'php/closure-static (u/lit (str/lower-case m)) (u/lit m) pos (cc-node ctx))
+                     (rest groups)))
       (let [cc (first (core/kids ctx fname))
             [ref _ ident] (when (p/rule? cc "classConstant") (core/kids ctx cc))]
         (if (and ident
                  (or (p/token? ref) (p/rule? ref "qualifiedStaticTypeRef"))
                  (p/rule? ident "identifier"))
-          (static-call ctx n ref (leftmost-token-text ctx ident)
-                       (first (core/rules ctx args "arguments")))
+          (chain-calls ctx
+                       (static-call ctx n ref (leftmost-token-text ctx ident) (first groups))
+                       (rest groups))
           (lower-call-plain ctx n call))))))
 
 
@@ -2222,7 +2242,8 @@
     "false" [{:t :false}]
     "true" [{:t :true}]
     "self" (if cname [{:t :class, :name cname}] (unsupported! th :type-declaration))
-    ("static" "never") (unsupported! th :type-declaration)
+    "static" [{:t :static}]
+    "never" [{:t :never}]
     [{:t :class, :name written}]))
 
 
@@ -2351,19 +2372,31 @@
           (core/rules ctx n "globalVar"))))
 
 
+(defn- coerce-return-node
+  "A returned value held to the declared type `rtype`; `static` resolves to the
+   class the method was called on."
+  [ctx v rtype fname]
+  (let [atoms (if (= :union (:t rtype)) (:of rtype) [rtype])]
+    (if (some #(= :static (:t %)) atoms)
+      (app* 'php/coerce-return-s v (u/lit rtype) (u/lit fname)
+            (if (:fn ctx) (app* 'php/static-or-nil (u/v '%fn)) (u/lit nil)))
+      (app* 'php/coerce-return v (u/lit rtype) (u/lit fname)))))
+
+
 (defn- lower-return
   [ctx n]
   (when-not (:ret ctx) (unsupported! n :return))
   (let [e (first (core/rules ctx n "expression"))
         rtype (:rtype ctx)
         void? (= :void (:t rtype))]
+    (when (= :never (:t rtype)) (compile-error! n "A never-returning function must not return"))
     (when (and void? e) (compile-error! n "A void function must not return a value"))
     (when (and rtype (not void?) (nil? e))
       (compile-error! n "A function with return type must return a value"))
     (u/app (u/v (:ret ctx))
            (if e
              (let [v (app* 'php/addref (lower ctx e))]
-               (if rtype (app* 'php/coerce-return v (u/lit rtype) (u/lit (:fname ctx))) v))
+               (if rtype (coerce-return-node ctx v rtype (:fname ctx)) v))
              (u/lit :php/null)))))
 
 
@@ -2374,26 +2407,55 @@
         (core/kids ctx n)))
 
 
-(defn- literal-fits?
-  "Whether the literal `v` is a member of `type` as a declared default (exact
-   kind; an int may widen to float), or :unknown for kinds decided at run time."
-  [type v]
-  (let [atoms (if (= :union (:t type)) (:of type) [type])
-        kind (cond (string? v) :string (integer? v) :int (boolean? v) :bool (= v :php/null) :null)]
-    (if (some #(contains? #{:callable :class :obj :iterable} (:t %)) atoms)
-      :unknown
-      (boolean (some (fn [a]
-                       (case (:t a)
-                         :mixed true
-                         :int (= kind :int)
-                         :float (contains? #{:int} kind)
-                         :string (= kind :string)
-                         :bool (= kind :bool)
-                         :false (false? v)
-                         :true (true? v)
-                         :null (= kind :null)
-                         false))
-                     atoms)))))
+(defn- init-kind
+  "`[kind value]` of a `constantInitializer`/`constant` node whose value is
+   known at lowering (`kind` one of :int :float :string :bool :null :array), or
+   nil when it names a constant or another unresolved expression."
+  [ctx n]
+  (let [ks (core/kids ctx n)
+        k0 (first ks)]
+    (cond
+      (and (p/token? k0) (contains? #{"Plus" "Minus"} (:type k0)) (= 2 (count ks)))
+      (let [[kind v] (init-kind ctx (second ks))]
+        (when (contains? #{:int :float} kind) [kind v]))
+      (and (p/token? k0) (contains? #{"OpenSquareBracket" "Array"} (:type k0))) [:array nil]
+      (some #(p/rule? % "arrayItemList") ks) [:array nil]
+      (some #(p/token? % ".") ks) [:string nil]
+      (p/rule? k0 "string") [:string nil]
+      (p/token? k0) (when (= "Null" (:type k0)) [:null :php/null])
+      (p/rule? k0 "constant") (init-kind ctx k0)
+      (p/rule? k0 "literalConstant")
+      (let [l (first (core/kids ctx k0))]
+        (cond
+          (and (p/token? l) (= "Real" (:type l))) [:float nil]
+          (and (p/token? l) (= "BooleanConstant" (:type l)))
+          [:bool (= "true" (str/lower-case (:text l)))]
+          (p/rule? l "numericConstant") [:int nil]
+          (p/rule? l "stringConstant") [:string nil]))
+      :else nil)))
+
+
+(defn- kind-fits?
+  "Whether a default of `kind` (and boolean `v`) is a member of `type`: exact
+   kind, an int widening to float; callable members accept strings and arrays
+   (checked at run time)."
+  [type kind v]
+  (let [atoms (if (= :union (:t type)) (:of type) [type])]
+    (boolean (some (fn [a]
+                     (case (:t a)
+                       :mixed true
+                       :int (= kind :int)
+                       :float (contains? #{:int :float} kind)
+                       :string (= kind :string)
+                       :bool (= kind :bool)
+                       :false (and (= kind :bool) (false? v))
+                       :true (and (= kind :bool) (true? v))
+                       :null (= kind :null)
+                       :array (= kind :array)
+                       :iterable (= kind :array)
+                       :callable (contains? #{:string :array} kind)
+                       false))
+                   atoms))))
 
 
 (defn- type-label
@@ -2409,24 +2471,19 @@
 
 
 (defn- check-literal-default!
-  "A statically evaluable default that cannot be of `type` is a compile-time
-   fatal; anything else is checked when it is installed."
-  [n node type what]
-  (when (and (= :literal (:type node))
-             (let [v (:value node)]
-               (or (string? v) (integer? v) (boolean? v) (= v :php/null)))
-             (false? (literal-fits? type (:value node))))
-    (compile-error!
-      n
-      (let [v (:value node)]
-        (cond
-          (and (= :php/null v) (str/starts-with? what "property"))
+  "A default whose kind is known at lowering and is not a member of `type` is a
+   compile-time fatal; an unresolved constant expression is checked when the
+   default is installed."
+  [ctx n init type what]
+  (when-let [[kind v] (init-kind ctx init)]
+    (when-not (kind-fits? type kind v)
+      (compile-error!
+        n
+        (if (and (= :null kind) (str/starts-with? what "property"))
           (str "Default value for property of type " (type-label type)
                " may not be null. Use the nullable type ?" (type-label type)
                " to allow null default value")
-          :else
-          (str "Cannot use " (cond (= :php/null v) "null" (string? v) "string" (integer? v) "int" :else "bool")
-               " as default value for " what " of type " (type-label type)))))))
+          (str "Cannot use " (name kind) " as default value for " what " of type " (type-label type)))))))
 
 
 (defn- param-binding
@@ -2446,7 +2503,7 @@
                     (u/if-node (app* '= (u/v a) (u/lit :php/undef))
                                (if default
                                  (let [d (lower-initializer ctx default)]
-                                   (when type (check-literal-default! default d type
+                                   (when type (check-literal-default! ctx default default type
                                                                       (str "parameter $" (bare name))))
                                    (if type
                                      (app* 'php/param-default d (u/lit type) (u/lit written)
@@ -2472,11 +2529,12 @@
                                  :else (app* 'php/addref (u/v a)))))))))
 
 
+
 (defn- function-lam
   "`[lam spec]` for the function node `n`. `captures` is a vector of
    `{:name :ref? :sym}` bound before the parameters (closures); `arrow?`
    makes the body the value of an expression."
-  [ctx n written {:keys [captures arrow?]}]
+  [ctx n written {:keys [captures arrow? closure?]}]
   (let [ks (core/kids ctx n)
         rt-src (or (first (core/rules ctx n "returnTypeDecl")) (when (some #(p/token? % ":") ks) n))
         ;; the grammar reads `: name` after a method's parameters as a base constructor call
@@ -2516,10 +2574,13 @@
                                               "returnStatement"
                                               #{"functionDeclaration" "lambdaFunctionExpr"}))
         counted? (boolean (or (mentions-reference? ctx n) (seq (:statics scope))
-                              (some :ref? captures)))
-        fctx (assoc ctx :fn true :loops [] :ret (when has-return? '%ret) :counted counted?
-                    :rtype rtype :fname written)
-        checked? (and rtype (not= :void (:t rtype)))
+                              (some :ref? captures)
+                              (some #(and (:type %) (not (:variadic? %))) params)))
+        fctx (cond-> (assoc ctx :fn true :loops [] :ret (when has-return? '%ret) :counted counted?
+                            :rtype rtype :fname written)
+               closure? (assoc :cc true))
+        never? (= :never (:t rtype))
+        checked? (and rtype (not= :void (:t rtype)) (not never?))
         promoted (when (str/ends-with? (str/lower-case written) "__construct") (filter :promote params))
         prologue (mapv (fn [pp]
                          (app* 'php/prop-write!
@@ -2530,12 +2591,19 @@
                        promoted)
         body (if arrow?
                (let [e (lower fctx (last (core/rules ctx n "expression")))]
-                 (if checked? (app* 'php/coerce-return e (u/lit rtype) (u/lit written)) e))
+                 (if checked? (coerce-return-node fctx e rtype written) e))
                (u/then (lower fctx block)
-                       (if checked?
-                         (app* 'php/return-none (u/lit rtype) (u/lit written))
-                         (u/lit :php/null))))
+                       (cond
+                         checked? (app* 'php/return-none (u/lit rtype) (u/lit written))
+                         never? (app* 'php/never-returned (u/lit written))
+                         :else (u/lit :php/null))))
         body (if (seq prologue) (u/then (u/seq-nodes prologue) body) body)
+        checks (keep-indexed (fn [i pp]
+                               (when (and (:type pp) (not (:variadic? pp)))
+                                 (app* 'php/check-param-cell! (u/v (symbol (:name pp))) (u/lit (:type pp))
+                                       (u/lit written) (u/lit (inc i)) (u/lit (bare (:name pp))))))
+                             params)
+        body (if (seq checks) (u/then (u/seq-nodes checks) body) body)
         body (if has-return? (app* 'php/call-ec (u/lam ['%ret] body)) body)
         cvs (concat (map :name params) (map :name captures) static-names-v locals)
         body (if counted?
@@ -2582,7 +2650,12 @@
         wrapped (reduce (fn [inner [sym value]] (u/let1 sym value inner))
                         body
                         (reverse bindings))]
-    [(u/lam ['%fn '%args '%binding-profile] wrapped)
+    [(u/lam (if closure?
+              ['%fn '%args '%binding-profile '%cc]
+              ['%fn '%args '%binding-profile])
+            (if closure?
+              (u/let1 '%cc (app* 'php/scope-of (u/v '%fn) (cc-node ctx)) wrapped)
+              wrapped))
      {:required required,
       :total total,
       :variadic variadic?,
@@ -2637,9 +2710,13 @@
                (mapv #(assoc % :arrow? false) (use-vars ctx n)))
         caps (mapv #(assoc % :sym (symbol (str "%cap" (subs (:name %) 1) (:id n)))) caps)
         _ (doseq [c caps] (checked-var n (:name c)))
-        [lam spec statics] (function-lam ctx n "{closure}" {:captures caps, :arrow? arrow?})
+        static? (boolean (some #(and (p/token? %) (= "Static" (:type %))) (core/kids ctx n)))
+        [lam spec statics] (function-lam ctx n "{closure}" {:captures caps, :arrow? arrow?, :closure? true})
         make (app* 'php/make-closure
-                   (app* 'php/make-function (u/lit "{closure}") (u/lit spec) lam (u/lit statics)))]
+                   (app* 'php/closure-env
+                         (app* 'php/make-function (u/lit "{closure}") (u/lit spec) lam (u/lit statics))
+                         (if (and (:fn ctx) (not static?)) (app* 'php/this-or-nil (u/v '%fn)) (u/lit nil))
+                         (if (:fn ctx) (app* 'php/static-or-nil (u/v '%fn)) (u/lit nil))))]
     (reduce (fn [inner c] (u/let1 (:sym c) (capture-source ctx c) inner))
             make
             (reverse caps))))
@@ -2737,8 +2814,7 @@
             (let [[v _ init] (core/kids ctx vi)
                   th (first (core/rules ctx st "typeHint"))]
               (when (and th init)
-                (check-literal-default! init
-                                        (lower-initializer (assoc ctx :cc true) init)
+                (check-literal-default! ctx init init
                                         (type-data ctx th false cname)
                                         (str "property " cname "::$" (bare (:text v)))))
               (spec-node (cond-> {:name (u/lit (bare (:text v))),

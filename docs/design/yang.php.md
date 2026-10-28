@@ -294,6 +294,13 @@ not null"; `empty` is falsiness; `unset` unbinds.
   through the function and class tables. Attributes are parsed and stored as
   data on the descriptor (for `ReflectionAttribute` later), with no runtime
   effect.
+- A closure made inside a method keeps that method's `$this` and called class;
+  a `static` closure keeps neither. `bind`, `bindTo` and `call` replace `$this`
+  and the scope class, and the closure's own `self`, `static::` and visibility
+  checks follow the replaced scope (`bindTo($o)` without a scope leaves the
+  scope alone, `call` binds both to the object). Callable forms
+  (`[$object, 'm']`, `['Class', 'm']`, `'Class::m'`, invokable objects,
+  `Closure::fromCallable`) resolve through the calling class scope.
 
 ### 3.8 Functions and the tables
 

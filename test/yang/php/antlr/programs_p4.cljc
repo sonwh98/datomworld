@@ -16,7 +16,7 @@
 (def completed-steps
   "P4 steps that have landed: S1 (descriptors) and S2 (objects, methods,
    visibility). A fixture whose :requires name a later step stays disabled."
-  #{:p4-s1 :p4-s2 :p4-s3 :p4-s4 :p4-s5})
+  #{:p4-s1 :p4-s2 :p4-s3 :p4-s4 :p4-s5 :p4-s6})
 
 
 (defn- fx
@@ -559,6 +559,77 @@
        nil)])
 
 
+(def closures-v1
+  "S6: closure binding and effective scope, callable forms, `static` and `never`
+   return types. Every fixture waits for the oracle pass that records it."
+  [(fx :clo-this-captured-in-method :closures-v1 [] #{:p4-s6}
+       "<?php class A { private $p = 'a'; function f() { return function () { return $this->p; }; } } $a = new A; $g = $a->f(); echo $g();"
+       "a")
+   (fx :clo-static-closure-has-no-this :closures-v1 [] #{:p4-s6}
+       "<?php class A { function f() { return static function () { return isset($this) ? 'y' : 'n'; }; } } $g = (new A)->f(); echo $g();"
+       "n")
+   (fx :clo-bind-grants-private-access :closures-v1 [] #{:p4-s6}
+       "<?php class A { private $p = 'a'; } $f = function () { return $this->p; }; echo Closure::bind($f, new A, A::class)();"
+       "a")
+   (fx :clo-bindto-without-scope-keeps-scope :closures-v1 [] #{:p4-s6}
+       "<?php class A { private $p = 1; } $f = function () { return $this->p; }; $b = $f->bindTo(new A); try { $b(); } catch (Error $e) { echo $e->getMessage(); }"
+       "Cannot access private property A::$p")
+   (fx :clo-bindto-scope-by-name :closures-v1 [] #{:p4-s6}
+       "<?php class A { private $p = 'n'; } $f = function () { return $this->p; }; $b = $f->bindTo(new A, 'A'); echo $b();"
+       "n")
+   (fx :clo-call-binds-this-and-scope :closures-v1 [] #{:p4-s6}
+       "<?php class A { private $p = 7; } $f = fn() => $this->p; echo $f->call(new A);"
+       "7")
+   (fx :clo-call-passes-arguments :closures-v1 [] #{:p4-s6}
+       "<?php class P { public $v = 2; } $f = fn($x) => $x * $this->v; echo $f->call(new P, 4);"
+       "8")
+   (fx :clo-bound-this-sets-static :closures-v1 [] #{:p4-s6}
+       "<?php class A {} class B extends A {} $f = function () { return static::class; }; echo $f->bindTo(new B)();"
+       "B")
+   (fx :clo-closure-keeps-called-class :closures-v1 [] #{:p4-s6}
+       "<?php class A { static function make() { return function () { return static::class; }; } } class B extends A {} $f = B::make(); echo $f();"
+       "B")
+   (fx :clo-callable-array-string-forms :closures-v1 [] #{:p4-s6}
+       "<?php class A { static function m($x) { return $x . 'm'; } function i($x) { return $x . 'i'; } } $f = [new A, 'i']; echo $f(1); $g = 'A::m'; echo $g(2); $h = ['A', 'm']; echo $h(3);"
+       "1i2m3m")
+   (fx :clo-callable-private-from-inside :closures-v1 [] #{:p4-s6}
+       "<?php class A { private function p() { return 'x'; } function get() { return [$this, 'p']; } function run() { $c = $this->get(); return $c(); } } echo (new A)->run();"
+       "x")
+   (fx :clo-callable-private-from-outside :closures-v1 [] #{:p4-s6}
+       "<?php class A { private function p() { return 'x'; } function get() { return [$this, 'p']; } } $c = (new A)->get(); try { $c(); } catch (Error $e) { echo $e->getMessage(); }"
+       "Call to private method A::p() from global scope")
+   (fx :clo-from-callable-function :closures-v1 [] #{:p4-s6}
+       "<?php function twice($x) { return $x * 2; } $f = Closure::fromCallable('twice'); echo $f(4);"
+       "8")
+   (fx :clo-from-callable-invokable :closures-v1 [] #{:p4-s6}
+       "<?php class A { function __invoke($x) { return $x + 1; } } $f = Closure::fromCallable(new A); echo $f(1);"
+       "2")
+   (fx :clo-from-callable-method :closures-v1 [] #{:p4-s6}
+       "<?php class A { function m($x) { return $x . 'm'; } } $f = Closure::fromCallable([new A, 'm']); echo $f(5);"
+       "5m")
+   (fx :clo-trait-self-and-static :closures-v1 [] #{:p4-s6}
+       "<?php trait T { function mk() { return function () { return self::class . static::class; }; } } class A { use T; } class B extends A {} $f = (new B)->mk(); echo $f();"
+       "AB")
+   (fx :clo-trait-closure-this :closures-v1 [] #{:p4-s6}
+       "<?php trait T { function mk() { return fn() => $this->v; } } class A { use T; private $v = 'tv'; } $f = (new A)->mk(); echo $f();"
+       "tv")
+   (fx :clo-nested-closure-keeps-this :closures-v1 [] #{:p4-s6}
+       "<?php class A { private $p = 'p'; function f() { return function () { return function () { return $this->p; }; }; } } $a = new A; echo $a->f()()();"
+       "p")
+   (fx :decl-static-return-type :closures-v1 [] #{:p4-s6}
+       "<?php class A { static function make(): static { return new static; } } class B extends A {} echo get_class(B::make());"
+       "B")
+   (fx :decl-never-throws :closures-v1 [] #{:p4-s6}
+       "<?php function f(): never { throw new Exception('x'); } try { f(); } catch (Exception $e) { echo $e->getMessage(); }"
+       "x")
+   (fx :decl-never-implicit-return-is-type-error :closures-v1 [] #{:p4-s6}
+       "<?php function g(): never {} try { g(); } catch (TypeError $e) { echo $e->getMessage(); }"
+       "g(): never-returning function must not implicitly return")
+   (fx :decl-signed-literal-defaults-accepted :closures-v1 [] #{:p4-s6}
+       "<?php class A { public int $n = -1; public float $f = -2; public array $a = [1]; public int|string $u = 'x'; } $a = new A; var_dump($a->n, $a->f);"
+       "int(-1)\nfloat(-2)\n")])
+
+
 (def banner p3b/banner)
 
 
@@ -716,7 +787,7 @@
 
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
-  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1 declarations-v1)))
+  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1 declarations-v1 closures-v1)))
 
 
 (defn enabled?
@@ -737,4 +808,25 @@
    fixture joins it until its record is folded. Changing it is a reviewed edit
    (Architect ruling on P4 activation: every enabled pending fixture is
    recorded before its checkpoint closes)."
-  #{})
+  #{:clo-this-captured-in-method
+    :clo-static-closure-has-no-this
+    :clo-bind-grants-private-access
+    :clo-bindto-without-scope-keeps-scope
+    :clo-bindto-scope-by-name
+    :clo-call-binds-this-and-scope
+    :clo-call-passes-arguments
+    :clo-bound-this-sets-static
+    :clo-closure-keeps-called-class
+    :clo-callable-array-string-forms
+    :clo-callable-private-from-inside
+    :clo-callable-private-from-outside
+    :clo-from-callable-function
+    :clo-from-callable-invokable
+    :clo-from-callable-method
+    :clo-trait-self-and-static
+    :clo-trait-closure-this
+    :clo-nested-closure-keeps-this
+    :decl-static-return-type
+    :decl-never-throws
+    :decl-never-implicit-return-is-type-error
+    :decl-signed-literal-defaults-accepted})
