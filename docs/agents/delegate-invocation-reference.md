@@ -164,7 +164,7 @@ listed CLIs.
 | `codex`        | OpenAI, flat-rate ChatGPT  | `-m <model>`               | `-s read-only`       | `-s workspace-write`       | no caller ID;        | `codex exec resume |
 |                | Plus; `gpt-6-astra`,       |                            |                      |                            | capture `thread.star | <thread-id>`       |
 |                | `gpt-6.1-sol`,             |                            |                      |                            | ted.thread_id` (see  |                    |
-|                | `gpt-6-terra`,             |                            |                      |                            | Session continuity)  |                    |
+|                | `gpt-6.1-terra`,           |                            |                      |                            | Session continuity)  |                    |
 |                | `gpt-6-luna`,              |                            |                      |                            |                      |                    |
 |                | `gpt-5.4-mini`             |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+

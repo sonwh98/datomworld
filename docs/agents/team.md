@@ -140,7 +140,7 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | predecessor. **Best for:** Complex implementation, advanced coding,|                                                                     |
 |                             | high-stakes security, and architectural review.                    |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gpt-6-terra`               | Balanced intelligence and cost. **Best for:** Default production   | Use Sol or Astra for the hardest reasoning, high-risk security, or  |
+| `gpt-6.1-terra`             | Balanced intelligence and cost. **Best for:** Default production   | Use Sol or Astra for the hardest reasoning, high-risk security, or  |
 |                             | engineering, integration work, network streams, VM runtimes,       | architecture decisions. Validate compiler-lowering and other        |
 |                             | moderate-complexity implementation, and subagent fallback.         | specialist work with focused tests and independent review.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
