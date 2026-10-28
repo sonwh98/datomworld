@@ -1675,6 +1675,32 @@
         (is (nil? (:state started)))))))
 
 
+(deftest a-dht-spec-answers-its-own-validation-refusal-before-any-host-capability
+  ;; jolt refuses a valid dht: spec (its UDP transport is J7), but only
+  ;; after the shared validation: a bad flag answers its own reason on
+  ;; every host, never the capability refusal
+  (let [base ["--index-store" "dht:d" "--dht-peer" "127.0.0.1:1"]]
+    (doseq [[args text]
+            [[(into base ["--dht-port" "-1"])
+              "the DHT bind port must be 0 (ephemeral) or 1 to 65535"]
+             [(into base ["--dht-max-inbound-bytes" "-1"])
+              "--dht-max-inbound-bytes must be a nonnegative integer"]
+             [(into base ["--dht-manifest" "not-an-address"])
+              "--dht-manifest must be a segment manifest address"]
+             [["--index-store" "dht:d" "--dht-manifest" "not-an-address"]
+              "--dht-manifest needs a --dht-peer"]]]
+      (let [e (refusal-of #(repl/parse-args args))]
+        (is (str/includes? (str (ex-message e)) text) (pr-str args))
+        (is (not (str/includes? (str (ex-message e)) "arrives at J7"))
+            (pr-str args)))))
+  (testing "a valid dht: spec"
+    (let [e (refusal-of #(repl/parse-args ["--index-store" "dht:d"
+                                           "--dht-peer" "127.0.0.1:1"]))]
+      #?(:jolt (is (str/includes? (str (ex-message e))
+                                  "the dht: index store arrives at J7 on jolt"))
+         :default (is (nil? e))))))
+
+
 ;; =============================================================================
 ;; The custody seam: hydration, the bounded shutdown drain, and cadence
 ;; (r3 1.12 as amended by residual 4).  The composition under the shell is a

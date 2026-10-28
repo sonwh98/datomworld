@@ -149,14 +149,6 @@
    filled in; see yin.repl.dht.  Anything else is refused with the
    supported forms named."
   [spec]
-  ;; jolt: a :file store opens since J4; a :dht store needs J7's UDP
-  ;; transport, so it is refused here, where a spec is checked for
-  ;; composition, after every flag has been parsed and validated as on the
-  ;; other hosts
-  #?(:jolt
-     (when (and (map? spec) (= :dht (:type spec)))
-       (throw (ex-info "the dht: index store arrives at J7 on jolt"
-                       {:spec spec}))))
   (cond
     (nil? spec) :mem
     (= :mem spec) :mem
@@ -170,7 +162,13 @@
     (let [spec (merge dht-defaults spec)]
       (if-some [refusal (dht-refusal spec)]
         (throw (ex-info refusal {:spec (dissoc spec :bind!)}))
-        spec))
+        ;; jolt: a :file store opens since J4; a :dht store needs J7's UDP
+        ;; transport, so a spec that passes the shared validation is
+        ;; refused here, and an invalid one answers its own reason first,
+        ;; as on the other hosts
+        #?(:jolt (throw (ex-info "the dht: index store arrives at J7 on jolt"
+                                 {:spec (dissoc spec :bind!)}))
+           :default spec)))
 
     :else
     (throw (ex-info (str "Unknown :index-store-spec " (pr-str spec)
