@@ -492,9 +492,21 @@
        (str "<?php class A { public int $x = 1; } function f(float &$p) { var_dump($p); }"
             " $a = new A; try { f($a->x); } catch (TypeError $e) { echo get_class($e); } var_dump($a->x);")
        nil)
-   (fx :decl-byref-rejection-releases-ownership :declarations-v1 [48] #{:p4-s5}
+   (assoc (fx :decl-byref-rejection-releases-ownership :declarations-v1 [48] #{:p4-s5}
+              (str "<?php class D { function __destruct() { echo 'D'; } } function f(int &$x) {}"
+                   " $a = new D; try { f($a); } catch (TypeError $e) { echo 'c'; } unset($a); echo 'E';")
+              nil)
+          :departure {:gap "C30", :zend "cED"}
+          :impl-out "cDE"
+          :note "C30: PHP's TypeError trace holds the rejected argument until $e is freed at shutdown; here traces are empty and the argument is released at the throw")
+   (fx :decl-byref-rejection-exception-freed-then-unset :declarations-v1 [48] #{:p4-s5}
        (str "<?php class D { function __destruct() { echo 'D'; } } function f(int &$x) {}"
-            " $a = new D; try { f($a); } catch (TypeError $e) { echo 'c'; } unset($a); echo 'E';")
+            " $a = new D; try { f($a); } catch (TypeError $e) { echo 'c'; } $e = null; unset($a); echo 'E';")
+       "cDE")
+   (fx :decl-byref-later-rejection-releases-earlier-param :declarations-v1 [48] #{:p4-s6}
+       (str "<?php class D { function __destruct() { echo 'D'; } } function f(D &$a, int &$b) {}"
+            " $a = new D; $b = 'bad'; try { f($a, $b); } catch (TypeError $e) { echo 'c'; }"
+            " $e = null; unset($a); echo 'E';")
        "cDE")
    (fx :decl-union-literal-false-stays-false :declarations-v1 [] #{:p4-s5}
        (str "<?php function f(int|false $x) { var_dump($x); } f(false);"
@@ -683,7 +695,8 @@
    :decl-byref-callable-accepts-callable-string-property {:out "1", :diag [], :uncaught nil}
    :decl-union-overflowing-numeric-string-param {:out "TypeError", :diag [], :uncaught nil}
    :decl-union-overflowing-numeric-string-property {:out "TypeErrorNULL\n", :diag [], :uncaught nil}
-   :decl-exception-handler-then-shutdown {:out "HS", :diag [], :uncaught nil}})
+   :decl-exception-handler-then-shutdown {:out "HS", :diag [], :uncaught nil}
+   :decl-byref-rejection-releases-ownership {:out "cED", :diag [], :uncaught nil}})
 
 
 (defn- pin
@@ -716,10 +729,9 @@
 
 (def awaiting-oracle
   "The enabled fixtures that are still `:oracle :pending`. Pass 9 recorded every
-   S5 fixture but one: :decl-byref-rejection-releases-ownership stays pending
-   because its pinned `cDE` contradicts the oracle's `cED` (the thrown
-   TypeError's trace holds the rejected argument, so the object outlives
-   `unset`), an escalation to the Architect (17.3), not a fold. A fold shrinks
-   this set; changing it is a reviewed edit (Architect ruling on P4 activation:
-   every enabled pending fixture is recorded before its checkpoint closes)."
-  #{:decl-byref-rejection-releases-ownership})
+   S5 fixture; the by-reference rejection pin was ruled a C30 departure (17.3,
+   2026-10-28) and folded. The freed-exception variant awaits the next oracle
+   pass. A fold shrinks this set; changing it is a reviewed edit (Architect
+   ruling on P4 activation: every enabled pending fixture is recorded before
+   its checkpoint closes)."
+  #{:decl-byref-rejection-exception-freed-then-unset})

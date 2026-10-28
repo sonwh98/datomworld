@@ -1712,8 +1712,8 @@ list, and flips `php.rt/state` to `:php/ready` last.
 |                          | and temp-list release; `Throwable`   |            |
 |                          | classes with `getMessage`,           |            |
 |                          | `getCode`, `getPrevious`, `getTrace` |            |
-|                          | (empty), `getLine` (derived at the   |            |
-|                          | boundary); `set_error_handler`,      |            |
+|                          | (empty; C30), `getLine` (derived at  |            |
+|                          | the boundary); `set_error_handler`,  |            |
 |                          | `restore_error_handler`,             |            |
 |                          | `set_exception_handler`,             |            |
 |                          | `trigger_error`, `error_reporting`;  |            |
@@ -2366,6 +2366,20 @@ decision B8.11).
 |                     | depth of 100; texts recorded by     |                  |
 |                     | `:ref-cycle-var-dump`, `:ref-cycle- |                  |
 |                     | compare`                            |                  |
++---------------------+-------------------------------------+------------------+
+| C30 exception trace | Engine: an exception's trace holds  | restricted; none |
+| arguments           | an addref'd copy of every frame     | scheduled; closes|
+|                     | argument at creation                | with a trace-    |
+|                     | (`zend.exception_ignore_args`       | frames slice     |
+|                     | defaults Off), so a caught          | (fills `getTrace`|
+|                     | exception keeps its call's          | at the same      |
+|                     | arguments alive until it is freed.  | time)            |
+|                     | Here: traces are empty, an argument |                  |
+|                     | rejected at acquisition is released |                  |
+|                     | at the throw; departure recorded by |                  |
+|                     | `:decl-byref-rejection-releases-    |                  |
+|                     | ownership` (`cED` vs `cDE`); the    |                  |
+|                     | freed-exception variant agrees      |                  |
 +---------------------+-------------------------------------+------------------+
 
 ### 17.3 Convergence and the blocking rule
