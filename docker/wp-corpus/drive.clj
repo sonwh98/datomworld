@@ -41,8 +41,8 @@
         jar (atom (if (.exists jar-file) (edn/read-string (slurp jar-file)) {}))
         log (atom [])
         n (atom 0)
-        req! (fn [name method path & {:keys [form follow]}]
-               (let [id (format "%s-%02d-%s" tier (swap! n inc) name)
+        req! (fn [label method path & {:keys [form follow]}]
+               (let [id (format "%s-%02d-%s" tier (swap! n inc) label)
                      resp (http/request
                             {:method method
                              :uri (str base path)
@@ -68,7 +68,7 @@
                                  :when nm]
                              [nm v])))
         get! #(apply req! %1 :get %2 %&)
-        post! (fn [name path form] (req! name :post path :form form))]
+        post! (fn [label path form] (req! label :post path :form form))]
     (case tier
       "t0" (do (get! "install-form" "/wp-admin/install.php")
                (get! "install-step1" "/wp-admin/install.php?step=1")
