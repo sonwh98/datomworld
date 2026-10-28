@@ -30,10 +30,15 @@ grep -E "^\\\$wp_version" "$WP_ROOT/wp-includes/version.php" > "$out/wp-version"
 
 cd "$here"
 compose=(docker compose -p wpcorpus)
-trap '"${compose[@]}" down -v >/dev/null 2>&1 || true' EXIT
+# A hung fixture must not orphan a host-side php process: every docker
+# invocation is wrapped in a host timeout, and the per-run project name
+# makes the teardown target exactly this run's containers.
+RUN_TS=$(date +%s)
+compose=(docker compose -p wpcorpus-${RUN_TS})
+trap '"${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
 
-"${compose[@]}" build php
-"${compose[@]}" up -d db php
+timeout 300 "${compose[@]}" build php
+timeout 300 "${compose[@]}" up -d db php
 
 # pin-raw.txt: the images and the live MySQL/PHP facts that become pin.edn.
 {
@@ -41,16 +46,16 @@ trap '"${compose[@]}" down -v >/dev/null 2>&1 || true' EXIT
   docker image inspect --format '{{index .RepoDigests 0}}' "${MYSQL_IMAGE:-mysql:8.4}" || true
   docker image inspect --format '{{index .RepoDigests 0}}' "${PHP_IMAGE:-php:8.3-cli}" || true
   echo "# mysql"
-  "${compose[@]}" exec -T db mysql -uroot -proot -N -e \
+  timeout 300 "${compose[@]}" exec -T db mysql -uroot -proot -N -e \
     "SELECT @@version, @@sql_mode, @@collation_connection, @@time_zone" 2>/dev/null
   echo "# php"
-  "${compose[@]}" exec -T php php -r 'echo PHP_VERSION, "\n", implode(",", get_loaded_extensions()), "\n";'
+  timeout 300 "${compose[@]}" exec -T php php -r 'echo PHP_VERSION, "\n", implode(",", get_loaded_extensions()), "\n";'
 } > "$out/pin-raw.txt"
 
 for tier in t0 t1 t2; do
-  "${compose[@]}" run --rm driver bb /driver/drive.clj http://php:8080 /out "$tier"
-  "${compose[@]}" exec -T db mysqldump -uroot -proot --no-data --skip-comments wp \
+  timeout 300 "${compose[@]}" run --rm driver bb /driver/drive.clj http://php:8080 /out "$tier"
+  timeout 300 "${compose[@]}" exec -T db mysqldump -uroot -proot --no-data --skip-comments wp \
     > "$out/schema/after-$tier.sql" 2>/dev/null
 done
-"${compose[@]}" exec -T db mysql -uroot -proot -e "FLUSH LOGS" 2>/dev/null || true
+timeout 300 "${compose[@]}" exec -T db mysql -uroot -proot -e "FLUSH LOGS" 2>/dev/null || true
 echo "corpus run complete: $out"
