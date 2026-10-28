@@ -6,6 +6,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [dao.jing.cbor :as cbor]
+            [dao.test-slow :as slow]
             [yang.typescript.antlr.prelude :as prelude]
             [yang.typescript.antlr.prelude-parity-test :as parity]))
 
@@ -177,22 +178,24 @@
 
 
 (deftest ^:slow deep-prototype-chain-test
-  (testing "reading through 10000 prototypes runs in constant stack"
-    (check [['((fn [self n acc]
-                 (if (= n 0)
-                   (js/get-prop acc {:js/str "k"})
-                   (self self (- n 1) (js/make-object acc))))
-               (fn [self n acc]
-                 (if (= n 0)
-                   (js/get-prop acc {:js/str "k"})
-                   (self self (- n 1) (js/make-object acc))))
-               10000
-               (let [root (js/make-object :js/null)]
-                 (do (js/define-own! root
-                                     {:js/str "k"}
-                                     (js/slot {:js/str "deep"} true true true))
-                     root)))
-             {:js/str "deep"}]])))
+  (slow/guard
+    "deep-prototype-chain-test"
+    #(testing "reading through 10000 prototypes runs in constant stack"
+       (check [['((fn [self n acc]
+                    (if (= n 0)
+                      (js/get-prop acc {:js/str "k"})
+                      (self self (- n 1) (js/make-object acc))))
+                  (fn [self n acc]
+                    (if (= n 0)
+                      (js/get-prop acc {:js/str "k"})
+                      (self self (- n 1) (js/make-object acc))))
+                  10000
+                  (let [root (js/make-object :js/null)]
+                    (do (js/define-own! root
+                                        {:js/str "k"}
+                                        (js/slot {:js/str "deep"} true true true))
+                        root)))
+                {:js/str "deep"}]]))))
 
 
 ;; ---------------------------------------------------------------- S1 core
