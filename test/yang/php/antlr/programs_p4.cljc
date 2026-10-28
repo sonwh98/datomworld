@@ -16,7 +16,7 @@
 (def completed-steps
   "P4 steps that have landed: S1 (descriptors) and S2 (objects, methods,
    visibility). A fixture whose :requires name a later step stays disabled."
-  #{:p4-s1 :p4-s2 :p4-s3 :p4-s4})
+  #{:p4-s1 :p4-s2 :p4-s3 :p4-s4 :p4-s5})
 
 
 (defn- fx
@@ -369,6 +369,100 @@
           :throws true)])
 
 
+(def declarations-v1
+  "S5: parameter, return and property declarations, strict_types, promotion,
+   the exception handler. Messages that PHP suffixes with the call site
+   (`called in FILE on line N`) are not printed: the fixtures print the class."
+  [(fx :decl-param-coerces-weak :declarations-v1 [] #{:p4-s5}
+       "<?php function f(int $x) { var_dump($x); } f('5'); f(5.0); f(true);"
+       nil)
+   (fx :decl-param-rejects-string :declarations-v1 [] #{:p4-s5}
+       "<?php function f(int $x) { return $x; } try { f('x'); } catch (TypeError $e) { echo get_class($e); }"
+       "TypeError")
+   (fx :decl-param-strict-rejects-numeric-string :declarations-v1 [] #{:p4-s5}
+       (str "<?php declare(strict_types=1); function f(int $x) { return $x; }"
+            " try { f('5'); } catch (TypeError $e) { echo get_class($e); }")
+       "TypeError")
+   (fx :decl-param-strict-widens-int-to-float :declarations-v1 [] #{:p4-s5}
+       "<?php declare(strict_types=1); function f(float $x) { var_dump($x); } f(5);"
+       nil)
+   (fx :decl-weak-coerces-numeric-string-strict-rejects :declarations-v1 [] #{:p4-s5}
+       "<?php function f(int $x) { return $x + 1; } echo f('5');"
+       "6")
+   (fx :decl-nullable-and-default-null :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(?int $a, int $b = null) { var_dump($a, $b); } f(null); f(1, 2);"
+            " try { (function (int $x) {})(null); } catch (TypeError $e) { echo 'T'; }")
+       nil)
+   (fx :decl-union-prefers-exact :declarations-v1 [] #{:p4-s5}
+       "<?php function f(int|string $x) { var_dump($x); } f('5'); f(5); f(5.0);"
+       nil)
+   (fx :decl-class-type :declarations-v1 [] #{:p4-s5}
+       (str "<?php class A {} class B extends A {} function f(A $a) { return get_class($a); }"
+            " echo f(new B); try { f(new stdClass); } catch (TypeError $e) { echo get_class($e); }")
+       "BTypeError")
+   (fx :decl-return-coerces :declarations-v1 [] #{:p4-s5}
+       "<?php function f(): int { return '7'; } var_dump(f());"
+       nil)
+   (fx :decl-return-rejects :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(): int { return 'x'; }"
+            " try { f(); } catch (TypeError $e) { echo $e->getMessage(); }")
+       "f(): Return value must be of type int, string returned")
+   (fx :decl-return-none-returned :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(): int { }"
+            " try { f(); } catch (TypeError $e) { echo $e->getMessage(); }")
+       "f(): Return value must be of type int, none returned")
+   (fx :decl-void-return :declarations-v1 [] #{:p4-s5}
+       "<?php function f(): void { echo 'v'; return; } var_dump(f());"
+       nil)
+   (fx :decl-method-return-message :declarations-v1 [] #{:p4-s5}
+       (str "<?php class A { function m(): int { return 'x'; } }"
+            " $a = new A; try { $a->m(); } catch (TypeError $e) { echo $e->getMessage(); }")
+       "A::m(): Return value must be of type int, string returned")
+   (fx :decl-property-coerces :declarations-v1 [] #{:p4-s5}
+       "<?php class A { public int $n = 0; } $a = new A; $a->n = '5'; var_dump($a->n);"
+       nil)
+   (fx :decl-property-rejects :declarations-v1 [] #{:p4-s5}
+       (str "<?php class A { public int $n = 0; } $a = new A;"
+            " try { $a->n = 'x'; } catch (TypeError $e) { echo $e->getMessage(); }")
+       "Cannot assign string to property A::$n of type int")
+   (fx :decl-property-strict :declarations-v1 [] #{:p4-s5}
+       (str "<?php declare(strict_types=1); class A { public int $n = 0; } $a = new A;"
+            " try { $a->n = '5'; } catch (TypeError $e) { echo get_class($e); }")
+       "TypeError")
+   (fx :decl-property-uninitialized-read :declarations-v1 [] #{:p4-s5}
+       (str "<?php class A { public int $n; } $a = new A;"
+            " try { echo $a->n; } catch (Error $e) { echo $e->getMessage(); }")
+       "Typed property A::$n must not be accessed before initialization")
+   (fx :decl-property-reference-keeps-type :declarations-v1 [41 42] #{:p4-s5}
+       (str "<?php class A { public int $n = 1; } $a = new A; $r = &$a->n;"
+            " try { $r = 'x'; } catch (TypeError $e) { echo $e->getMessage(); } $r = '9'; var_dump($a->n);")
+       nil)
+   (fx :decl-promoted-typed :declarations-v1 [] #{:p4-s5}
+       (str "<?php class P { function __construct(public int $x = 1, protected readonly string $s = 'a') {}"
+            " function s() { return $this->s; } } $p = new P('7'); var_dump($p->x); echo $p->s();")
+       nil)
+   (fx :decl-promoted-readonly :declarations-v1 [66] #{:p4-s5}
+       (str "<?php class P { function __construct(public readonly int $x) {} }"
+            " $p = new P(3); try { $p->x = 4; } catch (Error $e) { echo $e->getMessage(); }")
+       "Cannot modify readonly property P::$x")
+   (fx :decl-closure-types :declarations-v1 [] #{:p4-s5}
+       (str "<?php $f = function (int $x): int { return $x * 2; }; echo $f('4');"
+            " $g = fn(int $x) => $x + 1; var_dump($g('5'));")
+       nil)
+   (fx :decl-error-handler-throws-error-exception :declarations-v1 [] #{:p4-s5}
+       (str "<?php set_error_handler(function ($no, $str) { throw new ErrorException($str, 0, $no); });"
+            " $a = []; try { echo $a['k']; } catch (ErrorException $e) { echo get_class($e), $e->getSeverity(); }")
+       "ErrorException2")
+   (fx :decl-exception-handler :declarations-v1 [] #{:p4-s5}
+       (str "<?php set_exception_handler(function ($e) { echo 'H', $e->getMessage(); });"
+            " echo 'a'; throw new Exception('m'); echo 'never';")
+       "aHm")
+   (fx :decl-exception-handler-then-shutdown :declarations-v1 [22] #{:p4-s5}
+       (str "<?php set_exception_handler(function ($e) { echo 'H'; });"
+            " register_shutdown_function(function () { echo 'S'; }); throw new Exception('m');")
+       "HS")])
+
+
 (def banner "php-8.3.35 shiva 2026-10-25")
 
 
@@ -466,7 +560,7 @@
 
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
-  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1)))
+  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1 declarations-v1)))
 
 
 (defn enabled?

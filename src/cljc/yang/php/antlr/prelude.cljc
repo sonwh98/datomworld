@@ -2248,8 +2248,16 @@
      (fn [t]
        (let [k (get t :t)]
          (if (= k :union)
-           (php/type-union-str (get t :of) 0 (data/count (get t :of)) "")
-           (if (= k :class) (get t :name) (php/type-name k)))))]
+           (if (= (data/count (get t :of)) 2)
+             (if (= (get (get (get t :of) 1) :t) :null)
+               (data/str-concat "?" (php/type-str (get (get t :of) 0)))
+               (php/type-union-str (get t :of) 0 2 ""))
+             (php/type-union-str (get t :of) 0 (data/count (get t :of)) ""))
+           (if (= k :class) (get t :name)
+               (if (= k :obj) "object"
+                   (if (= k :callable) "callable"
+                       (if (= k :iterable) "iterable"
+                           (if (= k :void) "void" (php/type-name k)))))))))]
     [php/type-union-str
      (fn [ts i n acc]
        (if (< i n)
@@ -2257,7 +2265,35 @@
                              (data/str-concat acc (if (= i 0) "" "|") (php/type-str (get ts i))))
          acc))]
     [php/coerce-one
-     ;; `v` as type `t` (simple kinds), :php/undef when it does not fit
+     ;; `v` as type `t`, :php/undef when it does not fit; the object-like kinds
+     ;; never coerce, the scalar kinds go to `coerce-simple`
+     (fn [t v strict]
+       (let [k (get t :t)
+             vk (php/kind v)]
+         (if (= k :class)
+           (if (if (= vk :obj) (php/instance-of v (php/lc (get t :name))) false) v :php/undef)
+           (if (= k :obj)
+             (if (= vk :obj) v :php/undef)
+             (if (= k :callable)
+               (if (php/callable? v) v :php/undef)
+               (if (= k :iterable)
+                 (if (if (= vk :array) true (if (= vk :obj) (php/instance-of v "traversable") false))
+                   v
+                   :php/undef)
+                 (php/coerce-simple t v strict)))))))]
+    [php/callable?
+     (fn [v]
+       (let [k (php/kind v)]
+         (if (= k :string)
+           (not (nil? (get (cell/get php.rt/functions) (php/lc v))))
+           (if (= k :obj)
+             (if (php/closure? v)
+               true
+               (if (nil? (get v :php/obj))
+                 false
+                 (not (nil? (php/class-method (php/obj-class v) "__invoke")))))
+             false))))]
+    [php/coerce-simple
      (fn [t v strict]
        (let [k (get t :t)
              vk (php/kind v)]
@@ -2392,7 +2428,7 @@
     [php/ref-write!
      ;; ASSIGN through marker `m` (rows 2 and 42): verify, store, DELREF the old
      (fn [m v]
-       (let [v2 (php/verify-ref-assign m v false)
+       (let [v2 (php/verify-ref-assign m v (cell/get php.rt/strict))
              old (php/ref-value m)]
          (do (php/ref-set! m v2) (php/release-unless-same old v2) v2)))]
     [php/typed-inc
@@ -2844,6 +2880,52 @@
     ;; descriptor entry; a dynamic property is keyed by its name). `ctx` is the
     ;; calling class name, or :php/null outside a class (lexical, threaded by
     ;; the lowering as `%cc`).
+    [php/set-strict! (fn [on] (do (cell/set! php.rt/strict on) :php/null))]
+    [php/given-name
+     (fn [v]
+       (let [k (php/kind v)]
+         (if (= k :obj)
+           (if (nil? (get v :php/obj))
+             (if (php/closure? v) "Closure" (get v :class))
+             (get (php/obj-state v) :class))
+           (php/type-name k))))]
+    [php/coerce-arg
+     ;; a passed argument against its parameter type: coerced (coercive mode) or TypeError
+     (fn [v type fname idx pname]
+       (let [r (php/type-accepts type v (cell/get php.rt/strict))]
+         (if (= r :php/undef)
+           (php/throw-error
+             "TypeError"
+             (data/str-concat fname "(): Argument #" (php/to-string idx) " ($" pname ") must be of type "
+                              (php/type-str type) ", " (php/given-name v) " given"))
+           r)))]
+    [php/coerce-return
+     (fn [v type fname]
+       (let [r (php/type-accepts type v (cell/get php.rt/strict))]
+         (if (= r :php/undef)
+           (php/throw-error
+             "TypeError"
+             (data/str-concat fname "(): Return value must be of type " (php/type-str type) ", "
+                              (php/given-name v) " returned"))
+           r)))]
+    [php/return-none
+     (fn [type fname]
+       (php/throw-error
+         "TypeError"
+         (data/str-concat fname "(): Return value must be of type " (php/type-str type)
+                          ", none returned")))]
+    [php/coerce-prop
+     ;; a value written to a typed property: coerced or TypeError
+     (fn [e v]
+       (if (nil? (get e :type))
+         v
+         (let [r (php/type-accepts (get e :type) v (cell/get php.rt/strict))]
+           (if (= r :php/undef)
+             (php/throw-error
+               "TypeError"
+               (data/str-concat "Cannot assign " (php/given-name v) " to property " (get e :declaring)
+                                "::$" (get e :name) " of type " (php/type-str (get e :type))))
+             r))))]
     [php/prop-key (fn [name ctx] (assoc {} :php/prop name :ctx ctx))]
     [php/prop-key? (fn [k] (not (nil? (get k :php/prop))))]
     [php/this-of
@@ -2931,7 +3013,18 @@
        (let [st (cell/get (if (nil? (get m :native)) (get m :code) (php/native-cell m)))]
          (cell/new (if (nil? this) (assoc st :static static) (assoc st :this this :static static)))))]
     [php/invoke
-     (fn [m this static args] (php/call (php/bind-method m this static) args))]
+     ;; named arguments travel as a last element `{:php/named [[name v] ...]}`
+     (fn [m this static args]
+       (let [n (data/count args)
+             tail (if (> n 0) (get args (- n 1)) nil)]
+         (if (nil? (get tail :php/named))
+           (php/call (php/bind-method m this static) args)
+           (php/call-named (php/bind-method m this static)
+                           (php/args-prefix args (- n 1) 0 [])
+                           (get tail :php/named)))))]
+    [php/args-prefix
+     (fn [args n i acc]
+       (if (< i n) (php/args-prefix args n (+ i 1) (php/vconj acc (get args i))) acc))]
     [php/magic-call
      ;; user method `lc` of object `o` with arguments `v`
      (fn [o c lc v]
@@ -2995,7 +3088,7 @@
          (if (= kind :ok)
            (if (= (get (get r :entry) :readonly?) true)
              (php/ro-write o (get r :entry) ctx v)
-             (php/prop-store! o (get (get r :entry) :id) v))
+             (php/prop-store! o (get (get r :entry) :id) (php/coerce-prop (get r :entry) v)))
            (if (if (= kind :none) (not (nil? (php/slot-get (get st :props) name))) false)
              (php/prop-store! o name v)
              (if (nil? (php/class-method c "__set"))
@@ -3417,12 +3510,12 @@
              cur (php/array-get (get st :props) id)]
          (if (nil? cur)
            (if (php/ro-in-scope? e ctx)
-             (do (php/reinit-clear! o id) (php/prop-store! o id v))
+             (do (php/reinit-clear! o id) (php/prop-store! o id (php/coerce-prop e v)))
              (php/throw-error "Error"
                               (data/str-concat "Cannot initialize readonly property " (get e :declaring)
                                                "::$" (get e :name) " from " (php/scope-text ctx))))
            (if (php/reinit? st id)
-             (do (php/reinit-clear! o id) (php/prop-store! o id v))
+             (do (php/reinit-clear! o id) (php/prop-store! o id (php/coerce-prop e v)))
              (php/throw-error "Error"
                               (data/str-concat "Cannot modify readonly property " (get e :declaring)
                                                "::$" (get e :name)))))))]
@@ -3461,7 +3554,14 @@
                                       (get e :declaring) "::$" (get e :name)))
                    (if (= (+ i 1) (data/count ks))
                      (let [m (php/make-ref (get (php/obj-state c) :props) id)]
-                       (do (php/obj-set-props! c (get m 0)) (php/pair c (get m 1))))
+                       (do (php/obj-set-props! c (get m 0))
+                           (php/pair c (if (if (= kind :ok) (not (nil? (get e :type))) false)
+                                         (php/ref-add-source
+                                           (get m 1)
+                                           (assoc {} :obj (get (php/obj-state c) :id)
+                                                  :class (get e :declaring) :prop id
+                                                  :type (get e :type)))
+                                         (get m 1)))))
                      (let [rr (php/path-ref-at (if (nil? cur) :php/null cur) ks (+ i 1))]
                        (do (if (= (php/kind (get rr 0)) :obj)
                              :php/null
@@ -3479,19 +3579,34 @@
          (php/enum-cases (php/class-lookup (get (cell/get f) :static)) 0 (php/empty-array))
          (let [o (php/this-of f)
                n (data/count args)]
-           (if (= kind :ctor)
+           (if (= kind :ee-ctor)
              (do (if (> n 0) (php/prop-store! o "message" (php/to-string (get args 0))) :php/null)
                  (if (> n 1) (php/prop-store! o "code" (get args 1)) :php/null)
-                 (if (> n 2)
-                   (php/prop-store! o (data/str-concat decl "::previous") (php/addref (get args 2)))
+                 (if (> n 2) (php/prop-store! o "severity" (get args 2)) :php/null)
+                 (if (> n 3)
+                   (if (= (get args 3) :php/null) :php/null (php/prop-store! o "file" (get args 3)))
+                   :php/null)
+                 (if (> n 4)
+                   (if (= (get args 4) :php/null) :php/null (php/prop-store! o "line" (get args 4)))
+                   :php/null)
+                 (if (> n 5)
+                   (php/prop-store! o "Exception::previous" (php/addref (get args 5)))
                    :php/null)
                  :php/null)
-             (if (= kind :message) (php/prop-raw o "message")
-                 (if (= kind :code) (php/prop-raw o "code")
-                     (if (= kind :previous) (php/prop-raw o (data/str-concat decl "::previous"))
-                         (if (= kind :file) (php/prop-raw o "file")
-                             (if (= kind :line) (php/prop-raw o "line")
-                                 (if (= kind :trace) (php/empty-array) "#0 {main}"))))))))))]
+             (if (= kind :ctor)
+               (do (if (> n 0) (php/prop-store! o "message" (php/to-string (get args 0))) :php/null)
+                   (if (> n 1) (php/prop-store! o "code" (get args 1)) :php/null)
+                   (if (> n 2)
+                     (php/prop-store! o (data/str-concat decl "::previous") (php/addref (get args 2)))
+                     :php/null)
+                   :php/null)
+               (if (= kind :message) (php/prop-raw o "message")
+                   (if (= kind :code) (php/prop-raw o "code")
+                       (if (= kind :previous) (php/prop-raw o (data/str-concat decl "::previous"))
+                           (if (= kind :file) (php/prop-raw o "file")
+                               (if (= kind :line) (php/prop-raw o "line")
+                                   (if (= kind :severity) (php/prop-raw o "severity")
+                                       (if (= kind :trace) (php/empty-array) "#0 {main}"))))))))))))]
     [php/enum-cases
      (fn [c i acc]
        (if (< i (data/count (get c :cases)))
@@ -3518,10 +3633,12 @@
     [php/instance-of
      (fn [v lc]
        (if (= (php/kind v) :obj)
-         (php/class-is? (if (nil? (get v :php/obj))
-                          (get v :class)
-                          (get (cell/get (get v :php/obj)) :class))
-                        lc)
+         (if (= (get v :php/type) :closure)
+           (= lc "closure")
+           (php/class-is? (if (nil? (get v :php/obj))
+                            (get v :class)
+                            (get (cell/get (get v :php/obj)) :class))
+                          lc))
          false))]
     [php/throwable? (fn [v] (php/instance-of v "throwable"))]
     [php/throw-value
@@ -4121,14 +4238,33 @@
     [php/bi-uksort (fn [args] (php/do-usort "uksort" args 0 true))]
 
     ;; ---------------------------------------------------------------- unit
+    [php/bi-set-exception-handler
+     (fn [args]
+       (let [old (cell/get php.rt/exception-handler)]
+         (do (cell/set! php.rt/exception-handler (get args 0)) old)))]
+    [php/bi-restore-exception-handler
+     (fn [args] (do (cell/set! php.rt/exception-handler :php/null) true))]
+    [php/handle-uncaught
+     ;; the user exception handler takes an uncaught throwable; the script then ends
+     (fn [exc]
+       (let [h (cell/get php.rt/exception-handler)]
+         (if (= exc :php/null)
+           exc
+           (if (= h :php/null)
+             exc
+             (do (cell/set! php.rt/exception-handler :php/null)
+                 (php/try (fn [] (do (php/call-value h (php/vconj [] exc)) :php/null))
+                          (fn [e] e)
+                          (fn [] :php/null)))))))]
     [php/run-main
      ;; the unit root: output, diagnostics and the uncaught error, if any
      (fn [body]
        (do (cell/set! php.rt/out [[]])
            (cell/set! php.rt/ctx (php/ctx nil 0 0 nil))
-           (let [exc1 (php/try (fn [] (do (body) :php/null))
+           (let [exc0 (php/try (fn [] (do (body) :php/null))
                                (fn [e] e)
                                (fn [] :php/null))
+                 exc1 (php/handle-uncaught exc0)
                  exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
                                (fn [e] e)
                                (fn [] :php/null))
@@ -4204,6 +4340,24 @@
                    ["getTrace" :trace] ["getTraceAsString" :trace-string]])})
 
 
+(defn- error-exception-members
+  "ErrorException: Exception's members, the `severity` property, its own
+   constructor and `getSeverity`."
+  []
+  (let [m (throwable-members "Exception")
+        replace-method (fn [methods e] (conj (vec (remove #(= (:lc %) (:lc e)) methods)) e))
+        entry (fn [mn kind]
+                {:name mn, :lc (str/lower-case mn), :vis :public, :declaring "ErrorException",
+                 :final? (not= kind :ee-ctor), :native kind})]
+    (assoc m
+           :props-decl (conj (:props-decl m)
+                             {:name "severity", :vis :protected, :declaring "ErrorException",
+                              :id "severity", :default 1})
+           :methods (-> (:methods m)
+                        (replace-method (entry "__construct" :ee-ctor))
+                        (replace-method (entry "getSeverity" :severity))))))
+
+
 (def ^:private seed-table
   "Name to descriptor, with the lower-cased `:ancestors` the declaration code
    reads. The Throwable family carries its inherited members."
@@ -4214,7 +4368,9 @@
                               (concat (when parent [parent]) ifaces))
                   members (if (contains? #{"Exception" "Error"} nm)
                             (throwable-members nm)
-                            (select-keys (get table parent) [:props-decl :methods]))]
+                            (if (= nm "ErrorException")
+                              (error-exception-members)
+                              (select-keys (get table parent) [:props-decl :methods])))]
               (assoc table
                      nm (merge {:php/type :class,
                                 :name nm,
@@ -4258,6 +4414,8 @@
                          (into {} (map (fn [nm] [(str/lower-case nm) nm])) (keys seed-table))))
                  (define 'php.rt/next-ord '(cell/new 1))
                  (define 'php.rt/finalizable '(cell/new []))
+                 (define 'php.rt/strict '(cell/new false))
+                 (define 'php.rt/exception-handler '(cell/new :php/null))
                  (define 'php.rt/class-order '(cell/new []))
                  (define 'php.rt/shutdown-fns '(cell/new []))
                  (define 'php.rt/pending-exc '(cell/new :php/null))
@@ -4312,7 +4470,8 @@
 (def runtime-keys
   "Every key `php/init!` allocates, the ready flag aside, sorted."
   '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
-    php.rt/class-order php.rt/finalizable php.rt/pending-exc php.rt/shutdown-fns
+    php.rt/class-order php.rt/exception-handler php.rt/finalizable php.rt/pending-exc
+    php.rt/shutdown-fns php.rt/strict
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
     php.rt/out php.rt/tmps])

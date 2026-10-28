@@ -35,7 +35,9 @@
               "key_exists" 'php/bi-array-key-exists, "in_array" 'php/bi-in-array,
               "is_array" 'php/bi-is-array, "array_key_first" 'php/bi-array-key-first,
               "array_key_last" 'php/bi-array-key-last, "get_class" 'php/bi-get-class,
-              "register_shutdown_function" 'php/bi-register-shutdown-function})
+              "register_shutdown_function" 'php/bi-register-shutdown-function,
+              "set_exception_handler" 'php/bi-set-exception-handler,
+              "restore_exception_handler" 'php/bi-restore-exception-handler})
       (by-ref {"next" 'php/bi-next, "prev" 'php/bi-prev, "reset" 'php/bi-reset, "end" 'php/bi-end,
                "array_push" 'php/bi-array-push, "array_pop" 'php/bi-array-pop,
                "array_shift" 'php/bi-array-shift, "array_unshift" 'php/bi-array-unshift,
