@@ -54,7 +54,7 @@
 (def ^:private enabled-steps
   "The steps whose corpus entries run (R14): an entry with a `:step` outside
    this set is pending its step; an entry without one always runs."
-  #{:S6 :S5b :S6b :S8 :G-new :G-is})
+  #{:S6 :S5b :S6b :S8 :G-new :G-is :t3/lower})
 
 
 (def ^:private fixtures*
@@ -94,8 +94,8 @@
   (doseq [nm corpus-names
           :let [{:keys [corpus oracle packets]} (get @fixtures* nm)]]
     (testing nm
-      (testing "the corpus is 80 to 120 entries with unique ids"
-        (is (<= 80 (count corpus) 120))
+      (testing "the corpus is 80 to 130 entries with unique ids"
+        (is (<= 80 (count corpus) 130))
         (is (= (count corpus) (count (set (map :id corpus))))))
       (testing "the oracle and the packets cover exactly the corpus"
         (is (= (map :id corpus) (map :id (:entries oracle))))
@@ -185,6 +185,16 @@
               #(leg ["t2"] :linked {:prelude :linked} run-linked)))
 
 
+(deftest ^:slow t3-bundled-matches-node-test
+  (slow/guard "t3-bundled-matches-node-test"
+              #(leg ["t3"] :bundled {} run-bundled)))
+
+
+(deftest ^:slow t3-linked-matches-node-test
+  (slow/guard "t3-linked-matches-node-test"
+              #(leg ["t3"] :linked {:prelude :linked} run-linked)))
+
+
 (deftest ^:slow t1-bundled-matches-node-test
   (slow/guard "t1-bundled-matches-node-test"
               #(leg ["t1"] :bundled {} run-bundled)))
@@ -195,10 +205,63 @@
               #(leg ["t1"] :linked {:prelude :linked} run-linked)))
 
 
-(deftest pending-entries-are-named-test
-  (testing "every entry outside the enabled steps names a known pending step"
-    (is (every? (fn [e] (or (enabled? e) (keyword? (:step e))))
-                (mapcat (comp :corpus val) @fixtures*)))))
+(deftest t3-packets-parse-test
+  (let [{:keys [corpus packets]} (get @fixtures* "t3")
+        entries (:entries packets)]
+    (testing "the packets cover the corpus, and none is empty"
+      (is (pos? (count entries)))
+      (is (= (count corpus) (count entries))))
+    (testing "every T3 corpus source parsed to an ok packet"
+      (is (= []
+             (mapv :id
+                   (remove #(= :yang.cst/ok (:yang.cst/outcome (:packet %)))
+                           entries)))))))
+
+
+(def ^:private pending-steps
+  "The steps whose entries are allowed to stay pending (not run against
+   Node). None: every corpus entry runs, so a new entry on an unknown step
+   fails here instead of being skipped."
+  #{})
+
+
+(deftest no-entry-is-pending-test
+  ;; mapv/remove, not `for`: ClojureDart can hand a `for` body a nil over a
+  ;; long seq
+  (let [entries (vec (mapcat (fn [[nm {:keys [corpus]}]]
+                               (map (fn [e] [nm (:id e) (:step e) (enabled? e)])
+                                    corpus))
+                             @fixtures*))]
+    (testing "the corpora are loaded"
+      (is (pos? (count entries)))
+      (is (= (reduce + (map (comp count :corpus val) @fixtures*))
+             (count entries))))
+    (testing "every entry is enabled, or on an explicitly allowed pending step"
+      (is (= []
+             (mapv (fn [[nm id step _]] [nm id step])
+                   (remove (fn [[_ _ step on?]]
+                             (or on? (contains? pending-steps step)))
+                           entries)))))
+    (testing "T3 enables all its entries"
+      (let [t3 (filter (fn [[nm _ _ _]] (= "t3" nm)) entries)]
+        (is (pos? (count t3)))
+        (is (every? (fn [[_ _ _ on?]] on?) t3))))))
+
+
+(deftest t3-units-fixture-test
+  (let [units (read-fixture "t3_units.edn")]
+    (testing "the cross-unit programs are recorded under the pinned Node"
+      (is (= pinned-node (get-in units [:header :node])))
+      (is (= [:units-error-identity :units-sibling-class]
+             (mapv :id (:entries units))))
+      (is (every? #(zero? (:exit %)) (:entries units)))
+      (is (= [["true true false MyErr x"] ["false true true"]]
+             (mapv :out (:entries units)))))
+    (testing "every unit parsed to an ok packet"
+      (is (every? #(= :yang.cst/ok (:yang.cst/outcome %))
+                  (mapcat :packets (:entries units)))))
+    (testing "each program has two separately parsed units"
+      (is (every? #(= 2 (count (:packets %))) (:entries units))))))
 
 
 #?(:cljd nil

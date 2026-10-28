@@ -280,7 +280,6 @@
   (doseq [[src construct slice]
           [["var o = {*g() {}};" "generator function" :T5]
            ["var a = [...b];" "spread element" :T4]
-           ["class A {}" "class" :T3]
            ["for (const x of y) {}" "for-of" :T5]
            ["function* g() {}" "generator function" :T5]
            ["async function f() {}" "async function" :T6]
@@ -296,9 +295,143 @@
            ["f(...a);" "spread argument" :T4]
            ["a ?? b;" "nullish coalescing" :T4]
            ["a?.b;" "optional chaining" :T4]
-           ["a instanceof B;" "instanceof" :T3]
            ["tag`x`;" "tagged template" :T5]
            ["/ab/;" "regular expression literal" :never]]]
+    (testing src
+      (let [d (diagnostic src)]
+        (is (= :yang.ts/unsupported (:yang.ts/diagnostic d)) (pr-str d))
+        (is (= construct (:construct d)))
+        (is (= slice (:slice d)))
+        (is (vector? (:span d)))))))
+
+
+;; =============================================================================
+;; Classes (T3)
+;; =============================================================================
+
+(defn- ops
+  "The operators `src` lowers to applications of."
+  [src]
+  (->> (nodes (body src))
+       (filter #(and (= :application (:type %))
+                     (= :variable (:type (:operator %)))))
+       (map #(:name (:operator %)))
+       set))
+
+
+(deftest class-lowering-goldens-test
+  (doseq [[label src expected]
+          [["declaration"
+            "class A {}"
+            '#{js/class-heritage js/make-object js/make-class js/static-init!}]
+           ["expression"
+            "const C = class {};"
+            '#{js/class-heritage js/make-class js/static-init!}]
+           ["extends and super()"
+            "class A {} class B extends A { constructor() { super(); } }"
+            '#{js/super-call js/derived-result js/lexical-get}]
+           ["default derived constructor"
+            "class A {} class B extends A {}"
+            '#{js/super-call js/this-after-super}]
+           ["method"
+            "class A { m() { return 1; } }"
+            '#{js/def-class-method! js/make-function}]
+           ["static method"
+            "class A { static m() {} }"
+            '#{js/def-class-method!}]
+           ["accessors"
+            "class A { get x() { return 1; } set x(v) {} }"
+            '#{js/def-class-accessor!}]
+           ["computed key"
+            "class A { [k()]() {} }"
+            '#{js/to-property-key js/def-class-method!}]
+           ["instance field"
+            "class A { x = 1; y; }"
+            '#{js/add-field!}]
+           ["static field and block"
+            "class A { static x = 1; static { A.y = 2; } }"
+            '#{js/static-init! js/define-field!}]
+           ["private field"
+            "class A { #x = 1; get() { return this.#x; } set(v) { this.#x = v; } inc() { this.#x++; } }"
+            '#{js/private-name js/priv-get js/priv-set js/add-field!}]
+           ["private method and accessor"
+            "class A { #m() {} get #g() { return 1; } set #g(v) {} static #s() {} }"
+            '#{js/add-priv-method! js/def-static-private!}]
+           ["brand check"
+            "class A { #x; static has(o) { return #x in o; } }"
+            '#{js/priv-has}]
+           ["private call"
+            "class A { #m() {} f() { return this.#m(); } }"
+            '#{js/priv-get js/call}]
+           ["super property"
+            "class A {} class B extends A { m() { return super.m() + super.x; } }"
+            '#{js/super-get}]
+           ["super assignment"
+            "class A {} class B extends A { m() { super.x = 1; super.y += 2; } }"
+            '#{js/super-set js/super-get}]
+           ["new.target"
+            "function f() { return new.target; } class A { constructor() { this.t = new.target; } }"
+            '#{js/make-function-nt}]
+           ["instanceof"
+            "a instanceof B;"
+            '#{js/instanceof}]]]
+    (testing label
+      (is (every? (ops src) expected) (pr-str (set (remove (ops src) expected)))))))
+
+
+(deftest class-lowering-shape-test
+  (testing "a derived constructor reads this through the TDZ cell"
+    (let [o (ops "class A {} class B extends A { constructor() { super(); this.x = 1; } }")]
+      (is (contains? o 'js/lexical-get))
+      (is (contains? o 'js/derived-result))))
+  (testing "an arrow inside a derived constructor keeps the cell and new.target"
+    (let [o (ops "class A {} class B extends A { constructor() { const f = () => { super(); return [this, new.target]; }; f(); } }")]
+      (is (contains? o 'js/super-call))
+      (is (contains? o 'js/lexical-get))))
+  (testing "the class name is a cell in TDZ through heritage and elements"
+    (is (contains? (ops "class A { static m() { return A; } }") 'js/lexical-get)))
+  (testing "assignment to the inner name is the runtime const error"
+    (is (contains? (ops "class A { m() { A = 1; } }") 'js/const-assign!))))
+
+
+(deftest class-renaming-law-test
+  (doseq [src ["class A { #x = 1; static #s() {} get g() { return this.#x; } static { A.k = 1; } }"
+               "class A {} class B extends A { constructor() { super(); } m() { return super.m(); } }"
+               "const C = class { x = () => this; }; function f() { return new.target; }"]]
+    (testing src
+      (let [p (lower/lower-packet (parse src))]
+        (is (= p (names/canonicalize p)) "idempotent on a lowered program")
+        (is (every? (fn [s]
+                      (or (= '%_ s) (re-matches #"%\d+" (name s))))
+                    (filter #(and (symbol? %) (= \% (first (name %))))
+                            (nodes p)))
+            "every generated name is canonical"))
+      (is (= (lower/lower-packet (parse src))
+             (lower/lower-packet (parse (str "// c\n\n" src))))
+          "comments and blank lines move no row"))))
+
+
+(deftest class-refusals-test
+  (doseq [[src construct slice]
+          [["class A<T> {}" "type syntax" :T8]
+           ["abstract class A {}" "type syntax" :T8]
+           ["class A implements I {}" "type syntax" :T8]
+           ["class A extends B<T> {}" "generic class heritage" :T8]
+           ["class A { x: number; }" "type syntax" :T8]
+           ["class A { x?: number; }" "type syntax" :T8]
+           ["class A { m(): void {} }" "type syntax" :T8]
+           ["class A { m<T>() {} }" "type syntax" :T8]
+           ["class A { private x = 1; }" "type syntax" :T8]
+           ["class A { readonly x = 1; }" "type syntax" :T8]
+           ["class A { constructor(private x) {} }" "type syntax" :T8]
+           ["class A { [k: string]: number; }" "type syntax" :T8]
+           ["class A { m(); }" "type syntax" :T8]
+           ["class A { async m() {} }" "async function" :T6]
+           ["class A { m(a = 1) {} }" "default parameter" :T4]
+           ["class A { m(...a) {} }" "rest parameter" :T4]
+           ["class A { @d m() {} }" "decorator" :never]
+           ["export class A {}" "module syntax" :T7]
+           ["class A { m() { return a?.b; } }" "optional chaining" :T4]]]
     (testing src
       (let [d (diagnostic src)]
         (is (= :yang.ts/unsupported (:yang.ts/diagnostic d)) (pr-str d))

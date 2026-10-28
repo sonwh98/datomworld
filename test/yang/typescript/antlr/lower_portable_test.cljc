@@ -112,6 +112,67 @@
             ["CloseBrace" "}"]]))
 
 
+(def ^:private class-a
+  "class A { m() { return 1; } }"
+  [:classDeclaration
+   ["Class" "class"]
+   [:identifier ["Identifier" "A"]]
+   [:classHeritage]
+   [:classTail
+    ["OpenBrace" "{"]
+    [:classElement
+     [:propertyMemberDeclaration
+      [:propertyMemberBase]
+      [:classElementName
+       [:propertyName [:identifierName [:identifier ["Identifier" "m"]]]]]
+      [:callSignature ["OpenParen" "("] ["CloseParen" ")"]]
+      ["OpenBrace" "{"]
+      [:functionBody
+       [:sourceElements
+        [:sourceElement
+         [:statement
+          [:returnStatement
+           ["Return" "return"]
+           [:expressionSequence (num-expr "1")]
+           [:eos ["SemiColon" ";"]]]]]]]
+      ["CloseBrace" "}"]]]
+    ["CloseBrace" "}"]]])
+
+
+(def ^:private class-b
+  "class B extends A { constructor() { super(); } }"
+  [:classDeclaration
+   ["Class" "class"]
+   [:identifier ["Identifier" "B"]]
+   [:classHeritage
+    [:classExtendsClause ["Extends" "extends"] (name-expr "A")]]
+   [:classTail
+    ["OpenBrace" "{"]
+    [:classElement
+     [:constructorDeclaration
+      ["Constructor" "constructor"]
+      ["OpenParen" "("]
+      ["CloseParen" ")"]
+      ["OpenBrace" "{"]
+      [:functionBody
+       [:sourceElements
+        [:sourceElement
+         [:statement
+          [:expressionStatement
+           [:expressionSequence
+            [:singleExpression
+             [:singleExpression
+              [:identifierName [:reservedWord [:keyword ["Super" "super"]]]]]
+             [:arguments ["OpenParen" "("] ["CloseParen" ")"]]]]
+           ["SemiColon" ";"]]]]]]
+      ["CloseBrace" "}"]]]
+    ["CloseBrace" "}"]]])
+
+
+(def ^:private classes
+  (program class-a class-b))
+
+
 (defn- diagnostic
   [pk]
   (try (lower/lower-module-body pk)
@@ -148,10 +209,10 @@
            (diagnostic (program [:no_such_rule])))))
   (testing "an unsupported grammar rule names its construct and slice"
     (is (= {:yang.ts/diagnostic :yang.ts/unsupported,
-            :rule "classDeclaration",
-            :construct "class",
-            :slice :T3}
-           (diagnostic (program [:classDeclaration])))))
+            :rule "enumDeclaration",
+            :construct "enum",
+            :slice :T9}
+           (diagnostic (program [:enumDeclaration])))))
   (testing "a type-only rule refuses as type syntax"
     (is (= {:yang.ts/diagnostic :yang.ts/unsupported,
             :rule "interfaceDeclaration",
@@ -197,6 +258,27 @@
     (is (= [[:call "f" 0]] (vec (marks function-f))))))
 
 
+(deftest class-fixtures-test
+  (testing "the two class programs lower; the renaming law and site marks hold"
+    (let [p (lower/lower-packet classes)
+          marks (set (keep #(:yang/site (meta %)) (nodes p)))]
+      (is (= p (names/canonicalize p)) "idempotent on a lowered program")
+      (is (every? (fn [s]
+                    (or (= '%_ s) (re-matches #"%\d+" (name s))))
+                  (filter #(and (symbol? %) (= \% (first (name %))))
+                          (nodes p)))
+          "every generated name is canonical")
+      (is (contains? marks [:call "m" 0]) "the method is a call site")
+      (is (contains? marks [:call "B" 0]) "the constructor is a call site")
+      (is (contains? marks [:call "A" 0]) "so is the default constructor")
+      (is (some #(and (map? %) (= (u/v 'js/super-call) (:operator %)))
+                (nodes p)))
+      (is (some #(and (map? %) (= (u/v 'js/make-class) (:operator %)))
+                (nodes p)))))
+  (testing "the same packet lowers to the same program"
+    (is (= (lower/lower-packet classes) (lower/lower-packet classes)))))
+
+
 (deftest linked-and-bundled-profiles-test
   (let [bundled (lower/lower-packet var-x)
         linked (lower/lower-packet var-x {:prelude :linked})]
@@ -230,10 +312,10 @@
            out)))
   (let [[_ [[port d]]] (lower/lower-transform
                          {}
-                         (program [:classDeclaration]))]
+                         (program [:enumDeclaration]))]
     (is (= :diagnostics port))
     (is (= :yang.ts/unsupported (:yang.ts/diagnostic d)))
-    (is (= "class" (:construct d))))
+    (is (= "enum" (:construct d))))
   (let [[_ [[port d]]] (lower/lower-transform
                          {}
                          (program [:breakStatement ["Break" "break"]]))]

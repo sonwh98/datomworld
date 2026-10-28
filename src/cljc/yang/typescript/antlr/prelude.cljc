@@ -3235,6 +3235,23 @@
    path sees it; an entry is {:kind :field :value v}, {:kind :method :fn f}
    or {:kind :accessor :get g :set s}. The map is looked up only."
   '[;; ------------------------------------------------------ heritage
+    [js/wrapper-ctor?
+     ;; String, Number, Boolean and BigInt are constructors in JavaScript but
+     ;; have no [[Construct]] here (no wrapper objects, L-T2-3), so a class
+     ;; may extend them and the TypeError arrives at super() (L-T3-4)
+     (fn [p]
+       (if (js/callable? p)
+         (let [id (get (cell/get p) :ctor-id)]
+           (if (nil? id)
+             false
+             (if (= id {:js/str "String"})
+               true
+               (if (= id {:js/str "Number"})
+                 true
+                 (if (= id {:js/str "Boolean"})
+                   true
+                   (= id {:js/str "BigInt"}))))))
+         false))]
     [js/class-heritage
      ;; `p` is :js/none for a class without extends. Answers
      ;; {:proto-parent .. :ctor-parent ..}.
@@ -3244,7 +3261,7 @@
                 :ctor-parent js.rt/fn-proto)
          (if (= p :js/null)
            (assoc (assoc {} :proto-parent :js/null) :ctor-parent js.rt/fn-proto)
-           (if (js/is-constructor? p)
+           (if (if (js/is-constructor? p) true (js/wrapper-ctor? p))
              (let [pp (js/get-prop p {:js/str "prototype"})]
                (if (if (js/object? pp) true (= pp :js/null))
                  (assoc (assoc {} :proto-parent pp) :ctor-parent p)
@@ -4029,7 +4046,15 @@
         (mapv (fn [[key nm code]]
                 (list 'js/install-ctor! nm 1 code key false))
               primitive-protos)
-        ['(let [f (js/make-function {:js/str "Symbol"} 0 :lexical :builtin js/symbol-fn)]
+        ['(js/install-ctor!
+            "Function"
+            1
+            (fn [this args]
+              (js/throw-type-error
+                {:js/str "The Function constructor is not supported"}))
+            js.rt/fn-proto
+            false)
+         '(let [f (js/make-function {:js/str "Symbol"} 0 :lexical :builtin js/symbol-fn)]
             (do (js/define-own! f
                                 {:js/str "prototype"}
                                 (js/slot js.rt/symbol-proto false false false))

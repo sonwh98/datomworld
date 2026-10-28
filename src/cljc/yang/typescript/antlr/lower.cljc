@@ -75,7 +75,6 @@
    "exportStatement" {:construct "module syntax", :slice :T7},
    "withStatement" {:construct "with statement", :slice :never},
    "yieldStatement" {:construct "yield", :slice :T5},
-   "classDeclaration" {:construct "class", :slice :T3},
    "enumDeclaration" {:construct "enum", :slice :T9},
    "namespaceDeclaration" {:construct "namespace", :slice :T9},
    "generatorFunctionDeclaration" {:construct "generator function",
@@ -84,7 +83,6 @@
    "generatorBlock" {:construct "generator block", :slice :T5},
    "decoratorList" {:construct "decorator", :slice :never},
    "decorator" {:construct "decorator", :slice :never},
-   "constructorDeclaration" {:construct "class", :slice :T3},
    "importAliasDeclaration" {:construct "module syntax", :slice :T7}})
 
 
@@ -110,7 +108,11 @@
     "tryStatement" "debuggerStatement" "functionDeclaration"
     "expressionSequence" "singleExpression" "anonymousFunction"
     "arrayLiteral" "objectLiteral"
-    "arrowFunctionDeclaration" "literal" "templateStringLiteral"})
+    "arrowFunctionDeclaration" "literal" "templateStringLiteral"
+    "classDeclaration" "classTail" "classElement" "classHeritage"
+    "classExtendsClause" "constructorDeclaration" "staticBlock"
+    "propertyMemberDeclaration" "propertyMemberBase" "classElementName"
+    "privateIdentifier" "initializer"})
 
 
 (defn- default-arm
@@ -191,7 +193,7 @@
 (def ^:private function-rules
   #{"functionDeclaration" "anonymousFunction" "arrowFunctionDeclaration"
     "classDeclaration" "propertyMemberDeclaration" "getAccessor"
-    "setAccessor" "generatorMethod"})
+    "setAccessor" "generatorMethod" "constructorDeclaration" "staticBlock"})
 
 
 (defn- label-of
@@ -491,7 +493,7 @@
 
 
 (declare lower-expr lower-seq lower-named member-expression? member-parts
-         lower-name-update lower-name-assign)
+         lower-name-update lower-name-assign lower-class)
 
 
 (defn- lower-template
@@ -673,6 +675,19 @@
         (check-consumed! ctx n)
         {:plist (first (rules ctx n "formalParameterList")),
          :body (first (rules ctx n "functionBody"))})
+    "propertyMemberDeclaration"
+    (let [sig (first (rules ctx n "callSignature"))]
+      (check-consumed! ctx sig)
+      (when-not (first (rules ctx n "functionBody"))
+        (refuse! n "type syntax" :T8))
+      {:plist (first (rules ctx sig "parameterList")),
+       :body (first (rules ctx n "functionBody"))})
+    "constructorDeclaration"
+    (do (check-consumed! ctx n)
+        (when-not (first (rules ctx n "functionBody"))
+          (refuse! n "type syntax" :T8))
+        {:plist (first (rules ctx n "formalParameterList")),
+         :body (first (rules ctx n "functionBody"))})
     "arrowFunctionDeclaration"
     (let [params (first (rules ctx n "arrowFunctionParameters"))
           body (first (rules ctx n "arrowFunctionBody"))]
@@ -689,23 +704,38 @@
 (declare lower-stmts statements-of)
 
 
-(defn- function-value
-  "The `js/make-function` node of function-like node `n`, named `fname`
-   (a string). `scope-n` is the node that owns the function's scope."
-  [ctx n scope-n fname]
+(defn- function-code
+  "`{:code :arity :nt?}` of function-like node `n`: the code lambda and the
+   count of its parameters. `opts` carries what the function's place gives
+   it: `:ctor` (`:base` or `:derived` for a class constructor), `:nt?`,
+   `:home` (the symbol of the object `super` property access starts from)
+   and `:class-cell` (the symbol of the cell holding the class constructor).
+   A non-arrow function replaces the lexical `this`, `new.target`, home and
+   class of its context; an arrow keeps them."
+  [ctx n scope-n fname opts]
   (let [{:keys [plist body arrow? expr-body]} (function-parts ctx n)
         _ (check-params! ctx plist)
         s (scope-of ctx scope-n)
+        ctor (:ctor opts)
+        nt? (boolean (or (:nt? opts)
+                         ctor
+                         (and (not arrow?) (:uses-new-target? s))))
         this-sym (if arrow? (:this ctx) (gen "this" n))
         args-sym (gen "args" n)
+        nt-sym (gen "nt" n)
+        thisc (when (= :derived ctor) (gen "thisc" n))
         ret (gen "ret" n)
-        fctx (assoc ctx
-                    :scope (:id scope-n)
-                    :this this-sym
-                    :ret ret
-                    :loop nil
-                    :labels {}
-                    :pending-labels nil)
+        fctx (cond-> (assoc ctx
+                            :scope (:id scope-n)
+                            :this this-sym
+                            :ret ret
+                            :loop nil
+                            :labels {}
+                            :pending-labels nil)
+               (not arrow?) (assoc :this-cell thisc
+                                   :nt (if nt? nt-sym :undefined)
+                                   :home (:home opts)
+                                   :class-cell (:class-cell opts)))
         stmts (when body (statements-of fctx body))
         has-return? (and body
                          (core/contains-rule? fctx body "returnStatement" function-rules))
@@ -724,27 +754,51 @@
         pairs (vec (concat param-pairs
                            (map (fn [nm] [nm undefined]) vars)
                            (map (fn [nm] [nm tdz]) tdz-names)))
-        code (site [:call fname (first (:span n))]
-                   (u/lam [(if arrow? (gen "athis" n) this-sym) args-sym]
-                          (bind-cells pairs inner)))
-        value (app* 'js/make-function
-                    (u/lit (jstr fname))
-                    (u/lit (count params))
-                    (u/lit (if arrow? :lexical :strict))
-                    (u/lit (cond
-                             arrow? :arrow
-                             (= "generatorMethod" (:rule n)) :method
-                             (contains? #{"getAccessor" "setAccessor"} (:rule n))
-                             :accessor
-                             :else :normal))
-                    code)]
-    (if-let [self (:self s)]
-      (let [cell-sym (symbol self)]
-        (u/app (u/lam [cell-sym]
-                      (u/then (app* 'cell/set! (u/v cell-sym) value)
-                              (app* 'cell/get (u/v cell-sym))))
-               (app* 'cell/new undefined)))
-      value)))
+        body-node (bind-cells pairs
+                              (if thisc
+                                (app* 'js/derived-result (u/v thisc) inner)
+                                inner))
+        body-node (if thisc
+                    (u/let1 thisc (app* 'cell/new tdz) body-node)
+                    body-node)]
+    {:code (site [:call fname (first (:span n))]
+                 (u/lam (cond-> [(if arrow? (gen "athis" n) this-sym) args-sym]
+                          nt? (conj nt-sym))
+                        body-node)),
+     :arity (count params),
+     :nt? nt?}))
+
+
+(defn- function-value
+  "The `js/make-function` node of function-like node `n`, named `fname`
+   (a string). `scope-n` is the node that owns the function's scope. `opts`
+   as for `function-code`, with `:kind` overriding the function kind."
+  ([ctx n scope-n fname] (function-value ctx n scope-n fname {}))
+  ([ctx n scope-n fname opts]
+   (let [arrow? (= "arrowFunctionDeclaration" (:rule n))
+         s (scope-of ctx scope-n)
+         {:keys [code arity nt?]} (function-code ctx n scope-n fname opts)
+         args [(u/lit (jstr fname))
+               (u/lit arity)
+               (u/lit (if arrow? :lexical :strict))
+               (u/lit (or (:kind opts)
+                          (cond
+                            arrow? :arrow
+                            (= "generatorMethod" (:rule n)) :method
+                            (contains? #{"getAccessor" "setAccessor"} (:rule n))
+                            :accessor
+                            :else :normal)))
+               code]
+         value (if nt?
+                 (apply app* 'js/make-function-nt (conj args (u/lit true)))
+                 (apply app* 'js/make-function args))]
+     (if-let [self (:self s)]
+       (let [cell-sym (symbol self)]
+         (u/app (u/lam [cell-sym]
+                       (u/then (app* 'cell/set! (u/v cell-sym) value)
+                               (app* 'cell/get (u/v cell-sym))))
+                (app* 'cell/new undefined)))
+       value))))
 
 
 (defn- function-node
@@ -811,29 +865,109 @@
              (u/lit (cbor/float64 1.0))))
 
 
+(defn- lower-this-expr
+  "The node reading `this`: the cell-backed binding of a derived
+   constructor (and the arrows inside it), checked for its TDZ, else the
+   value-backed parameter."
+  [ctx]
+  (if-let [thisc (:this-cell ctx)]
+    (app* 'js/lexical-get (u/v thisc) (u/lit (jstr "this")))
+    (u/v (:this ctx))))
+
+
+(defn- nt-node
+  "The node reading `new.target`."
+  [ctx]
+  (let [nt (:nt ctx)]
+    (if (or (nil? nt) (= :undefined nt)) undefined (u/v nt))))
+
+
+(defn- home-node
+  [ctx]
+  (u/v (:home ctx)))
+
+
+(defn- super-expr?
+  "True when `n` is the bare `super` (the pinned grammar parses it as an
+   identifierName)."
+  [ctx n]
+  (let [ks (kids ctx n)]
+    (and (= 1 (count ks))
+         (p/rule? (first ks) "identifierName")
+         (= "super" (text-of ctx (first ks))))))
+
+
+(defn- private-sym
+  [ctx n nm]
+  (or (get (:privates ctx) nm)
+      (syntax! n (str "Private field '" nm
+                      "' must be declared in an enclosing class"))))
+
+
+(defn- member-ref
+  "How member expression `n` is reached: `{:kind :value :obj :key}`, or
+   `{:kind :private :obj :pn}` for `o.#x`, or `{:kind :super :key}` for
+   `super.x` and `super[e]`. With `raw?` an index key is left unconverted."
+  [ctx n raw?]
+  (let [ks (kids ctx n)
+        obj (first ks)
+        dot? (boolean (some #(p/token? % ".") ks))]
+    (cond
+      (and dot? (some #(p/token? % "#") ks) (p/rule? (peek ks) "identifierName"))
+      (do (when (some #(p/token? % "?.") ks) (refuse! n "optional chaining" :T4))
+          {:kind :private,
+           :obj obj,
+           :pn (u/v (private-sym ctx n (str "#" (text-of ctx (peek ks)))))})
+      (super-expr? ctx obj)
+      (do (when (some #(p/token? % "?.") ks) (refuse! n "optional chaining" :T4))
+          (when (some #(p/token? % "!") ks) (refuse! n "type syntax" :T8))
+          {:kind :super,
+           :key (if (and dot? (p/rule? (peek ks) "identifierName"))
+                  (u/lit (jstr (text-of ctx (peek ks))))
+                  (let [k (lower-seq ctx (nth ks (- (count ks) 2)))]
+                    (if raw? k (app* 'js/to-property-key k))))})
+      :else (let [[o k] (member-parts ctx n raw?)]
+              {:kind :value, :obj o, :key k}))))
+
+
+(defn- lower-member-read
+  [ctx n]
+  (let [ref (member-ref ctx n false)]
+    (case (:kind ref)
+      :value (app* 'js/get-value (lower-expr ctx (:obj ref)) (:key ref))
+      :private (app* 'js/priv-get (lower-expr ctx (:obj ref)) (:pn ref))
+      :super (app* 'js/super-get (home-node ctx) (:key ref) (lower-this-expr ctx)))))
+
+
 (defn- lower-member-update
   "`++o.p` and friends: receiver and key evaluated once, the key converted
    once before the read."
   [ctx n target op prefix?]
-  (let [[obj key] (member-parts ctx target)
+  (let [ref (member-ref ctx target false)
         o (gen "mo" n)
         kk (gen "mk" n)
         old (gen "o" n)
         nv (gen "n" n)
-        f (if (= "++" op) 'js/add 'js/sub)]
+        f (if (= "++" op) 'js/add 'js/sub)
+        [read write]
+        (case (:kind ref)
+          :value [(app* 'js/get-value (u/v o) (u/v kk))
+                  (fn [v] (app* 'js/put-value (u/v o) (u/v kk) v))]
+          :private [(app* 'js/priv-get (u/v o) (:pn ref))
+                    (fn [v] (u/then (app* 'js/priv-set (u/v o) (:pn ref) v) v))]
+          :super [(app* 'js/super-get (home-node ctx) (u/v kk) (u/v o))
+                  (fn [v] (app* 'js/super-set (home-node ctx) (u/v kk) v (u/v o)))])]
     (u/let1 o
-            (lower-expr ctx obj)
+            (if (= :super (:kind ref))
+              (lower-this-expr ctx)
+              (lower-expr ctx (:obj ref)))
             (u/let1 kk
-                    key
+                    (or (:key ref) undefined)
                     (u/let1 old
-                            (app* 'js/to-numeric
-                                  (app* 'js/get-value (u/v o) (u/v kk)))
+                            (app* 'js/to-numeric read)
                             (u/let1 nv
                                     (app* f (u/v old) (one-for (u/v old)))
-                                    (u/then (app* 'js/put-value
-                                                  (u/v o)
-                                                  (u/v kk)
-                                                  (u/v nv))
+                                    (u/then (write (u/v nv))
                                             (u/v (if prefix? nv old)))))))))
 
 
@@ -863,29 +997,61 @@
   "`o.p = v` (the key converted after the right-hand side) and `o.p op= v`
    (the key converted once, before the read)."
   [ctx n lhs op rhs]
-  (let [[obj key] (member-parts ctx lhs (= op "="))
+  (let [ref (member-ref ctx lhs (= op "="))
         o (gen "mo" n)
         kk (gen "mk" n)
         v (gen "v" n)
         bin (get compound-ops op)]
     (when-not (or (= op "=") bin)
       (refuse! n (str "assignment operator " op) :T4))
-    (u/let1 o
-            (lower-expr ctx obj)
-            (u/let1 kk
-                    key
-                    (if (= op "=")
+    (case (:kind ref)
+      :value
+      (u/let1 o
+              (lower-expr ctx (:obj ref))
+              (u/let1 kk
+                      (:key ref)
+                      (if (= op "=")
+                        (u/let1 v
+                                (lower-expr ctx rhs)
+                                (app* 'js/put-value
+                                      (u/v o)
+                                      (app* 'js/to-property-key (u/v kk))
+                                      (u/v v)))
+                        (u/let1 v
+                                (app* (get binary-ops bin)
+                                      (app* 'js/get-value (u/v o) (u/v kk))
+                                      (lower-expr ctx rhs))
+                                (app* 'js/put-value (u/v o) (u/v kk) (u/v v))))))
+      :private
+      (u/let1 o
+              (lower-expr ctx (:obj ref))
+              (u/let1 v
+                      (if (= op "=")
+                        (lower-expr ctx rhs)
+                        (app* (get binary-ops bin)
+                              (app* 'js/priv-get (u/v o) (:pn ref))
+                              (lower-expr ctx rhs)))
+                      (u/then (app* 'js/priv-set (u/v o) (:pn ref) (u/v v))
+                              (u/v v))))
+      :super
+      (u/let1 o
+              (lower-this-expr ctx)
+              (u/let1 kk
+                      (:key ref)
                       (u/let1 v
-                              (lower-expr ctx rhs)
-                              (app* 'js/put-value
-                                    (u/v o)
-                                    (app* 'js/to-property-key (u/v kk))
-                                    (u/v v)))
-                      (u/let1 v
-                              (app* (get binary-ops bin)
-                                    (app* 'js/get-value (u/v o) (u/v kk))
-                                    (lower-expr ctx rhs))
-                              (app* 'js/put-value (u/v o) (u/v kk) (u/v v))))))))
+                              (if (= op "=")
+                                (lower-expr ctx rhs)
+                                (app* (get binary-ops bin)
+                                      (app* 'js/super-get (home-node ctx)
+                                            (u/v kk) (u/v o))
+                                      (lower-expr ctx rhs)))
+                              (app* 'js/super-set
+                                    (home-node ctx)
+                                    (if (= op "=")
+                                      (app* 'js/to-property-key (u/v kk))
+                                      (u/v kk))
+                                    (u/v v)
+                                    (u/v o))))))))
 
 
 (defn- lower-assign
@@ -971,19 +1137,49 @@
     (refuse! callee nm :never)))
 
 
+(defn- lower-super-call
+  "`super(args)` in a derived constructor, or an arrow inside it."
+  [ctx args]
+  (app* 'js/super-call
+        (app* 'cell/get (u/v (:class-cell ctx)))
+        (nt-node ctx)
+        (u/v (:this-cell ctx))
+        args))
+
+
 (defn- lower-call
   [ctx n]
   (let [ks (kids ctx n)
         callee (first ks)
         args (lower-args ctx (second ks))]
-    (refuse-global! ctx callee "eval")
-    (if (member-expression? ctx callee)
-      (let [o (gen "o" n)
-            [obj key] (member-parts ctx callee)]
-        (u/let1 o
-                (lower-expr ctx obj)
-                (app* 'js/call (app* 'js/get-value (u/v o) key) (u/v o) args)))
-      (app* 'js/call (lower-expr ctx callee) undefined args))))
+    (if (super-expr? ctx callee)
+      (lower-super-call ctx args)
+      (do
+        (refuse-global! ctx callee "eval")
+        (if (member-expression? ctx callee)
+          (let [o (gen "o" n)
+                ref (member-ref ctx callee false)]
+            (case (:kind ref)
+              :value (u/let1 o
+                             (lower-expr ctx (:obj ref))
+                             (app* 'js/call
+                                   (app* 'js/get-value (u/v o) (:key ref))
+                                   (u/v o)
+                                   args))
+              :private (u/let1 o
+                               (lower-expr ctx (:obj ref))
+                               (app* 'js/call
+                                     (app* 'js/priv-get (u/v o) (:pn ref))
+                                     (u/v o)
+                                     args))
+              :super (u/let1 o
+                             (lower-this-expr ctx)
+                             (app* 'js/call
+                                   (app* 'js/super-get (home-node ctx)
+                                         (:key ref) (u/v o))
+                                   (u/v o)
+                                   args))))
+          (app* 'js/call (lower-expr ctx callee) undefined args))))))
 
 
 (defn- lower-new
@@ -1009,6 +1205,10 @@
 (defn- lower-delete
   [ctx n operand]
   (cond
+    (and (member-expression? ctx operand)
+         (super-expr? ctx (first (kids ctx operand))))
+    (app* 'js/throw-reference-error
+          (u/lit (jstr "Unsupported reference to 'super'")))
     (member-expression? ctx operand)
     (let [[obj key] (member-parts ctx operand)]
       (app* 'js/delete-value (lower-expr ctx obj) key))
@@ -1054,7 +1254,7 @@
       "!==" (negate (app* 'js/strict-eq (lower-expr ctx a) (lower-expr ctx b)))
       "??" (refuse! n "nullish coalescing" :T4)
       "?." (refuse! n "optional chaining" :T4)
-      "instanceof" (refuse! n "instanceof" :T3)
+      "instanceof" (app* 'js/instanceof (lower-expr ctx a) (lower-expr ctx b))
       "in" (app* 'js/in-op (lower-expr ctx a) (lower-expr ctx b))
       (if-let [f (get binary-ops op)]
         (app* f (lower-expr ctx a) (lower-expr ctx b))
@@ -1128,7 +1328,10 @@
       (p/rule? c "restParameter") (refuse! pa "destructuring" :T4)
       (p/rule? c "generatorMethod")
       (let [{:keys [key hint]} (property-key ctx (first (rules ctx c "propertyName")))]
-        (app* 'js/create-data-prop! (u/v o) key (function-value ctx c c (or hint ""))))
+        (app* 'js/create-data-prop!
+              (u/v o)
+              key
+              (function-value ctx c c (or hint "") {:home o})))
       (or (p/rule? c "getAccessor") (p/rule? c "setAccessor"))
       (let [get? (p/rule? c "getAccessor")
             half (first (rules ctx c (if get? "getter" "setter")))
@@ -1140,7 +1343,9 @@
                 (u/v o)
                 key
                 (u/lit (if get? :get :set))
-                (function-value ctx c c (str (if get? "get " "set ") (or hint "")))
+                (function-value ctx c c
+                                (str (if get? "get " "set ") (or hint ""))
+                                {:home o})
                 (u/lit true))))
       :else (refuse! pa "spread property" :T4))))
 
@@ -1156,14 +1361,254 @@
                     (u/v o))))))
 
 
+;; =============================================================================
+;; Classes
+;; =============================================================================
+
+(defn- class-key
+  "`{:key node :hint name-or-nil :computed? bool :private? bool}` of
+   `classElementName` `cen`: a private name is the variable of its
+   per-class private-name cell."
+  [ctx cen]
+  (let [c (first (kids ctx cen))]
+    (if (p/rule? c "privateIdentifier")
+      (let [nm (str "#" (text-of ctx (second (kids ctx c))))]
+        {:key (u/v (private-sym ctx cen nm)), :hint nm, :private? true})
+      (assoc (property-key ctx c)
+             :computed? (p/token? (first (kids ctx c)) "[")))))
+
+
+(defn- element-ctx
+  "`ctx` for code running as a class element whose scope node is `scope-n`:
+   `this` is `this-sym`, the home object is `home`, and there is no
+   enclosing function's `new.target` or derived `this` cell."
+  [ctx cx scope-n this-sym static?]
+  (assoc ctx
+         :scope (:id scope-n)
+         :this this-sym
+         :this-cell nil
+         :nt :undefined
+         :home (if static? (:F cx) (:proto cx))
+         :class-cell (:Fc cx)
+         :ret nil
+         :loop nil
+         :labels {}
+         :pending-labels nil))
+
+
+(defn- lower-class-field
+  [ctx cx m kinfo static?]
+  (when (first (rules ctx m "typeAnnotation")) (refuse! m "type syntax" :T8))
+  (when (token-kid ctx m "?") (refuse! m "type syntax" :T8))
+  (let [init (first (rules ctx m "initializer"))
+        expr (when init (first (rules ctx init "singleExpression")))
+        hint (when-not (:computed? kinfo) (:hint kinfo))
+        this-sym (when init (gen "this" init))
+        ictx (when init (element-ctx ctx cx init this-sym static?))
+        value (when init
+                (if hint (lower-named ictx expr hint) (lower-expr ictx expr)))
+        site-of (fn [lam] (site [:call (or hint "") (first (:span m))] lam))]
+    (if static?
+      (let [computed? (= :application (:type (:key kinfo)))
+            ksym (gen "fk" m)
+            key (if computed? (u/v ksym) (:key kinfo))]
+        {:steps (if computed? [[:let ksym (:key kinfo)]] []),
+         :statics [(site-of
+                     (u/lam [(or this-sym (gen "this" m))]
+                            (app* 'js/define-field!
+                                  (u/v (or this-sym (gen "this" m)))
+                                  key
+                                  (or value undefined))))]})
+      {:steps [[:do (app* 'js/add-field!
+                          (u/v (:F cx))
+                          (:key kinfo)
+                          (if init (site-of (u/lam [this-sym] value)) undefined))]],
+       :statics []})))
+
+
+(defn- lower-class-member
+  "The `{:steps :statics}` of one `propertyMemberDeclaration`."
+  [ctx cx m]
+  (let [pmb (first (rules ctx m "propertyMemberBase"))
+        _ (check-consumed! ctx pmb)
+        _ (when (token-kid ctx pmb "async") (refuse! m "async function" :T6))
+        _ (when (token-kid ctx pmb "readonly") (refuse! m "type syntax" :T8))
+        static? (boolean (token-kid ctx pmb "static"))
+        acc (or (first (rules ctx m "getAccessor"))
+                (first (rules ctx m "setAccessor")))
+        half (when acc
+               (or (first (rules ctx acc "getter")) (first (rules ctx acc "setter"))))
+        cen (first (rules ctx (or half m) "classElementName"))
+        kinfo (class-key ctx cen)
+        hint (or (:hint kinfo) "")
+        F (u/v (:F cx))
+        target (u/v (if static? (:F cx) (:proto cx)))
+        home (if static? (:F cx) (:proto cx))
+        install
+        (fn [kind fnode]
+          (cond
+            (and (:private? kinfo) static?)
+            (app* 'js/def-static-private! F (:key kinfo) (u/lit kind) fnode)
+            (:private? kinfo)
+            (app* 'js/add-priv-method! F (:key kinfo) (u/lit kind) fnode)
+            (= kind :method)
+            (app* 'js/def-class-method! target (:key kinfo) fnode)
+            :else
+            (app* 'js/def-class-accessor! target (:key kinfo) (u/lit kind) fnode)))]
+    (cond
+      acc
+      (let [kind (if (p/rule? acc "getAccessor") :get :set)]
+        {:steps [[:do (install kind
+                               (function-value ctx acc acc
+                                               (str (if (= :get kind) "get " "set ")
+                                                    hint)
+                                               {:kind :accessor, :home home}))]],
+         :statics []})
+      (first (rules ctx m "callSignature"))
+      {:steps [[:do (install :method
+                             (function-value ctx m m hint
+                                             {:kind :method, :home home}))]],
+       :statics []}
+      :else (lower-class-field ctx cx m kinfo static?))))
+
+
+(defn- lower-static-block
+  [ctx cx sb]
+  (let [s (scope-of ctx sb)
+        this-sym (gen "this" sb)
+        sctx (element-ctx ctx cx sb this-sym true)
+        stmts (statements-of sctx sb)]
+    {:steps [],
+     :statics [(site [:call "static" (first (:span sb))]
+                     (u/lam [this-sym]
+                            (bind-cells (block-pairs s)
+                                        (seq-of (lower-stmts sctx stmts)))))]}))
+
+
+(defn- lower-class-element
+  [ctx cx ce]
+  (let [c (first (kids ctx ce))]
+    (when (first (rules ctx ce "decoratorList"))
+      (refuse! ce "decorator" :never))
+    (case (:rule c)
+      "staticBlock" (lower-static-block ctx cx c)
+      "propertyMemberDeclaration"
+      (do (when (first (rules ctx c "abstractDeclaration"))
+            (refuse! c "type syntax" :T8))
+          (lower-class-member ctx cx c))
+      "indexMemberDeclaration" (refuse! c "type syntax" :T8)
+      (default-arm c))))
+
+
+(defn- default-constructor-code
+  [n name-str derived? Fc]
+  (let [this-sym (gen "this" n)
+        args-sym (gen "args" n)
+        nt-sym (gen "nt" n)
+        thisc (gen "thisc" n)]
+    (site [:call name-str (first (:span n))]
+          (u/lam [this-sym args-sym nt-sym]
+                 (if derived?
+                   (u/let1 thisc
+                           (app* 'cell/new tdz)
+                           (u/then (app* 'js/super-call
+                                         (app* 'cell/get (u/v Fc))
+                                         (u/v nt-sym)
+                                         (u/v thisc)
+                                         (u/v args-sym))
+                                   (app* 'js/this-after-super (u/v thisc))))
+                   (u/v this-sym))))))
+
+
+(defn- lower-class
+  "A class declaration or expression `n`: the constructor cell with its
+   elements installed in source order, then the static initializers, with
+   the class's inner name in TDZ through the heritage and the elements."
+  [ctx n hint]
+  (when (token-kid ctx n "export") (refuse! n "module syntax" :T7))
+  (when (token-kid ctx n "abstract") (refuse! n "type syntax" :T8))
+  (when (first (rules ctx n "decoratorList")) (refuse! n "decorator" :never))
+  (check-consumed! ctx n)
+  (let [ident (first (rules ctx n "identifier"))
+        cname (when ident (text-of ctx ident))
+        name-str (or cname hint "")
+        heritage (first (rules ctx n "classHeritage"))
+        _ (when heritage (check-consumed! ctx heritage))
+        ext (when heritage (first (rules ctx heritage "classExtendsClause")))
+        _ (when (and ext (first (rules ctx ext "typeGeneric")))
+            (refuse! n "generic class heritage" :T8))
+        derived? (boolean ext)
+        tail (first (rules ctx n "classTail"))
+        cs (scope-of ctx n)
+        pn-syms (into {}
+                      (map-indexed (fn [i nm] [nm (symbol (str "%pn" (:id n) "_" i))]))
+                      (sort (keys (:privates cs))))
+        cctx (assoc ctx
+                    :scope (:id n)
+                    :privates (merge (:privates ctx) pn-syms))
+        F (gen "F" n)
+        Fc (gen "Fc" n)
+        proto (gen "proto" n)
+        h (gen "h" n)
+        cx {:F F, :proto proto, :Fc Fc}
+        elements (rules ctx tail "classElement")
+        ctor-ce (first (filter #(p/rule? (first (kids ctx %)) "constructorDeclaration")
+                               elements))
+        ctor-n (when ctor-ce (first (kids ctx ctor-ce)))
+        {ccode :code, carity :arity}
+        (if ctor-n
+          (function-code cctx ctor-n ctor-n name-str
+                         {:ctor (if derived? :derived :base),
+                          :home proto,
+                          :class-cell Fc})
+          {:code (default-constructor-code n name-str derived? Fc),
+           :arity 0})
+        results (mapv #(lower-class-element cctx cx %)
+                      (remove #(= % ctor-ce) elements))
+        statics (vec (mapcat :statics results))
+        steps (vec (concat [[:do (app* 'cell/set! (u/v Fc) (u/v F))]]
+                           (mapcat :steps results)
+                           (when cname
+                             [[:do (app* 'cell/set! (u/v (symbol cname)) (u/v F))]])
+                           [[:do (app* 'js/static-init! (u/v F) (build-vector statics))]]))
+        body (reduce (fn [acc [kind a b]]
+                       (case kind
+                         :do (u/then a acc)
+                         :let (u/let1 a b acc)))
+                     (u/v F)
+                     (reverse steps))
+        bindings (vec (concat
+                        (map (fn [[nm sym]]
+                               [sym (app* 'js/private-name (u/lit (jstr nm)))])
+                             pn-syms)
+                        [[Fc (app* 'cell/new undefined)]
+                         [h (app* 'js/class-heritage
+                                  (if ext
+                                    (lower-expr cctx (first (rules ctx ext "singleExpression")))
+                                    (u/lit :js/none)))]
+                         [proto (app* 'js/make-object
+                                      (app* 'get (u/v h) (u/lit :proto-parent)))]
+                         [F (app* 'js/make-class
+                                  (u/lit (jstr name-str))
+                                  (u/lit carity)
+                                  (u/lit derived?)
+                                  (app* 'get (u/v h) (u/lit :ctor-parent))
+                                  (u/v proto)
+                                  ccode)]]))
+        inner (reduce (fn [acc [sym node]] (u/let1 sym node acc))
+                      body
+                      (reverse bindings))]
+    (if cname
+      (bind-cells [[cname tdz]] inner)
+      inner)))
+
+
 (defn- lower-primary
-  [ctx n k]
+  [ctx k]
   (cond
     (p/rule? k "arrayLiteral") (lower-array ctx k)
     (p/rule? k "objectLiteral") (lower-object ctx k)
-    (p/token? k "this") (u/v (:this ctx))
-    (p/token? k "super") (refuse! n "super" :T3)
-    (p/token? k "class") (refuse! n "class" :T3)
+    (p/token? k "this") (lower-this-expr ctx)
     (p/rule? k "literal") (lower-literal ctx k)
     (p/rule? k "identifierName")
     (let [t (text-of ctx k)]
@@ -1184,12 +1629,16 @@
         k0 (first ks)
         k1 (when (< 1 c) (second ks))]
     (cond
-      (= c 1) (lower-primary ctx n k0)
-      (p/token? k0 "class") (refuse! n "class" :T3)
+      (= c 1) (lower-primary ctx k0)
+      (p/token? k0 "class") (lower-class ctx n nil)
       (p/rule? k0 "typeArguments") (refuse! n "type syntax" :T8)
       (and (= c 3) (p/token? k0 "(")) (lower-seq ctx k1)
       (and (p/token? k0 "new") (= c 3) (p/token? k1 "."))
-      (refuse! n "new.target" :T3)
+      (nt-node ctx)
+      (and (= c 3) (p/rule? k0 "privateIdentifier") (p/token? k1 "in"))
+      (app* 'js/priv-has
+            (lower-expr ctx (nth ks 2))
+            (u/v (private-sym ctx k0 (str "#" (text-of ctx (second (kids ctx k0)))))))
       (p/token? k0 "new") (lower-new ctx n)
       (and (= c 2) (p/token? k0)) (lower-prefix ctx n (:text k0) k1)
       (and (= c 2) (p/rule? k1 "arguments")) (lower-call ctx n)
@@ -1204,9 +1653,7 @@
       (and (= c 3) (p/token? k1 "=")) (lower-assign ctx n k0 "=" (nth ks 2))
       (and (= c 3) (p/rule? k1 "assignmentOperator"))
       (lower-assign ctx n k0 (text-of ctx k1) (nth ks 2))
-      (member-expression? ctx n)
-      (let [[obj key] (member-parts ctx n)]
-        (app* 'js/get-value (lower-expr ctx obj) key))
+      (member-expression? ctx n) (lower-member-read ctx n)
       (and (= c 5) (p/token? k1 "?") (p/token? (nth ks 3) ":"))
       (u/if-node (truthy (lower-expr ctx k0))
                  (lower-expr ctx (nth ks 2))
@@ -1223,12 +1670,16 @@
   "`lower-expr` with function-name hint `nm` for an anonymous function."
   [ctx n nm]
   (let [ks (kids ctx n)]
-    (if (and (= 1 (count ks)) (p/rule? (first ks) "anonymousFunction"))
+    (cond
+      (and (= 1 (count ks)) (p/rule? (first ks) "anonymousFunction"))
       (let [f (first (kids ctx (first ks)))]
         (if (p/rule? f "functionDeclaration")
           (lower-expr ctx n)
           (function-node ctx (first ks) nm)))
-      (lower-expr ctx n))))
+      (and (p/token? (first ks) "class")
+           (nil? (first (rules ctx n "identifier"))))
+      (lower-class ctx n nm)
+      :else (lower-expr ctx n))))
 
 
 (defn- lower-seq
@@ -1472,8 +1923,21 @@
                    (assign-name ctx nm k)))
                (let [target (first (rules ctx n "singleExpression"))]
                  (if (member-expression? ctx target)
-                   (let [[obj key] (member-parts ctx target)]
-                     (app* 'js/put-value (lower-expr ctx obj) key (u/v k)))
+                   (let [ref (member-ref ctx target false)]
+                     (case (:kind ref)
+                       :value (app* 'js/put-value
+                                    (lower-expr ctx (:obj ref))
+                                    (:key ref)
+                                    (u/v k))
+                       :private (app* 'js/priv-set
+                                      (lower-expr ctx (:obj ref))
+                                      (:pn ref)
+                                      (u/v k))
+                       :super (app* 'js/super-set
+                                    (home-node ctx)
+                                    (:key ref)
+                                    (u/v k)
+                                    (lower-this-expr ctx))))
                    (assign-name ctx (target-name! ctx target) k))))
         turn (u/then head b)
         turn (if lexical?
@@ -1667,6 +2131,8 @@
       "debuggerStatement" undefined
       ;; hoisted to its scope's entry
       "functionDeclaration" undefined
+      "classDeclaration" (let [nm (text-of ctx (first (rules ctx n "identifier")))]
+                           (init-name nm (lower-class ctx n nm)))
       "arrowFunctionDeclaration" (function-value ctx n n "")
       (default-arm n))))
 
@@ -1689,7 +2155,12 @@
      :pending-labels nil,
      :gen nil,
      :async nil,
-     :class nil}))
+     :class nil,
+     :this-cell nil,
+     :nt :undefined,
+     :home nil,
+     :class-cell nil,
+     :privates {}}))
 
 
 (defn- module-body

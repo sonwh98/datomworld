@@ -1,4 +1,4 @@
-{:header {:node "v25.6.1", :generated "2026-10-27", :generator "src/dev/yang_ts_oracle.clj"}
+{:header {:node "v25.6.1", :generated "2026-10-28", :generator "src/dev/yang_ts_oracle.clj"}
  :entries [
 {:id :classes-declaration, :out ["function A 0 1"], :exit 0}
 {:id :classes-expression, :out ["B Named function undefined"], :exit 0}
@@ -118,4 +118,11 @@
 {:id :builtin-subclass-object, :out ["1 true true"], :exit 0}
 {:id :builtin-subclass-string-departure, :out ["ok"], :exit 0}
 {:id :builtin-subclass-array-length, :out ["3" "6"], :exit 0}
-{:id :builtin-subclass-array-method, :out ["2 2"], :exit 0}]}
+{:id :builtin-subclass-array-method, :out ["2 2"], :exit 0}
+{:id :super-delete-reference, :out ["ReferenceError Unsupported reference to 'super'"], :exit 0}
+{:id :super-delete-before-super, :out ["ReferenceError Unsupported reference to 'super'"], :exit 0}
+{:id :super-compound-assign, :out ["15 10 x"], :exit 0}
+{:id :super-update, :out ["1,2,2,1"], :exit 0}
+{:id :private-for-in-target, :out ["b"], :exit 0}
+{:id :super-for-in-target, :out ["q"], :exit 0}
+{:id :builtin-subclass-function-departure, :out ["ok"], :exit 0}]}
