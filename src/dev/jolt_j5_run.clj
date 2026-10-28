@@ -1,5 +1,5 @@
 ;; bb probe:jolt-j5 — the J5 acceptance gates for the native Python parser
-;; (known-gaps row 59; glm-5.3 ruling collab/1793096000000 §2.1-§2.4), each
+;; (known-gaps row 59; glm-5.3 ruling archive/jolt/1793096000000-architect-mob-row59-j5-scope.glm-5.3.findings.md §2.1-§2.4), each
 ;; in a child process so a native crash fails its gate and keeps its report:
 ;;
 ;;   1. the budget, in process (src/dev/jolt_j5_budget.clj): below/at/above

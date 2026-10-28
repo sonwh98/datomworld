@@ -960,7 +960,7 @@ above the bound. Bracket counting alone does not bound every recursion path;
 reviewed guards go before unsafe recursion where needed. If safe enforcement
 cannot be shown, feasibility fails and goes back to the owner.
 
-Enforced (J5, known-gaps row 59, glm-5.3 ruling `1793096000000` §2). The C++
+Enforced (J5, known-gaps row 59, glm-5.3 ruling `archive/jolt/1793096000000-architect-mob-row59-j5-scope.glm-5.3.findings.md` §2). The C++
 wrapper refuses before any ANTLR object exists, at the top of
 `jolt_parser_export` (`native/jolt-parser/jolt_parser.cpp`, "THE BUDGET"):
 

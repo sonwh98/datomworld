@@ -1,4 +1,4 @@
-;; J5 (known-gaps row 59; glm-5.3 ruling collab/1793096000000 §2.4): the
+;; J5 (known-gaps row 59; glm-5.3 ruling archive/jolt/1793096000000-architect-mob-row59-j5-scope.glm-5.3.findings.md §2.4): the
 ;; native Python parser's budget, in process, under jolt.
 ;;
 ;;   . build/tools/jolt-env.sh

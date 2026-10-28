@@ -44,7 +44,7 @@
 // -6 and -7 are decided before any ANTLR object exists: no lexer, parser or
 // buffer is built for a refused input, so no partial answer can escape.
 //
-// THE BUDGET (J5, glm-5.3 ruling collab/1793096000000 §2.1). Recursive descent
+// THE BUDGET (J5, glm-5.3 ruling archive/jolt/1793096000000-architect-mob-row59-j5-scope.glm-5.3.findings.md §2.1). Recursive descent
 // over the pinned grammar uses native stack per nesting level, and stack
 // exhaustion is uncatchable (§7.6), so the input is refused before parsing
 // when it could nest deeper than the stack allows. The prescan
