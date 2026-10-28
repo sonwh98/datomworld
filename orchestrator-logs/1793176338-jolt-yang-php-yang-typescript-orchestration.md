@@ -1,4 +1,4 @@
-# Orchestrator session log: jolt and yang.php/yang.typescript orchestration
+# Orchestrator session log: jolt host lane, yang.php and yang.typescript orchestration (plus the cross-track DRY and tooling work)
 
 Session-owned log (one file per orchestrator session; never appended to by another session). Entries below were
 moved verbatim from the shared `docs/orchestrator-log.md` at the owner's instruction (2026-10-28), where this seat
@@ -159,3 +159,58 @@ Decisions: owner rulings unchanged (sixth-round rule; dao.wordpress deferred; cl
 Verification: see per-track lines.
 Delegates: claude sonnet/opus engineers, glm-5.3 reviewers, fable architect rulings; session ids in the per-track briefs.
 Next: process the four resumed delegates; fable sign-off batch for J6b/J6c/J6d; fold pass 11 after the pin fix; T3 S6+S7 commits with one fable sign-off; Linux legs for J5b round 2 on shiva (order in the ruling); investigate the T3 Node slow lane.
+
+## 2026-10-28 15:34:35 +07 — per-session log rule and both logs committed (local master, not pushed)
+Completed-GMT: 2026-10-28 08:34:35 GMT
+Coding-Agent: claude (interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: local master@7e5fad1f (3 new commits on top of 80bd4968); origin/master@4f3221a5; local master carries other seats' unpushed commits
+Done: Owner, verbatim: "first commit the staged changes. commit the session logs and commit the deprecated docs/orchestrator-log.md". Committed in that order on local master: 5305c11f docs(agents): per-session orchestrator logs under orchestrator-logs/ (orchestrator.md + datom.world.md, the owner's staged rule); 6116ee07 docs(orchestrator-logs): this session's log (13 entries moved verbatim + continuation entry); 7e5fad1f docs(orchestrator-log): freeze the shared log (80 lines of other seats' and the previous seat's uncommitted entries). Entries appended to this file after 6116ee07 (this one) are uncommitted until the next commit.
+Decisions: NOT pushed: local master also carries three other seats' unpushed commits (76f3bce1 yang.clojure slices, b24b24ef yang.tao note, 80bd4968 Kimi delegate routing); pushing would publish their work, and origin/master has moved with this seat's commits, so a rebase is needed first.
+Verification: git show --stat per commit (files and line counts as staged; the hook changed nothing).
+Delegates: none.
+Next: owner call on pushing (rebase local master onto origin/master, then push); keep appending here.
+
+## 2026-10-28 15:38:35 +07 — my three docs commits pushed (origin/master 6720e692)
+Completed-GMT: 2026-10-28 08:38:35 GMT
+Coding-Agent: claude (interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: origin/master@6720e692; local master still carries other seats' unpushed commits (76f3bce1, b24b24ef, 80bd4968) plus the local originals of these three (5305c11f, 6116ee07, 7e5fad1f)
+Done: Owner, verbatim: "push my three commits only". Cherry-picked 5305c11f 6116ee07 7e5fad1f onto origin/master in a throwaway worktree (clean, four docs files, no other seat's code) and pushed as dd1b8a6a, 15729006, 6720e692; worktree removed.
+Decisions: the other seats' unpushed commits stay unpushed; when they rebase onto origin/master, git skips the patch-identical copies of these three.
+Verification: git diff --stat origin/master HEAD before the push: orchestrator.md, datom.world.md, orchestrator-log.md (80 lines), this session log (161 lines).
+Delegates: none.
+Next: this entry and later ones are uncommitted until the next commit of this file.
+
+## 2026-10-28 16:04:27 +07 — shiva ~/ci moved by the owner; stale runs killed and rerun; nine landed clones deleted; kimi review route recorded
+Completed-GMT: 2026-10-28 09:04:27 GMT
+Coding-Agent: claude (interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: origin/master@6720e692; local master carries other seats' unpushed commits incl. 80bd4968 (the Kimi routing docs)
+Done: The owner symlinked shiva ~/ci to /home2/sto/ci (more space; root disk 100% -> 95%) while jobs ran: the T3 Node slow lane (t3s5) and a leftover J5b run (j5bl) were left on deleted inodes (outputs lost), and j5bl2's commands 5-9 failed in 0 s. Owner, verbatim: "yes" (kill and rerun and delete) then "when ci clones are no longer needed, delete them". Killed the stale processes; reran J5b legs (j5bl3: build, sanitizer, cycles, workers, parity) and the T3 S5 slow lane (t3slown, t3slowd) at the new path; deleted datomworld-j4a j4b j4c j4d j0b-rebase ts-t2 ts-t2-dart yang-php-p2 xlang (each verified clean, no stash, tips on origin or patch-equivalent, no process using it; my pgrep prefix check false-matched ts-t2 vs ts-t2b: corrected by an exact cwd check). Kept j5, ts-t2b, ts-t2b-dart, p3b, p3b-dart, runner, dsg, php-src. Owner also: "I got a subscription to kimi so you can use kimi for review": recorded in routing-status and memory; read-only agent for kimi not configured yet.
+Decisions: no J5b rerun of the probe/budget legs until the engineer's wall-limit fix (laptop-only 15 s/60 s gates) lands: the shiva probe (54 PASS / 3 FAIL) failed only on r1c 17-18 s vs the laptop limit.
+Verification: /proc scan of cwd/open files showed no process in the nine deleted clones; df /home2 28% used.
+Delegates: J5b engineer round 3b (a5c84655); T3 S7 round 2 done (JVM 98/3,072/0; corpus 124; jupiter Node+Dart quick running as t3s7v2).
+Next: fable sign-off batch (J6b/J6c/J6d, T3 S6+S7, J5b); P4 S6; first Kimi review once a read-only agent exists.
+
+## 2026-10-28 16:06:10 +07 — pushed the owner's three local commits (origin/master acfa7ccd)
+Completed-GMT: 2026-10-28 09:06:10 GMT
+Coding-Agent: claude (interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: origin/master@acfa7ccd; local master (main checkout) still diverged (ahead 6 with patch-identical copies, behind 17)
+Done: Owner, verbatim: "actualy can you push to master, i got an error" (their push was a non-fast-forward: origin had moved with this seat's pushes). Cherry-picked 76f3bce1 (yang.clojure slices 1-2), b24b24ef (yang.tao design note) and 80bd4968 (native Kimi delegate routing: team.md, delegate-invocation-reference.md, orchestrator.md) onto origin/master in a throwaway worktree; clean (orchestrator.md auto-merged with this session's per-session-log change; both present); pushed as 1835868f, 66578211, acfa7ccd; worktree removed. My three docs commits were not re-pushed (already on origin as dd1b8a6a, 15729006, 6720e692).
+Decisions: pushed code (yang.clojure.cljc, latte oracle manifest and tests) without re-running its tests: it is exactly the commit that seat reviewed and signed off, applied unchanged onto a docs-only delta of origin/master.
+Verification: git diff --stat origin/master HEAD before the push (11 files: yang.tao.md, clojure.cljc, latte oracle files, tests, the three Kimi docs); grep confirmed orchestrator-logs/ and kimi both present in orchestrator.md. Tests NOT run on the pushed head.
+Delegates: none.
+Next: the owner's main checkout can reconcile with git pull --rebase (git skips the patch-identical commits); this seat will not touch the main checkout's branch.
+
+## 2026-10-28 16:11:03 +07 — unfinished-work entry: Claude 5-hour limit hit again (resets 18:00 Asia/Saigon); state of all tracks
+Completed-GMT: 2026-10-28 09:11:03 GMT
+Coding-Agent: claude (interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: origin/master@acfa7ccd; local master (main checkout) diverged by patch-identical copies (git pull --rebase fixes); uncommitted: this log; worktrees (all uncommitted work, no commits): ../datomworld-{j5b,j6b,j6c,j6d,dry1,ts-t3,php-p4}
+Done since the last entry: J5b round 3b (wall limits laptop-only; macOS budget 40 PASS, below 13/13); T3 S7 round 2 (JVM 98/3,072/0; corpus 124; cljstyle clean); the P4 pin-fold and C30 commits are on yang-php-p4 (6d7d58df); origin/master carries the owner's three commits (acfa7ccd). Dispatched but CUT by the limit (re-dispatch after 18:00): fable sign-off T3 S6+S7 (prompt collab/1793206000000-architect-t3-s6-s7-signoff.claude-fable-5-1.prompt.md), fable sign-off J6 wave 1 (collab/1793206000001-architect-j6-wave1-signoff.claude-fable-5-1.prompt.md), P4 S6 engineer (session db2452f3, brief in ../datomworld-php-p4/collab/1793205000000-engineer-p4-s6.prompt.md; may have been cut). Remote jobs that survive the limit: shiva tmux j5bl3 (J5b sanitizer/cycles/workers/parity), t3slown+t3slowd (T3 S5 slow lanes at the new ~/ci), jupiter j5bj (J5b build/probe/budget/cljstyle), t3s7v2 (T3 S7 quick: Node rc 0 in 462 s; Dart + discovery pending).
+Decisions: none new. Standing: sixth-round rule; dao.wordpress deferred; claude implements, glm/kimi review, fable signs off; design docs never cite collab/; delete ci clones when done.
+Verification: see the per-track lines in the crash-recovery entry; remote rc files are the evidence.
+Delegates: see above; session ids in the briefs.
+Next (after 18:00): re-dispatch the two fable sign-offs; read j5bl3/j5bj/t3s7v2/t3slow* rc files; J5b GLM review + fable sign-off; commit T3 S6+S7 on sign-off; J6b clean re-run + baseline (needs a free Dart lane); resume P4 S6; commit and push this log with the next landing.
