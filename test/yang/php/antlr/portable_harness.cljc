@@ -32,6 +32,17 @@
       prelude/admit))
 
 
+(defn linked-registry
+  "`host-registry` over the default registry, whose `require` handlers the
+   linked profile needs."
+  []
+  (-> (module/default-registry)
+      module/register-cell-module
+      (data/register-data-module data-limits)
+      (prelude/register-integer-module integer-limits)
+      prelude/admit))
+
+
 (defn packet
   "A CST packet from a nested form: `[rule child ...]` for a rule (a keyword)
    and `[type text]` (type a string) for a token. Spans are zero-width: the

@@ -1,4 +1,4 @@
-(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.prelude/defquoted clojure.core/def}}}
+(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.quoted/defquoted clojure.core/def}}}
  yang.php.antlr.prelude
   "The PHP runtime profile, written as Universal AST
    (docs/design/yang.php.md sections 3.5, 7, 9). PHP semantics for operators,
@@ -66,24 +66,15 @@
    namespace `php/`; `php.rt/*` stays qualified.
 
    Host names the prelude depends on and does not define: `host-names`."
-  #?(:cljs (:require-macros [yang.php.antlr.prelude :refer [defquoted]]))
   (:require
-    #?(:cljd [clojure.edn :as edn])
     [clojure.string :as str]
+    [clojure.walk :as walk]
     [yang.core.prelude :as core]
     [yang.core.uast :as u]
     [yang.php.antlr.builtins :as builtins]
+    [yang.php.antlr.prelude-module :as module-defs]
+    [yang.php.antlr.quoted :refer [defquoted]]
     [yin.vm.integer :as integer]))
-
-
-#?(:clj
-   (defmacro defquoted
-     "`def` of the quoted data `form`; ClojureDart reads it back from one EDN
-      string (its quoted data compiles to straight-line Dart)."
-     [name doc form]
-     (if (find-ns 'cljd.compiler)
-       (list 'def name doc (list 'edn/read-string (pr-str (second form))))
-       (list 'def name doc form))))
 
 
 (def host-names
@@ -4768,6 +4759,9 @@
                  ;; E_ALL
                  (define 'php.rt/error-reporting '(cell/new 32767))
                  (define 'php.rt/diag '(cell/new []))
+                 (define 'php.rt/included '(cell/new {}))
+                 (define 'php.rt/unit '(cell/new :php/null))
+                 (define 'php.rt/path-map '(cell/new {}))
                  (define 'php.rt/int-max
                    '(integer/sub (integer/shift-left 1 63) 1))
                  (define 'php.rt/int-min
@@ -4784,7 +4778,7 @@
   "The single definition list, `[store-key form]` in definition order: every
    prelude function, the literal state slot, then `php/init!`. Defining them
    runs nothing."
-  (into core-definitions
+  (into (into core-definitions module-defs/definitions)
         [['php.rt/state :php/uninit]
          ['php/init! (init-form)]]))
 
@@ -4813,7 +4807,7 @@
   "Every key `php/init!` allocates, the ready flag aside, sorted."
   '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
     php.rt/class-order php.rt/exception-handler php.rt/exception-handlers php.rt/finalizable php.rt/pending-exc
-    php.rt/shutdown-fns php.rt/strict
+    php.rt/shutdown-fns php.rt/strict php.rt/included php.rt/path-map php.rt/unit
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
     php.rt/out php.rt/tmps])
@@ -4826,8 +4820,38 @@
   (core/strip "php" sym))
 
 
+(defn- binder-symbols
+  "Every symbol a `fn` parameter list or `let` binding vector in `form`
+   binds."
+  [form]
+  (cond
+    (and (seq? form) (= 'fn (first form)))
+    (into (set (second form)) (mapcat binder-symbols) (drop 2 form))
+    (and (seq? form) (= 'let (first form)))
+    (into (set (take-nth 2 (second form)))
+          (mapcat binder-symbols)
+          (concat (take-nth 2 (rest (second form))) (drop 2 form)))
+    (coll? form) (into #{} (mapcat binder-symbols) (seq form))
+    :else #{}))
+
+
+(defn- unshadow
+  "`form` with every local binder named like a module export renamed (`h` to
+   `h%l`): the module emitter strips `php/h` to the bare `h`, which a local
+   `h` would otherwise capture. Globals are qualified before stripping, so
+   every bare occurrence is the local."
+  [exports [k form]]
+  (let [clash (set (filter exports (binder-symbols form)))]
+    [k
+     (if (empty? clash)
+       form
+       (walk/postwalk (fn [x] (if (contains? clash x) (symbol (str x "%l")) x)) form))]))
+
+
 (def ^:private module-definitions
-  (core/module-definitions "php" :php/uninit runtime-keys definitions))
+  (core/module-definitions
+    "php" :php/uninit runtime-keys
+    (mapv (partial unshadow (into #{} (map (fn [[k _]] (strip k))) definitions)) definitions)))
 
 
 (def module-uast

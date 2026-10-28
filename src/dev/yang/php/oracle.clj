@@ -16,7 +16,8 @@
     [clojure.string :as str]
     [yang.php.antlr.programs :as programs]
     [yang.php.antlr.programs-p3b :as p3b]
-    [yang.php.antlr.programs-p4 :as p4])
+    [yang.php.antlr.programs-p4 :as p4]
+    [yang.php.antlr.programs-p6 :as p6])
   (:import
     (java.nio.charset
       StandardCharsets)
@@ -38,69 +39,88 @@
    "Fatal error" 1})
 
 
+(defn- location-pattern
+  "The regex source of a PHP source location below `/w/`: the entry `file`
+   itself, or, for a multi-unit fixture run in `/w/<unit-dir>`, any unit file
+   below the directory."
+  [file unit-dir]
+  (if unit-dir
+    (str (java.util.regex.Pattern/quote unit-dir) "/[^\\s:]+")
+    (java.util.regex.Pattern/quote file)))
+
+
 (defn- strip-location
-  [s file]
-  (str/replace s
-               (re-pattern (str " in /w/" (java.util.regex.Pattern/quote file) " on line \\d+"))
-               ""))
+  ([s file] (strip-location s file nil))
+  ([s file unit-dir]
+   (str/replace s
+                (re-pattern (str " in /w/" (location-pattern file unit-dir) " on line \\d+"))
+                "")))
 
 
 (defn parse-stdout
   "Parse PHP CLI stdout for `/w/<file>` into
-   `{:out <string> :diag [[errno msg] ...] :uncaught {:class c :message m}-or-nil}`."
-  [raw file]
-  (let [qfile (java.util.regex.Pattern/quote file)
-        ;; The uncaught block ends at PHP's own terminator, so output written
-        ;; after it (shutdown functions, destructors) stays in :out.
-        uncaught-re (re-pattern
-                      (str "(?s)\\nFatal error: Uncaught ([^:]+): ([^\\r\\n]*) in /w/"
-                           qfile
-                           ":\\d+\\nStack trace:\\n.*?\\n  thrown in /w/"
-                           qfile
-                           " on line \\d+\\n"))
-        fatal-re (re-pattern
-                   (str "\\nFatal error: ([^\\r\\n]*) in /w/"
+   `{:out <string> :diag [[errno msg] ...] :uncaught {:class c :message m}-or-nil}`.
+   With `unit-dir`, locations in any file below `/w/<unit-dir>` are stripped
+   (a multi-unit fixture)."
+  ([raw file] (parse-stdout raw file nil))
+  ([raw file unit-dir]
+   (let [qfile (location-pattern file unit-dir)
+         strip-location (fn [s file] (strip-location s file unit-dir))
+         ;; The uncaught block ends at PHP's own terminator, so output written
+         ;; after it (shutdown functions, destructors) stays in :out.
+         uncaught-re (re-pattern
+                       (str "(?s)\\nFatal error: Uncaught ([^:]+): ([^\\r\\n]*) in /w/"
+                            qfile
+                            ":\\d+\\nStack trace:\\n.*?\\n  thrown in /w/"
+                            qfile
+                            " on line \\d+\\n"))
+         fatal-re (re-pattern
+                    (str "\\nFatal error: ([^\\r\\n]*) in /w/"
+                         qfile
+                         " on line \\d+\\n"))
+         diag-re (re-pattern
+                   (str "\\n(Warning|Notice|Deprecated): ([^\\r\\n]*?) in /w/"
                         qfile
                         " on line \\d+\\n"))
-        diag-re (re-pattern
-                  (str "\\n(Warning|Notice|Deprecated): ([^\\r\\n]*?) in /w/"
-                       qfile
-                       " on line \\d+\\n"))
-        [without-fatal uncaught]
-        (if-let [[_ cls msg] (re-find uncaught-re raw)]
-          [(str/replace raw uncaught-re "")
-           {:class cls, :message (strip-location msg file)}]
-          (if-let [[_ msg] (re-find fatal-re raw)]
-            [(str/replace raw fatal-re "")
-             {:class "Error", :message (strip-location msg file)}]
-            [raw nil]))
-        diags (volatile! [])
-        out (str/replace without-fatal
-                         diag-re
-                         (fn [[_ kind msg]]
-                           (vswap! diags conj [(get errno-of kind) (strip-location msg file)])
-                           ""))]
-    {:out out,
-     :diag @diags,
-     :uncaught uncaught}))
+         [without-fatal uncaught]
+         (if-let [[_ cls msg] (re-find uncaught-re raw)]
+           [(str/replace raw uncaught-re "")
+            {:class cls, :message (strip-location msg file)}]
+           (if-let [[_ msg] (re-find fatal-re raw)]
+             [(str/replace raw fatal-re "")
+              {:class "Error", :message (strip-location msg file)}]
+             [raw nil]))
+         diags (volatile! [])
+         out (str/replace without-fatal
+                          diag-re
+                          (fn [[_ kind msg]]
+                            (vswap! diags conj [(get errno-of kind) (strip-location msg file)])
+                            ""))]
+     {:out out,
+      :diag @diags,
+      :uncaught uncaught})))
 
 
 (defn run-php-file
   "Run `<file>` inside `<dir>` via Docker `php:8.3-cli` and return the parsed
-   `{:out :diag :uncaught :exit}`."
-  [dir file]
-  (let [{:keys [out err exit]}
-        (sh/sh "docker" "run" "--rm"
-               "-v" (str (.toAbsolutePath (.toPath (io/file dir))) ":/w")
-               "-w" "/w"
-               "php:8.3-cli" "php"
-               "-d" "display_errors=1"
-               "-d" "html_errors=0"
-               "-d" "error_reporting=E_ALL"
-               "-d" "log_errors=0"
-               file
-               :out-enc "UTF-8")]
-    (assoc (parse-stdout out file) :err err :exit exit)))
+   `{:out :diag :uncaught :exit}`. With `unit-dir`, the working directory is
+   `/w/<unit-dir>` and `file` is relative to it (a multi-unit fixture)."
+  ([dir file] (run-php-file dir file nil))
+  ([dir file unit-dir]
+   (let [{:keys [out err exit]}
+         (sh/sh "docker" "run" "--rm"
+                "-v" (str (.toAbsolutePath (.toPath (io/file dir))) ":/w")
+                "-w" (if unit-dir (str "/w/" unit-dir) "/w")
+                "php:8.3-cli" "php"
+                "-d" "display_errors=1"
+                "-d" "html_errors=0"
+                "-d" "error_reporting=E_ALL"
+                "-d" "log_errors=0"
+                file
+                :out-enc "UTF-8")]
+     (assoc (parse-stdout out (if unit-dir (str unit-dir "/" file) file) unit-dir)
+            :err err
+            :exit exit))))
 
 
 (defn- write-source!
@@ -110,12 +130,31 @@
                (make-array java.nio.file.OpenOption 0)))
 
 
+(defn- unit-actual
+  "Run the multi-unit `fixture`: every unit is written below `<dir>/<id>/`,
+   `main.php` is run with that directory as the working directory, and
+   `/w/<id>` is replaced by `.` in everything the program printed (the
+   comparison's definition, plan P6 2.5 rule 2; corner C37)."
+  [dir {:keys [id units main], :or {main "main.php"}}]
+  (let [unit-dir (name id)
+        norm (fn [s] (str/replace s (str "/w/" unit-dir) "."))]
+    (doseq [[path source] units]
+      (let [f (io/file dir unit-dir path)]
+        (io/make-parents f)
+        (write-source! dir (str unit-dir "/" path) source)))
+    (let [actual (run-php-file dir main unit-dir)]
+      (-> actual
+          (update :out norm)
+          (update :diag (fn [ds] (mapv (fn [[errno msg]] [errno (norm msg)]) ds)))
+          (update :uncaught #(some-> % (update :message norm)))))))
+
+
 (defn check-fixture
   "Run `fixture` in temporary directory `dir` and return a check record."
-  [dir {:keys [id source out diag uncaught departure gap oracle]}]
+  [dir {:keys [id source units out diag uncaught departure gap oracle], :as fixture}]
   (let [file (str (name id) ".php")]
-    (write-source! dir file source)
-    (let [actual (run-php-file dir file)
+    (when-not units (write-source! dir file source))
+    (let [actual (if units (unit-actual dir fixture) (run-php-file dir file))
           expected-out (cond departure (:zend departure)
                              gap ""
                              :else out)
@@ -181,7 +220,7 @@
   (let [dir (.toFile (Files/createTempDirectory "yang-php-oracle-"
                                                 (make-array FileAttribute 0)))]
     (try
-      (-> (mapv #(check-fixture dir %) (concat programs/fixtures p3b/all-fixtures p4/all-fixtures))
+      (-> (mapv #(check-fixture dir %) (concat programs/fixtures p3b/all-fixtures p4/all-fixtures p6/all-fixtures))
           (conj (check-matrix dir))
           (conj (check-floats dir)))
       (finally

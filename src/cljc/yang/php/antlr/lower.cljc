@@ -37,16 +37,19 @@
    Diagnostic namespace: \"yang.php\"."
   (:require
     [clojure.string :as str]
+    [clojure.walk :as walk]
     [dao.host.text :as text]
     [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
+    [yang.core.module :as core-module]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
     [yang.php.antlr.builtins :as builtins]
     [yang.php.antlr.prelude :as prelude]
     [yang.php.antlr.scope :as scope]
     [yang.stage :as stage]
+    [yin.vm :as vm]
     [yin.vm.integer :as integer]))
 
 
@@ -110,6 +113,52 @@
    "RequireOnce" :include,
    "Yield" :yield,
    "List" :list})
+
+
+;; =============================================================================
+;; Unit paths and linker names (plan P6 R2/R3)
+;; =============================================================================
+
+(def ^:private unit-path-chars #"[A-Za-z0-9_\-./]*")
+
+
+(defn normalize-unit-path
+  "`{:path p}` for the relative path `s` normalized (segments joined by `/`,
+   `.` and empty segments dropped, `..` collapsed), else `{:error e}`:
+   `:unit-path` for a character outside `[A-Za-z0-9_\\-./]`, `:include-path`
+   for an absolute path or one escaping the composition root."
+  [s]
+  (cond
+    (not (re-matches unit-path-chars s)) {:error :unit-path}
+    (str/starts-with? s "/") {:error :include-path}
+    :else (let [segs (reduce (fn [acc seg]
+                               (cond
+                                 (or (= seg "") (= seg ".")) acc
+                                 (= seg "..") (if (empty? acc) (reduced nil) (pop acc))
+                                 :else (conj acc seg)))
+                             []
+                             (str/split s #"/"))]
+            (if (or (nil? segs) (empty? segs))
+              {:error :include-path}
+              {:path (str/join "/" segs)}))))
+
+
+(defn path-module-symbol
+  "The linker module of unit path `path`: `phpm.` then the path with `/` as
+   `$` and `.` as `$$`, nothing dropped (injective: plan P6 R2)."
+  [path]
+  (symbol (str "phpm." (str/replace (str/replace path "/" "$") "." "$$"))))
+
+
+(defn- path-dirname
+  "PHP's `dirname` of the relative path `p`: `.` for a root unit."
+  [p]
+  (let [t (str/replace p #"/+$" "")
+        i (str/last-index-of t "/")]
+    (cond
+      (nil? i) "."
+      (zero? i) "/"
+      :else (subs t 0 i))))
 
 
 ;; =============================================================================
@@ -848,6 +897,113 @@
   (app* 'php/silence (u/lam [] (lower ctx operand))))
 
 
+;; =============================================================================
+;; include / require
+;; =============================================================================
+
+(def ^:private include-kinds
+  {"Include" :include, "IncludeOnce" :include-once, "Require" :require, "RequireOnce" :require-once})
+
+
+(defn- tokens-text
+  "The concatenated token text below `n`."
+  [ctx n]
+  (apply str (map (fn [k] (if (p/rule? k) (tokens-text ctx k) (:text k))) (core/kids ctx n))))
+
+
+(defn- plain-string
+  "The text of a `string` rule that holds no interpolation, else nil."
+  [ctx n]
+  (let [ks (core/kids ctx n)
+        k0 (first ks)]
+    (case (:type k0)
+      "SingleQuoteString" (let [t (:text k0)] (unescape-single (subs t 1 (dec (count t)))))
+      "DoubleQuote" (let [parts (filterv #(p/rule? % "interpolatedStringPart") ks)
+                          toks (mapv #(first (core/kids ctx %)) parts)]
+                      (when (every? (fn [[t part]]
+                                      (and (= 1 (count (core/kids ctx part))) (= "StringPart" (:type t))))
+                                    (map vector toks parts))
+                        (when-not (some #(str/includes? (:text %) "\\") toks)
+                          (apply str (map :text toks)))))
+      nil)))
+
+
+(defn- fold-path
+  "The string expression `e` folds to over literals, `__DIR__`, `__FILE__`,
+   `dirname(<folded> [, levels])` and `.`, else nil: the include path is
+   computed (plan P6 R3). `__FILE__` is the unit's declared path, `__DIR__`
+   its directory."
+  [ctx e]
+  (let [ks (core/kids ctx e)
+        k0 (first ks)
+        unit-path (get-in ctx [:unit :path])]
+    (cond
+      (and (= 1 (count ks)) (p/rule? k0 "string")) (plain-string ctx k0)
+      (and (= 1 (count ks)) (p/rule? k0 "parentheses"))
+      (fold-path ctx (first (core/rules ctx k0 "expression")))
+      (and (= 1 (count ks)) (p/rule? k0 "constant"))
+      (let [m (first (core/kids ctx k0))]
+        (when (p/rule? m "magicConstant")
+          (case (:type (first (core/kids ctx m)))
+            "File__" unit-path
+            "Dir__" (path-dirname unit-path)
+            nil)))
+      (and (= 1 (count ks)) (p/rule? k0 "chain"))
+      (let [co (first (core/kids ctx k0))
+            fc (when (and (= 1 (count (core/kids ctx k0))) (p/rule? co "chainOrigin"))
+                 (first (core/kids ctx co)))]
+        (when (and fc
+                   (p/rule? fc "functionCall")
+                   (= "dirname" (str/lower-case (tokens-text ctx (first (core/rules ctx fc "functionCallName"))))))
+          (let [args (some->> (first (core/rules ctx fc "actualArguments"))
+                              (#(core/rules ctx % "arguments"))
+                              first
+                              (#(core/rules ctx % "actualArgument")))
+                inner (some->> (first args) (#(first (core/rules ctx % "expression"))) (fold-path ctx))
+                levels (if (= 2 (count args))
+                         (let [t (tokens-text ctx (second args))]
+                           (when (re-matches #"[1-9][0-9]*" t) (parse-long t)))
+                         (when (= 1 (count args)) 1))]
+            (when (and inner levels)
+              (nth (iterate path-dirname inner) levels)))))
+      (and (= 3 (count ks)) (p/rule? k0 "expression") (= "Dot" (:type (second ks))))
+      (let [a (fold-path ctx k0)
+            b (fold-path ctx (nth ks 2))]
+        (when (and a b) (str a b)))
+      :else nil)))
+
+
+(defn- delivery-thunk
+  "The statement-time delivery thunk of unit `path`: a try-require that
+   answers `{:status :ok :body b}` on success, else the structured refusal
+   (the Python I4-a thunk)."
+  [path]
+  (let [m (path-module-symbol path)]
+    (u/lam []
+           (u/let1 'r (app* 'try-require (u/lit m))
+                   (u/if-node (app* '= (u/lit :ok) (app* 'get (u/v 'r) (u/lit :status)))
+                              (app* 'assoc (u/lit {:status :ok}) (u/lit :body)
+                                    (u/v (symbol (str m) "body")))
+                              (u/v 'r))))))
+
+
+(defn- lower-include
+  "`include`/`include_once`/`require`/`require_once` over the linker (plan P6
+   R3/R4). A folded path lowers to `(php/include-run path thunk kind)`; a
+   computed one to `(php/include-computed path kind)` and a
+   `:yang.php/computed-include-path` warning."
+  [ctx n kind operand]
+  (when-not (:linked? ctx) (unsupported! n :include))
+  (when (:fn ctx) (unsupported! n :include-in-function))
+  (if-let [folded (fold-path ctx operand)]
+    (let [{:keys [path error]} (normalize-unit-path folded)]
+      (when error (unsupported! n error))
+      (app* 'php/include-run (u/lit path) (delivery-thunk path) (u/lit kind)))
+    (do (warn! ctx n :yang.php/computed-include-path
+               "include path is computed; it resolves through the published path map at run time" {})
+        (app* 'php/include-computed (lower ctx operand) (u/lit kind)))))
+
+
 (defn- lower-prefix
   [ctx n [op operand :as ks]]
   (let [t (:type op)]
@@ -868,9 +1024,11 @@
       "List" (lower-destructure ctx n
                                 (pattern-of ctx n (first (core/rules ctx n "assignmentList")))
                                 (last ks))
-      (if-let [construct (get prefix-refusals t)]
-        (unsupported! n construct)
-        (unsupported! n (keyword (str/lower-case t)))))))
+      (if-let [kind (get include-kinds t)]
+        (lower-include ctx n kind operand)
+        (if-let [construct (get prefix-refusals t)]
+          (unsupported! n construct)
+          (unsupported! n (keyword (str/lower-case t))))))))
 
 
 (def ^:private assignment-ops
@@ -3097,14 +3255,22 @@
     (walk (p/root (:pk ctx)))))
 
 
+(def entry-path
+  "The entry unit's declared path when the composition names none."
+  "main.php")
+
+
 (defn- context
-  [packet]
-  (let [pk (p/validate! packet {:diagnostic-ns diagnostic-ns})
-        ctx {:pk pk,
-             :analysis (scope/analyze pk),
-             :loops [],
-             :warnings (atom [])}]
-    (assoc ctx :declared (declared-functions ctx))))
+  ([packet] (context packet {}))
+  ([packet {:keys [path linked?], :or {path entry-path}}]
+   (let [pk (p/validate! packet {:diagnostic-ns diagnostic-ns})
+         ctx {:pk pk,
+              :analysis (scope/analyze pk),
+              :loops [],
+              :unit {:path path},
+              :linked? (boolean linked?),
+              :warnings (atom [])}]
+     (assoc ctx :declared (declared-functions ctx)))))
 
 
 (defn- check-hoisted!
@@ -3155,6 +3321,33 @@
               (reverse classes)))))
 
 
+(defn- unit-returns?
+  "True when the unit holds a top-level `return` (outside functions and
+   classes), which needs the escape around its body."
+  [ctx]
+  (core/contains-rule? ctx
+                       (p/root (:pk ctx))
+                       "returnStatement"
+                       #{"functionDeclaration" "lambdaFunctionExpr" "classDeclaration"
+                         "enumDeclaration"}))
+
+
+(defn- unit-node
+  "`unit-body`, inside the `return` escape when the unit has a top-level
+   `return`: the escape answers its value, the sentinel `:php/no-return`
+   when the body falls off its end (plan P6 R4). An included unit's body
+   (`module?`) always answers the sentinel at its end; the entry unit's
+   value is dropped, so its tree is unchanged when it has no `return`."
+  ([ctx] (unit-node ctx false))
+  ([ctx module?]
+   (cond
+     (unit-returns? ctx)
+     (app* 'php/call-ec
+           (u/lam ['%ret] (u/then (unit-body (assoc ctx :ret '%ret)) (u/lit :php/no-return))))
+     module? (u/then (unit-body ctx) (u/lit :php/no-return))
+     :else (unit-body ctx))))
+
+
 (defn lower-module-body
   "The unit's statements as one node, before the runtime wrapper: what
    lowering goldens compare. Hoisted function declarations come first."
@@ -3162,21 +3355,51 @@
   (unit-body (context packet)))
 
 
+(def option-keys
+  "The options `lower-program` and the lowering stage accept."
+  [:prelude :path :paths])
+
+
+(defn- path-map-node
+  "`(php/bind-path-map! {path thunk ...})` for the composition's published
+   paths (plan P6 R3): the computed include's lookup table."
+  [paths]
+  (app* 'php/bind-path-map!
+        (reduce (fn [m path] (app* 'assoc m (u/lit path) (delivery-thunk path)))
+                (u/lit {})
+                (sort paths))))
+
+
 (defn lower-program
   "`{:ast a :warnings [d ...]}` for one ok packet: the unit body run by
-   `php/run-main` after the bundled prelude, tail calls marked. Its value is
+   `php/run-main` after the prelude, tail calls marked. Its value is
    `{:php/out s :php/diag [...] :php/uncaught nil-or-{:class :message}}`.
    `:warnings` are the lowering's warning-severity diagnostics
-   (`:yang.php/unknown-builtin`, `:yang.php/compile-warning`)."
+   (`:yang.php/unknown-builtin`, `:yang.php/compile-warning`,
+   `:yang.php/computed-include-path`).
+
+   Options: `:prelude` is `:bundled` (default; the prelude tree ahead of the
+   body) or `:linked` (`(require 'php) (php/init!)`, the profile includes
+   need); `:path` the entry unit's declared path (default `entry-path`);
+   `:paths` the normalized paths whose units the composition published,
+   which a computed include resolves against."
   ([packet] (lower-program packet {}))
-  ([packet {:keys [prelude], :or {prelude :bundled}}]
-   (when-not (= :bundled prelude)
-     (throw (ex-info "the linked PHP profile is not available yet"
+  ([packet {:keys [prelude paths path], :or {prelude :bundled}}]
+   (when-not (contains? #{:bundled :linked} prelude)
+     (throw (ex-info "unknown PHP prelude profile"
                      {:yang.php/diagnostic :yang.php/unsupported,
-                      :construct :linked-prelude})))
-   (let [ctx (context packet)
-         body (unit-body ctx)]
-     {:ast (u/mark-tails (u/then prelude/uast (app* 'php/run-main (u/lam [] body)))),
+                      :construct :prelude,
+                      :prelude prelude})))
+   (let [linked? (= :linked prelude)
+         ctx (context packet {:path (or path entry-path), :linked? linked?})
+         main (app* 'php/run-main (u/lam [] (unit-node ctx)))]
+     {:ast (u/mark-tails
+             (if linked?
+               (u/seq-nodes (concat [(app* 'require (u/lit prelude/module-name))
+                                     (app* 'php/init!)]
+                                    (when (seq paths) [(path-map-node paths)])
+                                    [main]))
+               (u/then prelude/uast main))),
       :warnings @(:warnings ctx)})))
 
 
@@ -3184,6 +3407,132 @@
   "The complete program for one ok packet (`lower-program`'s `:ast`)."
   ([packet] (lower-packet packet {}))
   ([packet opts] (:ast (lower-program packet opts))))
+
+
+;; =============================================================================
+;; The module emitter: one PHP unit as the linker module phpm.<mangled-path>
+;; =============================================================================
+
+(def module-exports
+  "The exports of a compiled PHP unit: its spec and body, immutable after
+   install."
+  '#{spec body})
+
+
+(defn imported-unit-names
+  "The normalized paths the unit statically includes through folded literal
+   paths, source order, distinct, the unit's own path aside. A computed path
+   contributes nothing: it is by name at run time (plan P6 R3). A path that
+   cannot normalize is refused as `lower-include` refuses it."
+  [packet {:keys [path], :or {path entry-path}}]
+  (let [ctx (context packet {:path path, :linked? true})]
+    (letfn [(edges
+              [n]
+              (let [ks (core/kids ctx n)
+                    k0 (first ks)]
+                (concat
+                  (when (and (p/rule? n "expression")
+                             (= 2 (count ks))
+                             (p/token? k0)
+                             (contains? include-kinds (:type k0)))
+                    (when-let [folded (fold-path ctx (second ks))]
+                      (let [{p :path, error :error} (normalize-unit-path folded)]
+                        (when error (unsupported! n error))
+                        [p])))
+                  (mapcat edges (filter p/rule? ks)))))]
+      (into [] (comp (distinct) (remove #(= % path))) (edges (p/root (:pk ctx)))))))
+
+
+(defn module-packet
+  "One ok packet as the linker module `phpm.<mangled-path>`: one wide
+   application whose operands are `(require 'php)`, then the spec and body
+   definitions. The body is `(fn [%scope %ctx] <unit>)`: the including
+   scope arrives as arguments (P6 S3 gives them meaning; S2 includes only
+   at an entry unit's top level, whose variables are the globals)."
+  [packet {:keys [path strict-types]}]
+  (let [ctx (context packet {:path path, :linked? true})
+        defs [(u/def! 'spec (u/lit {:path path, :strict-types (if strict-types 1 0)}))
+              (u/def! 'body (u/lam ['%scope '%ctx] (unit-node ctx true)))]
+        operands (into [(core-module/require-node prelude/module-name)] defs)
+        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
+    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
+
+
+(defn module-spec
+  "`yin.vm.linker.publish/publish-module!`'s spec for the unit at `path` over
+   the host registry `registry`, requiring `php` at `php-address` and each
+   included unit at its address in `deps` ({path address}). A free name no
+   requirement or profile supplies is refused before anything is published.
+   This namespace emits; it never publishes."
+  [registry packet {:keys [path strict-types php-address deps]}]
+  (core-module/module-spec
+    :yang.php/refusal :yang.php/undeclared-free registry
+    {:name (path-module-symbol path),
+     :ast (module-packet packet {:path path, :strict-types strict-types}),
+     :exports module-exports,
+     :runtime-name prelude/module-name,
+     :runtime-address php-address,
+     :deps (into {} (map (fn [[p a]] [(path-module-symbol p) a])) deps)}))
+
+
+(defn scc-module-specs
+  "The SCC publication shape for a mutual include group: sorted members,
+   indexed exports m0-spec/m0-body, one `phpscc.<members>` bundle followed
+   by the thin member aliases. Internal deliveries answer `{:status :ok}`
+   and read the bundle's own bodies; only `php` and outgoing includes are
+   pinned. `units` are `[{:name path :packet p :strict-types b}]`."
+  [registry units php-address deps]
+  (let [units (vec (sort-by :name units))
+        deps (apply dissoc deps (map :name units))
+        bundle-name (symbol (str "phpscc."
+                                 (str/join "+" (map #(str/replace (str (path-module-symbol (:name %))) #"^phpm\." "")
+                                                    units))))
+        keys-for (into {} (map-indexed (fn [i unit]
+                                         [(:name unit) [(symbol (str "m" i "-spec"))
+                                                        (symbol (str "m" i "-body"))]])
+                                       units))
+        internal-names (into {} (map (fn [nm] [(path-module-symbol nm) nm])) (keys keys-for))
+        internal (set (keys internal-names))
+        rewrite (fn [node]
+                  (cond
+                    (and (= :variable (:type node))
+                         (symbol? (:name node))
+                         (some? (namespace (:name node)))
+                         (contains? internal (symbol (namespace (:name node))))
+                         (= "body" (name (:name node))))
+                    (u/v (second (get keys-for (get internal-names (symbol (namespace (:name node)))))))
+                    (and (= :application (:type node))
+                         (= 'try-require (get-in node [:operator :name]))
+                         (contains? internal (get-in node [:operands 0 :value])))
+                    (u/lit {:status :ok})
+                    :else node))
+        spec-defs (mapv (fn [{:keys [name strict-types]}]
+                          (u/def! (first (get keys-for name))
+                                  (u/lit {:path name, :strict-types (if strict-types 1 0)})))
+                        units)
+        body-defs (mapv (fn [{:keys [name packet]}]
+                          (let [ctx (context packet {:path name, :linked? true})]
+                            (u/def! (second (get keys-for name))
+                                    (u/lam ['%scope '%ctx]
+                                           (walk/postwalk rewrite (unit-node ctx true))))))
+                        units)
+        ast (core-module/module-tree (concat spec-defs body-defs [(core-module/require-node prelude/module-name)]))
+        bundle (core-module/module-spec
+                 :yang.php/refusal :yang.php/undeclared-free registry
+                 {:name bundle-name,
+                  :ast ast,
+                  :exports (set (mapcat val keys-for)),
+                  :runtime-name prelude/module-name,
+                  :runtime-address php-address,
+                  :deps (into {} (map (fn [[p a]] [(path-module-symbol p) a])) deps)})
+        require-profile (vm/profile-of vm/primitives 'require)]
+    (core-module/scc-module-specs
+      bundle
+      (mapv (fn [{:keys [name]}]
+              (let [[sk bk] (get keys-for name)]
+                (core-module/alias-spec (path-module-symbol name) module-exports
+                                        require-profile bundle-name sk bk)))
+            units))))
 
 
 ;; =============================================================================
@@ -3203,10 +3552,10 @@
    :ok? #(= :yang.cst/ok (:yang.cst/outcome %)),
    :lower (fn [state packet]
             (let [{:keys [ast warnings]}
-                  (lower-program packet {:prelude (get state :prelude :bundled)})]
+                  (lower-program packet (select-keys state option-keys))]
               (reset! warned warnings)
               ast)),
-   :option-keys [:prelude]})
+   :option-keys option-keys})
 
 
 (defn lower-transform
