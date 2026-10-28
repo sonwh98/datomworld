@@ -1862,11 +1862,47 @@
      ;; the container after `$c[ks...] =& <marker m>`
      (fn [c ks i m]
        (let [kind (php/kind c)]
-         (if (= kind :array)
-           (php/bind-into c ks i m)
-           (if (= kind :null)
-             (php/bind-into (php/empty-array) ks i m)
-             (php/throw-error "Error" "Cannot use a scalar value as an array")))))]
+         (if (php/prop-key? (get ks i))
+           (php/bind-prop-path c ks i m)
+           (if (= kind :array)
+             (php/bind-into c ks i m)
+             (if (= kind :null)
+               (php/bind-into (php/empty-array) ks i m)
+               (php/throw-error "Error" "Cannot use a scalar value as an array"))))))]
+    [php/bind-prop-path
+     ;; `$o->prop =& m`: a typed property becomes a source of the reference
+     ;; (rows 41, 45), the slot holds the marker, the old content is released
+     (fn [c ks i m]
+       (let [pk (get ks i)
+             name (get pk :php/prop)
+             ctx (get pk :ctx)]
+         (if (= (php/kind c) :obj)
+           (let [r (php/prop-find (php/obj-class c) name ctx)
+                 kind (get r :kind)]
+             (if (= kind :denied)
+               (php/denied-error c (get r :entry) name)
+               (let [e (get r :entry)
+                     id (if (= kind :ok) (get e :id) name)
+                     st (php/obj-state c)]
+                 (if (if (= kind :ok) (= (get e :readonly?) true) false)
+                   (php/throw-error "Error" (data/str-concat "Cannot modify readonly property "
+                                                             (get e :declaring) "::$" (get e :name)))
+                   (if (= (+ i 1) (data/count ks))
+                     (let [old (php/slot-get (get st :props) id)]
+                       (do (if (if (= kind :ok) (not (nil? (get e :type))) false)
+                             (php/ref-add-source
+                               m (assoc {} :obj (get st :id) :class (get e :declaring) :prop id
+                                        :type (get e :type)))
+                             :php/null)
+                           (php/obj-set-props! c (php/store (get st :props) id (php/addref m)))
+                           (if (= (php/slot-kind old) :ref-marker)
+                             (php/ref-remove-source old (get st :id) id)
+                             :php/null)
+                           (php/delref old)
+                           c))
+                     (php/throw-error "Error" "Cannot bind a reference below a property path yet"))))))
+           (php/throw-error "Error" (data/str-concat "Attempt to assign property \"" name "\" on "
+                                                     (php/type-name (php/kind c)))))))]
     [php/bind-into
      (fn [arr ks i m]
        (let [a (php/separate arr)
@@ -2701,6 +2737,23 @@
                               :php/null
                               (php/default-for e (get s :default)))
                             (php/default-for e ((get s :thunk))))))))]
+    [php/has-source?
+     (fn [m obj prop]
+       (not (nil? (php/vfind (php/ref-sources m) :prop prop 0))))]
+    [php/sprop-ref
+     (fn [c name ctx]
+       (let [cell (php/sprop-cell c name ctx)
+             m (php/make-ref-cv cell)
+             e (php/vfind (get c :static-props) :name name 0)]
+         (if (if (nil? (get e :type)) true (php/has-source? m (get e :declaring) name))
+           m
+           (php/ref-add-source
+             m (assoc {} :obj (get e :declaring) :class (get e :declaring) :prop name
+                      :type (get e :type))))))]
+    [php/marker-of-cv
+     (fn [c] (let [cur (cell/get c)] (if (= (php/slot-kind cur) :ref-marker) cur nil)))]
+    [php/marker-of-global
+     (fn [name] (let [cur (php/global-slot name)] (if (= (php/slot-kind cur) :ref-marker) cur nil)))]
     [php/class-static-cell
      (fn [c name]
        (let [e (php/vfind (get c :static-props) :name name 0)]
@@ -3278,6 +3331,22 @@
                                 (data/str-concat "Cannot modify readonly property "
                                                  (get (get r :entry) :declaring) "::$" name))
                (php/pair id (if (nil? cur) :php/null cur)))))))]
+    [php/check-auto-init
+     ;; `$o->p[] = v` on a null or uninitialized typed property: only a type that
+     ;; admits an array may be auto-initialized
+     (fn [o name ctx cur next-key]
+       (if (if (= cur :php/null) (not (php/prop-key? next-key)) false)
+         (let [r (php/prop-find (php/obj-class o) name ctx)
+               e (get r :entry)]
+           (if (if (= (get r :kind) :ok) (not (nil? (get e :type))) false)
+             (if (= (php/type-accepts (get e :type) (php/empty-array) true) :php/undef)
+               (php/throw-error "Error"
+                                (data/str-concat "Cannot auto-initialize an array inside property "
+                                                 (get e :declaring) "::$" (get e :name) " of type "
+                                                 (php/type-str (get e :type))))
+               :php/null)
+             :php/null))
+         :php/null))]
     [php/assign-prop-path
      (fn [c ks i v]
        (let [pk (get ks i)
@@ -3288,6 +3357,7 @@
              (do (php/prop-write! c name ctx v) c)
              (let [slot (php/prop-nested-slot c name ctx)
                    cur (get slot 1)
+                   chk (php/check-auto-init c name ctx cur (get ks (+ i 1)))
                    nv (php/path-assign-at cur ks (+ i 1) v)]
                (do (if (= (php/kind nv) :obj)
                      (if (= nv cur) :php/null (php/obj-set-props! c (php/store (get (php/obj-state c) :props) (get slot 0) nv)))
@@ -3729,15 +3799,24 @@
                                         "Cannot modify readonly property ")
                                       (get e :declaring) "::$" (get e :name)))
                    (if (= (+ i 1) (data/count ks))
-                     (let [m (php/make-ref (get (php/obj-state c) :props) id)]
-                       (do (php/obj-set-props! c (get m 0))
-                           (php/pair c (if (if (= kind :ok) (not (nil? (get e :type))) false)
-                                         (php/ref-add-source
-                                           (get m 1)
-                                           (assoc {} :obj (get (php/obj-state c) :id)
-                                                  :class (get e :declaring) :prop id
-                                                  :type (get e :type)))
-                                         (get m 1)))))
+                     (if (if (= kind :ok)
+                           (if (nil? cur)
+                             (if (nil? (get e :type)) false (= (php/type-accepts (get e :type) :php/null false) :php/undef))
+                             false)
+                           false)
+                       (php/throw-error
+                         "Error"
+                         (data/str-concat "Cannot access uninitialized non-nullable property "
+                                          (get e :declaring) "::$" (get e :name) " by reference"))
+                       (let [m (php/make-ref (get (php/obj-state c) :props) id)]
+                         (do (php/obj-set-props! c (get m 0))
+                             (php/pair c (if (if (= kind :ok) (not (nil? (get e :type))) false)
+                                           (php/ref-add-source
+                                             (get m 1)
+                                             (assoc {} :obj (get (php/obj-state c) :id)
+                                                    :class (get e :declaring) :prop id
+                                                    :type (get e :type)))
+                                           (get m 1))))))
                      (let [rr (php/path-ref-at (if (nil? cur) :php/null cur) ks (+ i 1))]
                        (do (if (= (php/kind (get rr 0)) :obj)
                              :php/null

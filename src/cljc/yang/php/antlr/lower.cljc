@@ -418,7 +418,10 @@
   "The reference marker of the variable, made on first use."
   [ctx name]
   (if-let [cv (cv-node ctx name)]
-    (app* 'php/make-ref-cv cv)
+    (if (static-var? name)
+      (let [[cls prop] (static-parts name)]
+        (app* 'php/sprop-ref (class-ref-node ctx nil cls) (u/lit prop) (cc-node ctx)))
+      (app* 'php/make-ref-cv cv))
     (app* 'php/global-make-ref! (u/lit (bare name)))))
 
 
@@ -818,12 +821,25 @@
     (with-keys ctx
       loc
       (fn [l]
-        (if prefix?
-          (write-loc ctx n l (app* f (read-loc ctx l)))
-          (let [old (core/gen "old" n)]
-            (u/let1 old
-                    (read-loc ctx l)
-                    (u/then (write-loc ctx n l (app* f (u/v old))) (u/v old)))))))))
+        (let [write (fn [v]
+                      ;; `$r++` on a plain variable bound to a sourced reference
+                      ;; checks the overflow of its typed sources (row 43)
+                      (if (and (empty? (:path l)) (= "Inc" op-type) (not (this-var? (:var l))))
+                        (let [m (core/gen "m" n)]
+                          (u/let1 m
+                                  (if-let [cv (cv-node ctx (:var l))]
+                                    (app* 'php/marker-of-cv cv)
+                                    (app* 'php/marker-of-global (u/lit (bare (:var l)))))
+                                  (u/if-node (app* 'nil? (u/v m))
+                                             (write-loc ctx n l v)
+                                             (app* 'php/typed-inc (u/v m)))))
+                        (write-loc ctx n l v)))]
+          (if prefix?
+            (write (app* f (read-loc ctx l)))
+            (let [old (core/gen "old" n)]
+              (u/let1 old
+                      (read-loc ctx l)
+                      (u/then (write (app* f (u/v old))) (u/v old))))))))))
 
 
 (defn- lower-silence

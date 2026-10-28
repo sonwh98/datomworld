@@ -10,7 +10,9 @@
 
    `all-fixtures` is unconditional (the oracle iterates it). `enabled` is the
    subset whose :requires have all landed in `completed-steps`."
-  (:require [yang.php.antlr.programs-p3b :as p3b]))
+  (:require
+    [clojure.string]
+    [yang.php.antlr.programs-p3b :as p3b]))
 
 
 (def completed-steps
@@ -630,6 +632,101 @@
        "int(-1)\nfloat(-2)\n")])
 
 
+(def objects-v1
+  "The checkpoint-B object gates the earlier groups did not cover: typed static
+   and destructured references (rows 46, 47), exit in a destructor (51), the
+   read-write fetch on an uninitialized typed property (59), shutdown with
+   destructors that create globals (22), named arguments with object values
+   and the string-key spread departure (57, 65). Also the constructor,
+   readonly and F3 programs of section 4.7. A fixture whose :requires names a
+   step or feature that has not landed stays disabled and is the work list."
+  [(fx :obj-row46-static-typed-ref-source :objects-v1 [46] #{:p4-s6}
+       "<?php class A { public static int $s = 1; } $r = &A::$s; try { $r = 'x'; } catch (TypeError $e) { echo $e->getMessage(); } $r = '9'; var_dump(A::$s);"
+       "Cannot assign string to reference held by property A::$s of type intint(9)\n")
+   (fx :obj-row47-destructure-by-ref-into-typed-property :objects-v1 [47] #{:p4-s6 :p4-row47}
+       "<?php class C { public int $p = 0; } $o = new C; $a = [5]; [&$o->p] = $a; try { $a[0] = 'x'; } catch (TypeError $e) { echo $e->getMessage(); } echo $o->p;"
+       "Cannot assign string to reference held by property C::$p of type int5")
+   (fx :obj-row51-exit-in-destructor :objects-v1 [51] #{:p4-s6 :p4-exit}
+       "<?php class D { function __destruct() { echo 'd'; exit; } } $d = new D; $d = null; echo 'never';"
+       "d")
+   (fx :obj-row59-uninitialized-increment :objects-v1 [59] #{:p4-s6}
+       "<?php class C { public int $p; } $c = new C; try { $c->p++; } catch (Error $e) { echo $e->getMessage(); }"
+       "Typed property C::$p must not be accessed before initialization")
+   (fx :obj-row59-uninitialized-concat-assign :objects-v1 [59] #{:p4-s6}
+       "<?php class C { public string $p; } $c = new C; try { $c->p .= 'x'; } catch (Error $e) { echo $e->getMessage(); }"
+       "Typed property C::$p must not be accessed before initialization")
+   (fx :obj-row59-dim-write-autovivifies-array :objects-v1 [59] #{:p4-s6}
+       "<?php class C { public array $p; } $c = new C; $c->p[] = 1; echo count($c->p);"
+       "1")
+   (fx :obj-row59-dim-write-refuses-int :objects-v1 [59] #{:p4-s6}
+       "<?php class C { public int $p; } $c = new C; try { $c->p[] = 1; } catch (Error $e) { echo $e->getMessage(); }"
+       "Cannot auto-initialize an array inside property C::$p of type int")
+   (fx :obj-row22-destructor-creates-global :objects-v1 [22] #{:p4-s6}
+       "<?php class B { function __destruct() { echo 'b'; } } class A { function __destruct() { global $next; $next = new B; echo 'a'; } } $x = new A;"
+       "ab")
+   (fx :obj-row57-unknown-named-object-argument-destroyed :objects-v1 [57] #{:p4-s6}
+       "<?php class D { function __destruct() { echo 'D'; } } function f($x) {} try { f(bad: new D); } catch (Error $e) { echo get_class($e); }"
+       "DError")
+   (fx :obj-row57-unknown-named-by-ref-callee-no-vivification :objects-v1 [57] #{:p4-s6}
+       "<?php function g(&$x) {} try { g(bad: $u); } catch (Error $e) { echo get_class($e); } var_dump(isset($u));"
+       "Errorbool(false)\n")
+   (assoc (fx :obj-row65-spread-string-keys :objects-v1 [65] #{:p4-s6}
+              "<?php function f($a, $b) { return $a - $b; } echo f(...['b' => 1, 'a' => 2]);"
+              nil)
+          :departure {:gap "C25", :zend "1"}
+          :impl-out ""
+          :throws true)
+   (fx :obj-row65-positional-after-string-key-spread :objects-v1 [65] #{:p4-s6}
+       "<?php function f($a, $b) { return $a - $b; } try { echo f(...['a' => 1], ...[2]); } catch (Error $e) { echo 'E'; }"
+       nil)
+   (fx :ctor-no-constructor-zero-args :constructor-v1 [53] #{:p4-s6}
+       "<?php class A {} $a = new A(); echo get_class($a);"
+       "A")
+   (fx :ctor-no-constructor-side-effecting-args :constructor-v1 [53] #{:p4-s6}
+       "<?php class A {} function s() { echo 'S'; return 1; } new A(s()); echo 'x';"
+       "Sx")
+   (fx :ctor-private-constructor-text :constructor-v1 [53] #{:p4-s6}
+       "<?php class A { private function __construct() {} } try { new A; } catch (Error $e) { echo $e->getMessage(); }"
+       "Call to private A::__construct() from global scope")
+   (fx :ro-clone-unset-twice :readonly-v1 [52 67] #{:p4-s6}
+       "<?php class C { public readonly int $x; function __construct() { $this->x = 1; } function __clone() { unset($this->x); unset($this->x); $this->x = 2; } } $a = new C; $b = clone $a; echo $a->x, $b->x;"
+       "12")
+   (fx :ro-clone-uninitialized-unset :readonly-v1 [52 67] #{:p4-s6}
+       "<?php class C { public readonly int $x; function __clone() { unset($this->x); $this->x = 5; } } $a = new C; $b = clone $a; echo $b->x;"
+       "5")
+   (fx :ro-clone-child-modifies-parent-readonly :readonly-v1 [52 66] #{:p4-s6}
+       "<?php class P { public readonly int $x; function __construct() { $this->x = 1; } } class C extends P { function __clone() { $this->x = 2; } } $a = new C; try { $b = clone $a; echo $b->x; } catch (Error $e) { echo $e->getMessage(); }"
+       nil)
+   (fx :ro-f3-unset-then-reassign-in-clone :readonly-v1 [52 66 67] #{:p4-s6}
+       "<?php class C { public readonly int $x; function __construct() { $this->x = 1; } function __clone() { unset($this->x); $this->x = 2; } } $a = new C; $b = clone $a; echo $b->x;"
+       "2")
+   (fx :ro-uninitialized-reference-text :readonly-v1 [41 68] #{:p4-s6}
+       "<?php class C { public readonly int $x; } $c = new C; try { $r = &$c->x; } catch (Error $e) { echo $e->getMessage(); }"
+       "Cannot indirectly modify readonly property C::$x")])
+
+
+(def typed-ref-v1
+  "The ten typed-reference texts of section 4.5 (rows 41 to 45), run at program
+   level on the implementation. The vendored grammar cannot parse a nullable
+   property type (`public ?int $n`), so each program is the recorded source with
+   `?int` written `int|null` and `PHP_INT_MAX` as its literal; the pinned text is
+   the recorded one, confirmed when the oracle records the rewritten source."
+  (into []
+        (comp (filter #(= :typed-ref-candidates (:group %)))
+              (map (fn [f]
+                     (-> f
+                         (assoc :id (keyword (str "p4-" (name (:id f))))
+                                :level :program
+                                :requires #{:p4-s5}
+                                :oracle :pending)
+                         (cond-> (:uncaught f) (assoc :throws true))
+                         (update :source
+                                 #(-> %
+                                      (clojure.string/replace "public ?int" "public int|null")
+                                      (clojure.string/replace "PHP_INT_MAX" "9223372036854775807")))))))
+        p3b/all-fixtures))
+
+
 (def banner p3b/banner)
 
 
@@ -787,7 +884,7 @@
 
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
-  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1 declarations-v1 closures-v1)))
+  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1 declarations-v1 closures-v1 objects-v1 typed-ref-v1)))
 
 
 (defn enabled?
@@ -803,30 +900,59 @@
 
 
 (def awaiting-oracle
-  "The enabled fixtures that are still `:oracle :pending`. Oracle passes 9 and
-   10 recorded every enabled fixture, so the set is empty; a newly enabled
-   fixture joins it until its record is folded. Changing it is a reviewed edit
-   (Architect ruling on P4 activation: every enabled pending fixture is
-   recorded before its checkpoint closes)."
-  #{:clo-this-captured-in-method
-    :clo-static-closure-has-no-this
-    :clo-bind-grants-private-access
-    :clo-bindto-without-scope-keeps-scope
+  "The enabled fixtures that are still `:oracle :pending`: the S6 closure,
+   callable and return-type fixtures and the checkpoint-B object, constructor,
+   readonly and typed-reference fixtures, awaiting the next oracle pass. A fold
+   shrinks this set; changing it is a reviewed edit (Architect ruling on P4
+   activation: every enabled pending fixture is recorded before its
+   checkpoint closes)."
+  #{:clo-bind-grants-private-access
     :clo-bindto-scope-by-name
+    :clo-bindto-without-scope-keeps-scope
+    :clo-bound-this-sets-static
     :clo-call-binds-this-and-scope
     :clo-call-passes-arguments
-    :clo-bound-this-sets-static
-    :clo-closure-keeps-called-class
     :clo-callable-array-string-forms
     :clo-callable-private-from-inside
     :clo-callable-private-from-outside
+    :clo-closure-keeps-called-class
     :clo-from-callable-function
     :clo-from-callable-invokable
     :clo-from-callable-method
-    :clo-trait-self-and-static
-    :clo-trait-closure-this
     :clo-nested-closure-keeps-this
-    :decl-static-return-type
-    :decl-never-throws
+    :clo-static-closure-has-no-this
+    :clo-this-captured-in-method
+    :clo-trait-closure-this
+    :clo-trait-self-and-static
+    :ctor-no-constructor-side-effecting-args
+    :ctor-no-constructor-zero-args
+    :ctor-private-constructor-text
     :decl-never-implicit-return-is-type-error
-    :decl-signed-literal-defaults-accepted})
+    :decl-never-throws
+    :decl-signed-literal-defaults-accepted
+    :decl-static-return-type
+    :obj-row22-destructor-creates-global
+    :obj-row46-static-typed-ref-source
+    :obj-row57-unknown-named-by-ref-callee-no-vivification
+    :obj-row57-unknown-named-object-argument-destroyed
+    :obj-row59-dim-write-autovivifies-array
+    :obj-row59-dim-write-refuses-int
+    :obj-row59-uninitialized-concat-assign
+    :obj-row59-uninitialized-increment
+    :obj-row65-positional-after-string-key-spread
+    :obj-row65-spread-string-keys
+    :p4-typed-ref-row41-readonly-initialized
+    :p4-typed-ref-row41-uninitialized-non-nullable
+    :p4-typed-ref-row41-uninitialized-nullable
+    :p4-typed-ref-row42-assign-null
+    :p4-typed-ref-row42-assign-string
+    :p4-typed-ref-row42-coerces-numeric-string
+    :p4-typed-ref-row43-increment-past-max
+    :p4-typed-ref-row44-unset-uninitializes
+    :p4-typed-ref-row45-first-failing-source
+    :p4-typed-ref-row45-second-source-mismatch
+    :ro-clone-child-modifies-parent-readonly
+    :ro-clone-uninitialized-unset
+    :ro-clone-unset-twice
+    :ro-f3-unset-then-reassign-in-clone
+    :ro-uninitialized-reference-text})

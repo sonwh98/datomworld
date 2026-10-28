@@ -290,10 +290,11 @@
   (testing "S0: the P4 fixtures are registered unconditionally, unrecorded, and none runs yet"
     (is (apply distinct? (map :id p4/all-fixtures)))
     (is (every? #(or (= :pending (:oracle %)) (= p4/banner (:oracle %))) p4/all-fixtures))
-    (is (= #{:classes-v1 :constructor-v1 :exceptions-v1 :readonly-v1 :f3-v1 :declarations-v1 :closures-v1}
+    (is (= #{:classes-v1 :constructor-v1 :exceptions-v1 :readonly-v1 :f3-v1 :declarations-v1 :closures-v1 :objects-v1
+             :typed-ref-candidates}
            (set (map :group p4/all-fixtures))))
     (is (every? #(and (string? (:source %)) (seq (:requires %))) p4/all-fixtures))
-    (is (every? #(re-matches #":p4-(s\d+|loc)" (str %)) (mapcat :requires p4/all-fixtures)))
+    (is (every? #(re-matches #":p4-(s\d+|loc|exit|row\d+)" (str %)) (mapcat :requires p4/all-fixtures)))
     (is (every? #(every? p4/completed-steps (:requires %)) p4/enabled))
     (testing "every recorded oracle result equals the fixture's expectation"
       (is (every? (set (map :id p4/all-fixtures)) (keys p4/recorded)))
