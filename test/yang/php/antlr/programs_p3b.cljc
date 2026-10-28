@@ -341,7 +341,8 @@
    :call-spread-string-key-gap {:out "1", :diag [], :uncaught nil}
    :foreach-ref-sort-inside-loop {:out "323", :diag [], :uncaught nil}
    :call-unknown-named-later-arg-runs {:out "Unknown named parameter $z", :diag [], :uncaught nil}
-   :closure-call-user-class {:out "8", :diag [], :uncaught nil}})
+   :closure-call-user-class {:out "8", :diag [], :uncaught nil}
+   :foreach-ref-array-reassigned-in-loop {:out "177777", :diag [], :uncaught nil}})
 
 
 (def banner "php-8.3.35 shiva 2026-10-25")
