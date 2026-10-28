@@ -92,6 +92,109 @@ dao.stream, codecs) and before a big merge. Not seen: dynamic loads
 (`requiring-resolve`, `resolve`), paths or walk roots built at run time,
 and spawned programs that changed (target/yin-repl.js, Dart peers).
 
+### Sharded quick JVM feedback and change routing
+
+```sh
+bb test:quick-sharded                           # Full G3-sized JVM quick lane, 4 workers
+bb test:quick-sharded --changed src/cljc/yang/clojure.cljc
+bb test:quick-sharded --base master --workers 6  # Changed selection, explicit worker limit
+bb test:quick-sharded --list --changed src/cljc/yang/clojure.cljc
+bb test:routed docs/agents/build-n-test.md       # Explicit changed paths (absolute OK)
+bb test:routed --dry-run deps.edn               # Print dispatch; executes no gate
+bb test:routed                                 # Git change set, same base as test:changed
+bb deps:npm                                    # Content-checked local npm ci
+bb -cp src/dev -m quick-sharded-test            # Runner/routing/cache self-tests
+```
+
+`test:quick-sharded` is a JVM-only execution alternative for broad G2 and
+the JVM portion of G3. Without selection flags it selects every JVM test;
+`--changed FILE...` or `--base REF` uses `affected/select` and
+`affected/lane-tests`, exactly as `test:changed:clj` does. Wide input selects
+the full JVM set here. It never changes `test:changed`'s selection or exit-2
+semantics. `--workers N` must be positive (default 4 on the laptop).
+
+Shard membership comes from every entry in `src/dev/subsystems.edn`, using
+`affected/select-subsystems` and the same longest-prefix ownership rule as
+`test:sub`. As in the shiva script below, currently unowned namespaces run
+in an explicit `unmapped` residual shard, printed by name. Registry omissions
+therefore cannot silently shrink coverage. Each nonempty shard gets its own
+`clojure -M:test -e :slow -n <ns> ...` process, with at most N JVMs running.
+Prerequisites are derived from the entire selected JVM reach and finish
+serially before workers start; the Node peer also ensures `bb deps:npm`.
+
+Each invocation writes a separate `target/profile/quick-sharded-<id>/`:
+`selected.txt`, `ns-<shard>.txt`, `covered.txt`, `uncovered.txt`, per-shard logs,
+and `summary.edn`. Before execution it checks **set equality** between selected
+namespaces and the union of shard lists, plus absence of duplicate assignments.
+Any uncovered, unexpected, or duplicate namespace fails loudly before tests.
+The final summary totals tests, assertions, failures and errors and separates
+JVM wall time from total time including selection/builds. A nonzero child exit,
+failure/error, or missing final test-runner summary makes the task exit nonzero.
+Dry plans write namespace evidence but execute no builds or tests.
+
+`test:routed <changed-files...>` applies this priority table to the whole change
+set, prints the exact dispatch, executes it and propagates its result:
+
+| Change class (first match wins) | Dispatch |
+|---|---|
+| Existing wide inputs (`deps.edn`, `bb.edn`, `src/dev/`, ANTLR, package locks, runner configs, etc.), toolchain manifests, CI workflows, build scripts | `bb test` — full quick tri-host; success required |
+| Only `.md`, `.txt`, `.rst` documentation, excluding test resources | `git diff --check -- <paths>` — documentation whitespace/format lint only |
+| Foundation code owned by a layer-0 entry in `subsystems.edn`, or `yang.clojure`, `yang.php`, `yang.typescript`, `yang.python` code | `bb test:quick-sharded --changed <paths>` — broad selected JVM feedback |
+| Other code/tests/fixtures with a nonempty affected selection | `bb test:changed --changed <paths>` — existing quick tri-host selection |
+| Other non-doc input with no statically selected tests | `bb test` — fail closed rather than report a vacuous green gate |
+
+Mixed changes take the widest matching route. Missing paths, an empty git change
+set, unknown flags, and the wrong cwd fail. Deleted paths are validated against
+the base tree. If the leaf command returns exit 2, routing immediately dispatches
+`bb test` and requires its success. `--dry-run`/`--list` only reports the route;
+its zero exit is **not** a verification result. Documentation checks inspect the
+git diff; they do not lint executable examples or validate documentation links.
+
+**Gate requirements are unchanged.** Sharded JVM success alone is not G2/G3
+tri-host success: for foundation/compiler changes also run
+`bb test:changed:cljs --changed <paths>` and
+`bb test:changed:cljd --changed <paths>`, respecting the existing JVM/Dart
+serialization rule. G1, full post-merge `bb test` (G3), applicable slow G4,
+demo smoke checks and review/landing gates all remain required. Node and Dart
+lanes retain their current commands. The original unsharded tasks remain
+available. Do not run another lane set concurrently on the laptop.
+
+#### Worktree-local prerequisite caches
+
+`bb gen:antlr` now checks a content key over all grammar/manifests (including
+recorded helper/generated digests and runtime pins), the generator/cache source,
+`deps.edn`, `mise.toml`, actual Java/javac versions and canonical worktree path.
+It also verifies the names and SHA-256 bytes of all generated targets, compiled
+classes and cached upstream helpers before a hit. Changed inputs or missing,
+removed or corrupted outputs trigger a full generation, retaining the generator's
+digest checks. Filtered/discovery invocations retain their CLI behavior and
+invalidate the complete-build stamp.
+
+`bb deps:npm` wraps `npm ci` with a key covering `package-lock.json`,
+`package.json`, npm configuration, Node/npm versions, platform, relevant npm/Node
+environment and worktree identity; it verifies the installed file tree before
+reuse. A failed command never establishes a cache hit. Existing Node build tasks
+ensure this dependency too. Direct `npm ci` is still available.
+
+Stamps and fail-fast writer locks live under `target/prereq-cache/`. Remove a
+lock only after confirming its owning process died. Symlinked output parents
+that escape the worktree are refused. This is reuse **within one worktree**,
+not a shared artifact store: never share mutable `build/`, `lib/`, `target/` or
+`node_modules/` across live worktrees. ANTLR generation and Dart compilation
+still require the existing worktree isolation/serialization rules; the cache
+does not make overlapping builds and tests safe. Peer executables and shadow
+builds themselves are not cached by this mechanism.
+
+Laptop pilot (2026-10-29, 8 cores, 4 workers, `yang.clojure.cljc` changed):
+the unchanged selector and the sharded plan both covered **61 JVM namespaces**;
+both completed with **955 tests, 14,848 assertions, zero failures/errors**.
+Sharded JVM wall time was **177.165 s** (total including prerequisites **257.207 s**;
+outer command **258.27 s**). The original `test:changed:clj` command completed
+in **376.79 s** overall and reported **298 s** for its JVM lane (that runner
+rounds to whole seconds). The investigation's earlier unsharded command had
+timed out at 300 s without a summary. These are single-run observations, not
+a median/p95 claim or a replacement for tri-host landing verification.
+
 ### Subsystem-first tests: `bb test:sub`
 
 `bb test:sub <subsystem>...` (src/dev/affected.clj) runs the tests belonging to
