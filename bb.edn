@@ -1,7 +1,12 @@
 {:tasks
  {gen:antlr
   {:doc "Generate the pinned grammars-v4 parsers for every target (antlr/*/manifest.edn): Java compiled into build/antlr/<g>/classes, JavaScript in build/antlr/<g>/js, Dart in lib/antlr/<g>; filters after --: --grammar g --target t"
-   :task (apply shell "clojure" "-M:antlr-gen" *command-line-args*)}
+   :task (apply shell "bb" "src/dev/build_cache.clj"
+                "antlr" *command-line-args*)}
+
+  deps:npm
+  {:doc "Worktree-local npm ci, reused only while input and installed-file digests match"
+   :task (shell "bb" "src/dev/build_cache.clj" "npm")}
 
   ;; jolt host lane (experimental, docs/design/yin.repl-jolt-implementation.md)
   bootstrap:jolt
@@ -184,7 +189,7 @@
   {:doc "Compile the Node yin.repl (shadow-cljs build :yin-repl) to target/yin-repl.js"
    ;; The Node lanes (test:cljs and its variants) depend on this task, so the
    ;; generated JavaScript parser reaches them through it.
-   :depends [gen:antlr]
+   :depends [deps:npm gen:antlr]
    ;; yin.repl.dht-process-test spawns it as the JVM-to-Node reader of
    ;; DHT epic S5, a required leg: a missing build fails that test.
    :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl")}
@@ -212,7 +217,7 @@
    ;; The demo pulls in yang.python.antlr.parser, whose JavaScript
    ;; recognizers live in build/antlr/python3/js (a :cljs classpath root),
    ;; so a clean checkout generates them before compiling.
-   :depends [gen:antlr]
+   :depends [deps:npm gen:antlr]
    :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli release demo")}
 
   ;; Fast default lanes: no ^:slow test, no dao.test-slow/guard body.
@@ -277,6 +282,18 @@
 
   test {:doc "All three lanes in their fast default form (JVM, Node, Dart)"
         :depends [build:yin-repl-peer build:yin-repl-node test:clj test:cljs test:cljd]}
+
+  test:quick-sharded
+  {:doc "Quick JVM lane in subsystem JVMs, 4 workers; --changed FILE... / --base REF selects G2; --list plans only"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "-m" "quick-sharded" *command-line-args*)))}
+
+  test:routed
+  {:doc "Dispatch changed files by risk: docs checks, changed tests, sharded JVM or full tri-host; --dry-run plans only"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "-m" "test-routed" *command-line-args*)))}
 
   ;; Only the tests a change can affect (src/dev/affected.clj): the
   ;; reverse require closure of the changed files since the merge-base
