@@ -1248,6 +1248,13 @@ with that provenance:
   initialized to 1 in the constructor, `function __clone() { unset($this->x);
   $this->x = 2; }` yields `2` with no error.
 
+The oracle harness strips an uncaught-`Throwable` or plain-fatal block from
+the captured stdout and reports it as the program's `:uncaught` result. The
+strip ends at the block's own terminator (`thrown in FILE on line N` for an
+uncaught throwable, the `on line N` message end for a plain fatal), so output
+written afterwards (shutdown functions and destructors of row 22) stays in
+`:out`.
+
 Anchor programs that every revision of the table has been traced against
 (expected PHP 8.3 output):
 

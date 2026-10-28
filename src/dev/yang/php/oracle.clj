@@ -50,14 +50,18 @@
    `{:out <string> :diag [[errno msg] ...] :uncaught {:class c :message m}-or-nil}`."
   [raw file]
   (let [qfile (java.util.regex.Pattern/quote file)
+        ;; The uncaught block ends at PHP's own terminator, so output written
+        ;; after it (shutdown functions, destructors) stays in :out.
         uncaught-re (re-pattern
                       (str "(?s)\\nFatal error: Uncaught ([^:]+): ([^\\r\\n]*) in /w/"
                            qfile
-                           ":\\d+\\nStack trace:\\n.*$"))
+                           ":\\d+\\nStack trace:\\n.*?\\n  thrown in /w/"
+                           qfile
+                           " on line \\d+\\n"))
         fatal-re (re-pattern
                    (str "\\nFatal error: ([^\\r\\n]*) in /w/"
                         qfile
-                        " on line \\d+\\n$"))
+                        " on line \\d+\\n"))
         diag-re (re-pattern
                   (str "\\n(Warning|Notice|Deprecated): ([^\\r\\n]*?) in /w/"
                        qfile

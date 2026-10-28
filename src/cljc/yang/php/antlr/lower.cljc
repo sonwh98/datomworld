@@ -2219,7 +2219,8 @@
     "null" [{:t :null}]
     "iterable" [{:t :iterable}]
     "callable" [{:t :callable}]
-    ("false" "true") [{:t :bool}]
+    "false" [{:t :false}]
+    "true" [{:t :true}]
     "self" (if cname [{:t :class, :name cname}] (unsupported! th :type-declaration))
     ("static" "never") (unsupported! th :type-declaration)
     [{:t :class, :name written}]))
@@ -2373,6 +2374,61 @@
         (core/kids ctx n)))
 
 
+(defn- literal-fits?
+  "Whether the literal `v` is a member of `type` as a declared default (exact
+   kind; an int may widen to float), or :unknown for kinds decided at run time."
+  [type v]
+  (let [atoms (if (= :union (:t type)) (:of type) [type])
+        kind (cond (string? v) :string (integer? v) :int (boolean? v) :bool (= v :php/null) :null)]
+    (if (some #(contains? #{:callable :class :obj :iterable} (:t %)) atoms)
+      :unknown
+      (boolean (some (fn [a]
+                       (case (:t a)
+                         :mixed true
+                         :int (= kind :int)
+                         :float (contains? #{:int} kind)
+                         :string (= kind :string)
+                         :bool (= kind :bool)
+                         :false (false? v)
+                         :true (true? v)
+                         :null (= kind :null)
+                         false))
+                     atoms)))))
+
+
+(defn- type-label
+  "The PHP spelling of a type value, for compile-time messages."
+  [type]
+  (letfn [(one [a] (case (:t a) :obj "object" :class (:name a) (name (:t a))))]
+    (if (= :union (:t type))
+      (let [atoms (:of type)]
+        (if (and (= 2 (count atoms)) (= :null (:t (second atoms))))
+          (str "?" (one (first atoms)))
+          (str/join "|" (map one atoms))))
+      (one type))))
+
+
+(defn- check-literal-default!
+  "A statically evaluable default that cannot be of `type` is a compile-time
+   fatal; anything else is checked when it is installed."
+  [n node type what]
+  (when (and (= :literal (:type node))
+             (let [v (:value node)]
+               (or (string? v) (integer? v) (boolean? v) (= v :php/null)))
+             (false? (literal-fits? type (:value node))))
+    (compile-error!
+      n
+      (let [v (:value node)]
+        (cond
+          (and (= :php/null v) (str/starts-with? what "property"))
+          (str "Default value for property of type " (type-label type)
+               " may not be null. Use the nullable type ?" (type-label type)
+               " to allow null default value")
+          :else
+          (str "Cannot use " (cond (= :php/null v) "null" (string? v) "string" (integer? v) "int" :else "bool")
+               " as default value for " what " of type " (type-label type)))))))
+
+
 (defn- param-binding
   "The cell of parameter `i`: the argument when passed, else the default
    (evaluated here, in the callee), else an `ArgumentCountError`. A hole left
@@ -2389,7 +2445,13 @@
                                (u/lit :php/undef))
                     (u/if-node (app* '= (u/v a) (u/lit :php/undef))
                                (if default
-                                 (lower-initializer ctx default)
+                                 (let [d (lower-initializer ctx default)]
+                                   (when type (check-literal-default! default d type
+                                                                      (str "parameter $" (bare name))))
+                                   (if type
+                                     (app* 'php/param-default d (u/lit type) (u/lit written)
+                                           (u/lit (inc i)) (u/lit (bare name)))
+                                     d))
                                  (app* 'php/not-passed
                                        (u/lit written)
                                        (u/lit (inc i))
@@ -2398,6 +2460,9 @@
                                        (u/lit required)
                                        (u/lit exact?)))
                                (cond
+                                 (and ref? type)
+                                 (app* 'php/param-ref-typed (u/v a) (u/lit type) (u/lit written)
+                                       (u/lit (inc i)) (u/lit (bare name)))
                                  ref? (app* 'php/param-ref
                                             (u/v a)
                                             (u/v '%binding-profile))
@@ -2669,7 +2734,13 @@
         mods (member-mods ctx pm)]
     ;; types are recorded as `typed` (uninitialized until written), not yet enforced (S5)
     (mapv (fn [vi]
-            (let [[v _ init] (core/kids ctx vi)]
+            (let [[v _ init] (core/kids ctx vi)
+                  th (first (core/rules ctx st "typeHint"))]
+              (when (and th init)
+                (check-literal-default! init
+                                        (lower-initializer (assoc ctx :cc true) init)
+                                        (type-data ctx th false cname)
+                                        (str "property " cname "::$" (bare (:text v)))))
               (spec-node (cond-> {:name (u/lit (bare (:text v))),
                                   :vis (u/lit (member-vis mods)),
                                   :static? (u/lit (boolean (:static mods))),

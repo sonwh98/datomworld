@@ -138,6 +138,14 @@
            ["<?php $n = 1; while (1) { break $n; }" "non-integer operand"]
            ["<?php function f() {} function F() {}" "Cannot redeclare F()"]
            ["<?php function strlen() {}" "Cannot redeclare strlen()"]
+           ["<?php class A { public int $x = 'bad'; }"
+            "Cannot use string as default value for property A::$x of type int"]
+           ["<?php class A { public static float $x = 'bad'; }"
+            "Cannot use string as default value for property A::$x of type float"]
+           ["<?php class A { public int $x = null; }"
+            "Default value for property of type int may not be null. Use the nullable type ?int to allow null default value"]
+           ["<?php function f(int $x = 'bad') {}"
+            "Cannot use string as default value for parameter $x of type int"]
            ["<?php switch (1) { default: echo 1; default: echo 2; }"
             "Switch statements may only contain one default clause"]
            ["<?php switch (1): default: echo 1; case 2: break; default: echo 2; endswitch;"

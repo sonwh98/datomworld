@@ -295,5 +295,8 @@
     (is (every? #(and (string? (:source %)) (seq (:requires %))) p4/all-fixtures))
     (is (every? #(re-matches #":p4-(s\d+|loc)" (str %)) (mapcat :requires p4/all-fixtures)))
     (is (every? #(every? p4/completed-steps (:requires %)) p4/enabled))
+    (testing "only the not-yet-recorded fixtures are still pending once enabled"
+      (is (= p4/awaiting-oracle
+             (set (map :id (filter #(= :pending (:oracle %)) p4/enabled))))))
     (is (not-any? #(contains? (:requires %) :p4-s6) p4/enabled))
     (is (every? #(contains? p4/completed-steps %) (mapcat :requires p4/enabled)))))

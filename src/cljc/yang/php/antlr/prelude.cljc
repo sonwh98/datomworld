@@ -2125,6 +2125,23 @@
                (cell/set! slot (php/new-ref (thunk)))
                :php/null)
              (php/bind-marker cv (cell/get slot)))))]
+    [php/param-ref-typed
+     ;; the marker as `param-ref` makes it; the value it holds is checked, and
+     ;; written back coerced, as PHP coerces the caller's variable in place
+     (fn [arg type fname idx pname]
+       (let [marker? (= (php/slot-kind arg) :ref-marker)
+             cur (if marker? (php/ref-value arg) arg)
+             srcs (if marker? (php/ref-sources arg) [])
+             r (if (> (data/count srcs) 0)
+                 (if (php/type-exact? type cur) cur :php/undef)
+                 (php/type-accepts type cur (cell/get php.rt/strict)))]
+         (if (= r :php/undef)
+           (php/throw-error
+             "TypeError"
+             (data/str-concat fname "(): Argument #" (php/to-string idx) " ($" pname ") must be of type "
+                              (php/type-str type) ", " (php/given-name cur) " given"))
+           (let [m (php/param-ref arg)]
+             (do (if (= r cur) :php/null (php/ref-set! m r)) m)))))]
     [php/param-ref
      ;; a by-reference parameter: the caller's marker (counted by the CV), or
      ;; a fresh one around a value that is not a variable. The marker is
@@ -2257,7 +2274,9 @@
                (if (= k :obj) "object"
                    (if (= k :callable) "callable"
                        (if (= k :iterable) "iterable"
-                           (if (= k :void) "void" (php/type-name k)))))))))]
+                           (if (= k :void) "void"
+                               (if (= k :false) "false"
+                                   (if (= k :true) "true" (php/type-name k)))))))))))]
     [php/type-union-str
      (fn [ts i n acc]
        (if (< i n)
@@ -2270,17 +2289,21 @@
      (fn [t v strict]
        (let [k (get t :t)
              vk (php/kind v)]
-         (if (= k :class)
-           (if (if (= vk :obj) (php/instance-of v (php/lc (get t :name))) false) v :php/undef)
-           (if (= k :obj)
-             (if (= vk :obj) v :php/undef)
-             (if (= k :callable)
-               (if (php/callable? v) v :php/undef)
-               (if (= k :iterable)
-                 (if (if (= vk :array) true (if (= vk :obj) (php/instance-of v "traversable") false))
-                   v
-                   :php/undef)
-                 (php/coerce-simple t v strict)))))))]
+         (if (= k :false)
+           (if (= v false) v :php/undef)
+           (if (= k :true)
+             (if (= v true) v :php/undef)
+             (if (= k :class)
+               (if (if (= vk :obj) (php/instance-of v (php/lc (get t :name))) false) v :php/undef)
+               (if (= k :obj)
+                 (if (= vk :obj) v :php/undef)
+                 (if (= k :callable)
+                   (if (php/callable? v) v :php/undef)
+                   (if (= k :iterable)
+                     (if (if (= vk :array) true (if (= vk :obj) (php/instance-of v "traversable") false))
+                       v
+                       :php/undef)
+                     (php/coerce-simple t v strict)))))))))]
     [php/callable?
      (fn [v]
        (let [k (php/kind v)]
@@ -2304,6 +2327,27 @@
                        (if (= vk :int) (php/to-float v)
                            (if strict :php/undef (php/coerce-scalar k v vk)))
                        (if strict :php/undef (php/coerce-scalar k v vk))))))))]
+    [php/float-in-int-range?
+     ;; -2^63 <= v < 2^63 (false for NaN and infinity)
+     (fn [v]
+       (let [h (php/h v)
+             lim (php/h (php/to-float php.rt/int-max))]
+         (if (< h 0) (>= h (php/neg-h lim)) (< h lim))))]
+    [php/float-to-int-weak
+     ;; a float for an int parameter: integral values in int64 range convert; a
+     ;; fractional one below 2^52 truncates with the "loses precision"
+     ;; deprecation; NaN, infinity and anything larger refuse
+     (fn [v src]
+       (if (if (php/float-in-int-range? v) (= (php/to-float (php/to-int v)) v) false)
+         (php/to-int v)
+         (if (< (php/abs-h (php/h v)) (php/h (php/to-float 4503599627370496)))
+           (do (php/warn 8192 (data/str-concat "Implicit conversion from "
+                                               (if (nil? src)
+                                                 (data/str-concat "float " (php/float-text v 17))
+                                                 (data/str-concat "float-string \"" src "\""))
+                                               " to int loses precision"))
+               (php/to-int v))
+           :php/undef)))]
     [php/coerce-scalar
      ;; coercive mode: scalars convert among int, float, string and bool
      (fn [k v vk]
@@ -2312,13 +2356,11 @@
          (if (= k :int)
            (if (= vk :bool) (php/to-int v)
                (if (= vk :float)
-                 (if (= (php/to-float (php/to-int v)) v) (php/to-int v) :php/undef)
+                 (php/float-to-int-weak v nil)
                  (let [r (php/numeric-string v)]
                    (if (php/full-num? r)
                      (if (php/int? (get r 1)) (get r 1)
-                         (if (= (php/to-float (php/to-int (get r 1))) (get r 1))
-                           (php/to-int (get r 1))
-                           :php/undef))
+                         (php/float-to-int-weak (get r 1) v))
                      :php/undef))))
            (if (= k :float)
              (if (= vk :bool) (php/to-float v)
@@ -2333,16 +2375,54 @@
        (if (= (get t :t) :union)
          (let [exact (php/union-exact (get t :of) v 0 (data/count (get t :of)))]
            (if (= exact :php/undef)
-             (php/union-coerce (get t :of) v strict 0 (data/count (get t :of)))
+             (let [ns (if (if strict false (php/string? v)) (php/union-numeric-string (get t :of) v) :php/undef)]
+               (if (= ns :php/undef)
+                 (php/union-coerce (get t :of) v strict 0 (data/count (get t :of)))
+                 ns))
              exact))
          (php/coerce-one t v strict)))]
+    [php/member-exact?
+     ;; `v` is the value type member `m` names, without coercion
+     (fn [m v]
+       (let [k (get m :t)]
+         (if (= k :mixed) true
+             (if (= k :false) (= v false)
+                 (if (= k :true) (= v true)
+                     (if (= k :class)
+                       (if (= (php/kind v) :obj) (php/instance-of v (php/lc (get m :name))) false)
+                       (if (= k :callable)
+                         (php/callable? v)
+                         (if (= k :iterable)
+                           (if (= (php/kind v) :array)
+                             true
+                             (if (= (php/kind v) :obj) (php/instance-of v "traversable") false))
+                           (= k (php/kind v))))))))))]
     [php/union-exact
      (fn [ts v i n]
        (if (< i n)
          (let [m (get ts i)]
-           (if (= (get m :t) (php/kind v)) v
-               (if (= (get m :t) :mixed) v (php/union-exact ts v (+ i 1) n))))
+           (if (php/member-exact? m v) v (php/union-exact ts v (+ i 1) n)))
          :php/undef))]
+    [php/union-has?
+     (fn [ts k i]
+       (if (< i (data/count ts))
+         (if (= (get (get ts i) :t) k) true (php/union-has? ts k (+ i 1)))
+         false))]
+    [php/union-numeric-string
+     ;; PHP 8.3 weak mode: a numeric string picks the int or the float member by
+     ;; its own form, whatever the declaration order; :php/undef when no rule fits
+     (fn [ts v]
+       (let [r (php/numeric-string v)]
+         (if (php/full-num? r)
+           ;; an integer literal past int64 parses as a float: classify by the value
+           (if (php/int? (get r 1))
+             (if (php/union-has? ts :int 0)
+               (get r 1)
+               (if (php/union-has? ts :float 0) (php/to-float (get r 1)) :php/undef))
+             (if (php/union-has? ts :float 0)
+               (get r 1)
+               (if (php/union-has? ts :int 0) (php/float-to-int-weak (get r 1) v) :php/undef)))
+           :php/undef)))]
     [php/union-coerce
      (fn [ts v strict i n]
        (if (< i n)
@@ -2358,7 +2438,7 @@
        (if (= (get t :t) :mixed) true
            (if (= (get t :t) :union)
              (not (= (php/union-exact (get t :of) v 0 (data/count (get t :of))) :php/undef))
-             (= (get t :t) (php/kind v)))))]
+             (php/member-exact? t v))))]
     [php/ref-add-source
      ;; rows 41 and 45. The value must be assignable to the new source's type
      ;; (else "Cannot assign"); a reference that already has sources then
@@ -2573,10 +2653,13 @@
          (assoc s :vis vis :declaring declaring :id (php/prop-id vis declaring (get s :name)))))]
     [php/make-static
      (fn [declaring s]
-       (assoc s :vis (php/or-default (get s :vis) :public) :declaring declaring
-              :cell (cell/new (if (nil? (get s :thunk))
-                                (php/or-default (get s :default) :php/null)
-                                ((get s :thunk))))))]
+       (let [e (assoc s :vis (php/or-default (get s :vis) :public) :declaring declaring)]
+         (assoc e :cell
+                (cell/new (if (nil? (get s :thunk))
+                            (if (nil? (get s :default))
+                              :php/null
+                              (php/default-for e (get s :default)))
+                            (php/default-for e ((get s :thunk))))))))]
     [php/class-static-cell
      (fn [c name]
        (let [e (php/vfind (get c :static-props) :name name 0)]
@@ -2899,6 +2982,17 @@
              (data/str-concat fname "(): Argument #" (php/to-string idx) " ($" pname ") must be of type "
                               (php/type-str type) ", " (php/given-name v) " given"))
            r)))]
+    [php/param-default
+     ;; a declared default is held to the type like a property default: exact,
+     ;; with int widening to float
+     (fn [v type fname idx pname]
+       (let [r (php/type-accepts type v true)]
+         (if (= r :php/undef)
+           (php/throw-error
+             "Error"
+             (data/str-concat "Cannot use " (php/given-name v) " as default value for parameter $"
+                              pname " of type " (php/type-str type)))
+           r)))]
     [php/coerce-return
      (fn [v type fname]
        (let [r (php/type-accepts type v (cell/get php.rt/strict))]
@@ -3173,6 +3267,20 @@
                                         (php/type-name (php/kind c))))
            :php/null))]
     ;; ---- construction (row 53): resolve and refuse, create, then run the constructor
+    [php/default-for
+     ;; a typed property's default must already be of the type (an int may
+     ;; widen to float); no weak coercion, as PHP checks it at compile time
+     (fn [e v]
+       (if (nil? (get e :type))
+         v
+         (let [r (php/type-accepts (get e :type) v true)]
+           (if (= r :php/undef)
+             (php/throw-error
+               "Error"
+               (data/str-concat "Cannot use " (php/given-name v) " as default value for property "
+                                (get e :declaring) "::$" (get e :name) " of type "
+                                (php/type-str (get e :type))))
+             r))))]
     [php/init-props
      (fn [props decls i n]
        (if (< i n)
@@ -3181,8 +3289,8 @@
              (if (nil? (get e :thunk))
                (if (nil? (get e :default))
                  (if (= (get e :typed?) true) props (php/table-set props (get e :id) :php/null))
-                 (php/table-set props (get e :id) (get e :default)))
-               (php/table-set props (get e :id) ((get e :thunk))))
+                 (php/table-set props (get e :id) (php/default-for e (get e :default))))
+               (php/table-set props (get e :id) (php/default-for e ((get e :thunk)))))
              decls (+ i 1) n))
          props))]
     [php/instantiate
@@ -4241,9 +4349,20 @@
     [php/bi-set-exception-handler
      (fn [args]
        (let [old (cell/get php.rt/exception-handler)]
-         (do (cell/set! php.rt/exception-handler (get args 0)) old)))]
+         (do (cell/set! php.rt/exception-handlers
+                        (php/vconj (cell/get php.rt/exception-handlers) old))
+             (cell/set! php.rt/exception-handler (get args 0))
+             old)))]
     [php/bi-restore-exception-handler
-     (fn [args] (do (cell/set! php.rt/exception-handler :php/null) true))]
+     ;; back to the handler in force before the last `set_exception_handler`
+     (fn [args]
+       (let [stack (cell/get php.rt/exception-handlers)
+             n (data/count stack)]
+         (do (if (= n 0)
+               (cell/set! php.rt/exception-handler :php/null)
+               (do (cell/set! php.rt/exception-handler (get stack (- n 1)))
+                   (cell/set! php.rt/exception-handlers (php/args-prefix stack (- n 1) 0 []))))
+             true)))]
     [php/handle-uncaught
      ;; the user exception handler takes an uncaught throwable; the script then ends
      (fn [exc]
@@ -4416,6 +4535,7 @@
                  (define 'php.rt/finalizable '(cell/new []))
                  (define 'php.rt/strict '(cell/new false))
                  (define 'php.rt/exception-handler '(cell/new :php/null))
+                 (define 'php.rt/exception-handlers '(cell/new []))
                  (define 'php.rt/class-order '(cell/new []))
                  (define 'php.rt/shutdown-fns '(cell/new []))
                  (define 'php.rt/pending-exc '(cell/new :php/null))
@@ -4470,7 +4590,7 @@
 (def runtime-keys
   "Every key `php/init!` allocates, the ready flag aside, sorted."
   '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
-    php.rt/class-order php.rt/exception-handler php.rt/finalizable php.rt/pending-exc
+    php.rt/class-order php.rt/exception-handler php.rt/exception-handlers php.rt/finalizable php.rt/pending-exc
     php.rt/shutdown-fns php.rt/strict
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord

@@ -193,7 +193,7 @@
    (fx :exc-user-ctor-override :exceptions-v1 [] #{:p4-s4}
        (str "<?php class E extends Exception { function __construct($m) { parent::__construct('x' . $m); } }"
             " try { throw new E('abc'); } catch (E $e) { echo $e->getMessage(); }")
-       "xabc")
+       nil)
    (fx :exc-line-number :exceptions-v1 [] #{:p4-s4}
        "<?php\n\ntry { throw new Exception('x'); } catch (Exception $e) { echo $e->getLine(); }"
        "3")
@@ -273,7 +273,7 @@
        (str "<?php class D { public $x = 1; } class C { public readonly D $d;"
             " function __construct() { $this->d = new D; } }"
             " $c = new C; $c->d->x = 5; echo $c->d->x;")
-       "5")
+       nil)
    (fx :ro-nested-array-write-refused :readonly-v1 [66] #{:p4-s3}
        (str "<?php class C { public readonly array $a; function __construct() { $this->a = [1]; } }"
             " $c = new C; try { $c->a[0] = 2; } catch (Error $e) { echo $e->getMessage(); }")
@@ -283,7 +283,7 @@
 (def f3-v1
   [(fx :f3-unset-destructs :f3-v1 [48] #{:p4-s3}
        "<?php class A { function __destruct() { echo 'D'; } } $a = new A; unset($a); echo 'x';"
-       "Dx")
+       nil)
    (fx :f3-reassign-destructs :f3-v1 [48] #{:p4-s3}
        "<?php class A { function __destruct() { echo 'D'; } } $a = new A; $a = null; echo 'x';"
        "Dx")
@@ -350,19 +350,19 @@
    (fx :f3-shutdown-function-runs-first :f3-v1 [22] #{:p4-s3}
        (str "<?php class A { function __destruct() { echo 'D'; } }"
             " $a = new A; register_shutdown_function(function () { echo 'S'; }); echo 'x';")
-       "xSD")
+       nil)
    (fx :f3-shutdown-functions-in-order :f3-v1 [22] #{:p4-s3}
        (str "<?php register_shutdown_function(function () { echo 'a'; });"
             " register_shutdown_function(function () { echo 'b'; }); echo 'x';")
-       "xab")
+       nil)
    (fx :f3-shutdown-function-registers-another :f3-v1 [22] #{:p4-s3}
        (str "<?php register_shutdown_function(function () {"
             " echo 'a'; register_shutdown_function(function () { echo 'c'; }); });"
             " register_shutdown_function(function () { echo 'b'; }); echo 'x';")
-       "xabc")
+       nil)
    (fx :f3-shutdown-function-arguments :f3-v1 [22] #{:p4-s3}
        "<?php register_shutdown_function(function ($m, $n) { echo $m, $n; }, 'p', 'q'); echo 'x';"
-       "xpq")
+       nil)
    (assoc (fx :f3-shutdown-after-uncaught :f3-v1 [22] #{:p4-s3}
               "<?php register_shutdown_function(function () { echo 'S'; }); throw new Exception('e');"
               nil)
@@ -375,7 +375,7 @@
    (`called in FILE on line N`) are not printed: the fixtures print the class."
   [(fx :decl-param-coerces-weak :declarations-v1 [] #{:p4-s5}
        "<?php function f(int $x) { var_dump($x); } f('5'); f(5.0); f(true);"
-       nil)
+       "int(5)\nint(5)\nint(1)\n")
    (fx :decl-param-rejects-string :declarations-v1 [] #{:p4-s5}
        "<?php function f(int $x) { return $x; } try { f('x'); } catch (TypeError $e) { echo get_class($e); }"
        "TypeError")
@@ -385,24 +385,24 @@
        "TypeError")
    (fx :decl-param-strict-widens-int-to-float :declarations-v1 [] #{:p4-s5}
        "<?php declare(strict_types=1); function f(float $x) { var_dump($x); } f(5);"
-       nil)
+       "float(5)\n")
    (fx :decl-weak-coerces-numeric-string-strict-rejects :declarations-v1 [] #{:p4-s5}
        "<?php function f(int $x) { return $x + 1; } echo f('5');"
        "6")
    (fx :decl-nullable-and-default-null :declarations-v1 [] #{:p4-s5}
        (str "<?php function f(?int $a, int $b = null) { var_dump($a, $b); } f(null); f(1, 2);"
             " try { (function (int $x) {})(null); } catch (TypeError $e) { echo 'T'; }")
-       nil)
+       "NULL\nNULL\nint(1)\nint(2)\nT")
    (fx :decl-union-prefers-exact :declarations-v1 [] #{:p4-s5}
        "<?php function f(int|string $x) { var_dump($x); } f('5'); f(5); f(5.0);"
-       nil)
+       "string(1) \"5\"\nint(5)\nint(5)\n")
    (fx :decl-class-type :declarations-v1 [] #{:p4-s5}
        (str "<?php class A {} class B extends A {} function f(A $a) { return get_class($a); }"
             " echo f(new B); try { f(new stdClass); } catch (TypeError $e) { echo get_class($e); }")
        "BTypeError")
    (fx :decl-return-coerces :declarations-v1 [] #{:p4-s5}
        "<?php function f(): int { return '7'; } var_dump(f());"
-       nil)
+       "int(7)\n")
    (fx :decl-return-rejects :declarations-v1 [] #{:p4-s5}
        (str "<?php function f(): int { return 'x'; }"
             " try { f(); } catch (TypeError $e) { echo $e->getMessage(); }")
@@ -413,14 +413,14 @@
        "f(): Return value must be of type int, none returned")
    (fx :decl-void-return :declarations-v1 [] #{:p4-s5}
        "<?php function f(): void { echo 'v'; return; } var_dump(f());"
-       nil)
+       "vNULL\n")
    (fx :decl-method-return-message :declarations-v1 [] #{:p4-s5}
        (str "<?php class A { function m(): int { return 'x'; } }"
             " $a = new A; try { $a->m(); } catch (TypeError $e) { echo $e->getMessage(); }")
        "A::m(): Return value must be of type int, string returned")
    (fx :decl-property-coerces :declarations-v1 [] #{:p4-s5}
        "<?php class A { public int $n = 0; } $a = new A; $a->n = '5'; var_dump($a->n);"
-       nil)
+       "int(5)\n")
    (fx :decl-property-rejects :declarations-v1 [] #{:p4-s5}
        (str "<?php class A { public int $n = 0; } $a = new A;"
             " try { $a->n = 'x'; } catch (TypeError $e) { echo $e->getMessage(); }")
@@ -436,11 +436,11 @@
    (fx :decl-property-reference-keeps-type :declarations-v1 [41 42] #{:p4-s5}
        (str "<?php class A { public int $n = 1; } $a = new A; $r = &$a->n;"
             " try { $r = 'x'; } catch (TypeError $e) { echo $e->getMessage(); } $r = '9'; var_dump($a->n);")
-       nil)
+       "Cannot assign string to reference held by property A::$n of type intint(9)\n")
    (fx :decl-promoted-typed :declarations-v1 [] #{:p4-s5}
        (str "<?php class P { function __construct(public int $x = 1, protected readonly string $s = 'a') {}"
             " function s() { return $this->s; } } $p = new P('7'); var_dump($p->x); echo $p->s();")
-       nil)
+       "int(7)\na")
    (fx :decl-promoted-readonly :declarations-v1 [66] #{:p4-s5}
        (str "<?php class P { function __construct(public readonly int $x) {} }"
             " $p = new P(3); try { $p->x = 4; } catch (Error $e) { echo $e->getMessage(); }")
@@ -448,7 +448,7 @@
    (fx :decl-closure-types :declarations-v1 [] #{:p4-s5}
        (str "<?php $f = function (int $x): int { return $x * 2; }; echo $f('4');"
             " $g = fn(int $x) => $x + 1; var_dump($g('5'));")
-       nil)
+       "8int(6)\n")
    (fx :decl-error-handler-throws-error-exception :declarations-v1 [] #{:p4-s5}
        (str "<?php set_error_handler(function ($no, $str) { throw new ErrorException($str, 0, $no); });"
             " $a = []; try { echo $a['k']; } catch (ErrorException $e) { echo get_class($e), $e->getSeverity(); }")
@@ -457,6 +457,90 @@
        (str "<?php set_exception_handler(function ($e) { echo 'H', $e->getMessage(); });"
             " echo 'a'; throw new Exception('m'); echo 'never';")
        "aHm")
+   (assoc (fx :decl-float-fraction-to-int-param :declarations-v1 [] #{:p4-s5}
+              "<?php function f(int $x) { var_dump($x); } f(5.9); f('5.5');"
+              "int(5)\nint(5)\n")
+          :diag [[8192 "Implicit conversion from float 5.9 to int loses precision"]
+                 [8192 "Implicit conversion from float-string \"5.5\" to int loses precision"]])
+   (fx :decl-float-out-of-range-int-param :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(int $x) { return $x; }"
+            " try { f(1e30); } catch (TypeError $e) { echo get_class($e); }")
+       "TypeError")
+   (fx :decl-byref-param-typed-coerces :declarations-v1 [] #{:p4-s5}
+       "<?php function f(int &$x) { var_dump($x); } $a = '5'; f($a); var_dump($a);"
+       "int(5)\nint(5)\n")
+   (fx :decl-byref-param-typed-rejects :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(int &$x) { return $x; } $b = 'x';"
+            " try { f($b); } catch (TypeError $e) { echo get_class($e); }")
+       "TypeError")
+   (fx :decl-false-type-is-not-bool :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(false $x) { return 1; } echo f(false);"
+            " try { f(true); } catch (TypeError $e) { echo get_class($e); }")
+       "1TypeError")
+   (fx :decl-exception-handler-restore-pops :declarations-v1 [] #{:p4-s5}
+       (str "<?php set_exception_handler(function ($e) { echo 'A'; });"
+            " set_exception_handler(function ($e) { echo 'B'; });"
+            " restore_exception_handler(); throw new Exception('m');")
+       "A")
+   (fx :decl-property-default-widens-int-to-float :declarations-v1 [] #{:p4-s5}
+       "<?php class A { public float $f = 1; } $a = new A; var_dump($a->f);"
+       "float(1)\n")
+   (fx :decl-property-default-null-nullable :declarations-v1 [] #{:p4-s5}
+       "<?php class A { public int|null $n = null; } $a = new A; var_dump($a->n);"
+       "NULL\n")
+   (fx :decl-byref-coercion-respects-property-type :declarations-v1 [41 45] #{:p4-s5}
+       (str "<?php class A { public int $x = 1; } function f(float &$p) { var_dump($p); }"
+            " $a = new A; try { f($a->x); } catch (TypeError $e) { echo get_class($e); } var_dump($a->x);")
+       "TypeErrorint(1)\n")
+   (fx :decl-byref-rejection-releases-ownership :declarations-v1 [48] #{:p4-s5}
+       (str "<?php class D { function __destruct() { echo 'D'; } } function f(int &$x) {}"
+            " $a = new D; try { f($a); } catch (TypeError $e) { echo 'c'; } unset($a); echo 'E';")
+       "cDE")
+   (fx :decl-union-literal-false-stays-false :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(int|false $x) { var_dump($x); } f(false);"
+            " function g(string|true $x) { var_dump($x); } g(true);")
+       "bool(false)\nbool(true)\n")
+   (fx :decl-union-numeric-string-order-independent :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(int|float $x) { var_dump($x); } function g(float|int $x) { var_dump($x); }"
+            " f('5.5'); g('5.5'); f('5'); g('5');")
+       "float(5.5)\nfloat(5.5)\nint(5)\nint(5)\n")
+   (fx :decl-static-property-default-widens :declarations-v1 [] #{:p4-s5}
+       "<?php class A { public static float $f = 1; } var_dump(A::$f);"
+       "float(1)\n")
+   (assoc (fx :decl-property-default-literal-mismatch-is-fatal :declarations-v1 [] #{:p4-s5}
+              "<?php class A { public int $x = 'bad'; } echo 'ran';"
+              nil
+              :oracle-only)
+          :note "compile-time Fatal error: Cannot use string as default value for property A::$x of type int")
+   (fx :decl-param-default-widens :declarations-v1 [] #{:p4-s5}
+       "<?php function f(float $x = 1) { var_dump($x); } f();"
+       "float(1)\n")
+   (assoc (fx :decl-param-default-literal-mismatch-is-fatal :declarations-v1 [] #{:p4-s5}
+              "<?php function f(int $x = 'bad') {} echo 'ran';"
+              nil
+              :oracle-only)
+          :note "compile-time Fatal error: Cannot use string as default value for parameter $x of type int")
+   (fx :decl-byref-class-type-accepts-property-value :declarations-v1 [41 45] #{:p4-s5}
+       (str "<?php class A {} class H { public A $p; function __construct() { $this->p = new A; } }"
+            " function f(A &$x) { return 1; } $h = new H; echo f($h->p);")
+       "1")
+   (fx :decl-byref-iterable-accepts-array-property :declarations-v1 [41 45] #{:p4-s5}
+       (str "<?php class H { public array $p = [1]; } function f(iterable &$x) { return 1; }"
+            " $h = new H; echo f($h->p);")
+       "1")
+   (fx :decl-byref-callable-accepts-callable-string-property :declarations-v1 [41 45] #{:p4-s5}
+       (str "<?php class H { public string $p = 'strlen'; } function f(callable &$x) { return 1; }"
+            " $h = new H; echo f($h->p);")
+       "1")
+   (fx :decl-union-overflowing-numeric-string-param :declarations-v1 [] #{:p4-s5}
+       (str "<?php function f(int|null $x) { var_dump($x); }"
+            " try { f('9223372036854775808'); } catch (TypeError $e) { echo get_class($e); }")
+       "TypeError")
+   (fx :decl-union-overflowing-numeric-string-property :declarations-v1 [] #{:p4-s5}
+       (str "<?php class A { public int|null $n = null; } $a = new A;"
+            " try { $a->n = '9223372036854775808'; } catch (TypeError $e) { echo get_class($e); }"
+            " var_dump($a->n);")
+       "TypeErrorNULL\n")
    (fx :decl-exception-handler-then-shutdown :declarations-v1 [22] #{:p4-s5}
        (str "<?php set_exception_handler(function ($e) { echo 'H'; });"
             " register_shutdown_function(function () { echo 'S'; }); throw new Exception('m');")
@@ -468,8 +552,10 @@
 
 (def recorded
   "Oracle RECORD values from shiva pass 6 (php-8.3.35, docker php:8.3-cli, branch
-   tip ec54182f), copied exactly from the pass log. :exc-user-ctor-override is
-   absent: pass 6 ran its earlier source (strtoupper), which has since changed."
+   tip ec54182f), copied exactly from the pass log, plus the seven pass-7
+   records (branch tip 56b622ad; :exc-user-ctor-override was absent from pass 6,
+   which ran its earlier strtoupper source). Withheld, escalated to the
+   Architect: :f3-shutdown-after-uncaught (see `awaiting-oracle`)."
   {:cls-new-and-method {:out "1", :diag [], :uncaught nil}
    :cls-static-prop-shared {:out "22", :diag [], :uncaught nil}
    :cls-static-prop-redeclared-unshared {:out "15", :diag [], :uncaught nil}
@@ -545,7 +631,14 @@
    :f3-clone-destructs-both {:out "DxDy", :diag [], :uncaught nil}
    :f3-clone-non-object {:out "__clone method called on non-object", :diag [], :uncaught nil}
    :f3-exception-caught-var-owns {:out "cxDy", :diag [], :uncaught nil}
-   :f3-exception-without-variable-destructs {:out "Dcx", :diag [], :uncaught nil}})
+   :f3-exception-without-variable-destructs {:out "Dcx", :diag [], :uncaught nil}
+   :exc-user-ctor-override {:out "xabc", :diag [], :uncaught nil}
+   :ro-nested-object-write-allowed {:out "5", :diag [], :uncaught nil}
+   :ro-nested-array-write-refused {:out "Cannot modify readonly property C::$a", :diag [], :uncaught nil}
+   :f3-shutdown-function-runs-first {:out "xSD", :diag [], :uncaught nil}
+   :f3-shutdown-functions-in-order {:out "xab", :diag [], :uncaught nil}
+   :f3-shutdown-function-registers-another {:out "xabc", :diag [], :uncaught nil}
+   :f3-shutdown-function-arguments {:out "xpq", :diag [], :uncaught nil}})
 
 
 (defn- pin
@@ -574,3 +667,57 @@
 (def enabled
   "The subset implementation runners execute."
   (vec (filter enabled? all-fixtures)))
+
+
+(def awaiting-oracle
+  "The enabled fixtures that are still `:oracle :pending`: the S5 declarations
+   not yet recorded by an oracle pass, and :f3-shutdown-after-uncaught, whose
+   pass-7 record (no shutdown function output after an uncaught exception)
+   contradicts the design's row 22 and is escalated to the Architect (17.3), not
+   folded. A fold shrinks this set; changing it is a reviewed edit (Architect
+   ruling on P4 activation: every enabled pending fixture is recorded before
+   its checkpoint closes)."
+  #{:decl-byref-class-type-accepts-property-value
+    :decl-byref-iterable-accepts-array-property
+    :decl-byref-callable-accepts-callable-string-property
+    :decl-union-overflowing-numeric-string-param
+    :decl-union-overflowing-numeric-string-property
+    :decl-byref-coercion-respects-property-type
+    :decl-byref-param-typed-coerces
+    :decl-byref-param-typed-rejects
+    :decl-byref-rejection-releases-ownership
+    :decl-class-type
+    :decl-closure-types
+    :decl-error-handler-throws-error-exception
+    :decl-exception-handler
+    :decl-exception-handler-restore-pops
+    :decl-exception-handler-then-shutdown
+    :decl-false-type-is-not-bool
+    :decl-float-fraction-to-int-param
+    :decl-float-out-of-range-int-param
+    :decl-method-return-message
+    :decl-nullable-and-default-null
+    :decl-param-coerces-weak
+    :decl-param-default-widens
+    :decl-param-rejects-string
+    :decl-param-strict-rejects-numeric-string
+    :decl-param-strict-widens-int-to-float
+    :decl-promoted-readonly
+    :decl-promoted-typed
+    :decl-property-coerces
+    :decl-property-default-null-nullable
+    :decl-property-default-widens-int-to-float
+    :decl-property-reference-keeps-type
+    :decl-property-rejects
+    :decl-property-strict
+    :decl-property-uninitialized-read
+    :decl-return-coerces
+    :decl-return-none-returned
+    :decl-return-rejects
+    :decl-static-property-default-widens
+    :decl-union-literal-false-stays-false
+    :decl-union-numeric-string-order-independent
+    :decl-union-prefers-exact
+    :decl-void-return
+    :decl-weak-coerces-numeric-string-strict-rejects
+    :f3-shutdown-after-uncaught})
