@@ -1,0 +1,288 @@
+(ns dao.stream.ws.tcp
+  "Jolt-only TCP substrate under the native WebSocket host adapter (J6d,
+   plan v2 §3; docs/design/yin.repl-jolt-implementation.md §9.3): nonblocking
+   stream sockets over `jolt.socket.native`, never the `jolt.socket` java.net
+   shim, whose write path waits for the socket to drain.
+
+   Every descriptor made here is nonblocking and close-on-exec, and carries
+   SIGPIPE suppression (SO_NOSIGPIPE on macOS from `new-socket` and
+   `guard-accepted!`, MSG_NOSIGNAL per send on Linux), so a write to a peer
+   that has gone answers an error instead of ending the process. An accepted
+   descriptor is made nonblocking explicitly: Linux does not inherit the
+   listener's mode.
+
+   Nothing here waits. Connect answers `:connecting` on EINPROGRESS and
+   `connect-result` reads SO_ERROR once the descriptor is writable; recv and
+   send are one transfer each (EINTR retried) answering data, never throwing
+   for a socket condition. End of stream, reset and broken pipe are distinct
+   classes.
+
+   Names: `parse-address` accepts IPv4 and IPv6 literals and `localhost`
+   (mapped to 127.0.0.1) and never calls the resolver (plan v2 A6); any
+   other host is `{:error :host-name-unsupported}`."
+  (:require
+    [clojure.string :as str]
+    [jolt.ffi :as ffi]
+    [jolt.socket.native :as native]))
+
+
+;; =============================================================================
+;; Addresses (plan v2 A6)
+;; =============================================================================
+
+(defn- literal
+  "{:family :ip} for the numeric literal `s`, the ip in its canonical
+   presentation form, or nil. inet_pton only; no resolver."
+  [s]
+  (some (fn [family]
+          (when-let [[sa _] (native/make-sockaddr family s 0)]
+            (try {:family family, :ip (native/sockaddr-ip sa)}
+                 (finally (ffi/free sa)))))
+        [native/af-inet native/af-inet6]))
+
+
+(defn- literal-shaped?
+  "Whether `s` reads as an attempted address literal rather than a name:
+   only digits and dots, or any colon."
+  [s]
+  (boolean (or (str/includes? s ":") (re-matches #"[0-9.]+" s))))
+
+
+(defn parse-address
+  "`{:family :ip :port}` for `host` and `port`, or `{:error kind}` with kind
+   `:host-name-unsupported` (a name other than localhost), `:malformed-address`
+   (a literal inet_pton refuses) or `:invalid-port`. A bracketed IPv6 literal
+   (`[::1]`) is accepted. Never resolves: names are decidable here and now."
+  [host port]
+  (let [h (when (string? host)
+            (if (and (str/starts-with? host "[") (str/ends-with? host "]"))
+              (subs host 1 (dec (count host)))
+              host))]
+    (cond
+      (not (and (int? port) (<= 0 port 65535))) {:error :invalid-port}
+      (or (nil? h) (str/blank? h)) {:error :malformed-address}
+      (= "localhost" (str/lower-case h)) {:family native/af-inet, :ip "127.0.0.1", :port port}
+      :else (if-let [lit (literal h)]
+              (assoc lit :port port)
+              {:error (if (literal-shaped? h) :malformed-address :host-name-unsupported)}))))
+
+
+(defn- with-sockaddr
+  "(f sa len) over a fresh sockaddr for a parsed address, freed after."
+  [{:keys [family ip port]} f]
+  (let [[sa len] (native/make-sockaddr family ip port)]
+    (try (f sa len) (finally (ffi/free sa)))))
+
+
+;; =============================================================================
+;; Error classes
+;; =============================================================================
+
+(defn error-class
+  "The class of socket error `e`: :reset, :broken-pipe, :refused,
+   :not-connected or :other. A reset and a broken pipe are both a peer that
+   has gone; they stay distinct for diagnostics."
+  [e]
+  (cond
+    (= e native/econnreset) :reset
+    (and native/epipe (= e native/epipe)) :broken-pipe
+    (= e native/econnrefused) :refused
+    (= e native/enotconn) :not-connected
+    :else :other))
+
+
+(defn- failure
+  [kind e]
+  {:error kind, :class (error-class e), :errno e, :message (native/error-message e)})
+
+
+;; =============================================================================
+;; Descriptors
+;; =============================================================================
+
+(defn close!
+  "Close `fd` once. EINTR is not retried: on Linux the descriptor is released
+   whatever close answers, and a retry could close a reused number."
+  [fd]
+  (native/c-close fd)
+  nil)
+
+
+(defn shutdown!
+  "shutdown(2) `fd` for :read, :write or :both; answers nil, ignoring
+   ENOTCONN (a peer that already went)."
+  [fd how]
+  (native/c-shutdown fd (case how :read native/shut-rd :write native/shut-wr native/shut-rdwr))
+  nil)
+
+
+(defn- nonblocking!
+  "O_NONBLOCK on `fd`; answers nil or the errno it failed with."
+  [fd]
+  (let [[r e] (native/set-blocking! fd false)]
+    (when (neg? r) e)))
+
+
+(defn- open-socket
+  "A fresh nonblocking, close-on-exec stream socket of `family`, or a
+   failure map."
+  [family]
+  (let [fd (try (native/new-socket family) (catch Throwable _ nil))]
+    (if (nil? fd)
+      {:error :socket-failed}
+      (if-let [e (nonblocking! fd)]
+        (do (close! fd) (failure :socket-failed e))
+        {:fd fd}))))
+
+
+(defn local-port
+  "The port `fd` is bound to (the kernel's pick after port 0), or -1."
+  [fd]
+  (native/local-port fd))
+
+
+(defn nonblocking?
+  "Whether `fd` has O_NONBLOCK set, read back with F_GETFL."
+  [fd]
+  (let [[flags _] (native/c-fcntl fd 3 0)]
+    (and (not (neg? flags))
+         (pos? (bit-and flags (if (= native/os :macos) 0x4 0x800))))))
+
+
+;; =============================================================================
+;; Listener
+;; =============================================================================
+
+(defn listen!
+  "A nonblocking listener on the parsed `addr` (`parse-address`):
+   `{:fd :port}` with the actual port, or a failure map (`:error`
+   `:bind-failed`/`:listen-failed`/`:socket-failed`). The descriptor is
+   closed on failure."
+  ([addr] (listen! addr 128))
+  ([addr backlog]
+   (let [{:keys [fd] :as opened} (open-socket (:family addr))]
+     (if-not fd
+       opened
+       (let [_ (native/set-listener-reuse! fd)
+             [rb eb] (with-sockaddr addr (fn [sa len] (native/c-bind fd sa len)))]
+         (if (neg? rb)
+           (do (close! fd) (failure :bind-failed eb))
+           (let [[rl el] (native/c-listen fd backlog)]
+             (if (neg? rl)
+               (do (close! fd) (failure :listen-failed el))
+               {:fd fd, :port (local-port fd)}))))))))
+
+
+;; One accept(2) each; the test seam (redefined by the probe only).
+(defn accept-once
+  [lfd sa lenp]
+  (native/c-accept lfd sa lenp))
+
+
+(defn accept!
+  "One nonblocking accept on listener `lfd`: `{:fd :peer}` for a connection,
+   explicitly nonblocking, close-on-exec, SIGPIPE-suppressed and
+   TCP_NODELAY; `:would-block` when none is pending; or a failure map
+   (`:error :accept-failed`). EINTR is retried."
+  [lfd]
+  (let [[sa lenp] (native/alloc-sockaddr)]
+    (try
+      (loop []
+        (let [[fd e] (accept-once lfd sa lenp)]
+          (cond
+            (not (neg? fd))
+            (if-let [e (nonblocking! fd)]
+              (do (close! fd) (failure :accept-failed e))
+              (do (native/guard-accepted! fd)
+                  (native/set-int-option! fd native/ipproto-tcp native/tcp-nodelay 1)
+                  {:fd fd
+                   :peer {:family (native/sockaddr-family sa)
+                          :ip (native/sockaddr-ip sa)
+                          :port (native/sockaddr-port sa)}}))
+            (native/eintr? e) (recur)
+            (native/eagain? e) :would-block
+            :else (failure :accept-failed e))))
+      (finally (ffi/free sa) (ffi/free lenp)))))
+
+
+;; =============================================================================
+;; Dialer
+;; =============================================================================
+
+(defn connect!
+  "Start a nonblocking connect to the parsed `addr`: `{:fd :state
+   :connected}`, `{:fd :state :connecting}` (EINPROGRESS: wait for the
+   descriptor to be writable, then `connect-result`), or a failure map
+   (`:error :connect-failed`), the descriptor closed. Never waits."
+  [addr]
+  (let [{:keys [fd] :as opened} (open-socket (:family addr))]
+    (if-not fd
+      opened
+      (let [[r e] (with-sockaddr addr (fn [sa len] (native/c-connect fd sa len)))]
+        (native/set-int-option! fd native/ipproto-tcp native/tcp-nodelay 1)
+        (cond
+          (not (neg? r)) {:fd fd, :state :connected}
+          ;; an interrupted connect carries on asynchronously, as EINPROGRESS
+          (or (native/connect-pending? e) (native/eintr? e)) {:fd fd, :state :connecting}
+          :else (do (close! fd) (failure :connect-failed e)))))))
+
+
+(defn connect-result
+  "The outcome of a connect that answered `:connecting`, read once its
+   descriptor is writable: `:connected` or a failure map (`:error
+   :connect-failed`, from SO_ERROR). Does not close the descriptor."
+  [fd]
+  (let [e (native/pending-error fd)]
+    (cond
+      (zero? e) :connected
+      (neg? e) {:error :connect-failed, :class :other, :errno -1, :message "SO_ERROR unreadable"}
+      :else (failure :connect-failed e))))
+
+
+;; =============================================================================
+;; Transfers
+;; =============================================================================
+
+;; One system call each, answering [result errno]. The chunk functions call
+;; them through these vars, which is the test-only indirection the J6d probe
+;; redefines to script short, EAGAIN and failing transfers. There is no
+;; production fault mode.
+
+(defn recv-once
+  [fd buf n]
+  (native/c-recv fd buf n 0))
+
+
+(defn send-once
+  [fd buf n]
+  (native/c-send fd buf n native/msg-nosignal))
+
+
+(defn recv-chunk!
+  "One recv of at most `cap` bytes into native `buf`: `{:n n}` (n > 0),
+   `:eof`, `:would-block`, or a failure map (`:error :recv-failed`, `:class`
+   :reset for ECONNRESET). EINTR is retried."
+  [fd buf cap]
+  (loop []
+    (let [[n e] (recv-once fd buf cap)]
+      (cond
+        (pos? n) {:n n}
+        (zero? n) :eof
+        (native/eintr? e) (recur)
+        (native/eagain? e) :would-block
+        :else (failure :recv-failed e)))))
+
+
+(defn send-chunk!
+  "One send of `n` bytes from native `buf`: `{:n accepted}` (possibly short,
+   possibly 0), `:would-block`, or a failure map (`:error :send-failed`,
+   `:class` :broken-pipe or :reset for a peer that has gone). EINTR is
+   retried."
+  [fd buf n]
+  (loop []
+    (let [[r e] (send-once fd buf n)]
+      (cond
+        (not (neg? r)) {:n r}
+        (native/eintr? e) (recur)
+        (native/eagain? e) :would-block
+        :else (failure :send-failed e)))))

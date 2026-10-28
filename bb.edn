@@ -52,6 +52,20 @@
    :task (System/exit
            (:exit (shell {:continue true} "sh" "src/dev/jolt_udp_probe.sh")))}
 
+  probe:jolt-tcp
+  {:doc "J6d: the jolt TCP substrate and owner-thread pump (dao.stream.ws.tcp, dao.stream.ws.pump, driver sleep-fds!), one child jolt process per section: closure (no jolt.socket), address (literals/localhost, resolver trap), substrate (port 0, nonblocking accept/connect, EOF vs reset, gone-peer write survives), ordered (A3 short write, drain order, failure), fairness (A1 ii/iv), stdin (A1 i, held partial line), deadline (A2 seam), control (A3 event orders, A4 pong budget, D1 close slot), close (A5, D2, D3), listener (64 cap, lower-deadlines!, drained?); native memory and registry empty after close. Arguments select sections (needs bb bootstrap:jolt)"
+   :task (let [sections (or (seq *command-line-args*)
+                            ["closure" "address" "substrate" "ordered" "fairness" "stdin"
+                             "deadline" "control" "close" "listener"])
+               results (mapv (fn [s]
+                               (println "== probe:jolt-tcp section" s)
+                               [s (:exit (shell {:continue true} "sh" "-c"
+                                                ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_tcp_probe.clj \"$1\""
+                                                "jolt" s))])
+                             sections)]
+           (println "probe:jolt-tcp exits" (pr-str results))
+           (System/exit (if (every? (comp zero? second) results) 0 1)))}
+
   build:jolt-native
   {:doc "Fetch (by pinned SHA-256, only when absent) and build the jolt-toolchain.edn :native sources with the mise-pinned CMake into build/native/<platform>/"
    :task (System/exit
