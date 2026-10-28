@@ -25,7 +25,7 @@ To safely "lift on park" and "lower on resume" across heterogeneous boundaries w
 # Universal Continuation Format — protocol draft
 
 Status: Phase 5 design draft, 2026-09-14; revised 2026-09-14 (r2) per the
-architectural review `collab/1789387292000-architect-ucf-review.gpt-6-astra.findings.md`;
+architectural review `archive/yin-ucf/1789387292000-architect-ucf-review.gpt-6-astra.findings.md`;
 amended 2026-09-14 (r3) by owner ruling — §7.3's canonical form is the
 positional instruction tuple vector, not EAV (§7.3.2).
 Amended 2026-09-25 (r4) for Rule R, `yin/def` is syntax, never a name

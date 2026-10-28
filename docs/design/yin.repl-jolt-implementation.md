@@ -45,9 +45,9 @@ and the JavaScript/Dart lexer-helper manifest patches. J2b closing is necessary
 for J5 acceptance, not sufficient. Slice states are in §10.1.
 
 This document consolidates the architect plan r7
-(`collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
+(`archive/jolt/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
 its independent review
-(`collab/1792427469000-architect-jolt-lane-plan-review-r7.claude-opus-5-5.findings.md`,
+(`archive/jolt/1792427469000-architect-jolt-lane-plan-review-r7.claude-opus-5-5.findings.md`,
 findings W1-W9) and the owner decisions of 2026-10-19. The four design points
 the review left open are ruled on in §13.4 (Architect, 2026-10-20; the owner
 may overrule). Later owner rulings are recorded in §13.5. The codec
@@ -56,7 +56,7 @@ document and keeps its own owner questions; this document states only J6's
 dependency on it (§9.4).
 
 Change note 2026-10-20 (Architect: claude-fable-5-1,
-`collab/1792454059000-architect-jolt-design-points.claude-fable-5-1.findings.md`):
+`archive/jolt/1792454059000-architect-jolt-design-points.claude-fable-5-1.findings.md`):
 §13.4 becomes "Architect rulings (owner may overrule)" and rules on the
 Transit require, the WebSocket substrate, the 1009/1006 expectation and the
 initial pin; §4.2, §4.4, §5, §6.4, §9.2-§9.4, §9.6, §10.1, §12, Appendix A and
@@ -66,7 +66,7 @@ owner-settled in §13.1 and removed from §13.3. Nothing else changed; nothing
 was commissioned.
 
 Change note 2026-10-20, later (Architect: claude-fable-5-1,
-`collab/1792454808000-architect-transit-decoupling.claude-fable-5-1.findings.md`):
+`archive/dao-stream/1792454808000-architect-transit-decoupling.claude-fable-5-1.findings.md`):
 the owner redirected ruling 1 with "we should rethink dependency on transit
 namespace. it should not require transit". Ruling 1 is replaced: no shared
 namespace requires `dao.stream.transit`; the portable domain moves to a
@@ -79,7 +79,7 @@ the owner's and is flagged, not decided: which codec profile the yin.repl
 network compositions select by default once no shared default exists.
 
 Change note 2026-10-20, third (Architect: claude-fable-5-1,
-`collab/1792455434000-architect-stream-codec-design.claude-fable-5-1.findings.md`):
+`archive/dao-stream/1792455434000-architect-stream-codec-design.claude-fable-5-1.findings.md`):
 the owner widened the requirement to peer codecs ("cbor and transit are peer
 encoding ... open to ... protocol buffers or apache arrow") and then separated
 the tracks ("the codec redesign should be independent of jolt design doc"). The
@@ -88,7 +88,7 @@ independent track that never mentions this one. Ruling 1 and slice T0 here are
 withdrawn; this document now states one dependency (J6 needs the codec track's
 C0-C4 landed; jolt requires nothing else of it) and the jolt-side consequences
 only (§9.4, §10.1). Three review corrections from gpt-6-astra
-(`collab/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md`)
+(`archive/jolt/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md`)
 are folded in: A4 (the 1009/1006 ruling asserts the diagnostic at the
 detecting endpoint and one terminal event plus sender-specific wire behaviour
 at the peer, not identical observables at both ends; §9.6, §13.4 ruling 3), A5
@@ -100,7 +100,7 @@ for non-strict results is not acceptance; §9.5, §9.6, J6 row). Astra's A1-A3
 concerned the withdrawn ruling-1 shape and are moot here.
 
 Change note 2026-10-20, fourth (Engineer: claude-opus-5-5, owner-directed,
-`collab/1792489765000-engineer-jolt-j0a-os-packages.claude-opus-5-5.findings.md`):
+`archive/jolt/1792489765000-engineer-jolt-j0a-os-packages.claude-opus-5-5.findings.md`):
 the owner decided "lets assume debian distribution and apt get for dependency
 management of package", then "yes to 1, 2, 3 and 4 as recommended". Linux
 means the Debian family with apt: host packages are declared in
@@ -132,7 +132,7 @@ Authorities:
   [build-n-test.md](../agents/build-n-test.md): test lanes, subsystem taxonomy
   and the shiva scratch-clone CI.
 - The spike:
-  `collab/1792412960461-engineer-jolt-yin-repl-spike.claude-opus-5-5.findings.md`
+  `archive/jolt/1792412960461-engineer-jolt-yin-repl-spike.claude-opus-5-5.findings.md`
   (evidence label S).
 
 ---
@@ -1694,7 +1694,7 @@ profile and others) belong to that track's document, not to this one.
 ### 13.4 Architect rulings (owner may overrule)
 
 Ruled 2026-10-20 by the Architect (claude-fable-5-1; rationale in
-`collab/1792454059000-architect-jolt-design-points.claude-fable-5-1.findings.md`)
+`archive/jolt/1792454059000-architect-jolt-design-points.claude-fable-5-1.findings.md`)
 on the four points the r7 review left open. Each ruling states its reasons,
 the falsifiable consequences the slices must show, and the condition that
 reverses it. The owner may overrule any of them; an overruling is recorded in
@@ -1842,7 +1842,7 @@ refresh brief `collab/1792740000000-engineer-jolt-design-refresh.codex.prompt.md
 ## Appendix A. Review findings and where this document handles them
 
 R1-R10 are the Opus review of r5
-(`collab/1792425688000-architect-jolt-lane-plan-review-r5.claude-opus-5-5.findings.md`),
+(`archive/jolt/1792425688000-architect-jolt-lane-plan-review-r5.claude-opus-5-5.findings.md`),
 as disposed of in r7. W1-W9 are the Opus review of r7.
 
 +---------+----------------------------------------------------------------------------------------+--------------------------------------------------------------------+
@@ -2009,7 +2009,7 @@ read-only `git log -1`, `git tag --contains`, `git describe --tags` and
 Reopened 2026-10-20, later, for the Transit decoupling and then the codec
 design (read only; `grep` over `src/` and `test/`; the codec design's own
 citations are in `dao.stream.codec.md` Appendix A). Also read:
-`collab/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md`
+`archive/jolt/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md`
 (A1-A5 and the Autobahn point).
 
 +------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------+

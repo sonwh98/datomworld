@@ -697,7 +697,7 @@ This plan was reviewed adversarially by two architects (`gpt-5.6-sol`,
 fix is a revision, not a redesign**. Both endorsed the W0–W2 extraction,
 the name, the refusal of `:resume`/queues/tasks, and the zero-diff
 substrate condition. The record is
-`collab/1789842300000-architect-dao-stream-waitset-consensus-report.md`.
+`archive/dao-stream/1789842300000-architect-dao-stream-waitset-consensus-report.md`.
 Each consensus item and where this revision resolves it:
 
 | # | Severity · gates | Item | Disposition |
