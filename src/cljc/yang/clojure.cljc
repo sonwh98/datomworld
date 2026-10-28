@@ -147,17 +147,267 @@
     :else (cons 'do body-forms)))
 
 
+;; =============================================================================
+;; Sequential destructuring (slice 3)
+;; =============================================================================
+;;
+;; A destructuring pattern lowers to ordinary symbol bindings over one
+;; evaluated temporary, walked with the VM's total primitives first/rest/
+;; empty? (the data module's `nth` is vector-only and refuses a list, but
+;; LaTTe terms are lists):
+;;
+;;   [a b & r :as w] against t
+;;   =>  a (first t)    c1 (rest t)
+;;       b (first c1)   c2 (rest c1)
+;;       r (if (empty? c2) nil c2)                        ; nthnext
+;;       w t
+;;
+;; A nil input, a missing element and an exhausted `&` tail all yield nil,
+;; as in Clojure. A non-nil remainder is a vector, the VM `rest` contract.
+;; Those primitives are bare names a local binding could shadow, so a
+;; destructuring form is rejected wherever first, rest or empty? is bound
+;; locally; a store definition of those names is not detectable here.
+;; Generated names carry the reserved `dsg__` prefix and derive from the
+;; binding's position, so lowering is deterministic.
+
+(def ^:private helper-names
+  (set (map symbol ["first" "rest" "empty?"])))
+
+
+(defn- locals
+  [env]
+  (::locals env #{}))
+
+
+(defn- with-locals
+  [env names]
+  (assoc env ::locals (into (locals env) (remove #(= '& %)) names)))
+
+
+(def ^:private reserved-prefix "dsg__")
+
+
+(defn- reject!
+  [message data]
+  (throw (ex-info message data)))
+
+
+(defn- reserved-name?
+  [sym]
+  (= reserved-prefix (subs (name sym) 0 (min (count (name sym))
+                                             (count reserved-prefix)))))
+
+
+(defn- check-binder!
+  "A binder is a plain symbol or a nested sequential pattern; anything else
+   (maps, keywords, literals) is outside the supported surface."
+  [b pattern]
+  (cond
+    (and (symbol? b) (nil? (namespace b)) (not= '& b))
+    (when (reserved-name? b)
+      (reject! "Binding name uses the reserved destructuring prefix"
+               {:binder b, :prefix reserved-prefix}))
+    (vector? b) nil
+    (map? b) (reject! "Map destructuring is not supported"
+                      {:binder b, :pattern pattern})
+    :else (reject! "Unsupported binding form" {:binder b, :pattern pattern})))
+
+
+(defn- parse-sequential-pattern
+  "Split a pattern vector into {:positional [...] :rest binder? :as sym?},
+   rejecting malformed shapes."
+  [pattern]
+  (loop [xs (seq pattern), positional [], rest-binder ::none, as-sym nil]
+    (if (nil? xs)
+      {:positional positional, :rest rest-binder, :as as-sym}
+      (let [x (first xs)]
+        (cond
+          (= '& x)
+          (do (when (not= ::none rest-binder)
+                (reject! "Pattern has more than one &" {:pattern pattern}))
+              (when (or (nil? (next xs)) (= :as (second xs)))
+                (reject! "& needs a binder" {:pattern pattern}))
+              (check-binder! (second xs) pattern)
+              (recur (nnext xs) positional (second xs) as-sym))
+          (= :as x)
+          (let [sym (second xs)]
+            (when-not (and (symbol? sym) (nil? (namespace sym)) (not= '& sym))
+              (reject! ":as needs a symbol" {:pattern pattern}))
+            (check-binder! sym pattern)
+            (when (nnext xs)
+              (reject! ":as must be last in a pattern" {:pattern pattern}))
+            (recur nil positional rest-binder sym))
+          (keyword? x)
+          (reject! "Unsupported keyword in pattern" {:keyword x, :pattern pattern})
+          :else
+          (do (when (not= ::none rest-binder)
+                (reject! "Only :as may follow the & binder" {:pattern pattern}))
+              (check-binder! x pattern)
+              (recur (next xs) (conj positional x) rest-binder as-sym)))))))
+
+
+(defn- first-form
+  [cursor meta-map]
+  (cond-> (list 'first cursor)
+    meta-map (with-meta meta-map)))
+
+
+(defn- rest-form
+  [cursor meta-map]
+  (cond-> (list 'rest cursor)
+    meta-map (with-meta meta-map)))
+
+
+(defn- nthnext-form
+  "Clojure's nthnext at a cursor: nil once exhausted, else the remainder."
+  [cursor meta-map]
+  (cond-> (list 'if (list 'empty? cursor) nil cursor)
+    meta-map (with-meta meta-map)))
+
+
+(defn- temp-symbol
+  [path meta-map]
+  (cond-> (symbol (str reserved-prefix path))
+    meta-map (with-meta meta-map)))
+
+
+(defn- destructure-sequential
+  "Flat [sym form ...] bindings destructuring `pattern` against symbol `t`.
+   A chain of cursors walks the value with first/rest; `path` names the
+   generated temporaries so nested patterns stay distinct."
+  [pattern t path]
+  (let [{:keys [positional rest as]} (parse-sequential-pattern pattern)
+        m (meta pattern)
+        n (count positional)
+        cursor (fn [i] (if (zero? i) t (temp-symbol (str path "c" i) m)))
+        bind (fn [out b form sub-path]
+               (if (vector? b)
+                 (let [sub (temp-symbol sub-path (meta b))]
+                   (-> out (conj sub form) (into (destructure-sequential b sub sub-path))))
+                 (conj out b form)))
+        out (reduce (fn [out [i b]]
+                      (cond-> (bind out b (first-form (cursor i) m) (str path "_" i))
+                        (or (< (inc i) n) (not= ::none rest))
+                        (conj (cursor (inc i)) (rest-form (cursor i) m))))
+                    []
+                    (map-indexed vector positional))
+        out (if (= ::none rest)
+              out
+              (bind out rest (nthnext-form (cursor n) m) (str path "_r")))]
+    (cond-> out
+      as (conj as t))))
+
+
+(defn- expand-bindings
+  "Rewrite a let binding vector so every target is a plain symbol: each
+   pattern becomes a temporary bound to its initializer, then the
+   destructuring bindings. Initializers keep their position, so earlier
+   bindings stay visible to later ones."
+  [bindings env]
+  (when-not (even? (count bindings))
+    (reject! "let requires an even number of forms in binding vector"
+             {:bindings bindings}))
+  (loop [pairs (partition 2 bindings), k 0, out [], bound (locals env)]
+    (if (empty? pairs)
+      out
+      (let [[target init] (first pairs)]
+        (cond
+          (and (symbol? target) (nil? (namespace target)))
+          (do (check-binder! target target)
+              (recur (rest pairs) (inc k) (conj out target init)
+                     (conj bound target)))
+          (vector? target)
+          (let [temp (temp-symbol k (meta target))
+                generated (destructure-sequential target temp (str k))
+                bound' (into bound (take-nth 2) generated)]
+            (when-let [hit (first (filter helper-names bound'))]
+              (reject! "Destructuring would be captured by a local binding"
+                       {:binder hit, :pattern target}))
+            (recur (rest pairs) (inc k)
+                   (-> out (conj temp init) (into generated))
+                   bound'))
+          :else (check-binder! target target))))))
+
+
+(defn- lower-fn-params
+  "Split fn params into fresh simple binders plus the let bindings that
+   destructure them. Variadic `&` at the top level is unsupported."
+  [params]
+  (when-not (vector? params)
+    (reject! "fn parameters must be a vector" {:params params}))
+  (reduce (fn [acc [i p]]
+            (when (= '& p)
+              (reject! "Variadic fn parameters are not supported" {:params params}))
+            (check-binder! p params)
+            (if (vector? p)
+              (let [fresh (temp-symbol (str "p" i) (meta p))]
+                (-> acc
+                    (update :params conj fresh)
+                    (update :bindings conj p fresh)))
+              (update acc :params conj p)))
+          {:params [], :bindings []}
+          (map-indexed vector params)))
+
+
+;; =============================================================================
+;; defn headers
+;; =============================================================================
+
+(defn- parse-defn
+  "Parse (defn name doc? attr-map? [params] body*) or a single-arity
+   (defn name doc? attr-map? ([params] body*)). Returns
+   {:name :meta :params :body}. Multi-arity is rejected: a Yin closure
+   nil-fills missing arguments and drops extras, so a guest closure cannot
+   observe the call's argument count."
+  [operator operands]
+  (let [[fn-name & more] operands
+        _ (when-not (and (symbol? fn-name) (nil? (namespace fn-name)))
+            (reject! (str operator " needs a plain symbol name") {:name fn-name}))
+        [doc more] (if (and (string? (first more)) (next more))
+                     [(first more) (rest more)]
+                     [nil more])
+        [attrs more] (if (and (map? (first more)) (next more))
+                       [(first more) (rest more)]
+                       [nil more])
+        header (cond-> (merge (meta fn-name) attrs)
+                 doc (assoc :doc doc)
+                 (= 'defn- operator) (assoc :private true))]
+    (cond
+      (vector? (first more))
+      {:name fn-name, :meta header, :params (first more), :body (rest more)}
+
+      (and (seq? (first more)) (vector? (ffirst more)))
+      (let [arities (take-while seq? more)]
+        (when (< 1 (count arities))
+          (reject! "Multi-arity fn is not supported: closures cannot observe argument count"
+                   {:name fn-name, :arities (count arities)}))
+        (when (seq (drop (count arities) more))
+          (when-not (and (map? (last more)) (= 1 (count (drop (count arities) more))))
+            (reject! "Unexpected forms after fn arities" {:name fn-name})))
+        {:name fn-name, :meta header
+         :params (ffirst more), :body (rest (first more))})
+
+      :else
+      (reject! (str "Malformed " operator " form") {:name fn-name}))))
+
+
+(declare compile-fn)
+
+
 (defn- compile-defn
   "Compile a defn form natively to a yin/def application: the tree the
    expander's standard `defn` also produces. This path is used only when no
    defmacro named defn is in scope."
-  [fn-name params body-forms env tail? macro-env]
-  (cond-> {:type :application
-           :operator {:type :variable, :name 'yin/def}
-           :operands [{:type :literal, :value fn-name}
-                      (compile-lambda params (body-expression body-forms)
-                                      env false macro-env)]}
-    tail? (assoc :tail? true)))
+  [operator operands env tail? macro-env]
+  (let [{fn-name :name, header :meta, :keys [params body]} (parse-defn operator operands)
+        ast (cond-> {:type :application
+                     :operator {:type :variable, :name 'yin/def}
+                     :operands [{:type :literal, :value (strip-symbol-meta fn-name)}
+                                (compile-fn params body env false macro-env)]}
+              tail? (assoc :tail? true))]
+    (if (seq header)
+      (vary-meta ast merge header)
+      ast)))
 
 
 (defn- compile-defmacro
@@ -216,9 +466,21 @@
   ([params body env tail?] (compile-lambda params body env tail? initial-macro-env))
   ([params body env tail? macro-env]
    (let [new-macro-env (shadow-macro-env macro-env params)
-         compiled-body (compile-form body true env new-macro-env)]
+         compiled-body (compile-form body true (with-locals env params) new-macro-env)]
      (cond-> {:type :lambda, :params (vec params), :body compiled-body}
        tail? (assoc :tail? true)))))
+
+
+(defn- compile-fn
+  "Compile (fn [params] body*) where params may hold sequential patterns:
+   each pattern parameter becomes a fresh simple binder, and the body is
+   wrapped in a let that destructures it."
+  [params body-forms env tail? macro-env]
+  (let [{simple :params, bindings :bindings} (lower-fn-params params)
+        body (body-expression body-forms)]
+    (compile-lambda simple
+                    (if (seq bindings) (list 'let bindings body) body)
+                    env tail? macro-env)))
 
 
 (defn compile-application
@@ -281,6 +543,9 @@
      tail? (assoc :tail? true))))
 
 
+(declare compile-let-simple)
+
+
 (defn compile-let
   "Compile a let binding to Universal AST.
 
@@ -290,17 +555,25 @@
   ((fn [x] ((fn [y] (+ x y)) 2)) 1)"
   ([bindings body env tail?] (compile-let bindings body env tail? initial-macro-env))
   ([bindings body env tail? macro-env]
-   (if (empty? bindings)
-     (compile-form body tail? env macro-env)
-     (let [[binding-name binding-value & rest-bindings] bindings
-           compiled-value (compile-form binding-value false env macro-env)
-           new-macro-env (shadow-macro-env macro-env [binding-name])
-           compiled-body (compile-let rest-bindings body env tail? new-macro-env)]
-       (cond-> {:type :application,
-                :operator
-                {:type :lambda, :params [binding-name], :body compiled-body},
-                :operands [compiled-value]}
-         tail? (assoc :tail? true))))))
+   (compile-let-simple (expand-bindings bindings env) body env tail? macro-env)))
+
+
+(defn- compile-let-simple
+  "compile-let over a binding vector whose targets are all plain symbols."
+  [bindings body env tail? macro-env]
+  (if (empty? bindings)
+    (compile-form body tail? env macro-env)
+    (let [[binding-name binding-value & rest-bindings] bindings
+          compiled-value (compile-form binding-value false env macro-env)
+          new-macro-env (shadow-macro-env macro-env [binding-name])
+          compiled-body (compile-let-simple rest-bindings body
+                                            (with-locals env [binding-name])
+                                            tail? new-macro-env)]
+      (cond-> {:type :application,
+               :operator
+               {:type :lambda, :params [binding-name], :body compiled-body},
+               :operands [compiled-value]}
+        tail? (assoc :tail? true)))))
 
 
 (defn compile-do
@@ -373,20 +646,16 @@
           (compile-dao-stream-apply-call op args env tail? macro-env))
         ;; Native defn fallback: used only when no defmacro defn is in scope
         ;; and the form actually matches defn syntax.
-        (and (= operator 'defn)
-             (not (contains? macro-env 'defn))
-             (<= 2 (count operands))
-             (vector? (second operands)))
-        (let [[fn-name params & body-forms] operands]
-          (compile-defn fn-name params body-forms env tail? macro-env))
+        (and (contains? #{'defn 'defn-} operator)
+             (not (contains? macro-env operator)))
+        (compile-defn operator operands env tail? macro-env)
 
         ;; Special forms
         :else
         (case operator
           ;; Lambda: (fn [params] body)
-          fn (let [[params & body] operands
-                   body-expr (if (= 1 (count body)) (first body) (cons 'do body))]
-               (compile-lambda params body-expr env tail? macro-env))
+          fn (let [[params & body] operands]
+               (compile-fn params body env tail? macro-env))
           ;; Conditional: (if test consequent alternate?)
           if (let [[test consequent alternate] operands]
                (compile-if test consequent alternate (> (count operands) 2) env tail? macro-env))
@@ -444,7 +713,7 @@
    (let [ast (compile-form* form tail? env macro-env)
          m (meta form)]
      (if (and m (seq m))
-       (with-meta ast m)
+       (vary-meta ast merge m)
        ast))))
 
 

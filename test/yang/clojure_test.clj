@@ -428,3 +428,131 @@
                      [x]
                      (+ x n)) adder))
                ((make-adder 2) 40)))))))
+
+
+;; =============================================================================
+;; Slice 3: sequential destructuring and defn headers
+;; =============================================================================
+
+(defn- rejected?
+  [form]
+  (try (yang/compile form) false
+       (catch clojure.lang.ExceptionInfo _ true)))
+
+
+(deftest test-sequential-destructuring-let
+  (testing "positional, missing elements and nil input"
+    (is (= [1 2] (compile-and-run '(let [[a b] [1 2]] [a b])))
+        "elements bind in order")
+    (is (= [1 nil] (compile-and-run '(let [[a b] [1]] [a b])))
+        "missing element is nil")
+    (is (= [nil nil] (compile-and-run '(let [[a b] nil] [a b])))
+        "nil input binds nils"))
+  (testing "& rest follows Clojure nil/sequence behavior"
+    (is (= [1 [2 3]] (compile-and-run '(let [[a & r] [1 2 3]] [a r]))))
+    (is (nil? (second (compile-and-run '(let [[a & r] [1]] [a r]))))
+        "exhausted tail is nil")
+    (is (nil? (second (compile-and-run '(let [[a & r] nil] [a r]))))))
+  (testing ":as keeps the whole value"
+    (is (= [1 [1 2]] (compile-and-run '(let [[a :as w] [1 2]] [a w]))))
+    (is (= [1 [2] [1 2]]
+           (compile-and-run '(let [[a & r :as w] [1 2]] [a r w])))))
+  (testing "nested patterns, including a nested & pattern"
+    (is (= [1 2 3] (compile-and-run '(let [[a [b c]] [1 [2 3]]] [a b c]))))
+    (is (= [nil nil] (compile-and-run '(let [[[a] [b]] nil] [a b]))))
+    (is (= [2 3] (compile-and-run '(let [[_ & [b c]] [1 2 3]] [b c])))))
+  (testing "initializer is evaluated exactly once"
+    (is (= [1 1] (compile-and-run
+                   '(let [n 0
+                          [a b] (do [(+ n 1) (+ n 1)])]
+                      [a b])))))
+  (testing "initializers see earlier bindings; shadowing"
+    (is (= [3 4] (compile-and-run '(let [[a b] [1 2] [c d] [(+ a b) (+ b 2)]] [c d]))))
+    (is (= [2 1] (compile-and-run '(let [x 1 y 2 [x y] [y x]] [x y]))))
+    (is (= 5 (compile-and-run '(let [[a] [1] a (+ a 4)] a)))))
+  (testing "user bindings named like core functions are not rewritten"
+    (is (= [1 2] (compile-and-run '(let [[count nth] [1 2]] [count nth]))))
+    (is (= [2 1] (compile-and-run '(let [nth 1 [a b] [nth 2]] [b a]))))
+    (is (= 7 (compile-and-run '(let [nth 7] nth)))
+        "ordinary use of a shadowed core name is untouched")
+    (is (= 7 (compile-and-run '(let [first 7] first)))
+        "binding a name the lowering uses is fine when nothing destructures"))
+  (testing "a local binding the lowering would depend on is rejected, not captured"
+    (is (rejected? '(let [first 1 [a] [2]] a)) "outer let local")
+    (is (rejected? '(let [[a first] [1 2]] a)) "bound by the pattern itself")
+    (is (rejected? '(fn [rest [a]] a)) "fn param")
+    (is (rejected? '(let [empty? 1] (let [[a] [2]] a))) "enclosing scope")))
+
+
+(deftest test-sequential-destructuring-fn-params
+  (testing "fn params destructure after fresh simple binders"
+    (is (= 3 (compile-and-run '((fn [[a b]] (+ a b)) [1 2]))))
+    (is (= [1 2 [3]] (compile-and-run '((fn [x [y & z]] [x y z]) 1 [2 3]))))
+    (is (= [nil nil] (compile-and-run '((fn [[a b]] [a b]) nil)))))
+  (testing "argument order survives mixed simple and pattern params"
+    (is (= [1 2 3 4] (compile-and-run '((fn [a [b c] d] [a b c d]) 1 [2 3] 4)))))
+  (testing "defn params destructure"
+    (is (= 6 (compile-program-and-run
+               '((defn add3
+                   [[a b] c]
+                   (+ a b c))
+                 (add3 [1 2] 3)))))))
+
+
+(deftest test-destructuring-rejections
+  (testing "malformed and unsupported patterns are rejected explicitly"
+    (is (rejected? '(let [{:keys [a]} {:a 1}] a)) "map destructuring")
+    (is (rejected? '(let [[a &] [1]] a)) "& without binder")
+    (is (rejected? '(let [[a & b c] [1]] a)) "binder after rest")
+    (is (rejected? '(let [[a & b & c] [1]] a)) "two &")
+    (is (rejected? '(let [[a :as] [1]] a)) ":as without symbol")
+    (is (rejected? '(let [[:as w a] [1]] a)) ":as not last")
+    (is (rejected? '(let [[a :foo] [1]] a)) "unknown keyword")
+    (is (rejected? '(let [[1] [1]] 1)) "literal target")
+    (is (rejected? '(fn [a & r] a)) "variadic fn params")
+    (is (rejected? '(fn [{:keys [a]}] a)) "map param")
+    (is (rejected? '(let [dsg__0 1] dsg__0)) "reserved prefix")))
+
+
+(deftest test-defn-headers
+  (testing "docstring, attr-map and defn- compile and run"
+    (is (= 3 (compile-program-and-run
+               '((defn f
+                   "adds one"
+                   {:added 1}
+                   [x]
+                   (+ x 1))
+                 (f 2)))))
+    (is (= 3 (compile-program-and-run
+               '((defn- g
+                   [x]
+                   (+ x 1))
+                 (g 2)))))
+    (is (= 3 (compile-program-and-run
+               '((defn h
+                   ([x] (+ x 1)))
+                 (h 2))))
+        "a single-arity list form is accepted"))
+  (testing "header metadata is retained on the definition node"
+    (let [ast (yang/compile '(defn f
+                               "adds one"
+                               {:added 1}
+                               [x]
+                               x))]
+      (is (= "adds one" (:doc (meta ast))))
+      (is (= 1 (:added (meta ast)))))
+    (is (true? (:private (meta (yang/compile '(defn- g
+                                                [x]
+                                                x)))))))
+  (testing "multi-arity is rejected explicitly"
+    (is (rejected? '(defn f
+                      ([x] x)
+                      ([x y] y))))
+    (is (rejected? '(defn f))))
+  (testing "a user defmacro named defn still takes precedence"
+    (is (some? (yang/compile-program
+                 '((defmacro defn
+                     [& xs]
+                     xs) (defn f
+                           [x]
+                           x)))))))

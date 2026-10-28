@@ -155,9 +155,12 @@
 
 (defn- run-on-vm
   [forms call-form]
+  ;; `seq?` is a scaffold primitive until the guest collection library
+  ;; lands (slice 7)
   (let [registry (module/register-stream-module (stdlib-module))]
     (-> (tu/make-observer-session
-          (tu/create-vm {:modules registry}))
+          (tu/create-vm {:modules registry
+                         :primitives (assoc vm/primitives 'seq? seq?)}))
         (tu/queue-ast! (yang/compile-program (into [] (concat forms [call-form]))))
         tu/run-session
         :consumer
@@ -235,3 +238,39 @@
       ;; no invented namespaces, no caller-namespace leakage
       (is (not (some #(= "latte_kernel" (namespace %)) kws)))
       (is (not (some #(= "user" (namespace %)) kws))))))
+
+
+;; =============================================================================
+;; Slice 3: destructuring anchors now run in the C leg
+;; =============================================================================
+
+(defn- run-with-deps
+  "Compile the named upstream definitions (dependencies first) plus a call
+   through yang.clojure and run it on the VM; return the call's value."
+  [ns-sym dep-names fname args]
+  (let [forms (mapv #(get top-forms [ns-sym %]) dep-names)]
+    (run-on-vm forms (list* fname (map #(list 'quote %) args)))))
+
+
+(deftest test-oracle-slice3-destructuring-anchors
+  (testing "syntax/top-assumption: A (upstream) and C (yang.clojure on the VM) agree"
+    (doseq [t ['(Π [x :type] x)
+               '(Π [y [:ref A]] (Π [z :type] z))
+               'x
+               '(λ [x :type] x)
+               nil]]
+      (let [a ((upstream-fn 'latte-kernel.syntax/top-assumption) t)
+            c (run-with-deps 'latte_kernel.syntax '[prod? top-assumption]
+                             'top-assumption [t])]
+        (is (= a c) (str "top-assumption on " (pr-str t)))))
+    (testing "the anchor genuinely uses a nested destructuring let"
+      (is (some (fn [f]
+                  (and (seq? f) (= 'let (first f))
+                       (some vector? (take-nth 2 (second f)))))
+                (tree-seq coll? seq
+                          (get top-forms ['latte_kernel.syntax 'top-assumption]))))))
+  (testing "defenv/register-definition is multi-arity: rejected explicitly, never half-compiled"
+    (let [form (get top-forms ['latte_kernel.defenv 'register-definition])]
+      (is (contains? (classify-form form) :multi-arity))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Multi-arity"
+            (yang/compile-program [form]))))))
