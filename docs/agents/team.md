@@ -56,7 +56,8 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 | claude-api      | Metered: Anthropic API (balance per owner)  | Dedicated API credits. Reached through the `claude-cloud` wrapper script (Anthropic API endpoint); the wrapper name stays even though the billing lane is called claude-api. Reserved strictly for Fable until reset           |
 |                 |                                        | (Architect & security sign-offs). Do not assign general implementation or routine reviews.                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| cmd             | Flat: CommandCode.ai Go plan ($1/mo)   | Use freely within budget. Used to invoke any LLMs not directly listed in this table.                        |
+| cmd             | Flat: CommandCode.ai Go plan ($1/mo)   | Use freely within budget for LLMs not directly listed here. **Never use for                                 |
+|                 |                                        | Kimi models; use `kimi`.**                                                                                  |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Reserved strictly for Architectural Review roles. Do not assign implementation tasks.   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
@@ -65,6 +66,10 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 |                 |                                        | Cache hits are ~50x cheaper. Reserve for necessary work.                                                    |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | glm             | Flat: Pro yearly plan ($672/yr)        | Peak hours: weekdays 14:00-18:00 UTC+8. Schedule large jobs off-peak (50% rate).                            |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| kimi            | Flat: Kimi membership (Plus+)          | Invoke only through the dedicated `kimi` CLI. Rolling 5-hour and monthly quotas apply.                      |
+|                 |                                        | Pro unlocks Highspeed and 1M context for K3.x. **Never invoke Kimi models                                   |
+|                 |                                        | through `cmd`.**                                                                                            |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | muse            | Metered: Pay-by-token                  | Variable cost. Reserve for work worth the expense. Invoked only via `~/.local/bin/muse` with `muse-         |
 |                 |                                        | spark-1.3-contributor`.                                                                                     |
@@ -145,13 +150,24 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `mimo-v2.5-pro`             | Xiaomi 1.02T MoE text-only agentic model. **Best for:** Long chains| Text-only; can suffer "lost in the middle" in massive contexts and  |
 |                             | of thought, tool-calling, high-volume automation, and IDEs.        | spoil stable code. **Avoid for:** Verification-poor environments.   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `moonshotai/kimi-k2.7-code` | Extremely long context window tailored for SWE and long-horizon    | Niche ecosystem; less generalized reasoning outside of code.        |
-|                             | coding. **Best for:** Context-heavy frontend or terminal tasks.    | **Avoid for:** Core VM or indexing logic requiring broad            |
-|                             |                                                                    | theoretical knowledge.                                              |
+| `kimi-for-coding-highspeed` | K2.7 Code Highspeed; 5-6x faster output with 256K context.         | Uses about 3x quota; fixed thinking; Pro tier required. **Avoid     |
+|                             | **Best for:** Latency-sensitive routine coding and iteration.      | for:** 1M-context work or tasks needing adjustable reasoning.       |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `moonshotai/kimi-k3`        | Flagship 2.8T MoE; massive open-weight scale. **Best for:** Long-  | Higher hallucination rates on factual Q&A compared to top frontier  |
-|                             | horizon SWE tasks, multi-modal context (1M tokens), navigating     | models; potential inconsistency across benchmarks. **Avoid for:**   |
-|                             | vast codebases, and cost-efficient complex reasoning.              | Tasks requiring zero hallucination tolerance or strict verification.|
+| `k3.1-pro`                  | Latest 3T-class flagship; 1M context, image/video input, and       | Thinking is mandatory; regular output speed; 1M context requires    |
+|                             | strongest long-horizon agentic coding. **Best for:** Hardest       | Pro. **Avoid for:** Latency-sensitive loops (use Highspeed) or      |
+|                             | implementation, large refactors, architecture, and deep review.    | clients that cannot keep thinking enabled.                          |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `k3.1-pro-highspeed`        | Same K3.1 Pro capabilities with 2-3x faster output and 1M          | About 2x quota usage; Pro tier; accelerates model output, not       |
+|                             | context. **Best for:** Responsive complex coding, long-horizon     | tools. **Avoid for:** Quota-sensitive or tool-bound work where      |
+|                             | agents, and iterative difficult debugging.                         | regular K3.1 Pro has the same quality at lower quota cost.          |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `k3`                        | Previous 2.8T flagship; 1M context, image/video input, adjustable  | Superseded by K3.1 Pro; 1M uses about 2x the quota of K3 256K       |
+|                             | thinking. **Best for:** Large-codebase analysis, multi-file        | and requires Pro. **Avoid for:** Hardest tasks when K3.1 Pro is     |
+|                             | refactors, and long-document processing.                           | available, or small jobs that fit K3 256K.                          |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `k3-256k`                   | Same K3 results within 256K at about half the 1M-context quota.    | 256K limit; image input only, no video. **Avoid for:** Vast         |
+|                             | **Best for:** Routine features, code completion, Q&A, and small    | codebase contexts, long documents, or video-input tasks.            |
+|                             | edits.                                                             |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `muse-spark-1.3-contribute` | Extremely low cost; strong multi-step agentic tasks and 1M long-   | Trails frontier models on complex agent benchmarks (e.g. OSWorld);  |
 |                             | context retrieval. **Best for:** Open-source workflows, efficient  | restricted access to "max" reasoning; mixed coding consistency.     |
@@ -193,10 +209,11 @@ the [`Lead Engineering Orchestrator`](./roles/orchestrator.md).
 after the jolt lane's throughput review):
 
 - **The standing reviewer bench** is wider than the implementation bench:
-  `cmd` (flat, any model through it — routine slice reviews at trivial cost)
-  and `muse` (metered, reserve for high-stakes reviews) join the families
-  above as standing review destinations. The independence rule is unchanged:
-  the reviewer must be a different model family from the author.
+  `cmd` (flat, non-Kimi models only — routine slice reviews at trivial cost),
+  `kimi` (flat membership, native Kimi models only), and `muse` (metered,
+  reserve for high-stakes reviews) join the families above as standing review
+  destinations. The independence rule is unchanged: the reviewer must be a
+  different model family from the author.
 - **Parallel-lane scheduling**: when slice N lands on its branch, slice N+1's
   implementation dispatches immediately and slice N's review runs
   concurrently. Gate: review N must complete **before slice N+1 merges** — a

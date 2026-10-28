@@ -98,7 +98,7 @@ Every prompt starts with:
 ```text
 Created-GMT: <actual timestamp>
 Created-Local: <actual timestamp and named timezone>
-Coding-Agent: <claude|claude-cloud (claude-api lane)|codex|agy|glm|cmd|muse|deepseek|interactive>
+Coding-Agent: <claude|claude-cloud (claude-api lane)|codex|agy|glm|cmd|muse|deepseek|kimi|interactive>
 Session-ID: <exact caller UUID | pending (provider-generated) | not-applicable (interactive seat)>
 # Task: <name>
 Role: <constant role>
@@ -385,7 +385,7 @@ referencing the prior session's log path when continuing earlier work.
 ## Delegate Invocation Reference
 
 CLI flags, canonical recipes, and known quirks for every delegate CLI
-(claude, claude-cloud [the claude-api lane wrapper], glm, deepseek, muse, codex, cmd, agy) live in
+(claude, claude-cloud [the claude-api lane wrapper], glm, deepseek, muse, codex, cmd, agy, kimi) live in
 [`delegate-invocation-reference.md`](../delegate-invocation-reference.md),
 not here — read it before shelling out to any delegate CLI. It is reference
 material needed at the moment of dispatch, not on every orchestrator turn,

@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, cmd, agy)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, cmd, agy, kimi)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -35,8 +35,9 @@ provider's session store (Claude Code: match the custom title in the
 project JSONL within its configuration store — see below for AGY's
 equivalent), record an append-only provenance correction, and resume it.
 
-Codex, AGY, and Command Code don't accept a caller-selected ID for a new run in
-the installed versions — capture the generated ID immediately via structured output:
+Codex, AGY, Command Code, and Kimi Code don't accept a caller-selected ID for
+a new run in the installed versions — capture the generated ID immediately.
+Codex, AGY, and Command Code expose it via structured output:
 
 ```sh
 # Codex JSONL: first thread.started event
@@ -51,6 +52,10 @@ TASK_SESSION_ID="$(jq -r '.conversation_id' \
 TASK_SESSION_ID="$(jq -r 'select(.type == "result") | .sessionId' \
   collab/<timestamp>-<role>-<task>.<model>.stdout.log | tail -1)"
 ```
+
+For Kimi Code, record the new session's exact ID from
+`~/.kimi-code/session_index.jsonl` (or `$KIMI_CODE_HOME/session_index.jsonl`).
+Sessions are grouped by working directory under `~/.kimi-code/sessions/`.
 
 Fail the handoff if the extracted value is empty or `null`. Never use Codex
 `--ephemeral`, Command Code `--no-session`, or any provider's non-persistent
@@ -88,6 +93,8 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 | deepseek     | `~/.claude-deepseek`        | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | glm          | `~/.claude-glm`             | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.claude-muse`            | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
@@ -166,12 +173,14 @@ listed CLIs.
 |                | external/unsupported       |                            |                      |                            | `result.sessionId`   | `--session         |
 |                | models with no dedicated   |                            |                      |                            |                      | <id|path>`)        |
 |                | wrapper** (e.g.            |                            |                      |                            |                      |                    |
-|                | `moonshotai/kimi-k3`, `moo |                            |                      |                            |                      |                    |
-|                | nshotai/kimi-k2.7-code`,   |                            |                      |                            |                      |                    |
 |                | `qwen/qwen3.8-max`) —      |                            |                      |                            |                      |                    |
 |                | never for models a         |                            |                      |                            |                      |                    |
 |                | dedicated CLI already      |                            |                      |                            |                      |                    |
-|                | covers                     |                            |                      |                            |                      |                    |
+|                | covers; **never for Kimi** |                            |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `kimi`         | Moonshot AI; native Kimi   | `-m <model-alias>`         | `--agent <agent>` or | `-p` (auto permissions)    | no caller ID;        | `--session <id>`   |
+|                | K3.1 Pro / K3 families     |                            | `--agent-file        |                            | capture session ID   |                    |
+|                |                            |                            | <path>` (read-only)  |                            | from session index   |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 | `agy`          | Gemini, flat-rate;         | `--model <model> --effort  | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
 |                | `gemini-3.1-ultra`,        | <effort>`                  | --sandbox`           | --sandbox`                 | capture              | <id>`              |
@@ -186,6 +195,18 @@ accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and th
 `ANTHROPIC_AUTH_TOKEN`) and injects the official Anthropic API key to draw directly from metered cloud credits without
 interfering with `glm`, `muse`, or `deepseek`. Never convert a review command into an editing command unless the user explicitly
 authorized edits.
+
+**Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI,
+never through `cmd`. The managed 3.x aliases are `kimi-code/k3.1-pro`,
+`kimi-code/k3.1-pro-highspeed`, `kimi-code/k3`, and `kimi-code/k3-256k`; `-m`
+expects a configured model alias, not a bare model ID. Headless `-p` uses
+`auto` permissions by default and cannot be combined with `--plan`, `--yolo`,
+or `--auto`. For a read-only review, bind a read-only agent at session creation
+with `--agent <read-only-agent>` or `--agent-file <path>`; for implementation,
+omit those flags. Resume with `--session <id>` and the original `-m` alias;
+the bound agent is restored, so do not pass agent-selection flags on resume.
+Start a fresh session when changing models or thinking effort. K3.1 Pro models
+require thinking to remain enabled.
 
 > [!CAUTION]
 > **Never use the `--bare` flag with any CLI above.** It forces Claude Code to ignore user settings files,
@@ -207,9 +228,20 @@ $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
   > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 
-# Command Code
+# Command Code (non-Kimi models only)
 cmd -p -m <model> <review-or-implementation-flags> --output-format json < <prompt> \
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
+
+# Kimi Code — native CLI for every Kimi model; never use cmd
+# New implementation session; for a read-only review, add --agent <read-only-agent>.
+kimi -m kimi-code/k3.1-pro -p "Read <prompt> and complete it now." \
+  --output-format stream-json < /dev/null \
+  > collab/<timestamp>-<role>-<task>.kimi-k3.1-pro.stdout.log 2>&1
+
+# Kimi follow-up: exact generated ID, original model, new prompt and artifact.
+kimi --session <session-id> -m kimi-code/k3.1-pro \
+  -p "Read <follow-up-prompt> and complete it now." --output-format stream-json \
+  < /dev/null > collab/<timestamp>-<role>-<task>-r2.kimi-k3.1-pro.stdout.log 2>&1
 
 # Gemini / AGY
 # No --print-timeout: it is optional and defaults to 0 (wait until the turn
