@@ -1,0 +1,5 @@
+[mysqld]
+general_log=1
+general_log_file=/corpus/mysql-general.log
+log_output=FILE
+default-time-zone='+00:00'

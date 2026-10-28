@@ -73,6 +73,10 @@
    :prefixes ["world"]
    :layer 4}
 
+  {:name "dao.wordpress"
+   :prefixes ["dao.wordpress"]
+   :layer 4}
+
   ;; Development & Benchmarking Tooling
   {:name "dev"
    :prefixes ["affected" "affected-test" "cljd-agg"]

@@ -1,0 +1,52 @@
+# W0a corpus stack. The network is internal: outbound HTTP fails fast and those
+# failure paths are real corpus. The driver therefore runs INSIDE the network
+# (service `driver`); nothing is published to the host. MYSQL_IMAGE, PHP_IMAGE
+# and BB_IMAGE are pinned by digest in the run (run-corpus.sh records them).
+services:
+  db:
+    image: ${MYSQL_IMAGE:-mysql:8.4}
+    environment:
+      MYSQL_DATABASE: wp
+      MYSQL_USER: wp
+      MYSQL_PASSWORD: wp
+      MYSQL_ROOT_PASSWORD: root
+    command: ["--mysql-native-password=ON"]
+    volumes:
+      - ./mysql.cnf:/etc/mysql/conf.d/corpus.cnf:ro
+      - ${CORPUS_OUT}/raw:/corpus
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      interval: 3s
+      retries: 40
+  php:
+    build:
+      context: .
+      dockerfile: Dockerfile.php
+      args:
+        PHP_IMAGE: ${PHP_IMAGE:-php:8.3-cli}
+    depends_on:
+      db: {condition: service_healthy}
+    environment:
+      PHP_CLI_SERVER_WORKERS: "4"
+    command: ["php", "-S", "0.0.0.0:8080", "-t", "/var/www/html", "/router.php"]
+    volumes:
+      - ${WP_ROOT}:/var/www/html
+      - ./router.php:/router.php:ro
+      - ./db.php:/var/www/html/wp-content/db.php:ro
+      - ./wp-config.php:/var/www/html/wp-config.php:ro
+      - ${CORPUS_OUT}/raw:/corpus
+    networks: [internal]
+  driver:
+    image: ${BB_IMAGE:-babashka/babashka:latest}
+    profiles: [driver]
+    depends_on: [php]
+    working_dir: /driver
+    volumes:
+      - ./drive.clj:/driver/drive.clj:ro
+      - ${CORPUS_OUT}:/out
+    command: ["bb", "/driver/drive.clj", "http://php:8080", "/out"]
+    networks: [internal]
+networks:
+  internal:
+    internal: true
