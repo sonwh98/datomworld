@@ -34,33 +34,6 @@
 (declare compile-form compile-lambda)
 
 
-;; Strict fixed-point combinator specialized by function arity.
-;; For arity=1 this is the classic Z combinator:
-;; Z = λf. (λx. f (λv. x x v)) (λx. f (λv. x x v))
-(defn arity->z-combinator
-  [arity]
-  (let [params (mapv (fn [idx] (symbol (str "arg" idx))) (range arity))
-        recur-operands (mapv (fn [p] {:type :variable, :name p}) params)
-        recur-call {:type :application,
-                    :operator {:type :application,
-                               :operator {:type :variable, :name 'x},
-                               :operands [{:type :variable, :name 'x}]},
-                    :operands recur-operands}
-        recur-lambda {:type :lambda, :params params, :body recur-call}
-        x-lambda {:type :lambda,
-                  :params ['x],
-                  :body {:type :application,
-                         :operator {:type :variable, :name 'f},
-                         :operands [recur-lambda]}}]
-    {:type :lambda,
-     :params ['f],
-     :body {:type :application, :operator x-lambda, :operands [x-lambda]}}))
-
-
-(def Z-combinator
-  (arity->z-combinator 1))
-
-
 (defn literal?
   "Check if a value is a literal (self-evaluating)."
   [form]
@@ -145,6 +118,20 @@
     (empty? body-forms) nil
     (= 1 (count body-forms)) (first body-forms)
     :else (cons 'do body-forms)))
+
+
+(defn- mentions-recur?
+  "True when `form` holds a recur that could target the enclosing function:
+   quoted data and nested fn/loop/def forms own their own recurs."
+  [form]
+  (cond
+    (seq? form) (let [head (first form)]
+                  (cond
+                    (= 'recur head) true
+                    (contains? #{'quote 'fn 'loop 'defn 'defn- 'defmacro} head) false
+                    :else (boolean (some mentions-recur? form))))
+    (coll? form) (boolean (some mentions-recur? form))
+    :else false))
 
 
 ;; =============================================================================
@@ -443,6 +430,19 @@
       ast)))
 
 
+(defn- check-macro-params!
+  "Every macro parameter is a plain symbol outside the reserved prefix; an
+   & must be followed by exactly one binder."
+  [params]
+  (doseq [p params :when (not= '& p)]
+    (check-binder! p params)
+    (when-not (symbol? p)
+      (reject! "defmacro parameters must be plain symbols" {:params params})))
+  (when-let [i (first (keep-indexed (fn [i p] (when (= '& p) i)) params))]
+    (when-not (= (+ i 2) (count params))
+      (reject! "& needs exactly one binder in defmacro parameters" {:params params}))))
+
+
 (defn- compile-defmacro
   "Lower (defmacro name doc? attr-map? [params] body*) to ordinary
    (yin/def name (fn ...)) syntax. The lambda is flagged `:macro?` for the
@@ -453,6 +453,7 @@
         params (first more)
         _ (when-not (vector? params)
             (reject! "defmacro needs a parameter vector" {:name fn-name}))
+        _ (check-macro-params! params)
         header (merge (when doc {:doc doc}) attrs)
         ast (cond-> {:type :application
                      :operator {:type :variable, :name 'yin/def}
@@ -471,7 +472,7 @@
   [form]
   (and (seq? form)
        (symbol? (first form))
-       (contains? #{'fn 'if 'let 'quote 'do 'def 'dao.stream.apply/call 'defmacro} (first form))))
+       (contains? #{'fn 'if 'let 'quote 'do 'def 'dao.stream.apply/call 'defmacro 'loop 'recur} (first form))))
 
 
 (defn compile-literal
@@ -509,7 +510,10 @@
   ([params body env tail?] (compile-lambda params body env tail? initial-macro-env))
   ([params body env tail? macro-env]
    (let [new-macro-env (shadow-macro-env macro-env params)
-         compiled-body (compile-form body true (with-locals env params) new-macro-env)]
+         ;; a source fn boundary resets the recur target
+         compiled-body (compile-form body true
+                                     (with-locals (dissoc env ::target) params)
+                                     new-macro-env)]
      (cond-> {:type :lambda, :params (vec params), :body compiled-body}
        tail? (assoc :tail? true)))))
 
@@ -519,11 +523,17 @@
    each pattern parameter becomes a fresh simple binder, and the body is
    wrapped in a let that destructures it."
   [params body-forms env tail? macro-env]
-  (let [{simple :params, bindings :bindings} (lower-fn-params params)
-        body (body-expression body-forms)]
-    (compile-lambda simple
-                    (if (seq bindings) (list 'let bindings body) body)
-                    env tail? macro-env)))
+  (let [{simple :params, bindings :bindings} (lower-fn-params params)]
+    (if (some mentions-recur? body-forms)
+      ;; function-level recur: the body runs as a loop over the parameters,
+      ;; so a pattern parameter re-destructures on every iteration
+      (compile-lambda simple
+                      (list* 'loop (vec (interleave params simple)) body-forms)
+                      env tail? macro-env)
+      (let [body (body-expression body-forms)]
+        (compile-lambda simple
+                        (if (seq bindings) (list 'let bindings body) body)
+                        env tail? macro-env)))))
 
 
 ;; =============================================================================
@@ -576,11 +586,14 @@
 
 
 (defn- av-let
-  "(let [p0 (data/nth av 0) ...] body): positional parameters of one arity."
-  [params body]
-  (list 'let
-        (into [] (mapcat (fn [i p] [p (list 'data/nth av-sym i)]) (range) params))
-        body))
+  "(let [p0 (data/nth av 0) ...] body): positional parameters of one arity.
+   A body that recurs is a loop over the same bindings: one recur target per
+   arity."
+  [params body-forms]
+  (let [bindings (into [] (mapcat (fn [i p] [p (list 'data/nth av-sym i)]) (range) params))]
+    (if (some mentions-recur? body-forms)
+      (list* 'loop bindings body-forms)
+      (list 'let bindings (body-expression body-forms)))))
 
 
 (defn- av-dispatch
@@ -617,7 +630,7 @@
   (let [arities (mapv (fn [{:keys [params body]}]
                         (check-av-params! params)
                         {:n (count params)
-                         :form (av-let params (body-expression body))})
+                         :form (av-let params body)})
                       arities)]
     (compile-lambda [av-sym] (av-dispatch arities) env tail? macro-env)))
 
@@ -765,7 +778,10 @@
   "compile-let over a binding vector whose targets are all plain symbols."
   [bindings body env tail? macro-env]
   (if (empty? bindings)
-    (compile-form body tail? env macro-env)
+    ;; a function body is compiled in the scope the bindings built
+    (if (fn? body)
+      (body tail? env macro-env)
+      (compile-form body tail? env macro-env))
     (let [[binding-name binding-value & rest-bindings] bindings
           compiled-value (compile-form binding-value false env macro-env)
           new-macro-env (shadow-macro-env macro-env [binding-name])
@@ -802,6 +818,102 @@
            tail? (assoc :tail? true)))))))
 
 
+;; =============================================================================
+;; loop/recur through lexical self-application (slice 4)
+;; =============================================================================
+;;
+;;   (loop [a i1 b i2] body)
+;;   =>  (let [a i1 b i2]                         ; sequential initializers
+;;         (let [dsg__loop0 (fn [dsg__loop0 a b] body')]
+;;           (dsg__loop0 dsg__loop0 a b)))
+;;
+;; where body' replaces each (recur x y) with the tail application
+;; (dsg__loop0 dsg__loop0 x y). The worker receives itself, so it needs no
+;; fixed-point combinator, definition or cell. It is compiler-internal and
+;; never first-class, so it keeps the native calling convention under the
+;; argument-vector convention too. A pattern binder becomes a fresh simple
+;; worker parameter and the worker body re-destructures it on each
+;; iteration. The recur target rides in the env: loop installs it, a source
+;; fn boundary resets it, let/do/if pass it on unchanged, and recur is legal
+;; only in tail position with the target's operand count.
+
+(defn- check-top-level!
+  "Under the argument-vector convention the ::defined scan reads only
+   top-level heads, so a nested definition would dispatch against a name the
+   scan never saw."
+  [env top? operator]
+  (when (and (::convention env) (not top?))
+    (reject! (str operator " is only supported at the top level under the argument-vector convention")
+             {:operator operator})))
+
+
+(defn- compile-loop
+  [operands env tail? macro-env]
+  (let [[bindings & body-forms] operands]
+    (when-not (and (vector? bindings) (even? (count bindings)))
+      (reject! "loop requires an even-sized binding vector" {:bindings bindings}))
+    (let [outer (expand-bindings bindings env)
+          depth (::loop-depth env 0)
+          self (symbol (str reserved-prefix "loop" depth))
+          targets (map first (partition 2 bindings))
+          params (vec (map-indexed (fn [i t]
+                                     (if (vector? t)
+                                       (temp-symbol (str "lp" i) (meta t))
+                                       t))
+                                   targets))
+          args (vec (map-indexed (fn [i t]
+                                   (if (vector? t) (temp-symbol i (meta t)) t))
+                                 targets))
+          patterns (into [] (comp (map-indexed vector)
+                                  (filter (comp vector? second))
+                                  (mapcat (fn [[i t]] [t (params i)])))
+                         targets)
+          body-form (cond->> (body-expression body-forms)
+                      (seq patterns) (list 'let patterns))
+          worker-params (into [self] params)
+          build (fn [tail? env macro-env]
+                  (let [worker {:type :lambda
+                                :params worker-params
+                                :body (compile-form
+                                        body-form true
+                                        (with-locals
+                                          (assoc env
+                                                 ::target {:self self, :count (count params)}
+                                                 ::loop-depth (inc depth))
+                                          worker-params)
+                                        (shadow-macro-env macro-env params))}]
+                    (cond-> {:type :application
+                             :operator {:type :lambda
+                                        :params [self]
+                                        :body (cond-> {:type :application
+                                                       :operator (compile-variable self false)
+                                                       :operands (into [(compile-variable self false)]
+                                                                       (map #(compile-variable % false))
+                                                                       args)}
+                                                tail? (assoc :tail? true))}
+                             :operands [worker]}
+                      tail? (assoc :tail? true))))]
+      (compile-let-simple outer build env tail? macro-env))))
+
+
+(defn- compile-recur
+  [operands env tail? macro-env]
+  (let [{:keys [self], n :count} (::target env)]
+    (when-not self
+      (reject! "recur needs an enclosing loop or fn" {:operands operands}))
+    (when-not (= n (count operands))
+      (reject! "recur operand count differs from the loop bindings"
+               {:expected n, :operands (count operands)}))
+    (when-not tail?
+      (reject! "recur is only legal in tail position" {:operands operands}))
+    {:type :application
+     :operator (compile-variable self false)
+     :operands (into [(compile-variable self false)]
+                     (map #(compile-form % false env macro-env))
+                     operands)
+     :tail? true}))
+
+
 (defn compile-quote
   "Compile a quoted form to Universal AST.
 
@@ -827,7 +939,7 @@
 
   macro-env: compile-time map of defmacro names in scope. A macro call is an
   ordinary application; macro-env only stops the native defn lowering."
-  [form tail? env macro-env]
+  [form tail? env macro-env top?]
   (cond
     ;; Literals: constants self-evaluate; collections with dynamic elements
     ;; lower to constructor calls so their elements evaluate like Clojure
@@ -853,7 +965,8 @@
         ;; and the form actually matches defn syntax.
         (and (contains? #{'defn 'defn-} operator)
              (not (contains? macro-env operator)))
-        (compile-defn operator operands env tail? macro-env)
+        (do (check-top-level! env top? operator)
+            (compile-defn operator operands env tail? macro-env))
 
         ;; Special forms
         :else
@@ -872,6 +985,8 @@
                 (compile-let bindings body-expr env tail? macro-env))
           ;; Do block: (do expr1 expr2 ...)
           do (compile-do operands env tail? macro-env)
+          loop (compile-loop operands env tail? macro-env)
+          recur (compile-recur operands env tail? macro-env)
           ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
           ;; (and)       → true
           ;; (and x)     → x
@@ -896,9 +1011,12 @@
           ;; Quote: (quote form)
           quote (compile-quote (first operands) tail?)
           ;; Def: (def sym value)
-          def (let [[sym value] operands] (compile-def sym value env tail? macro-env))
+          def (let [[sym value] operands]
+                (check-top-level! env top? operator)
+                (compile-def sym value env tail? macro-env))
           ;; Macro definition: (defmacro name params & body)
-          defmacro (compile-defmacro operands env tail? macro-env)
+          defmacro (do (check-top-level! env top? operator)
+                       (compile-defmacro operands env tail? macro-env))
           ;; Function application: (f arg1 arg2 ...)
           (compile-application operator operands env tail? macro-env))))
     ;; Unknown form type
@@ -916,7 +1034,8 @@
   ([form env] (compile-form form false env initial-macro-env))
   ([form tail? env] (compile-form form tail? env initial-macro-env))
   ([form tail? env macro-env]
-   (let [ast (compile-form* form tail? env macro-env)
+   (let [ast (compile-form* form tail? (dissoc env ::top-level) macro-env
+                            (::top-level env))
          m (meta form)]
      (if (and m (seq m))
        (vary-meta ast merge m)
@@ -988,13 +1107,14 @@
                          tail? (assoc :tail? true)))
                      ;; single form
                      (= 1 (count forms))
-                     (compile-form head tail? env macro-env)
+                     (compile-form head tail? (assoc env ::top-level true) macro-env)
                      ;; sequence
                      :else
                      (cond-> {:type     :application
                               :operator {:type :lambda, :params ['_]
                                          :body (go rest-forms macro-env)}
-                              :operands [(compile-form head false env macro-env)]}
+                              :operands [(compile-form head false
+                                                       (assoc env ::top-level true) macro-env)]}
                        tail? (assoc :tail? true))))))]
        (go forms initial-macro-env)))))
 

@@ -13,6 +13,7 @@
             [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [clojure.tools.reader :as r]
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]
@@ -154,11 +155,18 @@
               (repeat pf)))))
 
 
+(def ^:private scaffold-primitives
+  "Pure host functions standing in for the guest collection library (slice 7)
+   as bare primitives; the loop/recur anchors need them."
+  {'seq? seq?, 'seq seq, 'reverse reverse, 'list list, 'second second
+   'symbol symbol, 'str str, 'contains? contains?, 'inc inc})
+
+
 (def ^:private arg-vector-opts
   "The argument-vector convention (slice 3b): primitives, plus the scaffold
-   `seq?`, are the statically native names."
+   primitives, are the statically native names."
   {:convention :arg-vector
-   :native (conj (set (keys vm/primitives)) 'seq?)})
+   :native (into (set (keys vm/primitives)) (keys scaffold-primitives))})
 
 
 (defn- run-on-vm
@@ -174,7 +182,7 @@
                       data/register-data-module)]
      (-> (tu/make-observer-session
            (tu/create-vm {:modules registry
-                          :primitives (assoc vm/primitives 'seq? seq?)}))
+                          :primitives (merge vm/primitives scaffold-primitives)}))
          (tu/queue-ast! (yang/compile-program
                           (into [] (concat forms [call-form])) true opts))
          tu/run-session
@@ -336,3 +344,97 @@
           (str "top-assumption on " (pr-str t))))
     (is (= ((upstream-fn 'latte-kernel.defenv/mkenv) [])
            (run-av-with-deps 'latte_kernel.defenv '[mkenv] 'mkenv [[]])))))
+
+
+;; =============================================================================
+;; Slice 4: loop/recur anchors, upstream A leg against the compiled C leg
+;; =============================================================================
+
+(defn- agree
+  "Run upstream `qsym` and the C leg (`deps` first, then the function) on
+   each argument vector and assert A = C."
+  [qsym ns-sym deps arg-lists]
+  (let [a-fn (upstream-fn qsym)
+        fname (symbol (name qsym))]
+    (doseq [args arg-lists]
+      (is (= (apply a-fn args)
+             (run-with-deps ns-sym deps fname args))
+          (str fname " on " (pr-str args))))))
+
+
+(deftest test-oracle-slice4-loop-anchors
+  (testing "utils/vconcat and utils/vcons: empty and non-empty, both orders"
+    (agree 'latte-kernel.utils/vconcat 'latte_kernel.utils '[vconcat]
+           [[[] []] [[] [1 2]] [[1 2] []] [[1 2] [3 4]] [[3 4] [1 2]] ['[[a]] '[[b] c]]])
+    (agree 'latte-kernel.utils/vcons 'latte_kernel.utils '[vconcat vcons]
+           [[1 []] [1 [2 3]] [[0] [1]] ['x ['y 'z]]]))
+  (testing "typing/ctx-fetch: found, not found, empty context, shadowed"
+    (agree 'latte-kernel.typing/ctx-fetch 'latte_kernel.typing '[ctx-fetch]
+           [['[[x A] [y B]] 'x]
+            ['[[x A] [y B]] 'y]
+            ['[[x A] [y B]] 'z]
+            ['[] 'x]
+            [nil 'x]
+            ['[[x A] [y B] [x C]] 'x]
+            ['[[y B] [x C] [x A]] 'x]
+            ['[[x [:ref A]]] 'x]]))
+  (testing "syntax/binderify: zero, one and three bindings"
+    (agree 'latte-kernel.syntax/binderify 'latte_kernel.syntax '[binderify]
+           [['λ [] 'body]
+            ['λ '[[x :type]] 'body]
+            ['Π '[[x :type] [y [:ref A]] [z :type]] '(f x y z)]]))
+  (testing "syntax/appify: zero, one and three arguments"
+    (agree 'latte-kernel.syntax/appify 'latte_kernel.syntax '[appify]
+           [['f []] ['f '[a]] ['f '[a b c]] ['[g h] '[a [b c]]]]))
+  (testing "syntax/assumptions: nil, non-product, one and two nested products"
+    (agree 'latte-kernel.syntax/assumptions 'latte_kernel.syntax
+           '[prod? top-assumption assumptions]
+           [[nil]
+            ['x]
+            ['(λ [x :type] x)]
+            ['(Π [x :type] x)]
+            ['(Π [x :type] (Π [y [:ref A]] z))]
+            ['(Π [x :type] (Π [y [:ref A]] (Π [z :type] z)))]])))
+
+
+(defn- case->if
+  "Interim lowering of the one `case` in mk-fresh: nested ifs over `=`. The
+   compiler has no `case` until a later slice; every other form is upstream."
+  [form]
+  (walk/postwalk
+    (fn [f]
+      (if (and (seq? f) (= 'case (first f)))
+        (let [[_ e & clauses] f]
+          (reduce (fn [else [k v]] (list 'if (list '= e k) v else))
+                  (last clauses)
+                  (reverse (partition 2 (butlast clauses)))))
+        f))
+    form))
+
+
+(deftest test-oracle-slice4-mk-fresh
+  (let [a-fn (upstream-fn 'latte-kernel.syntax/mk-fresh)
+        form (case->if (get top-forms ['latte_kernel.syntax 'mk-fresh]))
+        c-fn (fn [& args]
+               (run-on-vm [form] (list* 'mk-fresh (map #(list 'quote %) args))
+                          arg-vector-opts))]
+    (testing "the source carries a multi-arity branch that recurs"
+      (let [source (get top-forms ['latte_kernel.syntax 'mk-fresh])]
+        (is (= 2 (count (filter #(and (seq? %) (vector? (first %))) source))))
+        (is (contains? (set (walk-symbols source)) 'recur))))
+    (testing "suffix levels 0 to 5 through collisions, A = C"
+      (let [forbids [#{}
+                     '#{x}
+                     '#{x x'}
+                     '#{x x' x''}
+                     '#{x x' x'' x'''}
+                     '#{x x' x'' x''' x-4}
+                     '#{x x' x'' x''' x-4 x-5}
+                     '#{y}]]
+        (doseq [forbid forbids]
+          (is (= (a-fn 'x forbid) (c-fn 'x forbid)) (pr-str forbid))
+          (doseq [level (range 6)]
+            (is (= (a-fn 'x level forbid) (c-fn 'x level forbid))
+                (str "level " level " " (pr-str forbid)))))
+        (is (= 'x-5 (c-fn 'x '#{x x' x'' x''' x-4})))
+        (is (= 'x (c-fn 'x #{})))))))

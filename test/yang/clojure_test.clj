@@ -1,11 +1,16 @@
 (ns yang.clojure-test
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [dao.stream :as stream]
+            [dao.stream.observer :as observer]
             [yang.clojure :as yang]
             [yang.io :as yang-io]
             [yin.vm :as vm]
+            [yin.vm.ast-walker :as ast-walker]
             [yin.vm.data :as data]
             [yin.vm.encoder :as encoder]
+            [yin.vm.engine :as engine]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
@@ -785,3 +790,269 @@
                                   (if (= n 0) acc (cnt (- n 1) (+ acc 1))))
                                 (cnt 5000 0)]))
       (is (= 5000 (vm/value (:consumer (:evaluator (tu/run-encoder-session session)))))))))
+
+
+;; =============================================================================
+;; Slice 4: loop/recur through lexical self-application
+;; =============================================================================
+
+(defn- run-native
+  [forms]
+  (compile-program-and-run forms))
+
+
+(deftest test-loop-recur-values
+  (doseq [form ['(loop [x 5] x)
+                '(loop [] 1)
+                '(loop [a 1 b 2 n 0] (if (< n 3) (recur b a (+ n 1)) [a b]))
+                '(loop [a 1 b (+ a 1)] [a b])
+                '(loop [[x & more] [1 2 3] acc 0]
+                   (if x (recur more (+ acc x)) acc))
+                '(loop [[a b] [1 2] n 0] (if (< n 3) (recur [b a] (+ n 1)) [a b]))
+                '(+ 1 (loop [n 4] (if (= n 0) 10 (recur (- n 1)))))
+                '(loop [i 0 out []]
+                   (if (< i 3)
+                     (recur (+ i 1)
+                            (loop [j 0 o out]
+                              (if (< j 2) (recur (+ j 1) (conj o [i j])) o)))
+                     out))
+                '(loop [i 0] (if (< i 2)
+                               (recur (+ i 1))
+                               ((fn [n] (if (> n 0) (recur (- n 1)) :done)) 3)))
+                '(let [x 10] (loop [n x] (if (= n 7) n (recur (- n 1)))))
+                '(loop [n 3] (do (if (= n 0) :end (recur (- n 1)))))]]
+    (is (= (eval form) (compile-and-run form)) (pr-str form))
+    (is (= (eval form) (run-av [form])) (str "argument-vector: " (pr-str form)))))
+
+
+(deftest test-function-level-recur
+  (is (= 55 (run-native '[(defn sum-to [n acc] (if (= n 0) acc (recur (- n 1) (+ acc n))))
+                          (sum-to 10 0)])))
+  (is (= [2 1] (run-native '[(defn flip [[a b] n] (if (> n 0) (recur [b a] (- n 1)) [a b]))
+                             (flip [1 2] 3)])))
+  (is (= 4 (compile-and-run '((fn [n] (if (> n 3) n (recur (+ n 1)))) 0))))
+  (testing "a recur-free fn keeps its plain lowering"
+    (is (= {:type :lambda, :params '[x], :body {:type :variable, :name 'x}}
+           (select-keys (yang/compile '(fn [x] x)) [:type :params :body]))))
+  (testing "multi-arity: one recur target per arity branch"
+    (is (= 5 (run-av '[(defn f
+                         ([n] (f n 0))
+                         ([n acc] (if (= n 0) acc (recur (- n 1) (+ acc 1)))))
+                       (f 5)])))
+    (is (= 6 (run-av '[(defn g
+                         ([n] (if (> n 5) n (recur (+ n 1))))
+                         ([a b] (+ a b)))
+                       (g 0)])))
+    (is (rejected-av? '[(defn h ([n] (recur 1 2)) ([a b] a))]))))
+
+
+(deftest test-non-tail-recursion-controls
+  (is (= 120 (run-native '[(defn fact [n] (if (= n 0) 1 (* n (fact (- n 1))))) (fact 5)])))
+  (is (= 120 (run-av '[(defn fact [n] (if (= n 0) 1 (* n (fact (- n 1))))) (fact 5)])))
+  (is (= 6 (run-native '[(def walk (fn [x max] (if (> x max) x (walk (+ x 1) max))))
+                         (walk -2 5)]))))
+
+
+(deftest test-recur-rejections
+  (testing "no target"
+    (is (rejected? '(recur 1)))
+    (is (rejected? '(let [x 1] (recur x))))
+    (is (rejected? '(if true (recur) 1))))
+  (testing "wrong operand count"
+    (is (rejected? '(loop [a 1 b 2] (recur 1))))
+    (is (rejected? '(loop [a 1] (recur 1 2))))
+    (is (rejected? '(fn [a b] (recur 1))))
+    (is (rejected? '(loop [] (recur 1)))))
+  (testing "non-tail position"
+    (is (rejected? '(loop [n 1] (+ 1 (recur n)))))
+    (is (rejected? '(loop [n 1] (do (recur n) 2))))
+    (is (rejected? '(loop [n 1] (if (recur n) 1 2))))
+    (is (rejected? '(loop [n 1] (let [x (recur n)] x))))
+    (is (rejected? '(loop [n 1] (recur (recur n)))))
+    (is (rejected? '(loop [n (recur 1)] n))))
+  (testing "a fn boundary resets the target"
+    (is (rejected? '(loop [n 1] (fn [] (recur n)))))
+    (is (rejected? '(loop [n 1] ((fn [] (recur n))))))
+    (is (rejected? '(fn [a] (fn [] (recur a)))))
+    (is (rejected-av? '[(loop [n 1] (fn [] (recur n)))])))
+  (testing "malformed loop and reserved names"
+    (is (rejected? '(loop [a] a)))
+    (is (rejected? '(loop a a)))
+    (is (rejected? '(loop [dsg__x 1] dsg__x)))
+    (is (rejected? '(loop [{:keys [a]} {}] a)))
+    (is (not (rejected? '(loop [] 1))))))
+
+
+(deftest test-loop-recur-are-special-forms
+  (is (yang/special-form? '(loop [] 1)))
+  (is (yang/special-form? '(recur)))
+  (is (nil? (ns-resolve 'yang.clojure 'Z-combinator)))
+  (is (nil? (ns-resolve 'yang.clojure 'arity->z-combinator))))
+
+
+(deftest test-nested-defs-refused-under-convention
+  (testing "a nested def or defn dispatches against a name the program scan never saw"
+    (is (rejected-av? '[(do (def a 1)) a]))
+    (is (rejected-av? '[(defn f [] (defn + [x] x))]))
+    (is (rejected-av? '[(fn [] (defmacro m [] 1))]))
+    (is (rejected-av? '[(if true (defn g [] 1) nil)])))
+  (testing "top-level definitions are unaffected, and the native path is unchanged"
+    (is (not (rejected-av? '[(def a 1) (defn f [] a) (f)])))
+    (is (= 1 (run-native '[(do (def a 1)) a])))))
+
+
+(deftest test-defmacro-param-checks
+  (is (rejected? '(defmacro m [dsg__x] 1)))
+  (is (rejected? '(defmacro m [[a b]] 1)))
+  (is (rejected? '(defmacro m [& a b] 1)))
+  (is (rejected? '(defmacro m [&] 1)))
+  (is (rejected? '(defmacro m [a & b & c] 1)))
+  (is (rejected? '(defmacro m [:k] 1)))
+  (is (not (rejected? '(defmacro m [a & b] 1))))
+  (is (not (rejected? '(defmacro defn [& xs] 1)))))
+
+
+;; --- tail-position audit -----------------------------------------------------
+
+(defn- ast-nodes
+  [ast]
+  (tree-seq coll? #(if (map? %) (vals %) (seq %)) ast))
+
+
+(defn- applications
+  "[operator-name-or-:lambda tail?] of every application node."
+  [ast]
+  (->> (ast-nodes ast)
+       (filter #(and (map? %) (= :application (:type %))))
+       (map (fn [a] [(if (= :variable (get-in a [:operator :type]))
+                       (get-in a [:operator :name])
+                       (get-in a [:operator :type]))
+                     (boolean (:tail? a))]))))
+
+
+(deftest test-loop-tail-audit
+  (let [form '(loop [i 0] (if (< i 3) (recur (+ i 1)) i))]
+    (testing "exactly the let chain, the initial application and the recur are tail"
+      (is (= {[:lambda true] 2        ; initializer let, worker-binding let
+              ['dsg__loop0 true] 2    ; initial application, recur
+              ['< false] 1            ; the test
+              ['+ false] 1}           ; a recur operand is never tail
+             (frequencies (applications (yang/compile form))))))
+    (testing "a loop in operand position is not itself tail; its recur still is"
+      (is (= {[:lambda false] 2, ['dsg__loop0 false] 1, ['dsg__loop0 true] 1
+              ['< false] 1, ['+ false] 1}
+             (frequencies (applications (yang/compile-form form false {}))))))))
+
+
+;; --- continuation-depth gates -----------------------------------------------
+
+(defn- walker-depth
+  "Length of the :next chain from the VM's k."
+  [vm]
+  (loop [k (vm/continuation vm), n 0]
+    (if k (recur (:next k) (inc n)) n)))
+
+
+(defn- semantic-depth
+  [vm]
+  (count (vm/continuation vm)))
+
+
+(defn- stepper
+  "A run function stepping the VM one instruction at a time, recording the
+   maximum depth `depth-of` reports in :max-depth."
+  [depth-of]
+  (fn [vm]
+    (loop [v vm, mx (depth-of vm)]
+      (if (or (vm/halted? v) (vm/blocked? v))
+        (assoc v :max-depth mx)
+        (let [v' (vm/step v)]
+          (recur v' (max mx (depth-of v'))))))))
+
+
+(defn- walker-run
+  "[value max-depth] of `ast` on the walker lane."
+  [ast]
+  (let [session (-> (tu/make-observer-session (tu/create-vm {:modules av-modules}))
+                    (tu/queue-ast! ast))
+        done (observer/run-on-stream
+               session engine/ready-for-ingress?
+               (vm/fresh-code-loader ast-walker/vm-load-program vm/ast-contract)
+               (stepper walker-depth))]
+    [(vm/value (:consumer done)) (:max-depth (:consumer done))]))
+
+
+(defn- semantic-run
+  "[value max-depth] of `ast` on the semantic lane."
+  [ast]
+  (let [session (tu/make-encoder-session
+                  (semantic/create-vm {:make-stream tu/make-stream
+                                       :capability-secret tu/secret
+                                       :modules av-modules}))
+        load-rows (vm/fresh-code-loader
+                    (fn [machine rows stamp]
+                      (vm/check-contract! vm/ast-contract stamp)
+                      (semantic/load-vector
+                        machine
+                        (:vector (if (contains? rows :yin/batch)
+                                   (linearize/project-rows
+                                     (nth (:yin/batch rows) (:yin/root rows))
+                                     (vm/source-origin (:yin/source-medium rows)
+                                                       (:yin/batch-token rows)
+                                                       (:yin/root rows)))
+                                   (linearize/project-rows rows)))
+                        vm/semantic-contract))
+                    vm/ast-contract)]
+    (stream/append! (:program session) ast)
+    (let [encoded (assoc session :encoder (encoder/forward-on-stream (:encoder session)))
+          done (observer/run-on-stream (:evaluator encoded) engine/ready-for-ingress?
+                                       load-rows (stepper semantic-depth))]
+      [(vm/value (:consumer done)) (:max-depth (:consumer done))])))
+
+
+(defn- countdown-ast
+  "A program counting down from n through a loop or a function-level recur,
+   in tail position or as an operand of conj."
+  [kind n shape]
+  (let [form (walk/postwalk-replace
+               {'N n}
+               (case kind
+                 :loop '(loop [i N] (if (= i 0) :done (recur (- i 1))))
+                 :fn '((fn [i] (if (= i 0) :done (recur (- i 1)))) N)))]
+    (yang/compile-program [(if (= shape :tail) form (list 'conj [] form))] true)))
+
+
+(defn- strip-self-tail
+  "Remove :tail? from every application of a worker self name."
+  [ast]
+  (walk/postwalk
+    (fn [node]
+      (if (and (map? node)
+               (= :application (:type node))
+               (= :variable (get-in node [:operator :type]))
+               (re-find #"^dsg__loop" (str (get-in node [:operator :name]))))
+        (dissoc node :tail?)
+        node))
+    ast))
+
+
+(deftest test-continuation-depth-gates
+  (doseq [[lane run-lane] [[:walker walker-run] [:semantic semantic-run]]
+          kind [:loop :fn]
+          shape [:tail :operand]]
+    (let [run (fn [n] (run-lane (countdown-ast kind n shape)))
+          [_ d0] (run 0)
+          [v100 d100] (run 100)
+          [v1000 d1000] (run 1000)
+          label (str lane " " kind " " shape)]
+      (is (= (if (= shape :tail) :done [:done]) v100 v1000) label)
+      (is (= d100 d1000) (str label ": depth is constant in the iteration count"))
+      (when (= lane :semantic)
+        (is (<= d1000 (+ d0 2)) (str label ": at most 2 above the pre-loop depth")))))
+  ;; The walker lane masks a missing flag (its depth stays flat either way),
+  ;; so only the semantic lane can serve as the flag-sensitive control.
+  (testing "negative control: without :tail? on the self-application depth grows"
+    (let [run (fn [n] (semantic-run (strip-self-tail (countdown-ast :loop n :tail))))
+          [_ d0] (run 0)
+          [_ d100] (run 100)]
+      (is (> d100 (+ d0 50)) "the semantic gate detects the missing flag"))))
