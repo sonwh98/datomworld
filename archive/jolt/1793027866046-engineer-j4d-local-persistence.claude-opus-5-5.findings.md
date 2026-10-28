@@ -213,3 +213,27 @@ Clones: branch `~/ci/datomworld-j4d` at `2c00707f` (cljs re-run at `f35df68a`) a
 | `bb test:cljd` | +4,395 −1 | +4,396 −1 | +1 = the new test; the −1 on both is the pre-existing `dao.stream.datagram.dart-test/refusals-and-lifecycle-events` (no bind-failed event, timeout), master-side |
 
 **Shared-source edits are jolt-arms-only**, except the one new portable test, so no JVM/Node/Dart behaviour changed. The J7 re-guards and the `:jolt` second-process arm are invisible to those hosts. The test text restored to pre-guard is what those hosts already ran under `:default`.
+
+## Correction (2026-10-28, J4d fixes, kimi F2)
+
+§2's store-test row overstated the evidence. "The 3 Node-only (`:cljs`-arm)
+bodies" was wrong: `store_test.cljc` has five `:cljs`-only bodies and one
+`:cljd`-only body.
+
+The accurate accounting of the 42 entries: 34 ran under their original names
+on jolt, 1 has a jolt process equivalent (the JVM process test), and 1 was
+reclassified J7. That left 6 store-test vars with no per-var jolt evidence.
+They are now accounted:
+
+| var | host | on jolt |
+|---|---|---|
+| `two-worker-threads-of-one-process-never-both-own-the-directory` | Node | **jolt arm, original name**: two threads race `fs/lock!` 20 times; exactly one owner each round (the in-process `held` record) |
+| `a-short-write-never-becomes-a-partial-head` | Node | **jolt arm, original name**: `pwrite-once` stores at most 3 bytes a call; HEAD holds the whole record |
+| `a-live-foreign-owner-is-refused-and-a-dead-ones-lock-is-replaced` | Node | named equivalent: `a-real-second-jolt-process-is-refused-and-its-death-releases` |
+| `a-takeover-that-crashed-midway-does-not-brick-the-directory` | Node | named equivalent: the same jolt process test (SIGKILL, then reopen) |
+| `a-concurrent-takeover-of-a-dead-owners-lock-leaves-one-owner` | Node | named equivalent: the two-threads jolt arm (fcntl has no takeover; the kernel releases a dead owner's lock) |
+| `a-real-second-dart-process-is-refused-and-its-death-releases` | Dart | named equivalent: the jolt process test |
+
+The four named equivalents are recorded per var as "host fixture" rows in
+`test/resources/yin/repl/jolt-applicability.edn`, each with its
+`:jolt-equivalent`. The jolt store-test count rises by the two arms.

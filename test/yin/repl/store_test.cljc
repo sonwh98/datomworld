@@ -767,6 +767,40 @@
                (is (= 1 (await! owner-flag)) "the owner released"))))
          (finally
            (doseq [w @workers] (.terminate w))
+           (cleanup-dir! dir)))))
+   :jolt
+   ;; J4d fixes (F2): the jolt arm. jolt's threads share one process, so
+   ;; the in-process `held` record is what refuses the second owner (an
+   ;; fcntl lock never refuses its own process); the threads race on a
+   ;; shared start, and both outcomes are read before either owner releases
+   (deftest two-worker-threads-of-one-process-never-both-own-the-directory
+     (let [dir (temp-dir)]
+       (try
+         (store/close! (store/open {:type :file :dir dir}))
+         (dotimes [round 20]
+           (let [go (promise)
+                 outcomes (atom [])
+                 threads (mapv (fn [_]
+                                 (doto (Thread.
+                                         (fn []
+                                           @go
+                                           (swap! outcomes conj
+                                                  (try {:lock (fs/lock! dir)}
+                                                       (catch Throwable e
+                                                         {:refusal e})))))
+                                   (.start)))
+                               (range 2))]
+             (deliver go true)
+             (doseq [t threads] (.join ^Thread t))
+             (let [owners (keep :lock @outcomes)
+                   refusals (keep :refusal @outcomes)]
+               (is (= 1 (count owners))
+                   (str "round " round ": exactly one thread owns the "
+                        "directory, never both"))
+               (doseq [e refusals]
+                 (is (str/includes? (str (ex-message e)) dir)))
+               (doseq [l owners] (fs/unlock! l)))))
+         (finally
            (cleanup-dir! dir))))))
 
 
@@ -797,6 +831,32 @@
                "HEAD holds the whole record, never a short write's prefix"))
          (finally
            (set! (.-writeSync node-fs) original)
+           (cleanup-dir! dir)))))
+   :jolt
+   ;; J4d fixes (F2): the jolt arm. The host write is pwrite through
+   ;; dao.posix.file's single-transfer seam; here it stores at most three
+   ;; bytes per call, as a real pwrite may, and the HEAD replacement must
+   ;; still publish the whole record
+   (deftest a-short-write-never-becomes-a-partial-head
+     (let [dir (temp-dir)
+           pwrite (ns-resolve 'dao.posix.file 'pwrite-once)
+           original @pwrite
+           calls (atom 0)
+           record (str "{:version 1, :manifest :segment/blake3-"
+                       (apply str (repeat 64 "a")) "}")]
+       (try
+         (write-text! (head-path dir) "{:version 1, :manifest :segment/a}")
+         (let [refusal (with-redefs-fn
+                         {pwrite (fn [fd offset buf at n]
+                                   (swap! calls inc)
+                                   (original fd offset buf at (min 3 n)))}
+                         #(refusal-of
+                            (fn [] (fs/atomic-replace! dir "HEAD" record))))]
+           (is (nil? refusal) (str (ex-message refusal)))
+           (is (= record (read-text! (head-path dir)))
+               "HEAD holds the whole record, never a short write's prefix")
+           (is (< 3 @calls) "the record went through many short writes"))
+         (finally
            (cleanup-dir! dir))))))
 
 
