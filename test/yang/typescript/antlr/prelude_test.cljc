@@ -176,7 +176,7 @@
   (check descriptor-cases))
 
 
-(deftest deep-prototype-chain-test
+(deftest ^:slow deep-prototype-chain-test
   (testing "reading through 10000 prototypes runs in constant stack"
     (check [['((fn [self n acc]
                  (if (= n 0)
