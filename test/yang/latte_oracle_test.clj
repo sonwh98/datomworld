@@ -17,6 +17,7 @@
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]
             [yin.vm :as vm]
+            [yin.vm.data :as data]
             [yin.vm.module :as module]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
@@ -153,18 +154,32 @@
               (repeat pf)))))
 
 
+(def ^:private arg-vector-opts
+  "The argument-vector convention (slice 3b): primitives, plus the scaffold
+   `seq?`, are the statically native names."
+  {:convention :arg-vector
+   :native (conj (set (keys vm/primitives)) 'seq?)})
+
+
 (defn- run-on-vm
-  [forms call-form]
-  ;; `seq?` is a scaffold primitive until the guest collection library
-  ;; lands (slice 7)
-  (let [registry (module/register-stream-module (stdlib-module))]
-    (-> (tu/make-observer-session
-          (tu/create-vm {:modules registry
-                         :primitives (assoc vm/primitives 'seq? seq?)}))
-        (tu/queue-ast! (yang/compile-program (into [] (concat forms [call-form]))))
-        tu/run-session
-        :consumer
-        vm/value)))
+  "Compile `forms` plus `call-form` through yang.clojure and run the result;
+   `opts` opts the program into a compile-program convention."
+  ([forms call-form] (run-on-vm forms call-form nil))
+  ([forms call-form opts]
+   ;; `seq?` is a scaffold primitive until the guest collection library
+   ;; lands (slice 7); the data module (count/nth) serves the convention's
+   ;; arity dispatch
+   (let [registry (-> (stdlib-module)
+                      module/register-stream-module
+                      data/register-data-module)]
+     (-> (tu/make-observer-session
+           (tu/create-vm {:modules registry
+                          :primitives (assoc vm/primitives 'seq? seq?)}))
+         (tu/queue-ast! (yang/compile-program
+                          (into [] (concat forms [call-form])) true opts))
+         tu/run-session
+         :consumer
+         vm/value))))
 
 
 (def ^:private clean-forms
@@ -274,3 +289,50 @@
       (is (contains? (classify-form form) :multi-arity))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Multi-arity"
             (yang/compile-program [form]))))))
+
+
+;; =============================================================================
+;; Slice 3b: multi-arity through the argument-vector convention
+;; =============================================================================
+
+(defn- run-av-with-deps
+  "run-with-deps through the argument-vector convention."
+  [ns-sym dep-names fname args]
+  (let [forms (mapv #(get top-forms [ns-sym %]) dep-names)]
+    (run-on-vm forms (list* fname (map #(list 'quote %) args)) arg-vector-opts)))
+
+
+(deftest test-oracle-slice3b-multi-arity
+  (let [register (upstream-fn 'latte-kernel.defenv/register-definition)
+        c-register (fn [& args]
+                     (run-av-with-deps 'latte_kernel.defenv '[register-definition]
+                                       'register-definition (vec args)))
+        rdef {:name 'f, :arity 1}
+        env [{'g {:name 'g}} {'h {:name 'h}}]]
+    (testing "defenv/register-definition: both arities, both placements, A = C"
+      (doseq [args [[env rdef]
+                    [env rdef false]
+                    [env rdef true]
+                    [[{} {}] rdef]
+                    [[{} {}] rdef true]]]
+        (is (= (apply register args) (apply c-register args))
+            (pr-str args)))
+      (is (= [{'g {:name 'g}, 'f rdef} {'h {:name 'h}}] (c-register env rdef))
+          "the two-argument form registers globally")
+      (is (= [{'g {:name 'g}} {'h {:name 'h}, 'f rdef}] (c-register env rdef true))
+          "the three-argument form with local? true registers locally"))
+    (testing "a wrong-count call is a rejection fixture"
+      (doseq [args [[env] [] [env rdef true :extra]]]
+        (is (= :arity
+               (try (apply c-register args) nil
+                    (catch clojure.lang.ExceptionInfo e
+                      (:yin.vm.data/reason (ex-data e)))))
+            (pr-str args)))))
+  (testing "single-arity anchors still pass through the convention"
+    (doseq [t ['(Π [x :type] x) '(Π [y [:ref A]] (Π [z :type] z)) 'x nil]]
+      (is (= ((upstream-fn 'latte-kernel.syntax/top-assumption) t)
+             (run-av-with-deps 'latte_kernel.syntax '[prod? top-assumption]
+                               'top-assumption [t]))
+          (str "top-assumption on " (pr-str t))))
+    (is (= ((upstream-fn 'latte-kernel.defenv/mkenv) [])
+           (run-av-with-deps 'latte_kernel.defenv '[mkenv] 'mkenv [[]])))))

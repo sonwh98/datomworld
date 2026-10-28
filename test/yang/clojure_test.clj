@@ -1,10 +1,13 @@
 (ns yang.clojure-test
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as stream]
             [yang.clojure :as yang]
             [yang.io :as yang-io]
             [yin.vm :as vm]
+            [yin.vm.data :as data]
             [yin.vm.encoder :as encoder]
             [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -556,3 +559,229 @@
                      xs) (defn f
                            [x]
                            x)))))))
+
+
+(deftest test-defn-header-metadata-and-reservations
+  (testing "a trailing attr-map after a single-arity list is merged"
+    (is (= 1 (:added (meta (yang/compile '(defn f
+                                            ([x] x)
+                                            {:added 1})))))))
+  (testing "an attr-map wins over the docstring, as in Clojure"
+    (let [m (meta (yang/compile '(defn f
+                                   "docstring"
+                                   {:doc "attr-doc", :k 1}
+                                   [x]
+                                   x)))]
+      (is (= "attr-doc" (:doc m)))
+      (is (= 1 (:k m)))))
+  (testing "an attr-map :private wins over defn-"
+    (is (false? (:private (meta (yang/compile '(defn- g
+                                                 {:private false} [x]
+                                                 x))))))
+    (is (true? (:private (meta (yang/compile '(defn- g
+                                                [x]
+                                                x)))))))
+  (testing "the reserved prefix is refused on definition names"
+    (is (rejected? '(def dsg__0 5)))
+    (is (rejected? '(defn dsg__0
+                      [x]
+                      x)))
+    (is (rejected? '(defn- dsg__0
+                      [x]
+                      x)))
+    (is (rejected? '(defmacro dsg__0
+                      [x]
+                      x))))
+  (testing "defmacro parses its header and requires a parameter vector"
+    (is (= "doc" (:doc (meta (yang/compile '(defmacro m
+                                              "doc"
+                                              [x]
+                                              x))))))
+    (is (= '[x] (-> (yang/compile '(defmacro m
+                                     "doc"
+                                     [x]
+                                     x))
+                    :operands second :params)))
+    (is (rejected? '(defmacro m
+                      "doc")))
+    (is (rejected? '(defmacro m
+                      (x)
+                      x)))))
+
+
+(deftest test-destructuring-rejections-more
+  (is (rejected? '(let [[a & :as w] [1]] a)) "& followed by :as")
+  (is (rejected? '(let [[a :as x/w] [1]] a)) ":as with a qualified symbol")
+  (is (rejected? '(let [[[a {:keys [b]}]] [[1 {:b 2}]]] a)) "nested map pattern")
+  (is (rejected? '(fn [[a] rest] a)) "helper bound as a later fn param")
+  (is (rejected? '(fn [[a] first] a)))
+  (is (rejected? '(fn [[a] empty?] a))))
+
+
+;; =============================================================================
+;; Slice 3b: the argument-vector convention
+;; =============================================================================
+
+(def ^:private av-opts
+  {:convention :arg-vector, :native (set (keys vm/primitives))})
+
+
+(def ^:private av-modules
+  (data/register-data-module (module/register-stream-module (module/default-registry))))
+
+
+(defn- av-ast
+  ([forms] (av-ast forms av-opts))
+  ([forms opts] (yang/compile-program forms true opts)))
+
+
+(defn- run-av
+  [forms]
+  (-> (tu/make-observer-session (tu/create-vm {:modules av-modules}))
+      (tu/queue-ast! (av-ast forms))
+      tu/run-session
+      :consumer
+      vm/value))
+
+
+(defn- av-thrown
+  "The ex-data of the exception running `forms` raises, or nil."
+  [forms]
+  (try (run-av forms) nil
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+
+(defn- rejected-av?
+  [forms]
+  (try (av-ast forms) false
+       (catch clojure.lang.ExceptionInfo _ true)))
+
+
+(deftest test-multi-arity-argument-vector
+  (testing "arity dispatch, with a missing argument distinct from nil"
+    (is (= [:none [:one nil] [1 2]]
+           (run-av '[(defn f
+                       ([] :none)
+                       ([x] [:one x])
+                       ([x y] [x y]))
+                     [(f) (f nil) (f 1 2)]]))))
+  (testing "a default-argument style arity calls the longer one"
+    (is (= 11 (run-av '[(defn add
+                          ([x] (add x 10))
+                          ([x y] (+ x y)))
+                        (add 1)]))))
+  (testing "fn takes arities too"
+    (is (= [1 3] (run-av '[(let [g (fn
+                                     ([a] a) ([a b] (+ a b)))] [(g 1) (g 1 2)])]))))
+  (testing "a wrong count is refused as an arity refusal, never nil-filled"
+    (doseq [forms ['[(defn f
+                       ([x] x)
+                       ([x y] y)) (f)]
+                   '[(defn f
+                       ([x] x)
+                       ([x y] y)) (f 1 2 3)]
+                   '[(defn f
+                       [x]
+                       x) (f 1 2)]
+                   '[(defn f
+                       [x]
+                       x) (f)]
+                   '[((fn [x] x))]]]
+      (is (= :arity (:yin.vm.data/reason (av-thrown forms))) (pr-str forms))))
+  (testing "destructured params unpack positionally"
+    (is (= [1 2 3] (run-av '[(defn f
+                               ([[a b] c] [a b c]))
+                             (f [1 2] 3)]))))
+  (testing "dispatch is immune to user bindings named like core functions"
+    (is (= [7 [7 1]] (run-av '[(defn f
+                                 ([count] count)
+                                 ([count nth] [count nth]))
+                               [(f 7) (f 7 1)]])))))
+
+
+(deftest test-argument-vector-operator-positions
+  (testing "native names are called directly and keep the native AST"
+    (is (= (yang/compile-form '(+ 1 2))
+           (yang/compile-form '(+ 1 2) false
+                              {::yang/convention
+                               {:native (:native av-opts), :macros #{}}})))
+    (is (= 3 (run-av '[(+ 1 2)]))))
+  (testing "a native name in value position becomes a fresh adapter closure"
+    (is (= [3 3 12]
+           (run-av '[(defn ap
+                       [f a b]
+                       (f a b))
+                     [(ap + 1 2) (let [g +] (g 1 2)) (ap * 3 4)]])))
+    (is (= :arity (:yin.vm.data/reason (av-thrown '[(let [g first] (g 1 2 3 4 5))])))
+        "an adapter admits the counts it was built for only"))
+  (testing "a keyword in operator position is a static lookup"
+    (is (= [1 nil 9] (run-av '[[(:a {:a 1}) (:b {:a 1}) (:b {:a 1} 9)]])))
+    (is (= 'get (-> (av-ast '[(:a m)]) :operator :name)))
+    (is (rejected-av? '[(:a)]))
+    (is (rejected-av? '[(:a 1 2 3)]))
+    (is (rejected-av? '[(let [get 1] (:a {:a 1}))])))
+  (testing "a program-defined name is never native, even over a primitive name"
+    (is (= :mine (run-av '[(defn first
+                             [x]
+                             :mine) (first [1 2])]))))
+  (testing "a local shadows a native name"
+    (is (= 5 (run-av '[(let [+ (fn [a b] 5)] (+ 1 2))]))))
+  (testing "a user guest call is one tail application"
+    (let [ast (av-ast '[(defn f
+                          [x]
+                          (g x))])
+          lam (-> ast :operands second)
+          call (-> lam :body :consequent :operator :body)]
+      (is (= :application (:type call)))
+      (is (true? (:tail? call)))
+      (is (= 1 (count (:operands call))) "one argument vector")))
+  (testing "a macro name keeps its call an ordinary application"
+    (let [opts (assoc av-opts :macros #{'when})
+          call (av-ast '[(when 1 2)] opts)]
+      (is (= {:type :variable, :name 'when} (:operator call)))
+      (is (= 2 (count (:operands call)))))))
+
+
+(deftest test-argument-vector-rejections
+  (is (rejected-av? '[(defn f
+                        [a & r]
+                        a)]) "variadic stays rejected")
+  (is (rejected-av? '[(fn [a & r] a)]))
+  (is (rejected-av? '[(defn f
+                        ([x] x)
+                        ([y] y))]) "two arities with one count")
+  (is (rejected-av? '[(let [conj 1] conj)])
+      "the argument-vector constructor cannot be captured")
+  (is (rejected-av? '[(fn [conj] conj)]))
+  (is (rejected-av? '[(defn f
+                        [dsg__av]
+                        1)]) "reserved prefix")
+  (is (thrown? clojure.lang.ExceptionInfo
+        (yang/compile-program '[1] true {:convention :bogus})))
+  (testing "the native path still rejects multi-arity"
+    (is (rejected? '(defn f
+                      ([x] x)
+                      ([x y] y))))))
+
+
+(deftest test-argument-vector-native-path-unchanged
+  (let [forms '[(def f (fn [x] (* x x))) (defn g
+                                           [a b]
+                                           (+ a b)) (g (f 2) 1)]]
+    (is (= (yang/compile-program forms)
+           (yang/compile-program forms true nil)))
+    (is (= 5 (compile-program-and-run forms)))))
+
+
+(deftest test-argument-vector-semantic-lane-recursion
+  (testing "a recursive portable function completes on the semantic VM"
+    (let [session (tu/make-encoder-session
+                    (semantic/create-vm {:make-stream tu/make-stream
+                                         :capability-secret tu/secret
+                                         :modules av-modules}))]
+      (stream/append! (:program session)
+                      (av-ast '[(defn cnt
+                                  [n acc]
+                                  (if (= n 0) acc (cnt (- n 1) (+ acc 1))))
+                                (cnt 5000 0)]))
+      (is (= 5000 (vm/value (:consumer (:evaluator (tu/run-encoder-session session)))))))))

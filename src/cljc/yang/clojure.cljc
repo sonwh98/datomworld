@@ -181,6 +181,9 @@
 
 (defn- with-locals
   [env names]
+  (when (and (::convention env) (some #{'conj} names))
+    (throw (ex-info "Binding conj would capture the argument-vector constructor"
+                    {:names names})))
   (assoc env ::locals (into (locals env) (remove #(= '& %)) names)))
 
 
@@ -196,6 +199,16 @@
   [sym]
   (= reserved-prefix (subs (name sym) 0 (min (count (name sym))
                                              (count reserved-prefix)))))
+
+
+(defn- check-def-name!
+  "A definition name is a plain symbol outside the reserved prefix."
+  [operator sym]
+  (when-not (and (symbol? sym) (nil? (namespace sym)))
+    (reject! (str operator " needs a plain symbol name") {:name sym}))
+  (when (reserved-name? sym)
+    (reject! "Definition name uses the reserved destructuring prefix"
+             {:name sym, :prefix reserved-prefix})))
 
 
 (defn- check-binder!
@@ -353,57 +366,77 @@
 ;; defn headers
 ;; =============================================================================
 
-(defn- parse-defn
-  "Parse (defn name doc? attr-map? [params] body*) or a single-arity
-   (defn name doc? attr-map? ([params] body*)). Returns
-   {:name :meta :params :body}. Multi-arity is rejected: a Yin closure
-   nil-fills missing arguments and drops extras, so a guest closure cannot
-   observe the call's argument count."
+(defn- parse-head
+  "Split (op name doc? attr-map? & more) into {:name :doc :attrs :more}. A
+   string or map only counts as header when a form follows it."
   [operator operands]
   (let [[fn-name & more] operands
-        _ (when-not (and (symbol? fn-name) (nil? (namespace fn-name)))
-            (reject! (str operator " needs a plain symbol name") {:name fn-name}))
+        _ (check-def-name! operator fn-name)
         [doc more] (if (and (string? (first more)) (next more))
                      [(first more) (rest more)]
                      [nil more])
         [attrs more] (if (and (map? (first more)) (next more))
                        [(first more) (rest more)]
-                       [nil more])
-        header (cond-> (merge (meta fn-name) attrs)
-                 doc (assoc :doc doc)
-                 (= 'defn- operator) (assoc :private true))]
+                       [nil more])]
+    {:name fn-name, :doc doc, :attrs attrs, :more more}))
+
+
+(defn- parse-defn
+  "Parse (defn name doc? attr-map? [params] body*) or
+   (defn name doc? attr-map? ([params] body*)+ attr-map?). Returns
+   {:name :meta :arities [{:params :body}]}. Metadata accumulates as
+   Clojure's defn does: name meta (with defn-'s :private), then the
+   docstring, the attr-map and the trailing attr-map, later ones winning."
+  [operator operands]
+  (let [{fn-name :name, :keys [doc attrs more]} (parse-head operator operands)
+        header (merge (cond-> (meta fn-name)
+                        (= 'defn- operator) (assoc :private true))
+                      (when doc {:doc doc})
+                      attrs)]
     (cond
       (vector? (first more))
-      {:name fn-name, :meta header, :params (first more), :body (rest more)}
+      {:name fn-name, :meta header
+       :arities [{:params (first more), :body (rest more)}]}
 
       (and (seq? (first more)) (vector? (ffirst more)))
-      (let [arities (take-while seq? more)]
-        (when (< 1 (count arities))
-          (reject! "Multi-arity fn is not supported: closures cannot observe argument count"
-                   {:name fn-name, :arities (count arities)}))
-        (when (seq (drop (count arities) more))
-          (when-not (and (map? (last more)) (= 1 (count (drop (count arities) more))))
-            (reject! "Unexpected forms after fn arities" {:name fn-name})))
-        {:name fn-name, :meta header
-         :params (ffirst more), :body (rest (first more))})
+      (let [arities (take-while seq? more)
+            trailing (drop (count arities) more)]
+        (when (and (seq trailing)
+                   (not (and (map? (first trailing)) (nil? (next trailing)))))
+          (reject! "Unexpected forms after fn arities" {:name fn-name}))
+        {:name fn-name, :meta (merge header (first trailing))
+         :arities (mapv (fn [a]
+                          (when-not (vector? (first a))
+                            (reject! "Malformed fn arity" {:name fn-name}))
+                          {:params (first a), :body (rest a)})
+                        arities)})
 
       :else
       (reject! (str "Malformed " operator " form") {:name fn-name}))))
 
 
-(declare compile-fn)
+(declare compile-fn compile-av-fn)
 
 
 (defn- compile-defn
   "Compile a defn form natively to a yin/def application: the tree the
    expander's standard `defn` also produces. This path is used only when no
-   defmacro named defn is in scope."
+   defmacro named defn is in scope. Several arities need the argument-vector
+   convention: a plain Yin closure nil-fills missing arguments and drops
+   extras, so it cannot observe the call's argument count."
   [operator operands env tail? macro-env]
-  (let [{fn-name :name, header :meta, :keys [params body]} (parse-defn operator operands)
+  (let [{fn-name :name, header :meta, :keys [arities]} (parse-defn operator operands)
+        fn-ast (if (::convention env)
+                 (compile-av-fn arities env false macro-env)
+                 (do (when (< 1 (count arities))
+                       (reject! "Multi-arity fn is not supported: closures cannot observe argument count"
+                                {:name fn-name, :arities (count arities)}))
+                     (let [{:keys [params body]} (first arities)]
+                       (compile-fn params body env false macro-env))))
         ast (cond-> {:type :application
                      :operator {:type :variable, :name 'yin/def}
                      :operands [{:type :literal, :value (strip-symbol-meta fn-name)}
-                                (compile-fn params body env false macro-env)]}
+                                fn-ast]}
               tail? (assoc :tail? true))]
     (if (seq header)
       (vary-meta ast merge header)
@@ -411,17 +444,26 @@
 
 
 (defn- compile-defmacro
-  "Lower (defmacro name params & body) to ordinary (yin/def name (fn ...))
-   syntax. The lambda is flagged `:macro?` for the encoder's declaration row
-   (yin.vm.macro.md §10.2); projection drops the flag from the row."
-  [name-form params body-forms env tail? macro-env]
-  (cond-> {:type :application
-           :operator {:type :variable, :name 'yin/def}
-           :operands [{:type :literal, :value (strip-symbol-meta name-form)}
-                      (assoc (compile-lambda params (body-expression body-forms)
-                                             env false macro-env)
-                             :macro? true)]}
-    tail? (assoc :tail? true)))
+  "Lower (defmacro name doc? attr-map? [params] body*) to ordinary
+   (yin/def name (fn ...)) syntax. The lambda is flagged `:macro?` for the
+   encoder's declaration row (yin.vm.macro.md §10.2); projection drops the
+   flag from the row."
+  [operands env tail? macro-env]
+  (let [{fn-name :name, :keys [doc attrs more]} (parse-head 'defmacro operands)
+        params (first more)
+        _ (when-not (vector? params)
+            (reject! "defmacro needs a parameter vector" {:name fn-name}))
+        header (merge (when doc {:doc doc}) attrs)
+        ast (cond-> {:type :application
+                     :operator {:type :variable, :name 'yin/def}
+                     :operands [{:type :literal, :value (strip-symbol-meta fn-name)}
+                                (assoc (compile-lambda params (body-expression (rest more))
+                                                       env false macro-env)
+                                       :macro? true)]}
+              tail? (assoc :tail? true))]
+    (if (seq header)
+      (vary-meta ast merge header)
+      ast)))
 
 
 (defn special-form?
@@ -449,6 +491,7 @@
    Emits a yin/def application which requires environment support."
   ([sym value env tail?] (compile-def sym value env tail? initial-macro-env))
   ([sym value env tail? macro-env]
+   (check-def-name! 'def sym)
    (cond-> {:type :application,
             :operator {:type :variable, :name 'yin/def},
             :operands [{:type :literal, :value sym}
@@ -483,21 +526,181 @@
                     env tail? macro-env)))
 
 
+;; =============================================================================
+;; Argument-vector convention (slice 3b)
+;; =============================================================================
+;;
+;; A Yin closure nil-fills missing arguments and drops extras, so a guest
+;; closure cannot observe its call's argument count. Opted in at
+;; `compile-program` (`:convention :arg-vector`), every user fn and defn
+;; instead becomes ONE closure taking ONE vector, branching on its count:
+;;
+;;   (fn ([a] e1) ([a b] e2))
+;;   =>  (fn [dsg__av]
+;;         (if (data/content= (data/count dsg__av) 1)
+;;           (let [a (data/nth dsg__av 0)] e1)
+;;           (if (data/content= (data/count dsg__av) 2)
+;;             (let [a (data/nth dsg__av 0) b (data/nth dsg__av 1)] e2)
+;;             (data/count))))                     ; refused: no such arity
+;;
+;; The dispatch names are module-qualified, which no let binder can shadow.
+;; A call is (f (conj [] a b)) in tail position when the operator is not
+;; statically native; a native name (a primitive or module export, not bound
+;; locally and not defined by the program) is called directly, and in value
+;; position becomes a fresh adapter closure over the same convention. The
+;; program's own macro names stay ordinary applications: the expander
+;; recognizes those calls, so their operands must stay ordinary.
+
+(def ^:private av-sym (symbol (str reserved-prefix "av")))
+
+(def ^:private adapter-max-arity 4)
+
+
+(defn- native-name?
+  "True when `sym` statically names a primitive or host-module export."
+  [env sym]
+  (when-let [conv (::convention env)]
+    (and (symbol? sym)
+         (not (contains? (locals env) sym))
+         (not (contains? (::defined env) sym))
+         (or (some? (namespace sym))
+             (contains? (:native conv) sym)))))
+
+
+(defn- macro-call?
+  [env macro-env sym]
+  (and (symbol? sym)
+       (not (contains? (locals env) sym))
+       (or (contains? macro-env sym)
+           (contains? (:macros (::convention env)) sym))))
+
+
+(defn- av-let
+  "(let [p0 (data/nth av 0) ...] body): positional parameters of one arity."
+  [params body]
+  (list 'let
+        (into [] (mapcat (fn [i p] [p (list 'data/nth av-sym i)]) (range) params))
+        body))
+
+
+(defn- av-dispatch
+  "Nested ifs over the argument vector's count, one branch per arity
+   {:n count :form branch}. An unmatched count falls through to a
+   zero-argument data/count, which the data module refuses with :reason
+   :arity."
+  [arities]
+  (let [counts (map :n arities)]
+    (when (not= (count counts) (count (set counts)))
+      (reject! "Two arities with the same parameter count" {:counts (vec counts)}))
+    (reduce (fn [else {:keys [n form]}]
+              (list 'if
+                    (list 'data/content= (list 'data/count av-sym) n)
+                    form
+                    else))
+            (list 'data/count)
+            (reverse arities))))
+
+
+(defn- check-av-params!
+  [params]
+  (when-not (vector? params)
+    (reject! "fn parameters must be a vector" {:params params}))
+  (doseq [p params]
+    (when (= '& p)
+      (reject! "Variadic fn parameters are not supported" {:params params}))
+    (check-binder! p params)))
+
+
+(defn- compile-av-fn
+  "Compile arities [{:params :body}] to one closure over an argument vector."
+  [arities env tail? macro-env]
+  (let [arities (mapv (fn [{:keys [params body]}]
+                        (check-av-params! params)
+                        {:n (count params)
+                         :form (av-let params (body-expression body))})
+                      arities)]
+    (compile-lambda [av-sym] (av-dispatch arities) env tail? macro-env)))
+
+
+(defn- fn-arities
+  "Arities of (fn [params] body*) or (fn ([params] body*)+) operands."
+  [operands]
+  (cond
+    (vector? (first operands))
+    [{:params (first operands), :body (rest operands)}]
+
+    (and (seq operands) (every? #(and (seq? %) (vector? (first %))) operands))
+    (mapv (fn [a] {:params (first a), :body (rest a)}) operands)
+
+    :else (reject! "fn parameters must be a vector" {:params (first operands)})))
+
+
+(defn- compile-adapter
+  "A fresh closure over the convention that calls native `sym` with the
+   unpacked arguments, for each admitted count."
+  [sym env tail? macro-env]
+  (let [arities (mapv (fn [n]
+                        {:n n
+                         :form (cons sym (map #(list 'data/nth av-sym %) (range n)))})
+                      (range (inc adapter-max-arity)))]
+    (compile-lambda [av-sym] (av-dispatch arities) env tail? macro-env)))
+
+
+(defn- compile-av-application
+  [operator operands env tail? macro-env]
+  (cond
+    ;; (:k m) / (:k m default): a static lookup
+    (keyword? operator)
+    (do (when-not (<= 1 (count operands) 2)
+          (reject! "A keyword call takes a map and an optional default"
+                   {:keyword operator, :operands (count operands)}))
+        (when (contains? (locals env) 'get)
+          (reject! "A local binding of get would capture a keyword lookup"
+                   {:keyword operator}))
+        (cond-> {:type :application
+                 :operator {:type :variable, :name 'get}
+                 :operands (into [(compile-form (first operands) false env macro-env)
+                                  (compile-literal operator false)]
+                                 (map #(compile-form % false env macro-env))
+                                 (rest operands))}
+          tail? (assoc :tail? true)))
+
+    ;; a statically native name: call it directly
+    (native-name? env operator)
+    (cond-> {:type :application
+             :operator (cond-> {:type :variable, :name operator}
+                         (seq (meta operator)) (with-meta (meta operator)))
+             :operands (mapv #(compile-form % false env macro-env) operands)}
+      tail? (assoc :tail? true))
+
+    ;; anything else: one guest invocation, in tail position when the call is
+    :else
+    (cond-> {:type :application
+             :operator (compile-form operator false env macro-env)
+             :operands [(compile-form (vec operands) false env macro-env)]}
+      tail? (assoc :tail? true))))
+
+
 (defn compile-application
   "Compile a function application to Universal AST.
 
   Clojure: (+ 1 2)
   AST: {:type :application
         :operator <compiled-operator>
-        :operands [<compiled-operand1> <compiled-operand2>]}"
+        :operands [<compiled-operand1> <compiled-operand2>]}
+
+  Under the argument-vector convention a user-function call passes its
+  operands as one vector."
   ([operator operands env tail?] (compile-application operator operands env tail? initial-macro-env))
   ([operator operands env tail? macro-env]
-   (let [compiled-operator (compile-form operator false env macro-env)
-         compiled-operands (mapv #(compile-form % false env macro-env) operands)]
-     (cond-> {:type :application,
-              :operator compiled-operator,
-              :operands compiled-operands}
-       tail? (assoc :tail? true)))))
+   (if (and (::convention env) (not (macro-call? env macro-env operator)))
+     (compile-av-application operator operands env tail? macro-env)
+     (let [compiled-operator (compile-form operator false env macro-env)
+           compiled-operands (mapv #(compile-form % false env macro-env) operands)]
+       (cond-> {:type :application,
+                :operator compiled-operator,
+                :operands compiled-operands}
+         tail? (assoc :tail? true))))))
 
 
 (defn compile-dao-stream-apply-call
@@ -635,7 +838,9 @@
     ;; The empty list is self-evaluating data, not an application
     (and (seq? form) (empty? form)) (compile-literal form tail?)
     ;; Variables (symbols)
-    (symbol? form) (compile-variable form tail?)
+    (symbol? form) (if (native-name? env form)
+                     (compile-adapter form env tail? macro-env)
+                     (compile-variable form tail?))
     ;; Special forms and function application
     (seq? form)
     (let [[operator & operands] form]
@@ -654,8 +859,10 @@
         :else
         (case operator
           ;; Lambda: (fn [params] body)
-          fn (let [[params & body] operands]
-               (compile-fn params body env tail? macro-env))
+          fn (if (::convention env)
+               (compile-av-fn (fn-arities operands) env tail? macro-env)
+               (let [[params & body] operands]
+                 (compile-fn params body env tail? macro-env)))
           ;; Conditional: (if test consequent alternate?)
           if (let [[test consequent alternate] operands]
                (compile-if test consequent alternate (> (count operands) 2) env tail? macro-env))
@@ -691,8 +898,7 @@
           ;; Def: (def sym value)
           def (let [[sym value] operands] (compile-def sym value env tail? macro-env))
           ;; Macro definition: (defmacro name params & body)
-          defmacro (let [[name-form params & body-forms] operands]
-                     (compile-defmacro name-form params body-forms env tail? macro-env))
+          defmacro (compile-defmacro operands env tail? macro-env)
           ;; Function application: (f arg1 arg2 ...)
           (compile-application operator operands env tail? macro-env))))
     ;; Unknown form type
@@ -717,54 +923,80 @@
        ast))))
 
 
+(defn- program-env
+  "The compile-time env of one program. Without `opts` it is empty: the
+   native path. `{:convention :arg-vector, :native #{symbol}, :macros
+   #{symbol}}` opts into the argument-vector convention: `:native` names the
+   primitives a bare symbol may call directly, `:macros` the expander-side
+   macro names whose calls must stay ordinary applications. The program's
+   own top-level definitions are never native."
+  [forms opts]
+  (if-not opts
+    {}
+    (do (when-not (= :arg-vector (:convention opts))
+          (reject! "Unknown compile-program convention" {:opts opts}))
+        {::convention {:native (set (:native opts)), :macros (set (:macros opts))}
+         ::defined (into #{}
+                         (keep (fn [f]
+                                 (when (and (seq? f)
+                                            (contains? #{'def 'defn 'defn- 'defmacro}
+                                                       (first f))
+                                            (symbol? (second f)))
+                                   (strip-symbol-meta (second f)))))
+                         forms)})))
+
+
 (defn compile-program
   "Compile a sequence of Clojure forms into a single Universal AST.
    Top-level defs compile to explicit yin/def store writes, sequenced via lambda.
    Top-level defmacros are lowered to ordinary (yin/def name (fn ...)) syntax
    with :macro? true on the lambda; the encoder turns that flag into a
-   declaration row and the expander, not this compiler, recognizes calls."
+   declaration row and the expander, not this compiler, recognizes calls.
+   The three-argument form takes `opts` opting into the argument-vector
+   convention (see `program-env`); without it the output is the native one."
   ([forms] (compile-program forms true))
-  ([forms tail?]
-   (letfn [(go
-             [forms macro-env]
-             (if (empty? forms)
-               (compile-literal nil tail?)
-               (let [head       (first forms)
-                     rest-forms (rest forms)]
-                 (cond
-                   ;; defmacro: ordinary (yin/def name (fn ...)) syntax whose
-                   ;; lambda the encoder declares; later forms see the name
-                   ;; only so the native defn lowering can yield to it.
-                   (and (seq? head) (= 'defmacro (first head)))
-                   (let [[_ name-form params & body-forms] head]
-                     (cond-> {:type     :application
-                              :operator {:type :lambda, :params ['_]
-                                         :body (go rest-forms
-                                                   (assoc macro-env
-                                                          (strip-symbol-meta name-form)
-                                                          {:type :user}))}
-                              :operands [(compile-defmacro name-form params body-forms
-                                                           {} false macro-env)]}
-                       tail? (assoc :tail? true)))
-                   ;; def: sequence with current macro-env
-                   (and (seq? head) (= 'def (first head)))
-                   (let [[_ name value] head]
+  ([forms tail?] (compile-program forms tail? nil))
+  ([forms tail? opts]
+   (let [env (program-env forms opts)]
+     (letfn [(go
+               [forms macro-env]
+               (if (empty? forms)
+                 (compile-literal nil tail?)
+                 (let [head       (first forms)
+                       rest-forms (rest forms)]
+                   (cond
+                     ;; defmacro: ordinary (yin/def name (fn ...)) syntax whose
+                     ;; lambda the encoder declares; later forms see the name
+                     ;; only so the native defn lowering can yield to it.
+                     (and (seq? head) (= 'defmacro (first head)))
+                     (let [defined (compile-defmacro (rest head) env false macro-env)]
+                       (cond-> {:type     :application
+                                :operator {:type :lambda, :params ['_]
+                                           :body (go rest-forms
+                                                     (assoc macro-env
+                                                            (strip-symbol-meta (second head))
+                                                            {:type :user}))}
+                                :operands [defined]}
+                         tail? (assoc :tail? true)))
+                     ;; def: sequence with current macro-env
+                     (and (seq? head) (= 'def (first head)))
+                     (let [[_ name value] head]
+                       (cond-> {:type     :application
+                                :operator {:type :lambda, :params ['_]
+                                           :body (go rest-forms macro-env)}
+                                :operands [(compile-def name value env false macro-env)]}
+                         tail? (assoc :tail? true)))
+                     ;; single form
+                     (= 1 (count forms))
+                     (compile-form head tail? env macro-env)
+                     ;; sequence
+                     :else
                      (cond-> {:type     :application
                               :operator {:type :lambda, :params ['_]
                                          :body (go rest-forms macro-env)}
-                              :operands [(compile-def name value {} false macro-env)]}
-                       tail? (assoc :tail? true)))
-                   ;; single form
-                   (= 1 (count forms))
-                   (compile-form head tail? {} macro-env)
-                   ;; sequence
-                   :else
-                   (cond-> {:type     :application
-                            :operator {:type :lambda, :params ['_]
-                                       :body (go rest-forms macro-env)}
-                            :operands [(compile-form head false {} macro-env)]}
-                     tail? (assoc :tail? true))))))]
-     (go forms initial-macro-env))))
+                              :operands [(compile-form head false env macro-env)]}
+                       tail? (assoc :tail? true))))))]
+       (go forms initial-macro-env)))))
 
 
 (defn compile
