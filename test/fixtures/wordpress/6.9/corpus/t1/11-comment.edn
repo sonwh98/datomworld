@@ -1,0 +1,444 @@
+{:request
+ {:id "t1-11-comment",
+  :method "POST",
+  :uri "/wp-comments-post.php",
+  :status 200,
+  :response-sha256
+  "b810a6c2f9a5834f4c3966d1dbe454485fa06b8417de39aed755aeec3f296265",
+  :server
+  {:CONTENT_TYPE "application/x-www-form-urlencoded",
+   :SCRIPT_FILENAME "/var/www/html/wp-comments-post.php",
+   :SERVER_NAME "0.0.0.0",
+   :SERVER_PROTOCOL "HTTP/1.1",
+   :PHP_SELF "/wp-comments-post.php",
+   :REQUEST_URI "/wp-comments-post.php",
+   :CONTENT_LENGTH "122",
+   :DOCUMENT_ROOT "/var/www/html",
+   :HTTP_HOST "php:8080",
+   :REMOTE_ADDR "172.19.0.4",
+   :SERVER_PORT "8080",
+   :SCRIPT_NAME "/wp-comments-post.php",
+   :REQUEST_METHOD "POST"}},
+ :events
+ [{:seq 1,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), require('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wp_load_alloptions, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE autoload IN ( 'yes', 'on', 'auto-on', 'auto' )",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 117}}
+  {:seq 2,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wp_load_alloptions, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE autoload IN ( 'yes', 'on', 'auto-on', 'auto' )",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 117}}
+  {:seq 3,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), require('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), load_default_textdomain, determine_locale, get_locale, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'WPLANG' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["WPLANG"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 4,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), load_default_textdomain, determine_locale, get_locale, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'WPLANG' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["WPLANG"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 5,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), require('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, _register_theme_block_patterns, WP_Theme->get_block_patterns, WP_Theme->get_pattern_cache, get_site_transient, wp_prime_site_option_caches, wp_prime_network_option_caches, wp_prime_option_caches, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE option_name IN ('_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf','_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf')",
+   :prepare
+   {:template
+    "SELECT option_name, option_value FROM wp_options WHERE option_name IN (%s,%s)",
+    :args
+    ["_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"
+     "_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 2}}
+  {:seq 6,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, _register_theme_block_patterns, WP_Theme->get_block_patterns, WP_Theme->get_pattern_cache, get_site_transient, wp_prime_site_option_caches, wp_prime_network_option_caches, wp_prime_option_caches, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE option_name IN ('_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf','_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf')",
+   :prepare
+   {:template
+    "SELECT option_name, option_value FROM wp_options WHERE option_name IN (%s,%s)",
+    :args
+    ["_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"
+     "_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 2}}
+  {:seq 7,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), require('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, check_theme_switched, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'theme_switched' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["theme_switched"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 8,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, check_theme_switched, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'theme_switched' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["theme_switched"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 9,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, get_post, WP_Post::get_instance, wpdb->get_row",
+   :sql "SELECT * FROM wp_posts WHERE ID = 1 LIMIT 1",
+   :prepare
+   {:template "SELECT * FROM wp_posts WHERE ID = %d LIMIT 1",
+    :args [1]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 10,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_check_comment_data_max_lengths, wp_get_comment_fields_max_lengths, wpdb->get_col_length, wpdb->get_table_charset, wpdb->get_results",
+   :sql "SHOW FULL COLUMNS FROM `wp_comments`",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 15}}
+  {:seq 11,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, wpdb->get_results",
+   :sql
+   "SELECT   wp_posts.*\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND ( \n  ( YEAR( wp_posts.post_date ) = 2026 AND MONTH( wp_posts.post_date ) = 10 AND DAYOFMONTH( wp_posts.post_date ) = 28 )\n) AND wp_posts.post_name = 'hello-world' AND wp_posts.post_type = 'post'\n\t\t\t\t\t \n\t\t\t\t\t ORDER BY wp_posts.post_date DESC\n\t\t\t\t\t ",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 12,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_allow_comment, wpdb->get_var",
+   :sql
+   "SELECT comment_ID FROM wp_comments WHERE comment_post_ID = 1 AND comment_parent = '0' AND comment_approved != 'trash' AND ( comment_author = 'Visitor' AND comment_author_email = 'v@example.test' ) AND comment_content = 'A corpus comment' LIMIT 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 13,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, update_post_caches, update_object_term_cache, wp_get_object_terms, get_terms, WP_Term_Query->query, WP_Term_Query->get_terms, wpdb->get_results",
+   :sql
+   "SELECT DISTINCT t.term_id, tr.object_id\n\t\t\t FROM wp_terms AS t  INNER JOIN wp_term_taxonomy AS tt ON t.term_id = tt.term_id INNER JOIN wp_term_relationships AS tr ON tr.term_taxonomy_id = tt.term_taxonomy_id\n\t\t\t WHERE tt.taxonomy IN ('category', 'post_tag', 'post_format') AND tr.object_id IN (1)\n\t\t\t ORDER BY t.name ASC\n\t\t\t ",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 14,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, update_post_caches, update_object_term_cache, wp_get_object_terms, get_terms, WP_Term_Query->query, WP_Term_Query->get_terms, _prime_term_caches, wpdb->get_results",
+   :sql
+   "SELECT t.*, tt.* FROM wp_terms AS t INNER JOIN wp_term_taxonomy AS tt ON t.term_id = tt.term_id WHERE t.term_id IN (1)",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 15,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_allow_comment, apply_filters('wp_is_comment_flood'), WP_Hook->apply_filters, wp_check_comment_flood, wpdb->get_var",
+   :sql
+   "SELECT `comment_date_gmt` FROM `wp_comments` WHERE `comment_date_gmt` >= '2026-10-28 15:54:05' AND ( `comment_author_IP` = '172.19.0.4' OR `comment_author_email` = 'v@example.test' ) ORDER BY `comment_date_gmt` DESC LIMIT 1",
+   :prepare
+   {:template
+    "SELECT `comment_date_gmt` FROM `wp_comments` WHERE `comment_date_gmt` >= %s AND ( `comment_author_IP` = %s OR `comment_author_email` = %s ) ORDER BY `comment_date_gmt` DESC LIMIT 1",
+    :args ["2026-10-28 15:54:05" "172.19.0.4" "v@example.test"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 16,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_allow_comment, wp_check_comment_data, check_comment, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'moderation_keys' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["moderation_keys"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 17,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, update_post_caches, update_postmeta_cache, update_meta_cache, wpdb->get_results",
+   :sql
+   "SELECT post_id, meta_key, meta_value FROM wp_postmeta WHERE post_id IN (1) ORDER BY meta_id ASC",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 18,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_allow_comment, wp_check_comment_data, check_comment, get_user_by, WP_User::get_data_by, wpdb->get_row",
+   :sql
+   "SELECT * FROM wp_users WHERE user_email = 'v@example.test' LIMIT 1",
+   :prepare
+   {:template "SELECT * FROM wp_users WHERE user_email = %s LIMIT 1",
+    :args ["v@example.test"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 19,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), get_single_template, get_query_template, locate_block_template, resolve_block_template, get_block_templates, WP_Query->__construct, WP_Query->query, WP_Query->get_posts, WP_Tax_Query->get_sql, WP_Tax_Query->get_sql_clauses, WP_Tax_Query->get_sql_for_query, WP_Tax_Query->get_sql_for_clause, WP_Tax_Query->clean_query, WP_Tax_Query->transform_query, WP_Term_Query->query, WP_Term_Query->get_terms, wpdb->get_results",
+   :sql
+   "SELECT  t.term_id\n\t\t\t FROM wp_terms AS t  INNER JOIN wp_term_taxonomy AS tt ON t.term_id = tt.term_id\n\t\t\t WHERE tt.taxonomy IN ('wp_theme') AND t.name IN ('twentytwentyfive')\n\t\t\t \n\t\t\t LIMIT 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 20,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_allow_comment, wp_check_comment_data, check_comment, wpdb->get_var",
+   :sql
+   "SELECT comment_approved\n\t\t\t\t\t\tFROM wp_comments\n\t\t\t\t\t\tWHERE comment_author = 'Visitor'\n\t\t\t\t\t\tAND comment_author_email = 'v@example.test'\n\t\t\t\t\t\tAND comment_approved = '1'\n\t\t\t\t\t\tLIMIT 1",
+   :prepare
+   {:template
+    "SELECT comment_approved\n\t\t\t\t\t\tFROM wp_comments\n\t\t\t\t\t\tWHERE comment_author = %s\n\t\t\t\t\t\tAND comment_author_email = %s\n\t\t\t\t\t\tAND comment_approved = '1'\n\t\t\t\t\t\tLIMIT 1",
+    :args ["Visitor" "v@example.test"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 21,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), get_single_template, get_query_template, locate_block_template, resolve_block_template, get_block_templates, WP_Query->__construct, WP_Query->query, WP_Query->get_posts, wpdb->get_col",
+   :sql
+   "SELECT   wp_posts.ID\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND wp_posts.post_name IN ('single','single-post','single-post-hello-world') AND ( \n  0 = 1\n) AND wp_posts.post_type = 'wp_template' AND ((wp_posts.post_status = 'publish'))\n\t\t\t\t\t GROUP BY wp_posts.ID\n\t\t\t\t\t ORDER BY wp_posts.post_date DESC\n\t\t\t\t\t LIMIT 0, 3",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 22,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, the_post, WP_Query->the_post, update_post_author_caches, cache_users, update_meta_cache, wpdb->get_results",
+   :sql
+   "SELECT user_id, meta_key, meta_value FROM wp_usermeta WHERE user_id IN (1) ORDER BY umeta_id ASC",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 16}}
+  {:seq 23,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_allow_comment, wp_check_comment_data, wp_check_comment_disallowed_list, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'disallowed_keys' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["disallowed_keys"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 24,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, the_post, WP_Query->the_post, update_post_author_caches, cache_users, wpdb->get_results",
+   :sql "SELECT * FROM wp_users WHERE ID IN (1)",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 25,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_check_comment_data, check_comment, get_user_by, WP_User::get_data_by, wpdb->get_row",
+   :sql
+   "SELECT * FROM wp_users WHERE user_email = 'v@example.test' LIMIT 1",
+   :prepare
+   {:template "SELECT * FROM wp_users WHERE user_email = %s LIMIT 1",
+    :args ["v@example.test"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 26,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_register_tinymce_scripts, script_concat_settings, get_site_option, get_network_option, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'can_compress_scripts' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["can_compress_scripts"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 27,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_check_comment_data, check_comment, wpdb->get_var",
+   :sql
+   "SELECT comment_approved\n\t\t\t\t\t\tFROM wp_comments\n\t\t\t\t\t\tWHERE comment_author = 'Visitor'\n\t\t\t\t\t\tAND comment_author_email = 'v@example.test'\n\t\t\t\t\t\tAND comment_approved = '1'\n\t\t\t\t\t\tLIMIT 1",
+   :prepare
+   {:template
+    "SELECT comment_approved\n\t\t\t\t\t\tFROM wp_comments\n\t\t\t\t\t\tWHERE comment_author = %s\n\t\t\t\t\t\tAND comment_author_email = %s\n\t\t\t\t\t\tAND comment_approved = '1'\n\t\t\t\t\t\tLIMIT 1",
+    :args ["Visitor" "v@example.test"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 28,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, render_block_core_template_part, WP_Query->__construct, WP_Query->query, WP_Query->get_posts, wpdb->get_col",
+   :sql
+   "SELECT   wp_posts.ID\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND wp_posts.post_name IN ('header') AND ( \n  0 = 1\n) AND wp_posts.post_type = 'wp_template_part' AND ((wp_posts.post_status = 'publish'))\n\t\t\t\t\t GROUP BY wp_posts.ID\n\t\t\t\t\t ORDER BY wp_posts.post_date DESC\n\t\t\t\t\t LIMIT 0, 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 29,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, render_block_core_template_part, do_blocks, render_block, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_navigation, WP_Navigation_Block_Renderer::render, WP_Navigation_Block_Renderer::get_inner_blocks, WP_Navigation_Block_Renderer::get_inner_blocks_from_fallback, block_core_navigation_get_fallback_blocks, WP_Navigation_Fallback::get_fallback, WP_Navigation_Fallback::get_most_recently_published_navigation, WP_Query->__construct, WP_Query->query, WP_Query->get_posts, wpdb->get_col",
+   :sql
+   "SELECT   wp_posts.ID\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND wp_posts.post_type = 'wp_navigation' AND ((wp_posts.post_status = 'publish'))\n\t\t\t\t\t \n\t\t\t\t\t ORDER BY wp_posts.post_date DESC\n\t\t\t\t\t LIMIT 0, 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 30,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, render_block_core_template_part, do_blocks, render_block, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_navigation, WP_Navigation_Block_Renderer::render, WP_Navigation_Block_Renderer::get_inner_blocks, WP_Navigation_Block_Renderer::get_inner_blocks_from_fallback, block_core_navigation_get_fallback_blocks, WP_Navigation_Fallback::get_fallback, WP_Navigation_Fallback::get_most_recently_published_navigation, WP_Query->__construct, WP_Query->query, WP_Query->get_posts, _prime_post_caches, wpdb->get_results",
+   :sql "SELECT wp_posts.* FROM wp_posts WHERE ID IN (4)",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 31,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, render_block_core_template_part, do_blocks, render_block, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_navigation, WP_Navigation_Block_Renderer::render, WP_Navigation_Block_Renderer::get_inner_blocks, WP_Navigation_Block_Renderer::get_inner_blocks_from_fallback, block_core_navigation_get_fallback_blocks, apply_block_hooks_to_content_from_post_object, get_post_meta, get_metadata, get_metadata_raw, update_meta_cache, wpdb->get_results",
+   :sql
+   "SELECT post_id, meta_key, meta_value FROM wp_postmeta WHERE post_id IN (4) ORDER BY meta_id ASC",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 32,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, render_block_core_template_part, do_blocks, render_block, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_navigation, WP_Navigation_Block_Renderer::render, WP_Navigation_Block_Renderer::handle_view_script_module_loading, WP_Navigation_Block_Renderer::is_interactive, WP_Navigation_Block_Renderer::has_submenus, get_pages, WP_Query->query, WP_Query->get_posts, wpdb->get_results",
+   :sql
+   "SELECT   wp_posts.*\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND wp_posts.post_type = 'page' AND ((wp_posts.post_status = 'publish'))\n\t\t\t\t\t \n\t\t\t\t\t ORDER BY wp_posts.menu_order ASC, wp_posts.post_title ASC\n\t\t\t\t\t ",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 33,
+   :kind :dml,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_insert_comment, wpdb->insert, wpdb->_insert_replace_helper",
+   :sql
+   "INSERT INTO `wp_comments` (`comment_post_ID`, `comment_author_IP`, `comment_author`, `comment_author_email`, `comment_author_url`, `comment_date`, `comment_date_gmt`, `comment_content`, `comment_karma`, `comment_approved`, `comment_agent`, `comment_type`, `comment_parent`, `user_id`) VALUES (1, '172.19.0.4', 'Visitor', 'v@example.test', '', '2026-10-28 16:54:05', '2026-10-28 16:54:05', 'A corpus comment', 0, '0', 'babashka.http-client/0.4.26', 'comment', 0, 0)",
+   :prepare
+   {:template
+    "INSERT INTO `wp_comments` (`comment_post_ID`, `comment_author_IP`, `comment_author`, `comment_author_email`, `comment_author_url`, `comment_date`, `comment_date_gmt`, `comment_content`, `comment_karma`, `comment_approved`, `comment_agent`, `comment_type`, `comment_parent`, `user_id`) VALUES (%d, %s, %s, %s, %s, %s, %s, %s, %d, %s, %s, %s, %d, %d)",
+    :args
+    [1
+     "172.19.0.4"
+     "Visitor"
+     "v@example.test"
+     ""
+     "2026-10-28 16:54:05"
+     "2026-10-28 16:54:05"
+     "A corpus comment"
+     0
+     0
+     "babashka.http-client/0.4.26"
+     "comment"
+     0
+     0]},
+   :result {:rows-affected 1, :insert-id 2, :num-rows 0}}
+  {:seq 34,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, wp_insert_comment, get_comment, WP_Comment::get_instance, wpdb->get_row",
+   :sql "SELECT * FROM wp_comments WHERE comment_ID = 2 LIMIT 1",
+   :prepare
+   {:template
+    "SELECT * FROM wp_comments WHERE comment_ID = %d LIMIT 1",
+    :args [2]},
+   :result {:rows-affected 0, :insert-id 2, :num-rows 1}}
+  {:seq 35,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, do_action('comment_post'), WP_Hook->do_action, WP_Hook->apply_filters, wp_new_comment_notify_moderator, wp_notify_moderator, get_userdata, get_user_by, WP_User::get_data_by, wpdb->get_row",
+   :sql "SELECT * FROM wp_users WHERE ID = '1' LIMIT 1",
+   :prepare
+   {:template "SELECT * FROM wp_users WHERE ID = %s LIMIT 1",
+    :args [1]},
+   :result {:rows-affected 0, :insert-id 2, :num-rows 1}}
+  {:seq 36,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, do_action('comment_post'), WP_Hook->do_action, WP_Hook->apply_filters, wp_new_comment_notify_moderator, wp_notify_moderator, get_userdata, get_user_by, WP_User->init, WP_User->for_site, WP_User->get_caps_data, get_user_meta, get_metadata, get_metadata_raw, update_meta_cache, wpdb->get_results",
+   :sql
+   "SELECT user_id, meta_key, meta_value FROM wp_usermeta WHERE user_id IN (1) ORDER BY umeta_id ASC",
+   :result {:rows-affected 0, :insert-id 2, :num-rows 16}}
+  {:seq 37,
+   :kind :select,
+   :caller
+   "require('wp-comments-post.php'), wp_handle_comment_submission, wp_new_comment, do_action('comment_post'), WP_Hook->do_action, WP_Hook->apply_filters, wp_new_comment_notify_moderator, wp_notify_moderator, wpdb->get_var",
+   :sql
+   "SELECT COUNT(*) FROM wp_comments WHERE comment_approved = '0'",
+   :result {:rows-affected 0, :insert-id 2, :num-rows 1}}
+  {:seq 38,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, render_block_core_template_part, do_blocks, render_block, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, WP_Block->render, apply_filters('render_block'), WP_Hook->apply_filters, wp_render_layout_support_flag, wp_get_global_settings, WP_Theme_JSON_Resolver::get_merged_data, WP_Theme_JSON_Resolver::get_user_data, WP_Theme_JSON_Resolver::get_user_data_from_wp_global_styles, WP_Query->query, WP_Query->get_posts, wpdb->get_col",
+   :sql
+   "SELECT   wp_posts.ID\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND ( \n  0 = 1\n) AND wp_posts.post_type = 'wp_global_styles' AND ((wp_posts.post_status = 'publish'))\n\t\t\t\t\t GROUP BY wp_posts.ID\n\t\t\t\t\t ORDER BY wp_posts.post_date DESC\n\t\t\t\t\t LIMIT 0, 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 39,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_post_navigation_link, get_previous_post_link, get_adjacent_post_link, get_adjacent_post, wpdb->get_var",
+   :sql
+   "SELECT p.ID FROM wp_posts AS p  WHERE (p.post_date < '2026-10-28 16:54:03' OR (p.post_date = '2026-10-28 16:54:03' AND p.ID < 1)) AND p.post_type = 'post'  AND p.post_status = 'publish' ORDER BY p.post_date DESC, p.ID DESC LIMIT 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 40,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_post_navigation_link, get_next_post_link, get_adjacent_post_link, get_adjacent_post, wpdb->get_var",
+   :sql
+   "SELECT p.ID FROM wp_posts AS p  WHERE (p.post_date > '2026-10-28 16:54:03' OR (p.post_date = '2026-10-28 16:54:03' AND p.ID > 1)) AND p.post_type = 'post'  AND p.post_status = 'publish' ORDER BY p.post_date ASC, p.ID ASC LIMIT 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 41,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, render_block_core_comments, WP_Block->render, WP_Block->render, render_block_core_comment_template, build_comment_query_vars_from_block, wp_get_unapproved_comment_author_email, get_comment, WP_Comment::get_instance, wpdb->get_row",
+   :sql "SELECT * FROM wp_comments WHERE comment_ID = 2 LIMIT 1",
+   :prepare
+   {:template
+    "SELECT * FROM wp_comments WHERE comment_ID = %d LIMIT 1",
+    :args [2]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 42,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, render_block_core_comments, WP_Block->render, WP_Block->render, render_block_core_comment_template, WP_Comment_Query->__construct, WP_Comment_Query->query, WP_Comment_Query->get_comments, WP_Comment_Query->get_comment_ids, wpdb->get_col",
+   :sql
+   "SELECT SQL_CALC_FOUND_ROWS wp_comments.comment_ID\n\t\t\t FROM wp_comments \n\t\t\t WHERE ( ( comment_approved = '1' ) OR ( comment_author_email = 'v@example.test' AND comment_approved = '0' AND wp_comments.comment_ID = 2 ) ) AND comment_post_ID = 1 AND comment_type NOT IN ('note') AND comment_parent = 0\n\t\t\t \n\t\t\t ORDER BY wp_comments.comment_date_gmt ASC, wp_comments.comment_ID ASC\n\t\t\t ",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 2}}
+  {:seq 43,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, render_block_core_comments, WP_Block->render, WP_Block->render, render_block_core_comment_template, WP_Comment_Query->__construct, WP_Comment_Query->query, WP_Comment_Query->get_comments, _prime_comment_caches, wpdb->get_results",
+   :sql
+   "SELECT wp_comments.* FROM wp_comments WHERE comment_ID IN (1)",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 44,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, render_block_core_comments, WP_Block->render, WP_Block->render, render_block_core_comment_template, WP_Comment_Query->__construct, WP_Comment_Query->query, WP_Comment_Query->get_comments, WP_Comment_Query->fill_descendants, get_comments, WP_Comment_Query->query, WP_Comment_Query->get_comments, WP_Comment_Query->get_comment_ids, wpdb->get_col",
+   :sql
+   "SELECT  wp_comments.comment_ID\n\t\t\t FROM wp_comments \n\t\t\t WHERE ( ( comment_approved = '1' ) OR ( comment_author_email = 'v@example.test' AND comment_approved = '0' AND wp_comments.comment_ID = 2 ) ) AND comment_post_ID = 1 AND comment_parent IN ( 1,2 ) AND comment_type NOT IN ('note')\n\t\t\t \n\t\t\t ORDER BY wp_comments.comment_date_gmt ASC, wp_comments.comment_ID ASC\n\t\t\t ",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 45,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_post_template, WP_Query->__construct, WP_Query->query, WP_Query->get_posts, wpdb->get_col",
+   :sql
+   "SELECT SQL_CALC_FOUND_ROWS  wp_posts.ID\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND ((wp_posts.post_type = 'post' AND (wp_posts.post_status = 'publish')))\n\t\t\t\t\t \n\t\t\t\t\t ORDER BY wp_posts.post_date DESC\n\t\t\t\t\t LIMIT 0, 4",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 46,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_post_template, WP_Query->__construct, WP_Query->query, WP_Query->get_posts, WP_Query->set_found_posts, wpdb->get_var",
+   :sql "SELECT FOUND_ROWS()",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 47,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, render_block_core_template_part, WP_Query->__construct, WP_Query->query, WP_Query->get_posts, wpdb->get_col",
+   :sql
+   "SELECT   wp_posts.ID\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND wp_posts.post_name IN ('footer') AND ( \n  0 = 1\n) AND wp_posts.post_type = 'wp_template_part' AND ((wp_posts.post_status = 'publish'))\n\t\t\t\t\t GROUP BY wp_posts.ID\n\t\t\t\t\t ORDER BY wp_posts.post_date DESC\n\t\t\t\t\t LIMIT 0, 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 48,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), include('wp-includes/template-canvas.php'), get_the_block_template_html, do_blocks, render_block, WP_Block->render, render_block_core_template_part, do_blocks, render_block, WP_Block->render, render_block_core_pattern, do_blocks, render_block, WP_Block->render, WP_Block->render, WP_Block->render, render_block_core_site_logo, get_custom_logo, has_custom_logo, get_theme_mod, apply_filters('theme_mod_custom_logo'), WP_Hook->apply_filters, _override_custom_logo_theme_mod, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'site_logo' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["site_logo"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}]}

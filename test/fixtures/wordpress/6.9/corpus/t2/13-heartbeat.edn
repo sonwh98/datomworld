@@ -1,0 +1,144 @@
+{:request
+ {:id "t2-13-heartbeat",
+  :method "POST",
+  :uri "/wp-admin/admin-ajax.php?action=heartbeat",
+  :status 200,
+  :response-sha256
+  "ebece33e12026bcbc58f1eefc8de1cd3076085c54ec5e7b084b66ff221fca769",
+  :server
+  {:CONTENT_TYPE "application/x-www-form-urlencoded",
+   :SCRIPT_FILENAME "/var/www/html/wp-admin/admin-ajax.php",
+   :SERVER_NAME "0.0.0.0",
+   :SERVER_PROTOCOL "HTTP/1.1",
+   :PHP_SELF "/wp-admin/admin-ajax.php",
+   :REQUEST_URI "/wp-admin/admin-ajax.php?action=heartbeat",
+   :CONTENT_LENGTH "37",
+   :DOCUMENT_ROOT "/var/www/html",
+   :HTTP_HOST "php:8080",
+   :REMOTE_ADDR "172.19.0.4",
+   :SERVER_PORT "8080",
+   :QUERY_STRING "action=heartbeat",
+   :SCRIPT_NAME "/wp-admin/admin-ajax.php",
+   :REQUEST_METHOD "POST"}},
+ :events
+ [{:seq 1,
+   :kind :select,
+   :caller
+   "require('wp-admin/admin-ajax.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wp_load_alloptions, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE autoload IN ( 'yes', 'on', 'auto-on', 'auto' )",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 117}}
+  {:seq 2,
+   :kind :select,
+   :caller
+   "require('wp-admin/admin-ajax.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), load_default_textdomain, determine_locale, get_user_locale, get_locale, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'WPLANG' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["WPLANG"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 3,
+   :kind :select,
+   :caller
+   "require('wp-admin/admin-ajax.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, _register_theme_block_patterns, WP_Theme->get_block_patterns, WP_Theme->get_pattern_cache, get_site_transient, wp_prime_site_option_caches, wp_prime_network_option_caches, wp_prime_option_caches, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE option_name IN ('_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf','_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf')",
+   :prepare
+   {:template
+    "SELECT option_name, option_value FROM wp_options WHERE option_name IN (%s,%s)",
+    :args
+    ["_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"
+     "_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 2}}
+  {:seq 4,
+   :kind :select,
+   :caller
+   "require('wp-admin/admin-ajax.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, check_theme_switched, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'theme_switched' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["theme_switched"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 5,
+   :kind :select,
+   :caller
+   "require('wp-admin/admin-ajax.php'), do_action('admin_init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_schedule_update_user_counts, wp_schedule_event, _set_cron_array, update_option, wpdb->update, wpdb->process_fields, wpdb->process_field_charsets, wpdb->get_col_charset, wpdb->get_table_charset, wpdb->get_results",
+   :sql "SHOW FULL COLUMNS FROM `wp_options`",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 4}}
+  {:seq 6,
+   :kind :dml,
+   :caller
+   "require('wp-admin/admin-ajax.php'), do_action('admin_init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_schedule_update_user_counts, wp_schedule_event, _set_cron_array, update_option, wpdb->update",
+   :sql
+   "UPDATE `wp_options` SET `option_value` = 'a:7:{i:1793206447;a:1:{s:21:\\\"wp_update_user_counts\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793210042;a:1:{s:16:\\\"wp_version_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793210043;a:1:{s:34:\\\"wp_privacy_delete_old_export_files\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:6:\\\"hourly\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:3600;}}}i:1793211842;a:1:{s:17:\\\"wp_update_plugins\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793213642;a:1:{s:16:\\\"wp_update_themes\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793292843;a:2:{s:30:\\\"wp_site_health_scheduled_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:6:\\\"weekly\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:604800;}}s:32:\\\"recovery_mode_clean_expired_keys\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:5:\\\"daily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:86400;}}}s:7:\\\"version\\\";i:2;}', `autoload` = 'on' WHERE `option_name` = 'cron'",
+   :prepare
+   {:template
+    "UPDATE `wp_options` SET `option_value` = %s, `autoload` = %s WHERE `option_name` = %s",
+    :args
+    ["a:7:{i:1793206447;a:1:{s:21:\"wp_update_user_counts\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793210042;a:1:{s:16:\"wp_version_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793210043;a:1:{s:34:\"wp_privacy_delete_old_export_files\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:6:\"hourly\";s:4:\"args\";a:0:{}s:8:\"interval\";i:3600;}}}i:1793211842;a:1:{s:17:\"wp_update_plugins\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793213642;a:1:{s:16:\"wp_update_themes\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793292843;a:2:{s:30:\"wp_site_health_scheduled_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:6:\"weekly\";s:4:\"args\";a:0:{}s:8:\"interval\";i:604800;}}s:32:\"recovery_mode_clean_expired_keys\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:5:\"daily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:86400;}}}s:7:\"version\";i:2;}"
+     "on"
+     "cron"]},
+   :result {:rows-affected 1, :insert-id 0, :num-rows 0}}
+  {:seq 7,
+   :kind :select,
+   :caller
+   "require('wp-admin/admin-ajax.php'), do_action('admin_init'), WP_Hook->do_action, WP_Hook->apply_filters, _wp_check_for_scheduled_update_comment_type, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'finished_updating_comment_type' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["finished_updating_comment_type"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 8,
+   :kind :dml,
+   :caller
+   "require('wp-admin/admin-ajax.php'), do_action('admin_init'), WP_Hook->do_action, WP_Hook->apply_filters, _wp_check_for_scheduled_update_comment_type, wp_schedule_single_event, _set_cron_array, update_option, wpdb->update",
+   :sql
+   "UPDATE `wp_options` SET `option_value` = 'a:8:{i:1793206447;a:1:{s:21:\\\"wp_update_user_counts\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793206507;a:1:{s:28:\\\"wp_update_comment_type_batch\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:2:{s:8:\\\"schedule\\\";b:0;s:4:\\\"args\\\";a:0:{}}}}i:1793210042;a:1:{s:16:\\\"wp_version_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793210043;a:1:{s:34:\\\"wp_privacy_delete_old_export_files\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:6:\\\"hourly\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:3600;}}}i:1793211842;a:1:{s:17:\\\"wp_update_plugins\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793213642;a:1:{s:16:\\\"wp_update_themes\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793292843;a:2:{s:30:\\\"wp_site_health_scheduled_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:6:\\\"weekly\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:604800;}}s:32:\\\"recovery_mode_clean_expired_keys\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:5:\\\"daily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:86400;}}}s:7:\\\"version\\\";i:2;}', `autoload` = 'on' WHERE `option_name` = 'cron'",
+   :prepare
+   {:template
+    "UPDATE `wp_options` SET `option_value` = %s, `autoload` = %s WHERE `option_name` = %s",
+    :args
+    ["a:8:{i:1793206447;a:1:{s:21:\"wp_update_user_counts\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793206507;a:1:{s:28:\"wp_update_comment_type_batch\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:2:{s:8:\"schedule\";b:0;s:4:\"args\";a:0:{}}}}i:1793210042;a:1:{s:16:\"wp_version_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793210043;a:1:{s:34:\"wp_privacy_delete_old_export_files\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:6:\"hourly\";s:4:\"args\";a:0:{}s:8:\"interval\";i:3600;}}}i:1793211842;a:1:{s:17:\"wp_update_plugins\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793213642;a:1:{s:16:\"wp_update_themes\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793292843;a:2:{s:30:\"wp_site_health_scheduled_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:6:\"weekly\";s:4:\"args\";a:0:{}s:8:\"interval\";i:604800;}}s:32:\"recovery_mode_clean_expired_keys\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:5:\"daily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:86400;}}}s:7:\"version\";i:2;}"
+     "on"
+     "cron"]},
+   :result {:rows-affected 1, :insert-id 0, :num-rows 0}}
+  {:seq 9,
+   :kind :select,
+   :caller
+   "require('wp-admin/admin-ajax.php'), do_action('admin_init'), WP_Hook->do_action, WP_Hook->apply_filters, WP_Privacy_Policy_Content::text_change_check, current_user_can, user_can, WP_User->has_cap, map_meta_cap, get_post, WP_Post::get_instance, wpdb->get_row",
+   :sql "SELECT * FROM wp_posts WHERE ID = 3 LIMIT 1",
+   :prepare
+   {:template "SELECT * FROM wp_posts WHERE ID = %d LIMIT 1",
+    :args [3]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 10,
+   :kind :select,
+   :caller
+   "shutdown_action_hook, do_action('shutdown'), WP_Hook->do_action, WP_Hook->apply_filters, _wp_cron, spawn_cron, get_transient, wp_prime_option_caches, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE option_name IN ('_transient_doing_cron','_transient_timeout_doing_cron')",
+   :prepare
+   {:template
+    "SELECT option_name, option_value FROM wp_options WHERE option_name IN (%s,%s)",
+    :args ["_transient_doing_cron" "_transient_timeout_doing_cron"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 11,
+   :kind :dml,
+   :caller
+   "shutdown_action_hook, do_action('shutdown'), WP_Hook->do_action, WP_Hook->apply_filters, _wp_cron, spawn_cron, set_transient, add_option",
+   :sql
+   "INSERT INTO `wp_options` (`option_name`, `option_value`, `autoload`) VALUES ('_transient_doing_cron', '1793206447.9443519115447998046875', 'on') ON DUPLICATE KEY UPDATE `option_name` = VALUES(`option_name`), `option_value` = VALUES(`option_value`), `autoload` = VALUES(`autoload`)",
+   :prepare
+   {:template
+    "INSERT INTO `wp_options` (`option_name`, `option_value`, `autoload`) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE `option_name` = VALUES(`option_name`), `option_value` = VALUES(`option_value`), `autoload` = VALUES(`autoload`)",
+    :args
+    ["_transient_doing_cron"
+     "1793206447.9443519115447998046875"
+     "on"]},
+   :result {:rows-affected 1, :insert-id 129, :num-rows 0}}]}

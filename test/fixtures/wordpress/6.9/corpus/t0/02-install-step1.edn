@@ -1,0 +1,1323 @@
+{:request
+ {:id "t0-02-install-step1",
+  :method "GET",
+  :uri "/wp-admin/install.php?step=1",
+  :status 200,
+  :response-sha256
+  "88e6d8634eee5905400ca7b67e7119dfb456db4ab415db97c2fdd8ecdc97e6b4",
+  :server
+  {:SCRIPT_FILENAME "/var/www/html/wp-admin/install.php",
+   :SERVER_NAME "0.0.0.0",
+   :SERVER_PROTOCOL "HTTP/1.1",
+   :PHP_SELF "/wp-admin/install.php",
+   :REQUEST_URI "/wp-admin/install.php?step=1",
+   :CONTENT_LENGTH "0",
+   :DOCUMENT_ROOT "/var/www/html",
+   :HTTP_HOST "php:8080",
+   :REMOTE_ADDR "172.19.0.4",
+   :SERVER_PORT "8080",
+   :QUERY_STRING "step=1",
+   :SCRIPT_NAME "/wp-admin/install.php",
+   :REQUEST_METHOD "GET"}},
+ :events
+ [{:seq 1,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_var",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl'",
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 2,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_users;",
+   :error {:errno 1146, :text "Table 'wp.wp_users' doesn't exist"}}
+  {:seq 3,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_usermeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_usermeta' doesn't exist"}}
+  {:seq 4,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_posts;",
+   :error {:errno 1146, :text "Table 'wp.wp_posts' doesn't exist"}}
+  {:seq 5,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_comments;",
+   :error {:errno 1146, :text "Table 'wp.wp_comments' doesn't exist"}}
+  {:seq 6,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_links;",
+   :error {:errno 1146, :text "Table 'wp.wp_links' doesn't exist"}}
+  {:seq 7,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_options;",
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 8,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_postmeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_postmeta' doesn't exist"}}
+  {:seq 9,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_terms;",
+   :error {:errno 1146, :text "Table 'wp.wp_terms' doesn't exist"}}
+  {:seq 10,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_term_taxonomy;",
+   :error
+   {:errno 1146, :text "Table 'wp.wp_term_taxonomy' doesn't exist"}}
+  {:seq 11,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_term_relationships;",
+   :error
+   {:errno 1146,
+    :text "Table 'wp.wp_term_relationships' doesn't exist"}}
+  {:seq 12,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_termmeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_termmeta' doesn't exist"}}
+  {:seq 13,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_commentmeta;",
+   :error
+   {:errno 1146, :text "Table 'wp.wp_commentmeta' doesn't exist"}}
+  {:seq 14,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_plugin_directory_constants, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 15,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_cookie_constants, get_site_option, get_network_option, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 16,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_cookie_constants, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'home' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["home"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 17,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_cookie_constants, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 18,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_ssl_constants, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 19,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), create_initial_post_types, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'wp_attachment_pages_enabled' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["wp_attachment_pages_enabled"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 20,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), WP_Recovery_Mode->initialize, wp_next_scheduled, wp_get_scheduled_event, _get_cron_array, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'cron' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["cron"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 21,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_get_active_and_valid_plugins, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'active_plugins' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["active_plugins"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 22,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_get_active_and_valid_plugins, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'hack_file' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["hack_file"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 23,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_set_internal_encoding, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'blog_charset' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["blog_charset"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 24,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), WP_Rewrite->__construct, WP_Rewrite->init, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 25,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), WP_Roles->__construct, WP_Roles->for_site, WP_Roles->get_roles_data, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'wp_user_roles' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["wp_user_roles"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 26,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('setup_theme'), WP_Hook->do_action, WP_Hook->apply_filters, _delete_site_logo_on_remove_custom_logo_on_setup_theme, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 27,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_templating_constants, get_template_directory, get_template, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'template' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["template"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 28,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_templating_constants, get_stylesheet_directory, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 29,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_set_template_globals, get_stylesheet_directory, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 30,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_set_template_globals, get_template_directory, get_template, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'template' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["template"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 31,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), load_default_textdomain, determine_locale, get_locale, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'WPLANG' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["WPLANG"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 32,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('after_setup_theme'), WP_Hook->do_action, WP_Hook->apply_filters, _add_default_theme_supports, wp_is_block_theme, wp_get_theme, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 33,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('after_setup_theme'), WP_Hook->do_action, WP_Hook->apply_filters, wp_enable_block_templates, wp_is_block_theme, wp_get_theme, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 34,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('after_setup_theme'), WP_Hook->do_action, WP_Hook->apply_filters, wp_enable_block_templates, wp_theme_has_theme_json, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 35,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('after_setup_theme'), WP_Hook->do_action, WP_Hook->apply_filters, wp_enable_block_templates, wp_theme_has_theme_json, get_stylesheet_directory, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 36,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('after_setup_theme'), WP_Hook->do_action, WP_Hook->apply_filters, wp_enable_block_templates, wp_theme_has_theme_json, get_template_directory, get_template, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'template' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["template"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 37,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('after_setup_theme'), WP_Hook->do_action, WP_Hook->apply_filters, WP_Script_Modules->add_hooks, wp_is_block_theme, wp_get_theme, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 38,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), WP_Site_Health::get_instance, WP_Site_Health->__construct, WP_Site_Health->maybe_create_scheduled_event, wp_next_scheduled, wp_get_scheduled_event, _get_cron_array, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'cron' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["cron"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 39,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_post_types, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'wp_attachment_pages_enabled' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["wp_attachment_pages_enabled"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 40,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'category_base' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["category_base"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 41,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'category_base' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["category_base"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 42,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'tag_base' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["tag_base"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 43,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'tag_base' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["tag_base"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 44,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, register_taxonomy, WP_Taxonomy->__construct, WP_Taxonomy->set_props, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 45,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, register_taxonomy, WP_Taxonomy->add_rewrite_rules, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 46,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, register_taxonomy, WP_Taxonomy->__construct, WP_Taxonomy->set_props, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 47,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, register_taxonomy, WP_Taxonomy->add_rewrite_rules, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 48,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, register_taxonomy, WP_Taxonomy->__construct, WP_Taxonomy->set_props, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 49,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, create_initial_taxonomies, register_taxonomy, WP_Taxonomy->add_rewrite_rules, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 50,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_var",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl'",
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 51,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_users;",
+   :error {:errno 1146, :text "Table 'wp.wp_users' doesn't exist"}}
+  {:seq 52,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_usermeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_usermeta' doesn't exist"}}
+  {:seq 53,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_posts;",
+   :error {:errno 1146, :text "Table 'wp.wp_posts' doesn't exist"}}
+  {:seq 54,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_comments;",
+   :error {:errno 1146, :text "Table 'wp.wp_comments' doesn't exist"}}
+  {:seq 55,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_links;",
+   :error {:errno 1146, :text "Table 'wp.wp_links' doesn't exist"}}
+  {:seq 56,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_options;",
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 57,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_postmeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_postmeta' doesn't exist"}}
+  {:seq 58,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_terms;",
+   :error {:errno 1146, :text "Table 'wp.wp_terms' doesn't exist"}}
+  {:seq 59,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_term_taxonomy;",
+   :error
+   {:errno 1146, :text "Table 'wp.wp_term_taxonomy' doesn't exist"}}
+  {:seq 60,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_term_relationships;",
+   :error
+   {:errno 1146,
+    :text "Table 'wp.wp_term_relationships' doesn't exist"}}
+  {:seq 61,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_termmeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_termmeta' doesn't exist"}}
+  {:seq 62,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_widgets_init, is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_commentmeta;",
+   :error
+   {:errno 1146, :text "Table 'wp.wp_commentmeta' doesn't exist"}}
+  {:seq 63,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, smilies_init, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'use_smilies' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["use_smilies"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 64,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_load_classic_theme_block_styles_on_demand, wp_is_block_theme, wp_get_theme, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 65,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, register_core_block_style_handles, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 66,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, register_core_block_style_handles, wp_styles, WP_Styles->__construct, do_action_ref_array('wp_default_styles'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_styles, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 67,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, register_core_block_style_handles, wp_styles, WP_Styles->__construct, do_action_ref_array('wp_default_styles'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_styles, wp_theme_has_theme_json, get_stylesheet, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["stylesheet"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 68,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_sitemaps_get_server, WP_Sitemaps->__construct, WP_Sitemaps_Renderer->__construct, WP_Sitemaps_Renderer->get_sitemap_stylesheet_url, home_url, get_home_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'home' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["home"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 69,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_sitemaps_get_server, WP_Sitemaps->__construct, WP_Sitemaps_Renderer->__construct, WP_Sitemaps_Renderer->get_sitemap_stylesheet_url, home_url, get_home_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'home' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["home"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 70,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_sitemaps_get_server, WP_Sitemaps->__construct, WP_Sitemaps_Renderer->__construct, WP_Sitemaps_Renderer->get_sitemap_index_stylesheet_url, home_url, get_home_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'home' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["home"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 71,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_sitemaps_get_server, WP_Sitemaps->__construct, WP_Sitemaps_Renderer->__construct, WP_Sitemaps_Renderer->get_sitemap_index_stylesheet_url, home_url, get_home_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'home' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["home"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 72,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_sitemaps_get_server, WP_Sitemaps->init, WP_Sitemaps->sitemaps_enabled, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'blog_public' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["blog_public"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 73,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, _wp_register_default_font_collections, wp_register_font_collection, WP_Font_Library->register_font_collection, WP_Font_Collection->__construct, WP_Font_Collection->sanitize_and_validate_data, WP_Font_Utils::sanitize_from_schema, WP_Font_Utils::apply_sanitizer, sanitize_text_field, _sanitize_text_fields, wp_check_invalid_utf8, is_utf8_charset, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'blog_charset' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["blog_charset"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 74,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_schedule_update_checks, wp_next_scheduled, wp_get_scheduled_event, _get_cron_array, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'cron' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["cron"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 75,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_schedule_update_checks, wp_next_scheduled, wp_get_scheduled_event, _get_cron_array, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'cron' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["cron"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 76,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, wp_schedule_update_checks, wp_next_scheduled, wp_get_scheduled_event, _get_cron_array, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'cron' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["cron"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 77,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, register_block_core_post_comments_form, register_block_type_from_metadata, register_block_style_handle, get_block_asset_url, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 78,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, check_theme_switched, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'theme_switched' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["theme_switched"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 79,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_var",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl'",
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 80,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_users;",
+   :error {:errno 1146, :text "Table 'wp.wp_users' doesn't exist"}}
+  {:seq 81,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_usermeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_usermeta' doesn't exist"}}
+  {:seq 82,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_posts;",
+   :error {:errno 1146, :text "Table 'wp.wp_posts' doesn't exist"}}
+  {:seq 83,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_comments;",
+   :error {:errno 1146, :text "Table 'wp.wp_comments' doesn't exist"}}
+  {:seq 84,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_links;",
+   :error {:errno 1146, :text "Table 'wp.wp_links' doesn't exist"}}
+  {:seq 85,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_options;",
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 86,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_postmeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_postmeta' doesn't exist"}}
+  {:seq 87,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_terms;",
+   :error {:errno 1146, :text "Table 'wp.wp_terms' doesn't exist"}}
+  {:seq 88,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_term_taxonomy;",
+   :error
+   {:errno 1146, :text "Table 'wp.wp_term_taxonomy' doesn't exist"}}
+  {:seq 89,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_term_relationships;",
+   :error
+   {:errno 1146,
+    :text "Table 'wp.wp_term_relationships' doesn't exist"}}
+  {:seq 90,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_termmeta;",
+   :error {:errno 1146, :text "Table 'wp.wp_termmeta' doesn't exist"}}
+  {:seq 91,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), is_blog_installed, wpdb->get_results",
+   :sql "DESCRIBE wp_commentmeta;",
+   :error
+   {:errno 1146, :text "Table 'wp.wp_commentmeta' doesn't exist"}}
+  {:seq 92,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), display_header, language_attributes, get_language_attributes, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'html_type' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["html_type"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 93,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), display_header, language_attributes, get_language_attributes, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'html_type' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["html_type"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 94,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), display_setup_form, wpdb->get_var",
+   :sql "SHOW TABLES LIKE 'wp\\\\_users'",
+   :prepare {:template "SHOW TABLES LIKE %s", :args ["wp\\_users"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 95,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 96,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 97,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, get_rest_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 98,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, get_rest_url, get_home_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'home' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["home"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 99,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, apply_filters('heartbeat_settings'), WP_Hook->apply_filters, wp_heartbeat_settings, admin_url, get_admin_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 100,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 101,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, admin_url, get_admin_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 102,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 103,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, admin_url, get_admin_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 104,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, admin_url, get_admin_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 105,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_scripts, admin_url, get_admin_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 106,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_vendor, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'start_of_week' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["start_of_week"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 107,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_vendor, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'time_format' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["time_format"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 108,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_vendor, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'date_format' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["date_format"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 109,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_register_tinymce_scripts, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 110,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_register_tinymce_scripts, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 111,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_register_tinymce_scripts, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 112,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, get_rest_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'permalink_structure' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["permalink_structure"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 113,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, get_rest_url, get_home_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'home' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["home"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 114,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, admin_url, get_admin_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 115,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'timezone_string' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["timezone_string"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 116,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, get_option, apply_filters('pre_option_gmt_offset'), WP_Hook->apply_filters, wp_timezone_override_offset, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'timezone_string' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["timezone_string"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 117,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'gmt_offset' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["gmt_offset"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 118,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'start_of_week' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["start_of_week"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 119,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'time_format' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["time_format"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 120,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_default_packages_inline_scripts, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'date_format' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["date_format"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 121,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 122,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 123,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 124,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 125,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 126,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 127,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 128,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 129,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 130,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 131,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_script_modules, includes_url, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 132,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, WP_Dependencies->do_items, WP_Scripts->do_item, WP_Scripts->print_translations, load_script_textdomain, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 133,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, WP_Dependencies->do_items, WP_Scripts->do_item, WP_Scripts->print_translations, load_script_textdomain, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 134,
+   :kind :select,
+   :caller
+   "require('wp-admin/install.php'), wp_print_scripts, WP_Dependencies->do_items, WP_Scripts->do_item, WP_Scripts->print_translations, load_script_textdomain, site_url, get_site_url, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'siteurl' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["siteurl"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}
+  {:seq 135,
+   :kind :select,
+   :caller
+   "shutdown_action_hook, do_action('shutdown'), WP_Hook->do_action, WP_Hook->apply_filters, _wp_cron, wp_get_ready_cron_jobs, _get_cron_array, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'cron' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["cron"]},
+   :error {:errno 1146, :text "Table 'wp.wp_options' doesn't exist"}}]}

@@ -1,0 +1,317 @@
+{"t0-01-install-form"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t0-02-install-step1"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t0-03-install-step2"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-01-front"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-02-single-post"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-03-page"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-04-search"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-05-not-found"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-06-feed"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-07-rest-posts"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-08-login-form"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-09-login-bad"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-10-login-ok"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t1-11-comment"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-01-dashboard"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-02-edit"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-03-post-new"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-04-post-publish"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-05-options-general"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-06-options-save"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-07-plugins"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-08-themes"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-09-users"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-10-upload"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-11-edit-comments"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-12-edit-comments-nonce"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-13-heartbeat"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-14-wp-cron"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}],
+ "t2-15-final-front"
+ [{"kind" "session",
+   "op" "set_charset",
+   "charset" "utf8mb4",
+   "collate" "utf8mb4_unicode_520_ci"}
+  {"kind" "session", "op" "set_sql_mode", "modes" []}
+  {"kind" "session", "op" "db_connect", "ok" true}]}

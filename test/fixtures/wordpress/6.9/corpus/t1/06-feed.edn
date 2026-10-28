@@ -1,0 +1,142 @@
+{:request
+ {:id "t1-06-feed",
+  :method "GET",
+  :uri "/?feed=rss2",
+  :status 200,
+  :response-sha256
+  "07173a9cf091bd44a929a762724efc9e2e35515a20cda5645e338f9c66f8ddc2",
+  :server
+  {:SCRIPT_FILENAME "/var/www/html/index.php",
+   :SERVER_NAME "0.0.0.0",
+   :SERVER_PROTOCOL "HTTP/1.1",
+   :PHP_SELF "/index.php",
+   :REQUEST_URI "/?feed=rss2",
+   :CONTENT_LENGTH "0",
+   :DOCUMENT_ROOT "/var/www/html",
+   :HTTP_HOST "php:8080",
+   :REMOTE_ADDR "172.19.0.4",
+   :SERVER_PORT "8080",
+   :QUERY_STRING "feed=rss2",
+   :SCRIPT_NAME "/index.php",
+   :REQUEST_METHOD "GET"}},
+ :events
+ [{:seq 1,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wp_load_alloptions, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE autoload IN ( 'yes', 'on', 'auto-on', 'auto' )",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 117}}
+  {:seq 2,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), load_default_textdomain, determine_locale, get_locale, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'WPLANG' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["WPLANG"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 3,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, _register_theme_block_patterns, WP_Theme->get_block_patterns, WP_Theme->get_pattern_cache, get_site_transient, wp_prime_site_option_caches, wp_prime_network_option_caches, wp_prime_option_caches, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE option_name IN ('_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf','_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf')",
+   :prepare
+   {:template
+    "SELECT option_name, option_value FROM wp_options WHERE option_name IN (%s,%s)",
+    :args
+    ["_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"
+     "_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 2}}
+  {:seq 4,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, check_theme_switched, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'theme_switched' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["theme_switched"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 5,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, wpdb->get_col",
+   :sql
+   "SELECT SQL_CALC_FOUND_ROWS  wp_posts.ID\n\t\t\t\t\t FROM wp_posts \n\t\t\t\t\t WHERE 1=1  AND ((wp_posts.post_type = 'post' AND (wp_posts.post_status = 'publish')))\n\t\t\t\t\t \n\t\t\t\t\t ORDER BY wp_posts.post_date DESC\n\t\t\t\t\t LIMIT 0, 10",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 6,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, WP_Query->set_found_posts, wpdb->get_var",
+   :sql "SELECT FOUND_ROWS()",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 7,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, _prime_post_caches, wpdb->get_results",
+   :sql "SELECT wp_posts.* FROM wp_posts WHERE ID IN (1)",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 8,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, _prime_post_caches, update_postmeta_cache, update_meta_cache, wpdb->get_results",
+   :sql
+   "SELECT post_id, meta_key, meta_value FROM wp_postmeta WHERE post_id IN (1) ORDER BY meta_id ASC",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 9,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, _prime_post_caches, update_object_term_cache, wp_get_object_terms, get_terms, WP_Term_Query->query, WP_Term_Query->get_terms, wpdb->get_results",
+   :sql
+   "SELECT DISTINCT t.term_id, tr.object_id\n\t\t\t FROM wp_terms AS t  INNER JOIN wp_term_taxonomy AS tt ON t.term_id = tt.term_id INNER JOIN wp_term_relationships AS tr ON tr.term_taxonomy_id = tt.term_taxonomy_id\n\t\t\t WHERE tt.taxonomy IN ('category', 'post_tag', 'post_format') AND tr.object_id IN (1)\n\t\t\t ORDER BY t.name ASC\n\t\t\t ",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 10,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->query_posts, WP_Query->query, WP_Query->get_posts, _prime_post_caches, update_object_term_cache, wp_get_object_terms, get_terms, WP_Term_Query->query, WP_Term_Query->get_terms, _prime_term_caches, wpdb->get_results",
+   :sql
+   "SELECT t.*, tt.* FROM wp_terms AS t INNER JOIN wp_term_taxonomy AS tt ON t.term_id = tt.term_id WHERE t.term_id IN (1)",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 11,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->send_headers, get_lastpostmodified, _get_last_post_time, wpdb->get_var",
+   :sql
+   "SELECT post_modified_gmt FROM wp_posts WHERE post_status = 'publish' AND post_type IN ('post', 'page', 'attachment') ORDER BY post_modified_gmt DESC LIMIT 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 12,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), wp, WP->main, WP->send_headers, get_lastpostmodified, get_lastpostdate, _get_last_post_time, wpdb->get_var",
+   :sql
+   "SELECT post_date_gmt FROM wp_posts WHERE post_status = 'publish' AND post_type IN ('post', 'page', 'attachment') ORDER BY post_date_gmt DESC LIMIT 1",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 13,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), do_feed, do_action('do_feed_rss2'), WP_Hook->do_action, WP_Hook->apply_filters, do_feed_rss2, load_template, require_once('wp-includes/feed-rss2.php'), the_post, WP_Query->the_post, update_post_author_caches, cache_users, update_meta_cache, wpdb->get_results",
+   :sql
+   "SELECT user_id, meta_key, meta_value FROM wp_usermeta WHERE user_id IN (1) ORDER BY umeta_id ASC",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 15}}
+  {:seq 14,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), do_feed, do_action('do_feed_rss2'), WP_Hook->do_action, WP_Hook->apply_filters, do_feed_rss2, load_template, require_once('wp-includes/feed-rss2.php'), the_post, WP_Query->the_post, update_post_author_caches, cache_users, wpdb->get_results",
+   :sql "SELECT * FROM wp_users WHERE ID IN (1)",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 15,
+   :kind :select,
+   :caller
+   "require('index.php'), require('wp-blog-header.php'), require_once('wp-includes/template-loader.php'), do_feed, do_action('do_feed_rss2'), WP_Hook->do_action, WP_Hook->apply_filters, do_feed_rss2, load_template, require_once('wp-includes/feed-rss2.php'), the_excerpt_rss, get_the_excerpt, apply_filters('get_the_excerpt'), WP_Hook->apply_filters, wp_trim_excerpt, excerpt_remove_blocks, render_block, WP_Block->render, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_register_tinymce_scripts, script_concat_settings, get_site_option, get_network_option, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'can_compress_scripts' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["can_compress_scripts"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}]}

@@ -1,0 +1,64 @@
+{:request
+ {:id "t2-14-wp-cron",
+  :method "GET",
+  :uri "/wp-cron.php?doing_wp_cron",
+  :status 200,
+  :response-sha256
+  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  :server
+  {:SCRIPT_FILENAME "/var/www/html/wp-cron.php",
+   :SERVER_NAME "0.0.0.0",
+   :SERVER_PROTOCOL "HTTP/1.1",
+   :PHP_SELF "/wp-cron.php",
+   :REQUEST_URI "/wp-cron.php?doing_wp_cron",
+   :CONTENT_LENGTH "0",
+   :DOCUMENT_ROOT "/var/www/html",
+   :HTTP_HOST "php:8080",
+   :REMOTE_ADDR "172.19.0.4",
+   :SERVER_PORT "8080",
+   :QUERY_STRING "doing_wp_cron",
+   :SCRIPT_NAME "/wp-cron.php",
+   :REQUEST_METHOD "GET"}},
+ :events
+ [{:seq 1,
+   :kind :select,
+   :caller
+   "require('wp-cron.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wp_load_alloptions, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE autoload IN ( 'yes', 'on', 'auto-on', 'auto' )",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 117}}
+  {:seq 2,
+   :kind :select,
+   :caller
+   "require('wp-cron.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), load_default_textdomain, determine_locale, get_locale, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'WPLANG' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["WPLANG"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 3,
+   :kind :select,
+   :caller
+   "require('wp-cron.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, _register_theme_block_patterns, WP_Theme->get_block_patterns, WP_Theme->get_pattern_cache, get_site_transient, wp_prime_site_option_caches, wp_prime_network_option_caches, wp_prime_option_caches, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE option_name IN ('_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf','_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf')",
+   :prepare
+   {:template
+    "SELECT option_name, option_value FROM wp_options WHERE option_name IN (%s,%s)",
+    :args
+    ["_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"
+     "_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 2}}
+  {:seq 4,
+   :kind :select,
+   :caller
+   "require('wp-cron.php'), require_once('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, check_theme_switched, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'theme_switched' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["theme_switched"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}]}

@@ -1,0 +1,394 @@
+[{:in "", :out ""}
+ {:in
+  "$wp$2y$10$CES/VlHdaf6.67CkeP5IseTigb9giVYXmicISSbDrBNL1w9MXosCO",
+  :out
+  "$wp$2y$10$CES/VlHdaf6.67CkeP5IseTigb9giVYXmicISSbDrBNL1w9MXosCO"}
+ {:in "%hello%",
+  :out
+  "{e3bc8bf7d45f7d4ad0afd37113348447cd6154c3fbcace290d4a3b6eff7ead29}hello{e3bc8bf7d45f7d4ad0afd37113348447cd6154c3fbcace290d4a3b6eff7ead29}"}
+ {:in "/%year%/%monthnum%/%day%/%postname%/",
+  :out
+  "/{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}year{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}/{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}monthnum{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}/{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}day{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}/{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}postname{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}/"}
+ {:in "0", :out "0"}
+ {:in "1", :out "1"}
+ {:in "172.19.0.4", :out "172.19.0.4"}
+ {:in "1793206447.9443519115447998046875",
+  :out "1793206447.9443519115447998046875"}
+ {:in "2026-10-28 15:54:05", :out "2026-10-28 15:54:05"}
+ {:in "2026-10-28 16:54:03", :out "2026-10-28 16:54:03"}
+ {:in "2026-10-28 16:54:05", :out "2026-10-28 16:54:05"}
+ {:in
+  "<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Who we are</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>Our website address is: http://php:8080.</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Comments</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>When visitors leave comments on the site we collect the data shown in the comments form, and also the visitor&#8217;s IP address and browser user agent string to help spam detection.</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>An anonymized string created from your email address (also called a hash) may be provided to the Gravatar service to see if you are using it. The Gravatar service privacy policy is available here: https://automattic.com/privacy/. After approval of your comment, your profile picture is visible to the public in the context of your comment.</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Media</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>If you upload images to the website, you should avoid uploading images with embedded location data (EXIF GPS) included. Visitors to the website can download and extract any location data from images on the website.</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Cookies</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>If you leave a comment on our site you may opt-in to saving your name, email address and website in cookies. These are for your convenience so that you do not have to fill in your details again when you leave another comment. These cookies will last for one year.</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>If you visit our login page, we will set a temporary cookie to determine if your browser accepts cookies. This cookie contains no personal data and is discarded when you close your browser.</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>When you log in, we will also set up several cookies to save your login information and your screen display choices. Login cookies last for two days, and screen options cookies last for a year. If you select &quot;Remember Me&quot;, your login will persist for two weeks. If you log out of your account, the login cookies will be removed.</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>If you edit or publish an article, an additional cookie will be saved in your browser. This cookie includes no personal data and simply indicates the post ID of the article you just edited. It expires after 1 day.</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Embedded content from other websites</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>Articles on this site may include embedded content (e.g. videos, images, articles, etc.). Embedded content from other websites behaves in the exact same way as if the visitor has visited the other website.</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>These websites may collect data about you, use cookies, embed additional third-party tracking, and monitor your interaction with that embedded content, including tracking your interaction with the embedded content if you have an account and are logged in to that website.</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Who we share your data with</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>If you request a password reset, your IP address will be included in the reset email.</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">How long we retain your data</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>If you leave a comment, the comment and its metadata are retained indefinitely. This is so we can recognize and approve any follow-up comments automatically instead of holding them in a moderation queue.</p>\n<!-- /wp:paragraph -->\n<!-- wp:paragraph -->\n<p>For users that register on our website (if any), we also store the personal information they provide in their user profile. All users can see, edit, or delete their personal information at any time (except they cannot change their username). Website administrators can also see and edit that information.</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">What rights you have over your data</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>If you have an account on this site, or have left comments, you can request to receive an exported file of the personal data we hold about you, including any data you have provided to us. You can also request that we erase any personal data we hold about you. This does not include any data we are obliged to keep for administrative, legal, or security purposes.</p>\n<!-- /wp:paragraph -->\n<!-- wp:heading -->\n<h2 class=\"wp-block-heading\">Where your data is sent</h2>\n<!-- /wp:heading -->\n<!-- wp:paragraph -->\n<p><strong class=\"privacy-policy-tutorial\">Suggested text: </strong>Visitor comments may be checked through an automated spam detection service.</p>\n<!-- /wp:paragraph -->\n",
+  :out
+  "<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">Who we are</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>Our website address is: http://php:8080.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">Comments</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>When visitors leave comments on the site we collect the data shown in the comments form, and also the visitor&#8217;s IP address and browser user agent string to help spam detection.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:paragraph -->\\n<p>An anonymized string created from your email address (also called a hash) may be provided to the Gravatar service to see if you are using it. The Gravatar service privacy policy is available here: https://automattic.com/privacy/. After approval of your comment, your profile picture is visible to the public in the context of your comment.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">Media</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>If you upload images to the website, you should avoid uploading images with embedded location data (EXIF GPS) included. Visitors to the website can download and extract any location data from images on the website.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">Cookies</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>If you leave a comment on our site you may opt-in to saving your name, email address and website in cookies. These are for your convenience so that you do not have to fill in your details again when you leave another comment. These cookies will last for one year.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:paragraph -->\\n<p>If you visit our login page, we will set a temporary cookie to determine if your browser accepts cookies. This cookie contains no personal data and is discarded when you close your browser.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:paragraph -->\\n<p>When you log in, we will also set up several cookies to save your login information and your screen display choices. Login cookies last for two days, and screen options cookies last for a year. If you select &quot;Remember Me&quot;, your login will persist for two weeks. If you log out of your account, the login cookies will be removed.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:paragraph -->\\n<p>If you edit or publish an article, an additional cookie will be saved in your browser. This cookie includes no personal data and simply indicates the post ID of the article you just edited. It expires after 1 day.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">Embedded content from other websites</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>Articles on this site may include embedded content (e.g. videos, images, articles, etc.). Embedded content from other websites behaves in the exact same way as if the visitor has visited the other website.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:paragraph -->\\n<p>These websites may collect data about you, use cookies, embed additional third-party tracking, and monitor your interaction with that embedded content, including tracking your interaction with the embedded content if you have an account and are logged in to that website.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">Who we share your data with</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>If you request a password reset, your IP address will be included in the reset email.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">How long we retain your data</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>If you leave a comment, the comment and its metadata are retained indefinitely. This is so we can recognize and approve any follow-up comments automatically instead of holding them in a moderation queue.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:paragraph -->\\n<p>For users that register on our website (if any), we also store the personal information they provide in their user profile. All users can see, edit, or delete their personal information at any time (except they cannot change their username). Website administrators can also see and edit that information.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">What rights you have over your data</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>If you have an account on this site, or have left comments, you can request to receive an exported file of the personal data we hold about you, including any data you have provided to us. You can also request that we erase any personal data we hold about you. This does not include any data we are obliged to keep for administrative, legal, or security purposes.</p>\\n<!-- /wp:paragraph -->\\n<!-- wp:heading -->\\n<h2 class=\\\"wp-block-heading\\\">Where your data is sent</h2>\\n<!-- /wp:heading -->\\n<!-- wp:paragraph -->\\n<p><strong class=\\\"privacy-policy-tutorial\\\">Suggested text: </strong>Visitor comments may be checked through an automated spam detection service.</p>\\n<!-- /wp:paragraph -->\\n"}
+ {:in
+  "<!-- wp:paragraph -->\n<p>This is an example page. It's different from a blog post because it will stay in one place and will show up in your site navigation (in most themes). Most people start with an About page that introduces them to potential site visitors. It might say something like this:</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\">\n<!-- wp:paragraph -->\n<p>Hi there! I'm a bike messenger by day, aspiring actor by night, and this is my website. I live in Los Angeles, have a great dog named Jack, and I like pi&#241;a coladas. (And gettin' caught in the rain.)</p>\n<!-- /wp:paragraph -->\n</blockquote>\n<!-- /wp:quote -->\n\n<!-- wp:paragraph -->\n<p>...or something like this:</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:quote -->\n<blockquote class=\"wp-block-quote\">\n<!-- wp:paragraph -->\n<p>The XYZ Doohickey Company was founded in 1971, and has been providing quality doohickeys to the public ever since. Located in Gotham City, XYZ employs over 2,000 people and does all kinds of awesome things for the Gotham community.</p>\n<!-- /wp:paragraph -->\n</blockquote>\n<!-- /wp:quote -->\n\n<!-- wp:paragraph -->\n<p>As a new WordPress user, you should go to <a href=\"http://php:8080/wp-admin/\">your dashboard</a> to delete this page and create new pages for your content. Have fun!</p>\n<!-- /wp:paragraph -->",
+  :out
+  "<!-- wp:paragraph -->\\n<p>This is an example page. It\\'s different from a blog post because it will stay in one place and will show up in your site navigation (in most themes). Most people start with an About page that introduces them to potential site visitors. It might say something like this:</p>\\n<!-- /wp:paragraph -->\\n\\n<!-- wp:quote -->\\n<blockquote class=\\\"wp-block-quote\\\">\\n<!-- wp:paragraph -->\\n<p>Hi there! I\\'m a bike messenger by day, aspiring actor by night, and this is my website. I live in Los Angeles, have a great dog named Jack, and I like pi&#241;a coladas. (And gettin\\' caught in the rain.)</p>\\n<!-- /wp:paragraph -->\\n</blockquote>\\n<!-- /wp:quote -->\\n\\n<!-- wp:paragraph -->\\n<p>...or something like this:</p>\\n<!-- /wp:paragraph -->\\n\\n<!-- wp:quote -->\\n<blockquote class=\\\"wp-block-quote\\\">\\n<!-- wp:paragraph -->\\n<p>The XYZ Doohickey Company was founded in 1971, and has been providing quality doohickeys to the public ever since. Located in Gotham City, XYZ employs over 2,000 people and does all kinds of awesome things for the Gotham community.</p>\\n<!-- /wp:paragraph -->\\n</blockquote>\\n<!-- /wp:quote -->\\n\\n<!-- wp:paragraph -->\\n<p>As a new WordPress user, you should go to <a href=\\\"http://php:8080/wp-admin/\\\">your dashboard</a> to delete this page and create new pages for your content. Have fun!</p>\\n<!-- /wp:paragraph -->"}
+ {:in
+  "<!-- wp:paragraph -->\n<p>Welcome to WordPress. This is your first post. Edit or delete it, then start writing!</p>\n<!-- /wp:paragraph -->",
+  :out
+  "<!-- wp:paragraph -->\\n<p>Welcome to WordPress. This is your first post. Edit or delete it, then start writing!</p>\\n<!-- /wp:paragraph -->"}
+ {:in "A WordPress Commenter", :out "A WordPress Commenter"}
+ {:in "A corpus comment", :out "A corpus comment"}
+ {:in "F j, Y", :out "F j, Y"}
+ {:in "F j, Y g:i a", :out "F j, Y g:i a"}
+ {:in "G", :out "G"}
+ {:in "Hello world!", :out "Hello world!"}
+ {:in
+  "Hi, this is a comment.\nTo get started with moderating, editing, and deleting comments, please visit the Comments screen in the dashboard.\nCommenter avatars come from <a href=\"https://gravatar.com/\">Gravatar</a>.",
+  :out
+  "Hi, this is a comment.\\nTo get started with moderating, editing, and deleting comments, please visit the Comments screen in the dashboard.\\nCommenter avatars come from <a href=\\\"https://gravatar.com/\\\">Gravatar</a>."}
+ {:in "My Site", :out "My Site"}
+ {:in "Privacy Policy", :out "Privacy Policy"}
+ {:in "Sample Page", :out "Sample Page"}
+ {:in "UTF-8", :out "UTF-8"}
+ {:in "Uncategorized", :out "Uncategorized"}
+ {:in "Update", :out "Update"}
+ {:in "Visitor", :out "Visitor"}
+ {:in "W0a Corpus", :out "W0a Corpus"}
+ {:in "WPLANG", :out "WPLANG"}
+ {:in "\\_site\\_transient\\_%",
+  :out
+  "\\\\_site\\\\_transient\\\\_{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}"}
+ {:in "\\_site\\_transient\\_timeout\\_%",
+  :out
+  "\\\\_site\\\\_transient\\\\_timeout\\\\_{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}"}
+ {:in "\\_transient\\_%",
+  :out
+  "\\\\_transient\\\\_{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}"}
+ {:in "\\_transient\\_timeout\\_%",
+  :out
+  "\\\\_transient\\\\_timeout\\\\_{924fcdbb3b3a76bb239e2f59511b0bb8c660210dea4f0cd0ac030346423b82e8}"}
+ {:in
+  "_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf",
+  :out
+  "_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"}
+ {:in
+  "_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf",
+  :out
+  "_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"}
+ {:in "_transient_doing_cron", :out "_transient_doing_cron"}
+ {:in "_transient_timeout_doing_cron",
+  :out "_transient_timeout_doing_cron"}
+ {:in "_wp_http_referer", :out "_wp_http_referer"}
+ {:in "_wp_page_template", :out "_wp_page_template"}
+ {:in "_wpnonce", :out "_wpnonce"}
+ {:in "a:0:{}", :out "a:0:{}"}
+ {:in "a:1:{s:10:\"subscriber\";b:1;}",
+  :out "a:1:{s:10:\\\"subscriber\\\";b:1;}"}
+ {:in "a:1:{s:13:\"administrator\";b:1;}",
+  :out "a:1:{s:13:\\\"administrator\\\";b:1;}"}
+ {:in
+  "a:1:{s:64:\"c654193f949a1ae4a727a35a37849bf5eb5083f50853bd6ac69268e1fab0b7a8\";a:4:{s:10:\"expiration\";i:1793379245;s:2:\"ip\";s:10:\"172.19.0.4\";s:2:\"ua\";s:27:\"babashka.http-client/0.4.26\";s:5:\"login\";i:1793206445;}}",
+  :out
+  "a:1:{s:64:\\\"c654193f949a1ae4a727a35a37849bf5eb5083f50853bd6ac69268e1fab0b7a8\\\";a:4:{s:10:\\\"expiration\\\";i:1793379245;s:2:\\\"ip\\\";s:10:\\\"172.19.0.4\\\";s:2:\\\"ua\\\";s:27:\\\"babashka.http-client/0.4.26\\\";s:5:\\\"login\\\";i:1793206445;}}"}
+ {:in
+  "a:2:{i:1793210042;a:1:{s:16:\"wp_version_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}s:7:\"version\";i:2;}",
+  :out
+  "a:2:{i:1793210042;a:1:{s:16:\\\"wp_version_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}s:7:\\\"version\\\";i:2;}"}
+ {:in
+  "a:3:{i:1793210042;a:1:{s:16:\"wp_version_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793211842;a:1:{s:17:\"wp_update_plugins\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}s:7:\"version\";i:2;}",
+  :out
+  "a:3:{i:1793210042;a:1:{s:16:\\\"wp_version_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793211842;a:1:{s:17:\\\"wp_update_plugins\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}s:7:\\\"version\\\";i:2;}"}
+ {:in
+  "a:4:{i:1793210042;a:1:{s:16:\"wp_version_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793211842;a:1:{s:17:\"wp_update_plugins\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793213642;a:1:{s:16:\"wp_update_themes\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}s:7:\"version\";i:2;}",
+  :out
+  "a:4:{i:1793210042;a:1:{s:16:\\\"wp_version_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793211842;a:1:{s:17:\\\"wp_update_plugins\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793213642;a:1:{s:16:\\\"wp_update_themes\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}s:7:\\\"version\\\";i:2;}"}
+ {:in
+  "a:4:{s:19:\"wp_inactive_widgets\";a:0:{}s:9:\"sidebar-1\";a:3:{i:0;s:7:\"block-2\";i:1;s:7:\"block-3\";i:2;s:7:\"block-4\";}s:9:\"sidebar-2\";a:2:{i:0;s:7:\"block-5\";i:1;s:7:\"block-6\";}s:13:\"array_version\";i:3;}",
+  :out
+  "a:4:{s:19:\\\"wp_inactive_widgets\\\";a:0:{}s:9:\\\"sidebar-1\\\";a:3:{i:0;s:7:\\\"block-2\\\";i:1;s:7:\\\"block-3\\\";i:2;s:7:\\\"block-4\\\";}s:9:\\\"sidebar-2\\\";a:2:{i:0;s:7:\\\"block-5\\\";i:1;s:7:\\\"block-6\\\";}s:13:\\\"array_version\\\";i:3;}"}
+ {:in
+  "a:5:{s:13:\"administrator\";a:2:{s:4:\"name\";s:13:\"Administrator\";s:12:\"capabilities\";a:61:{s:13:\"switch_themes\";b:1;s:11:\"edit_themes\";b:1;s:16:\"activate_plugins\";b:1;s:12:\"edit_plugins\";b:1;s:10:\"edit_users\";b:1;s:10:\"edit_files\";b:1;s:14:\"manage_options\";b:1;s:17:\"moderate_comments\";b:1;s:17:\"manage_categories\";b:1;s:12:\"manage_links\";b:1;s:12:\"upload_files\";b:1;s:6:\"import\";b:1;s:15:\"unfiltered_html\";b:1;s:10:\"edit_posts\";b:1;s:17:\"edit_others_posts\";b:1;s:20:\"edit_published_posts\";b:1;s:13:\"publish_posts\";b:1;s:10:\"edit_pages\";b:1;s:4:\"read\";b:1;s:8:\"level_10\";b:1;s:7:\"level_9\";b:1;s:7:\"level_8\";b:1;s:7:\"level_7\";b:1;s:7:\"level_6\";b:1;s:7:\"level_5\";b:1;s:7:\"level_4\";b:1;s:7:\"level_3\";b:1;s:7:\"level_2\";b:1;s:7:\"level_1\";b:1;s:7:\"level_0\";b:1;s:17:\"edit_others_pages\";b:1;s:20:\"edit_published_pages\";b:1;s:13:\"publish_pages\";b:1;s:12:\"delete_pages\";b:1;s:19:\"delete_others_pages\";b:1;s:22:\"delete_published_pages\";b:1;s:12:\"delete_posts\";b:1;s:19:\"delete_others_posts\";b:1;s:22:\"delete_published_posts\";b:1;s:20:\"delete_private_posts\";b:1;s:18:\"edit_private_posts\";b:1;s:18:\"read_private_posts\";b:1;s:20:\"delete_private_pages\";b:1;s:18:\"edit_private_pages\";b:1;s:18:\"read_private_pages\";b:1;s:12:\"delete_users\";b:1;s:12:\"create_users\";b:1;s:17:\"unfiltered_upload\";b:1;s:14:\"edit_dashboard\";b:1;s:14:\"update_plugins\";b:1;s:14:\"delete_plugins\";b:1;s:15:\"install_plugins\";b:1;s:13:\"update_themes\";b:1;s:14:\"install_themes\";b:1;s:11:\"update_core\";b:1;s:10:\"list_users\";b:1;s:12:\"remove_users\";b:1;s:13:\"promote_users\";b:1;s:18:\"edit_theme_options\";b:1;s:13:\"delete_themes\";b:1;s:6:\"export\";b:1;}}s:6:\"editor\";a:2:{s:4:\"name\";s:6:\"Editor\";s:12:\"capabilities\";a:34:{s:17:\"moderate_comments\";b:1;s:17:\"manage_categories\";b:1;s:12:\"manage_links\";b:1;s:12:\"upload_files\";b:1;s:15:\"unfiltered_html\";b:1;s:10:\"edit_posts\";b:1;s:17:\"edit_others_posts\";b:1;s:20:\"edit_published_posts\";b:1;s:13:\"publish_posts\";b:1;s:10:\"edit_pages\";b:1;s:4:\"read\";b:1;s:7:\"level_7\";b:1;s:7:\"level_6\";b:1;s:7:\"level_5\";b:1;s:7:\"level_4\";b:1;s:7:\"level_3\";b:1;s:7:\"level_2\";b:1;s:7:\"level_1\";b:1;s:7:\"level_0\";b:1;s:17:\"edit_others_pages\";b:1;s:20:\"edit_published_pages\";b:1;s:13:\"publish_pages\";b:1;s:12:\"delete_pages\";b:1;s:19:\"delete_others_pages\";b:1;s:22:\"delete_published_pages\";b:1;s:12:\"delete_posts\";b:1;s:19:\"delete_others_posts\";b:1;s:22:\"delete_published_posts\";b:1;s:20:\"delete_private_posts\";b:1;s:18:\"edit_private_posts\";b:1;s:18:\"read_private_posts\";b:1;s:20:\"delete_private_pages\";b:1;s:18:\"edit_private_pages\";b:1;s:18:\"read_private_pages\";b:1;}}s:6:\"author\";a:2:{s:4:\"name\";s:6:\"Author\";s:12:\"capabilities\";a:10:{s:12:\"upload_files\";b:1;s:10:\"edit_posts\";b:1;s:20:\"edit_published_posts\";b:1;s:13:\"publish_posts\";b:1;s:4:\"read\";b:1;s:7:\"level_2\";b:1;s:7:\"level_1\";b:1;s:7:\"level_0\";b:1;s:12:\"delete_posts\";b:1;s:22:\"delete_published_posts\";b:1;}}s:11:\"contributor\";a:2:{s:4:\"name\";s:11:\"Contributor\";s:12:\"capabilities\";a:5:{s:10:\"edit_posts\";b:1;s:4:\"read\";b:1;s:7:\"level_1\";b:1;s:7:\"level_0\";b:1;s:12:\"delete_posts\";b:1;}}s:10:\"subscriber\";a:2:{s:4:\"name\";s:10:\"Subscriber\";s:12:\"capabilities\";a:2:{s:4:\"read\";b:1;s:7:\"level_0\";b:1;}}}",
+  :out
+  "a:5:{s:13:\\\"administrator\\\";a:2:{s:4:\\\"name\\\";s:13:\\\"Administrator\\\";s:12:\\\"capabilities\\\";a:61:{s:13:\\\"switch_themes\\\";b:1;s:11:\\\"edit_themes\\\";b:1;s:16:\\\"activate_plugins\\\";b:1;s:12:\\\"edit_plugins\\\";b:1;s:10:\\\"edit_users\\\";b:1;s:10:\\\"edit_files\\\";b:1;s:14:\\\"manage_options\\\";b:1;s:17:\\\"moderate_comments\\\";b:1;s:17:\\\"manage_categories\\\";b:1;s:12:\\\"manage_links\\\";b:1;s:12:\\\"upload_files\\\";b:1;s:6:\\\"import\\\";b:1;s:15:\\\"unfiltered_html\\\";b:1;s:10:\\\"edit_posts\\\";b:1;s:17:\\\"edit_others_posts\\\";b:1;s:20:\\\"edit_published_posts\\\";b:1;s:13:\\\"publish_posts\\\";b:1;s:10:\\\"edit_pages\\\";b:1;s:4:\\\"read\\\";b:1;s:8:\\\"level_10\\\";b:1;s:7:\\\"level_9\\\";b:1;s:7:\\\"level_8\\\";b:1;s:7:\\\"level_7\\\";b:1;s:7:\\\"level_6\\\";b:1;s:7:\\\"level_5\\\";b:1;s:7:\\\"level_4\\\";b:1;s:7:\\\"level_3\\\";b:1;s:7:\\\"level_2\\\";b:1;s:7:\\\"level_1\\\";b:1;s:7:\\\"level_0\\\";b:1;s:17:\\\"edit_others_pages\\\";b:1;s:20:\\\"edit_published_pages\\\";b:1;s:13:\\\"publish_pages\\\";b:1;s:12:\\\"delete_pages\\\";b:1;s:19:\\\"delete_others_pages\\\";b:1;s:22:\\\"delete_published_pages\\\";b:1;s:12:\\\"delete_posts\\\";b:1;s:19:\\\"delete_others_posts\\\";b:1;s:22:\\\"delete_published_posts\\\";b:1;s:20:\\\"delete_private_posts\\\";b:1;s:18:\\\"edit_private_posts\\\";b:1;s:18:\\\"read_private_posts\\\";b:1;s:20:\\\"delete_private_pages\\\";b:1;s:18:\\\"edit_private_pages\\\";b:1;s:18:\\\"read_private_pages\\\";b:1;s:12:\\\"delete_users\\\";b:1;s:12:\\\"create_users\\\";b:1;s:17:\\\"unfiltered_upload\\\";b:1;s:14:\\\"edit_dashboard\\\";b:1;s:14:\\\"update_plugins\\\";b:1;s:14:\\\"delete_plugins\\\";b:1;s:15:\\\"install_plugins\\\";b:1;s:13:\\\"update_themes\\\";b:1;s:14:\\\"install_themes\\\";b:1;s:11:\\\"update_core\\\";b:1;s:10:\\\"list_users\\\";b:1;s:12:\\\"remove_users\\\";b:1;s:13:\\\"promote_users\\\";b:1;s:18:\\\"edit_theme_options\\\";b:1;s:13:\\\"delete_themes\\\";b:1;s:6:\\\"export\\\";b:1;}}s:6:\\\"editor\\\";a:2:{s:4:\\\"name\\\";s:6:\\\"Editor\\\";s:12:\\\"capabilities\\\";a:34:{s:17:\\\"moderate_comments\\\";b:1;s:17:\\\"manage_categories\\\";b:1;s:12:\\\"manage_links\\\";b:1;s:12:\\\"upload_files\\\";b:1;s:15:\\\"unfiltered_html\\\";b:1;s:10:\\\"edit_posts\\\";b:1;s:17:\\\"edit_others_posts\\\";b:1;s:20:\\\"edit_published_posts\\\";b:1;s:13:\\\"publish_posts\\\";b:1;s:10:\\\"edit_pages\\\";b:1;s:4:\\\"read\\\";b:1;s:7:\\\"level_7\\\";b:1;s:7:\\\"level_6\\\";b:1;s:7:\\\"level_5\\\";b:1;s:7:\\\"level_4\\\";b:1;s:7:\\\"level_3\\\";b:1;s:7:\\\"level_2\\\";b:1;s:7:\\\"level_1\\\";b:1;s:7:\\\"level_0\\\";b:1;s:17:\\\"edit_others_pages\\\";b:1;s:20:\\\"edit_published_pages\\\";b:1;s:13:\\\"publish_pages\\\";b:1;s:12:\\\"delete_pages\\\";b:1;s:19:\\\"delete_others_pages\\\";b:1;s:22:\\\"delete_published_pages\\\";b:1;s:12:\\\"delete_posts\\\";b:1;s:19:\\\"delete_others_posts\\\";b:1;s:22:\\\"delete_published_posts\\\";b:1;s:20:\\\"delete_private_posts\\\";b:1;s:18:\\\"edit_private_posts\\\";b:1;s:18:\\\"read_private_posts\\\";b:1;s:20:\\\"delete_private_pages\\\";b:1;s:18:\\\"edit_private_pages\\\";b:1;s:18:\\\"read_private_pages\\\";b:1;}}s:6:\\\"author\\\";a:2:{s:4:\\\"name\\\";s:6:\\\"Author\\\";s:12:\\\"capabilities\\\";a:10:{s:12:\\\"upload_files\\\";b:1;s:10:\\\"edit_posts\\\";b:1;s:20:\\\"edit_published_posts\\\";b:1;s:13:\\\"publish_posts\\\";b:1;s:4:\\\"read\\\";b:1;s:7:\\\"level_2\\\";b:1;s:7:\\\"level_1\\\";b:1;s:7:\\\"level_0\\\";b:1;s:12:\\\"delete_posts\\\";b:1;s:22:\\\"delete_published_posts\\\";b:1;}}s:11:\\\"contributor\\\";a:2:{s:4:\\\"name\\\";s:11:\\\"Contributor\\\";s:12:\\\"capabilities\\\";a:5:{s:10:\\\"edit_posts\\\";b:1;s:4:\\\"read\\\";b:1;s:7:\\\"level_1\\\";b:1;s:7:\\\"level_0\\\";b:1;s:12:\\\"delete_posts\\\";b:1;}}s:10:\\\"subscriber\\\";a:2:{s:4:\\\"name\\\";s:10:\\\"Subscriber\\\";s:12:\\\"capabilities\\\";a:2:{s:4:\\\"read\\\";b:1;s:7:\\\"level_0\\\";b:1;}}}"}
+ {:in
+  "a:6:{i:2;a:1:{s:7:\"content\";s:19:\"<!-- wp:search /-->\";}i:3;a:1:{s:7:\"content\";s:154:\"<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:heading --><h2>Recent Posts</h2><!-- /wp:heading --><!-- wp:latest-posts /--></div><!-- /wp:group -->\";}i:4;a:1:{s:7:\"content\";s:227:\"<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:heading --><h2>Recent Comments</h2><!-- /wp:heading --><!-- wp:latest-comments {\"displayAvatar\":false,\"displayDate\":false,\"displayExcerpt\":false} /--></div><!-- /wp:group -->\";}i:5;a:1:{s:7:\"content\";s:146:\"<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:heading --><h2>Archives</h2><!-- /wp:heading --><!-- wp:archives /--></div><!-- /wp:group -->\";}i:6;a:1:{s:7:\"content\";s:150:\"<!-- wp:group --><div class=\"wp-block-group\"><!-- wp:heading --><h2>Categories</h2><!-- /wp:heading --><!-- wp:categories /--></div><!-- /wp:group -->\";}s:12:\"_multiwidget\";i:1;}",
+  :out
+  "a:6:{i:2;a:1:{s:7:\\\"content\\\";s:19:\\\"<!-- wp:search /-->\\\";}i:3;a:1:{s:7:\\\"content\\\";s:154:\\\"<!-- wp:group --><div class=\\\"wp-block-group\\\"><!-- wp:heading --><h2>Recent Posts</h2><!-- /wp:heading --><!-- wp:latest-posts /--></div><!-- /wp:group -->\\\";}i:4;a:1:{s:7:\\\"content\\\";s:227:\\\"<!-- wp:group --><div class=\\\"wp-block-group\\\"><!-- wp:heading --><h2>Recent Comments</h2><!-- /wp:heading --><!-- wp:latest-comments {\\\"displayAvatar\\\":false,\\\"displayDate\\\":false,\\\"displayExcerpt\\\":false} /--></div><!-- /wp:group -->\\\";}i:5;a:1:{s:7:\\\"content\\\";s:146:\\\"<!-- wp:group --><div class=\\\"wp-block-group\\\"><!-- wp:heading --><h2>Archives</h2><!-- /wp:heading --><!-- wp:archives /--></div><!-- /wp:group -->\\\";}i:6;a:1:{s:7:\\\"content\\\";s:150:\\\"<!-- wp:group --><div class=\\\"wp-block-group\\\"><!-- wp:heading --><h2>Categories</h2><!-- /wp:heading --><!-- wp:categories /--></div><!-- /wp:group -->\\\";}s:12:\\\"_multiwidget\\\";i:1;}"}
+ {:in
+  "a:7:{i:1793206447;a:1:{s:21:\"wp_update_user_counts\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793210042;a:1:{s:16:\"wp_version_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793210043;a:1:{s:34:\"wp_privacy_delete_old_export_files\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:6:\"hourly\";s:4:\"args\";a:0:{}s:8:\"interval\";i:3600;}}}i:1793211842;a:1:{s:17:\"wp_update_plugins\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793213642;a:1:{s:16:\"wp_update_themes\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793292843;a:2:{s:30:\"wp_site_health_scheduled_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:6:\"weekly\";s:4:\"args\";a:0:{}s:8:\"interval\";i:604800;}}s:32:\"recovery_mode_clean_expired_keys\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:5:\"daily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:86400;}}}s:7:\"version\";i:2;}",
+  :out
+  "a:7:{i:1793206447;a:1:{s:21:\\\"wp_update_user_counts\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793210042;a:1:{s:16:\\\"wp_version_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793210043;a:1:{s:34:\\\"wp_privacy_delete_old_export_files\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:6:\\\"hourly\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:3600;}}}i:1793211842;a:1:{s:17:\\\"wp_update_plugins\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793213642;a:1:{s:16:\\\"wp_update_themes\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793292843;a:2:{s:30:\\\"wp_site_health_scheduled_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:6:\\\"weekly\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:604800;}}s:32:\\\"recovery_mode_clean_expired_keys\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:5:\\\"daily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:86400;}}}s:7:\\\"version\\\";i:2;}"}
+ {:in
+  "a:82:{s:11:\"^wp-json/?$\";s:22:\"index.php?rest_route=/\";s:14:\"^wp-json/(.*)?\";s:33:\"index.php?rest_route=/$matches[1]\";s:21:\"^index.php/wp-json/?$\";s:22:\"index.php?rest_route=/\";s:24:\"^index.php/wp-json/(.*)?\";s:33:\"index.php?rest_route=/$matches[1]\";s:17:\"^wp-sitemap\\.xml$\";s:23:\"index.php?sitemap=index\";s:17:\"^wp-sitemap\\.xsl$\";s:36:\"index.php?sitemap-stylesheet=sitemap\";s:23:\"^wp-sitemap-index\\.xsl$\";s:34:\"index.php?sitemap-stylesheet=index\";s:48:\"^wp-sitemap-([a-z]+?)-([a-z\\d_-]+?)-(\\d+?)\\.xml$\";s:75:\"index.php?sitemap=$matches[1]&sitemap-subtype=$matches[2]&paged=$matches[3]\";s:34:\"^wp-sitemap-([a-z]+?)-(\\d+?)\\.xml$\";s:47:\"index.php?sitemap=$matches[1]&paged=$matches[2]\";s:12:\"robots\\.txt$\";s:18:\"index.php?robots=1\";s:13:\"favicon\\.ico$\";s:19:\"index.php?favicon=1\";s:12:\"sitemap\\.xml\";s:23:\"index.php?sitemap=index\";s:48:\".*wp-(atom|rdf|rss|rss2|feed|commentsrss2)\\.php$\";s:18:\"index.php?feed=old\";s:20:\".*wp-app\\.php(/.*)?$\";s:19:\"index.php?error=403\";s:18:\".*wp-register.php$\";s:23:\"index.php?register=true\";s:32:\"feed/(feed|rdf|rss|rss2|atom)/?$\";s:27:\"index.php?&feed=$matches[1]\";s:27:\"(feed|rdf|rss|rss2|atom)/?$\";s:27:\"index.php?&feed=$matches[1]\";s:8:\"embed/?$\";s:21:\"index.php?&embed=true\";s:20:\"page/?([0-9]{1,})/?$\";s:28:\"index.php?&paged=$matches[1]\";s:41:\"comments/feed/(feed|rdf|rss|rss2|atom)/?$\";s:42:\"index.php?&feed=$matches[1]&withcomments=1\";s:36:\"comments/(feed|rdf|rss|rss2|atom)/?$\";s:42:\"index.php?&feed=$matches[1]&withcomments=1\";s:17:\"comments/embed/?$\";s:21:\"index.php?&embed=true\";s:44:\"search/(.+)/feed/(feed|rdf|rss|rss2|atom)/?$\";s:40:\"index.php?s=$matches[1]&feed=$matches[2]\";s:39:\"search/(.+)/(feed|rdf|rss|rss2|atom)/?$\";s:40:\"index.php?s=$matches[1]&feed=$matches[2]\";s:20:\"search/(.+)/embed/?$\";s:34:\"index.php?s=$matches[1]&embed=true\";s:32:\"search/(.+)/page/?([0-9]{1,})/?$\";s:41:\"index.php?s=$matches[1]&paged=$matches[2]\";s:14:\"search/(.+)/?$\";s:23:\"index.php?s=$matches[1]\";s:47:\"author/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\";s:50:\"index.php?author_name=$matches[1]&feed=$matches[2]\";s:42:\"author/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\";s:50:\"index.php?author_name=$matches[1]&feed=$matches[2]\";s:23:\"author/([^/]+)/embed/?$\";s:44:\"index.php?author_name=$matches[1]&embed=true\";s:35:\"author/([^/]+)/page/?([0-9]{1,})/?$\";s:51:\"index.php?author_name=$matches[1]&paged=$matches[2]\";s:17:\"author/([^/]+)/?$\";s:33:\"index.php?author_name=$matches[1]\";s:69:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/feed/(feed|rdf|rss|rss2|atom)/?$\";s:80:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&feed=$matches[4]\";s:64:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/(feed|rdf|rss|rss2|atom)/?$\";s:80:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&feed=$matches[4]\";s:45:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/embed/?$\";s:74:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&embed=true\";s:57:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/page/?([0-9]{1,})/?$\";s:81:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&paged=$matches[4]\";s:39:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/?$\";s:63:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]\";s:56:\"([0-9]{4})/([0-9]{1,2})/feed/(feed|rdf|rss|rss2|atom)/?$\";s:64:\"index.php?year=$matches[1]&monthnum=$matches[2]&feed=$matches[3]\";s:51:\"([0-9]{4})/([0-9]{1,2})/(feed|rdf|rss|rss2|atom)/?$\";s:64:\"index.php?year=$matches[1]&monthnum=$matches[2]&feed=$matches[3]\";s:32:\"([0-9]{4})/([0-9]{1,2})/embed/?$\";s:58:\"index.php?year=$matches[1]&monthnum=$matches[2]&embed=true\";s:44:\"([0-9]{4})/([0-9]{1,2})/page/?([0-9]{1,})/?$\";s:65:\"index.php?year=$matches[1]&monthnum=$matches[2]&paged=$matches[3]\";s:26:\"([0-9]{4})/([0-9]{1,2})/?$\";s:47:\"index.php?year=$matches[1]&monthnum=$matches[2]\";s:43:\"([0-9]{4})/feed/(feed|rdf|rss|rss2|atom)/?$\";s:43:\"index.php?year=$matches[1]&feed=$matches[2]\";s:38:\"([0-9]{4})/(feed|rdf|rss|rss2|atom)/?$\";s:43:\"index.php?year=$matches[1]&feed=$matches[2]\";s:19:\"([0-9]{4})/embed/?$\";s:37:\"index.php?year=$matches[1]&embed=true\";s:31:\"([0-9]{4})/page/?([0-9]{1,})/?$\";s:44:\"index.php?year=$matches[1]&paged=$matches[2]\";s:13:\"([0-9]{4})/?$\";s:26:\"index.php?year=$matches[1]\";s:58:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/?$\";s:32:\"index.php?attachment=$matches[1]\";s:68:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/trackback/?$\";s:37:\"index.php?attachment=$matches[1]&tb=1\";s:88:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\";s:49:\"index.php?attachment=$matches[1]&feed=$matches[2]\";s:83:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\";s:49:\"index.php?attachment=$matches[1]&feed=$matches[2]\";s:83:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/comment-page-([0-9]{1,})/?$\";s:50:\"index.php?attachment=$matches[1]&cpage=$matches[2]\";s:64:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/embed/?$\";s:43:\"index.php?attachment=$matches[1]&embed=true\";s:53:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/embed/?$\";s:91:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&embed=true\";s:57:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/trackback/?$\";s:85:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&tb=1\";s:77:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\";s:97:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&feed=$matches[5]\";s:72:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\";s:97:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&feed=$matches[5]\";s:65:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/page/?([0-9]{1,})/?$\";s:98:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&paged=$matches[5]\";s:72:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/comment-page-([0-9]{1,})/?$\";s:98:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&cpage=$matches[5]\";s:61:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)(?:/([0-9]+))?/?$\";s:97:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&page=$matches[5]\";s:47:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/?$\";s:32:\"index.php?attachment=$matches[1]\";s:57:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/trackback/?$\";s:37:\"index.php?attachment=$matches[1]&tb=1\";s:77:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\";s:49:\"index.php?attachment=$matches[1]&feed=$matches[2]\";s:72:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\";s:49:\"index.php?attachment=$matches[1]&feed=$matches[2]\";s:72:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/comment-page-([0-9]{1,})/?$\";s:50:\"index.php?attachment=$matches[1]&cpage=$matches[2]\";s:53:\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/embed/?$\";s:43:\"index.php?attachment=$matches[1]&embed=true\";s:64:\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/comment-page-([0-9]{1,})/?$\";s:81:\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&cpage=$matches[4]\";s:51:\"([0-9]{4})/([0-9]{1,2})/comment-page-([0-9]{1,})/?$\";s:65:\"index.php?year=$matches[1]&monthnum=$matches[2]&cpage=$matches[3]\";s:38:\"([0-9]{4})/comment-page-([0-9]{1,})/?$\";s:44:\"index.php?year=$matches[1]&cpage=$matches[2]\";s:27:\".?.+?/attachment/([^/]+)/?$\";s:32:\"index.php?attachment=$matches[1]\";s:37:\".?.+?/attachment/([^/]+)/trackback/?$\";s:37:\"index.php?attachment=$matches[1]&tb=1\";s:57:\".?.+?/attachment/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\";s:49:\"index.php?attachment=$matches[1]&feed=$matches[2]\";s:52:\".?.+?/attachment/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\";s:49:\"index.php?attachment=$matches[1]&feed=$matches[2]\";s:52:\".?.+?/attachment/([^/]+)/comment-page-([0-9]{1,})/?$\";s:50:\"index.php?attachment=$matches[1]&cpage=$matches[2]\";s:33:\".?.+?/attachment/([^/]+)/embed/?$\";s:43:\"index.php?attachment=$matches[1]&embed=true\";s:16:\"(.?.+?)/embed/?$\";s:41:\"index.php?pagename=$matches[1]&embed=true\";s:20:\"(.?.+?)/trackback/?$\";s:35:\"index.php?pagename=$matches[1]&tb=1\";s:40:\"(.?.+?)/feed/(feed|rdf|rss|rss2|atom)/?$\";s:47:\"index.php?pagename=$matches[1]&feed=$matches[2]\";s:35:\"(.?.+?)/(feed|rdf|rss|rss2|atom)/?$\";s:47:\"index.php?pagename=$matches[1]&feed=$matches[2]\";s:28:\"(.?.+?)/page/?([0-9]{1,})/?$\";s:48:\"index.php?pagename=$matches[1]&paged=$matches[2]\";s:35:\"(.?.+?)/comment-page-([0-9]{1,})/?$\";s:48:\"index.php?pagename=$matches[1]&cpage=$matches[2]\";s:24:\"(.?.+?)(?:/([0-9]+))?/?$\";s:47:\"index.php?pagename=$matches[1]&page=$matches[2]\";}",
+  :out
+  "a:82:{s:11:\\\"^wp-json/?$\\\";s:22:\\\"index.php?rest_route=/\\\";s:14:\\\"^wp-json/(.*)?\\\";s:33:\\\"index.php?rest_route=/$matches[1]\\\";s:21:\\\"^index.php/wp-json/?$\\\";s:22:\\\"index.php?rest_route=/\\\";s:24:\\\"^index.php/wp-json/(.*)?\\\";s:33:\\\"index.php?rest_route=/$matches[1]\\\";s:17:\\\"^wp-sitemap\\\\.xml$\\\";s:23:\\\"index.php?sitemap=index\\\";s:17:\\\"^wp-sitemap\\\\.xsl$\\\";s:36:\\\"index.php?sitemap-stylesheet=sitemap\\\";s:23:\\\"^wp-sitemap-index\\\\.xsl$\\\";s:34:\\\"index.php?sitemap-stylesheet=index\\\";s:48:\\\"^wp-sitemap-([a-z]+?)-([a-z\\\\d_-]+?)-(\\\\d+?)\\\\.xml$\\\";s:75:\\\"index.php?sitemap=$matches[1]&sitemap-subtype=$matches[2]&paged=$matches[3]\\\";s:34:\\\"^wp-sitemap-([a-z]+?)-(\\\\d+?)\\\\.xml$\\\";s:47:\\\"index.php?sitemap=$matches[1]&paged=$matches[2]\\\";s:12:\\\"robots\\\\.txt$\\\";s:18:\\\"index.php?robots=1\\\";s:13:\\\"favicon\\\\.ico$\\\";s:19:\\\"index.php?favicon=1\\\";s:12:\\\"sitemap\\\\.xml\\\";s:23:\\\"index.php?sitemap=index\\\";s:48:\\\".*wp-(atom|rdf|rss|rss2|feed|commentsrss2)\\\\.php$\\\";s:18:\\\"index.php?feed=old\\\";s:20:\\\".*wp-app\\\\.php(/.*)?$\\\";s:19:\\\"index.php?error=403\\\";s:18:\\\".*wp-register.php$\\\";s:23:\\\"index.php?register=true\\\";s:32:\\\"feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:27:\\\"index.php?&feed=$matches[1]\\\";s:27:\\\"(feed|rdf|rss|rss2|atom)/?$\\\";s:27:\\\"index.php?&feed=$matches[1]\\\";s:8:\\\"embed/?$\\\";s:21:\\\"index.php?&embed=true\\\";s:20:\\\"page/?([0-9]{1,})/?$\\\";s:28:\\\"index.php?&paged=$matches[1]\\\";s:41:\\\"comments/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:42:\\\"index.php?&feed=$matches[1]&withcomments=1\\\";s:36:\\\"comments/(feed|rdf|rss|rss2|atom)/?$\\\";s:42:\\\"index.php?&feed=$matches[1]&withcomments=1\\\";s:17:\\\"comments/embed/?$\\\";s:21:\\\"index.php?&embed=true\\\";s:44:\\\"search/(.+)/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:40:\\\"index.php?s=$matches[1]&feed=$matches[2]\\\";s:39:\\\"search/(.+)/(feed|rdf|rss|rss2|atom)/?$\\\";s:40:\\\"index.php?s=$matches[1]&feed=$matches[2]\\\";s:20:\\\"search/(.+)/embed/?$\\\";s:34:\\\"index.php?s=$matches[1]&embed=true\\\";s:32:\\\"search/(.+)/page/?([0-9]{1,})/?$\\\";s:41:\\\"index.php?s=$matches[1]&paged=$matches[2]\\\";s:14:\\\"search/(.+)/?$\\\";s:23:\\\"index.php?s=$matches[1]\\\";s:47:\\\"author/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:50:\\\"index.php?author_name=$matches[1]&feed=$matches[2]\\\";s:42:\\\"author/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\\\";s:50:\\\"index.php?author_name=$matches[1]&feed=$matches[2]\\\";s:23:\\\"author/([^/]+)/embed/?$\\\";s:44:\\\"index.php?author_name=$matches[1]&embed=true\\\";s:35:\\\"author/([^/]+)/page/?([0-9]{1,})/?$\\\";s:51:\\\"index.php?author_name=$matches[1]&paged=$matches[2]\\\";s:17:\\\"author/([^/]+)/?$\\\";s:33:\\\"index.php?author_name=$matches[1]\\\";s:69:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:80:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&feed=$matches[4]\\\";s:64:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/(feed|rdf|rss|rss2|atom)/?$\\\";s:80:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&feed=$matches[4]\\\";s:45:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/embed/?$\\\";s:74:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&embed=true\\\";s:57:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/page/?([0-9]{1,})/?$\\\";s:81:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&paged=$matches[4]\\\";s:39:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/?$\\\";s:63:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]\\\";s:56:\\\"([0-9]{4})/([0-9]{1,2})/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:64:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&feed=$matches[3]\\\";s:51:\\\"([0-9]{4})/([0-9]{1,2})/(feed|rdf|rss|rss2|atom)/?$\\\";s:64:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&feed=$matches[3]\\\";s:32:\\\"([0-9]{4})/([0-9]{1,2})/embed/?$\\\";s:58:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&embed=true\\\";s:44:\\\"([0-9]{4})/([0-9]{1,2})/page/?([0-9]{1,})/?$\\\";s:65:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&paged=$matches[3]\\\";s:26:\\\"([0-9]{4})/([0-9]{1,2})/?$\\\";s:47:\\\"index.php?year=$matches[1]&monthnum=$matches[2]\\\";s:43:\\\"([0-9]{4})/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:43:\\\"index.php?year=$matches[1]&feed=$matches[2]\\\";s:38:\\\"([0-9]{4})/(feed|rdf|rss|rss2|atom)/?$\\\";s:43:\\\"index.php?year=$matches[1]&feed=$matches[2]\\\";s:19:\\\"([0-9]{4})/embed/?$\\\";s:37:\\\"index.php?year=$matches[1]&embed=true\\\";s:31:\\\"([0-9]{4})/page/?([0-9]{1,})/?$\\\";s:44:\\\"index.php?year=$matches[1]&paged=$matches[2]\\\";s:13:\\\"([0-9]{4})/?$\\\";s:26:\\\"index.php?year=$matches[1]\\\";s:58:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/?$\\\";s:32:\\\"index.php?attachment=$matches[1]\\\";s:68:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/trackback/?$\\\";s:37:\\\"index.php?attachment=$matches[1]&tb=1\\\";s:88:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:49:\\\"index.php?attachment=$matches[1]&feed=$matches[2]\\\";s:83:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\\\";s:49:\\\"index.php?attachment=$matches[1]&feed=$matches[2]\\\";s:83:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/comment-page-([0-9]{1,})/?$\\\";s:50:\\\"index.php?attachment=$matches[1]&cpage=$matches[2]\\\";s:64:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/attachment/([^/]+)/embed/?$\\\";s:43:\\\"index.php?attachment=$matches[1]&embed=true\\\";s:53:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/embed/?$\\\";s:91:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&embed=true\\\";s:57:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/trackback/?$\\\";s:85:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&tb=1\\\";s:77:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:97:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&feed=$matches[5]\\\";s:72:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\\\";s:97:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&feed=$matches[5]\\\";s:65:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/page/?([0-9]{1,})/?$\\\";s:98:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&paged=$matches[5]\\\";s:72:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)/comment-page-([0-9]{1,})/?$\\\";s:98:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&cpage=$matches[5]\\\";s:61:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/([^/]+)(?:/([0-9]+))?/?$\\\";s:97:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&name=$matches[4]&page=$matches[5]\\\";s:47:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/?$\\\";s:32:\\\"index.php?attachment=$matches[1]\\\";s:57:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/trackback/?$\\\";s:37:\\\"index.php?attachment=$matches[1]&tb=1\\\";s:77:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:49:\\\"index.php?attachment=$matches[1]&feed=$matches[2]\\\";s:72:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\\\";s:49:\\\"index.php?attachment=$matches[1]&feed=$matches[2]\\\";s:72:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/comment-page-([0-9]{1,})/?$\\\";s:50:\\\"index.php?attachment=$matches[1]&cpage=$matches[2]\\\";s:53:\\\"[0-9]{4}/[0-9]{1,2}/[0-9]{1,2}/[^/]+/([^/]+)/embed/?$\\\";s:43:\\\"index.php?attachment=$matches[1]&embed=true\\\";s:64:\\\"([0-9]{4})/([0-9]{1,2})/([0-9]{1,2})/comment-page-([0-9]{1,})/?$\\\";s:81:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&day=$matches[3]&cpage=$matches[4]\\\";s:51:\\\"([0-9]{4})/([0-9]{1,2})/comment-page-([0-9]{1,})/?$\\\";s:65:\\\"index.php?year=$matches[1]&monthnum=$matches[2]&cpage=$matches[3]\\\";s:38:\\\"([0-9]{4})/comment-page-([0-9]{1,})/?$\\\";s:44:\\\"index.php?year=$matches[1]&cpage=$matches[2]\\\";s:27:\\\".?.+?/attachment/([^/]+)/?$\\\";s:32:\\\"index.php?attachment=$matches[1]\\\";s:37:\\\".?.+?/attachment/([^/]+)/trackback/?$\\\";s:37:\\\"index.php?attachment=$matches[1]&tb=1\\\";s:57:\\\".?.+?/attachment/([^/]+)/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:49:\\\"index.php?attachment=$matches[1]&feed=$matches[2]\\\";s:52:\\\".?.+?/attachment/([^/]+)/(feed|rdf|rss|rss2|atom)/?$\\\";s:49:\\\"index.php?attachment=$matches[1]&feed=$matches[2]\\\";s:52:\\\".?.+?/attachment/([^/]+)/comment-page-([0-9]{1,})/?$\\\";s:50:\\\"index.php?attachment=$matches[1]&cpage=$matches[2]\\\";s:33:\\\".?.+?/attachment/([^/]+)/embed/?$\\\";s:43:\\\"index.php?attachment=$matches[1]&embed=true\\\";s:16:\\\"(.?.+?)/embed/?$\\\";s:41:\\\"index.php?pagename=$matches[1]&embed=true\\\";s:20:\\\"(.?.+?)/trackback/?$\\\";s:35:\\\"index.php?pagename=$matches[1]&tb=1\\\";s:40:\\\"(.?.+?)/feed/(feed|rdf|rss|rss2|atom)/?$\\\";s:47:\\\"index.php?pagename=$matches[1]&feed=$matches[2]\\\";s:35:\\\"(.?.+?)/(feed|rdf|rss|rss2|atom)/?$\\\";s:47:\\\"index.php?pagename=$matches[1]&feed=$matches[2]\\\";s:28:\\\"(.?.+?)/page/?([0-9]{1,})/?$\\\";s:48:\\\"index.php?pagename=$matches[1]&paged=$matches[2]\\\";s:35:\\\"(.?.+?)/comment-page-([0-9]{1,})/?$\\\";s:48:\\\"index.php?pagename=$matches[1]&cpage=$matches[2]\\\";s:24:\\\"(.?.+?)(?:/([0-9]+))?/?$\\\";s:47:\\\"index.php?pagename=$matches[1]&page=$matches[2]\\\";}"}
+ {:in
+  "a:8:{i:1793206447;a:1:{s:21:\"wp_update_user_counts\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793206507;a:1:{s:28:\"wp_update_comment_type_batch\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:2:{s:8:\"schedule\";b:0;s:4:\"args\";a:0:{}}}}i:1793210042;a:1:{s:16:\"wp_version_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793210043;a:1:{s:34:\"wp_privacy_delete_old_export_files\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:6:\"hourly\";s:4:\"args\";a:0:{}s:8:\"interval\";i:3600;}}}i:1793211842;a:1:{s:17:\"wp_update_plugins\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793213642;a:1:{s:16:\"wp_update_themes\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:10:\"twicedaily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:43200;}}}i:1793292843;a:2:{s:30:\"wp_site_health_scheduled_check\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:6:\"weekly\";s:4:\"args\";a:0:{}s:8:\"interval\";i:604800;}}s:32:\"recovery_mode_clean_expired_keys\";a:1:{s:32:\"40cd750bba9870f18aada2478b24840a\";a:3:{s:8:\"schedule\";s:5:\"daily\";s:4:\"args\";a:0:{}s:8:\"interval\";i:86400;}}}s:7:\"version\";i:2;}",
+  :out
+  "a:8:{i:1793206447;a:1:{s:21:\\\"wp_update_user_counts\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793206507;a:1:{s:28:\\\"wp_update_comment_type_batch\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:2:{s:8:\\\"schedule\\\";b:0;s:4:\\\"args\\\";a:0:{}}}}i:1793210042;a:1:{s:16:\\\"wp_version_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793210043;a:1:{s:34:\\\"wp_privacy_delete_old_export_files\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:6:\\\"hourly\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:3600;}}}i:1793211842;a:1:{s:17:\\\"wp_update_plugins\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793213642;a:1:{s:16:\\\"wp_update_themes\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:10:\\\"twicedaily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:43200;}}}i:1793292843;a:2:{s:30:\\\"wp_site_health_scheduled_check\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:6:\\\"weekly\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:604800;}}s:32:\\\"recovery_mode_clean_expired_keys\\\";a:1:{s:32:\\\"40cd750bba9870f18aada2478b24840a\\\";a:3:{s:8:\\\"schedule\\\";s:5:\\\"daily\\\";s:4:\\\"args\\\";a:0:{}s:8:\\\"interval\\\";i:86400;}}}s:7:\\\"version\\\";i:2;}"}
+ {:in "action", :out "action"}
+ {:in "active_plugins", :out "active_plugins"}
+ {:in "admin", :out "admin"}
+ {:in "admin@example.test", :out "admin@example.test"}
+ {:in "admin_color", :out "admin_color"}
+ {:in "admin_email", :out "admin_email"}
+ {:in "admin_email_lifespan", :out "admin_email_lifespan"}
+ {:in "advanced_edit", :out "advanced_edit"}
+ {:in "archive_mode", :out "archive_mode"}
+ {:in "asc", :out "asc"}
+ {:in "attachment", :out "attachment"}
+ {:in "auto", :out "auto"}
+ {:in "auto-on", :out "auto-on"}
+ {:in "auto_plugin_theme_update_emails",
+  :out "auto_plugin_theme_update_emails"}
+ {:in "auto_update_core_dev", :out "auto_update_core_dev"}
+ {:in "auto_update_core_major", :out "auto_update_core_major"}
+ {:in "auto_update_core_minor", :out "auto_update_core_minor"}
+ {:in "autosave_interval", :out "autosave_interval"}
+ {:in "avatar_default", :out "avatar_default"}
+ {:in "avatar_rating", :out "avatar_rating"}
+ {:in "babashka.http-client/0.4.26",
+  :out "babashka.http-client/0.4.26"}
+ {:in "blodotgsping_url", :out "blodotgsping_url"}
+ {:in "blog_charset", :out "blog_charset"}
+ {:in "blog_public", :out "blog_public"}
+ {:in "blogdescription", :out "blogdescription"}
+ {:in "blogname", :out "blogname"}
+ {:in "bodyterminator", :out "bodyterminator"}
+ {:in "can_compress_scripts", :out "can_compress_scripts"}
+ {:in "category", :out "category"}
+ {:in "category_base", :out "category_base"}
+ {:in "close_comments_days_old", :out "close_comments_days_old"}
+ {:in "close_comments_for_old_posts",
+  :out "close_comments_for_old_posts"}
+ {:in "closed", :out "closed"}
+ {:in "comment", :out "comment"}
+ {:in "comment_allowed_tags", :out "comment_allowed_tags"}
+ {:in "comment_max_links", :out "comment_max_links"}
+ {:in "comment_moderation", :out "comment_moderation"}
+ {:in "comment_order", :out "comment_order"}
+ {:in "comment_previously_approved",
+  :out "comment_previously_approved"}
+ {:in "comment_registration", :out "comment_registration"}
+ {:in "comment_shortcuts", :out "comment_shortcuts"}
+ {:in "comments_notify", :out "comments_notify"}
+ {:in "comments_per_page", :out "comments_per_page"}
+ {:in "cron", :out "cron"}
+ {:in "date_format", :out "date_format"}
+ {:in "db_upgraded", :out "db_upgraded"}
+ {:in "db_version", :out "db_version"}
+ {:in "deactivated_plugins", :out "deactivated_plugins"}
+ {:in "default", :out "default"}
+ {:in "default_category", :out "default_category"}
+ {:in "default_comment_status", :out "default_comment_status"}
+ {:in "default_comment_status_page",
+  :out "default_comment_status_page"}
+ {:in "default_comments_page", :out "default_comments_page"}
+ {:in "default_email_category", :out "default_email_category"}
+ {:in "default_geourl_lat", :out "default_geourl_lat"}
+ {:in "default_geourl_lon", :out "default_geourl_lon"}
+ {:in "default_link_category", :out "default_link_category"}
+ {:in "default_ping_status", :out "default_ping_status"}
+ {:in "default_pingback_flag", :out "default_pingback_flag"}
+ {:in "default_post_category", :out "default_post_category"}
+ {:in "default_post_edit_rows", :out "default_post_edit_rows"}
+ {:in "default_post_format", :out "default_post_format"}
+ {:in "default_post_status", :out "default_post_status"}
+ {:in "default_role", :out "default_role"}
+ {:in "description", :out "description"}
+ {:in "disallowed_keys", :out "disallowed_keys"}
+ {:in "dismissed_wp_pointers", :out "dismissed_wp_pointers"}
+ {:in "doing_cron", :out "doing_cron"}
+ {:in "draft", :out "draft"}
+ {:in "emailtestonly", :out "emailtestonly"}
+ {:in "embed_autourls", :out "embed_autourls"}
+ {:in "enable_app", :out "enable_app"}
+ {:in "enable_xmlrpc", :out "enable_xmlrpc"}
+ {:in "enabled", :out "enabled"}
+ {:in "false", :out "false"}
+ {:in "fileupload_allowedusers", :out "fileupload_allowedusers"}
+ {:in "finished_splitting_shared_terms",
+  :out "finished_splitting_shared_terms"}
+ {:in "finished_updating_comment_type",
+  :out "finished_updating_comment_type"}
+ {:in "first_name", :out "first_name"}
+ {:in "fresh", :out "fresh"}
+ {:in "fresh_site", :out "fresh_site"}
+ {:in "g:i a", :out "g:i a"}
+ {:in "gmt_offset", :out "gmt_offset"}
+ {:in "gzipcompression", :out "gzipcompression"}
+ {:in "hack_file", :out "hack_file"}
+ {:in "hello-world", :out "hello-world"}
+ {:in "home", :out "home"}
+ {:in "html_type", :out "html_type"}
+ {:in "http://php:8080", :out "http://php:8080"}
+ {:in "http://php:8080/?p=1", :out "http://php:8080/?p=1"}
+ {:in "http://php:8080/?page_id=2", :out "http://php:8080/?page_id=2"}
+ {:in "http://php:8080/?page_id=3", :out "http://php:8080/?page_id=3"}
+ {:in "https://rpc.pingomatic.com/",
+  :out "https://rpc.pingomatic.com/"}
+ {:in "https://wordpress.org/", :out "https://wordpress.org/"}
+ {:in "image_default_align", :out "image_default_align"}
+ {:in "image_default_link_type", :out "image_default_link_type"}
+ {:in "image_default_size", :out "image_default_size"}
+ {:in "initial_db_version", :out "initial_db_version"}
+ {:in "language", :out "language"}
+ {:in "large_size_h", :out "large_size_h"}
+ {:in "large_size_w", :out "large_size_w"}
+ {:in "last_name", :out "last_name"}
+ {:in "link_manager_enabled", :out "link_manager_enabled"}
+ {:in "links_minadminlevel", :out "links_minadminlevel"}
+ {:in "links_rating_char", :out "links_rating_char"}
+ {:in "links_rating_ignore_zero", :out "links_rating_ignore_zero"}
+ {:in "links_rating_image0", :out "links_rating_image0"}
+ {:in "links_rating_image1", :out "links_rating_image1"}
+ {:in "links_rating_image2", :out "links_rating_image2"}
+ {:in "links_rating_image3", :out "links_rating_image3"}
+ {:in "links_rating_image4", :out "links_rating_image4"}
+ {:in "links_rating_image5", :out "links_rating_image5"}
+ {:in "links_rating_image6", :out "links_rating_image6"}
+ {:in "links_rating_image7", :out "links_rating_image7"}
+ {:in "links_rating_image8", :out "links_rating_image8"}
+ {:in "links_rating_image9", :out "links_rating_image9"}
+ {:in "links_rating_single_image", :out "links_rating_single_image"}
+ {:in "links_rating_type", :out "links_rating_type"}
+ {:in "links_recently_updated_append",
+  :out "links_recently_updated_append"}
+ {:in "links_recently_updated_prepend",
+  :out "links_recently_updated_prepend"}
+ {:in "links_recently_updated_time",
+  :out "links_recently_updated_time"}
+ {:in "links_updated_date_format", :out "links_updated_date_format"}
+ {:in "links_use_adminlevels", :out "links_use_adminlevels"}
+ {:in "locale", :out "locale"}
+ {:in "login@example.com", :out "login@example.com"}
+ {:in "mail.example.com", :out "mail.example.com"}
+ {:in "mailserver_login", :out "mailserver_login"}
+ {:in "mailserver_pass", :out "mailserver_pass"}
+ {:in "mailserver_port", :out "mailserver_port"}
+ {:in "mailserver_url", :out "mailserver_url"}
+ {:in "medium_large_size_h", :out "medium_large_size_h"}
+ {:in "medium_large_size_w", :out "medium_large_size_w"}
+ {:in "medium_size_h", :out "medium_size_h"}
+ {:in "medium_size_w", :out "medium_size_w"}
+ {:in "moderation_keys", :out "moderation_keys"}
+ {:in "moderation_notify", :out "moderation_notify"}
+ {:in "mystery", :out "mystery"}
+ {:in "new_users_can_blog", :out "new_users_can_blog"}
+ {:in "newest", :out "newest"}
+ {:in "nickname", :out "nickname"}
+ {:in "none", :out "none"}
+ {:in "note", :out "note"}
+ {:in "off", :out "off"}
+ {:in "on", :out "on"}
+ {:in "open", :out "open"}
+ {:in "page", :out "page"}
+ {:in "page_comments", :out "page_comments"}
+ {:in "page_for_posts", :out "page_for_posts"}
+ {:in "page_on_front", :out "page_on_front"}
+ {:in "page_uris", :out "page_uris"}
+ {:in "permalink_structure", :out "permalink_structure"}
+ {:in "phoneemail_separator", :out "phoneemail_separator"}
+ {:in "ping_sites", :out "ping_sites"}
+ {:in "post", :out "post"}
+ {:in "post_date", :out "post_date"}
+ {:in "post_format", :out "post_format"}
+ {:in "post_tag", :out "post_tag"}
+ {:in "posts", :out "posts"}
+ {:in "posts_per_page", :out "posts_per_page"}
+ {:in "posts_per_rss", :out "posts_per_rss"}
+ {:in "privacy-policy", :out "privacy-policy"}
+ {:in "random_seed", :out "random_seed"}
+ {:in "recently_edited", :out "recently_edited"}
+ {:in "require_name_email", :out "require_name_email"}
+ {:in "revision", :out "revision"}
+ {:in "rewrite_rules", :out "rewrite_rules"}
+ {:in "rich_editing", :out "rich_editing"}
+ {:in "rss_excerpt_length", :out "rss_excerpt_length"}
+ {:in "rss_language", :out "rss_language"}
+ {:in "rss_use_excerpt", :out "rss_use_excerpt"}
+ {:in "sample-page", :out "sample-page"}
+ {:in "search_engine_friendly_urls",
+  :out "search_engine_friendly_urls"}
+ {:in "secret", :out "secret"}
+ {:in "session_tokens", :out "session_tokens"}
+ {:in "show_admin_bar_front", :out "show_admin_bar_front"}
+ {:in "show_avatars", :out "show_avatars"}
+ {:in "show_comments_cookies_opt_in",
+  :out "show_comments_cookies_opt_in"}
+ {:in "show_on_front", :out "show_on_front"}
+ {:in "show_welcome_panel", :out "show_welcome_panel"}
+ {:in "sidebars_widgets", :out "sidebars_widgets"}
+ {:in "site_icon", :out "site_icon"}
+ {:in "site_logo", :out "site_logo"}
+ {:in "siteurl", :out "siteurl"}
+ {:in "smilies_directory", :out "smilies_directory"}
+ {:in "start_of_week", :out "start_of_week"}
+ {:in "sticky_posts", :out "sticky_posts"}
+ {:in "stylesheet", :out "stylesheet"}
+ {:in "subjectprefix", :out "subjectprefix"}
+ {:in "subscriber", :out "subscriber"}
+ {:in "syntax_highlighting", :out "syntax_highlighting"}
+ {:in "tag_base", :out "tag_base"}
+ {:in "template", :out "template"}
+ {:in "text/html", :out "text/html"}
+ {:in "theme_switched", :out "theme_switched"}
+ {:in "thread_comments", :out "thread_comments"}
+ {:in "thread_comments_depth", :out "thread_comments_depth"}
+ {:in "thumbnail_crop", :out "thumbnail_crop"}
+ {:in "thumbnail_size_h", :out "thumbnail_size_h"}
+ {:in "thumbnail_size_w", :out "thumbnail_size_w"}
+ {:in "time_difference", :out "time_difference"}
+ {:in "time_format", :out "time_format"}
+ {:in "timezone_string", :out "timezone_string"}
+ {:in "true", :out "true"}
+ {:in "twentytwentyfive", :out "twentytwentyfive"}
+ {:in "uncategorized", :out "uncategorized"}
+ {:in "uninstall_plugins", :out "uninstall_plugins"}
+ {:in "update_core", :out "update_core"}
+ {:in "update_plugins", :out "update_plugins"}
+ {:in "update_themes", :out "update_themes"}
+ {:in "upload_path", :out "upload_path"}
+ {:in "upload_url_path", :out "upload_url_path"}
+ {:in "uploads_use_yearmonth_folders",
+  :out "uploads_use_yearmonth_folders"}
+ {:in "use_balanceTags", :out "use_balanceTags"}
+ {:in "use_bbcode", :out "use_bbcode"}
+ {:in "use_blodotgsping", :out "use_blodotgsping"}
+ {:in "use_default_geourl", :out "use_default_geourl"}
+ {:in "use_htmltrans", :out "use_htmltrans"}
+ {:in "use_linksupdate", :out "use_linksupdate"}
+ {:in "use_phoneemail", :out "use_phoneemail"}
+ {:in "use_preview", :out "use_preview"}
+ {:in "use_quicktags", :out "use_quicktags"}
+ {:in "use_smilies", :out "use_smilies"}
+ {:in "use_ssl", :out "use_ssl"}
+ {:in "use_trackback", :out "use_trackback"}
+ {:in "use_weblogsping", :out "use_weblogsping"}
+ {:in "user_count", :out "user_count"}
+ {:in "users_can_register", :out "users_can_register"}
+ {:in "using_application_passwords",
+  :out "using_application_passwords"}
+ {:in "utf8mb4", :out "utf8mb4"}
+ {:in "utf8mb4_unicode_520_ci", :out "utf8mb4_unicode_520_ci"}
+ {:in "v@example.test", :out "v@example.test"}
+ {:in "wapuu@wordpress.example", :out "wapuu@wordpress.example"}
+ {:in "weblogs_cache_file", :out "weblogs_cache_file"}
+ {:in "weblogs_cacheminutes", :out "weblogs_cacheminutes"}
+ {:in "weblogs_xml_url", :out "weblogs_xml_url"}
+ {:in "what_to_show", :out "what_to_show"}
+ {:in "widget_block", :out "widget_block"}
+ {:in "widget_categories", :out "widget_categories"}
+ {:in "widget_rss", :out "widget_rss"}
+ {:in "widget_text", :out "widget_text"}
+ {:in "wp\\_users", :out "wp\\\\_users"}
+ {:in "wp_attachment_pages_enabled",
+  :out "wp_attachment_pages_enabled"}
+ {:in "wp_capabilities", :out "wp_capabilities"}
+ {:in "wp_force_deactivated_plugins",
+  :out "wp_force_deactivated_plugins"}
+ {:in "wp_global_styles", :out "wp_global_styles"}
+ {:in "wp_navigation", :out "wp_navigation"}
+ {:in "wp_notes_notify", :out "wp_notes_notify"}
+ {:in "wp_page_for_privacy_policy", :out "wp_page_for_privacy_policy"}
+ {:in "wp_template", :out "wp_template"}
+ {:in "wp_template_part", :out "wp_template_part"}
+ {:in "wp_theme", :out "wp_theme"}
+ {:in "wp_user_level", :out "wp_user_level"}
+ {:in "wp_user_roles", :out "wp_user_roles"}
+ {:in "wporg_popular_tags", :out "wporg_popular_tags"}
+ {:in "yes", :out "yes"}
+ {:in "you@example.com", :out "you@example.com"}]

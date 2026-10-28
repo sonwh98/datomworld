@@ -1,0 +1,54 @@
+{:tag "6.9",
+ :wordpress
+ {:version "6.9",
+  :tarball-sha256
+  "5b36390233e32fef68cb5f66435bb32bdd50e0b3dfa5750aceb2de3c5993d720"},
+ :images
+ {:mysql
+  "mysql@sha256:9de9d54fecee6253130e65154b930978b1fcc336bcc86dfd06e89b72a2588ebe",
+  :php
+  "php@sha256:aafe21201943a8a6e497ddfb471e2ce68ada76adede38c7d61fede8918b24319"},
+ :mysql
+ {:version "8.3.0",
+  :sql-mode
+  "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION",
+  :collation-connection "latin1_swedish_ci",
+  :time-zone "+00:00"},
+ :php
+ {:version "8.3.35",
+  :extensions
+  ["Core"
+   "PDO"
+   "Phar"
+   "Reflection"
+   "SPL"
+   "SimpleXML"
+   "Zend OPcache"
+   "ctype"
+   "curl"
+   "date"
+   "dom"
+   "fileinfo"
+   "filter"
+   "hash"
+   "iconv"
+   "json"
+   "libxml"
+   "mbstring"
+   "mysqli"
+   "mysqlnd"
+   "openssl"
+   "pcre"
+   "pdo_sqlite"
+   "posix"
+   "random"
+   "readline"
+   "session"
+   "sodium"
+   "sqlite3"
+   "standard"
+   "tokenizer"
+   "xml"
+   "xmlreader"
+   "xmlwriter"
+   "zlib"]}}

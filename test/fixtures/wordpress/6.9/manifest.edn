@@ -1,0 +1,64 @@
+{:tag "6.9",
+ :requests
+ [{:file "corpus/t0/01-install-form.edn",
+   :id "t0-01-install-form",
+   :events 406}
+  {:file "corpus/t0/02-install-step1.edn",
+   :id "t0-02-install-step1",
+   :events 135}
+  {:file "corpus/t0/03-install-step2.edn",
+   :id "t0-03-install-step2",
+   :events 421}
+  {:file "corpus/t1/01-front.edn", :id "t1-01-front", :events 24}
+  {:file "corpus/t1/02-single-post.edn",
+   :id "t1-02-single-post",
+   :events 36}
+  {:file "corpus/t1/03-page.edn", :id "t1-03-page", :events 28}
+  {:file "corpus/t1/04-search.edn", :id "t1-04-search", :events 25}
+  {:file "corpus/t1/05-not-found.edn",
+   :id "t1-05-not-found",
+   :events 17}
+  {:file "corpus/t1/06-feed.edn", :id "t1-06-feed", :events 15}
+  {:file "corpus/t1/07-rest-posts.edn",
+   :id "t1-07-rest-posts",
+   :events 14}
+  {:file "corpus/t1/08-login-form.edn",
+   :id "t1-08-login-form",
+   :events 7}
+  {:file "corpus/t1/09-login-bad.edn",
+   :id "t1-09-login-bad",
+   :events 9}
+  {:file "corpus/t1/10-login-ok.edn", :id "t1-10-login-ok", :events 22}
+  {:file "corpus/t1/11-comment.edn", :id "t1-11-comment", :events 48}
+  {:file "corpus/t2/01-dashboard.edn",
+   :id "t2-01-dashboard",
+   :events 12}
+  {:file "corpus/t2/02-edit.edn", :id "t2-02-edit", :events 12}
+  {:file "corpus/t2/03-post-new.edn", :id "t2-03-post-new", :events 12}
+  {:file "corpus/t2/04-post-publish.edn",
+   :id "t2-04-post-publish",
+   :events 12}
+  {:file "corpus/t2/05-options-general.edn",
+   :id "t2-05-options-general",
+   :events 12}
+  {:file "corpus/t2/06-options-save.edn",
+   :id "t2-06-options-save",
+   :events 12}
+  {:file "corpus/t2/07-plugins.edn", :id "t2-07-plugins", :events 12}
+  {:file "corpus/t2/08-themes.edn", :id "t2-08-themes", :events 12}
+  {:file "corpus/t2/09-users.edn", :id "t2-09-users", :events 12}
+  {:file "corpus/t2/10-upload.edn", :id "t2-10-upload", :events 12}
+  {:file "corpus/t2/11-edit-comments.edn",
+   :id "t2-11-edit-comments",
+   :events 12}
+  {:file "corpus/t2/12-edit-comments-nonce.edn",
+   :id "t2-12-edit-comments-nonce",
+   :events 12}
+  {:file "corpus/t2/13-heartbeat.edn",
+   :id "t2-13-heartbeat",
+   :events 11}
+  {:file "corpus/t2/14-wp-cron.edn", :id "t2-14-wp-cron", :events 4}
+  {:file "corpus/t2/15-final-front.edn",
+   :id "t2-15-final-front",
+   :events 24}],
+ :totals {:requests 29, :events 1390}}

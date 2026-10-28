@@ -1,0 +1,111 @@
+{:request
+ {:id "t1-09-login-bad",
+  :method "POST",
+  :uri "/wp-login.php",
+  :status 200,
+  :response-sha256
+  "b8176ef7937678c81709c72fd53fa8bd4c1c14031c84fb647572c9f1024f178a",
+  :server
+  {:CONTENT_TYPE "application/x-www-form-urlencoded",
+   :SCRIPT_FILENAME "/var/www/html/wp-login.php",
+   :SERVER_NAME "0.0.0.0",
+   :SERVER_PROTOCOL "HTTP/1.1",
+   :PHP_SELF "/wp-login.php",
+   :REQUEST_URI "/wp-login.php",
+   :CONTENT_LENGTH "76",
+   :DOCUMENT_ROOT "/var/www/html",
+   :HTTP_HOST "php:8080",
+   :REMOTE_ADDR "172.19.0.4",
+   :SERVER_PORT "8080",
+   :SCRIPT_NAME "/wp-login.php",
+   :REQUEST_METHOD "POST"}},
+ :events
+ [{:seq 1,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), require('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), wp_not_installed, is_blog_installed, wp_load_alloptions, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE autoload IN ( 'yes', 'on', 'auto-on', 'auto' )",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 117}}
+  {:seq 2,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), require('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), load_default_textdomain, determine_locale, get_locale, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'WPLANG' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["WPLANG"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 3,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), require('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, _register_theme_block_patterns, WP_Theme->get_block_patterns, WP_Theme->get_pattern_cache, get_site_transient, wp_prime_site_option_caches, wp_prime_network_option_caches, wp_prime_option_caches, wpdb->get_results",
+   :sql
+   "SELECT option_name, option_value FROM wp_options WHERE option_name IN ('_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf','_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf')",
+   :prepare
+   {:template
+    "SELECT option_name, option_value FROM wp_options WHERE option_name IN (%s,%s)",
+    :args
+    ["_site_transient_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"
+     "_site_transient_timeout_wp_theme_files_patterns-b24c4b64a1fe6f9f73313f730ddfc1cf"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 2}}
+  {:seq 4,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), require('wp-load.php'), require_once('wp-config.php'), require_once('wp-settings.php'), do_action('init'), WP_Hook->do_action, WP_Hook->apply_filters, check_theme_switched, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'theme_switched' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["theme_switched"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 5,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), get_user_by, WP_User::get_data_by, wpdb->get_row",
+   :sql "SELECT * FROM wp_users WHERE user_login = 'admin' LIMIT 1",
+   :prepare
+   {:template "SELECT * FROM wp_users WHERE user_login = %s LIMIT 1",
+    :args ["admin"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}
+  {:seq 6,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), get_user_by, WP_User->init, WP_User->for_site, WP_User->get_caps_data, get_user_meta, get_metadata, get_metadata_raw, update_meta_cache, wpdb->get_results",
+   :sql
+   "SELECT user_id, meta_key, meta_value FROM wp_usermeta WHERE user_id IN (1) ORDER BY umeta_id ASC",
+   :result {:rows-affected 0, :insert-id 0, :num-rows 15}}
+  {:seq 7,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), wp_signon, wp_authenticate, apply_filters('authenticate'), WP_Hook->apply_filters, wp_authenticate_application_password, WP_Application_Passwords::is_in_use, get_network_option, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'using_application_passwords' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["using_application_passwords"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 8,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), login_header, do_action('login_head'), WP_Hook->do_action, WP_Hook->apply_filters, wp_print_head_scripts, do_action('wp_print_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_just_in_time_script_localization, wp_localize_script, wp_scripts, WP_Scripts->__construct, WP_Scripts->init, do_action_ref_array('wp_default_scripts'), WP_Hook->do_action, WP_Hook->apply_filters, wp_default_packages, wp_register_tinymce_scripts, script_concat_settings, get_site_option, get_network_option, get_option, wpdb->get_row",
+   :sql
+   "SELECT option_value FROM wp_options WHERE option_name = 'can_compress_scripts' LIMIT 1",
+   :prepare
+   {:template
+    "SELECT option_value FROM wp_options WHERE option_name = %s LIMIT 1",
+    :args ["can_compress_scripts"]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 0}}
+  {:seq 9,
+   :kind :select,
+   :caller
+   "require('wp-login.php'), login_footer, the_privacy_policy_link, get_the_privacy_policy_link, get_privacy_policy_url, get_post_status, get_post, WP_Post::get_instance, wpdb->get_row",
+   :sql "SELECT * FROM wp_posts WHERE ID = 3 LIMIT 1",
+   :prepare
+   {:template "SELECT * FROM wp_posts WHERE ID = %d LIMIT 1",
+    :args [3]},
+   :result {:rows-affected 0, :insert-id 0, :num-rows 1}}]}
