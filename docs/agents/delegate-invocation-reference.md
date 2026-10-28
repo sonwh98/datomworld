@@ -257,6 +257,22 @@ agy --model <model> --effort <effort> <review-or-implementation-flags> \
 Each of these is a host or provider diagnostic, not a real capability gap.
 Recognize it, apply the fix, and don't declare failure prematurely:
 
+- **Claude `Session ID <uuid> is already in use` survives killing the holder
+  process** — the id is pinned by the session file in the store (`~/.claude`),
+  not by a live process, so `pgrep` clean does not free it. Killing the zombie
+  and relaunching with the same id fails identically. The fix: dispatch a
+  FRESH session id with a by-state resume brief (the worktree diff plus the
+  original brief's path — "your work on disk is intact, resume by state"),
+  and reference the dead session's artifacts from the new log entry. Observed
+  2026-10-29 after killing two zombie holders of a session that backgrounded
+  its own test lanes and idled.
+- **A delegate that backgrounds its own test lanes and waits on completion
+  notifications idles the session indefinitely** — the harness's background
+  notification may never arrive, and the session sits consuming a window.
+  The standing brief rule "FOREGROUND only, explicit timeouts" exists for
+  this; enforce it at resume (the nudge prompt: "do NOT background anything,
+  run the lanes foreground with timeouts"). Observed 2026-10-29 on the P6
+  S0-S2 round (144 minutes idle).
 - **AGY language-server bind/log failures** are host sandbox restrictions.
   Rerun with the same `--sandbox`/`--mode plan` policy through the host tool
   with narrowly scoped escalation. For an authorized implementation run,
