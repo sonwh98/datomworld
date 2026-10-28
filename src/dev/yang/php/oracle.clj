@@ -28,7 +28,7 @@
 
 (def banner
   "The pinned PHP 8.3 CLI oracle provenance banner."
-  "php-8.3.35 shiva 2026-10-25")
+  p3b/banner)
 
 
 (def ^:private errno-of

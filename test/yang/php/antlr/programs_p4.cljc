@@ -559,7 +559,7 @@
        nil)])
 
 
-(def banner "php-8.3.35 shiva 2026-10-25")
+(def banner p3b/banner)
 
 
 (def recorded
@@ -696,16 +696,21 @@
    :decl-union-overflowing-numeric-string-param {:out "TypeError", :diag [], :uncaught nil}
    :decl-union-overflowing-numeric-string-property {:out "TypeErrorNULL\n", :diag [], :uncaught nil}
    :decl-exception-handler-then-shutdown {:out "HS", :diag [], :uncaught nil}
-   :decl-byref-rejection-releases-ownership {:out "cED", :diag [], :uncaught nil}})
+   :decl-byref-rejection-releases-ownership {:out "cED", :diag [], :uncaught nil}
+   :decl-byref-rejection-exception-freed-then-unset {:out "cDE", :diag [], :uncaught nil}
+   :decl-byref-later-rejection-releases-earlier-param {:out "cDE", :diag [], :uncaught nil}})
 
 
 (defn- pin
   "The fixture with its recorded oracle result folded in: `:oracle` becomes the
-   banner and a fixture without a pinned `:out` takes the recorded one."
+   banner, a fixture without a pinned `:out` takes the recorded one, and
+   non-empty `:diag`/`:uncaught` are kept. Unrecorded fixtures stay pending."
   [fixture]
   (if-let [r (get recorded (:id fixture))]
     (cond-> (assoc fixture :oracle banner)
-      (not (contains? fixture :out)) (assoc :out (:out r)))
+      (not (contains? fixture :out)) (assoc :out (:out r))
+      (seq (:diag r)) (assoc :diag (:diag r))
+      (:uncaught r) (assoc :uncaught (:uncaught r)))
     fixture))
 
 
@@ -718,8 +723,7 @@
   "True when every step the fixture requires has landed. Oracle-only
    fixtures never run on the implementation."
   [fixture]
-  (and (not= :oracle-only (:level fixture))
-       (every? completed-steps (:requires fixture))))
+  (p3b/enabled? fixture completed-steps))
 
 
 (def enabled
@@ -728,10 +732,9 @@
 
 
 (def awaiting-oracle
-  "The enabled fixtures that are still `:oracle :pending`. Pass 9 recorded every
-   S5 fixture; the by-reference rejection pin was ruled a C30 departure (17.3,
-   2026-10-28) and folded. The freed-exception variant awaits the next oracle
-   pass. A fold shrinks this set; changing it is a reviewed edit (Architect
-   ruling on P4 activation: every enabled pending fixture is recorded before
-   its checkpoint closes)."
-  #{:decl-byref-rejection-exception-freed-then-unset})
+  "The enabled fixtures that are still `:oracle :pending`. Oracle passes 9 and
+   10 recorded every enabled fixture, so the set is empty; a newly enabled
+   fixture joins it until its record is folded. Changing it is a reviewed edit
+   (Architect ruling on P4 activation: every enabled pending fixture is
+   recorded before its checkpoint closes)."
+  #{})

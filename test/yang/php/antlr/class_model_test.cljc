@@ -295,6 +295,15 @@
     (is (every? #(and (string? (:source %)) (seq (:requires %))) p4/all-fixtures))
     (is (every? #(re-matches #":p4-(s\d+|loc)" (str %)) (mapcat :requires p4/all-fixtures)))
     (is (every? #(every? p4/completed-steps (:requires %)) p4/enabled))
+    (testing "every recorded oracle result equals the fixture's expectation"
+      (is (every? (set (map :id p4/all-fixtures)) (keys p4/recorded)))
+      (doseq [f p4/all-fixtures
+              :let [r (get p4/recorded (:id f))]
+              :when r]
+        (is (= p4/banner (:oracle f)) (name (:id f)))
+        (is (= (:out r) (:out f)) (name (:id f)))
+        (is (= (:diag r) (vec (:diag f))) (name (:id f)))
+        (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
     (testing "only the not-yet-recorded fixtures are still pending once enabled"
       (is (= p4/awaiting-oracle
              (set (map :id (filter #(= :pending (:oracle %)) p4/enabled))))))

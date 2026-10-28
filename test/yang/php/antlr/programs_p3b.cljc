@@ -522,11 +522,13 @@
 
 
 (defn enabled?
-  "True when every step the fixture requires has landed. Oracle-only
-   fixtures never run on the implementation."
-  [fixture]
-  (and (not= :oracle-only (:level fixture))
-       (every? completed-steps (:requires fixture))))
+  "True when every step the fixture requires has landed (in `steps`, default
+   this slice's `completed-steps`). Oracle-only fixtures never run on the
+   implementation."
+  ([fixture] (enabled? fixture completed-steps))
+  ([fixture steps]
+   (and (not= :oracle-only (:level fixture))
+        (every? steps (:requires fixture)))))
 
 
 (def enabled
