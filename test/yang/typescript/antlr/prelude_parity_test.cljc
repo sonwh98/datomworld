@@ -638,7 +638,8 @@
            f (js/make-function {:js/str "F"} 0 :strict :normal (fn [this args] other))]
        (= (js/construct f []) other))
     true]
-   [(throws '(js/construct (js/make-function {:js/str "a"} 0 :lexical :normal
+   ;; an arrow (lexical this) has no [[Construct]]
+   [(throws '(js/construct (js/make-function {:js/str "a"} 0 :lexical :arrow
                                              (fn [t a] t))
                            []))
     {:js/str "TypeError"}]
