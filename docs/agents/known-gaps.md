@@ -140,3 +140,37 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 | yang.clojure: library-internal closures report the compiler's own source positions (:line/:column of the quoted library forms) in anonymous-fn arity errors; closing route: strip :line/:column metadata when building `library` | slice 7 review (glm), fix round | yang.clojure | slice 8 | P3 |
 | yang.clojure: `library-for` counts only `defn` as a program definition; a `def`/`defn-`/`defmacro` redefinition of a library name over-pulls the library definition (harmless, the program definition wins); closing route: share the compile-program defined-names scan | slice 7 review (glm), fix round | yang.clojure | slice 8 | P3 |
 | yang.clojure: `apply` surface gaps against Clojure, e.g. `(apply :k [{:k 1}])` fails loudly where Clojure returns 1; closing route: lower a keyword or collection operator in apply to the static lookup | slice 7 review (glm), fix round | yang.clojure | open | P3 |
+
+
+## Closure notes: test-strategy-feedback-contract (2026-10-29)
+
+The original TS-P3 rows above remain unchanged. Fixes are in `a475d775`.
+
+- **TS-P3-01: closed.** The docs route runs `git diff --check HEAD -- <paths>`
+  over staged and unstaged content together. Paths absent from `git ls-files`
+  print `unchecked (untracked)`, appear under `:unchecked` in the EDN scope
+  record, and leave `:gate-complete? false`. Real temporary-repository regression
+  probes cover fully staged whitespace errors, staged plus unstaged content,
+  untracked docs, and mixed tracked/untracked docs. Real `bb test:routed` runs
+  also confirmed the staged docs gate and the untracked warning/scope.
+- **TS-P3-02: closed.** Routing and quick-sharded print machine-readable EDN
+  verification-scope records with `:scope`, `:exit`, `:dry-run?`, and
+  `:gate-complete?`; the final JVM `summary.edn` includes the same record.
+  Foundation/JVM-only feedback always leaves `:gate-complete? false`, including
+  exit 0. Empty selections print `0 JVM namespaces selected` and exit 1, also
+  in dry runs. Self-tests cover nonempty feedback, empty selections, dry runs,
+  failed children, failed process launch, and failed prerequisites. A real
+  `bb test:routed src/cljc/yang/clojure.cljc` run selected 61 JVM namespaces:
+  993 tests, 15,833 assertions, zero failures/errors; both runner scope records
+  reported exit 0 with `:gate-complete? false`. This is JVM feedback, not a
+  G2/G3 tri-host completion claim.
+- **TS-P3-03: closed.** `build-n-test.md` now names the Node REPL build
+  prerequisite (`build:yin-repl-node`) as the prerequisite that ensures
+  `bb deps:npm`.
+
+Verification: `bb -cp src/dev -m quick-sharded-test` passed 9 tests and 141
+assertions with zero failures/errors. Lint on the three changed Clojure files
+reported zero errors/warnings; `cljstyle check` passed. The requested
+`clj -M:kondo --lint src/dev` reported 31 errors and 27 warnings in unrelated
+files. Linting an archived `1fe3eb07` baseline produced identical findings;
+those pre-existing Jolt/probe findings are outside this contract's file scope.
