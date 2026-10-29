@@ -282,6 +282,9 @@
 (deftest test-oracle-classification
   (testing "every manifest entry has source"
     (is (every? (fn [{:keys [ns name]}] (get top-forms [ns name])) manifest)))
+  (testing "every binding has an explicit admission decision and reason"
+    (is (every? #(#{:admitted :excluded} (:disposition %)) manifest))
+    (is (every? #(and (string? (:admission-reason %)) (seq (:admission-reason %))) manifest)))
   (testing "architect anchor classifications (slice 1 narrowing table)"
     ;; utils/vconcat uses loop/recur
     (is (contains? (classify-form (get top-forms ['latte_kernel.utils 'vconcat]))
@@ -927,7 +930,17 @@
               (catch clojure.lang.ExceptionInfo e#
                 [:yin.k/error {:yin.k/message (ex-message e#) :yin.k/data (ex-data e#)}]))
         (and (seq? x) (= 'gensym (first x)))
-        (list 'symbol (list 'str (second x) (nth x 2)))
+        (let [[_ prefix n] x]
+          (list 'let ['prefix prefix 'n n]
+                '(if (map? prefix)
+                   [(symbol (str "G__" n (:counter prefix)))
+                    (assoc prefix :counter (inc (:counter prefix)))]
+                   (symbol (str prefix n)))))
+        (and (seq? x) (= 'fresh-symbol (first x)))
+        (let [[_ supply prefix] x]
+          (list 'let ['supply supply]
+                (list 'vector (list 'symbol (list 'str "G__" prefix '(:counter supply)))
+                      '(assoc supply :counter (inc (:counter supply))))))
         (= x 'data/dissoc) 'clojure.core/dissoc
         :else x))
     form))
@@ -1328,8 +1341,8 @@
   (testing "free-symbol admission catches undeclared guest dependencies before execution"
     (is (= '#{missing-extension}
            (unbound-ast-symbols (yang/compile '(fn [x] (missing-extension x))) []))))
-  (testing "context modules reject host namespace and Var operations at admission"
-    (doseq [call ['(resolve 'clojure.core/map) '(var? 5)]]
+  (testing "context modules reject undeclared namespace lookup at admission"
+    (doseq [call ['(resolve 'clojure.core/map)]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unadmitted context dependencies"
             (run-outcome [] call (oracle-registry yang/kind-module) true))))))
 
@@ -1391,15 +1404,18 @@
   (edn/read-string (slurp (io/resource "yang/latte_oracle/kernel_gate.edn"))))
 
 
-(defn- kernel-symbol [{:keys [ns name]}]
+(defn- kernel-symbol
+  [{:keys [ns name]}]
   (symbol (str/replace (str ns) "_" "-") (str name)))
 
 
-(defn- kernel-guest-name [s]
+(defn- kernel-guest-name
+  [s]
   (symbol (str "gate-" (last (str/split (namespace s) #"\.")) "-" (name s))))
 
 
-(defn- kernel-arities [form]
+(defn- kernel-arities
+  [form]
   (when (#{'defn 'defn-} (first form))
     (let [header (drop-while #(not (or (vector? %) (seq? %))) (nnext form))
           params (if (vector? (first header)) [(first header)] (map first header))]
@@ -1414,7 +1430,8 @@
         manifest))
 
 
-(defn- kernel-resolve [ns-sym s]
+(defn- kernel-resolve
+  [ns-sym s]
   (when (symbol? s)
     (let [n (the-ns (symbol (str/replace (str ns-sym) "_" "-")))
           v (ns-resolve n s)]
@@ -1428,10 +1445,17 @@
   [ns-sym form]
   (letfn [(bindings [pattern] (set (filter symbol? (tree-seq coll? seq pattern))))
           (forms [xs bound] (map #(step % bound) xs))
-          (arity [xs bound]
-            (let [[params & body] xs]
-              (list* params (forms body (into bound (bindings params))))))
-          (step [x bound]
+          (arity
+            [xs bound]
+            (let [[params & body] xs
+                  body (forms body (into bound (bindings params)))
+                  body (if (and (= ns-sym 'latte_kernel.syntax) (= 'free-vars (second form))
+                                (= '[def-env t] params))
+                         [(list* 'let '[def-env (if (map? def-env) (:definitions def-env) def-env)] body)]
+                         body)]
+              (list* params body)))
+          (step
+            [x bound]
             (cond
               (symbol? x) (cond
                             (contains? bound x) x
@@ -1456,13 +1480,22 @@
                   (= op 'quote) x
                   (and (= op 'lazy-seq) (= ns-sym 'latte_kernel.utils) (= 'zip (second form)))
                   (step (second x) bound)
+                  (and (= ns-sym 'latte_kernel.proof) (= 'elab-proof-step (second form))
+                       (#{'(do (elab-opaque def-env args) [:cont [def-env ctx var-deps def-uses]])
+                          '(do (elab-transparent def-env args) [:cont [def-env ctx var-deps def-uses]])} x))
+                  (list 'let ['next-env (step (second x) bound)]
+                        '[:cont [next-env ctx var-deps def-uses]])
                   (#{'fn 'fn*} op)
                   (cons 'fn (if (vector? (first xs)) (arity xs bound)
                                 (map #(arity % bound) xs)))
                   (#{'let 'loop} op)
                   (let [[bs & body] xs
                         [bs' scope] (reduce (fn [[out scope] [p init]]
-                                              [(conj out p (step init scope)) (into scope (bindings p))])
+                                              (let [p (if (and (seq? init)
+                                                               (= 'latte-kernel.typing/rebuild-type
+                                                                  (kernel-resolve ns-sym (first init))))
+                                                        [p 'def-env] p)]
+                                                [(conj out p (step init scope)) (into scope (bindings p))]))
                                             [[] bound] (partition 2 bs))]
                     (list* op bs' (forms body scope)))
                   ;; The slice-8 delta boundary: both namespaces use one binding.
@@ -1489,24 +1522,60 @@
      local-definitions register-definition fetch-definition registered-definition? qualify-def})
 
 
-(defn- kernel-source [{:keys [ns name symbol arities]}]
+(defn- kernel-source
+  [{:keys [ns name symbol arities disposition admission-reason]}]
   (cond
+    (= :excluded disposition)
+    (list* 'defn (kernel-guest-name symbol)
+           (map (fn [n]
+                  (list (mapv #(clojure.core/symbol (str "p" %)) (range n))
+                        (list 'throw (list 'ex-info "Excluded nonportable kernel binding"
+                                           {:refusal :nonportable-binding :binding (list 'quote symbol) :reason admission-reason})))) arities))
     (and (= ns 'latte_kernel.defenv) (contains? kernel-context-adapters name))
     (list* 'defn (kernel-guest-name symbol)
            (map (fn [n]
                   (let [ps (mapv #(clojure.core/symbol (str "p" %)) (range n))]
                     (list ps (list* name ps)))) arities))
+    (and (= ns 'latte_kernel.proof) (= name '+opacity-fn+))
+    ;; The old ambient binding now names the explicit field; evaluating this
+    ;; binding cannot initialize an atom or install an implicit closure.
+    (list 'def (kernel-guest-name symbol) :opacity-policy)
+    (and (= ns 'latte_kernel.typing) (= name 'rebuild-type))
+    ;; This allocation boundary returns the updated context explicitly. Its
+    ;; original [status type] result remains the first component.
+    (list 'defn (kernel-guest-name symbol) '[def-env ctx ty]
+          '(let [[vfresh supply] (fresh-symbol {:counter (:fresh def-env)} "fresh")
+                 [status ty' _] (gate-typing-type-of-term def-env (cons [vfresh ty] ctx) vfresh)]
+             [[status ty'] (assoc def-env :fresh (:counter supply))]))
+    (and (= ns 'latte_kernel.proof)
+         (contains? '#{elab-opaque elab-transparent install-opacity-function is-opaque?} name))
+    (let [adapter (first (filter #(= name (second %)) context-forms))]
+      (list* 'defn (kernel-guest-name symbol) (drop 2 adapter)))
     :else (kernel-rewrite ns (get top-forms [ns name]))))
 
 
+(def ^:private kernel-declaration-refusals
+  ;; Pinned upstream declares this function but never defines it. Keeping a
+  ;; loud branch-local refusal lets unrelated typing paths compile; executing
+  ;; that branch is still a blocked fixture, never an accepted rejection.
+  '[(defn gate-typing-type-of-ascribe
+      [def-env ctx e u]
+      (throw (ex-info "Pinned upstream declaration has no definition"
+                      {:refusal :upstream-unbound
+                       :binding 'latte-kernel.typing/type-of-ascribe})))])
+
+
 (def ^:private kernel-sources
-  (into {} (map (fn [entry] [(kernel-guest-name (:symbol entry)) (kernel-source entry)])) kernel-entries))
+  (into (into {} (map (juxt second identity)) kernel-declaration-refusals)
+        (map (fn [entry] [(kernel-guest-name (:symbol entry)) (kernel-source entry)])) kernel-entries))
 
 
-(defn- kernel-call [form]
+(defn- kernel-call
+  [form]
   ;; Fixture code uses fully qualified names. Constructor adapters are the
   ;; five existing context constructors, outside the 143-binding manifest.
-  (letfn [(rewrite [x]
+  (letfn [(rewrite
+            [x]
             (cond
               (and (seq? x) (= 'quote (first x))) x
               (symbol? x) (if (and (namespace x) (str/starts-with? (namespace x) "latte-kernel."))
@@ -1519,22 +1588,24 @@
     (rewrite form)))
 
 
-(defn- kernel-closure [call]
+(defn- kernel-closure
+  [call]
   (let [sources (merge (into {} (map (juxt second identity)) context-forms) kernel-sources)
         mentions #(filter (set (keys sources)) (walk-symbols %))
         needed (loop [todo (seq (mentions call)) seen #{}]
                  (if-let [n (first todo)]
                    (if (contains? seen n) (recur (next todo) seen)
                        (recur (concat (next todo) (mentions (get sources n))) (conj seen n))) seen))
-        ordered (concat context-forms (map #(get kernel-sources (kernel-guest-name (:symbol %))) kernel-entries))]
+        ordered (concat context-forms kernel-declaration-refusals (map #(get kernel-sources (kernel-guest-name (:symbol %))) kernel-entries))]
     (filterv #(contains? needed (second %)) ordered)))
 
 
-(defn- kernel-fixture-call [{:keys [call definitions project-proof?]} guest?]
+(defn- kernel-fixture-call
+  [{:keys [call guest-call definitions project-proof?]} guest?]
   (let [env (if guest? initial-context 'latte-kernel.defenv/empty-env)
         register (if guest? 'register-definition 'latte-kernel.defenv/register-definition)
         env (reduce (fn [env definition] (list register env (if guest? (kernel-call definition) definition))) env definitions)
-        call (if guest? (kernel-call call) call)
+        call (if guest? (kernel-call (or guest-call call)) call)
         call (if project-proof?
                (list 'let ['r call] '(if (= :ok (first r)) [:ok (rest (second r))] r)) call)]
     (list 'let ['env env] call)))
@@ -1554,34 +1625,48 @@
     :else x))
 
 
-(defn- kernel-attempt [f]
+(defn- kernel-attempt
+  [f]
   (try (f)
        (catch Exception e
-         {:status :blocked :message (ex-message e) :data (evidence-data (ex-data e))
+         {:status :blocked :message (ex-message e)
+          ;; Observer exceptions attach the entire host VM as :session. It is
+          ;; diagnostic machinery, not a portable domain payload; recursively
+          ;; expanding its closure environments duplicates the whole program.
+          :data (evidence-data (dissoc (ex-data e) :session))
+          :host-session-attached? (contains? (ex-data e) :session)
           :causes (mapv (fn [cause] {:class (str (class cause)) :message (ex-message cause)})
                         (take-while some? (iterate ex-cause e)))
           :exception (str (class e))})))
 
 
-(defn- kernel-a [fixture]
+(defn- kernel-a
+  [fixture]
   (kernel-attempt
-    #(let [value (if (= :unparser (:mode fixture))
+    #(let [value (cond
+                   (= :opacity-proof (:mode fixture))
+                   (let [outcome (a-opacity-proof (:script fixture))]
+                     (if (= :ok (first (:value outcome)))
+                       (update outcome :value (fn [v] [:ok (rest (second v))])) outcome))
+                   (= :unparser (:mode fixture))
                    (with-redefs-fn {(upstream-fn 'latte-kernel.unparser/+unparser-registry+)
-                                   (atom {:fundamental [] :standard [] :user [] :unparsers {}})}
+                                    (atom {:fundamental [] :standard [] :user [] :unparsers {}})}
                      (fn []
                        ((upstream-fn 'latte-kernel.unparser/register-unparser!) :gate (eval (:extension fixture)))
                        (a-leg (upstream-fn 'latte-kernel.unparser/unparse) [(:term fixture)])))
-                   (a-leg (eval (list 'fn [] (kernel-fixture-call fixture false))) []))]
+                   :else (a-leg (eval (list 'fn [] (kernel-fixture-call fixture false))) []))]
        {:status :completed :outcome (evidence-data value) :shape (result-shape (evidence-data value))})))
 
 
-(defn- kernel-c-program [fixture]
+(defn- kernel-c-program
+  [fixture]
   (if (= :unparser (:mode fixture))
     (list 'unparse (list 'register-unparser initial-context :gate (:extension fixture)) (list 'quote (:term fixture)))
     (kernel-fixture-call fixture true)))
 
 
-(defn- kernel-b [fixture]
+(defn- kernel-b
+  [fixture]
   (kernel-attempt
     #(let [sandbox (create-ns (gensym "kernel-gate-b-"))
            call (kernel-c-program fixture)
@@ -1611,7 +1696,8 @@
          (finally (remove-ns (ns-name sandbox)))))))
 
 
-(defn- kernel-compile [fixture]
+(defn- kernel-compile
+  [fixture]
   (let [call (kernel-c-program fixture)
         forms (kernel-closure call)
         program (conj forms call)
@@ -1621,11 +1707,12 @@
     (if (seq missing)
       {:status :blocked :phase :admission :blocked-by (vec (sort missing))
        :owners (into {} (for [s missing]
-                         [s (mapv second (filter #(some #{s} (tree-seq coll? seq %)) program))]))}
+                          [s (mapv second (filter #(some #{s} (tree-seq coll? seq %)) program))]))}
       {:status :compiled :ast ast :forms forms})))
 
 
-(defn- kernel-c [compiled lane]
+(defn- kernel-c
+  [compiled lane]
   (if (= :compiled (:status compiled))
     (assoc (kernel-attempt
              #(let [v (compiler-test/run-guest-ast (:ast compiled) (oracle-registry yang/kind-module) lane 1000000)]
@@ -1634,7 +1721,8 @@
     (assoc compiled :lane lane)))
 
 
-(defn- kernel-row [fixture]
+(defn- kernel-row
+  [fixture]
   (let [a (kernel-a fixture)
         b (kernel-b fixture)
         compiled (kernel-attempt #(kernel-compile fixture))
@@ -1660,6 +1748,14 @@
     {:id (:id fixture) :negative? (boolean (:negative? fixture)) :status status
      :dependency-of (:dependency-of fixture)
      :call (or (:call fixture) (kernel-c-program fixture))
+     :adapted-call (:guest-call fixture)
+     :agreement {:a-b (and (= :completed (:status a) (:status b)) (= (:outcome a) (:outcome b)))
+                 :a-c-walker (and (= :completed (:status a) (:status walker))
+                                  (agrees? (:outcome a) (:outcome walker)))
+                 :a-c-semantic (and (= :completed (:status a) (:status semantic))
+                                    (agrees? (:outcome a) (:outcome semantic)))
+                 :c-lanes (and (= :completed (:status walker) (:status semantic))
+                               (= (:outcome walker) (:outcome semantic)))}
      :a a :b b :c-walker walker :c-semantic semantic
      :included-functions (mapv second (kernel-closure (kernel-c-program fixture)))}))
 
@@ -1669,8 +1765,11 @@
    VM errors are blockers, never successful LaTTe rejections. Source closure
    membership is recorded separately from conservative execution coverage."
   []
-  (let [results (mapv kernel-row (:fixtures kernel-gate-corpus))
-        inventory (mapv #(select-keys % [:symbol :kind :arities]) kernel-entries)
+  (let [results (mapv (fn [fixture]
+                        (let [row (kernel-row fixture)]
+                          (println "KERNEL-FIXTURE" (:id row) (:status row))
+                          row)) (:fixtures kernel-gate-corpus))
+        inventory (mapv #(select-keys % [:symbol :kind :arities :disposition :admission-reason]) kernel-entries)
         ;; Direct calls are a lower bound, not a claim that every function in
         ;; a dependency closure was executed. Unproven transitive arities stay
         ;; unexercised and block closure of the gate.
@@ -1681,20 +1780,43 @@
                            :when (and (seq? call) (namespace (first call)))]
                        [(first call) (count (rest call))]))
         all-arities (set (for [{:keys [symbol arities]} inventory n arities] [symbol n]))
-        unexercised (vec (sort-by pr-str (remove direct all-arities)))]
-    {:slice 9 :gate-status (if (and (every? #(= :pass (:status %)) results) (empty? unexercised)) :pass :blocked)
+        admitted-arities (set (for [{:keys [symbol arities disposition]} inventory
+                                    :when (= :admitted disposition) n arities] [symbol n]))
+        unexercised (vec (sort-by pr-str (remove direct admitted-arities)))]
+    {:slice 9 :gate-status (if (and (every? #(= :pass (:status %)) results)
+                                    (empty? unexercised)) :pass :blocked)
+     :baseline {:revision "7dc18478" :fixture-count 54 :counts {:pass 4 :mismatch 2 :blocked 48}}
      :generated-at (str (java.time.Instant/now))
-     :adaptation-version {:context 1 :kernel-assembly 1}
+     :adaptation-version {:context 2 :kernel-assembly 2}
      :executions {:a :original-upstream-clojure :b :context-source-clojure
                   :c [:walker :semantic]}
      :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279"
-     :compiler-vm-revision "f74f2cecccfc54813671555b15e39d254debd2d9"
+     :compiler-vm-revision {:base "7dc18478" :working-tree true}
+     :compiler-source-sha256
+     (apply str (map #(format "%02x" (bit-and 255 %))
+                     (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                              (.getBytes (slurp "src/cljc/yang/clojure.cljc") "UTF-8"))))
+     :portability-refusals
+     [{:source '(.getStackTrace exc) :disposition :excluded
+       :reason "Host stack traces have no portable error-data representation; the compiler refuses the accessor."}]
+     :representation-seams
+     {'kind/var? "JVM Clojure Var predicate; explicitly declared, with no namespace lookup."
+      'kind/with-meta "Pure metadata attachment on the existing host value representation; the data ABI has no metadata-write export."}
+     :context-fields {'latte-kernel.proof/+opacity-fn+ :opacity-policy}
+     :fresh-supply-convention
+     {:input {:counter 0} :allocation '(gensym supply prefix)
+      :result '[symbol next-supply]
+      :rebuild-type-result '[original-result next-context]
+      :ambient-prefix-only :refused}
      :runtime {:clojure (clojure-version) :java (System/getProperty "java.version")}
      :instruction-budget-per-lane 1000000
      :manifest-bindings (count manifest) :function-arity-candidates (count all-arities)
      :manifest-functions (count (filter :arities kernel-entries))
-     :admitted-function-arity-count :not-recorded-in-inherited-manifest
-     :admission-note "The inherited manifest has no admitted/excluded dispositions or arities. All function arities are conservatively retained as gate obligations; no narrowing by fixture success."
+     :admitted-function-arity-count (count admitted-arities)
+     :excluded-function-arity-count (- (count all-arities) (count admitted-arities))
+     :binding-dispositions (frequencies (map :disposition manifest))
+     :admission-note "Manifest dispositions define the denominator independently of fixture success; excluded bindings retain explicit portability reasons."
+     :program-status :implementation-round-final-verification-pending
      :coverage {:proven-direct-function-arities (vec (sort-by pr-str direct))
                 :exercised-count (count direct) :unexercised unexercised
                 :transitive-execution-coverage :unproven
@@ -1733,6 +1855,12 @@
             :let [outcome (get-in row [:a :outcome]) value (:value outcome)]]
       (is (or (:thrown outcome) (false? value) (and (sequential? value) (= :ko (first value))))
           (str "A must actually reject the named negative: " (:id row))))
+    (is (= (:function-arity-candidates evidence)
+           (+ (:admitted-function-arity-count evidence) (:excluded-function-arity-count evidence)))
+        "Admitted and excluded arities partition the candidate inventory")
+    (is (every? #(every? true? (vals (:agreement %)))
+                (filter #(= :pass (:status %)) (:fixtures evidence)))
+        "Every passing fixture records independent A/B/C agreement")
     (println "KERNEL-GATE" (pr-str (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates])))
     (doseq [row (:fixtures evidence) :when (not= :pass (:status row))]
       (println "KERNEL-BLOCKER"

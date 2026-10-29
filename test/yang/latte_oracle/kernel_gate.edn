@@ -4,7 +4,12 @@
 {:id :minimal-with-meta, :dependency-of latte-kernel.nbe/quotation-, :call (with-meta (quote x) {:name (quote source)})}
 {:id :minimal-nth, :dependency-of latte-kernel.presyntax/parse-binder-term, :call (nth (quote [a b]) 1)}
 {:id :minimal-var, :dependency-of latte-kernel.presyntax/parse-compound-term, :call (var? (quote x))}
-{:id :minimal-gensym-freshness, :dependency-of latte-kernel.typing/rebuild-type, :call (let [a (gensym "fresh") b (gensym "fresh")] (= a b))}
+{:id :minimal-gensym-freshness,
+ :guest-call (let [[a supply] (gensym {:counter 0} "fresh")
+                   [b supply] (gensym supply "fresh")] (= a b)), :dependency-of latte-kernel.typing/rebuild-type, :call (let [a (gensym "fresh") b (gensym "fresh")] (= a b))}
+{:id :rebuild-type-explicit-supply,
+ :call (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)),
+ :guest-call (first (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)))}
 {:id :parse-binder, :call (latte-kernel.presyntax/parse env (quote (lambda [x :type] x)))}
 {:id :parse-application, :call (latte-kernel.presyntax/parse env (quote (f x y)))}
 {:id :parse-empty, :negative? true, :call (latte-kernel.presyntax/parse env (quote ()))}
@@ -41,6 +46,17 @@
 {:id :compile-assume, :call (latte-kernel.proof/compile-proof (quote [:type]) (quote [[:assume {} [A _] [:have p _ (lambda [x A] x) {}]] [:qed p {}]]))}
 {:id :compile-malformed, :negative? true, :call (latte-kernel.proof/compile-proof (quote [42]))}
 {:id :compile-unknown, :negative? true, :call (latte-kernel.proof/compile-proof (quote [[:unknown {}]]))}
+{:id :opacity-context-proof,
+ :mode :opacity-proof,
+ :script [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]],
+ :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})],
+ :project-proof? true,
+ :call (latte-kernel.proof/elab-proof env [] (quote [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]]))}
+{:id :opacity-context-refusal,
+ :mode :opacity-proof, :negative? true,
+ :script [[:opaque d] [:opaque d]],
+ :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})],
+ :call (latte-kernel.proof/elab-proof env [] (quote [[:opaque d] [:opaque d]]))}
 {:id :elab-accepted, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}
 {:id :elab-rejected, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed missing {}]]))}
 {:id :elab-incomplete, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote []))}
