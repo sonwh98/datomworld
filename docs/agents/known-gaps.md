@@ -176,3 +176,30 @@ reported zero errors/warnings; `cljstyle check` passed. The requested
 files. Linting an archived `1fe3eb07` baseline produced identical findings;
 those pre-existing Jolt/probe findings are outside this contract's file scope.
 | jolt ws: a ping after a local close is queued gets no pong (A4 "every ping produces one pong" holds until a local close exists) | pump.jolt:597 (handle-event! :ping guard); wave-1 Architect sign-off P3 | jolt (J6) | documented behaviour, closed by J6e's docstring sentences; J6h cites the archived sign-off | P3 |
+
+
+## Hardening2 round-1 P3 dispositions (2026-10-30)
+
+These four P3 items are deferred this round; closing obligations retained below
+verbatim from the round-1 review. P2 fresh-supply propagation is the sole code
+fix in this round. Source: [round-1 review](../../collab/1793296786225-reviewer-hardening2.glm-5.3.findings.md).
+
+1. Deferred; owner seat: yang.clojure. Finding and closing obligation:
+
+> **P3 | src/dev/latte_oracle_manifest.clj:50-57** | The stale manifest generator still rewrites `test/yang/latte_oracle/manifest.edn` in the old schema (no `:disposition`/`:admission-reason`), while `latte-oracle-tables/-main` (src/dev/latte_oracle_tables.clj:48-51) is now the writer of record. Running the old tool per its own docstring (`clj -M -m latte-oracle-manifest`) wipes the admission inventory from the working tree; the schema assertion in `test-oracle-classification` (test/yang/latte_oracle_test.clj:281-283) then fails loudly, but the checked-in inventory is lost and the old header comment is now false. | Fix: delete `latte-oracle-manifest` or reduce it to a delegation to `latte-oracle-tables`, and update its docstring.
+
+2. Deferred; owner seat: yang.clojure. Finding and closing obligation:
+
+> **P3 | src/cljc/yang/clojure.cljc:895-919** | The portable `try` lowerer's catch arm fires on *any* `[error-tag v]`: it binds `(data/nth outcome 1)` (line ~912) without discriminating the thrown value. A thrown non-ex-info value (e.g. `(throw "boom")` inside `(try … (catch Exception e …))`) is caught by the guest but propagates in Clojure (a thrown String is not an Exception). The catch-class guard (lines 903-905) constrains only the *syntax* of the clause, not the runtime class of the thrown value. Unexercised: all kernel sources throw ex-info only, and `test-portable-try-outcomes` (test/yang/clojure_test.clj:2024) tests ex-info throws exclusively. | Fix: either record the limitation in the library notes next to the other "known compromises" (clojure.cljc:1908-1916), or discriminate at runtime (catch only values carrying `:yin.k/message`, re-propagating others).
+
+3. Deferred; owner seat: yang.clojure. Finding and closing obligation:
+
+> **P3 | src/cljc/yang/clojure.cljc:1163-1166** | Callable collections route through `invoke-value` only when the operator is a **local** or a **non-symbol** (`(or (contains? (locals env) operator) (not (symbol? operator)))`). A top-level defined collection — `(def v [1 2]) (v 0)` — compiles to a plain `:application` and errors at runtime instead of indexing, diverging from Clojure. Untested boundary of the "callable collections" admission (test/yang/clojure_test.clj:2049 uses only `let`-bound collections). | Fix: record as a known boundary in the library notes, or extend the route to operators in `::defined`.
+
+4. Deferred; owner seat: yang.clojure. Finding and closing obligation:
+
+> **P3 | src/cljc/yang/clojure.cljc:1918-1926** | `kind-arities` publishes `'var? [1]` unconditionally (line 1926) while `kind-module` provides `var?` only under `#?(:clj … :default {})` (line 1920) — on a Node/Dart host the arity profile would admit a binding the module cannot supply. Relatedly, metadata attached via the new `kind/with-meta` seam has no stated serialization-survival guarantee: no fixture round-trips a meta'd value through the store/encoder, so `meta` after restoration is unspecified. | Fix: gate the published arity with the same reader conditional (or register the capability per-host at harness setup), and add a note/obligation that host metadata is not a serialized ABI field.
+
+Additional closing condition, verbatim:
+
+> Conditions: findings 1's cross-host arity drift and the metadata-serialization obligation above should be tracked as explicit follow-ups before the owed Node/Dart lanes.

@@ -1465,10 +1465,24 @@
                   (#{'let 'loop} op)
                   (let [[bs & body] xs
                         [bs' scope] (reduce (fn [[out scope] [p init]]
-                                              (let [p (if (and (seq? init)
-                                                               (= 'latte-kernel.typing/rebuild-type
-                                                                  (kernel-resolve ns-sym (first init))))
-                                                        [p 'def-env] p)]
+                                              (let [have-type? (and (= ns-sym 'latte_kernel.proof)
+                                                                    (= 'elab-have-impl (second form))
+                                                                    (= p '[status rec-ty]))
+                                                    ;; Both type branches return their context to the
+                                                    ;; enclosing have step, including anonymous have.
+                                                    init (if have-type?
+                                                           (let [[_ test inferred [_ bs result]] init]
+                                                             (list 'if test [inferred 'def-env]
+                                                                   (list 'let bs [result 'def-env]))) init)
+                                                    p (cond
+                                                        have-type? [p 'def-env]
+                                                        (and (seq? init)
+                                                             (= 'latte-kernel.typing/rebuild-type
+                                                                (kernel-resolve ns-sym (first init))))
+                                                        ;; check-proof calls this with def-env', so
+                                                        ;; retain the caller's actual context binding.
+                                                        [p (second init)]
+                                                        :else p)]
                                                 [(conj out p (step init scope)) (into scope (bindings p))]))
                                             [[] bound] (partition 2 bs))]
                     (list* op bs' (forms body scope)))
@@ -1693,6 +1707,65 @@
                 {:status :completed :outcome (evidence-data v) :shape (result-shape (evidence-data v))}))
            :lane lane)
     (assoc compiled :lane lane)))
+
+
+(deftest test-kernel-proof-fresh-supply
+  (testing "explicit have types advance the supply; inferred types and prior contexts are preserved"
+    (doseq [[name next-name] [['h 'h2] ['_ '_]]
+            [ty allocations] [['A 1] ['_ 0]]]
+      (let [fixture
+            {:call
+             (walk/postwalk-replace
+               {'H name 'H2 next-name 'TY ty}
+               '(let [k0 env
+                      [s1 [k1 ctx1 deps1 uses1]]
+                      (latte-kernel.proof/elab-have k0 '[[A ✳] [x A]] [] {} 'H 'TY 'x {})
+                      [s2 [k2 ctx2 deps2 uses2]]
+                      (latte-kernel.proof/elab-have k1 ctx1 deps1 uses1 'H2 'TY 'x {})
+                      [s3 [k3 ctx3 deps3 uses3]]
+                      (latte-kernel.proof/elab-declare k2 ctx2 deps2 uses2 'z 'A {})
+                      [s4 [k4 ctx4 deps4 uses4]]
+                      (latte-kernel.proof/elab-have k3 ctx3 deps3 uses3 '_ 'A 'z {})]
+                  [[s1 s2 s3 s4]
+                   [(:fresh k0) (:fresh k1) (:fresh k2) (:fresh k3) (:fresh k4)]
+                   (mapv (fn [k] (count (second (:definitions k)))) [k0 k1 k2 k3 k4])
+                   (= ctx1 '[[A ✳] [x A]]) (= ctx1 ctx2)]))}
+            expected [[:ok :ok :ok :ok] [0 allocations (* 2 allocations)
+                                         (inc (* 2 allocations)) (+ 2 (* 2 allocations))]
+                      (if (= name '_) [0 0 0 0 0] [0 1 2 2 2])
+                      true true]
+            compiled (kernel-compile fixture)]
+        (is (= {:value expected} (:outcome (kernel-b fixture))))
+        (doseq [lane [:walker :semantic]]
+          (let [c (kernel-c compiled lane)]
+            (is (= [:yin.k/ok expected] (:outcome c)) (str name " " lane " " c)))))))
+  (testing "the proof loop carries the returned supply to the next step and qed"
+    (doseq [[script fresh]
+            [['((:have h A x {}) (:have h2 A x {}) (:qed x {})) 2]
+             ['((:have _ A x {}) (:have _ A x {}) (:qed x {})) 2]
+             ['((:declare z A {}) (:have h A z {}) (:declare w A {}) (:have h2 A w {}) (:qed w {})) 4]]]
+      (let [fixture {:call (list 'let ['r (list 'latte-kernel.proof/elab-proof 'env ''[[A ✳] [x A]]
+                                                (list 'quote script))]
+                                 '[(first r) (:fresh (first (second r))) (:fresh env) (:definitions env)])}
+            expected [:ok fresh 0 [{} {}]]
+            compiled (kernel-compile fixture)]
+        (is (= {:value expected} (:outcome (kernel-b fixture))))
+        (doseq [lane [:walker :semantic]]
+          (is (= [:yin.k/ok expected] (:outcome (kernel-c compiled lane))) (str lane))))))
+  (testing "check-proof keeps the rebuilt context under its own def-env' binding"
+    ;; Observe the context passed to the final comparison: check-proof's public
+    ;; result contains only the proof term and type, so it cannot expose :fresh.
+    (with-redefs [kernel-sources
+                  (assoc kernel-sources 'gate-norm-beta-eq?
+                         '(defn gate-norm-beta-eq?
+                            [def-env ctx t1 t2]
+                            (= 1 (:fresh def-env))))]
+      (let [fixture {:call '(latte-kernel.proof/check-proof env '[[A ✳] [x A]] 't 'A '[[:qed x {}]])}
+            expected [:ok ['x 'A]]
+            compiled (kernel-compile fixture)]
+        (is (= {:value expected} (:outcome (kernel-b fixture))))
+        (doseq [lane [:walker :semantic]]
+          (is (= [:yin.k/ok expected] (:outcome (kernel-c compiled lane))) (str lane)))))))
 
 
 (defn- kernel-row
