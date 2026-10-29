@@ -291,7 +291,7 @@
     (is (apply distinct? (map :id p4/all-fixtures)))
     (is (every? #(or (= :pending (:oracle %)) (= p4/banner (:oracle %))) p4/all-fixtures))
     (is (= #{:classes-v1 :constructor-v1 :exceptions-v1 :readonly-v1 :f3-v1 :declarations-v1 :closures-v1 :objects-v1
-             :typed-ref-candidates}
+             :typed-ref-candidates :generators-v1}
            (set (map :group p4/all-fixtures))))
     (is (every? #(and (string? (:source %)) (seq (:requires %))) p4/all-fixtures))
     (is (every? #(re-matches #":p4-(s\d+|loc|exit|row\d+)" (str %)) (mapcat :requires p4/all-fixtures)))
@@ -309,7 +309,7 @@
       (is (= p4/awaiting-oracle
              (set (map :id (filter #(= :pending (:oracle %)) p4/enabled))))))
     (is (not-any? #(contains? (:requires %) :p4-s7) p4/enabled))
-    (is (every? #(= #{:p4-s7} (:requires %)) p4/generators-v1))
+    (is (every? #(= #{:p4-s8} (:requires %)) p4/generators-v1))
     (is (every? #(= :pending (:oracle %)) p4/generators-v1))
-    (is (not-any? (set (map :id p4/all-fixtures)) (map :id p4/generators-v1)))
+    (is (every? (set (map :id p4/all-fixtures)) (map :id p4/generators-v1)))
     (is (every? #(contains? p4/completed-steps %) (mapcat :requires p4/enabled)))))

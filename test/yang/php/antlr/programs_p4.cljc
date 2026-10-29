@@ -706,44 +706,43 @@
 
 
 (def generators-v1
-  "S7: generator control transfer and activation ownership over the C2
-   continuation core. Kept outside `all-fixtures` while the checkpoint-B
-   oracle batch is fixed at 50 sources. Register them for the checkpoint-C
-   pass after B closes; they stay disabled until :p4-s7 lands."
-  [(fx :gen-key-value-and-return :generators-v1 [] #{:p4-s7}
+  "S7-drafted generator cases; S8 registers these in the P4 corpus and
+   activates them only after the generator runtime lands and the oracle pass
+   records their output."
+  [(fx :gen-key-value-and-return :generators-v1 [] #{:p4-s8}
        "<?php function g() { yield 'k' => 'v'; return 9; } $g = g(); foreach ($g as $k => $v) { echo $k, $v; } var_dump($g->getReturn());"
        nil)
-   (fx :gen-send-resumes-yield-expression :generators-v1 [] #{:p4-s7}
+   (fx :gen-send-resumes-yield-expression :generators-v1 [] #{:p4-s8}
        "<?php function g() { $x = yield 1; yield $x; } $g = g(); echo $g->current(); echo $g->send(7);"
        nil)
-   (fx :gen-throw-at-suspension :generators-v1 [] #{:p4-s7}
+   (fx :gen-throw-at-suspension :generators-v1 [] #{:p4-s8}
        "<?php function g() { try { yield 1; } catch (Exception $e) { yield $e->getMessage(); } } $g = g(); echo $g->current(); $g->throw(new Exception('x')); echo $g->current();"
        nil)
-   (fx :gen-yield-from-array :generators-v1 [] #{:p4-s7}
+   (fx :gen-yield-from-array :generators-v1 [] #{:p4-s8}
        "<?php function g() { return yield from ['a', 'b']; } $g = g(); foreach ($g as $v) { echo $v; } var_dump($g->getReturn());"
        nil)
-   (fx :gen-yield-from-generator-return :generators-v1 [] #{:p4-s7}
+   (fx :gen-yield-from-generator-return :generators-v1 [] #{:p4-s8}
        "<?php function inner() { yield 1; return 4; } function outer() { $x = yield from inner(); yield $x; } foreach (outer() as $v) { echo $v; }"
        nil)
-   (fx :gen-method-retains-this :generators-v1 [] #{:p4-s7}
+   (fx :gen-method-retains-this :generators-v1 [] #{:p4-s8}
        "<?php class A { public $v = 'a'; function values() { yield $this->v; } } foreach ((new A)->values() as $v) { echo $v; }"
        nil)
-   (fx :gen-break-then-resume :generators-v1 [] #{:p4-s7}
+   (fx :gen-break-then-resume :generators-v1 [] #{:p4-s8}
        "<?php function g() { yield 1; yield 2; } $g = g(); foreach ($g as $v) { echo $v; break; } foreach ($g as $v) { echo $v; }"
        nil)
-   (fx :gen-return-repeatedly-readable :generators-v1 [] #{:p4-s7}
+   (fx :gen-return-repeatedly-readable :generators-v1 [] #{:p4-s8}
        "<?php function g() { yield 1; return 7; } $g = g(); foreach ($g as $v) {} echo $g->getReturn(), $g->getReturn();"
        nil)
-   (fx :gen-created-activation-releases-on-destroy :generators-v1 [48] #{:p4-s7}
+   (fx :gen-created-activation-releases-on-destroy :generators-v1 [48] #{:p4-s8}
        "<?php class D { function __destruct() { echo 'D'; } } function g($x) { yield 1; } $g = g(new D); unset($g); echo 'E';"
        nil)
-   (fx :gen-suspended-cv-releases-on-destroy :generators-v1 [48] #{:p4-s7}
+   (fx :gen-suspended-cv-releases-on-destroy :generators-v1 [48] #{:p4-s8}
        "<?php class D { function __destruct() { echo 'D'; } } function g($x) { yield 1; } $g = g(new D); $g->current(); unset($g); echo 'E';"
        nil)
-   (fx :gen-c8-pending-finally-departure :generators-v1 [48] #{:p4-s7}
+   (fx :gen-c8-pending-finally-departure :generators-v1 [48] #{:p4-s8}
        "<?php function g() { try { yield 1; } finally { echo 'F'; } } $g = g(); $g->current(); unset($g); echo 'E';"
        nil)
-   (fx :gen-c19-clone-refused :generators-v1 [52] #{:p4-s7}
+   (fx :gen-c19-clone-refused :generators-v1 [52] #{:p4-s8}
        "<?php function g() { yield 1; } $g = g(); try { clone $g; } catch (Error $e) { echo $e->getMessage(); }"
        nil)])
 
@@ -927,7 +926,7 @@
 
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
-  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1 declarations-v1 closures-v1 objects-v1 typed-ref-v1)))
+  (mapv pin (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1 declarations-v1 closures-v1 objects-v1 typed-ref-v1 generators-v1)))
 
 
 (defn enabled?
