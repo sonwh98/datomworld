@@ -120,7 +120,8 @@ in an explicit `unmapped` residual shard, printed by name. Registry omissions
 therefore cannot silently shrink coverage. Each nonempty shard gets its own
 `clojure -M:test -e :slow -n <ns> ...` process, with at most N JVMs running.
 Prerequisites are derived from the entire selected JVM reach and finish
-serially before workers start; the Node peer also ensures `bb deps:npm`.
+serially before workers start; the Node REPL build prerequisite
+(`build:yin-repl-node`) also ensures `bb deps:npm`.
 
 Each invocation writes a separate `target/profile/quick-sharded-<id>/`:
 `selected.txt`, `ns-<shard>.txt`, `covered.txt`, `uncovered.txt`, per-shard logs,
@@ -130,25 +131,51 @@ Any uncovered, unexpected, or duplicate namespace fails loudly before tests.
 The final summary totals tests, assertions, failures and errors and separates
 JVM wall time from total time including selection/builds. A nonzero child exit,
 failure/error, or missing final test-runner summary makes the task exit nonzero.
-Dry plans write namespace evidence but execute no builds or tests.
+Dry plans write namespace evidence but execute no builds or tests. An empty
+selection prints `0 JVM namespaces selected` and exits 1, including dry plans.
+The final `summary.edn` includes a `:verification-scope` record; the same EDN
+record is printed on stdout with `:type :verification-scope`, `:runner`,
+`:scope`, `:exit`, `:dry-run?`, and `:gate-complete?`. JVM feedback always has
+`:scope :jvm-feedback` and `:gate-complete? false`, even on exit 0.
 
 `test:routed <changed-files...>` applies this priority table to the whole change
 set, prints the exact dispatch, executes it and propagates its result:
 
-| Change class (first match wins) | Dispatch |
-|---|---|
-| Existing wide inputs (`deps.edn`, `bb.edn`, `src/dev/`, ANTLR, package locks, runner configs, etc.), toolchain manifests, CI workflows, build scripts | `bb test` — full quick tri-host; success required |
-| Only `.md`, `.txt`, `.rst` documentation, excluding test resources | `git diff --check -- <paths>` — documentation whitespace/format lint only |
-| Foundation code owned by a layer-0 entry in `subsystems.edn`, or `yang.clojure`, `yang.php`, `yang.typescript`, `yang.python` code | `bb test:quick-sharded --changed <paths>` — broad selected JVM feedback |
-| Other code/tests/fixtures with a nonempty affected selection | `bb test:changed --changed <paths>` — existing quick tri-host selection |
-| Other non-doc input with no statically selected tests | `bb test` — fail closed rather than report a vacuous green gate |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Change class (first match wins)                                                              | Dispatch                                                              |
++==============================================================================================+=======================================================================+
+| Existing wide inputs (`deps.edn`, `bb.edn`, `src/dev/`, ANTLR, package locks, runner         | `bb test` — full quick tri-host; success required                     |
+| configs, etc.), toolchain manifests, CI workflows, build scripts                             |                                                                       |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Only `.md`, `.txt`, `.rst` documentation, excluding test resources                           | `git diff --check HEAD -- <paths>` — documentation whitespace/format  |
+|                                                                                              | lint only                                                             |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Foundation code owned by a layer-0 entry in `subsystems.edn`, or `yang.clojure`, `yang.php`, | `bb test:quick-sharded --changed <paths>` — broad selected JVM        |
+| `yang.typescript`, `yang.python` code                                                        | feedback                                                              |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Other code/tests/fixtures with a nonempty affected selection                                 | `bb test:changed --changed <paths>` — existing quick tri-host         |
+|                                                                                              | selection                                                             |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Other non-doc input with no statically selected tests                                        | `bb test` — fail closed rather than report a vacuous green gate       |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
 
 Mixed changes take the widest matching route. Missing paths, an empty git change
 set, unknown flags, and the wrong cwd fail. Deleted paths are validated against
 the base tree. If the leaf command returns exit 2, routing immediately dispatches
 `bb test` and requires its success. `--dry-run`/`--list` only reports the route;
-its zero exit is **not** a verification result. Documentation checks inspect the
-git diff; they do not lint executable examples or validate documentation links.
+its zero exit is **not** a verification result. Documentation checks inspect
+staged and unstaged changes together against HEAD. Paths absent from
+`git ls-files` print `unchecked (untracked)` and appear in the scope record
+under `:unchecked`; they cannot complete the docs gate. These checks do not lint
+executable examples or validate documentation links.
+
+Routing prints its own final EDN verification-scope record. `:gate-complete?`
+means the dispatched gate completed successfully, not that every landing gate
+is satisfied. It is false for foundation/JVM feedback, dry runs, unchecked docs,
+and failed dispatches. Successful checked docs, selected tri-host, and full
+quick tri-host routes report `:docs-whitespace`, `:selected-quick-tri-host`, and
+`:full-quick-tri-host` respectively. Exit codes continue to propagate child
+results, so automation must inspect the scope as well as the exit code.
 
 **Gate requirements are unchanged.** Sharded JVM success alone is not G2/G3
 tri-host success: for foundation/compiler changes also run

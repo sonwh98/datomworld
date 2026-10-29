@@ -134,3 +134,44 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 | yang.clojure: the and/or if-chain expansions bind host gensym names (and__/or__) outside the dsg__ reserved-prefix regime that slice 5 hardens; a colliding user-typed and__<n> would shadow inside the expansion; closing route: reserved-prefix names bound through the internal let | slice 5 review (glm session in collab/1793242637826; pre-existing at a34a2251) | yang.clojure | slice 6 (same expansion family) | P3 |
 | test-strategy: the throw-site table regeneration pokes a private test-ns function (throw-site-rows); only the failure message documents the procedure; closing route: a dev script beside src/dev/latte_oracle_manifest.clj that writes the table | slice 5 review (glm session in collab/1793242637826) | yang.clojure | slice 7 (next table-regenerating slice) | P3 |
 | the ANTLR4 full-context prediction reach set leaks once per parser-budget refusal: the guard throws inside `ParserATNSimulator::closure`'s exception path, and the set is freed on the normal and no-viable-alt exits only; observed as a constant 181,088 bytes / 3,312 allocations on shiva at 0, 5, 50 and 100 sanitize cycles (cycle-independent); benign at the observed scale | wave-1 J5b closure sign-off | jolt seat | open: the fix (a ten-line reach-computation override in the bounded simulator) rides with J5c | P3 |
+| yang.clojure: slice-6 case-arm fixtures are by constant KIND, not per corpus site — the plan's acceptance line asked for a minimal dispatch fixture for every arm of all six case sites (norm/proof keywords, mk-fresh numbers 0-3, typing symbols λ/Π); kinds are covered and mk-fresh runs end to end; closing route: derive fixtures from the corpus by walking the six sites, extracting each clause's constants, running a synthetic dispatch per arm+default (test-only addition) | slice 6 review (glm session 39b94aba), architect sign-off fable 8c1f0b7e | yang.clojure | slice 7 (test-only) | P3 |
+| yang.clojure: no cljs/cljd lane evidence exists for the slice-6 commits yet (JVM + kondo only at sign-off time); the outcome-adapter reader-conditional catch remains the one host-sensitive line on the branch | slice 6 review (glm session 39b94aba, fifth item); architect condition: lanes green at 7677c12b before merge | yang.clojure | slice-6 landing gate (this merge) | P3 |
+| yang.clojure: library `reduced?` matches any map holding :yin.k/reduced true (untyped tagged map, documented compromise in the library notes); closing route: a typed carrier if the VM gains one | slice 7 review (glm), fix round | yang.clojure | open | P3 |
+| yang.clojure: a `kind/*` or other qualified export in value position ignores its published arities (the adapter falls back to 0-4, so a bad count reaches the host); closing route: feed module profiles into the adapter counts alongside `:native` | slice 7 review (glm), fix round | yang.clojure | slice 8 | P3 |
+| yang.clojure: library-internal closures report the compiler's own source positions (:line/:column of the quoted library forms) in anonymous-fn arity errors; closing route: strip :line/:column metadata when building `library` | slice 7 review (glm), fix round | yang.clojure | slice 8 | P3 |
+| yang.clojure: `library-for` counts only `defn` as a program definition; a `def`/`defn-`/`defmacro` redefinition of a library name over-pulls the library definition (harmless, the program definition wins); closing route: share the compile-program defined-names scan | slice 7 review (glm), fix round | yang.clojure | slice 8 | P3 |
+| yang.clojure: `apply` surface gaps against Clojure, e.g. `(apply :k [{:k 1}])` fails loudly where Clojure returns 1; closing route: lower a keyword or collection operator in apply to the static lookup | slice 7 review (glm), fix round | yang.clojure | open | P3 |
+
+
+## Closure notes: test-strategy-feedback-contract (2026-10-29)
+
+The original TS-P3 rows above remain unchanged. Fixes are in `a475d775`.
+
+- **TS-P3-01: closed.** The docs route runs `git diff --check HEAD -- <paths>`
+  over staged and unstaged content together. Paths absent from `git ls-files`
+  print `unchecked (untracked)`, appear under `:unchecked` in the EDN scope
+  record, and leave `:gate-complete? false`. Real temporary-repository regression
+  probes cover fully staged whitespace errors, staged plus unstaged content,
+  untracked docs, and mixed tracked/untracked docs. Real `bb test:routed` runs
+  also confirmed the staged docs gate and the untracked warning/scope.
+- **TS-P3-02: closed.** Routing and quick-sharded print machine-readable EDN
+  verification-scope records with `:scope`, `:exit`, `:dry-run?`, and
+  `:gate-complete?`; the final JVM `summary.edn` includes the same record.
+  Foundation/JVM-only feedback always leaves `:gate-complete? false`, including
+  exit 0. Empty selections print `0 JVM namespaces selected` and exit 1, also
+  in dry runs. Self-tests cover nonempty feedback, empty selections, dry runs,
+  failed children, failed process launch, and failed prerequisites. A real
+  `bb test:routed src/cljc/yang/clojure.cljc` run selected 61 JVM namespaces:
+  993 tests, 15,833 assertions, zero failures/errors; both runner scope records
+  reported exit 0 with `:gate-complete? false`. This is JVM feedback, not a
+  G2/G3 tri-host completion claim.
+- **TS-P3-03: closed.** `build-n-test.md` now names the Node REPL build
+  prerequisite (`build:yin-repl-node`) as the prerequisite that ensures
+  `bb deps:npm`.
+
+Verification: `bb -cp src/dev -m quick-sharded-test` passed 9 tests and 141
+assertions with zero failures/errors. Lint on the three changed Clojure files
+reported zero errors/warnings; `cljstyle check` passed. The requested
+`clj -M:kondo --lint src/dev` reported 31 errors and 27 warnings in unrelated
+files. Linting an archived `1fe3eb07` baseline produced identical findings;
+those pre-existing Jolt/probe findings are outside this contract's file scope.

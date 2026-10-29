@@ -751,7 +751,9 @@
    "src/cljc/dao/jing/dht.cljc" {:rand 1}
    "src/cljc/dao/space/dht.cljc" {:secure-random 3}
    "src/cljc/yin/vm/linker/sign.cljc" {:secure-random 2}
-   "src/cljc/yang/clojure.cljc" {:gensym 2}
+   ;; yang.clojure.cljc left the gensym list in slice 7: the library's gensym
+   ;; uses an explicit supply and the and/or expansion temps are dsg__-prefixed,
+   ;; so the file no longer calls host gensym at all.
    "src/cljc/yang/php.cljc" {:gensym 1}
    "src/cljc/dao/space/transact.cljc" {:gensym 1}
    ;; §3.2 clocks, ambient reads, printing, timers: the driver and the seams

@@ -41,7 +41,7 @@
   (cond
     (some toolchain? paths) {:class :toolchain :command ["bb" "test"]}
     (and (seq paths) (every? docs-only? paths))
-    {:class :docs :command (into ["git" "diff" "--check" "--"] paths)}
+    {:class :docs :paths paths :command (into ["git" "diff" "--check" "HEAD" "--"] paths)}
     (some #(foundation? index cfg %) paths)
     {:class :foundation
      :command (into ["bb" "test:quick-sharded" "--changed"] paths)}
@@ -52,20 +52,41 @@
 
 
 (defn dispatch!
-  [{:keys [class command]} dry?]
+  [{:keys [class command paths]} dry?]
   (println (str "Dispatch [" (name class) "]: " (str/join " " command)
                 (when (#{:toolchain :unselected} class)
                   " (full quick tri-host; success required)")
                 (when dry? " (DRY RUN; no gate executed)")))
   (when (= class :foundation)
     (println "JVM feedback only: G2 still needs test:changed:cljs and test:changed:cljd for these files; G3/G4 remain required."))
-  (if dry?
-    0
-    (let [exit (:exit @(p/process command {:inherit true}))]
-      (if (and (= class :leaf) (= a/wide-exit exit))
-        (do (println "Dispatch [wide exit 2]: bb test (full quick tri-host; success required)")
-            (:exit @(p/process ["bb" "test"] {:inherit true})))
-        exit))))
+  (let [scope (case class
+                :docs :docs-whitespace
+                :foundation :jvm-feedback
+                :leaf :selected-quick-tri-host
+                :full-quick-tri-host)
+        report! (fn [scope exit details]
+                  (quick/print-scope! (quick/verification-scope :test-routed scope exit dry? details)))]
+    (try
+      (if dry?
+        (report! scope 0 {})
+        (let [unchecked (when (= class :docs)
+                          (let [{:keys [exit out]}
+                                @(p/process (into ["git" "ls-files" "-z" "--"] paths)
+                                            {:out :string :err :string})]
+                            (when-not (zero? exit)
+                              (throw (ex-info "git ls-files failed: docs scope unknown" {:exit exit})))
+                            (let [tracked (set (str/split out #"\u0000"))]
+                              (vec (remove tracked paths)))))
+              _ (doseq [path unchecked] (println (str path ": unchecked (untracked)")))
+              exit (:exit @(p/process command {:inherit true}))]
+          (if (and (= class :leaf) (= a/wide-exit exit))
+            (do (println "Dispatch [wide exit 2]: bb test (full quick tri-host; success required)")
+                (report! :full-quick-tri-host
+                         (:exit @(p/process ["bb" "test"] {:inherit true})) {}))
+            (report! scope exit (if (= class :docs) {:unchecked unchecked} {})))))
+      (catch Exception ex
+        (report! scope 1 {})
+        (throw ex)))))
 
 
 (defn -main
