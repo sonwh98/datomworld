@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, cmd, agy, kimi)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, codex, agy, kimi)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -16,7 +16,7 @@ exact session, conversation, or thread ID — reading earlier prompts, logs,
 findings, and diffs reconstructs task context but does not resume the session.
 
 Before the first invocation of a Claude Code-based CLI (`claude`, `claude-cloud`,
-`glm`, `deepseek`, or `muse`), generate and record an ID:
+`glm`, or `deepseek`), generate and record an ID:
 
 ```sh
 TASK_SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
@@ -86,7 +86,6 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | claude-cloud | `~/.claude`                 | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| cmd          | `~/.commandcode`            | NDJSON `result.sessionId`        | `--resume <id>` or `--session <id|path>` |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | codex        | `~/.codex`                  | JSONL `thread.started.thread_id` | `codex exec resume <id> --json -`        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
@@ -96,7 +95,6 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| muse         | `~/.claude-muse`            | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
@@ -156,27 +154,12 @@ listed CLIs.
 |                | (Sonnet/Haiku tier:        |                            |                      |                            |                      |                    |
 |                | `deepseek-flash`)          |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `muse`         | Meta/Muse; default **muse- | `MODEL=<model> muse`       | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
-|                | spark-1.3-contributor**    |                            |                      |                            |                      |                    |
-|                | (Sonnet tier: `muse-       |                            |                      |                            |                      |                    |
-|                | spark-1.3`)                |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 | `codex`        | OpenAI, flat-rate ChatGPT  | `-m <model>`               | `-s read-only`       | `-s workspace-write`       | no caller ID;        | `codex exec resume |
 |                | Plus; `gpt-6-astra`,       |                            |                      |                            | capture `thread.star | <thread-id>`       |
 |                | `gpt-6.1-sol`,             |                            |                      |                            | ted.thread_id` (see  |                    |
 |                | `gpt-6.1-terra`,           |                            |                      |                            | Session continuity)  |                    |
 |                | `gpt-6-luna`,              |                            |                      |                            |                      |                    |
 |                | `gpt-5.4-mini`             |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `cmd`          | CommandCode.ai; **reserved | `-m <model>`               | `--plan`             | `--permission-mode auto-   | no caller ID;        | `--resume          |
-|                | strictly for               |                            |                      | accept`                    | capture              | <session-id>` (or  |
-|                | external/unsupported       |                            |                      |                            | `result.sessionId`   | `--session         |
-|                | models with no dedicated   |                            |                      |                            |                      | <id|path>`)        |
-|                | wrapper** (e.g.            |                            |                      |                            |                      |                    |
-|                | `qwen/qwen3.8-max`) —      |                            |                      |                            |                      |                    |
-|                | never for models a         |                            |                      |                            |                      |                    |
-|                | dedicated CLI already      |                            |                      |                            |                      |                    |
-|                | covers; **never for Kimi** |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 | `kimi`         | Moonshot AI; native Kimi   | `-m <model-alias>`         | `--agent <agent>` or | `-p` (auto permissions)    | no caller ID;        | `--session <id>`   |
 |                | K3.1 Pro / K3 families     |                            | `--agent-file        |                            | capture session ID   |                    |
@@ -188,16 +171,16 @@ listed CLIs.
 |                | `gemini-3.8-flash`         |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 
-Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute
-`claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek`/`muse` share one CLI base: none needs a PTY, all
+Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`) configure provider endpoints and credentials, then execute
+`claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek` share one CLI base: none needs a PTY, all
 accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and their startup warning
 `claude-code:unrecognized_model` is expected and benign. `claude-cloud` scrubs wrapper routing overrides (`ANTHROPIC_BASE_URL`,
 `ANTHROPIC_AUTH_TOKEN`) and injects the official Anthropic API key to draw directly from metered cloud credits without
-interfering with `glm`, `muse`, or `deepseek`. Never convert a review command into an editing command unless the user explicitly
+interfering with `glm` or `deepseek`. Never convert a review command into an editing command unless the user explicitly
 authorized edits.
 
-**Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI,
-never through `cmd`. The managed 3.x aliases are `kimi-code/k3.1-pro`,
+**Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
+The managed 3.x aliases are `kimi-code/k3.1-pro`,
 `kimi-code/k3.1-pro-highspeed`, `kimi-code/k3`, and `kimi-code/k3-256k`; `-m`
 expects a configured model alias, not a bare model ID. Headless `-p` uses
 `auto` permissions by default and cannot be combined with `--plan`, `--yolo`,
@@ -218,8 +201,8 @@ One example per CLI. For a follow-up, swap the session-start flags for that row'
 table above and append `-r<n>` to the output artifact's basename.
 
 ```sh
-# Claude Code family (claude, claude-cloud, glm, deepseek, muse) — CLAUDE_BIN picks the wrapper, MODEL=<model> the model
-CLAUDE_BIN="claude-cloud"   # or: claude | MODEL=<model> glm | MODEL=<model> deepseek | MODEL=<model> muse
+# Claude Code family (claude, claude-cloud, glm, deepseek) — CLAUDE_BIN picks the wrapper, MODEL=<model> the model
+CLAUDE_BIN="claude-cloud"   # or: claude | MODEL=<model> glm | MODEL=<model> deepseek
 $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
   --output-format text -p "Read <prompt> and complete it now." < /dev/null \
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
@@ -228,11 +211,7 @@ $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
   > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 
-# Command Code (non-Kimi models only)
-cmd -p -m <model> <review-or-implementation-flags> --output-format json < <prompt> \
-  > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
-
-# Kimi Code — native CLI for every Kimi model; never use cmd
+# Kimi Code — native CLI for every Kimi model
 # New implementation session; for a read-only review, add --agent <read-only-agent>.
 kimi -m kimi-code/k3.1-pro -p "Read <prompt> and complete it now." \
   --output-format stream-json < /dev/null \
@@ -302,7 +281,7 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   to the intended working directory (`cd <worktree> && codex exec resume <id>
   --json -m <model> - < prompt`) and write the resumed prompt's relative paths
   against that cwd; the resumed turn keeps the original thread's sandbox.
-- **GLM/Muse `claude-code:unrecognized_model` startup warnings** are expected
+- **GLM `claude-code:unrecognized_model` startup warnings** are expected
   for their wrappers; verify the resulting artifact before declaring failure.
 - **The same benign startup warning can precede a real outage, not just a
   successful fallback.** The warning alone never distinguishes them — only

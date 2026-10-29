@@ -56,9 +56,6 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 | claude-api      | Metered: Anthropic API (balance per owner)  | Dedicated API credits. Reached through the `claude-cloud` wrapper script (Anthropic API endpoint); the wrapper name stays even though the billing lane is called claude-api. Reserved strictly for Fable until reset           |
 |                 |                                        | (Architect & security sign-offs). Do not assign general implementation or routine reviews.                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| cmd             | Flat: CommandCode.ai Go plan ($1/mo)   | Use freely within budget for LLMs not directly listed here. **Never use for                                 |
-|                 |                                        | Kimi models; use `kimi`.**                                                                                  |
-+-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Reserved strictly for Architectural Review roles. Do not assign implementation tasks.   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | deepseek        | Metered: Pay-by-token                  | Flash: $0.14/M in, $0.28/M out. Pro: $0.435/M in, $0.87/M out.                                              |
@@ -67,12 +64,9 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | glm             | Flat: Pro yearly plan ($672/yr)        | Peak hours: weekdays 14:00-18:00 UTC+8. Schedule large jobs off-peak (50% rate).                            |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| kimi            | Flat: Kimi membership (Plus+)          | Invoke only through the dedicated `kimi` CLI. Rolling 5-hour and monthly quotas apply.                      |
-|                 |                                        | Pro unlocks Highspeed and 1M context for K3.x. **Never invoke Kimi models                                   |
-|                 |                                        | through `cmd`.**                                                                                            |
+| kimi            | Flat: Kimi membership (Plus+)          | Invoke only through the dedicated `kimi` CLI. Rolling 5-hour and monthly quotas apply.                        |
+|                 |                                        | Pro unlocks Highspeed and 1M context for K3.x.                                                               |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| muse            | Metered: Pay-by-token                  | Variable cost. Reserve for work worth the expense. Invoked only via `~/.local/bin/muse` with `muse-         |
-|                 |                                        | spark-1.3-contributor`.                                                                                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 
 ## Model Strengths and Selection Guide
@@ -169,10 +163,6 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | **Best for:** Routine features, code completion, Q&A, and small    | codebase contexts, long documents, or video-input tasks.            |
 |                             | edits.                                                             |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `muse-spark-1.3-contribute` | Extremely low cost; strong multi-step agentic tasks and 1M long-   | Trails frontier models on complex agent benchmarks (e.g. OSWorld);  |
-|                             | context retrieval. **Best for:** Open-source workflows, efficient  | restricted access to "max" reasoning; mixed coding consistency.     |
-|                             | bulk processing, or large-scale multi-step evaluation.             | **Avoid for:** Extreme autonomous coding needing verified max logic.|
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `inclusionai/ling-3.0-sante`| Lightweight MoE model capable of coding with health/medicine focus.| Narrower general knowledge base outside its tuning. **Avoid for:**  |
 |                             | **Best for:** Cost-effective, specialized workflows.               | Complex multi-step autonomous architecture building.                |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
@@ -198,7 +188,7 @@ cost align with the task.
 Every change must be reviewed by a model from a **different family** to ensure
 independent defect discovery. Never silently substitute a same-family reviewer.
 The families represented in the Model Strengths table are: **Claude**,
-**DeepSeek**, **Gemini**, **GLM**, **GPT**, **InclusionAI**, **Kimi**, **Laguna**, **LongCat**, **MiMo**, **MiniMax**, **Muse**, and **Qwen**.
+**DeepSeek**, **Gemini**, **GLM**, **GPT**, **InclusionAI**, **Kimi**, **Laguna**, **LongCat**, **MiMo**, **MiniMax**, and **Qwen**.
 Any author from one family must be reviewed by a model from a different family.
 
 Routine review applies only when independent; architectural or security review
@@ -209,11 +199,9 @@ the [`Lead Engineering Orchestrator`](./roles/orchestrator.md).
 after the jolt lane's throughput review):
 
 - **The standing reviewer bench** is wider than the implementation bench:
-  `cmd` (flat, non-Kimi models only — routine slice reviews at trivial cost),
-  `kimi` (flat membership, native Kimi models only), and `muse` (metered,
-  reserve for high-stakes reviews) join the families above as standing review
-  destinations. The independence rule is unchanged: the reviewer must be a
-  different model family from the author.
+  `kimi` (flat membership, native Kimi models only) joins the families above
+  as a standing review destination. The independence rule is unchanged: the
+  reviewer must be a different model family from the author.
 - **Parallel-lane scheduling**: when slice N lands on its branch, slice N+1's
   implementation dispatches immediately and slice N's review runs
   concurrently. Gate: review N must complete **before slice N+1 merges** — a
