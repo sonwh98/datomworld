@@ -2723,10 +2723,11 @@ two land serially, not concurrently.
 This section records the C4 design as amended by the C4 cross-ruling's
 nineteen converged rulings; where they differ from the design's own
 recommendations, the converged rulings govern. Its implementation is in
-slices F2, F3, P1 to P3, and I1 to I7 below; F1, P1 to P3 and I1 to I6
-have landed (I5 at 51117e93, I6 at 19e7e879, I1 at aad451c5, with I3's
-DHT publication and I4-a's statement-time errors in the same series);
-I7 remains open.
+slices F2, F3, P1 to P3, and I1 to I7 below; all of them have landed —
+I5 at 51117e93, I6 at 19e7e879, I1 at aad451c5, with I3's DHT
+publication and I4-a's statement-time errors in the same series, and I7
+(the published site sets, through its five adjudicated rounds) at
+e61de506. C4 is complete.
 
 Install delivers code; instantiation is the importing task's own
 evaluation (ruling 1). A linked Python-side module (the base prelude,
@@ -4562,7 +4563,7 @@ Python's milestones within this phase are named C1, C2, and C3:
 - Safepoint insertion (section 8.5.2) is decided and recorded, in four
   slices, in order: signals, recursion, tracing, threads. The first two
   have landed (`cf6ed9ad`, and `e2a80eef` with generator admission against
-  the limit); tracing and threads are pending.
+  the limit); tracing landed at a822e152; threads (s4) is pending.
 
 Exit criteria:
 
