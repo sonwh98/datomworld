@@ -414,7 +414,7 @@
   [operator operands env tail? macro-env]
   (let [{fn-name :name, header :meta, :keys [arities]} (parse-defn operator operands)
         fn-ast (if (::convention env)
-                 (compile-av-fn arities env false macro-env)
+                 (compile-av-fn arities env false macro-env fn-name)
                  (do (when (< 1 (count arities))
                        (reject! "Multi-arity fn is not supported: closures cannot observe argument count"
                                 {:name fn-name, :arities (count arities)}))
@@ -528,7 +528,8 @@
       ;; function-level recur: the body runs as a loop over the parameters,
       ;; so a pattern parameter re-destructures on every iteration
       (compile-lambda simple
-                      (list* 'loop (vec (interleave params simple)) body-forms)
+                      (with-meta (list* 'loop (vec (interleave params simple)) body-forms)
+                        {::fn-loop true})
                       env tail? macro-env)
       (let [body (body-expression body-forms)]
         (compile-lambda simple
@@ -585,23 +586,376 @@
            (contains? (:macros (::convention env)) sym))))
 
 
+;; =============================================================================
+;; Outcome model (slice 5)
+;; =============================================================================
+;;
+;; Opted in with `:outcomes true` beside the argument-vector convention. Every
+;; guest function then returns an outcome, a tagged two-element vector:
+;;
+;;   [:yin.k/ok value]       success; a LaTTe [:ok ...] stays an ordinary value
+;;   [:yin.k/error data]     failure; never a truthy return, only ever consumed
+;;                           by a call-site test or the harness boundary
+;;
+;; Lowering is a source-to-source pass over one function body, run before the
+;; ordinary compile. A tail form returns an outcome: a value is wrapped, a
+;; guest call in tail position is forwarded UNCHANGED (no let, no test, so the
+;; semantic VM's return stack stays constant through tail chains), `throw`
+;; becomes the error outcome. A may-fail form in operand position is the early
+;; return pattern, the only mechanism:
+;;
+;;   (let [o <outcome>] (if (error? o) o <rest of the function with (payload o)>))
+;;
+;; The failing branch returns the outcome in tail position. `ex-info` becomes
+;; a portable map under namespaced keys. A native primitive returns a raw
+;; value, except an adapted one (`:adapters`, source symbol to adapter symbol),
+;; whose host adapter already returns an outcome. Generated names carry the
+;; reserved `dsg__` prefix and bind through the internal `dsg__let`, which
+;; skips the user-binder check; the program pre-pass keeps user code out of
+;; that prefix. A macro call is opaque to the pass: the expander owns it.
+
+(def ^:private ok-tag :yin.k/ok)
+
+(def ^:private error-tag :yin.k/error)
+
+
+(defn- outcomes?
+  [env]
+  (some? (::outcomes env)))
+
+
+(defn- adapters
+  [env]
+  (:adapters (::outcomes env)))
+
+
+(defn- binder-symbols
+  [b]
+  (into #{} (comp (filter symbol?) (remove #{'&})) (tree-seq coll? seq b)))
+
+
+(defn- ok-form
+  [v]
+  [ok-tag v])
+
+
+(defn- rebuild
+  "A list of `items` carrying the reader metadata of `form`."
+  [form items]
+  (let [out (apply list items)]
+    (if-let [m (meta form)]
+      (with-meta out m)
+      out)))
+
+
+(defn- gen-sym
+  [env]
+  (symbol (str reserved-prefix "o" (swap! (::gen env) inc))))
+
+
+(defn- rewrite-ex-info
+  "(ex-info msg data cause?) as the portable map holding its parts."
+  [form]
+  (cond
+    (seq? form)
+    (cond
+      (empty? form) form
+      (= 'quote (first form)) form
+      (= 'ex-info (first form))
+      (let [[_ msg data cause] (map rewrite-ex-info form)]
+        (cond-> {:yin.k/message msg, :yin.k/data data}
+          (< 3 (count form)) (assoc :yin.k/cause cause)))
+      :else (rebuild form (map rewrite-ex-info form)))
+    (vector? form) (with-meta (mapv rewrite-ex-info form) (meta form))
+    (map? form) (into {} (map (fn [[k v]] [(rewrite-ex-info k) (rewrite-ex-info v)])) form)
+    (set? form) (into #{} (map rewrite-ex-info) form)
+    :else form))
+
+
+(defn- call-kind
+  [env head]
+  (cond
+    (keyword? head) :keyword
+    (not (symbol? head)) :guest
+    (macro-call? env (::macro-env env) head) :macro
+    (native-name? env head) (if (contains? (adapters env) head) :adapted :native)
+    :else :guest))
+
+
+(def ^:private lowered-specials
+  #{'if 'let 'do 'loop 'recur 'throw 'quote 'fn 'and 'or})
+
+
+(declare failing?)
+
+
+(defn- any-failing?
+  [env forms]
+  (boolean (some #(failing? env %) forms)))
+
+
+(defn- check-macro-operands!
+  "A macro call is opaque to the lowering pass, so an operand that may fail
+   would escape the early return: refuse it, naming the macro."
+  [env head ops]
+  (when (any-failing? env ops)
+    (reject! (str "Macro call " head " has an operand that may fail; "
+                  "the outcome model cannot lower it")
+             {:macro head})))
+
+
+(defn- scoped-failing?
+  "Whether a sequence of [target init] pairs or the body after them can fail,
+   each init seeing the targets before it."
+  [env pairs body]
+  (loop [env env, ps pairs]
+    (if (empty? ps)
+      (any-failing? env body)
+      (let [[target init] (first ps)]
+        (or (failing? env init)
+            (recur (with-locals env (binder-symbols target)) (rest ps)))))))
+
+
+(defn- failing?
+  "True when evaluating `form` can produce an error outcome: a throw, or a
+   call that returns an outcome (a guest call or an adapted primitive)."
+  [env form]
+  (cond
+    (seq? form)
+    (if (empty? form)
+      false
+      (let [[head & ops] form]
+        (cond
+          (contains? #{'quote 'fn} head) false
+          (= 'throw head) true
+          (= 'let head) (let [[bindings & body] ops]
+                          (scoped-failing? env (partition 2 (expand-bindings bindings env)) body))
+          ;; the raw outcome of one guest call is a value, not a failure
+          (= 'yin.k/outcome-of head) (do (when-not (and (= 1 (count ops)) (seq? (first ops)))
+                                           (reject! "yin.k/outcome-of takes one call" {:form form}))
+                                         (when (any-failing? env (first ops))
+                                           (reject! "yin.k/outcome-of operands cannot fail"
+                                                    {:form form}))
+                                         false)
+          (= 'dsg__let head) (let [[bindings & body] ops]
+                               (scoped-failing? env (partition 2 bindings) body))
+          (= 'loop head) (let [[bindings & body] ops]
+                           (scoped-failing? env (partition 2 bindings) body))
+          (contains? lowered-specials head) (any-failing? env ops)
+          :else (case (call-kind env head)
+                  (:guest :adapted) true
+                  :macro (do (check-macro-operands! env head ops) false)
+                  (any-failing? env ops)))))
+    (or (vector? form) (set? form)) (any-failing? env form)
+    (map? form) (any-failing? env (concat (keys form) (vals form)))
+    :else false))
+
+
+(defn- atomic?
+  [form]
+  (or (symbol? form) (constant-form? form)))
+
+
+(declare lower-tail)
+
+
+(defn- bind-outcome
+  "Bind `outcome`, return it as is when it is an error, else continue with
+   its payload."
+  [env outcome k]
+  (let [o (gen-sym env)]
+    (list 'dsg__let [o outcome]
+          (list 'if (list 'data/content= (list 'data/nth o 0) error-tag)
+                o
+                (k (list 'data/nth o 1))))))
+
+
+(defn- lower-operand
+  "Continue with a simple form for `form`: the form itself when it cannot
+   fail, else the payload of its outcome."
+  [env form k]
+  (if (failing? env form)
+    (bind-outcome env (lower-tail env form) k)
+    (k form)))
+
+
+(defn- lower-operands
+  "Continue with simple forms for `forms`, evaluated left to right: a form
+   before a may-fail one is bound first so the order of effects survives."
+  [env forms k]
+  (letfn [(go
+            [fs acc]
+            (if (empty? fs)
+              (k acc)
+              (let [f (first fs), more (rest fs)]
+                (cond
+                  (atomic? f) (go more (conj acc f))
+                  (failing? env f) (lower-operand env f (fn [v] (go more (conj acc v))))
+                  (any-failing? env more) (let [t (gen-sym env)]
+                                            (list 'dsg__let [t f] (go more (conj acc t))))
+                  :else (go more (conj acc f))))))]
+    (go (seq forms) [])))
+
+
+(defn- lower-let
+  "`pairs` are plain [symbol init] pairs."
+  [env pairs body]
+  (letfn [(go
+            [env ps]
+            (if (empty? ps)
+              (lower-tail env (body-expression body))
+              (let [[x init] (first ps)]
+                (lower-operand env init
+                               (fn [v]
+                                 (list 'dsg__let [x v]
+                                       (go (with-locals env [x]) (rest ps))))))))]
+    (go env pairs)))
+
+
+(defn- lower-loop
+  [env bindings body]
+  (when-not (and (vector? bindings) (even? (count bindings)))
+    (reject! "loop requires an even-sized binding vector" {:bindings bindings}))
+  (let [pairs (partition 2 bindings)
+        targets (map first pairs)]
+    (if (scoped-failing? env pairs nil)
+      ;; a may-fail initializer: bind outside, loop over the plain names
+      (do (when-not (every? symbol? targets)
+            (reject! "A pattern loop binder cannot have a may-fail initializer"
+                     {:bindings bindings}))
+          (lower-tail env (list 'let bindings
+                                (list 'loop (vec (mapcat (fn [t] [t t]) targets))
+                                      (body-expression body)))))
+      (list 'loop bindings
+            (lower-tail (with-locals env (mapcat binder-symbols targets))
+                        (body-expression body))))))
+
+
+(defn- lower-tail
+  "The form whose value is the outcome of evaluating `form` in tail position."
+  [env form]
+  (cond
+    (seq? form)
+    (if (empty? form)
+      (ok-form form)
+      (let [[head & ops] form]
+        (case (when (symbol? head) head)
+          if (let [[t c & more] ops]
+               (lower-operand env t
+                              (fn [tv]
+                                (list 'if tv (lower-tail env c)
+                                      (if (seq more)
+                                        (lower-tail env (first more))
+                                        (ok-form nil))))))
+          let (do (when-not (vector? (first ops))
+                    (reject! "let requires a binding vector" {:bindings (first ops)}))
+                  (lower-let env (partition 2 (expand-bindings (first ops) env)) (rest ops)))
+          dsg__let (lower-let env (partition 2 (first ops)) (rest ops))
+          do (case (count ops)
+               0 (ok-form nil)
+               1 (lower-tail env (first ops))
+               (lower-operand env (first ops)
+                              (fn [v] (list 'do v (lower-tail env (cons 'do (rest ops)))))))
+          loop (lower-loop env (first ops) (rest ops))
+          recur (lower-operands env (vec ops) (fn [vs] (rebuild form (cons 'recur vs))))
+          throw (lower-operand env (first ops) (fn [v] [error-tag v]))
+          (quote fn) (ok-form form)
+          and (case (count ops)
+                0 (ok-form true)
+                1 (lower-tail env (first ops))
+                (let [g (gen-sym env)]
+                  (lower-tail env (list 'dsg__let [g (first ops)]
+                                        (list 'if g (cons 'and (rest ops)) g)))))
+          or (case (count ops)
+               0 (ok-form nil)
+               1 (lower-tail env (first ops))
+               (let [g (gen-sym env)]
+                 (lower-tail env (list 'dsg__let [g (first ops)]
+                                       (list 'if g g (cons 'or (rest ops)))))))
+          (case (call-kind env head)
+            :macro (do (check-macro-operands! env head ops) (ok-form form))
+            :keyword (lower-operands env (vec ops)
+                                     (fn [vs] (ok-form (rebuild form (cons head vs)))))
+            :native (lower-operands env (vec ops)
+                                    (fn [vs] (ok-form (rebuild form (cons head vs)))))
+            :adapted (lower-operands env (vec ops)
+                                     (fn [vs] (rebuild form (cons (get (adapters env) head) vs))))
+            :guest (lower-operands env (into [head] ops)
+                                   (fn [vs] (rebuild form vs)))))))
+    (or (vector? form) (set? form) (map? form))
+    (if (failing? env form)
+      (cond
+        (vector? form) (lower-operands env form (fn [vs] (ok-form (vec vs))))
+        (set? form) (lower-operands env (vec form) (fn [vs] (ok-form (set vs))))
+        :else (lower-operands env (vec (mapcat identity form))
+                              (fn [vs] (ok-form (into {} (map vec) (partition 2 vs))))))
+      (ok-form form))
+    :else (ok-form form)))
+
+
+(defn- lower-function-body
+  "The outcome-returning body of one function over `params`."
+  [env macro-env params body-forms]
+  (lower-tail (-> env
+                  (assoc ::macro-env macro-env, ::gen (atom 0))
+                  (with-locals (mapcat binder-symbols params)))
+              (rewrite-ex-info (body-expression body-forms))))
+
+
+(defn- arity-error-form
+  "The outcome of a call whose argument count no arity admits: it names the
+   function, never a zero-argument data/count refusal naming count."
+  [fn-name]
+  [error-tag {:yin.vm.data/reason :arity
+              :yin.k/fn (list 'quote fn-name)
+              :yin.k/argc (list 'data/count av-sym)}])
+
+
+(defn outcome-adapter
+  "Wrap host function `f`, a primitive declaring domain failures, as an
+   outcome-returning one: success is [:yin.k/ok value], and the module's own
+   refusal (ex-info with message `refusal-message` and :yin.vm.data/op and
+   :yin.vm.data/reason in its data) is [:yin.k/error data] with those keys.
+   Any other host exception propagates: an unexpected VM or compiler failure
+   is never a successful rejection."
+  [refusal-message f]
+  (fn [& args]
+    (try
+      [ok-tag (apply f args)]
+      (catch #?(:clj Throwable, :cljs :default, :cljd Object) e
+        (let [data (ex-data e)]
+          (if (and (= refusal-message (ex-message e))
+                   (contains? data :yin.vm.data/op)
+                   (contains? data :yin.vm.data/reason))
+            [error-tag data]
+            (throw e)))))))
+
+
 (defn- av-let
   "(let [p0 (data/nth av 0) ...] body): positional parameters of one arity.
    A body that recurs is a loop over the same bindings: one recur target per
-   arity."
-  [params body-forms]
-  (let [bindings (into [] (mapcat (fn [i p] [p (list 'data/nth av-sym i)]) (range) params))]
+   arity. Under the outcome model the body is lowered first."
+  [env macro-env params body-forms]
+  (let [bindings (into [] (mapcat (fn [i p] [p (list 'data/nth av-sym i)]) (range) params))
+        lowered? (outcomes? env)
+        body (if lowered?
+               (lower-function-body env macro-env params body-forms)
+               (body-expression body-forms))]
     (if (some mentions-recur? body-forms)
-      (list* 'loop bindings body-forms)
-      (list 'let bindings (body-expression body-forms)))))
+      (with-meta (if lowered?
+                   (list 'loop bindings body)
+                   (list* 'loop bindings body-forms))
+        {::fn-loop true})
+      (list 'let bindings body))))
 
 
 (defn- av-dispatch
   "Nested ifs over the argument vector's count, one branch per arity
    {:n count :form branch}. An unmatched count falls through to a
    zero-argument data/count, which the data module refuses with :reason
-   :arity."
-  [arities]
+   :arity; under the outcome model it is an arity error outcome naming
+   `fn-name` instead."
+  [env fn-name arities]
   (let [counts (map :n arities)]
     (when (not= (count counts) (count (set counts)))
       (reject! "Two arities with the same parameter count" {:counts (vec counts)}))
@@ -610,7 +964,7 @@
                     (list 'data/content= (list 'data/count av-sym) n)
                     form
                     else))
-            (list 'data/count)
+            (if (outcomes? env) (arity-error-form fn-name) (list 'data/count))
             (reverse arities))))
 
 
@@ -625,14 +979,16 @@
 
 
 (defn- compile-av-fn
-  "Compile arities [{:params :body}] to one closure over an argument vector."
-  [arities env tail? macro-env]
-  (let [arities (mapv (fn [{:keys [params body]}]
-                        (check-av-params! params)
-                        {:n (count params)
-                         :form (av-let params body)})
-                      arities)]
-    (compile-lambda [av-sym] (av-dispatch arities) env tail? macro-env)))
+  "Compile arities [{:params :body}] to one closure over an argument vector.
+   `fn-name` names the function in an arity error outcome."
+  ([arities env tail? macro-env] (compile-av-fn arities env tail? macro-env nil))
+  ([arities env tail? macro-env fn-name]
+   (let [arities (mapv (fn [{:keys [params body]}]
+                         (check-av-params! params)
+                         {:n (count params)
+                          :form (av-let env macro-env params body)})
+                       arities)]
+     (compile-lambda [av-sym] (av-dispatch env fn-name arities) env tail? macro-env))))
 
 
 (defn- fn-arities
@@ -653,10 +1009,13 @@
    unpacked arguments, for each admitted count."
   [sym env tail? macro-env]
   (let [arities (mapv (fn [n]
-                        {:n n
-                         :form (cons sym (map #(list 'data/nth av-sym %) (range n)))})
+                        (let [call (cons sym (map #(list 'data/nth av-sym %) (range n)))]
+                          {:n n
+                           :form (if (outcomes? env)
+                                   (lower-function-body env macro-env [] [call])
+                                   call)}))
                       (range (inc adapter-max-arity)))]
-    (compile-lambda [av-sym] (av-dispatch arities) env tail? macro-env)))
+    (compile-lambda [av-sym] (av-dispatch env sym arities) env tail? macro-env)))
 
 
 (defn- compile-av-application
@@ -848,7 +1207,7 @@
 
 
 (defn- compile-loop
-  [operands env tail? macro-env]
+  [operands env tail? macro-env fn-loop?]
   (let [[bindings & body-forms] operands]
     (when-not (and (vector? bindings) (even? (count bindings)))
       (reject! "loop requires an even-sized binding vector" {:bindings bindings}))
@@ -878,7 +1237,10 @@
                                         body-form true
                                         (with-locals
                                           (assoc env
-                                                 ::target {:self self, :count (count params)}
+                                                 ::target {:self self, :count (count params)
+                                                           :kind (if fn-loop?
+                                                                   "fn parameters"
+                                                                   "loop bindings")}
                                                  ::loop-depth (inc depth))
                                           worker-params)
                                         (shadow-macro-env macro-env params))}]
@@ -898,11 +1260,11 @@
 
 (defn- compile-recur
   [operands env tail? macro-env]
-  (let [{:keys [self], n :count} (::target env)]
+  (let [{:keys [self kind], n :count} (::target env)]
     (when-not self
       (reject! "recur needs an enclosing loop or fn" {:operands operands}))
     (when-not (= n (count operands))
-      (reject! "recur operand count differs from the loop bindings"
+      (reject! (str "recur operand count differs from the " kind)
                {:expected n, :operands (count operands)}))
     (when-not tail?
       (reject! "recur is only legal in tail position" {:operands operands}))
@@ -961,6 +1323,9 @@
         (= operator 'dao.stream.apply/call)
         (let [[op & args] operands]
           (compile-dao-stream-apply-call op args env tail? macro-env))
+        ;; (yin.k/outcome-of (f x)): the call's outcome as a value, not unwrapped
+        (and (= operator 'yin.k/outcome-of) (outcomes? env))
+        (compile-form (first operands) tail? env macro-env)
         ;; Native defn fallback: used only when no defmacro defn is in scope
         ;; and the form actually matches defn syntax.
         (and (contains? #{'defn 'defn-} operator)
@@ -985,7 +1350,11 @@
                 (compile-let bindings body-expr env tail? macro-env))
           ;; Do block: (do expr1 expr2 ...)
           do (compile-do operands env tail? macro-env)
-          loop (compile-loop operands env tail? macro-env)
+          loop (compile-loop operands env tail? macro-env (::fn-loop (meta form)))
+          ;; (yin.k/outcome-of (f x)): the call's outcome as a value, not unwrapped
+          ;; internal, from the outcome lowering: its bindings are already plain
+          dsg__let (compile-let-simple (first operands) (body-expression (rest operands))
+                                       env tail? macro-env)
           recur (compile-recur operands env tail? macro-env)
           ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
           ;; (and)       → true
@@ -1037,8 +1406,8 @@
    (let [ast (compile-form* form tail? (dissoc env ::top-level) macro-env
                             (::top-level env))
          m (meta form)]
-     (if (and m (seq m))
-       (vary-meta ast merge m)
+     (if (seq (dissoc m ::fn-loop))
+       (vary-meta ast merge (dissoc m ::fn-loop))
        ast))))
 
 
@@ -1048,21 +1417,73 @@
    #{symbol}}` opts into the argument-vector convention: `:native` names the
    primitives a bare symbol may call directly, `:macros` the expander-side
    macro names whose calls must stay ordinary applications. The program's
-   own top-level definitions are never native."
+   own top-level definitions are never native. `:outcomes true` adds the
+   outcome model (see its section); `:adapters` maps a primitive that
+   declares domain failures to the host adapter returning its outcome."
   [forms opts]
   (if-not opts
     {}
     (do (when-not (= :arg-vector (:convention opts))
           (reject! "Unknown compile-program convention" {:opts opts}))
-        {::convention {:native (set (:native opts)), :macros (set (:macros opts))}
-         ::defined (into #{}
-                         (keep (fn [f]
-                                 (when (and (seq? f)
-                                            (contains? #{'def 'defn 'defn- 'defmacro}
-                                                       (first f))
-                                            (symbol? (second f)))
-                                   (strip-symbol-meta (second f)))))
-                         forms)})))
+        (cond-> {::convention {:native (set (:native opts)), :macros (set (:macros opts))}
+                 ::defined (into #{}
+                                 (keep (fn [f]
+                                         (when (and (seq? f)
+                                                    (contains? #{'def 'defn 'defn- 'defmacro}
+                                                               (first f))
+                                                    (symbol? (second f)))
+                                           (strip-symbol-meta (second f)))))
+                                 forms)}
+          (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})})))))
+
+
+(defn- check-program-symbols!
+  "The program pre-pass. Quoted data is exempt. The reserved prefix names
+   compiler temporaries, so no user symbol may carry it in ANY position
+   (binder, reference, definition name); `loop` and `recur` are special forms,
+   so they may only head a list, never stand as a value or a binder."
+  [form]
+  (cond
+    (symbol? form)
+    (do (when (reserved-name? form)
+          (reject! "Symbol uses the reserved destructuring prefix"
+                   {:symbol form, :prefix reserved-prefix}))
+        (when (and (nil? (namespace form)) (contains? #{'loop 'recur} form))
+          (reject! (str form " is only legal in operator position") {:symbol form})))
+    (seq? form)
+    (when-not (= 'quote (first form))
+      (let [head (first form)]
+        (when (and (symbol? head) (reserved-name? head))
+          (reject! "Symbol uses the reserved destructuring prefix"
+                   {:symbol head, :prefix reserved-prefix}))
+        (when-not (symbol? head)
+          (check-program-symbols! head))
+        (run! check-program-symbols! (rest form))))
+    (map? form) (run! check-program-symbols! (concat (keys form) (vals form)))
+    (coll? form) (run! check-program-symbols! form)))
+
+
+(defn- check-top-level-discard!
+  "Only the last top-level form's outcome reaches the harness, so a non-final,
+   non-definition form that may fail would have its error silently discarded:
+   refuse it, as a def value that calls guest functions is refused. Returns
+   `form`."
+  [env macro-env forms form]
+  (when (and (next forms)
+             (not (and (seq? form) (contains? #{'def 'defn 'defn- 'defmacro} (first form))))
+             (failing? (assoc env ::macro-env macro-env) (rewrite-ex-info form)))
+    (reject! "A non-final top-level form that may fail would discard its error outcome"
+             {:form form}))
+  form)
+
+
+(defn- lower-top-form
+  "Under the outcome model a top-level expression returns an outcome like a
+   function body; definitions keep their own lowering."
+  [env macro-env form]
+  (if (and (seq? form) (contains? #{'def 'defn 'defn- 'defmacro} (first form)))
+    form
+    (lower-function-body env macro-env [] [form])))
 
 
 (defn compile-program
@@ -1076,12 +1497,15 @@
   ([forms] (compile-program forms true))
   ([forms tail?] (compile-program forms tail? nil))
   ([forms tail? opts]
+   (run! check-program-symbols! forms)
    (let [env (program-env forms opts)]
      (letfn [(go
                [forms macro-env]
                (if (empty? forms)
                  (compile-literal nil tail?)
-                 (let [head       (first forms)
+                 (let [head       (cond->> (first forms)
+                                    (outcomes? env) (check-top-level-discard! env macro-env forms)
+                                    (outcomes? env) (lower-top-form env macro-env))
                        rest-forms (rest forms)]
                    (cond
                      ;; defmacro: ordinary (yin/def name (fn ...)) syntax whose
@@ -1099,7 +1523,12 @@
                          tail? (assoc :tail? true)))
                      ;; def: sequence with current macro-env
                      (and (seq? head) (= 'def (first head)))
-                     (let [[_ name value] head]
+                     (let [[_ name value] head
+                           value (cond-> value (outcomes? env) rewrite-ex-info)]
+                       (when (and (outcomes? env)
+                                  (failing? (assoc env ::macro-env macro-env) value))
+                         (reject! "A def value cannot call guest functions under the outcome model"
+                                  {:name name}))
                        (cond-> {:type     :application
                                 :operator {:type :lambda, :params ['_]
                                            :body (go rest-forms macro-env)}
