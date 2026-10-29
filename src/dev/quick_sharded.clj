@@ -136,7 +136,25 @@
       (throw (ex-info (str "unknown option: " arg) {})))))
 
 
-(defn run-quick!
+(defn verification-scope
+  "Exit zero may mean feedback or a plan; only eligible executed gates complete."
+  [runner scope exit dry? details]
+  (merge {:type :verification-scope :runner runner :scope scope
+          :exit exit :dry-run? (boolean dry?)
+          :gate-complete? (boolean (and (zero? exit) (not dry?)
+                                        (#{:docs-whitespace :selected-quick-tri-host
+                                           :full-quick-tri-host} scope)
+                                        (empty? (:unchecked details))))}
+         details))
+
+
+(defn print-scope!
+  [record]
+  (prn record)
+  (:exit record))
+
+
+(defn- execute-quick!
   [{:keys [workers list?] :as opts}]
   (let [start (System/nanoTime)
         index (a/scan-index)
@@ -162,8 +180,17 @@
                (str/join ", " (get shards "unmapped"))))
     (println "Prerequisites:" (str/join ", " (sort (map name prereqs))))
     (println "G2 also requires the selected Node/Dart lanes; G3 bb test and applicable G4 remain mandatory.")
-    (if list?
-      0
+    (cond
+      (empty? nses)
+      (do (println "REFUSED: 0 JVM namespaces selected; no JVM feedback executed.")
+          (print-scope! (verification-scope :quick-sharded :jvm-feedback 1 list?
+                                            {:selected 0})))
+
+      list?
+      (print-scope! (verification-scope :quick-sharded :jvm-feedback 0 true
+                                        {:selected (count nses)}))
+
+      :else
       (do
         ;; All writers finish before any test JVM starts. No mutable output
         ;; directory is shared with another worktree.
@@ -179,15 +206,28 @@
               summary (merge (into {} (for [k [:tests :assertions :failures :errors]]
                                         [k (reduce + (keep k rows))]))
                              {:coverage cov :shards rows
-                              :pass? (every? :pass? rows)
+                              :pass? (and (seq rows) (every? :pass? rows))
                               :jvm-seconds (/ (- (System/nanoTime) lane-start) 1e9)
-                              :total-seconds (/ (- (System/nanoTime) start) 1e9)})]
+                              :total-seconds (/ (- (System/nanoTime) start) 1e9)})
+              scope (verification-scope :quick-sharded :jvm-feedback
+                                        (if (:pass? summary) 0 1) false
+                                        {:selected (count nses)})
+              summary (assoc summary :verification-scope scope)]
           (spit (str out "/summary.edn") (pr-str summary))
           (println (format "TOTAL: tests=%d assertions=%d failures=%d errors=%d JVM=%.3fs total=%.3fs %s"
                            (:tests summary) (:assertions summary) (:failures summary)
                            (:errors summary) (:jvm-seconds summary) (:total-seconds summary)
                            (if (:pass? summary) "pass" "FAIL (see shard logs; missing summaries also fail)")))
-          (if (:pass? summary) 0 1))))))
+          (print-scope! scope))))))
+
+
+(defn run-quick!
+  [opts]
+  (try
+    (execute-quick! opts)
+    (catch Exception ex
+      (print-scope! (verification-scope :quick-sharded :jvm-feedback 1 (:list? opts) {}))
+      (throw ex))))
 
 
 (defn -main

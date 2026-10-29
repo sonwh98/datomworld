@@ -4,6 +4,8 @@
     [babashka.fs :as fs]
     [babashka.process :as p]
     [build-cache :as cache]
+    [clojure.edn :as edn]
+    [clojure.string :as str]
     [clojure.test :refer [deftest is testing run-tests]]
     [quick-sharded :as quick]
     [test-routed :as routed]))
@@ -32,6 +34,139 @@
 
 
 (def green "Ran 12 tests containing 34 assertions.\n0 failures, 0 errors.\n")
+
+
+(defn scope-records
+  [output]
+  (mapv edn/read-string
+        (filter #(str/starts-with? % "{:type :verification-scope")
+                (str/split-lines output))))
+
+
+(deftest docs-checks-staged-and-untracked
+  (let [dir (str (fs/create-temp-dir {:prefix "routed-docs-"}))
+        process p/process
+        git! (fn [& args]
+               (let [result @(process (into ["git"] args) {:dir dir :out :string :err :string})]
+                 (is (zero? (:exit result)) (:err result))))
+        run (fn [paths]
+              (let [exit (atom nil)
+                    output (with-out-str
+                             (with-redefs [p/process (fn [cmd opts]
+                                                       (process cmd (assoc opts :dir dir)))]
+                               (reset! exit (routed/dispatch! (routed/route [] {} paths) false))))]
+                [@exit output (last (scope-records output))]))]
+    (try
+      (git! "init" "-q")
+      (spit (str dir "/tracked.md") "clean\n")
+      (git! "add" "tracked.md")
+      (git! "-c" "user.name=Probe" "-c" "user.email=probe@example.invalid"
+            "-c" "commit.gpgsign=false" "commit" "-qm" "probe")
+      (testing "fully staged whitespace errors must fail"
+        (spit (str dir "/tracked.md") "bad trailing whitespace   \n")
+        (git! "add" "tracked.md")
+        (is (pos? (first (run ["tracked.md"]))))
+        (spit (str dir "/tracked.md") "clean\n"))
+      (testing "HEAD-to-working-tree check uses staged and unstaged content together"
+        (let [[exit _ scope] (run ["tracked.md"])]
+          (is (zero? exit))
+          (is (true? (:gate-complete? scope)))))
+      (testing "untracked docs are explicitly unchecked, including mixed sets"
+        (spit (str dir "/new doc.md") "untracked   \n")
+        (doseq [paths [["new doc.md"] ["tracked.md" "new doc.md"]]]
+          (let [[exit output scope] (run paths)]
+            (is (zero? exit))
+            (is (str/includes? output "new doc.md: unchecked (untracked)"))
+            (is (= ["new doc.md"] (:unchecked scope)))
+            (is (false? (:gate-complete? scope))))))
+      (finally (fs/delete-tree dir)))))
+
+
+(deftest routed-verification-scope
+  (doseq [[class exit dry? complete? scope]
+          [[:foundation 0 false false :jvm-feedback]
+           [:foundation 7 false false :jvm-feedback]
+           [:toolchain 0 false true :full-quick-tri-host]
+           [:leaf 0 false true :selected-quick-tri-host]
+           [:toolchain 0 true false :full-quick-tri-host]
+           [:toolchain 7 false false :full-quick-tri-host]]]
+    (let [output (with-out-str
+                   (with-redefs [p/process (fn [& _]
+                                             (is (not dry?))
+                                             (delay {:exit exit}))]
+                     (is (= exit (routed/dispatch! {:class class :command ["probe"]} dry?)))))
+          record (last (scope-records output))]
+      (is (= scope (:scope record)))
+      (is (= complete? (:gate-complete? record)))
+      (is (= dry? (:dry-run? record)))
+      (is (= exit (:exit record)))))
+  (testing "failed process launch still emits an incomplete scope"
+    (let [output (with-out-str
+                   (with-redefs [p/process (fn [& _] (throw (ex-info "launch failed" {})))]
+                     (is (thrown-with-msg? Exception #"launch failed"
+                           (routed/dispatch! {:class :toolchain :command ["probe"]} false)))))]
+      (is (false? (:gate-complete? (last (scope-records output)))))
+      (is (= 1 (:exit (last (scope-records output))))))))
+
+
+(deftest quick-verification-scope
+  (fs/create-dirs "target")
+  (doseq [[nses list? pass? exit] [['[probe-test] false true 0]
+                                   ['[probe-test] false false 1]
+                                   ['[probe-test] true true 0]
+                                   [[] false true 1]
+                                   [[] true true 1]]]
+    (let [out (atom nil)
+          runs (atom 0)]
+      (try
+        (let [output (with-out-str
+                       (with-redefs [a/scan-index (constantly [])
+                                     a/load-subsystems-config (constantly {:subsystems []})
+                                     a/lane-tests (fn [& _] nses)
+                                     a/prerequisites (fn [& _] #{})
+                                     quick/check-coverage! (let [check quick/check-coverage!]
+                                                             (fn [selected shards dir]
+                                                               (reset! out dir)
+                                                               (check selected shards dir)))
+                                     quick/run-shards! (fn [& _]
+                                                         (swap! runs inc)
+                                                         [{:tests 1 :assertions 1 :failures (if pass? 0 1)
+                                                           :errors 0 :pass? pass?}])]
+                         (is (= exit (quick/run-quick! {:workers 1 :list? list?})))))
+              record (last (scope-records output))]
+          (is (= :jvm-feedback (:scope record)))
+          (is (false? (:gate-complete? record)))
+          (is (= (count nses) (:selected record)))
+          (is (= exit (:exit record)))
+          (is (= list? (:dry-run? record)))
+          (is (= (if (or list? (empty? nses)) 0 1) @runs))
+          (when (empty? nses)
+            (is (str/includes? output "0 JVM namespaces selected")))
+          (when (and (seq nses) (not list?))
+            (is (= record (:verification-scope (edn/read-string (slurp (str @out "/summary.edn"))))))))
+        (finally (when @out (fs/delete-tree @out)))))))
+
+
+(deftest quick-prerequisite-failure-scope
+  (let [out (atom nil)]
+    (try
+      (let [output (with-out-str
+                     (with-redefs [a/scan-index (constantly [])
+                                   a/load-subsystems-config (constantly {:subsystems []})
+                                   a/lane-tests (fn [& _] '[probe-test])
+                                   a/prerequisites (fn [& _] #{:gen:antlr})
+                                   quick/check-coverage! (let [check quick/check-coverage!]
+                                                           (fn [selected shards dir]
+                                                             (reset! out dir)
+                                                             (check selected shards dir)))
+                                   p/process (fn [& _] (delay {:exit 7}))
+                                   quick/run-shards! (fn [& _] (throw (ex-info "must not run" {})))]
+                       (is (thrown-with-msg? Exception #"prerequisite failed: gen:antlr"
+                             (quick/run-quick! {:workers 1 :list? false})))))]
+        (is (= [{:type :verification-scope :runner :quick-sharded :scope :jvm-feedback
+                 :exit 1 :dry-run? false :gate-complete? false}]
+               (scope-records output))))
+      (finally (when @out (fs/delete-tree @out))))))
 
 
 (deftest summaries-fail-closed
