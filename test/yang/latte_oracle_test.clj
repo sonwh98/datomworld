@@ -1,26 +1,31 @@
 (ns yang.latte-oracle-test
-  "Slice 1 of the architect-designed yang.clojure gap-closure program
-   (collab/1793128583916-architect-yang-latte-gap-plan.gpt-6-astra.findings.md).
-
-   The oracle is UPSTREAM latte-kernel (the pinned git dep), never the
-   adapted copy: A-leg calls the original on the host, C-leg compiles the
-   same upstream source through yang.clojure and runs it on the VM. A
-   feature classifier records which corpus functions are blocked by which
-   missing compiler/stdlib feature — that is the narrowing instrument this
-   slice ships. Structure-only features (:loop, :destructuring, ...) are
-   static; unresolved free symbols surface as :blocked-run at C-leg time."
+  "Pinned upstream LaTTe differential harness, slices 1-8 of the Yang gap
+   program. A executes the original library on Clojure. B executes explicit
+   portability source on Clojure; C compiles it through Yang for the walker
+   and semantic VMs. The legacy classifier records the remaining blockers;
+   the context module additionally checks free-symbol admission before C.
+   Adaptations, operation sequences and scope departures live beside the
+   manifest in yang/latte_oracle/."
   (:require [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.walk :as walk]
+            [dao.jing.cbor :as cbor]
             [clojure.tools.reader :as r]
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]
             [yang.clojure-test :as compiler-test]
             [yin.vm :as vm]
             [yin.vm.data :as data]
-            [yin.vm.module :as module]))
+            [yin.vm.module :as module]
+            [yin.vm.encoder :as encoder]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-support :as rows-support]
+            [yin.vm.values :as values]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.ucf :as ucf]))
 
 
 (def ^:private manifest
@@ -147,23 +152,24 @@
 
 
 (defn- oracle-registry
-  "The guest library's whole host surface: the stream and data modules, the
-   `kind` module, and `portable`, the outcome adapters of the data exports the
-   collection predicates read."
-  []
-  (let [portable (into {}
-                       (map (fn [[source _]]
-                              (let [op (symbol (name source))]
-                                [op (yang/outcome-adapter data/refusal-message
-                                                          (get data/data-module op))])))
-                       yang/library-adapters)]
-    (-> (module/default-registry)
-        module/register-stream-module
-        data/register-data-module
-        (host-module 'kind kind-fns yang/kind-arities)
-        (host-module 'portable portable
-                     (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))
-                           (keys portable))))))
+  "The stream/data modules, kind primitives, and portable outcome adapters.
+   Slices 1-7 retain their host Var probes; context modules supply only the
+   callback-free kind exports and cannot consult host namespaces."
+  ([] (oracle-registry kind-fns))
+  ([kinds]
+   (let [portable (into {}
+                        (map (fn [[source _]]
+                               (let [op (symbol (name source))]
+                                 [op (yang/outcome-adapter data/refusal-message
+                                                           (get data/data-module op))])))
+                        yang/library-adapters)]
+     (-> (module/default-registry)
+         module/register-stream-module
+         data/register-data-module
+         (host-module 'kind kinds yang/kind-arities)
+         (host-module 'portable portable
+                      (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))
+                            (keys portable)))))))
 
 
 (def ^:private arg-vector-opts
@@ -185,21 +191,56 @@
      :else :scalar)])
 
 
+(defn- unbound-ast-symbols
+  "Admission for the portable context module: every variable is a lexical
+   binder, declared guest function, or explicitly supplied data primitive."
+  [ast program]
+  (let [globals (into #{'yin/def}
+                      (concat (keys vm/primitive-profiles)
+                              (for [form program :when (#{'def 'defn 'defn-} (first form))]
+                                (second form))
+                              (for [[module exports] {'kind yang/kind-module
+                                                      'data data/data-module
+                                                      'portable (into {} (map (fn [[_ v]] [(symbol (name v)) nil]))
+                                                                        yang/library-adapters)}
+                                    export (keys exports)]
+                                (symbol (str module) (name export)))))]
+    (letfn [(scan [node bound]
+              (case (:type node)
+                :variable (if (or (contains? globals (:name node))
+                                  (contains? bound (:name node))) #{} #{(:name node)})
+                :literal #{}
+                :lambda (scan (:body node) (into bound (:params node)))
+                :application (into (scan (:operator node) bound)
+                                   (mapcat #(scan % bound)) (:operands node))
+                :if (into #{} (mapcat #(scan (get node %) bound))
+                          [:test :consequent :alternate])
+                (throw (ex-info "Unexpected AST in context admission" {:type (:type node)}))))]
+      (scan ast #{}))))
+
+
 (defn- run-outcome
   "Compile `forms` plus `call-form` (with the library definitions they need)
    and return the RAW outcome of the call: the value channel carries
    [tag payload]. Every fixture runs on walker and semantic lanes under the
    same finite instruction budget."
-  [forms call-form]
-  (let [program (into [] (concat forms [call-form]))
-        ast (yang/compile-program (into (yang/library-for program) program) true arg-vector-opts)
-        modules (oracle-registry)
-        walker (compiler-test/run-guest-ast ast modules :walker 1000000)
-        semantic (compiler-test/run-guest-ast ast modules :semantic 1000000)]
-    (is (= walker semantic) (str "oracle lanes agree: " (pr-str call-form)))
-    (is (= (result-shape walker) (result-shape semantic))
-        (str "oracle lane shapes and metadata agree: " (pr-str call-form)))
-    walker))
+  ([forms call-form] (run-outcome forms call-form (oracle-registry)))
+  ([forms call-form modules] (run-outcome forms call-form modules false))
+  ([forms call-form modules closed?]
+   (let [program (into [] (concat forms [call-form]))
+         program (into (yang/library-for program) program)
+         ast (yang/compile-program program true arg-vector-opts)
+         _ (when closed?
+             (let [unbound (unbound-ast-symbols ast program)]
+               (when (seq unbound)
+                 (throw (ex-info "Unadmitted context dependencies" {:symbols unbound})))
+               (is (empty? unbound) "context program is closed over its supplied modules")))
+         walker (compiler-test/run-guest-ast ast modules :walker 1000000)
+         semantic (compiler-test/run-guest-ast ast modules :semantic 1000000)]
+     (is (= walker semantic) (str "oracle lanes agree: " (pr-str call-form)))
+     (is (= (result-shape walker) (result-shape semantic))
+         (str "oracle lane shapes and metadata agree: " (pr-str call-form)))
+     walker)))
 
 
 (defn- run-on-vm
@@ -455,8 +496,9 @@
 ;; =============================================================================
 
 (defn- desugar
-  "Drop corpus namespace aliases for guest calls. Only finite utils/zip
-   admits eager lazy-seq adaptation; cond and if-let are compiler forms."
+  "Drop corpus namespace aliases and normalize reader-generated fn* to fn.
+   Only finite utils/zip admits eager lazy-seq adaptation; cond and if-let
+   are compiler forms."
   [form]
   (let [finite-zip? (and (seq? form) (= 'defn (first form)) (= 'zip (second form)))]
     (walk/postwalk
@@ -465,6 +507,7 @@
           (and (seq? f) (= 'lazy-seq (first f)))
           (if finite-zip? (second f)
               (throw (ex-info "Only finite utils/zip admits eager lazy-seq adaptation" {})))
+          (= f 'fn*) 'fn
           (and (symbol? f) (#{"stx" "defenv" "nbe" "norm" "utils" "set"} (namespace f)))
           (symbol (name f))
           :else f))
@@ -799,3 +842,501 @@
            (run-outcome forms
                         '(let [s (zip '(a A b B))]
                            [(seq? s) (count s) (first s) (rest s) (conj s :front)]))))))
+
+
+;; =============================================================================
+;; Slice 8: immutable kernel state and explicit extension installation
+;; =============================================================================
+
+(def ^:private context-source
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/context.edn"))))
+
+
+(defn- context-upstream-form
+  "Keep the upstream implementation, changing only the environment boundary
+   and module-local names. Both delta implementations read the SAME binding."
+  [ns-sym fname]
+  (let [renames (if (#{'latte_kernel.nbe 'latte_kernel.norm} ns-sym)
+                  {'delta-reduction (symbol (str (last (str/split (clojure.core/name ns-sym) #"\.")) "-delta"))
+                   'instantiate-def (symbol (str (last (str/split (clojure.core/name ns-sym) #"\.")) "-instantiate"))}
+                  {})]
+    (walk/postwalk
+      (fn [x]
+        (cond
+          (and (seq? x) (#{'deref 'clojure.core/deref} (first x))
+               (= '+unfold-implicit+ (second x))) '(:unfold-implicit def-env)
+          (contains? '{get-in lookup-in not-empty context-not-empty
+                       ffirst context-ffirst list* context-list-star} x)
+          (get '{get-in lookup-in not-empty context-not-empty
+                 ffirst context-ffirst list* context-list-star} x)
+          (symbol? x) (get renames x x)
+          :else x))
+      (desugar (get top-forms [ns-sym fname])))))
+
+
+(def ^:private context-forms
+  (into context-source
+        (concat
+          (map #(context-upstream-form 'latte_kernel.syntax %)
+               '[kind? type? variable? binder? lambda? prod? app? ascription? ref?
+                 host-constant? binderify free-vars vars mk-fresh subst- rebinder subst])
+          (map #(context-upstream-form 'latte_kernel.nbe %) '[instantiate-def delta-reduction])
+          (map #(context-upstream-form 'latte_kernel.norm %) '[instantiate-def delta-reduction])
+          [(context-upstream-form 'latte_kernel.proof 'elab-proof)]
+          (map #(context-upstream-form 'latte_kernel.unparser %)
+               '[unparse-term-once unparse-term-rec prod-impl-unparser])
+          '[(defn unparse [kernel term]
+              (first (unparse-term-rec (:unparser-registry kernel) (unparser-order kernel) term)))
+            (defn install-fundamental-unparsers [kernel]
+              (register-unparser kernel :fundamental :prod-impl prod-impl-unparser))])))
+
+
+(defn- context-for
+  "The transitive source dependency closure, preserving upstream order."
+  [program]
+  (let [by-name (into {} (map (juxt second identity)) context-forms)
+        mentions (fn [form] (filter #(contains? by-name %) (walk-symbols form)))
+        needed (loop [todo (seq (mapcat mentions program)) seen #{}]
+                 (if-let [n (first todo)]
+                   (if (contains? seen n)
+                     (recur (next todo) seen)
+                     (recur (concat (next todo) (mentions (get by-name n))) (conj seen n)))
+                   seen))]
+    (filterv #(contains? needed (second %)) context-forms)))
+
+
+(defn- context-host-form
+  "B is ordinary Clojure over the checked-in adaptation. The sole guest
+   outcome intrinsic becomes the equivalent host catch; data primitives and
+   deterministic gensym retain exactly their portable contracts."
+  [form]
+  (walk/postwalk
+    (fn [x]
+      (cond
+        (and (seq? x) (= 'yin.k/outcome-of (first x)))
+        `(try [:yin.k/ok ~(second x)]
+              (catch clojure.lang.ExceptionInfo e#
+                [:yin.k/error {:yin.k/message (ex-message e#) :yin.k/data (ex-data e#)}]))
+        (and (seq? x) (= 'gensym (first x)))
+        (list 'symbol (list 'str (second x) (nth x 2)))
+        (= x 'data/dissoc) 'clojure.core/dissoc
+        :else x))
+    form))
+
+
+(defn- context-b
+  [forms call]
+  (let [ns-sym (gensym "latte-context-b-")
+        sandbox (create-ns ns-sym)]
+    (try
+      (binding [*ns* sandbox]
+        (refer 'clojure.core)
+        (require '[clojure.set :refer [union difference]])
+        (eval '(declare subst- rebinder subst))
+        (doseq [form (concat (context-for (conj forms call)) forms)] (eval (context-host-form form)))
+        (a-leg (eval (context-host-form (list 'fn [] call))) []))
+      (finally (remove-ns ns-sym)))))
+
+
+(defn- context-bc
+  [forms call]
+  (let [b (context-b forms call)
+        c (run-outcome (into (context-for (conj forms call)) forms) call (oracle-registry yang/kind-module) true)]
+    (is (agrees? b c) (str "context B/C " (pr-str call) " B=" (pr-str b) " C=" (pr-str c)))
+    (when (contains? b :value)
+      (is (= (result-shape (:value b)) (result-shape (second c)))
+          "B/C preserve collection families and domain metadata"))
+    c))
+
+
+(def ^:private initial-context
+  '(kernel-context [{} {}] definition-opacity missing-unfold-implicit))
+
+
+(deftest test-oracle-slice8-context-isolation
+  (let [call (walk/postwalk-replace
+               {'INITIAL initial-context}
+               '(let [k0 INITIAL other INITIAL
+                      d (->Definition 'd [] 0 'body #{} 'T {})
+                      k1 (register-definition k0 d)
+                      k2 (register-definition k1 (->Axiom 'a [] 0 'T) true)
+                      [fresh k3] (fresh-name k2 "fresh")
+                      [fresh2 k4] (fresh-name k3 "fresh")]
+                  [(fetch-definition k0 'd) (fetch-definition other 'd)
+                   (fetch-definition k1 'd) (fetch-definition k2 'a true)
+                   (fetch-definition k2 'd true) (qualify-def k2 'd)
+                   fresh fresh2 (:fresh k0) (:fresh k2) (:fresh k3) (:fresh k4)]))
+        [_ result] (context-bc [] call)]
+    (is (= (first result) (second result)))
+    (is (= [:ko {:msg "No such (global) definition" :def 'd}] (first result)))
+    (is (= ['fresh0 'fresh1 0 0 1 2] (subvec result 6))))
+  (testing "no namespace fallback, even when a host name resolves"
+    (is (= [:yin.k/ok [:ko {:msg "No such (global) definition" :def 'clojure.core/map}]]
+           (context-bc [] (list 'fetch-definition initial-context ''clojure.core/map)))))
+  (testing "missing installations and bad names are explicit outcomes"
+    (doseq [call [(list 'qualify-def initial-context ''missing)
+                  (list 'fetch-definition initial-context 5)
+                  '(let [k (kernel-context [{} {}] missing-opacity-policy missing-unfold-implicit)
+                         k (register-definition k (->Definition 'd [] 0 'body #{} 'T {}))]
+                     (elab-opaque k '[d]))]]
+      (is (= :yin.k/error (first (context-bc [] call)))))))
+
+
+(defn- upstream-record-data
+  "Declare only the five approved record representations equivalent. Kind
+   and every field survive normalization; arbitrary host objects do not."
+  [x]
+  (let [predicates [['latte-kernel.defenv/definition? :definition]
+                    ['latte-kernel.defenv/theorem? :theorem]
+                    ['latte-kernel.defenv/axiom? :axiom]
+                    ['latte-kernel.defenv/notation? :notation]
+                    ['latte-kernel.defenv/implicit? :implicit]]]
+    (walk/postwalk
+      (fn [v]
+        (if-let [kind (some (fn [[pred kind]] (when ((upstream-fn pred) v) kind)) predicates)]
+          (assoc (into {} v) :latte/kind kind)
+          v))
+      x)))
+
+
+(deftest test-oracle-slice8-definition-kinds-and-delta
+  (doseq [[ctor args term-args] [['->Definition '['d [] 0 'body #{} 'T {}]]
+                       ['->Definition '['opaque [] 0 'body #{} 'T {:opaque true}]]
+                       ['->Axiom '['a [] 0 'T]]
+                       ['->Theorem '['proved [] 0 'T 'proof]]
+                       ['->Theorem '['unproved [] 0 'T nil]]
+                       ['->Definition '['empty [] 0 nil #{} 'T {}]]
+                       ['->Definition '['param '[[x T]] 1 'x #{} 'T {}] ['arg]]
+                       ['->Definition '['partial '[[x T]] 1 'x #{} 'T {}]]
+                       ['->Definition '['too-many [] 0 'body #{} 'T {}] ['arg]]]
+          ns-sym ['latte_kernel.nbe 'latte_kernel.norm]
+          :let [record (apply (upstream-fn (symbol "latte-kernel.defenv" (name ctor))) (map eval args))
+                name (:name record)
+                env ((upstream-fn 'latte-kernel.defenv/register-definition) [{} {}] record)
+                a (upstream-record-data
+                    (a-leg (upstream-fn (symbol (str/replace (str ns-sym) "_" "-") "delta-reduction"))
+                           [env [] (apply list name term-args)]))
+                call (list 'let ['k (list 'register-definition initial-context (cons ctor args))]
+                           (list (symbol (str (last (str/split (clojure.core/name ns-sym) #"\.")) "-delta")) 'k [] (list 'quote (apply list name term-args))))
+                c (context-bc [] call)]]
+    (is (agrees? a c) (str "A/B/C " ctor " " name " " ns-sym)))
+  (testing "all five explicit predicates distinguish plain maps and each other"
+    (is (= [:yin.k/ok [true true true true true false false]]
+           (context-bc []
+             '(let [n (->Notation 'n (fn [x] x)) i (->Implicit 'i (fn [k ctx x] x))]
+                [(definition? (->Definition 'd [] 0 'b #{} 'T {}))
+                 (theorem? (->Theorem 't [] 0 'T nil)) (axiom? (->Axiom 'a [] 0 'T))
+                 (notation? n) (implicit? i) (definition? n) (latte-definition? {})])))))
+  (testing "notation extension functions execute inside the guest"
+    (let [a ((:notation-fn ((upstream-fn 'latte-kernel.defenv/->Notation) 'n (fn [x] ['expanded x]))) 7)]
+      (is (= [:yin.k/ok a]
+             (context-bc [] '(let [n (->Notation 'n (fn [x] ['expanded x]))]
+                              ((:notation-fn n) 7))))))))
+
+
+(def ^:private slice8-sequences
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/slice8_sequences.edn"))))
+
+
+(def ^:private registry-replay
+  '[(defn registry-snapshot [k]
+      (let [r (:unparser-registry k)]
+        [(:fundamental r) (:standard r) (:user r) (into #{} (keys (:unparsers r)))
+         (unparse k 'x)]))
+    (defn replay-registry [k operations]
+      (loop [k k operations operations snapshots [(registry-snapshot k)]]
+        (if (seq operations)
+          (let [[op a b c] (first operations)
+                k (case op
+                    :register (register-unparser k a b c)
+                    :register-default (register-unparser k a b)
+                    :unregister (unregister-unparser k a))]
+            (recur k (rest operations) (conj snapshots (registry-snapshot k))))
+          snapshots)))])
+
+
+(defn- a-registry-sequence
+  [operations]
+  (let [registry-var (upstream-fn 'latte-kernel.unparser/+unparser-registry+)
+        initial {:fundamental [] :standard [] :user [] :unparsers {}}]
+    (with-redefs-fn {registry-var (atom initial)}
+      (fn []
+        (let [snapshot (fn []
+                         (let [r @@registry-var]
+                           [(:fundamental r) (:standard r) (:user r) (set (keys (:unparsers r)))
+                            ((upstream-fn 'latte-kernel.unparser/unparse) 'x)]))]
+          (reduce (fn [snapshots [op a b c]]
+                    (case op
+                      :register ((upstream-fn 'latte-kernel.unparser/register-unparser!) a b (eval c))
+                      :register-default ((upstream-fn 'latte-kernel.unparser/register-unparser!) a (eval b))
+                      :unregister ((upstream-fn 'latte-kernel.unparser/unregister-unparser!) a))
+                    (conj snapshots (snapshot)))
+                  [(snapshot)] operations))))))
+
+
+(deftest test-oracle-slice8-registry-sequences
+  (let [ops (:registry slice8-sequences)
+        a (a-registry-sequence ops)
+        c (context-bc registry-replay (list 'replay-registry initial-context ops))]
+    (is (= [:yin.k/ok a] c) "every installation/replacement/removal snapshot matches upstream"))
+  (testing "fundamental installation, category order and recursive unparsing"
+    (let [registry-var (upstream-fn 'latte-kernel.unparser/+unparser-registry+)
+          a (with-redefs-fn {registry-var (atom {:fundamental [] :standard [] :user [] :unparsers {}})}
+              (fn []
+                ((upstream-fn 'latte-kernel.unparser/install-fundamental-unparsers!))
+                ((upstream-fn 'latte-kernel.unparser/unparse) '(Π [x A] (Π [y B] C)))))]
+      (is (= [:yin.k/ok a]
+             (context-bc [] (list 'unparse (list 'install-fundamental-unparsers initial-context)
+                                  ''(Π [x A] (Π [y B] C))))))))
+  (testing "prior contexts retain closure-containing registries"
+    (is (= [:yin.k/ok ['changed 'x 'x]]
+           (context-bc []
+             (list 'let ['k0 initial-context
+                         'k1 '(register-unparser k0 :u (fn [t] ['changed true]))
+                         'k2 '(unregister-unparser k1 :u)]
+                   '[(unparse k1 'x) (unparse k0 'x) (unparse k2 'x)])))))
+  (doseq [[host-call guest-call] [['latte-kernel.unparser/unregister-unparser! '(unregister-unparser K :absent)]
+                                 ['latte-kernel.unparser/register-unparser! '(register-unparser K :bad :x (fn [t] [t false]))]]]
+    (let [a (if (= host-call 'latte-kernel.unparser/unregister-unparser!)
+              (a-leg (upstream-fn host-call) [:absent])
+              (a-leg (upstream-fn host-call) [:bad :x identity]))
+          c (context-bc [] (walk/postwalk-replace {'K initial-context} guest-call))]
+      (is (agrees? a c)))))
+
+
+(def ^:private opacity-replay
+  '[(defn opacity-snapshot [k]
+      [(is-opaque? (second (fetch-definition k 'd)))
+       (nbe-delta k [] '(d)) (norm-delta k [] '(d))])
+    (defn replay-opacity [k operations]
+      (loop [k k operations operations snapshots [(opacity-snapshot k)]]
+        (if (seq operations)
+          (let [[status [next-k ctx deps uses]]
+                (elab-proof-step k [] [] {} (first operations) '[d])]
+            (recur next-k (rest operations) (conj snapshots (opacity-snapshot next-k))))
+          snapshots)))])
+
+
+(defn- a-opacity-sequence
+  [operations]
+  (let [ns-sym (gensym "latte-opacity-a-")
+        sandbox (create-ns ns-sym)
+        ddef ((upstream-fn 'latte-kernel.defenv/->Definition) 'd [] 0 'body #{} 'T {})
+        dvar (intern sandbox 'd ddef)
+        opacity-var (upstream-fn 'latte-kernel.proof/+opacity-fn+)]
+    (try
+      (binding [*ns* sandbox]
+        (with-redefs-fn {opacity-var (atom (fn [v flag] (alter-var-root v assoc-in [:opts :opaque] flag)))}
+          (fn []
+            (let [snapshot (fn []
+                             [((upstream-fn 'latte-kernel.proof/is-opaque?) @dvar)
+                              ((upstream-fn 'latte-kernel.nbe/delta-reduction) [{} {}] [] '(d))
+                              ((upstream-fn 'latte-kernel.norm/delta-reduction) [{} {}] [] '(d))])]
+              (reduce (fn [snapshots op]
+                        ((upstream-fn (if (= :opaque op) 'latte-kernel.proof/elab-opaque
+                                        'latte-kernel.proof/elab-transparent)) [{} {}] '[d])
+                        (conj snapshots (snapshot)))
+                      [(snapshot)] operations)))))
+      (finally (remove-ns ns-sym)))))
+
+
+(deftest test-oracle-slice8-opacity-propagation
+  (let [ops (:opacity slice8-sequences)
+        call (list 'replay-opacity
+                   (list 'register-definition initial-context '(->Definition 'd [] 0 'body #{} 'T {}))
+                   ops)]
+    (is (= [:yin.k/ok (a-opacity-sequence ops)] (context-bc opacity-replay call))))
+  (testing "local shadowing is updated in place; old/global contexts stay transparent"
+    (is (= [:yin.k/ok [[nil ['global true]] [true ['(d) false]] [nil ['global true]]]]
+           (context-bc []
+             (list 'let ['base initial-context
+                         'global '(register-definition base (->Definition 'd [] 0 'global #{} 'T {}))
+                         'local '(register-definition global (->Definition 'd [] 0 'local #{} 'T {}) true)
+                         'opaque '(elab-opaque local '[d])]
+                   '[(vector (is-opaque? (second (fetch-definition global 'd)))
+                             (nbe-delta global [] '(d)))
+                     (vector (is-opaque? (second (fetch-definition opaque 'd)))
+                             (nbe-delta opaque [] '(d)))
+                     (vector (is-opaque? (second (fetch-definition global 'd)))
+                             (nbe-delta global [] '(d)))])))))
+  (testing "duplicate transitions fail, and the context's original definition remains"
+    (doseq [[flag step message] [[true :opaque ":opaque fails: definition is already opaque"]
+                                 [false :transparent ":transparent fails: definition is not opaque"]]]
+      (let [call (list 'elab-proof-step
+                       (list 'register-definition initial-context
+                             (list '->Definition ''d [] 0 ''body #{} ''T {:opaque flag}))
+                       [] [] {} step ''[d])
+            c (context-bc [] call)]
+        (is (= [:yin.k/error {:yin.k/message message :yin.k/data {:name 'd}}] c)))))
+  (testing "diagnostic proof arms preserve state and produce no hidden output"
+    (doseq [step [:print-term :print-type :print-def :print-defenv]]
+      (is (= [:yin.k/ok [0 [{} {}]]]
+             (context-bc []
+               (list 'let ['result (list 'elab-proof-step initial-context [] [] {} step [])
+                           'k '(first (second result))]
+                     '[(:fresh k) (:definitions k)])))))))
+
+
+(def ^:private host-constant-unfold
+  ;; This admitted typed boundary is checked against the ACTUAL upstream
+  ;; typing/unfold-implicit, using only host-constant arguments (no inference).
+  '[(defn unfold-host-constants [kernel ctx ddef args]
+      (unfold-typed-implicit kernel ctx ddef (mapv second args) (mapv second args)))])
+
+
+(deftest test-oracle-slice8-shared-implicit-installation
+  (doseq [fn-form ['(fn [k ctx x] x)
+                   '(fn [k ctx x] (throw (ex-info "extension failed" {:msg "data wins" :extra 7})))]]
+    (let [implicit ((upstream-fn 'latte-kernel.defenv/->Implicit) 'i (eval fn-form))
+          args '([:latte-kernel.presyntax/host-constant 7])
+          a ((upstream-fn 'latte-kernel.typing/unfold-implicit) [{} {}] [] implicit args)
+          c (context-bc host-constant-unfold
+              (list 'let ['k (list 'install-unfold-implicit initial-context 'unfold-host-constants)
+                          'i (list '->Implicit ''i fn-form)]
+                    (list 'unfold-host-constants 'k [] 'i (list 'quote args))))]
+      (is (= [:yin.k/ok a] c) "actual upstream catch and argument assembly, A/B/C")))
+  (let [norm-binding (upstream-fn 'latte-kernel.norm/+unfold-implicit+)
+        nbe-binding (upstream-fn 'latte-kernel.nbe/+unfold-implicit+)
+        args '([:latte-kernel.presyntax/host-constant 7])
+        implicit ((upstream-fn 'latte-kernel.defenv/->Implicit) 'i (fn [_ _ x] x))
+        env ((upstream-fn 'latte-kernel.defenv/register-definition) [{} {}] implicit)
+        a (with-redefs-fn {norm-binding (atom nil) nbe-binding (atom nil)}
+            (fn []
+              (let [f (upstream-fn 'latte-kernel.typing/unfold-implicit)
+                    delta (fn []
+                            [((upstream-fn 'latte-kernel.nbe/delta-reduction) env [] (cons 'i args))
+                             ((upstream-fn 'latte-kernel.norm/delta-reduction) env [] (cons 'i args))])]
+                ((upstream-fn 'latte-kernel.norm/install-unfold-implicit!) f)
+                (let [first-result (delta)]
+                  ((upstream-fn 'latte-kernel.norm/install-unfold-implicit!) (fn [_ _ _ args] [:ok 'replacement args]))
+                  [first-result (delta) (identical? @@norm-binding @@nbe-binding)]))))
+        call (list 'let ['k0 (list 'register-definition initial-context '(->Implicit 'i (fn [k ctx x] x)))
+                         'k1 '(install-unfold-implicit k0 unfold-host-constants)
+                         'k2 '(install-unfold-implicit k1 (fn [k ctx ddef args] [:ok 'replacement args]))]
+                   '[(vector (nbe-delta k1 [] '(i [:latte-kernel.presyntax/host-constant 7]))
+                             (norm-delta k1 [] '(i [:latte-kernel.presyntax/host-constant 7])))
+                     (vector (nbe-delta k2 [] '(i [:latte-kernel.presyntax/host-constant 7]))
+                             (norm-delta k2 [] '(i [:latte-kernel.presyntax/host-constant 7])))
+                     true])]
+    (is (= [:yin.k/ok a] (context-bc host-constant-unfold call))))
+  (testing "extension installation is isolated and old bindings retain their value"
+    (is (= [:yin.k/ok [true false true]]
+           (context-bc []
+             (list 'let ['k0 initial-context
+                         'k1 '(install-unfold-implicit k0 (fn [k ctx d args] [:ok 'installed args]))
+                         'k2 '(install-opacity-function k1 missing-opacity-policy)]
+                   '[(= (:unfold-implicit k0) missing-unfold-implicit)
+                     (= (:unfold-implicit k1) (:unfold-implicit k0))
+                     (= (:opacity-policy k0) definition-opacity)]))))))
+
+
+(deftest test-oracle-slice8-context-reconstruction
+  (let [program [(list 'let ['checkpoint
+                              (list 'let ['base initial-context 'offset 4]
+                                    '(register-unparser base :captured
+                                       (fn [term] [(+ offset term) true])))]
+                        '(unparse checkpoint 3))]
+        forms (into (context-for program) program)
+        ast (yang/compile-program (into (yang/library-for forms) forms) true arg-vector-opts)
+        modules (oracle-registry yang/kind-module)]
+    (is (vm/plain-data? context-source) "adaptation is plain code data")
+    (is (vm/plain-data? ast) "runtime closures are never embedded as literals")
+    (testing "code rows round-trip and reconstruct the closure registry on both lanes"
+      (let [[_root datoms] (vm/ast->datoms-with-root ast)
+            rebuilt (vm/datoms->ast (cbor/decode (cbor/encode datoms)))]
+        (doseq [lane [:walker :semantic]]
+          (is (= [:yin.k/ok 7] (compiler-test/run-guest-ast rebuilt modules lane 1000000))))))
+    (testing "a live registry with a captured guest closure survives UCF reconstruction"
+      (let [code (vm/ast->semantic-bytecode ast)
+            bytecode (:vector (linearize/project-rows code))
+            source-index {(ucf/code-address bytecode) #{(:root code)}}
+            machine (semantic/load-vector (rows-support/new-machine {:modules modules})
+                                          bytecode vm/semantic-contract)
+            checkpoint (loop [m machine n 0]
+                         (cond
+                           (get-in m [:env 'checkpoint]) m
+                           (or (vm/halted? m) (= n 1000000))
+                           (throw (ex-info "Context checkpoint was not reached" {:steps n}))
+                           :else (recur (vm/step m) (inc n))))
+            k (get-in checkpoint [:env 'checkpoint])
+            _ (is (values/closure? (get-in k [:unparser-registry :unparsers :captured])))
+            _ (is (vm/machine-data? k))
+            wire (rows/lift-task checkpoint (rows-support/serve-table) {:source-index source-index})
+            _ (is (vm/plain-data? wire) "serialized context contains code references, not host closures")
+            {:keys [attach!]} (rows-support/attacher)
+            restored (rows/lower-task (rows-support/new-machine {:modules modules})
+                                     (cbor/decode (cbor/encode wire)) attach!)
+            k' (get-in restored [:env 'checkpoint])]
+        (is (values/closure? (get-in k' [:unparser-registry :unparsers :captured])))
+        (is (= [:yin.k/ok 7] (vm/value (vm/run restored))))
+        (is (= [:yin.k/ok 7] (vm/value (vm/run checkpoint)))))))
+  (testing "host callbacks cannot enter code data through registry literals"
+    (is (thrown? Exception
+                 (encoder/project
+                   (encoder/source-envelope
+                     :program "slice8-host-callback-refusal"
+                     [{:type :literal :value {:unparser-registry {:unparsers {:bad identity}}}}]))))))
+
+
+(deftest test-oracle-slice8-admission
+  (let [symbols (set (filter symbol? (tree-seq coll? seq context-forms)))
+        ambient '#{atom swap! reset! deref clojure.core/deref resolve var? alter-var-root
+                   defrecord println print pprint pp/pprint nano-time System/nanoTime}]
+    (is (empty? (filter symbols ambient)) "context source has no ambient state, host lookup or diagnostics")
+    (is (vm/plain-data? context-forms)))
+  (testing "free-symbol admission catches undeclared guest dependencies before execution"
+    (is (= '#{missing-extension}
+           (unbound-ast-symbols (yang/compile '(fn [x] (missing-extension x))) []))))
+  (testing "context modules reject host namespace and Var operations at admission"
+    (doseq [call ['(resolve 'clojure.core/map) '(var? 5)]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unadmitted context dependencies"
+                           (run-outcome [] call (oracle-registry yang/kind-module) true))))))
+
+
+(deftest test-oracle-slice8-implicit-delta-errors
+  (let [fail-form '(fn [kernel ctx x]
+                    (throw (ex-info "extension failed" {:msg "data wins" :extra 7})))
+        implicit ((upstream-fn 'latte-kernel.defenv/->Implicit) 'i (eval fail-form))
+        env ((upstream-fn 'latte-kernel.defenv/register-definition) [{} {}] implicit)
+        term '(i [:latte-kernel.presyntax/host-constant 7])]
+    (doseq [[a-name c-name] [['latte-kernel.nbe/delta-reduction 'nbe-delta]
+                             ['latte-kernel.norm/delta-reduction 'norm-delta]]]
+      (let [a (with-redefs-fn {(upstream-fn 'latte-kernel.norm/+unfold-implicit+) (atom nil)
+                              (upstream-fn 'latte-kernel.nbe/+unfold-implicit+) (atom nil)}
+                (fn []
+                  ((upstream-fn 'latte-kernel.norm/install-unfold-implicit!)
+                   (upstream-fn 'latte-kernel.typing/unfold-implicit))
+                  (a-leg (upstream-fn a-name) [env [] term])))
+            c (context-bc host-constant-unfold
+                (list 'let ['k (list 'register-definition
+                                     (list 'install-unfold-implicit initial-context 'unfold-host-constants)
+                                     (list '->Implicit ''i fail-form))]
+                      (list c-name 'k [] (list 'quote term))))]
+        (is (agrees? a c))))))
+
+
+(defn- a-opacity-proof
+  [script]
+  (let [ns-sym (gensym "latte-proof-a-")
+        sandbox (create-ns ns-sym)
+        ddef ((upstream-fn 'latte-kernel.defenv/->Definition) 'd [] 0 'body #{} 'T {})]
+    (try
+      (intern sandbox 'd ddef)
+      (binding [*ns* sandbox]
+        (with-redefs-fn {(upstream-fn 'latte-kernel.proof/+opacity-fn+)
+                        (atom (fn [v flag] (alter-var-root v assoc-in [:opts :opaque] flag)))}
+          #(a-leg (upstream-fn 'latte-kernel.proof/elab-proof) [[{} {}] [] script])))
+      (finally (remove-ns ns-sym)))))
+
+
+(deftest test-oracle-slice8-upstream-proof-loop
+  (testing "the original proof loop threads updated contexts across state steps"
+    (doseq [script ['((:opaque d) (:transparent d) (:opaque d) (:transparent d))
+                    '((:opaque d) (:opaque d))
+                    '((:opaque d) (:transparent d) (:transparent d))]]
+      (let [a (a-opacity-proof script)
+            c (context-bc []
+                (list 'elab-proof
+                      (list 'register-definition initial-context '(->Definition 'd [] 0 'body #{} 'T {}))
+                      [] (list 'quote script)))]
+        (is (agrees? a c) "A uses updated Vars; B/C use the returned definition environment")))))

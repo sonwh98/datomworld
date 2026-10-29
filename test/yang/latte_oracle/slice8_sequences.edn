@@ -1,0 +1,22 @@
+;; Recorded deterministic operation sequences, adaptation v1; A runs pinned
+;; upstream operations with fresh atoms/Vars, B/C replay immutable contexts.
+{:registry
+ [[:register :fundamental :f (fn [t] (if (= t (quote x)) [(quote fundamental) true] [t false]))]
+  [:register :standard :s (fn [t] (if (= t (quote x)) [(quote standard) true] [t false]))]
+  [:register :user :u (fn [t] (if (= t (quote x)) [(quote user) true] [t false]))]
+  [:register :standard :f (fn [t] (if (= t (quote x)) [(quote replacement) true] [t false]))]
+  [:unregister :s]
+  [:register-default :v (fn [t] (if (= t (quote x)) [(quote default) true] [t false]))]
+  [:unregister :f]
+  [:unregister :v]
+  [:unregister :u]]
+ :opacity [:opaque :transparent :opaque :transparent]
+ :departures
+ {:records :five-tagged-kinds
+  :namespace-and-vars :explicit-definitions-only
+  :diagnostics :dropped-v1
+  :time :excluded
+  :fresh-names :explicit-counter
+  :implicit-arguments :typed-boundary-from-slice5
+  :proof-steps :state-and-diagnostic-arms-only-until-slice9
+  :unregister-user :upstream-standard-list-behavior-preserved}}
