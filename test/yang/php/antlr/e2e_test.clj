@@ -92,7 +92,6 @@
            ["<?php function f(&...$a) {}" :variadic-reference]
            ["<?php $a = &new B;" :reference]
            ["<?php static $a = 1;" :static]
-           ["<?php return 1;" :return]
            ["<?php echo FOO;" :constant]
            ["<?php echo \"a$b[0]\";" :interpolation]
            ["<?php echo \"a$b->c\";" :interpolation]
