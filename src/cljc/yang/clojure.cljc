@@ -1276,6 +1276,106 @@
      :tail? true}))
 
 
+;; =============================================================================
+;; case and the standard control forms as compile-time lowerings (slice 6)
+;; =============================================================================
+;;
+;; These are compiler forms, not runtime macros: each rewrites to if/let/do
+;; and compiles the result, so tail position and any later lowering of those
+;; primitives apply to them unchanged. Temporaries bind through the internal
+;; `dsg__let` (no binder check) under the reserved prefix; the name carries a
+;; nesting depth so an expansion inside an expansion never shadows its parent.
+;;
+;;   (case e k1 v1 (k2 k3) v2 default)
+;;   =>  (dsg__let [dsg__case0 e]
+;;         (if (= dsg__case0 'k1) v1
+;;           (if (if (= dsg__case0 'k2) true (= dsg__case0 'k3)) v2 default)))
+;;
+;; Constants are data (quoted), never evaluated. Without a default the
+;; fall-through applies the unbound `dsg__case-no-match` to the quoted form
+;; name and the scrutinee, so no match is a runtime failure, never nil.
+
+(defn- gen-name
+  [env tag]
+  (symbol (str reserved-prefix tag (::gen-depth env 0))))
+
+
+(defn- deeper
+  [env]
+  (update env ::gen-depth (fnil inc 0)))
+
+
+(defn- constant-test
+  [g constant]
+  (list '= g (if (or (symbol? constant) (seq? constant) (vector? constant)
+                     (map? constant) (set? constant))
+               (list 'quote constant)
+               constant)))
+
+
+(defn- case-clause-test
+  [g k]
+  (if (seq? k)
+    (reduce (fn [else c] (list 'if (constant-test g c) true else))
+            false
+            (reverse k))
+    (constant-test g k)))
+
+
+(defn- expand-case
+  [operands g]
+  (when (empty? operands)
+    (reject! "case requires an expression" {}))
+  (let [[e & clauses] operands
+        pairs (partition 2 clauses)
+        default? (odd? (count clauses))
+        constants (mapcat (fn [[k _]] (if (seq? k) k [k])) pairs)]
+    (when (empty? clauses)
+      (reject! "case requires at least one clause" {:form (cons 'case operands)}))
+    (when-not (apply distinct? (or (seq constants) [::none]))
+      (reject! "case has duplicate test constants"
+               {:duplicates (keys (remove (comp #{1} val) (frequencies constants)))}))
+    (list 'dsg__let [g e]
+          (reduce (fn [else [k v]] (list 'if (case-clause-test g k) v else))
+                  (if default?
+                    (last clauses)
+                    (list 'dsg__case-no-match ''case g))
+                  (reverse pairs)))))
+
+
+(defn- expand-cond
+  [operands]
+  (when (odd? (count operands))
+    (reject! "cond requires an even number of forms" {:operands operands}))
+  (reduce (fn [else [t e]] (list 'if t e else))
+          nil
+          (reverse (partition 2 operands))))
+
+
+(defn- check-test-binding!
+  [operator bindings]
+  (when-not (and (vector? bindings) (= 2 (count bindings)))
+    (reject! (str operator " requires a vector of one binding and a test")
+             {:bindings bindings})))
+
+
+(defn- expand-if-let
+  [operator operands g]
+  (let [[bindings then else] operands]
+    (check-test-binding! operator bindings)
+    (let [[b t] bindings
+          bound (list 'let [b g] then)]
+      (list 'dsg__let [g t]
+            (if (= 'if-some operator)
+              (list 'if (list '= g nil) else bound)
+              (list 'if g bound else))))))
+
+
+(defn- compile-lowered
+  [form tail? env macro-env]
+  (compile-form form tail? (deeper env) macro-env))
+
+
 (defn compile-quote
   "Compile a quoted form to Universal AST.
 
@@ -1356,27 +1456,49 @@
           dsg__let (compile-let-simple (first operands) (body-expression (rest operands))
                                        env tail? macro-env)
           recur (compile-recur operands env tail? macro-env)
+          ;; Internal let for generated temporaries: flat symbol bindings, no
+          ;; reserved-prefix check (user binders still get it)
+          dsg__let (let [[bindings body] operands]
+                     (compile-let-simple bindings body env tail? macro-env))
+          case (compile-lowered (expand-case operands (gen-name env "case"))
+                                tail? env macro-env)
+          cond (compile-lowered (expand-cond operands) tail? env macro-env)
+          when (let [[test & body] operands]
+                 (compile-lowered (list 'if test (cons 'do body) nil)
+                                  tail? env macro-env))
+          if-let (compile-lowered (expand-if-let operator operands
+                                                 (gen-name env "iflet"))
+                                  tail? env macro-env)
+          if-some (compile-lowered (expand-if-let operator operands
+                                                  (gen-name env "ifsome"))
+                                   tail? env macro-env)
+          when-let (let [[bindings & body] operands]
+                     (compile-lowered (list 'if-let bindings (cons 'do body) nil)
+                                      tail? env macro-env))
+          when-some (let [[bindings & body] operands]
+                      (compile-lowered (list 'if-some bindings (cons 'do body) nil)
+                                       tail? env macro-env))
           ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
           ;; (and)       → true
           ;; (and x)     → x
-          ;; (and x y z) → (let [g x] (if g (and y z) g))
+          ;; (and x y z) → (dsg__let [g x] (if g (and y z) g))
           and (cond
                 (empty? operands) {:type :literal :value true}
                 (= 1 (count operands)) (compile-form (first operands) tail? env macro-env)
-                :else (let [g (gensym "and__")]
-                        (compile-form (list 'let [g (first operands)]
-                                            (list 'if g (cons 'and (rest operands)) g))
-                                      tail? env macro-env)))
+                :else (let [g (gen-name env "and")]
+                        (compile-lowered (list 'dsg__let [g (first operands)]
+                                               (list 'if g (cons 'and (rest operands)) g))
+                                         tail? env macro-env)))
           ;; (or)        → nil
           ;; (or x)      → x
-          ;; (or x y z)  → (let [g x] (if g g (or y z)))
+          ;; (or x y z)  → (dsg__let [g x] (if g g (or y z)))
           or  (cond
                 (empty? operands) {:type :literal :value nil}
                 (= 1 (count operands)) (compile-form (first operands) tail? env macro-env)
-                :else (let [g (gensym "or__")]
-                        (compile-form (list 'let [g (first operands)]
-                                            (list 'if g g (cons 'or (rest operands))))
-                                      tail? env macro-env)))
+                :else (let [g (gen-name env "or")]
+                        (compile-lowered (list 'dsg__let [g (first operands)]
+                                               (list 'if g g (cons 'or (rest operands))))
+                                         tail? env macro-env)))
           ;; Quote: (quote form)
           quote (compile-quote (first operands) tail?)
           ;; Def: (def sym value)

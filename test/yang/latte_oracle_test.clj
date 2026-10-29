@@ -13,7 +13,6 @@
             [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [clojure.walk :as walk]
             [clojure.tools.reader :as r]
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]
@@ -397,24 +396,9 @@
             ['(Π [x :type] (Π [y [:ref A]] (Π [z :type] z)))]])))
 
 
-(defn- case->if
-  "Interim lowering of the one `case` in mk-fresh: nested ifs over `=`. The
-   compiler has no `case` until a later slice; every other form is upstream."
-  [form]
-  (walk/postwalk
-    (fn [f]
-      (if (and (seq? f) (= 'case (first f)))
-        (let [[_ e & clauses] f]
-          (reduce (fn [else [k v]] (list 'if (list '= e k) v else))
-                  (last clauses)
-                  (reverse (partition 2 (butlast clauses)))))
-        f))
-    form))
-
-
 (deftest test-oracle-slice4-mk-fresh
   (let [a-fn (upstream-fn 'latte-kernel.syntax/mk-fresh)
-        form (case->if (get top-forms ['latte_kernel.syntax 'mk-fresh]))
+        form (get top-forms ['latte_kernel.syntax 'mk-fresh])
         c-fn (fn [& args]
                (run-on-vm [form] (list* 'mk-fresh (map #(list 'quote %) args))
                           arg-vector-opts))]

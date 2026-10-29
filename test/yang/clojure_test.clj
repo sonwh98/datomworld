@@ -742,9 +742,9 @@
       (is (true? (:tail? call)))
       (is (= 1 (count (:operands call))) "one argument vector")))
   (testing "a macro name keeps its call an ordinary application"
-    (let [opts (assoc av-opts :macros #{'when})
-          call (av-ast '[(when 1 2)] opts)]
-      (is (= {:type :variable, :name 'when} (:operator call)))
+    (let [opts (assoc av-opts :macros #{'unless})
+          call (av-ast '[(unless 1 2)] opts)]
+      (is (= {:type :variable, :name 'unless} (:operator call)))
       (is (= 2 (count (:operands call)))))))
 
 
@@ -1400,3 +1400,159 @@
                  (message #(av-ast '[(defn h
                                        ([n] (recur 1 2))
                                        ([a b] a))]))))))
+
+
+;; =============================================================================
+;; case and the standard control forms (slice 6)
+;; =============================================================================
+
+(defn- fails?
+  [form]
+  (try (compile-and-run form) false
+       (catch Throwable _ true)))
+
+
+(defn- rejects?
+  [form]
+  (try (yang/compile form) false
+       (catch clojure.lang.ExceptionInfo _ true)))
+
+
+(defn- f-calls
+  [ast]
+  (filter #(and (map? %)
+                (= :application (:type %))
+                (= 'f (get-in % [:operator :name])))
+          (ast-nodes ast)))
+
+
+(deftest test-case-constants-and-default
+  (testing "number, keyword, string, nil and boolean constants"
+    (is (= :a (compile-and-run '(case 1 1 :a 2 :b :z))))
+    (is (= :b (compile-and-run '(case :k :j :a :k :b :z))))
+    (is (= :b (compile-and-run '(case "s" "t" :a "s" :b :z))))
+    (is (= :b (compile-and-run '(case nil 1 :a nil :b :z))))
+    (is (= :a (compile-and-run '(case true true :a false :b :z)))))
+  (testing "symbol constants are data, never variable references"
+    (is (= :pi (compile-and-run '(case (quote Π) λ :lam Π :pi :z))))
+    (is (= :z (compile-and-run '(case (quote q) λ :lam Π :pi :z)))))
+  (testing "a symbol constant does not read a same-named local"
+    (is (= :z (compile-and-run '(let [λ 1] (case λ x :x :z))))))
+  (testing "grouped constants"
+    (is (= :ab (compile-and-run '(case :b (:a :b) :ab :c :c :z))))
+    (is (= :c (compile-and-run '(case :c (:a :b) :ab :c :c :z)))))
+  (testing "default taken when nothing matches"
+    (is (= :z (compile-and-run '(case 9 1 :a 2 :b :z)))))
+  (testing "missing default fails on no match and succeeds on a match"
+    (is (= :a (compile-and-run '(case 1 1 :a 2 :b))))
+    (is (fails? '(case 9 1 :a 2 :b))))
+  (testing "only default"
+    (is (= :z (compile-and-run '(case 1 :z)))))
+  (testing "duplicate constants are rejected at compile time"
+    (is (rejects? '(case 1 1 :a 1 :b :z)))
+    (is (rejects? '(case 1 1 :a (2 1) :b :z))))
+  (testing "malformed case"
+    (is (rejects? '(case)))))
+
+
+(deftest test-case-evaluates-once
+  (testing "the scrutinee is evaluated exactly once"
+    (let [n (atom 2)]
+      (is (= :c (compile-and-run
+                  '(case (dao.stream.apply/call :op/tick) 1 :a 2 :b 3 :c :z)
+                  {}
+                  {:bridge {:op/tick #(swap! n inc)}}))
+          "a re-evaluating lowering would see 3, 4, 5 and fall to :z")
+      (is (= 3 @n) "one evaluation")))
+  (testing "only the selected branch evaluates"
+    (let [hits (atom [])]
+      (is (= 2 (compile-and-run
+                 '(case 2
+                    1 (dao.stream.apply/call :op/hit 1)
+                    2 (dao.stream.apply/call :op/hit 2)
+                    (dao.stream.apply/call :op/hit 3))
+                 {}
+                 {:bridge {:op/hit #(do (swap! hits conj %) %)}})))
+      (is (= [2] @hits)))))
+
+
+(deftest test-case-tail-position
+  (testing "the selected branches compile with the form's tail flag"
+    (doseq [tail? [true false]]
+      (let [calls (f-calls (yang/compile-form '(case x 1 (f 1) 2 (f 2) (f 3))
+                                              tail? {}))]
+        (is (= 3 (count calls)))
+        (is (every? #(= tail? (boolean (:tail? %))) calls) (str "tail? " tail?))))))
+
+
+(deftest test-control-forms
+  (testing "cond"
+    (is (nil? (compile-and-run '(cond))))
+    (is (= :b (compile-and-run '(cond false :a true :b :else :c))))
+    (is (= :c (compile-and-run '(cond false :a nil :b :else :c))))
+    (is (nil? (compile-and-run '(cond false :a))))
+    (is (rejects? '(cond true)))
+    (let [hits (atom [])]
+      (compile-and-run '(cond false (dao.stream.apply/call :op/hit 1)
+                              true (dao.stream.apply/call :op/hit 2)
+                              true (dao.stream.apply/call :op/hit 3))
+                       {} {:bridge {:op/hit #(swap! hits conj %)}})
+      (is (= [2] @hits))))
+  (testing "when"
+    (is (= 3 (compile-and-run '(when true 1 2 3))))
+    (is (nil? (compile-and-run '(when false 1))))
+    (is (nil? (compile-and-run '(when true)))))
+  (testing "if-let"
+    (is (= 6 (compile-and-run '(if-let [x 5] (+ x 1) 0))))
+    (is (= 0 (compile-and-run '(if-let [x nil] (+ x 1) 0))))
+    (is (= 0 (compile-and-run '(if-let [x false] 1 0))))
+    (is (nil? (compile-and-run '(if-let [x nil] 1))))
+    (is (= 2 (compile-and-run '(if-let [[a b] [1 2]] b 0))))
+    (is (= 7 (compile-and-run '(let [x 7] (if-let [y nil] 0 x))))
+        "else sees the outer scope")
+    (let [n (atom 0)]
+      (compile-and-run '(if-let [x (dao.stream.apply/call :op/tick)] x 0)
+                       {} {:bridge {:op/tick #(swap! n inc)}})
+      (is (= 1 @n))))
+  (testing "when-let"
+    (is (= 6 (compile-and-run '(when-let [x 5] 1 (+ x 1)))))
+    (is (nil? (compile-and-run '(when-let [x nil] 1)))))
+  (testing "if-some keeps false"
+    (is (= :some (compile-and-run '(if-some [x false] :some :none))))
+    (is (= :none (compile-and-run '(if-some [x nil] :some :none))))
+    (is (nil? (compile-and-run '(if-some [x nil] :some))))
+    (is (= 1 (compile-and-run '(when-some [x 1] x))))
+    (let [n (atom 0)]
+      (compile-and-run '(if-some [x (dao.stream.apply/call :op/tick)] x 0)
+                       {} {:bridge {:op/tick #(swap! n inc)}})
+      (is (= 1 @n))))
+  (testing "a binding vector must hold one binding"
+    (is (rejects? '(if-let [x 1 y 2] x 0))))
+  (testing "tail position passes through the expansion"
+    (doseq [form ['(cond t (f 1) true (f 2)) '(when t (f 1))
+                  '(if-let [a t] (f a) (f 2)) '(if-some [a t] (f a) (f 2))
+                  '(when-let [a t] (f a))]
+            tail? [true false]]
+      (let [calls (f-calls (yang/compile-form form tail? {}))]
+        (is (seq calls))
+        (is (every? #(= tail? (boolean (:tail? %))) calls) (pr-str form tail?))))))
+
+
+(deftest test-and-or-generated-names-are-reserved
+  (testing "and/or temporaries carry the dsg__ prefix, not a host gensym"
+    (let [names (fn [form]
+                  (->> (ast-nodes (yang/compile form))
+                       (filter map?)
+                       (mapcat :params)
+                       (map str)
+                       (remove #{"_"})))]
+      (is (seq (names '(and a b c))))
+      (is (every? #(re-find #"^dsg__" %) (names '(and a b c))))
+      (is (every? #(re-find #"^dsg__" %) (names '(or a b c))))
+      (is (= (yang/compile '(and a b c)) (yang/compile '(and a b c)))
+          "lowering is deterministic")))
+  (testing "semantics unchanged"
+    (is (= 3 (compile-and-run '(and 1 2 3))))
+    (is (false? (compile-and-run '(and 1 false 3))))
+    (is (= 2 (compile-and-run '(or nil false 2 3))))
+    (is (= 5 (compile-and-run '(and (or nil 5) (or false 5)))))))
