@@ -68,16 +68,22 @@
 (ffi/load-library library)
 (ffi/defcfn ^:private c-layout-version "jolt_crypto_layout_version" [] :int)
 (ffi/defcfn ^:private c-provenance "jolt_crypto_provenance" [:pointer :size_t] :int)
+
+
 (ffi/defcfn ^:private c-blake3 "jolt_crypto_blake3"
-  [:pointer :size_t :pointer] :int :blocking)
+            [:pointer :size_t :pointer] :int :blocking)
+
+
 (ffi/defcfn ^:private c-sha256 "jolt_crypto_sha256"
-  [:pointer :size_t :pointer] :int :blocking)
+            [:pointer :size_t :pointer] :int :blocking)
 
 
 ;; 3 (J2): the random entry joined the exported set (jolt_crypto_random for
 ;; yin.vm.linker.sign/generate's :jolt arm); a J1b-built wrapper answers 2 and
 ;; is refused here rather than at a missing-symbol error in the linker.
-(def ^:private layout 3)
+;; 4 (J6c): jolt_crypto_sha1 joined it (dao.stream.ws.crypto) and EVP_sha1
+;; the provenance audit; a J2-built wrapper answers 3 and is refused here.
+(def ^:private layout 4)
 
 
 (defn- refuse-load

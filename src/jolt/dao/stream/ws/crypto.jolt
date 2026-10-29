@@ -1,0 +1,100 @@
+(ns dao.stream.ws.crypto
+  "The jolt-only digest and entropy the RFC 6455 core needs, injected into
+   it by the jolt adapter (docs/design/yin.repl-jolt-implementation.md §9;
+   J6 plan v2 A5, A7). The portable core takes both as arguments and never
+   reaches a host; this namespace is where jolt's come from.
+
+   `sha1` is the Sec-WebSocket-Accept digest of the opening handshake
+   (RFC 6455 §4.2.2) and nothing else: SHA-1 is not a content, integrity or
+   identity hash anywhere in the system (those are BLAKE3, `dao.host.hash`).
+   `mask-key` draws the four masking-key bytes of a client frame (§5.3).
+
+   Both call the native/jolt-crypto wrapper (layout 4: `jolt_crypto_sha1`,
+   EVP_sha1 from the system libcrypto, and `jolt_crypto_random`, its
+   RAND_bytes), the same wrapper and the same qualified library every
+   `dao.host.hash` and `dao.host.sign` call resolved to. This namespace
+   requires `dao.host.hash` first, so its load-time gate (layout, then
+   provenance over all twenty libcrypto entries) has passed before any
+   symbol here is bound or any byte digested or drawn; a stale, missing or
+   unqualified wrapper, or one lacking either entry, fails the load. A failed digest or draw throws
+   (ex-info), never a silent substitute."
+  (:require
+    [clojure.string :as str]
+    [dao.host.bytes :as bytes]
+    ;; loaded for its gate, which must pass before anything below binds
+    [dao.host.hash]
+    [jolt.ffi :as ffi]))
+
+
+(def ^:private library
+  ;; the wrapper dao.host.hash loaded and qualified (jolt's os.name and
+  ;; os.arch shim can answer nil, which reads as Linux and x86_64)
+  (let [os (str/lower-case (or (System/getProperty "os.name") ""))
+        arch (System/getProperty "os.arch")
+        darwin? (str/includes? os "mac")]
+    (str (System/getProperty "user.dir") "/build/native/"
+         (if darwin? "darwin" "linux") "-"
+         (if (#{"aarch64" "arm64"} arch) "arm64" "x86_64")
+         "/jolt-crypto/lib/libjolt_crypto" (if darwin? ".dylib" ".so"))))
+
+
+(ffi/load-library library)
+
+
+;; defcfn binds lazily (a missing entry surfaces only at the first call), so
+;; the load refuses here, before guest work, when an entry is absent
+(doseq [entry ["jolt_crypto_sha1" "jolt_crypto_random"]]
+  (when-not (ffi/find-symbol entry)
+    (throw (ex-info (str "jolt-crypto refused: the library lacks " entry)
+                    {:library library, :entry entry}))))
+
+
+(ffi/defcfn ^:private c-sha1 "jolt_crypto_sha1"
+            [:pointer :size_t :pointer] :int :blocking)
+
+
+(ffi/defcfn ^:private c-random "jolt_crypto_random"
+            [:pointer :size_t] :int :blocking)
+
+
+(defn- with-native
+  "(f p) over caller-owned native memory `p` of `n` bytes (one for an empty
+   input), freed however `f` exits."
+  [n f]
+  (let [p (ffi/alloc (max 1 n))]
+    (try
+      (when (ffi/null? p)
+        (throw (ex-info "jolt-crypto native allocation failed" {:bytes n})))
+      (f p)
+      (finally (ffi/free p)))))
+
+
+(defn sha1
+  "The 20-byte SHA-1 digest of host bytes `bs`, as fresh host bytes; `bs`
+   is left unmodified. For Sec-WebSocket-Accept only."
+  [bs]
+  (when-not (bytes/bytes? bs)
+    (throw (ex-info "dao.stream.ws.crypto/sha1 expects host bytes" {:value bs})))
+  (let [n (alength bs)]
+    (with-native n
+      (fn [in]
+        (when (pos? n) (ffi/write-array in bs))
+        (with-native 20
+          (fn [out]
+            (let [status (c-sha1 in n out)]
+              (when-not (zero? status)
+                (throw (ex-info "jolt-crypto sha1 failed" {:entry 'sha1, :status status})))
+              (ffi/read-array out 20))))))))
+
+
+(defn mask-key
+  "Four fresh bytes from the qualified libcrypto's CSPRNG, as host bytes:
+   the masking key of one client frame (RFC 6455 §5.3). A failed draw
+   throws."
+  []
+  (with-native 4
+    (fn [p]
+      (let [status (c-random p 4)]
+        (when-not (zero? status)
+          (throw (ex-info "jolt-crypto random failed" {:entry 'mask-key, :status status})))
+        (ffi/read-array p 4)))))
