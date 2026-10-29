@@ -460,6 +460,21 @@
   (or (fn? x) (values/closure? x) (values/continuation? x)))
 
 
+(defn- data-map?
+  [x]
+  (map? x))
+
+
+(defn- data-vector?
+  [x]
+  (vector? x))
+
+
+(defn- data-string?
+  [x]
+  (string? x))
+
+
 (defn- ref?
   "True when `x` is a stream, cursor or cell reference."
   [x]
@@ -514,7 +529,10 @@
    ['float64 [1] float64]
    ['float-value [1] float-value]
    ['content= [2] data-content=]
-   ['callable? [1] callable?]])
+   ['callable? [1] callable?]
+   ['map? [1] data-map?]
+   ['vector? [1] data-vector?]
+   ['string? [1] data-string?]])
 
 
 (defn- arity-checked
