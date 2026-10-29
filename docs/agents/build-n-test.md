@@ -220,7 +220,7 @@ bb -cp src/dev -m affected-test   # Run affected-test self-tests directly in Bab
 - **Layer 4 (Applications & Demos)**: `demo`, `world`
 - **Infrastructure**: `dev`, `bench`
 
-Prerequisites (`build:yin-repl-peer`, `build:yin-repl-node`, `gen:python-antlr`)
+Prerequisites (`build:yin-repl-peer`, `build:yin-repl-node`, `gen:antlr`)
 and lane serialization (`[:clj :cljd]`) are derived purely from text reach of the
 selected namespaces and run automatically when needed.
 
@@ -354,7 +354,7 @@ ts() { date +%H:%M:%S; }
 echo "start $(ts) $(git rev-parse --short HEAD) par=$PAR" | tee "$OUT/summary.txt"
 npm ci --silent >"$OUT/npm.log" 2>&1                   && echo "npm ok $(ts)" | tee -a "$OUT/summary.txt"
 bb build:yin-repl-node >"$OUT/build-node.log" 2>&1     && echo "node repl built $(ts)" | tee -a "$OUT/summary.txt"
-bb gen:python-antlr >"$OUT/antlr.log" 2>&1             && echo "antlr ok $(ts)" | tee -a "$OUT/summary.txt"
+bb gen:antlr >"$OUT/antlr.log" 2>&1             && echo "antlr ok $(ts)" | tee -a "$OUT/summary.txt"
 SUBS="yang.python yin.repl yin.vm yin.vm.ucf dao.stream dao.jing dao.gui dao.space demo dao.data dao.postgraphics yang.base dao.base"
 : > "$OUT/covered.txt"
 for s in $SUBS; do
@@ -410,7 +410,7 @@ and `git`.
 | Host | Cores / RAM | Toolchain state (server snapshot checked 2026-10-11; repo selection comes from `mise.toml`) |
 |---|---|---|
 | `shiva.stigmergy.systems` | 24 / 62 GB | Server snapshot: java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.1. The repo's `mise.toml` selects Flutter `latest` on beta, not a fixed version. Activate the repo toolchain before running any lane. |
-| `jupiter.stigmergy.systems` | 48 / 62 GB | Server snapshot: java 21, clojure, node, zprint, babashka, flutter 3.41.9. The repo's `mise.toml` selects Flutter `latest` on beta, not a fixed version; use mise in the scratch clone to install and activate that selection before the Dart lane. |
+| `jupiter.stigmergy.systems` | 48 / 62 GB | Server snapshot (rechecked 2026-10-29): java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.8 (the stale hand-symlinked 3.41.9 was replaced via `mise install flutter@3.47.8` after it failed to compile `dart:ui`-using cljd namespaces; if the Dart lane dies in the cljd compile, check `mise ls flutter` first). Tri-host quick tier verified green on 2026-10-29 (see Measured times). |
 
 **Never test in `~/workspace/datomworld` on either host.** It is a working copy
 that is behind origin (shiva: 45 commits behind on 2026-10-11) and belongs to its
@@ -495,7 +495,7 @@ same commit, with a name like `~/ci/datomworld-<name>-dart`:
 
 ```sh
 #!/usr/bin/env bash
-# ~/ci/run-full.sh <jvm-node-clone> [<dart-clone>]   (omit the second on jupiter: no Dart)
+# ~/ci/run-full.sh <jvm-node-clone> [<dart-clone>]   (both hosts run all three lanes; a second clone for Dart is recommended)
 set -u
 export PATH="$HOME/.local/bin:/snap/bin:$PATH"
 DART="${2:-}"
@@ -507,13 +507,13 @@ ts() { date +%H:%M:%S; }
 echo "start $(ts) $(git rev-parse --short HEAD)" | tee "$LOG/summary.txt"
 npm ci --silent >"$LOG/npm.log" 2>&1               && echo "npm ok $(ts)" | tee -a "$LOG/summary.txt"
 bb build:yin-repl-node >"$LOG/build-node.log" 2>&1 && echo "node repl built $(ts)" | tee -a "$LOG/summary.txt"
-bb gen:python-antlr >"$LOG/antlr.log" 2>&1         && echo "antlr ok $(ts)" | tee -a "$LOG/summary.txt"
-bb build:yin-repl-peer >"$LOG/build-peer.log" 2>&1 && echo "dart peer built $(ts)" | tee -a "$LOG/summary.txt"  # shiva only
+bb gen:antlr >"$LOG/antlr.log" 2>&1         && echo "antlr ok $(ts)" | tee -a "$LOG/summary.txt"
+bb build:yin-repl-peer >"$LOG/build-peer.log" 2>&1 && echo "dart peer built $(ts)" | tee -a "$LOG/summary.txt"
 lane() { name=$1; shift; s=$(date +%s); "$@" >"$LOG/$name.log" 2>&1; rc=$?
          echo "$name rc=$rc secs=$(( $(date +%s)-s )) $(ts)" | tee -a "$LOG/summary.txt"; }
 lane jvm  clojure -M:test -e :slow &
 lane node clj -M:cljs -m shadow.cljs.devtools.cli compile test &
-if [ -n "$DART" ]; then                            # shiva only: its own clone (own lib/cljd-out, build/)
+if [ -n "$DART" ]; then                            # its own clone (own lib/cljd-out, build/)
   ( cd "$DART" && mise trust >/dev/null 2>&1 && eval "$(mise env -s bash)"
     bb build:yin-repl-peer >"$LOG/build-peer-dart.log" 2>&1
     lane dart bb src/dev/cljd_agg.clj ) &
@@ -555,6 +555,21 @@ Node REPL, ANTLR) took about 30 s; the Dart peer 91 s. JVM and Node lane times a
 not recorded yet: fill them in from `summary.txt` after a completed run. Running the
 lanes concurrently on one host did not make the Dart lane faster, so count on the
 extra cores and a free laptop, and measure before relying on a speedup.
+
+### Jupiter verification run (2026-10-29, commit 7c0a078f, scratch clone, sequential lanes)
+
+First full tri-host verification of jupiter. Prerequisites (npm ci, Node REPL,
+ANTLR via `gen:antlr`, Dart peer) all succeeded; the stale 3.41.9 Flutter was
+replaced with 3.47.8 before the Dart lane. Results: **JVM quick tier
+(`test:quick-sharded`, 12 workers) rc=0 in 702 s** (cold, every shard green);
+**Node quick tier rc=0 in 4583 s** (all tests pass, but roughly 15x the
+laptop — route Node lanes to the laptop or shiva); **Dart quick tier
+rc=1 in 1495 s with the ONLY failure the documented known Linux-only red**
+(`dao.stream.datagram.dart-test/refusals-and-lifecycle-events`, same
+taken-port/bind-failed signature recorded above). Routing summary: jupiter
+is the preferred JVM/sharding box (48 cores); Node stays off it when wall
+time matters; Dart works on either host. Timings are single cold runs, not
+medians, and two foreign QEMU guests idle on the host.
 
 One exception to the concurrency above: never run two lanes that both trigger
 `gen:antlr` (the quick `test:cljs`/`test:cljd` tasks) in the SAME worktree at the
@@ -604,9 +619,10 @@ reference):
 
 Known state: `claude` and `codex` verified working on shiva (2026-10-24, the
 jolt canonical-fixes verification ran there); `glm` reported available by the
-owner on both hosts, not yet exercised. Jupiter's inventory mirrors shiva's
-toolchain snapshot above — verify per the "Activate the toolchain" order on
-first use of each host.
+owner on both hosts, not yet exercised. Both hosts are toolchain-verified for
+the full tri-host suite (jupiter verified 2026-10-29 — see Measured times;
+its 3.41.9 Flutter was replaced with 3.47.8, and model availability per
+host is governed by `routing-status.md`, not this file).
 
 ## Testing Philosophy & TDD
 
