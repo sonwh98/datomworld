@@ -126,8 +126,9 @@
   ([units] (run-fixture units lower/entry-path {}))
   ([units main opts]
    (let [entry (get units main)
-         others (mapv (fn [[path packet]] {:name path, :packet packet})
-                      (dissoc units main))
+         others (cond-> (mapv (fn [[path packet]] {:name path, :packet packet})
+                              (dissoc units main))
+                  (:class-map opts) (conj (assoc (:class-map opts) :name lower/classmap-name)))
          result (publish-units! others)]
      (when-not (= :ok (:status result))
        (throw (ex-info "fixture units failed to publish" {:result result})))
@@ -136,7 +137,8 @@
                                 (merge {:prelude :linked,
                                         :path main,
                                         :paths (when (:computed? opts) (keys (:addresses result)))}
-                                       (dissoc opts :computed? :src)))
+                                       (cond-> (dissoc opts :computed? :src)
+                                         (:class-map opts) (assoc :class-map true))))
            src (or (:src opts) (source (name-env result)))]
        {:warnings warnings,
         :values (into {}

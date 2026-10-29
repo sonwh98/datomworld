@@ -30,23 +30,29 @@
 
 
 (deftest probe
-  (let [groups (set (map keyword (re-seq #"[a-z0-9-]+" "namespaces-v1 constants-v1 autoload-v1")))
-        ids (some-> (System/getenv "PROBE_IDS") (clojure.string/split #",") (->> (map keyword) set))]
+  (let [groups (set (map keyword (re-seq #"[a-z0-9-]+" (slurp "test/yang/php/antlr/zz_probe1.cfg"))))
+        ids (some-> nil (clojure.string/split #",") (->> (map keyword) set))]
     (doseq [{:keys [id group units source out diag] :as fx} p6/all-fixtures
             :when (and (contains? groups group) (or (nil? ids) (contains? ids id)))]
       (let [packets (if units (update-vals units cst/parse-source) {"main.php" (cst/parse-source source)})
             r (try
-                (let [others (mapv (fn [[path packet]] {:name path, :packet packet}) (dissoc packets "main.php"))
+                (let [others (cond-> (mapv (fn [[path packet]] {:name path, :packet packet}) (dissoc packets "main.php"))
+                               (:class-map fx) (conj (assoc (:class-map fx) :name lower/classmap-name)))
                       result (lh/publish-units! others)
                       {:keys [ast warnings]} (lower/lower-program (get packets "main.php")
                                                                   {:prelude :linked,
                                                                    :path "main.php",
+                                                                   :class-map (boolean (:class-map fx))
                                                                    :paths (when (:computed fx) (keys (:addresses result)))})
                       src (lh/source (lh/name-env result))]
-                  {:obs (observed (vm/value (lh/run-linked :semantic ast src))), :warnings warnings})
+                  {:obs (mapv (fn [k] [k (observed (vm/value (lh/run-linked k ast src)))]) [:semantic :stack :register]),
+                   :warnings warnings})
                 (catch Throwable e {:threw (str (ex-message e) " " (pr-str (ex-data e)))}))]
-        (println "==" id (if (and (:obs r) (= out (first (:obs r)))) "OK" "DIFF"))
-        (when-not (and (:obs r) (= out (first (:obs r))))
-          (println "   expected:" (pr-str out) (pr-str diag))
-          (println "   actual:  " (pr-str (or (:obs r) (:threw r)))))
+        (let [want [out (vec diag) (:uncaught fx)]
+              ok? (and (:obs r) (every? (fn [[_ o]] (= want o)) (:obs r))
+                       (or (not (:warnings fx)) (= (:warnings fx) (mapv :yang.php/diagnostic (:warnings r)))))]
+          (println "==" id (if ok? "OK" "DIFF"))
+          (when-not ok?
+            (println "   expected:" (pr-str want) (pr-str (:warnings fx)))
+            (println "   actual:  " (pr-str (or (:obs r) (:threw r))))))
         (is true)))))

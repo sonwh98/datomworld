@@ -146,6 +146,17 @@
   (symbol (str "phpm." (str/replace (str/replace path "/" "$") "." "$$"))))
 
 
+(def classmap-name
+  "The unit name of the autoload class map; a unit path cannot begin with
+   `$`, so no unit collides with it."
+  "$classmap")
+
+
+(def classmap-module
+  "The linker module of the class map."
+  (path-module-symbol classmap-name))
+
+
 (defn- path-dirname
   "PHP's `dirname` of the relative path `p`: `.` for a root unit."
   [p]
@@ -407,7 +418,7 @@
                           c (when (and e (= 1 (count (core/kids ctx e)))) (first (core/rules ctx e "constant")))
                           q (when (and c (= 1 (count (core/kids ctx c)))) (first (core/rules ctx c "qualifiedNamespaceName")))
                           parts (when q (qname-parts ctx q))]
-                      (when (and parts (:ns-kw? parts) (not (:lead? parts)))
+                      (when (and parts (:ns-kw? parts) (not (:slash? parts)))
                         (join-name (:segs parts))))))
         step
         (fn [st item]
@@ -439,12 +450,12 @@
                       (assoc st :env global-env :after-braced? true))
                     st)))
               :else
-              (do (when (and (:after-braced? st) (not (p/rule? head "declareStatement")))
-                    (compile-error! head "No code may exist outside of namespace {}"))
-                  (add (cond-> st
-                         (and (not (:form st)) (not (p/rule? head "declareStatement")))
-                         (assoc :code-before? true))
-                       item)))))]
+              (let [declare? (p/rule? (first (core/rule-kids ctx head)) "declareStatement")]
+                (when (and (:after-braced? st) (not declare?))
+                  (compile-error! head "No code may exist outside of namespace {}"))
+                (add (cond-> st
+                       (and (not (:form st)) (not declare?)) (assoc :code-before? true))
+                     item)))))]
     (select-keys (reduce step {:items [], :envs {}, :env global-env} root-items) [:items :envs])))
 
 
@@ -467,11 +478,15 @@
   "`{:segs :lead? :ns-kw?}` of a `qualifiedNamespaceName`."
   [ctx q]
   (let [ks (core/kids ctx q)
-        nl (first (filter #(p/rule? % "namespaceNameList") ks))]
+        nl (first (filter #(p/rule? % "namespaceNameList") ks))
+        ns-kw? (boolean (some #(and (p/token? %) (= "namespace" (str/lower-case (:text %)))) ks))
+        slash? (boolean (some #(and (p/token? %) (= "\\" (:text %))) ks))]
     {:segs (into [] (comp (filter #(p/rule? % "identifier")) (map #(leftmost-token-text ctx %)))
                  (core/kids ctx nl)),
-     :lead? (boolean (some #(and (p/token? %) (= "\\" (:text %))) ks)),
-     :ns-kw? (boolean (some #(and (p/token? %) (= "namespace" (str/lower-case (:text %)))) ks))}))
+     ;; `namespace\x` carries a backslash too, but it is relative, not rooted
+     :slash? slash?,
+     :lead? (and (not ns-kw?) slash?),
+     :ns-kw? ns-kw?}))
 
 
 (def ^:private reserved-type-names
@@ -3628,7 +3643,7 @@
 
 (def option-keys
   "The options `lower-program` and the lowering stage accept."
-  [:prelude :path :paths])
+  [:prelude :path :paths :class-map])
 
 
 (defn- path-map-node
@@ -3653,9 +3668,11 @@
    body) or `:linked` (`(require 'php) (php/init!)`, the profile includes
    need); `:path` the entry unit's declared path (default `entry-path`);
    `:paths` the normalized paths whose units the composition published,
-   which a computed include resolves against."
+   which a computed include resolves against; `:class-map` true requires
+   the published `phpm.$classmap` and binds its classes and delivery thunks
+   (plan P6 R9), which takes the place of `:paths`."
   ([packet] (lower-program packet {}))
-  ([packet {:keys [prelude paths path], :or {prelude :bundled}}]
+  ([packet {:keys [prelude paths path class-map], :or {prelude :bundled}}]
    (when-not (contains? #{:bundled :linked} prelude)
      (throw (ex-info "unknown PHP prelude profile"
                      {:yang.php/diagnostic :yang.php/unsupported,
@@ -3668,7 +3685,12 @@
              (if linked?
                (u/seq-nodes (concat [(app* 'require (u/lit prelude/module-name))
                                      (app* 'php/init!)]
-                                    (when (seq paths) [(path-map-node paths)])
+                                    (when (and (seq paths) (not class-map)) [(path-map-node paths)])
+                                    (when class-map
+                                      [(app* 'require (u/lit classmap-module))
+                                       (app* 'php/bind-class-map!
+                                             (u/v (symbol (str classmap-module) "classes"))
+                                             (u/v (symbol (str classmap-module) "paths")))])
                                     [main]))
                (u/then prelude/uast main))),
       :warnings @(:warnings ctx)})))
@@ -3741,6 +3763,63 @@
     {:name (path-module-symbol path),
      :ast (module-packet packet {:path path, :strict-types strict-types}),
      :exports module-exports,
+     :runtime-name prelude/module-name,
+     :runtime-address php-address,
+     :deps (into {} (map (fn [[p a]] [(path-module-symbol p) a])) deps)}))
+
+
+;; =============================================================================
+;; The autoload class map (plan P6 R9)
+;; =============================================================================
+
+(def classmap-exports
+  "The exports of the class map module: the lower-cased class name to path
+   map, and the path to delivery-thunk map the computed include resolves
+   through."
+  '#{classes paths})
+
+
+(defn classmap-paths
+  "The literal paths a class map `{:classes {class path} :paths [path ...]}`
+   publishes thunks for: `:paths`, else the class map's values, and always the
+   class map's values. Normalized, sorted, distinct."
+  [{:keys [classes paths]}]
+  (vec (sort (distinct (map #(let [r (normalize-unit-path %)]
+                               (when (:error r) (throw (ex-info "unmappable class map path"
+                                                                {:yang.php/diagnostic :yang.php/unsupported,
+                                                                 :construct (:error r), :path %})))
+                               (:path r))
+                            (concat (vals classes) paths))))))
+
+
+(defn classmap-packet
+  "The class map as one linker module (the unit module shape): `classes`
+   maps each lower-cased class name to its normalized path, `paths` each
+   listed path to its delivery thunk."
+  [{:keys [classes] :as cm}]
+  (let [paths (classmap-paths cm)
+        norm (fn [p] (:path (normalize-unit-path p)))
+        defs [(u/def! 'classes
+                      (u/lit (into {} (map (fn [[c p]] [(str/lower-case c) (norm p)])) classes)))
+              (u/def! 'paths
+                      (reduce (fn [m p] (app* 'assoc m (u/lit p) (delivery-thunk p)))
+                              (u/lit {})
+                              paths))]
+        operands (into [(core-module/require-node prelude/module-name)] defs)
+        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
+    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
+
+
+(defn classmap-spec
+  "`publish-module!`'s spec for the class map `cm` over the host registry
+   `registry`, `php` at `php-address` and each listed path's module at its
+   address in `deps` ({path address})."
+  [registry cm php-address deps]
+  (core-module/module-spec
+    :yang.php/refusal :yang.php/undeclared-free registry
+    {:name classmap-module,
+     :ast (classmap-packet cm),
+     :exports classmap-exports,
      :runtime-name prelude/module-name,
      :runtime-address php-address,
      :deps (into {} (map (fn [[p a]] [(path-module-symbol p) a])) deps)}))

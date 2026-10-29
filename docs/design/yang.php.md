@@ -5,8 +5,11 @@ the `yang.php.antlr` route (P2: arrays, key coercion, `foreach` by value, the
 core array builtins and sorting, oracle-verified against `php-8.3.35`, section
 17.3). P3 landed in two parts: P3-a (the counted-cell substrate and the
 prelude-level reference model, merged earlier) and P3-b (the program-level
-lowering, see "P3-b landing status" below); later slices are unstarted, and the
-legacy `yang/php.cljc` frontend is still the installed one. Design by Fable (Lead
+lowering, see "P3-b landing status" below). P4 and P5 are complete; P6 is in
+progress through the linked inclusion profile, dynamic scope, namespaces,
+constants and autoload class map. P6's oracle recording and three-host DHT
+verification remain part of its landing. The legacy `yang/php.cljc` frontend
+is still the installed one. Design by Fable (Lead
 System Architect seat); adversarial review by codex (gpt-6.1-sol) over a
 nine-round design loop that ended READY with sign-off granted. Section 20
 ("Design provenance") cites the loop.
@@ -1510,7 +1513,11 @@ Name resolution for functions, classes and constants is compile-time:
 `namespace` and `use` statements resolve every unqualified name to a fully
 qualified name by PHP's rules. Functions and constants fall back to the global
 namespace at run time, which the lowering encodes as a two-key lookup,
-`php/fn-lookup "ns\\f" "f"`.
+`php/fn-lookup "ns\\f" "f"` and `php/const-get "ns\\C" "C"`. Builtin
+constants fold in the global block and at fully qualified reads. An
+unqualified constant read inside a namespace uses the two-key lookup,
+including builtin names, so a namespace-local declaration can shadow a
+builtin. `use const` resolves the read to its imported fully qualified name.
 
 ## 8. The lowering-arms inventory
 
@@ -1872,9 +1879,11 @@ would be `yrt`'s second consumer.
   function is on the dynamic-scope profile (at top level it is `$GLOBALS`).
   The body's `return` value is the expression's value, else `1`. `_once`
   consults the included-files dict.
-- Computed paths are a diagnostic (the literal-name restriction of ruling 10;
-  a published literal path map can later interpret them). Conditional
-  declarations inside included files execute in place, as in PHP.
+- A computed path emits the lowering warning `:yang.php/computed-include-path`
+  and uses the composition's literal path map at run time. A mapped path
+  delivers by its published unit name; an unmapped path follows the missing
+  include behaviour and records `:yang.php/computed-path-unmapped`.
+- Conditional declarations inside included files execute in place, as in PHP.
 - Cycles of `include` are a runtime matter (the included-files dict), not a
   linker cycle: static `include` edges are pinned in `:requires` only for
   delivery, and SCC publication handles mutual pins.
@@ -1882,11 +1891,13 @@ would be `yrt`'s second consumer.
 
 ### 11.2 Autoload
 
-`spl_autoload_register` with a guest callable is supported only when the
-composition also publishes a literal **class map** (class name to unit) as
-part of the unit set; the autoloader then runs on a class miss and may
-`require` only literal paths in that map. Composer's generated class map is
-admissible as data; its filesystem resolution is not (owner decision B8.7).
+`spl_autoload_register` with a guest callable is supported when the
+composition also publishes the `phpm.$classmap` module. Its `classes` export
+maps lower-cased class names to normalized unit paths; its `paths` export
+maps those paths (and any additional paths selected by the composition) to
+delivery thunks. The autoloader then runs on a class miss and may `require`
+only literal paths in that map. Composer's generated class map is admissible
+as data; its filesystem resolution is not (owner decision B8.7).
 
 ### 11.3 Missing includes: two stages, two meanings
 
@@ -1900,9 +1911,12 @@ admissible as data; its filesystem resolution is not (owner decision B8.7).
    without concrete segment pins"), not solved here (owner decision B8.10).
 2. **Run time**: "missing" means the pinned content is unavailable or its
    delivery is refused (`:absent` with `:address`, a mismatch, an untrusted
-   principal). `include` emits PHP's `Warning: include(...): Failed to open
-   stream` record and yields `false`; `require` throws `Error` with PHP's
-   fatal text.
+   principal). `include` and `include_once` emit PHP's two warning records
+   and yield `false`; `require` and `require_once` emit the first warning and
+   throw `Error` with PHP's fatal text. The warning text retains the written
+   kind. A refused path is not added to the included-files dict, so a later
+   `_once` retries delivery. Each record carries the structured refusal under
+   `:yang.php/refusal`.
 
 ## 12. Safepoints
 
@@ -2072,7 +2086,9 @@ claimed row's fixtures must equal the oracle before its slice lands (section
 |       | Dart, the dynamic-scope profile  | refused at publication by name; a |
 |       | for including functions          | pinned but unserved target:       |
 |       |                                  | `include` warns and yields        |
-|       |                                  | `false`, `require` throws `Error` |
+|       |                                  | `false`, `require` and            |
+|       |                                  | `require_once` throw `Error`; a   |
+|       |                                  | refused `_once` retries delivery  |
 +-------+----------------------------------+-----------------------------------+
 | P7-a  | signals: `phpsp` hooks at        | a signal at a `:loop` hook runs   |
 |       | `:loop` and `:call`,             | the handler; an empty signal      |
@@ -2387,6 +2403,28 @@ decision B8.11).
 |                     | `:decl-byref-rejection-releases-    |                  |
 |                     | ownership` (`cED` vs `cDE`); the    |                  |
 |                     | freed-exception variant agrees      |                  |
++---------------------+-------------------------------------+------------------+
+
+| C37 declared-path   | Engine: `__FILE__` and `__DIR__`    | departure;       |
+| magic constants     | are absolute filesystem paths.      | oracle path      |
+|                     | Here: they use the unit's declared   | normalization    |
+|                     | relative path (`.` for a root unit).| maps `/w/<id>`   |
+|                     |                                     | to `.`           |
++---------------------+-------------------------------------+------------------+
+| C38 include search  | Engine: after the current working   | restricted;      |
+| roots               | directory, PHP searches the         | composition-root |
+|                     | including script's directory and    | resolution only  |
+|                     | `include_path`. Here: folded paths |                  |
+|                     | resolve against the composition     |                  |
+|                     | root; optional absent imports are  |                  |
+|                     | not publishable.                    |                  |
++---------------------+-------------------------------------+------------------+
+| C39 default         | Engine: `spl_autoload_register(null)`| restricted;     |
+| autoloader          | installs PHP's default loader. Here:| departure        |
+|                     | the call is refused as              | `G-default-      |
+|                     | `G-default-autoload`; Composer      | autoload`; class |
+|                     | class-map data is allowed, its      | map data remains |
+|                     | filesystem lookup is not.           | supported        |
 +---------------------+-------------------------------------+------------------+
 
 ### 17.3 Convergence and the blocking rule

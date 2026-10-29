@@ -192,7 +192,8 @@
      ;; the composition's `phpm.$classmap` exports: lower-cased class name to
      ;; path, and the literal paths a computed include may name
      (fn [classes paths]
-       (cell/set! php.rt/class-map classes))]
+       (do (cell/set! php.rt/class-map classes)
+           (cell/set! php.rt/path-map paths)))]
     ;; ---------------------------------------------------------------- namespaces
     [php/resolve-fn2
      ;; the two-key lookup of an unqualified call inside a namespace

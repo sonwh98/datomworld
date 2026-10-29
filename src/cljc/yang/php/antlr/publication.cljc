@@ -7,24 +7,37 @@
    PHP hook profile is P7).
 
    A unit is `{:name path :packet p :strict-types b}`, `path` its normalized
-   relative path. Name assertions stay the linker's: this namespace publishes
-   content, it signs nothing."
+   relative path; the optional class map entry is `{:name \"$classmap\"
+   :classes {class path} :paths [path ...]}`. Name assertions stay the
+   linker's: this namespace publishes content, it signs nothing."
   (:require
     [yang.core.publication :as core]
     [yang.php.antlr.lower :as lower]
     [yin.vm.linker.publish :as publish]))
 
 
+(defn- class-map?
+  "The autoload class map entry of a unit set, `{:name \"$classmap\" :classes
+   {class path} :paths [path ...]}`: it imports every path it lists, so it
+   publishes last and an unpublished path is refused by name (plan P6 R9)."
+  [unit]
+  (= lower/classmap-name (:name unit)))
+
+
 (defn- config
   [publish-fn]
-  {:imported-names (fn [{:keys [name packet]}]
-                     (lower/imported-unit-names packet {:path name})),
-   :module-spec (fn [registry {:keys [name packet strict-types]} php-address deps]
-                  (lower/module-spec registry packet
-                                     {:path name,
-                                      :strict-types strict-types,
-                                      :php-address php-address,
-                                      :deps deps})),
+  {:imported-names (fn [{:keys [name packet], :as unit}]
+                     (if (class-map? unit)
+                       (lower/classmap-paths unit)
+                       (lower/imported-unit-names packet {:path name}))),
+   :module-spec (fn [registry {:keys [name packet strict-types], :as unit} php-address deps]
+                  (if (class-map? unit)
+                    (lower/classmap-spec registry unit php-address deps)
+                    (lower/module-spec registry packet
+                                       {:path name,
+                                        :strict-types strict-types,
+                                        :php-address php-address,
+                                        :deps deps}))),
    :scc-module-specs lower/scc-module-specs,
    :site-set nil,
    :binder-table nil,

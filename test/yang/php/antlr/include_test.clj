@@ -1,8 +1,9 @@
 (ns yang.php.antlr.include-test
-  "P6 S1/S2: include/require over the linker. The P6 fixtures run linked on
-   the three vector VMs (the AST walker cannot link `php` until L-b); the
-   pure path rules, the publication order and the two missing stages have
-   their own tests."
+  "P6 S1-S5: linked inclusion, dynamic scope, namespaces, constants and the
+   autoload class map. Linked fixtures run on the three vector VMs (the AST
+   walker cannot link `php` until L-b); path rules, publication order,
+   constant folding, namespace block rules and the two missing stages have
+   focused tests."
   (:require
     [clojure.test :refer [deftest is testing]]
     [yang.php.antlr.cst :as cst]
@@ -31,7 +32,8 @@
 
 (defn- run
   [fixture]
-  (lh/run-fixture (parse-units fixture) "main.php" {:computed? (:computed fixture)}))
+  (lh/run-fixture (parse-units fixture) "main.php"
+                  {:computed? (:computed fixture), :class-map (:class-map fixture)}))
 
 
 (deftest ^:slow p6-fixtures-linked-on-every-vm-test
@@ -86,11 +88,9 @@
              (try (lower/lower-program (cst/parse-source src) {:prelude :linked})
                   (catch clojure.lang.ExceptionInfo e (:construct (ex-data e)))))
           src)))
-  (testing "an include inside a function waits for the dynamic-scope profile"
-    (is (= :include-in-function
-           (try (lower/lower-program (cst/parse-source "<?php function f() { include 'a.php'; }")
-                                     {:prelude :linked})
-                (catch clojure.lang.ExceptionInfo e (:construct (ex-data e))))))))
+  (testing "an include inside a function lowers (the dynamic-scope profile)"
+    (is (map? (lower/lower-program (cst/parse-source "<?php function f() { include 'a.php'; }")
+                                   {:prelude :linked})))))
 
 
 (deftest computed-path-warning-test
@@ -162,3 +162,62 @@
           [out diag] (observed (vm/value (lh/run-linked :semantic ast (unserved-source result "a.php"))))]
       (is (= "Ebool(false)\n" out))
       (is (= 3 (count diag))))))
+
+
+;; ---------------------------------------------------------------------------
+;; P6 S3-S5: namespaces, constants, the autoload class map
+;; ---------------------------------------------------------------------------
+
+(defn- lowered-text
+  "The lowered tree of `src` as a string, to assert what it contains."
+  [src opts]
+  (pr-str (:ast (lower/lower-program (cst/parse-source src) (assoc opts :prelude :linked)))))
+
+
+(deftest builtin-constants-fold-only-where-php-folds-test
+  (testing "the global block and fully qualified reads fold to the literal"
+    (doseq [src ["<?php echo PHP_EOL;" "<?php namespace A; echo \\PHP_EOL;"]]
+      (is (not (re-find #"const-get" (lowered-text src {}))) src)))
+  (testing "an unqualified read inside a namespace is the two-key lookup, no literal folded"
+    (let [t (lowered-text "<?php namespace A; echo PHP_EOL;" {})]
+      (is (re-find #"php/const-get" t))
+      (is (re-find #"A\W+PHP_EOL" t))))
+  (testing "a name in the const import table is a fully qualified read"
+    (let [t (lowered-text "<?php namespace A; use const B\\X; echo X;" {})]
+      (is (re-find #"php/const-get-fq" t))
+      (is (re-find #"B\W+X" t)))))
+
+
+(deftest namespace-block-rules-test
+  (doseq [[src msg]
+          [["<?php namespace A; namespace B { }" #"Cannot mix bracketed"]
+           ["<?php echo 1; namespace A;" #"very first statement"]
+           ["<?php namespace A { } echo 1;" #"No code may exist outside"]]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo msg
+          (lower/lower-program (cst/parse-source src)))
+        src))
+  (testing "declare before the namespace is allowed"
+    (is (map? (lower/lower-program (cst/parse-source "<?php declare(strict_types=1); namespace A; echo 1;"))))))
+
+
+(deftest class-map-publication-test
+  (let [u (fn [name src] {:name name, :packet (cst/parse-source src)})
+        cm (fn [classes] (assoc classes :name lower/classmap-name))
+        units [(u "lib/Foo.php" "<?php class Foo {}")
+               (cm {:classes {"Foo" "lib/Foo.php"}})]]
+    (testing "the class map publishes after every path it lists"
+      (let [order (:order (publication/publication-order units {}))]
+        (is (= lower/classmap-name (last order)))))
+    (testing "a listed path no unit supplies is refused by name"
+      (let [r (publication/publication-order [(cm {:classes {"Bar" "lib/Bar.php"}})] {})]
+        (is (= :yang.php/unpublished-import (:reason r)))
+        (is (= "lib/Bar.php" (:module r)))
+        (is (= lower/classmap-name (:imported-by r)))))
+    (testing "an unmappable path is refused at emit"
+      (is (thrown? clojure.lang.ExceptionInfo
+            (lower/classmap-paths {:classes {"X" "../x.php"}}))))))
+
+
+(deftest default-autoloader-is-refused-test
+  (let [r (h/run-walker "<?php try { spl_autoload_register(null); } catch (Error $e) { echo $e->getMessage(); }")]
+    (is (re-find #"G-default-autoload" (pr-str r)))))
