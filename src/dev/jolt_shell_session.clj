@@ -56,7 +56,7 @@
   [host args]
   (case host
     :jolt (into ["sh" "-c"
-                 ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-yin-repl \"$@\""
+                 ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-yin-repl --no-state \"$@\""
                  "jolt"] args)
     :jvm (into ["clj" "-M:clj-yin-repl" "--no-state"] args)))
 
@@ -88,7 +88,7 @@
         (when (= host :jolt)
           (when-not (and (str/includes? @stdout "Host: jolt ")
                          (str/includes? @stdout " / Chez ")
-                         (str/includes? @stdout "python: not installed on this host until J5"))
+                         (str/includes? @stdout "python: the native C++ ANTLR4 parser"))
             (fail! "missing jolt banner" {:stdout @stdout})))
         (when idle-ms (Thread/sleep idle-ms))
         (doseq [[i line] (map-indexed vector in)]

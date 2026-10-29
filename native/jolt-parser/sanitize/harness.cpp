@@ -119,13 +119,68 @@ int main(int argc, char** argv) {
     st = jolt_parser_export(fake, reinterpret_cast<const uint8_t*>("1\n"), 2, &out, &len);
     expect(st == -1 && out == nullptr, "unrecognized worker", st);
     std::free(fake);
-    // one string token whose text alone passes the 64 MiB bound: few tokens,
-    // so the check is cheap even under ASan
-    std::string big = "s = '" + std::string(70u * 1024u * 1024u, 'a') + "'\n";
+    // J5: a source past the 4 MiB input bound is refused before parsing
+    std::string huge = "s = '" + std::string(70u * 1024u * 1024u, 'a') + "'\n";
+    run_export(w, huge, -6, "over-bound input refused (-6)");
+    run_export(w, ok, 0, "worker parses again after -6");
+    // a legal source (600 KB, nesting 0) whose answer passes the 64 MiB
+    // output bound: about 129 output bytes per input byte of `1\n`
+    std::string big;
+    for (int i = 0; i < 300000; ++i) big += "1\n";
     run_export(w, big, -4, "oversize answer refused (-4)");
     run_export(w, ok, 0, "worker parses again after -4");
     jolt_parser_worker_free(w);
     jolt_parser_worker_free(nullptr);
+  }
+
+  // once (J5b, C5): the review's repros refuse (-7) and the shapes at their
+  // bounds parse, on both entries, under the sanitizers; the same worker
+  // parses after every refusal. Sources as src/dev/jolt_j5_shapes.cljc.
+  {
+    auto rep = [](long n, const std::string& s) {
+      std::string r;
+      r.reserve(n * s.size());
+      for (long i = 0; i < n; ++i) r += s;
+      return r;
+    };
+    const std::string refused[] = {
+        "#\r" + rep(100000, "(") + "1" + rep(100000, ")") + "\n",
+        "#\f" + rep(100000, "(") + "1" + rep(100000, ")") + "\n",
+        "x = " + rep(100000, "1 if 1 else \\ \n") + "1\n",
+        "[x" + rep(100000, " for x in x") + "]\n",
+        "[x" + rep(50000, " for x in x if x") + "]\n",
+        rep(128, rep(128, "not ") + "(0 or ") + "0" + rep(128, ")") + "\n",
+        "x = " + rep(100000, "-") + "1\n",
+        "x = " + rep(100000, "f(") + "1" + rep(100000, ")") + "\n",
+        "x = " + rep(909, "(") + "1" + rep(909, ")") + "\n",
+        "f(" + rep(454, "(") + "1" + rep(454, ")") + ")\n",
+        "x = " + rep(254, "-") + "1\n",
+    };
+    std::string indent;
+    for (int i = 0; i < 2045; ++i) indent += std::string(i, ' ') + "if x:\n";
+    indent += std::string(2045, ' ') + "pass\n";
+    const std::string at_bound[] = {
+        "x = " + rep(908, "(") + "1" + rep(908, ")") + "\n",
+        "x = " + rep(8178, "not ") + "1\n",
+        "x = " + rep(253, "-") + "1\n",
+        "x = " + rep(408, "f(") + "1" + rep(408, ")") + "\n",
+        "f(" + rep(453, "(") + "1" + rep(453, ")") + ")\n",
+        "[x" + rep(4085, " for x in x") + "]\n",
+        "x = " + rep(4089, "lambda: ") + "1\n",
+        indent,
+        rep(20000, "1+") + "1\n",
+    };
+    void* w = jolt_parser_worker_new();
+    for (const auto& s : refused) {
+      run_export(w, s, -7, "nesting refused (-7)");
+      run_export(w, "x * 6\n", 0, "worker parses again after -7");
+      run_parse(s, -7, "nesting refused on the static-cache entry (-7)");
+    }
+    for (const auto& s : at_bound) {
+      run_export(w, s, 0, "at the bound parses");
+      run_parse(s, 0, "at the bound parses on the static-cache entry");
+    }
+    jolt_parser_worker_free(w);
   }
 
   std::printf("cycles %ld\n", cycles);
