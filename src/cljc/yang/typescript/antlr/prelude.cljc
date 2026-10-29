@@ -4094,11 +4094,30 @@
       :js/undefined)))
 
 
+(def ^:private t4-definitions
+  [['js/args-object '(fn [args] (js/new-array args))]
+   ['js/spread-array-items
+    '(fn [items i out]
+       (if (< i (data/count items))
+         (js/spread-array-items
+           items
+           (+ i 1)
+           (js/vconj out (js/item-val (get items i))))
+         out))]
+   ['js/args-spread
+    '(fn [args value]
+       (if (js/array? value)
+         (data/into args
+                    (js/spread-array-items (get (cell/get value) :items) 0 []))
+         (js/throw-type-error {:js/str "Spread value is not iterable"})))]])
+
+
 (def definitions
   "The single definition list, `[store-key form]` in definition order:
    every prelude function, the literal state slot, then `js/init!`.
    Defining them runs nothing."
-  (into (into (into (into (into core-definitions object-definitions)
+  (into (into (into (into (into (into core-definitions object-definitions)
+                                t4-definitions)
                           array-definitions)
                     json-definitions)
               class-definitions)

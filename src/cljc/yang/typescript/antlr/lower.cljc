@@ -493,7 +493,7 @@
 
 
 (declare lower-expr lower-seq lower-named member-expression? member-parts
-         lower-name-update lower-name-assign lower-class)
+         lower-name-update lower-name-assign lower-class simple-name)
 
 
 (defn- lower-template
@@ -537,11 +537,14 @@
 (defn- read-name
   [ctx nm]
   (let [r (resolve-name ctx nm)]
-    (if (= :cell (:kind r))
+    (cond
+      (= :cell (:kind r))
       (if (:tdz? r)
         (app* 'js/lexical-get (u/v (symbol nm)) (u/lit (jstr nm)))
         (app* 'cell/get (u/v (symbol nm))))
-      (app* 'js/global-get (u/lit (jstr nm))))))
+      (and (= nm "arguments") (:arguments ctx))
+      (u/v (:arguments ctx))
+      :else (app* 'js/global-get (u/lit (jstr nm))))))
 
 
 (defn- init-name
@@ -725,9 +728,18 @@
         nt-sym (gen "nt" n)
         thisc (when (= :derived ctor) (gen "thisc" n))
         ret (gen "ret" n)
+        mentions-arguments? (fn mentions-arguments?
+                              [node]
+                              (or (and (p/token? node)
+                                       (= "Identifier" (:type node))
+                                       (= "arguments" (:text node)))
+                                  (some mentions-arguments? (kids ctx node))))
+        args-object (when (and (not arrow?) body (mentions-arguments? body))
+                      (gen "arguments" n))
         fctx (cond-> (assoc ctx
                             :scope (:id scope-n)
                             :this this-sym
+                            :arguments (if arrow? (:arguments ctx) args-object)
                             :ret ret
                             :loop nil
                             :labels {}
@@ -754,10 +766,16 @@
         pairs (vec (concat param-pairs
                            (map (fn [nm] [nm undefined]) vars)
                            (map (fn [nm] [nm tdz]) tdz-names)))
+        body-core (if thisc
+                    (app* 'js/derived-result (u/v thisc) inner)
+                    inner)
         body-node (bind-cells pairs
-                              (if thisc
-                                (app* 'js/derived-result (u/v thisc) inner)
-                                inner))
+                              body-core)
+        body-node (if args-object
+                    (u/let1 args-object
+                            (app* 'js/args-object (u/v args-sym))
+                            body-node)
+                    body-node)
         body-node (if thisc
                     (u/let1 thisc (app* 'cell/new tdz) body-node)
                     body-node)]
@@ -1082,14 +1100,13 @@
   [ctx args-node]
   (let [al (when args-node (first (rules ctx args-node "argumentList")))
         args (when al (rules ctx al "argument"))]
-    (build-vector
-      (mapv (fn [a]
-              (when (p/has-token? (:pk ctx) a "...")
-                (refuse! a "spread argument" :T4))
-              (if-let [e (first (rules ctx a "singleExpression"))]
-                (lower-expr ctx e)
-                (read-name ctx (text-of ctx a))))
-            args))))
+    (reduce (fn [out a]
+              (let [e (first (rules ctx a "singleExpression"))]
+                (if (p/has-token? (:pk ctx) a "...")
+                  (app* 'js/args-spread out (lower-expr ctx e))
+                  (app* 'js/vconj out (if e (lower-expr ctx e)
+                                          (read-name ctx (text-of ctx a)))))))
+            (u/lit []) args)))
 
 
 (defn- member-parts
@@ -1252,8 +1269,23 @@
                      (u/if-node (truthy (u/v t)) (u/v t) (lower-expr ctx b))))
       "!=" (negate (app* 'js/loose-eq (lower-expr ctx a) (lower-expr ctx b)))
       "!==" (negate (app* 'js/strict-eq (lower-expr ctx a) (lower-expr ctx b)))
-      "??" (refuse! n "nullish coalescing" :T4)
-      "?." (refuse! n "optional chaining" :T4)
+      "??" (let [t (gen "nullish" n)]
+             (u/let1 t (lower-expr ctx a)
+                     (u/if-node (app* 'js/strict-eq (u/v t) undefined)
+                                (lower-expr ctx b)
+                                (u/if-node (app* 'js/strict-eq (u/v t) (u/lit :js/null))
+                                           (lower-expr ctx b)
+                                           (u/v t)))))
+      "?." (let [t (gen "optional" n)
+                 key (if-let [nm (simple-name ctx b)]
+                       (u/lit (jstr nm))
+                       (app* 'js/to-property-key (lower-expr ctx b)))]
+             (u/let1 t (lower-expr ctx a)
+                     (u/if-node (app* 'js/strict-eq (u/v t) undefined)
+                                undefined
+                                (u/if-node (app* 'js/strict-eq (u/v t) (u/lit :js/null))
+                                           undefined
+                                           (app* 'js/get-value (u/v t) key)))))
       "instanceof" (app* 'js/instanceof (lower-expr ctx a) (lower-expr ctx b))
       "in" (app* 'js/in-op (lower-expr ctx a) (lower-expr ctx b))
       (if-let [f (get binary-ops op)]
@@ -1264,21 +1296,28 @@
 (defn- lower-array
   [ctx k]
   (let [el (first (rules ctx k "elementList"))
-        step (fn [[items prev?] c]
-               (cond
-                 (p/token? c ",")
-                 [(if prev? items (conj items (u/lit :js/hole))) false]
-                 (p/rule? c "arrayElement")
-                 (do (when (p/has-token? (:pk ctx) c "...")
-                       (refuse! c "spread element" :T4))
-                     [(conj items
-                            (if-let [e (first (rules ctx c "singleExpression"))]
-                              (lower-expr ctx e)
-                              (read-name ctx (text-of ctx c))))
-                      (not (some #(p/token? % ",") (kids ctx c)))])
-                 :else [items prev?]))
-        [items _] (reduce step [[] false] (kids ctx el))]
-    (app* 'js/new-array (build-vector items))))
+        items (loop [cs (kids ctx el), out [], prev? false]
+                (if-let [c (first cs)]
+                  (cond
+                    (p/token? c ",")
+                    (recur (rest cs) (if prev? out (conj out [:hole nil])) false)
+                    (p/rule? c "arrayElement")
+                    (let [e (first (rules ctx c "singleExpression"))
+                          item [(if (p/has-token? (:pk ctx) c "...") :spread :value)
+                                (if e
+                                  (lower-expr ctx e)
+                                  (read-name ctx (text-of ctx c)))]]
+                      (recur (rest cs) (conj out item)
+                             (not (some #(p/token? % ",") (kids ctx c)))))
+                    :else (recur (rest cs) out prev?))
+                  out))]
+    (app* 'js/new-array
+          (reduce (fn [out [kind value]]
+                    (case kind
+                      :hole (app* 'js/vconj out (u/lit :js/hole))
+                      :spread (app* 'js/args-spread out value)
+                      (app* 'js/vconj out value)))
+                  (u/lit []) items))))
 
 
 (defn- property-key

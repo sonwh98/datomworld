@@ -263,6 +263,22 @@
       "const s = '\\uD83D\\uDE00'; console.log(s.slice(0, 1) + s.slice(1) === s);"]]))
 
 
+(deftest ^:slow t4-expression-basics-test
+  (program-test
+    "t4-expression-basics"
+    [[(prints "7" "undefined" "2" "4" "v2" "1 2")
+      (str "let x = null;"
+           "console.log(x ?? 7);"
+           "console.log(x?.p);"
+           "function f(a) { console.log(arguments.length); }"
+           "f(...[1, 2]);"
+           "console.log([0, ...[3, 4]][2]);"
+           "console.log(`v${1 + 1}`);"
+           "let hits = 0; let obj = {x: 1};"
+           "function getObj() { hits++; return obj; }"
+           "getObj().x += 1; console.log(hits, obj.x);")]]))
+
+
 (deftest ^:slow known-gap-refusals-test
   (slow/guard
     "known-gap-refusals"
