@@ -1,0 +1,57 @@
+;; Slice-8 evidence. Compiler and VM are unchanged from the slice-7 tip.
+{:slice 8
+ :adaptation-version 1
+ :upstream {:repository "https://github.com/latte-central/latte-kernel"
+            :revision "86fca0d1d054af005cb37395eae04500d45e6279"}
+ :compiler-vm-revision "1fe3eb0773268169399a52f139933b2d4cb717f8"
+ :runtime {:clojure-cli "1.12.4.1602" :java "OpenJDK 17.0.18"}
+ :executions {:a :original-upstream-clojure
+              :b :explicit-context-source-clojure
+              :c [:walker :semantic]}
+ :source "yang/latte_oracle/context.edn"
+ :sequences "yang/latte_oracle/slice8_sequences.edn"
+ :fixtures [test-oracle-slice8-context-isolation
+            test-oracle-slice8-definition-kinds-and-delta
+            test-oracle-slice8-registry-sequences
+            test-oracle-slice8-opacity-propagation
+            test-oracle-slice8-shared-implicit-installation
+            test-oracle-slice8-context-reconstruction
+            test-oracle-slice8-admission
+            test-oracle-slice8-implicit-delta-errors
+            test-oracle-slice8-upstream-proof-loop]
+ :new-anchors [latte-kernel.defenv/fetch-definition
+               latte-kernel.defenv/qualify-def
+               latte-kernel.nbe/delta-reduction
+               latte-kernel.norm/delta-reduction
+               latte-kernel.typing/unfold-implicit
+               latte-kernel.norm/install-unfold-implicit!
+               latte-kernel.unparser/register-unparser!
+               latte-kernel.unparser/unregister-unparser!
+               latte-kernel.unparser/install-fundamental-unparsers!
+               latte-kernel.unparser/unparse
+               latte-kernel.proof/elab-opaque
+               latte-kernel.proof/elab-transparent
+               latte-kernel.proof/elab-proof]
+ :records [Definition Theorem Axiom Notation Implicit]
+ :comparisons [:outcome-tags :values :record-kinds-and-fields
+               :collection-families :domain-metadata :registry-snapshots
+               :opacity-snapshots :implicit-error-data]
+ :portability-gates [:no-host-namespace-or-var-exports :free-symbol-admission
+                     :plain-source-and-ast :host-callback-literal-refusal
+                     :code-row-reconstruction-both-lanes
+                     :live-closure-registry-jing-ucf-round-trip]
+ :scope {:proof-steps [:opaque :transparent :print-term :print-type :print-def :print-defenv]
+         :proof-driver :original-upstream-elab-proof
+         :implicit-arguments :typed-boundary-checked-against-upstream-host-constants
+         :notation :extension-invocation
+         :deferred-to-slice9 [:general-parsing :implicit-argument-type-inference
+                              :proof-typing-steps :end-to-end-kernel-gate]
+         :diagnostics :dropped-v1
+         :wall-clock :excluded
+         :unregister-user :upstream-standard-list-behavior-preserved
+         :reader-fn-star :mechanically-lowered-to-fn
+         :host-var-probes :legacy-slices-only}
+ :validation {:command "clj -M:test -n yang.clojure-test -n yang.latte-oracle-test -n yin.vm.macro-test -n yang.clojure.stream-eval-test -n yin.vm.store-write-audit-test"
+              :tests 140 :assertions 2284 :failures 0 :errors 0
+              :kondo {:errors 0 :warnings 2 :new-warnings 0
+                      :existing-warnings [:redundant-let :unused-binding]}}}
