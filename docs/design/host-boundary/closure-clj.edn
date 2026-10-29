@@ -3,8 +3,8 @@
 {:lane :clj,
  :root yin.repl.main,
  :features #{:clj},
- :total 154,
- :shared 146,
+ :total 155,
+ :shared 147,
  :lane-specific 8,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
@@ -273,6 +273,10 @@
    :ns dao.stream.ws,
    :shared true,
    :classes #{:codec-track :deferred-entropy :external-stream-seam}}
+  {:file "src/cljc/dao/stream/ws/upgrade.cljc",
+   :ns dao.stream.ws.upgrade,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/dao/stream/ws_project.cljc",
    :ns dao.stream.ws-project,
    :shared true,
