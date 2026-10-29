@@ -17,11 +17,10 @@
             [clojure.tools.reader :as r]
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]
+            [yang.clojure-test :as compiler-test]
             [yin.vm :as vm]
             [yin.vm.data :as data]
-            [yin.vm.module :as module]
-            [yin.vm.test-utils :as tu]
-            [yin.vm.values :as values]))
+            [yin.vm.module :as module]))
 
 
 (def ^:private manifest
@@ -175,18 +174,32 @@
    :native vm/primitive-profiles})
 
 
+(defn- result-shape
+  "Collection families and domain metadata, excluding reader provenance."
+  [x]
+  [(not-empty (apply dissoc (meta x) [:source :file :line :column :end-line :end-column]))
+   (cond
+     (map? x) (into {} (map (fn [[k v]] [k [(result-shape k) (result-shape v)]])) x)
+     (set? x) (into #{} (map (fn [v] [v (result-shape v)])) x)
+     (sequential? x) [(if (vector? x) :vector :sequence) (mapv result-shape x)]
+     :else :scalar)])
+
+
 (defn- run-outcome
   "Compile `forms` plus `call-form` (with the library definitions they need)
    and return the RAW outcome of the call: the value channel carries
-   [tag payload]."
+   [tag payload]. Every fixture runs on walker and semantic lanes under the
+   same finite instruction budget."
   [forms call-form]
-  (let [program (into [] (concat forms [call-form]))]
-    (-> (tu/make-observer-session (tu/create-vm {:modules (oracle-registry)}))
-        (tu/queue-ast! (yang/compile-program
-                         (into (yang/library-for program) program) true arg-vector-opts))
-        tu/run-session
-        :consumer
-        vm/value)))
+  (let [program (into [] (concat forms [call-form]))
+        ast (yang/compile-program (into (yang/library-for program) program) true arg-vector-opts)
+        modules (oracle-registry)
+        walker (compiler-test/run-guest-ast ast modules :walker 1000000)
+        semantic (compiler-test/run-guest-ast ast modules :semantic 1000000)]
+    (is (= walker semantic) (str "oracle lanes agree: " (pr-str call-form)))
+    (is (= (result-shape walker) (result-shape semantic))
+        (str "oracle lane shapes and metadata agree: " (pr-str call-form)))
+    walker))
 
 
 (defn- run-on-vm
@@ -442,18 +455,20 @@
 ;; =============================================================================
 
 (defn- desugar
-  "Interim lowering of what the compiler does not own: lazy-seq evaluates
-   eagerly, and a namespace alias is dropped so the call is a program-defined
-   guest call. cond and if-let are the compiler's own forms."
+  "Drop corpus namespace aliases for guest calls. Only finite utils/zip
+   admits eager lazy-seq adaptation; cond and if-let are compiler forms."
   [form]
-  (walk/postwalk
-    (fn [f]
-      (cond
-        (and (seq? f) (= 'lazy-seq (first f))) (second f)
-        (and (symbol? f) (#{"stx" "defenv" "nbe" "norm" "utils"} (namespace f)))
-        (symbol (name f))
-        :else f))
-    form))
+  (let [finite-zip? (and (seq? form) (= 'defn (first form)) (= 'zip (second form)))]
+    (walk/postwalk
+      (fn [f]
+        (cond
+          (and (seq? f) (= 'lazy-seq (first f)))
+          (if finite-zip? (second f)
+              (throw (ex-info "Only finite utils/zip admits eager lazy-seq adaptation" {})))
+          (and (symbol? f) (#{"stx" "defenv" "nbe" "norm" "utils" "set"} (namespace f)))
+          (symbol (name f))
+          :else f))
+      form)))
 
 
 (defn- a-leg
@@ -732,3 +747,53 @@
             (do (is (= ::no-match (a-dispatch row unmatched)))
                 (is (= :yin.k/error (first c)))
                 (is (= "No matching clause in case" (:yin.k/message (second c)))))))))))
+
+
+;; =============================================================================
+;; Slice 7: upstream higher-order and syntax anchors, both VM lanes
+;; =============================================================================
+
+(def ^:private slice7-anchors
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/slice7_anchors.edn"))))
+
+
+(deftest test-oracle-slice7-library-anchors
+  (let [{:keys [dependency-groups anchors]} slice7-anchors]
+    (is (= '#{map-with vremove term-reduce free-vars vars subst alpha-norm readable-term}
+           (set (map :fn anchors))))
+    (doseq [{ns-sym :ns fname :fn :keys [groups deps args]} anchors
+            :let [names (distinct (concat (mapcat dependency-groups groups) deps))
+                  forms (mapv #(desugar (get top-forms [ns-sym %])) names)
+                  qsym (symbol (str (str/replace (str ns-sym) "_" "-") "/" fname))]]
+      (testing (str qsym)
+        (is (every? some? forms) "every declared dependency exists in pinned upstream")
+        (doseq [arg-forms args
+                :let [host-args (mapv eval arg-forms)
+                      a (a-leg (upstream-fn qsym) host-args)
+                      c (run-outcome forms (list* fname arg-forms))]]
+          (is (agrees? a c) (str qsym " " (pr-str arg-forms)
+                                " A=" (pr-str a) " C=" (pr-str c)))
+          (when (contains? a :value)
+            (is (= (result-shape (:value a)) (result-shape (second c)))
+                "value equality also preserves nested metadata and collection shape")))))))
+
+
+(deftest test-oracle-slice7-finite-zip
+  ;; The pinned corpus has one consumer, proof/compile-proof's :assume arm:
+  ;; it loops over all pairs to build declarations, then reverses all pairs
+  ;; to build discharges. It requires finite, fully consumed inputs; it does
+  ;; not catch zip failures or depend on partial realization/error timing.
+  (let [source (get top-forms ['latte_kernel.utils 'zip])
+        forms [(desugar source)]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Only finite utils/zip"
+                         (desugar '(defn other [s] (lazy-seq s)))))
+    (is (= 1 (count (filter #(= 'lazy-seq %) (walk-symbols source))))
+        "zip is the single explicit eager lazy-seq adaptation")
+    (doseq [input [nil [] '() '[a A] '(a A b B c C) '[a A b]]
+            :let [a (a-leg (upstream-fn 'latte-kernel.utils/zip) [input])
+                  c (run-outcome forms (list 'zip (list 'quote input)))]]
+      (is (agrees? a c) (str "fully realized finite zip " (pr-str input))))
+    (is (= [:yin.k/ok [true 2 '[a A] '([b B]) '(:front [a A] [b B])]]
+           (run-outcome forms
+                        '(let [s (zip '(a A b B))]
+                           [(seq? s) (count s) (first s) (rest s) (conj s :front)]))))))

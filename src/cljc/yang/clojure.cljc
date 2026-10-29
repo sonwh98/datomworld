@@ -153,7 +153,8 @@
 ;; as in Clojure. A non-nil remainder is a vector, the VM `rest` contract.
 ;; Those primitives are bare names a local binding could shadow, so a
 ;; destructuring form is rejected wherever first, rest or empty? is bound
-;; locally; a store definition of those names is not detectable here.
+;; locally. Under the convention, a guest rest definition uses raw data
+;; cursors instead; previously stored definitions are not detectable here.
 ;; Generated names carry the reserved `dsg__` prefix and derive from the
 ;; binding's position, so lowering is deterministic.
 
@@ -253,8 +254,13 @@
 
 
 (defn- rest-form
-  [cursor meta-map]
-  (cond-> (list 'rest cursor)
+  [cursor meta-map env]
+  ;; Parameter and loop destructuring can be emitted after outcome lowering.
+  ;; Keep their cursors raw vectors even when the guest library defines rest
+  ;; with the argument-vector/outcome convention.
+  (cond-> (if (contains? (::defined env) 'rest)
+            (list 'data/subvec (list 'vec cursor) (list 'if (list 'empty? cursor) 0 1))
+            (list 'rest cursor))
     meta-map (with-meta meta-map)))
 
 
@@ -275,7 +281,7 @@
   "Flat [sym form ...] bindings destructuring `pattern` against symbol `t`.
    A chain of cursors walks the value with first/rest; `path` names the
    generated temporaries so nested patterns stay distinct."
-  [pattern t path]
+  [pattern t path env]
   (let [{:keys [positional rest as]} (parse-sequential-pattern pattern)
         m (meta pattern)
         n (count positional)
@@ -283,12 +289,12 @@
         bind (fn [out b form sub-path]
                (if (vector? b)
                  (let [sub (temp-symbol sub-path (meta b))]
-                   (-> out (conj sub form) (into (destructure-sequential b sub sub-path))))
+                   (-> out (conj sub form) (into (destructure-sequential b sub sub-path env))))
                  (conj out b form)))
         out (reduce (fn [out [i b]]
                       (cond-> (bind out b (first-form (cursor i) m) (str path "_" i))
                         (or (< (inc i) n) (not= ::none rest))
-                        (conj (cursor (inc i)) (rest-form (cursor i) m))))
+                        (conj (cursor (inc i)) (rest-form (cursor i) m env))))
                     []
                     (map-indexed vector positional))
         out (if (= ::none rest)
@@ -318,7 +324,7 @@
                      (conj bound target)))
           (vector? target)
           (let [temp (temp-symbol k (meta target))
-                generated (destructure-sequential target temp (str k))
+                generated (destructure-sequential target temp (str k) env)
                 bound' (into bound (take-nth 2) generated)]
             (when-let [hit (first (filter helper-names bound'))]
               (reject! "Destructuring would be captured by a local binding"
@@ -1816,13 +1822,15 @@
 ;; set?/seq?/list?/sequential?, from the `portable/*` adapters of data/count,
 ;; peek, dissoc and disj: a refusal as data says "not that kind"), boolean?,
 ;; fn? (data/callable?), seq, rem, reverse, list, cons, vector, count,
-;; contains?, map/mapv/filter/remove/reduce (with reduced)/into/concat/merge,
+;; contains?, rest, map/mapv/filter/remove/reduce (with reduced)/into/concat/merge,
+;; keys/vals/disj and set union/difference,
 ;; comp, partial, gensym (explicit supply), not=, and `apply`, which is a
 ;; compiler intrinsic over the convention's argument vector.
 ;;
 ;; What stays a host primitive, named by the `kind` module: a symbol, a
 ;; keyword and a host string are distinguished or built only by the host
-;; (symbol?, keyword?, name, symbol, keyword, str, int?). No `data` export or
+;; (symbol?, keyword?, name, symbol, keyword, str, int?), as is metadata access
+;; (meta). No `data` export or
 ;; VM primitive tells a symbol from a keyword. var? and resolve are the host's
 ;; Var primitives: a harness on a host with Vars registers them in `kind`
 ;; (`kind-module` leaves them out); a program that never mentions them does
@@ -1830,13 +1838,14 @@
 ;;
 ;; Known compromises: `reduced` is an untyped tagged map, so reduced? matches
 ;; any map holding :yin.k/reduced true; seq refuses a non-collection (a string
-;; is the data module's str-* ops, not a seq); rem needs integers and throws
-;; on a zero divisor; the compiler emits bare conj and vec, so a program may
-;; not define or bind either.
+;; is the data module's str-* ops, not a seq); eager sequences are lists;
+;; rem rejects non-integers and a zero divisor before arithmetic; the compiler
+;; emits bare conj and vec, so a program may not define or bind either.
 ;;
 ;; Variadic Clojure functions are fixed-arity here (the convention has no
 ;; variadic parameter): str, list and vector admit 0 to 6 arguments, concat and
-;; merge 0 to 4, comp 0 to 3, partial binds 1 to 3. A larger count is the
+;; merge 0 to 4, union 0 to 6, difference 2, comp 0 to 3, partial binds 1 to 3.
+;; A larger count is the
 ;; function's own arity error.
 
 (def library-adapters
@@ -1858,13 +1867,14 @@
    'symbol symbol
    'keyword keyword
    'str str
-   'int? int?})
+   'int? int?
+   'meta meta})
 
 
 (def kind-arities
   "The published arities of each `kind` export."
   {'symbol? [1], 'keyword? [1], 'name [1], 'symbol [1 2], 'keyword [1 2]
-   'str [0 1 2 3 4 5 6 :variadic], 'int? [1]})
+   'str [0 1 2 3 4 5 6 :variadic], 'int? [1], 'meta [1]})
 
 
 (def library
@@ -1881,6 +1891,7 @@
     (defn symbol? [x] (kind/symbol? x))
     (defn keyword? [x] (kind/keyword? x))
     (defn int? [x] (kind/int? x))
+    (defn meta [x] (kind/meta x))
     (defn name [x] (kind/name x))
     (defn var? [x] (kind/var? x))
     (defn resolve [x] (kind/resolve x))
@@ -1922,16 +1933,24 @@
     (defn seq? [x]
       (if (sequential? x) (not (vector? x)) false))
     (defn list? [x] (seq? x))
+    ;; The VM's rest returns a vector. Supply the source language's sequence
+    ;; shape here without changing that VM primitive.
+    (defn rest [coll]
+      (let [v (vec coll)]
+        (loop [i (- (count v) 1), acc '()]
+          (if (< i 1) acc (recur (- i 1) (conj acc (data/nth v i)))))))
     (defn seq [x]
       (cond
         (nil? x) nil
         (if (coll? x) (empty? x) false) nil
-        (if (map? x) true (set? x)) (vec x)
-        (coll? x) x
+        (seq? x) x
+        (coll? x) (reverse (reverse x))
         :else (throw (ex-info "seq of a non-collection is not supported"
                               {:value x}))))
     (defn rem [a b]
       (cond
+        (not (if (int? a) (int? b) false))
+        (throw (ex-info "rem requires integer operands" {:a a :b b}))
         (= b 0) (throw (ex-info "Divide by zero" {:a a}))
         (< a 0) (- 0 (rem (- 0 a) b))
         (< b 0) (rem a (- 0 b))
@@ -1975,40 +1994,53 @@
     (defn map
       ([f coll]
        (loop [s coll
-              acc []]
-         (if (empty? s) acc (recur (rest s) (conj acc (f (first s)))))))
+              acc '()]
+         (if (empty? s) (reverse acc) (recur (rest s) (conj acc (f (first s)))))))
       ([f a b]
        (loop [x a
               y b
-              acc []]
+              acc '()]
          (if (if (empty? x) true (empty? y))
-           acc
+           (reverse acc)
            (recur (rest x) (rest y) (conj acc (f (first x) (first y))))))))
     (defn mapv
-      ([f coll] (map f coll))
-      ([f a b] (map f a b)))
+      ([f coll] (vec (map f coll)))
+      ([f a b] (vec (map f a b))))
     (defn filter [pred coll]
       (loop [s coll
-             acc []]
+             acc '()]
         (if (empty? s)
-          acc
+          (reverse acc)
           (recur (rest s) (if (pred (first s)) (conj acc (first s)) acc)))))
     (defn remove [pred coll]
       (loop [s coll
-             acc []]
+             acc '()]
         (if (empty? s)
-          acc
+          (reverse acc)
           (recur (rest s) (if (pred (first s)) acc (conj acc (first s)))))))
     (defn into [to from]
       (loop [acc to
              s from]
         (if (empty? s) acc (recur (conj acc (first s)) (rest s)))))
     (defn concat
-      ([] [])
-      ([a] (into [] a))
-      ([a b] (into (into [] a) b))
-      ([a b c] (into (into (into [] a) b) c))
-      ([a b c d] (into (into (into (into [] a) b) c) d)))
+      ([] '())
+      ([a] (reverse (reverse a)))
+      ([a b] (reverse (into (reverse a) b)))
+      ([a b c] (reverse (into (into (reverse a) b) c)))
+      ([a b c d] (reverse (into (into (into (reverse a) b) c) d))))
+    (defn keys [m] (map first (vec m)))
+    (defn vals [m] (map second (vec m)))
+    (defn disj [s x] (data/disj s x))
+    (defn union
+      ([] #{})
+      ([a] a)
+      ([a b] (into a b))
+      ([a b c] (into (into a b) c))
+      ([a b c d] (into (into (into a b) c) d))
+      ([a b c d e] (into (into (into (into a b) c) d) e))
+      ([a b c d e f] (into (into (into (into (into a b) c) d) e) f)))
+    (defn difference [a b]
+      (reduce (fn [s x] (disj s x)) a b))
     (defn merge
       ([] nil)
       ([a] a)

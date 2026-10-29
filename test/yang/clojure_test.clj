@@ -1702,16 +1702,48 @@
    :native vm/primitive-profiles})
 
 
+(defn run-guest-ast
+  "Run an AST through either observer composition with a finite instruction
+   budget. Shared by the library and upstream LaTTe acceptance fixtures."
+  [ast modules lane step-limit]
+  (let [run-bounded (fn [machine]
+                      (loop [v machine, n 0]
+                        (cond
+                          (or (vm/halted? v) (vm/blocked? v)) v
+                          (= n step-limit) (throw (ex-info "Guest instruction budget exhausted"
+                                                           {:lane lane :steps n}))
+                          :else (recur (vm/step v) (inc n)))))
+        semantic? (= lane :semantic)
+        machine (if semantic?
+                  (semantic/create-vm {:make-stream tu/make-stream
+                                       :capability-secret tu/secret :modules modules})
+                  (tu/create-vm {:modules modules}))
+        session (tu/make-observer-session machine)
+        load-program (if semantic?
+                       (fn [v rows stamp]
+                         (vm/check-contract! vm/ast-contract stamp)
+                         (semantic/load-vector v (:vector (linearize/project-rows rows))
+                                               vm/semantic-contract))
+                       ast-walker/vm-load-program)
+        queued ((if semantic? tu/queue-rows! tu/queue-ast!) session ast)]
+    (-> (observer/run-on-stream queued engine/ready-for-ingress?
+                                (vm/fresh-code-loader load-program vm/ast-contract)
+                                run-bounded)
+        :consumer vm/value)))
+
+
 (defn- run-library
   "The raw outcome of the last of `forms`, compiled with the library
    definitions the program needs."
   ([forms] (run-library forms library-opts))
   ([forms opts]
-   (-> (tu/make-observer-session (tu/create-vm {:modules library-modules}))
-       (tu/queue-ast! (yang/compile-program (into (yang/library-for forms) forms) true opts))
-       tu/run-session
-       :consumer
-       vm/value)))
+   (let [walker (run-library forms opts :walker 1000000)
+         semantic (run-library forms opts :semantic 1000000)]
+     (is (= walker semantic) (str "library lanes agree: " (pr-str forms)))
+     walker))
+  ([forms opts lane step-limit]
+   (run-guest-ast (yang/compile-program (into (yang/library-for forms) forms) true opts)
+                  library-modules lane step-limit)))
 
 
 (defn- lib
@@ -1769,10 +1801,14 @@
   (is (= [2 nil] (lib '[(second [1 2 3]) (second [1])])))
   (testing "rem on integers, with the dividend's sign"
     (is (= [1 0 2 -1 1 0] (lib '[(rem 7 2) (rem 8 2) (rem 2 5) (rem -7 2) (rem 7 -2) (rem 0 3)]))))
-  (testing "rem by zero is an error outcome, never a hang"
-    (let [[tag payload] (run-library '[(rem 7 0)])]
-      (is (= :yin.k/error tag))
-      (is (= "Divide by zero" (:yin.k/message payload)))))
+  (testing "unsupported rem operands fail within a finite instruction budget"
+    (doseq [lane [:walker :semantic]
+            form '[(rem 7 0) (rem 7 0.0) (rem 7 -0.0) (rem 7.5 2)
+                   (rem 7 2.5) (rem nil 2) (rem 7 :x) (rem "7" 2)]
+            :let [[tag payload] (run-library [form] library-opts lane 10000)]]
+      (is (= :yin.k/error tag) (str lane " " form))
+      (is (= (if (= form '(rem 7 0)) "Divide by zero" "rem requires integer operands")
+             (:yin.k/message payload)))))
   (testing "seq refuses a string or a number rather than returning it"
     (doseq [form ['(seq "ab") '(seq 5)]]
       (let [[tag payload] (run-library [form])]
@@ -1817,6 +1853,69 @@
            (lib '[((comp inc inc) 0) ((comp inc +) 2 3) ((partial + 1) 6) ((partial + 1 1) 3)
                   ((partial * 3) 4) ((comp inc inc inc) 6)])))
     (is (= [7] (lib '[((comp) 7)])))))
+
+
+(deftest test-library-sequence-shapes-and-downstream-operations
+  (testing "finite eager sequence results prepend with conj and retain traversal order"
+    (doseq [producer '[(seq [1 2]) (seq '(1 2)) (map identity '(1 2))
+                      (map + [0 1] [1 1 99]) (filter identity [1 2])
+                      (remove nil? [1 nil 2]) (concat [1] '(2))]]
+      (let [form (list 'let ['s producer]
+                       '[[(seq? s) (list? s) (vector? s)]
+                         (conj s 0) (count s) (first s) (rest s)
+                         (seq? (rest s)) (conj (rest s) 0)])]
+        (is (= [[true true false] '(0 1 2) 2 1 '(2) true '(0 2)]
+               (lib form)) (pr-str producer)))))
+  (testing "empty eager sequences, maps and sets have sequence shape"
+    (is (= [true true true true true true true]
+           (lib '[(seq? (map identity [])) (seq? (filter identity []))
+                  (seq? (remove identity [])) (seq? (concat))
+                  (seq? (seq {:a 1})) (seq? (seq #{1})) (list? (rest nil))]))))
+  (testing "mapv keeps vector shape and appends with conj, on both arities"
+    (doseq [producer '[(mapv identity '(1 2)) (mapv + [0 1] [1 1 9])]]
+      (is (= [false false true [1 2 0] 2 1 '(2)]
+             (lib (list 'let ['s producer]
+                        '[(seq? s) (list? s) (vector? s) (conj s 0)
+                          (count s) (first s) (rest s)])))))
+    (is (= [true []] (lib '[(vector? (mapv identity [])) (mapv identity [])])))))
+
+
+(deftest test-library-collections-carry-guest-closures-and-metadata
+  (testing "closures remain invocable after sequence and vector transformations"
+    (is (= [[11 12] [13 14] 15 16]
+           (lib '(let [n 10, f (fn [x] (+ n x)), fs (list f (partial + n 1))]
+                   [(map (fn [g] (g 1)) fs)
+                    (mapv (fn [g] (g 3)) (concat (filter fn? fs) []))
+                    ((first (remove nil? [nil f])) 5)
+                    ((first (rest (conj (map identity fs) nil))) 6)])))))
+  (testing "metadata on elements and collection targets survives guest operations"
+    (let [x (with-meta 'x {:name 'original :note :element})
+          target (with-meta [] {:note :target})
+          form (list 'let ['x (list 'quote x), 'to target]
+                     '[(meta (first (map identity [x])))
+                       (meta (first (filter identity [x])))
+                       (meta (first (remove nil? [x])))
+                       (meta (first (concat [x] [])))
+                       (meta (first (mapv identity [x])))
+                       (meta (into to [x]))])]
+      (is (= (conj (vec (repeat 5 (meta x))) (meta target)) (lib form))))))
+
+
+(deftest test-library-rest-does-not-capture-compiler-destructuring
+  (testing "parameter and loop cursors stay raw when source rest returns outcomes"
+    (is (= [2 3 '(3)]
+           (lib '(let [f (fn [[a b] n]
+                           (if (< n 3)
+                             (recur [b (+ a b)] (inc n))
+                             [a b (rest [a b])]))]
+                   (f [0 1] 0)))))
+    (is (= [2 3 '(3)]
+           (lib '(loop [[a b] [0 1], n 0]
+                   (if (< n 3)
+                     (recur [b (+ a b)] (inc n))
+                     [a b (rest [a b])])))))
+    (is (= '(3 7)
+           (lib '(map (fn [[a b]] (+ a b)) [[1 2] [3 4]]))))))
 
 
 (deftest test-library-failures-flow-through-closures

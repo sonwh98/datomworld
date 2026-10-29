@@ -1,0 +1,61 @@
+;; Upstream A/C fixtures for slice 7. Callbacks are compiled guest source on
+;; C and evaluated as ordinary Clojure only on A. Dependency groups name the
+;; pinned upstream definitions; set/union, keys, vals and meta are library deps.
+{:dependency-groups
+ {:syntax-predicates [kind? type? variable? binder? lambda? app? ascription? ref? host-constant?]
+  :variables [free-vars vars]
+  :fresh [mk-fresh]
+  :substitution [subst- rebinder subst]
+  :alpha [alpha-norm- alpha-norm]
+  :readable [readable-term- readable-term]}
+ :anchors
+ [{:ns latte_kernel.utils :fn map-with :deps [map-with]
+   :args [[(fn [acc x] [(+ acc x) (* acc x)]) 1 (quote [2 3 4])]
+          [(fn [acc x] [(conj acc x) (count acc)]) [] (quote (a b c))]
+          [(fn [acc x] [acc x]) :empty []]]}
+  {:ns latte_kernel.utils :fn vremove :deps [vremove]
+   :args [[(fn [x] (= x 2)) [1 2 3 2]]
+          [(fn [x] true) [1 2]]
+          [(fn [x] false) []]]}
+  {:ns latte_kernel.syntax :fn term-reduce :groups [:syntax-predicates] :deps [term-reduce]
+   :args [[{:var (fn [acc x] (conj acc x))
+            :lambda (fn [acc x] (conj acc [:lambda x]))
+            :prod (fn [acc x] (conj acc [:prod x]))
+            :app (fn [acc] (conj acc :app))
+            :ref (fn [acc x] (conj acc [:ref x]))
+            :kind (fn [acc] (conj acc :kind))
+            :type (fn [acc] (conj acc :type))}
+           [] (quote (λ [x A] (Π [y □] [x (f y ✳)])))]
+          [{} 9 (quote x)]
+          [{} 9 (quote [:latte-kernel.presyntax/host-constant 7])]
+          [{} 9 nil]]}
+  {:ns latte_kernel.syntax :fn free-vars :groups [:syntax-predicates :variables]
+   :args [[(quote x)]
+          [(quote (λ [x A] (Π [y x] [x y])))]
+          [(quote (f x (g y)))]
+          [(quote (f))]
+          [(quote [{} {f {:term-free-vars #{captured}}}]) (quote (f x))]
+          [(quote (:latte-kernel.syntax/ascribe x A))]]}
+  {:ns latte_kernel.syntax :fn vars :groups [:syntax-predicates :variables]
+   :args [[(quote (λ [x A] [x y]))]
+          [(quote (f (g x) y))]
+          [(quote (f))]
+          [(quote (:latte-kernel.syntax/ascribe x A))]
+          [(quote □)]]}
+  {:ns latte_kernel.syntax :fn subst :groups [:syntax-predicates :variables :fresh :substitution]
+   :args [[(quote x) (quote {x y})]
+          [(quote (λ [x A] [x y])) (quote {y x})]
+          [(quote (f x (g y))) (quote {x [a b], y z})]
+          [(quote (:latte-kernel.syntax/ascribe x A)) (quote {x y})]
+          [(quote (Π [x A] (λ [y A] [x z]))) (quote {z y}) (quote #{y y'})]]}
+  {:ns latte_kernel.syntax :fn alpha-norm :groups [:syntax-predicates :alpha]
+   :args [[(quote x)]
+          [(quote (λ [x A] (Π [y x] [x y])))]
+          [(quote (f (λ [x A] x) y))]
+          [(quote (:latte-kernel.syntax/ascribe [x y] A))]]}
+  {:ns latte_kernel.syntax :fn readable-term :groups [:syntax-predicates :variables :fresh :readable]
+   :args [[(quote (λ [^{:name x} _1 A] [_1 y]))]
+          [(quote (λ [^{:name x} _1 A] (λ [^{:name x} _2 A] [_1 _2])))]
+          [(quote (λ [^{:name x} _1 A] [_1 x]))]
+          [(quote (f (λ [^{:name x} _1 A] _1) y))]
+          [(quote (:latte-kernel.syntax/ascribe x A))]]}]}
