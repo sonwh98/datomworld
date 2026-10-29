@@ -240,3 +240,41 @@ Coding-Agent: interactive (this seat)
   (including the promoted :flood gate), probe:jolt-tcp rc 0, cljstyle clean.
 - **In flight**: J6e's test:jolt-core + test:clj on shiva (j6ev, after the
   antlr-gen and jolt-env setup fixes); merge after green + a reviewer pass.
+
+### 2026-10-29 23:31 +07 — J6e closed on the bench: R17 applied, review APPROVE, merge pending the Linux lanes
+
+Completed-GMT: 2026-10-29 16:31:33 GMT
+Coding-Agent: interactive (this seat)
+
+- **J6e implementation + R17 complete.** Claude's billing stop
+  (routing-status 13:10/15:30 entries; the owner later confirmed "claude is
+  no longer available") moved the R17 round to glm (session
+  9e4f7a21); glm finished all three edits (drain-owner!'s whole-tick wait,
+  the main_test.cljc unit test, the promoted :flood gate) before hitting its
+  own 5h cap (resets 18:05 +07). This seat ran the gates: unit test
+  49/404/0 on the JVM lane, probe:jolt-ws rc 0 (114 PASS / 0 FAIL, all ten
+  sections), probe:jolt-tcp rc 0 (143 / 0), cljstyle clean.
+- **The kimi non-author review APPROVED** (three P3 one-liners:
+  the probe header's 1001-vs-4000 comment drift, the known-gaps :584→:597
+  citation — fixed in the branch, and one more nit; the three out-of-seam
+  edits judged required consequences, not drift). Filed as
+  collab/1793280000000-reviewer-j6e.kimi.findings.md. Kimi invocation
+  quirks (full provider-qualified aliases, the session lock, dispatch.sh's
+  missing kimi case, quota-cut resumes) written into
+  docs/agents/delegate-invocation-reference.md per the owner (3a7eface).
+- **The J6e branch is rebased onto master** (64d696c6): the engineer's
+  ten tracked copies of J6b/J6c bytes were normalized to master's (one
+  chore commit), the five untracked J6b/J6c source files dropped, and the
+  three rebase conflicts resolved (known-gaps keeps both sides; main.cljc
+  keeps master's requires + the J6e :adapter wiring; local.edn drops both
+  the stale :port-refusal and the returned :file-refusal). Post-rebase:
+  probe:jolt-ws rc 0 and main-test 49/404/0 re-confirmed.
+- **The Linux lanes are the only open J6e condition.** shiva's scratch
+  clone died silently twice on test:jolt-core (the lane process vanishes
+  mid-namespace, no OOM trace; j6ev/j6ev2/j6ev3 attempts). Moved to jupiter
+  per the owner's directive: bb bootstrap:jolt ran there (19 s, its own
+  JOLT_HOME), and rverify session j6ev4 is running test:jolt-core then
+  test:clj. jobs=1 serial: 14 of 179 namespaces in ~80 min; watching.
+- **Bookkeeping landed**: team.md's retire-cmd/muse update honored (the
+  bench is glm/kimi/deepseek/codex/agy/qwen); the kimi doc update committed;
+  the J6e merge, the final G3, and the log/push follow once j6ev4 is green.
