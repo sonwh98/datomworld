@@ -719,7 +719,7 @@
      ;; StopIteration(*args): args as given, value the first or None
      (fn [cls]
        (do (py/setattr cls "__init__"
-                       (py/make-function
+                       (py/make-builtin-function
                          "__init__" {:params ["self"], :star? true, :no-kw true} [] []
                          (fn [args]
                            (let [e (py/arg args 0)
@@ -880,14 +880,56 @@
     ;; definition time. `code` takes one vector laid out as the parameters
     ;; are written: positional, the *args tuple, keyword-only, the **kwargs
     ;; dict.
+    [py/function-entry
+     ;; Generated boilerplate. Python functions are unbound here: a supplied
+     ;; receiver remains in the invocation but is not injected into args.
+     (fn [owner invocation]
+       (let [callee (get invocation :yang.call/callee :py/missing)
+             positional (get invocation :yang.call/positional :py/missing)
+             named (get invocation :yang.call/named :py/missing)
+             raise-exit (get invocation :yang.call/raise :py/missing)
+             binding-profile (get invocation :yang.call/binding-profile :py/missing)]
+         (if (if (= callee :py/missing) true
+                 (if (= positional :py/missing) true
+                     (if (= named :py/missing) true
+                         (if (= raise-exit :py/missing) true
+                             (not (= callee owner))))))
+           (raise-exit {:yang.call/reason :yang.call/invalid-invocation})
+           (if (not (= binding-profile :py/missing))
+             (raise-exit (assoc {:yang.call/reason :yang.call/unsupported-binding}
+                                :yang.call/binding-profile binding-profile))
+             (let [fc (cell/get owner)
+                   result (cell/new :py/None)]
+               (py/try
+                 (fn []
+                   (cell/set! result
+                              ((get fc :code)
+                               (py/bind-args fc positional named))))
+                 (fn [e]
+                   (raise-exit (assoc {:yang.call/reason :yang.call/thrown}
+                                      :yang.call/value e)))
+                 (fn [] (cell/get result))))))))]
+    [py/function-cell
+     (fn [name spec defaults kwdefaults code entry?]
+       (let [content (assoc (assoc (assoc (assoc (assoc (assoc {} :py/type :function)
+                                                        :name name)
+                                                 :spec spec)
+                                          :defaults defaults)
+                                   :kwdefaults kwdefaults)
+                            :code code)
+             f (cell/new content)]
+         (if entry?
+           (do (cell/set! f (assoc (cell/get f) :yang.call/entry
+                                   (fn [invocation]
+                                     (py/function-entry f invocation))))
+               f)
+           f)))]
     [py/make-function
      (fn [name spec defaults kwdefaults code]
-       (cell/new (assoc (assoc (assoc (assoc (assoc (assoc {} :py/type :function)
-                                                    :name name)
-                                             :spec spec)
-                                      :defaults defaults)
-                               :kwdefaults kwdefaults)
-                        :code code)))]
+       (py/function-cell name spec defaults kwdefaults code true))]
+    [py/make-builtin-function
+     (fn [name spec defaults kwdefaults code]
+       (py/function-cell name spec defaults kwdefaults code false))]
     [py/fn-error
      (fn [fc msg] (py/type-error (py/str (data/str-concat (get fc :name) msg))))]
     [py/index-of
@@ -3007,8 +3049,8 @@
     [py/globals-fn
      ;; the module's `globals` builtin over its namespace dict
      (fn [g]
-       (py/make-function "globals" {:params [], :no-kw true} [] []
-                         (fn [args] g)))]
+       (py/make-builtin-function "globals" {:params [], :no-kw true} [] []
+                                 (fn [args] g)))]
     [py/module-of
      ;; a module object: a heap cell {:py/type :module :name s :dict d},
      ;; `name` plain text, `d` the namespace dict the body receives
@@ -3354,103 +3396,103 @@
    passed, stored, called with keywords and checked for arity through
    `py/call-kw`."
   '[["len" py.b/len
-     (py/make-function "len" {:params ["obj"], :no-kw true} [] []
-                       (fn [args] (py/len (py/arg args 0))))]
+     (py/make-builtin-function "len" {:params ["obj"], :no-kw true} [] []
+                               (fn [args] (py/len (py/arg args 0))))]
     ["isinstance" py.b/isinstance
-     (py/make-function "isinstance" {:params ["obj" "cls"], :no-kw true} [] []
-                       (fn [args] (py/isinstance (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "isinstance" {:params ["obj" "cls"], :no-kw true} [] []
+                               (fn [args] (py/isinstance (py/arg args 0) (py/arg args 1))))]
     ["divmod" py.b/divmod
-     (py/make-function "divmod" {:params ["x" "y"], :no-kw true} [] []
-                       (fn [args]
-                         (py/divmod (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "divmod" {:params ["x" "y"], :no-kw true} [] []
+                               (fn [args]
+                                 (py/divmod (py/arg args 0) (py/arg args 1))))]
     ["hash" py.b/hash
-     (py/make-function "hash" {:params ["obj"], :no-kw true} [] []
-                       (fn [args] (py/hash (py/arg args 0))))]
+     (py/make-builtin-function "hash" {:params ["obj"], :no-kw true} [] []
+                               (fn [args] (py/hash (py/arg args 0))))]
     ["print" py.b/print
-     (py/make-function "print" {:params [], :star? true, :no-kw true} [] []
-                       (fn [args] (py/print (get (py/arg args 0) :items))))]
+     (py/make-builtin-function "print" {:params [], :star? true, :no-kw true} [] []
+                               (fn [args] (py/print (get (py/arg args 0) :items))))]
     ["range" py.b/range
-     (py/make-function "range" {:params ["start"], :star? true, :no-kw true} [] []
-                       (fn [args] (py/range-args (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "range" {:params ["start"], :star? true, :no-kw true} [] []
+                               (fn [args] (py/range-args (py/arg args 0) (py/arg args 1))))]
     ["list" py.b/list
-     (py/make-function "list" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
-                       (fn [args] (py/list (py/to-vector (py/arg args 0)))))]
+     (py/make-builtin-function "list" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
+                               (fn [args] (py/list (py/to-vector (py/arg args 0)))))]
     ["tuple" py.b/tuple
-     (py/make-function "tuple" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
-                       (fn [args] (py/tuple (py/to-vector (py/arg args 0)))))]
+     (py/make-builtin-function "tuple" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
+                               (fn [args] (py/tuple (py/to-vector (py/arg args 0)))))]
     ["set" py.b/set
-     (py/make-function "set" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
-                       (fn [args]
-                         (py/set-fill-at (py/set-new) (py/iterable (py/arg args 0))
-                                         0)))]
+     (py/make-builtin-function "set" {:params ["iterable"], :no-kw true} [(py/tuple [])] []
+                               (fn [args]
+                                 (py/set-fill-at (py/set-new) (py/iterable (py/arg args 0))
+                                                 0)))]
     ["sum" py.b/sum
-     (py/make-function "sum" {:params ["iterable" "start"]} [0] []
-                       (fn [args]
-                         (py/sum-from (py/iterable (py/arg args 0)) 0
-                                      (py/arg args 1))))]
+     (py/make-builtin-function "sum" {:params ["iterable" "start"]} [0] []
+                               (fn [args]
+                                 (py/sum-from (py/iterable (py/arg args 0)) 0
+                                              (py/arg args 1))))]
     ["any" py.b/any
-     (py/make-function "any" {:params ["iterable"], :no-kw true} [] []
-                       (fn [args] (py/any-of (py/iterable (py/arg args 0)) 0)))]
+     (py/make-builtin-function "any" {:params ["iterable"], :no-kw true} [] []
+                               (fn [args] (py/any-of (py/iterable (py/arg args 0)) 0)))]
     ["all" py.b/all
-     (py/make-function "all" {:params ["iterable"], :no-kw true} [] []
-                       (fn [args] (py/all-of (py/iterable (py/arg args 0)) 0)))]
+     (py/make-builtin-function "all" {:params ["iterable"], :no-kw true} [] []
+                               (fn [args] (py/all-of (py/iterable (py/arg args 0)) 0)))]
     ["int" py.b/int
-     (py/make-function "int" {:params ["x" "base"]}
-                       [0 :py/missing] []
-                       (fn [args]
-                         (py/int-conv (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "int" {:params ["x" "base"]}
+                               [0 :py/missing] []
+                               (fn [args]
+                                 (py/int-conv (py/arg args 0) (py/arg args 1))))]
     ["float" py.b/float
-     (py/make-function "float" {:params ["x"], :no-kw true}
-                       (py/vconj [] (py/float (data/float-value 0))) []
-                       (fn [args] (py/float-conv (py/arg args 0))))]
+     (py/make-builtin-function "float" {:params ["x"], :no-kw true}
+                               (py/vconj [] (py/float (data/float-value 0))) []
+                               (fn [args] (py/float-conv (py/arg args 0))))]
     ["str" py.b/str
-     (py/make-function "str" {:params ["x"], :no-kw true}
-                       (py/vconj [] (py/str "")) []
-                       (fn [args] (py/str-conv (py/arg args 0) false)))]
+     (py/make-builtin-function "str" {:params ["x"], :no-kw true}
+                               (py/vconj [] (py/str "")) []
+                               (fn [args] (py/str-conv (py/arg args 0) false)))]
     ["repr" py.b/repr
-     (py/make-function "repr" {:params ["x"], :no-kw true}
-                       [] []
-                       (fn [args] (py/str-conv (py/arg args 0) true)))]
+     (py/make-builtin-function "repr" {:params ["x"], :no-kw true}
+                               [] []
+                               (fn [args] (py/str-conv (py/arg args 0) true)))]
     ["bool" py.b/bool
-     (py/make-function "bool" {:params ["x"], :no-kw true}
-                       [false] []
-                       (fn [args] (py/truthy (py/arg args 0))))]
+     (py/make-builtin-function "bool" {:params ["x"], :no-kw true}
+                               [false] []
+                               (fn [args] (py/truthy (py/arg args 0))))]
     ["abs" py.b/abs
-     (py/make-function "abs" {:params ["x"], :no-kw true}
-                       [] []
-                       (fn [args] (py/abs-conv (py/arg args 0))))]
+     (py/make-builtin-function "abs" {:params ["x"], :no-kw true}
+                               [] []
+                               (fn [args] (py/abs-conv (py/arg args 0))))]
     ["pow" py.b/pow
-     (py/make-function "pow" {:params ["base" "exp" "mod"]}
-                       [:py/None] []
-                       (fn [args]
-                         (if (= (py/arg args 2) :py/None)
-                           (py/pow (py/arg args 0) (py/arg args 1))
-                           (py/raise-new
-                             py.b/NotImplementedError
-                             {:py/str "pow() modulus is not supported"}))))]
+     (py/make-builtin-function "pow" {:params ["base" "exp" "mod"]}
+                               [:py/None] []
+                               (fn [args]
+                                 (if (= (py/arg args 2) :py/None)
+                                   (py/pow (py/arg args 0) (py/arg args 1))
+                                   (py/raise-new
+                                     py.b/NotImplementedError
+                                     {:py/str "pow() modulus is not supported"}))))]
     ["round" py.b/round
-     (py/make-function "round" {:params ["number" "ndigits"]}
-                       [:py/None] []
-                       (fn [args]
-                         (py/round-conv (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "round" {:params ["number" "ndigits"]}
+                               [:py/None] []
+                               (fn [args]
+                                 (py/round-conv (py/arg args 0) (py/arg args 1))))]
     ["hex" py.b/hex
-     (py/make-function "hex" {:params ["x"], :no-kw true}
-                       [] []
-                       (fn [args] (py/radix-conv (py/arg args 0) 16 "0x")))]
+     (py/make-builtin-function "hex" {:params ["x"], :no-kw true}
+                               [] []
+                               (fn [args] (py/radix-conv (py/arg args 0) 16 "0x")))]
     ["oct" py.b/oct
-     (py/make-function "oct" {:params ["x"], :no-kw true}
-                       [] []
-                       (fn [args] (py/radix-conv (py/arg args 0) 8 "0o")))]
+     (py/make-builtin-function "oct" {:params ["x"], :no-kw true}
+                               [] []
+                               (fn [args] (py/radix-conv (py/arg args 0) 8 "0o")))]
     ["bin" py.b/bin
-     (py/make-function "bin" {:params ["x"], :no-kw true}
-                       [] []
-                       (fn [args] (py/radix-conv (py/arg args 0) 2 "0b")))]
+     (py/make-builtin-function "bin" {:params ["x"], :no-kw true}
+                               [] []
+                               (fn [args] (py/radix-conv (py/arg args 0) 2 "0b")))]
     ["next" py.b/next
-     (py/make-function "next" {:params ["iterator" "default"], :no-kw true} [:py/missing] []
-                       (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "next" {:params ["iterator" "default"], :no-kw true} [:py/missing] []
+                               (fn [args] (py/next (py/arg args 0) (py/arg args 1))))]
     ["iter" py.b/iter
-     (py/make-function "iter" {:params ["object"], :no-kw true} [] []
-                       (fn [args] (py/iter (py/arg args 0))))]])
+     (py/make-builtin-function "iter" {:params ["object"], :no-kw true} [] []
+                               (fn [args] (py/iter (py/arg args 0))))]])
 
 
 (defquoted ^:private method-implementations
@@ -3458,53 +3500,53 @@
    method, `[store-key form]`: not Python names, so never seeded into the
    builtins dict."
   '[[py.b/import-module
-     (py/make-function "import_module" {:params ["name" "package"]} [:py/None] []
-                       (fn [args]
-                         (do args
-                             (py/raise-new py.b/NotImplementedError
-                                           {:py/str "importlib.import_module requires a statically recognized literal absolute module name; dynamic or aliased calls are not supported"}))))]
+     (py/make-builtin-function "import_module" {:params ["name" "package"]} [:py/None] []
+                               (fn [args]
+                                 (do args
+                                     (py/raise-new py.b/NotImplementedError
+                                                   {:py/str "importlib.import_module requires a statically recognized literal absolute module name; dynamic or aliased calls are not supported"}))))]
     [py.b/reload
-     (py/make-function "reload" {:params ["module"]} [] []
-                       (fn [args] (py/reload (py/arg args 0))))]
+     (py/make-builtin-function "reload" {:params ["module"]} [] []
+                               (fn [args] (py/reload (py/arg args 0))))]
     [py.b/list-append
-     (py/make-function "append" {:params ["self" "x"], :no-kw true} [] []
-                       (fn [args] (py/list-append (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "append" {:params ["self" "x"], :no-kw true} [] []
+                               (fn [args] (py/list-append (py/arg args 0) (py/arg args 1))))]
     [py.b/set-add
-     (py/make-function "add" {:params ["self" "x"], :no-kw true} [] []
-                       (fn [args] (py/set-add (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "add" {:params ["self" "x"], :no-kw true} [] []
+                               (fn [args] (py/set-add (py/arg args 0) (py/arg args 1))))]
     [py.b/dict-items
-     (py/make-function "items" {:params ["self"], :no-kw true} [] []
-                       (fn [args] (py/dict-items (py/arg args 0))))]
+     (py/make-builtin-function "items" {:params ["self"], :no-kw true} [] []
+                               (fn [args] (py/dict-items (py/arg args 0))))]
     [py.b/dict-keys
-     (py/make-function "keys" {:params ["self"], :no-kw true} [] []
-                       (fn [args] (py/list (get (cell/get (py/arg args 0)) :keys))))]
+     (py/make-builtin-function "keys" {:params ["self"], :no-kw true} [] []
+                               (fn [args] (py/list (get (cell/get (py/arg args 0)) :keys))))]
     [py.b/dict-values
-     (py/make-function "values" {:params ["self"], :no-kw true} [] []
-                       (fn [args] (py/list (get (cell/get (py/arg args 0)) :vals))))]
+     (py/make-builtin-function "values" {:params ["self"], :no-kw true} [] []
+                               (fn [args] (py/list (get (cell/get (py/arg args 0)) :vals))))]
     [py.b/dict-get
-     (py/make-function "get" {:params ["self" "key" "default"], :no-kw true} [:py/None] []
-                       (fn [args]
-                         (if (py/dict-has? (py/arg args 0) (py/arg args 1))
-                           (py/getitem (py/arg args 0) (py/arg args 1))
-                           (py/arg args 2))))]
+     (py/make-builtin-function "get" {:params ["self" "key" "default"], :no-kw true} [:py/None] []
+                               (fn [args]
+                                 (if (py/dict-has? (py/arg args 0) (py/arg args 1))
+                                   (py/getitem (py/arg args 0) (py/arg args 1))
+                                   (py/arg args 2))))]
     [py.b/gen-send
-     (py/make-function "send" {:params ["self" "value"], :no-kw true} [] []
-                       (fn [args] (py/gen-send (py/arg args 0) (py/arg args 1))))]
+     (py/make-builtin-function "send" {:params ["self" "value"], :no-kw true} [] []
+                               (fn [args] (py/gen-send (py/arg args 0) (py/arg args 1))))]
     [py.b/gen-throw
-     (py/make-function "throw" {:params ["self" "typ" "val" "tb"], :no-kw true}
-                       [:py/None :py/None] []
-                       (fn [args]
-                         (py/gen-throw (py/arg args 0) (py/arg args 1)
-                                       (py/arg args 2) (py/arg args 3))))]
+     (py/make-builtin-function "throw" {:params ["self" "typ" "val" "tb"], :no-kw true}
+                               [:py/None :py/None] []
+                               (fn [args]
+                                 (py/gen-throw (py/arg args 0) (py/arg args 1)
+                                               (py/arg args 2) (py/arg args 3))))]
     [py.b/gen-close
-     (py/make-function "close" {:params ["self"], :no-kw true} [] []
-                       (fn [args] (py/gen-close (py/arg args 0))))]
+     (py/make-builtin-function "close" {:params ["self"], :no-kw true} [] []
+                               (fn [args] (py/gen-close (py/arg args 0))))]
     [py.b/gen-next
-     (py/make-function "__next__" {:params ["self"], :no-kw true} [] []
-                       (fn [args] (py/next (py/arg args 0) :py/missing)))]
+     (py/make-builtin-function "__next__" {:params ["self"], :no-kw true} [] []
+                               (fn [args] (py/next (py/arg args 0) :py/missing)))]
     [py.b/gen-iter
-     (py/make-function "__iter__" {:params ["self"], :no-kw true} [] []
-                       (fn [args] (py/arg args 0)))]])
+     (py/make-builtin-function "__iter__" {:params ["self"], :no-kw true} [] []
+                               (fn [args] (py/arg args 0)))]])
 
 
 (def ^:private define core/define)
