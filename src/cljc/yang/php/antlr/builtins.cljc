@@ -36,6 +36,12 @@
               "is_array" 'php/bi-is-array, "array_key_first" 'php/bi-array-key-first,
               "array_key_last" 'php/bi-array-key-last, "get_class" 'php/bi-get-class,
               "register_shutdown_function" 'php/bi-register-shutdown-function,
+              "define" 'php/bi-define, "defined" 'php/bi-defined, "constant" 'php/bi-constant,
+              "function_exists" 'php/bi-function-exists, "class_exists" 'php/bi-class-exists,
+              "spl_autoload_register" 'php/bi-spl-autoload-register,
+              "spl_autoload_unregister" 'php/bi-spl-autoload-unregister,
+              "spl_autoload_functions" 'php/bi-spl-autoload-functions,
+              "spl_autoload_call" 'php/bi-spl-autoload-call,
               "set_exception_handler" 'php/bi-set-exception-handler,
               "restore_exception_handler" 'php/bi-restore-exception-handler})
       (by-ref {"next" 'php/bi-next, "prev" 'php/bi-prev, "reset" 'php/bi-reset, "end" 'php/bi-end,
@@ -101,3 +107,27 @@
     "file_get_contents" "file_put_contents" "fopen" "fclose" "fwrite" "fgets"
     "file_exists" "preg_match" "preg_match_all" "preg_replace" "preg_split"
     "preg_quote" "preg_replace_callback"})
+
+
+(def constants
+  "The builtin constants (plan P6 R7), name to value, read by the lowering
+   (a fold in the global block and at fully qualified reads) and by
+   `php/init!` (seeding `php.rt/constants`, so `defined` and `constant`
+   agree with the folded literals). A plain value is its own literal; the
+   vector forms stand for the values a literal cannot express:
+   `[:int text]` an integer past the reader's range, `:nan`, `:inf`,
+   `[:float text value]`."
+  (merge
+    {"PHP_INT_MAX" [:int "9223372036854775807"],
+     "PHP_INT_MIN" [:int "-9223372036854775808"],
+     "PHP_INT_SIZE" 8,
+     "PHP_EOL" "\n",
+     "NAN" :nan,
+     "INF" :inf,
+     "M_PI" [:float "3.141592653589793" 3.141592653589793]}
+    (zipmap ["SORT_REGULAR" "SORT_NUMERIC" "SORT_STRING" "SORT_FLAG_CASE" "SORT_NATURAL"
+             "COUNT_NORMAL" "COUNT_RECURSIVE" "E_ERROR" "E_WARNING" "E_PARSE" "E_NOTICE"
+             "E_CORE_ERROR" "E_CORE_WARNING" "E_COMPILE_ERROR" "E_COMPILE_WARNING"
+             "E_USER_ERROR" "E_USER_WARNING" "E_USER_NOTICE" "E_STRICT"
+             "E_RECOVERABLE_ERROR" "E_DEPRECATED" "E_USER_DEPRECATED" "E_ALL"]
+            [0 1 2 8 6 0 1 1 2 4 8 16 32 64 128 256 512 1024 2048 4096 8192 16384 32767])))

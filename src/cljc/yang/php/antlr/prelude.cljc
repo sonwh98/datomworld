@@ -2686,7 +2686,10 @@
      (fn [name what]
        (let [c (php/class-lookup name)]
          (if (nil? c)
-           (php/throw-error "Error" (data/str-concat what " \"" name "\" not found"))
+           (let [loaded (php/autoload-class name)]
+             (if (nil? loaded)
+               (php/throw-error "Error" (data/str-concat what " \"" name "\" not found"))
+               loaded))
            c)))]
     [php/class-declarable?
      ;; hoisting: true when the parent, interfaces and traits of `spec` exist
@@ -4727,6 +4730,29 @@
 (def ^:private define core/define)
 
 
+(defn- constants-form
+  "The guest map expression seeding `php.rt/constants` from
+   `builtins/constants`, so `defined` and `constant` agree with the
+   lowering's folded literals."
+  []
+  (reduce (fn [m [nm v]]
+            (list 'assoc
+                  m
+                  nm
+                  (cond
+                    (= v :nan) '(php/nan-const)
+                    (= v :inf) '(php/inf-const)
+                    (and (vector? v) (= :int (first v)))
+                    (if (str/starts-with? (second v) "-")
+                      (list 'php/int-lit-radix (second v) 10)
+                      (list 'php/int-lit (second v)))
+                    (and (vector? v) (= :float (first v)))
+                    (list 'php/f (list 'data/float-value (nth v 2)))
+                    :else v)))
+          {}
+          (sort-by key builtins/constants)))
+
+
 (defn- init-form
   "`php/init!`'s body: the runtime cells, the builtins, the ready flag, under
    the uninit guard."
@@ -4762,10 +4788,15 @@
                  (define 'php.rt/included '(cell/new {}))
                  (define 'php.rt/unit '(cell/new :php/null))
                  (define 'php.rt/path-map '(cell/new {}))
+                 (define 'php.rt/class-map '(cell/new {}))
+                 (define 'php.rt/autoloaders '(cell/new []))
+                 (define 'php.rt/autoloading '(cell/new {}))
                  (define 'php.rt/int-max
                    '(integer/sub (integer/shift-left 1 63) 1))
                  (define 'php.rt/int-min
-                   '(integer/neg (integer/shift-left 1 63)))]
+                   '(integer/neg (integer/shift-left 1 63)))
+                 ;; after the integer bounds: the seeds build integers
+                 (define 'php.rt/constants (list 'cell/new (constants-form)))]
                 [(cons 'do
                        (mapv (fn [[nm sym]] (list 'php/register! nm sym))
                              builtins))]
@@ -4808,6 +4839,7 @@
   '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
     php.rt/class-order php.rt/exception-handler php.rt/exception-handlers php.rt/finalizable php.rt/pending-exc
     php.rt/shutdown-fns php.rt/strict php.rt/included php.rt/path-map php.rt/unit
+    php.rt/autoloaders php.rt/autoloading php.rt/class-map php.rt/constants
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
     php.rt/out php.rt/tmps])

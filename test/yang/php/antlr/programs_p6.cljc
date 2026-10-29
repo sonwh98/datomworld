@@ -166,13 +166,13 @@
 
 (def namespaces-v1
   [(fx :ns-class-not-found :namespaces-v1 #{:p6-s4} nil
-       "<?php namespace A; try { new Exception; } catch (Error $e) { echo $e->getMessage(); }"
+       "<?php namespace A; try { new Exception; } catch (\\Error $e) { echo $e->getMessage(); }"
        "Class \"A\\Exception\" not found")
    (fx :ns-undefined-function :namespaces-v1 #{:p6-s4} nil
-       "<?php namespace A; try { g(); } catch (Error $e) { echo $e->getMessage(); }"
+       "<?php namespace A; try { g(); } catch (\\Error $e) { echo $e->getMessage(); }"
        "Call to undefined function A\\g()")
    (fx :ns-undefined-constant :namespaces-v1 #{:p6-s4} nil
-       "<?php namespace A; try { echo X; } catch (Error $e) { echo $e->getMessage(); }"
+       "<?php namespace A; try { echo X; } catch (\\Error $e) { echo $e->getMessage(); }"
        "Undefined constant \"A\\X\"")
    (fx :ns-function-global-fallback :namespaces-v1 #{:p6-s4} nil
        "<?php namespace A; echo strlen('abc');" "3")
