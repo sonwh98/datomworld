@@ -459,20 +459,13 @@
 
 
 (defn- desugar
-  "Interim lowering of the corpus macros the compiler has no expander for
-   here: cond and if-let become ifs and lets, lazy-seq evaluates eagerly, and
-   a namespace alias is dropped so the call is a program-defined guest call."
+  "Interim lowering of what the compiler does not own: lazy-seq evaluates
+   eagerly, and a namespace alias is dropped so the call is a program-defined
+   guest call. cond and if-let are the compiler's own forms."
   [form]
   (walk/postwalk
     (fn [f]
       (cond
-        (and (seq? f) (= 'cond (first f)))
-        (reduce (fn [else [test then]] (if (= :else test) then (list 'if test then else)))
-                nil
-                (reverse (partition 2 (rest f))))
-        (and (seq? f) (= 'if-let (first f)))
-        (let [[_ [v e] then else] f]
-          (list 'let [v e] (list 'if v then else)))
         (and (seq? f) (= 'lazy-seq (first f))) (second f)
         (and (symbol? f) (#{"stx" "defenv" "nbe" "norm" "utils"} (namespace f)))
         (symbol (name f))

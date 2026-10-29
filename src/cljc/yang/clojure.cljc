@@ -1322,13 +1322,24 @@
                constant)))
 
 
+(defn- clause-constants
+  "The test constants of one case clause key: a list groups them, except a
+   quoted form (quote c), which is the one constant c."
+  [k]
+  (cond
+    (and (seq? k) (= 'quote (first k)) (= 2 (count k))) [(second k)]
+    (seq? k) (vec k)
+    :else [k]))
+
+
 (defn- case-clause-test
   [g k]
-  (if (seq? k)
-    (reduce (fn [else c] (list 'if (constant-test g c) true else))
-            false
-            (reverse k))
-    (constant-test g k)))
+  (let [cs (clause-constants k)]
+    (if (= 1 (count cs))
+      (constant-test g (first cs))
+      (reduce (fn [else c] (list 'if (constant-test g c) true else))
+              false
+              (reverse cs)))))
 
 
 (defn- no-match-form
@@ -1348,7 +1359,7 @@
   (let [[e & clauses] operands
         pairs (partition 2 clauses)
         default? (odd? (count clauses))
-        constants (mapcat (fn [[k _]] (if (seq? k) k [k])) pairs)]
+        constants (mapcat (fn [[k _]] (clause-constants k)) pairs)]
     (when (empty? clauses)
       (reject! "case requires at least one clause" {:form (cons 'case operands)}))
     (when-not (apply distinct? (or (seq constants) [::none]))
@@ -1381,6 +1392,9 @@
 (defn- expand-if-let
   [operator operands g]
   (let [[bindings then else] operands]
+    (when-not (<= 2 (count operands) 3)
+      (reject! (str operator " takes a binding vector, a then form and an optional else form")
+               {:operands operands}))
     (check-test-binding! operator bindings)
     (let [[b t] bindings
           bound (list 'let [b g] then)]
@@ -1566,6 +1580,8 @@
     {}
     (do (when-not (= :arg-vector (:convention opts))
           (reject! "Unknown compile-program convention" {:opts opts}))
+        (when-let [hit (seq (filter control-heads (:macros opts)))]
+          (reject! "A :macros entry names a compiler form" {:macros (vec hit)}))
         (cond-> {::convention {:native (set (:native opts)), :macros (set (:macros opts))}
                  ::defined (into #{}
                                  (keep (fn [f]

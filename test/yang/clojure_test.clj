@@ -1564,6 +1564,32 @@
     (is (= 5 (compile-and-run '(and (or nil 5) (or false 5)))))))
 
 
+(deftest test-case-quoted-constants
+  (testing "a quoted symbol is one constant, not a group"
+    (is (= :hit (compile-and-run '(case (quote a) (quote a) :hit :miss))))
+    (is (= :miss (compile-and-run '(case (quote quote) (quote a) :hit :miss))))
+    (is (= :hit (compile-and-run '(case (quote b) (quote a) :x (quote b) :hit :miss))))
+    (is (= :miss (compile-and-run '(case (quote c) (quote a) :x (quote b) :hit :miss)))))
+  (testing "a quoted list is one list constant"
+    (is (= :hit (compile-and-run '(case (quote (1 2)) (quote (1 2)) :hit :miss)))))
+  (testing "a quoted constant still collides with the same bare constant"
+    (is (rejects? '(case (quote a) (quote a) :x (a) :y :miss)))))
+
+
+(deftest test-control-form-shape-rejections
+  (testing "if-let and if-some take two or three operands"
+    (is (rejects? '(if-let [x 1] 1 2 3)))
+    (is (rejects? '(if-some [x 1] 1 2 3)))
+    (is (rejects? '(if-let [x 1])))
+    (is (= 1 (compile-and-run '(if-let [x 1] x))))
+    (is (= 2 (compile-and-run '(if-some [x nil] 1 2)))))
+  (testing "a :macros entry naming a compiler form is an error"
+    (doseq [m '[case cond when if-let if-some when-let when-some]]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (yang/compile-program '[1] true (assoc av-opts :macros #{m})))
+          (str m)))))
+
+
 (def ^:private fails-on-nil
   '(defn g
      [x]
