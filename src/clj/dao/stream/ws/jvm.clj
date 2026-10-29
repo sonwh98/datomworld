@@ -21,9 +21,9 @@
    payload to classify it.  Fragmented messages (text or binary) are assembled
    so the transport sees one message per callback boundary, bounded by the
    composition's `:ws/max-frame-bytes`."
-  (:require [clojure.string :as str]
-            [dao.stream.codec :as codec]
+  (:require [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]
+            [dao.stream.ws.upgrade :as upgrade]
             [org.httpkit.server :as http]
             [ring.websocket.protocols :as wsp])
   (:import [java.io ByteArrayOutputStream]
@@ -38,81 +38,20 @@
   (* 4 1024 1024))
 
 
-(defn offered-subprotocols
+(def offered-subprotocols
   "The upgrade request's offered subprotocol list, split and trimmed."
-  [request]
-  (->> (str/split (str (get-in request [:headers "sec-websocket-protocol"])) #",")
-       (map str/trim)
-       (remove str/blank?)))
+  upgrade/offered-subprotocols)
 
 
-(defn negotiate
+(def negotiate
   "Pick the first endpoint codec (in endpoint order) the upgrade offered, or
-   nil when the offer shares no subprotocol with the endpoint — the
-   deterministic dual-subprotocol rule.  A mismatch is a failed handshake,
-   not a downgrade."
-  [codecs offered]
-  (some (fn [codec]
-          (when (some #(= (codec/codec-name codec) %) offered)
-            codec))
-        codecs))
+   nil when the offer shares no subprotocol with the endpoint."
+  upgrade/negotiate)
 
 
-(def ^:private unreserved?
-  (set (concat (map char (range (int \0) (inc (int \9))))
-               (map char (range (int \A) (inc (int \Z))))
-               (map char (range (int \a) (inc (int \z))))
-               [\- \. \_ \~])))
-
-
-(defn- normalize-percent-escapes
-  [s]
-  (let [n (count s)]
-    (loop [i 0, out (StringBuilder.)]
-      (if (>= i n)
-        (str out)
-        (if-not (= \% (.charAt ^String s i))
-          (recur (inc i) (.append out (.charAt ^String s i)))
-          (if (> (+ i 3) n)
-            nil
-            (let [pair (subs s (inc i) (+ i 3))]
-              (if-not (re-matches #"[0-9A-Fa-f]{2}" pair)
-                nil
-                (let [decoded (char (Integer/parseInt pair 16))]
-                  (recur (+ i 3)
-                         (.append out
-                                  (if (contains? unreserved? decoded)
-                                    (str decoded)
-                                    (str "%" (str/upper-case pair))))))))))))))
-
-
-(defn- remove-dot-segments
-  [segments]
-  (let [kept (reduce (fn [xs segment]
-                       (cond
-                         (= "." segment) xs
-                         (= ".." segment) (if (seq xs) (pop xs) xs)
-                         :else (conj xs segment)))
-                     [] segments)]
-    (if (contains? #{"." ".."} (last segments))
-      (conj kept "")
-      kept)))
-
-
-(defn canonical-path
+(def canonical-path
   "Canonicalize an HTTP request target for exact served-path lookup."
-  [target]
-  (when (string? target)
-    (let [without-fragment (first (str/split target #"#" 2))
-          without-query (first (str/split without-fragment #"\?" 2))
-          decoded (normalize-percent-escapes without-query)]
-      (when (some? decoded)
-        (cond
-          (empty? decoded) "/"
-          (str/starts-with? decoded "/")
-          (str "/" (str/join "/" (remove-dot-segments
-                                   (str/split (subs decoded 1) #"/" -1))))
-          :else nil)))))
+  upgrade/canonical-path)
 
 
 (defn socket-url

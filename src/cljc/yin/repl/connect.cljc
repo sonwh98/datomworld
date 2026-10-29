@@ -38,6 +38,7 @@
             [dao.stream.cbor :as cbor]
             [dao.stream.remote-channel :as remote-channel]
             [dao.stream.rpc :as rpc]
+            [dao.stream.ws.upgrade :as upgrade]
             #?@(:cljd [[dao.stream.transit :as transit]]
                 :jolt []
                 :default [[dao.stream.transit :as transit]])
@@ -91,14 +92,6 @@
 ;; Canonical request-target paths
 ;; =============================================================================
 
-(def ^:private ascii-printable
-  " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~")
-
-
-(def ^:private unreserved
-  (set (map str (seq "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"))))
-
-
 (def ^:private hex-values
   (merge (zipmap (map str (seq "0123456789")) (range 10))
          (zipmap (map str (seq "abcdef")) (range 10 16))
@@ -115,64 +108,6 @@
   (subs s i (inc i)))
 
 
-(defn- octet->char
-  [code]
-  (when (and (<= 32 code) (<= code 126))
-    (subs ascii-printable (- code 32) (- code 31))))
-
-
-(defn- percent-canonical
-  "Decode percent-encoded unreserved octets and upper-case every remaining
-   percent hex pair.  An encoded slash is not unreserved, so it stays encoded."
-  [s]
-  (let [n (count s)]
-    (loop [i 0
-           out []]
-      (if (>= i n)
-        (str/join out)
-        (let [c (at s i)
-              hi (when (< (+ i 2) n) (get hex-values (at s (+ i 1))))
-              lo (when (< (+ i 2) n) (get hex-values (at s (+ i 2))))]
-          (if (and (= "%" c) hi lo)
-            (let [decoded (octet->char (+ (* 16 hi) lo))]
-              (if (contains? unreserved decoded)
-                (recur (+ i 3) (conj out decoded))
-                (recur (+ i 3) (conj out (str "%" (str/upper-case (subs s (inc i) (+ i 3))))))))
-            (recur (inc i) (conj out c))))))))
-
-
-(defn- drop-last-segment
-  [out]
-  (if-let [i (str/last-index-of out "/")]
-    (subs out 0 i)
-    ""))
-
-
-(defn- next-segment-end
-  [s]
-  (or (str/index-of s "/" 1) (count s)))
-
-
-(defn- remove-dot-segments
-  "RFC 3986's remove_dot_segments, so repeated slashes and a trailing slash stay
-   significant while `.` and `..` do not reach the exact served-path lookup."
-  [path]
-  (loop [in path
-         out ""]
-    (cond
-      (= "" in) out
-      (str/starts-with? in "../") (recur (subs in 3) out)
-      (str/starts-with? in "./") (recur (subs in 2) out)
-      (str/starts-with? in "/./") (recur (str "/" (subs in 3)) out)
-      (= "/." in) (recur "/" out)
-      (str/starts-with? in "/../") (recur (str "/" (subs in 4)) (drop-last-segment out))
-      (= "/.." in) (recur "/" (drop-last-segment out))
-      (= "." in) (recur "" out)
-      (= ".." in) (recur "" out)
-      :else (let [end (next-segment-end in)]
-              (recur (subs in end) (str out (subs in 0 end)))))))
-
-
 (defn- path-component
   "The URI path component of `raw`: everything before the first query or
    fragment delimiter."
@@ -185,18 +120,17 @@
 
 
 (defn canonical-path
-  "The canonical, non-empty absolute request-target path of `raw`.
+  "The canonical, non-empty absolute request-target path of `raw`, or nil
+   when it carries a malformed percent escape.
 
-   Query and fragment are ignored for lookup and absent from the descriptor,
-   dot segments are removed, percent-encoded unreserved octets are decoded, and
-   remaining percent hex digits are upper-case.  An empty URI path becomes `/`;
-   substituting the REPL's own default for an absent path is `repl-target`'s
-   job, and happens before this generic canonicalizer runs."
+   Query and fragment are ignored for lookup and absent from the descriptor;
+   the rules are `dao.stream.ws.upgrade/canonical-path`'s (encoded unreserved
+   octets decode before dot segments are removed).  An empty URI path becomes
+   `/`; substituting the REPL's own default for an absent path is
+   `repl-target`'s job, and happens before this generic canonicalizer runs."
   [raw]
-  (let [path (path-component raw)
-        path (if (str/starts-with? path "/") path (str "/" path))
-        path (percent-canonical (remove-dot-segments path))]
-    (if (= "" path) "/" path)))
+  (let [path (path-component raw)]
+    (upgrade/canonical-path (if (str/starts-with? path "/") path (str "/" path)))))
 
 
 (defn repl-target
@@ -275,6 +209,11 @@
           (nil? port)
           (failure :yin.repl.connect/invalid-url
                    (str "connect URL port must be a positive integer: "
+                        (pr-str (data/summarize url diagnostic-bounds))))
+
+          (nil? (repl-target raw-path))
+          (failure :yin.repl.connect/invalid-url
+                   (str "connect URL path has a malformed percent escape: "
                         (pr-str (data/summarize url diagnostic-bounds))))
 
           :else

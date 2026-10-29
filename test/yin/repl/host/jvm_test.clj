@@ -70,7 +70,10 @@
   (is (= "/repl/~user/x/" (jvm/canonical-path "/repl/%7euser/a/../x/./?ignored=1")))
   (is (= "/" (jvm/canonical-path "")))
   (is (nil? (jvm/canonical-path "relative")))
-  (is (nil? (jvm/canonical-path "/bad/%xy"))))
+  (is (nil? (jvm/canonical-path "/bad/%xy")))
+  (is (= "/b" (jvm/canonical-path "/a/%2e%2e/b")))
+  (is (= "/a%2Fb" (jvm/canonical-path "/a%2fb")))
+  (is (nil? (jvm/canonical-path "/bad/%2"))))
 
 
 (deftest real-jvm-sockets-translate-traffic-and-lifecycle-to-data

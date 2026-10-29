@@ -62,7 +62,7 @@
    "dao.stream.middleware" "dao.stream.observe" "dao.stream.ringbuffer"
    "dao.stream.apply" "dao.stream.forward" "dao.stream.observer"
    "dao.stream.rpc" "dao.stream.waitset" "dao.stream.waitset.cadence"
-   "dao.stream.ws" "dao.stream.datagram" "dao.stream.journal"
+   "dao.stream.ws" "dao.stream.ws.rfc6455" "dao.stream.ws.upgrade" "dao.stream.datagram" "dao.stream.journal"
    "dao.stream.remote" "dao.stream.remote_meet" "dao.stream.remote_pair"
    "dao.stream.remote_channel" "dao.stream.remote_route" "dao.stream.ws_project"
    "dao.stream.udp" "dao.stream.journal.file"
@@ -237,6 +237,7 @@
    "dao.stream.remote-pair-test" "dao.stream.remote-test" "dao.stream.rpc-test"
    "dao.jing-test" "dao.jing.cbor-conformance-test" corpus-suite-name
    "dao.jing.cbor-test" "dao.jing.hash-registry-contract-test" "dao.stream.base64-test"
+   "dao.stream.ws.rfc6455-test" "dao.stream.ws.upgrade-test"
    "dao.stream.journal-test"
    "dao.stream.journal.file-test" ; rejoined (J4c)
    "dao.data.btree-durability-test" "dao.host.hash-test"
