@@ -1,0 +1,336 @@
+;; GENERATED from the manifest forms by yang.latte-oracle-test/throw-site-rows.
+;; One row per throw symbol; disposition :fixture | :deferred | :excluded.
+[{:ns latte_kernel.defenv,
+  :fn fetch-definition,
+  :line 96,
+  :message "Cannot fetch definition (please report)",
+  :disposition :fixture}
+ {:ns latte_kernel.defenv,
+  :fn qualify-def,
+  :line 120,
+  :message
+  "Value to qualify should be a var or a symbol (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.defenv/qualify-def"}
+ {:ns latte_kernel.defenv,
+  :fn qualify-def,
+  :line 128,
+  :message "Cannot qualify symbol: not a known definition",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.defenv/qualify-def"}
+ {:ns latte_kernel.nbe,
+  :fn instantiate-def,
+  :line 30,
+  :message "Not enough parameters (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.nbe/instantiate-def"}
+ {:ns latte_kernel.nbe,
+  :fn delta-reduction,
+  :line 45,
+  :message "No such definition",
+  :disposition :fixture}
+ {:ns latte_kernel.nbe,
+  :fn delta-reduction,
+  :line 50,
+  :message "Cannot delta-reduce implicit term.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.nbe/delta-reduction"}
+ {:ns latte_kernel.nbe,
+  :fn delta-reduction,
+  :line 54,
+  :message "Too many arguments to instantiate definition.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.nbe/delta-reduction"}
+ {:ns latte_kernel.nbe,
+  :fn delta-reduction,
+  :line 66,
+  :message
+  "Cannot unfold term reference: no parsed term (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.nbe/delta-reduction"}
+ {:ns latte_kernel.nbe,
+  :fn delta-reduction,
+  :line 77,
+  :message "Cannot use theorem with no proof.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.nbe/delta-reduction"}
+ {:ns latte_kernel.nbe,
+  :fn delta-reduction,
+  :line 84,
+  :message "Not a Latte definition (please report).",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.nbe/delta-reduction"}
+ {:ns latte_kernel.norm,
+  :fn beta-reduction,
+  :line 102,
+  :message "Cannot beta-reduce. Not a redex",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/beta-reduction"}
+ {:ns latte_kernel.norm,
+  :fn beta-red,
+  :line 188,
+  :message "Terms not alpha-equivalent in beta-red.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/beta-red"}
+ {:ns latte_kernel.norm,
+  :fn beta-red,
+  :line 196,
+  :message "Term not actually readable in beta-red.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/beta-red"}
+ {:ns latte_kernel.norm,
+  :fn beta-red,
+  :line 199,
+  :message "Terms not alpha-equivalent in beta-red.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/beta-red"}
+ {:ns latte_kernel.norm,
+  :fn instantiate-def,
+  :line 238,
+  :message "Not enough parameters (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/instantiate-def"}
+ {:ns latte_kernel.norm,
+  :fn delta-reduction,
+  :line 270,
+  :message
+  "Cannot delta-reduce: not a reference term (please report).",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/delta-reduction"}
+ {:ns latte_kernel.norm,
+  :fn delta-reduction,
+  :line 276,
+  :message "No such definition",
+  :disposition :fixture}
+ {:ns latte_kernel.norm,
+  :fn delta-reduction,
+  :line 281,
+  :message "Cannot delta-reduce implicit term.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/delta-reduction"}
+ {:ns latte_kernel.norm,
+  :fn delta-reduction,
+  :line 284,
+  :message "Too many arguments to instantiate definition.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/delta-reduction"}
+ {:ns latte_kernel.norm,
+  :fn delta-reduction,
+  :line 295,
+  :message
+  "Cannot unfold term reference: no parsed term (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/delta-reduction"}
+ {:ns latte_kernel.norm,
+  :fn delta-reduction,
+  :line 305,
+  :message "Cannot use theorem with no proof.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/delta-reduction"}
+ {:ns latte_kernel.norm,
+  :fn delta-reduction,
+  :line 308,
+  :message "Not a Latte definition (please report).",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/delta-reduction"}
+ {:ns latte_kernel.norm,
+  :fn beta-delta-normalize,
+  :line 444,
+  :message "Terms not alpha-equivalent in beta-delta-norm.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/beta-delta-normalize"}
+ {:ns latte_kernel.norm,
+  :fn beta-delta-normalize,
+  :line 453,
+  :message "Term not actually readable in beta-red.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/beta-delta-normalize"}
+ {:ns latte_kernel.norm,
+  :fn beta-delta-normalize,
+  :line 456,
+  :message "Terms not alpha-equivalent in beta-red.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.norm/beta-delta-normalize"}
+ {:ns latte_kernel.presyntax,
+  :fn parse,
+  :line 100,
+  :message "Parse error",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.presyntax/parse"}
+ {:ns latte_kernel.presyntax,
+  :fn parse-compound-term,
+  :line 185,
+  :message "Not a LaTTe definition (please report)",
+  :disposition :deferred,
+  :to
+  "the slice that admits latte_kernel.presyntax/parse-compound-term"}
+ {:ns latte_kernel.proof,
+  :fn elab-discharge,
+  :line 150,
+  :message "Context is empty (please report).",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/elab-discharge"}
+ {:ns latte_kernel.proof,
+  :fn elab-discharge-impl,
+  :line 158,
+  :message "Incorrect discharge name.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/elab-discharge-impl"}
+ {:ns latte_kernel.proof,
+  :fn elab-discharge-impl,
+  :line 163,
+  :message "Incorrect discharge name.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/elab-discharge-impl"}
+ {:ns latte_kernel.proof,
+  :fn abstract-local-def,
+  :line 175,
+  :message "Local definition not found (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/abstract-local-def"}
+ {:ns latte_kernel.proof,
+  :fn abstract-local-calls,
+  :line 188,
+  :message "Local definition not found (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/abstract-local-calls"}
+ {:ns latte_kernel.proof,
+  :fn elab-print-type,
+  :line 261,
+  :message "Cannot type term for print-type.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/elab-print-type"}
+ {:ns latte_kernel.proof,
+  :fn +opacity-fn+,
+  :line 313,
+  :message "Opacity management function not installed (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/+opacity-fn+"}
+ {:ns latte_kernel.proof,
+  :fn elab-opaque,
+  :line 326,
+  :message ":opaque fails: definition is already opaque",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/elab-opaque"}
+ {:ns latte_kernel.proof,
+  :fn elab-transparent,
+  :line 334,
+  :message ":transparent fails: definition is not opaque",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/elab-transparent"}
+ {:ns latte_kernel.proof,
+  :fn elab-proof-step,
+  :line 441,
+  :message "Unknown step kind in proof script.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/elab-proof-step"}
+ {:ns latte_kernel.proof,
+  :fn elab-proof,
+  :line 452,
+  :message "Wrong proof script: proof steps after qed.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/elab-proof"}
+ {:ns latte_kernel.proof,
+  :fn compile-proof,
+  :line 470,
+  :message "Compilation failed: malformed proof step.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/compile-proof"}
+ {:ns latte_kernel.proof,
+  :fn compile-proof,
+  :line 485,
+  :message
+  "Compilation failed: wrong implicit assume step, no such assumption in goal",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/compile-proof"}
+ {:ns latte_kernel.proof,
+  :fn compile-proof,
+  :line 499,
+  :message "Compilation failed: unsupported proof step.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/compile-proof"}
+ {:ns latte_kernel.proof,
+  :fn check-proof,
+  :line 517,
+  :message "Cannot rebuild theorem type.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.proof/check-proof"}
+ {:ns latte_kernel.syntax,
+  :fn term-reduce,
+  :line 195,
+  :message "Cannot term reduce: unknown (sub-)term",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.syntax/term-reduce"}
+ {:ns latte_kernel.typing,
+  :fn type-of-term,
+  :line 82,
+  :message "No such binder (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.typing/type-of-term"}
+ {:ns latte_kernel.typing,
+  :fn type-of-term,
+  :line 90,
+  :message
+  "Host constant should not be remaining while typing (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.typing/type-of-term"}
+ {:ns latte_kernel.typing,
+  :fn type-of-term,
+  :line 95,
+  :message "Invalid term (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.typing/type-of-term"}
+ {:ns latte_kernel.typing,
+  :fn type-check?,
+  :line 118,
+  :message "Cannot check type of term",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.typing/type-check?"}
+ {:ns latte_kernel.typing,
+  :fn type-of-ref,
+  :line 325,
+  :message "Not a LaTTe definition (please report).",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.typing/type-of-ref"}
+ {:ns latte_kernel.typing,
+  :fn type-of-ref,
+  :line 327,
+  :message "Notation should not occur at typing time (please report)",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.typing/type-of-ref"}
+ {:ns latte_kernel.typing,
+  :fn type-of-ref,
+  :line 337,
+  :message
+  "Unsupported definitional entity, expecting a true definition or a theorem name",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.typing/type-of-ref"}
+ {:ns latte_kernel.typing,
+  :fn type-of,
+  :line 485,
+  :message "Type checking error",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.typing/type-of"}
+ {:ns latte_kernel.unparser,
+  :fn register-unparser!,
+  :line 20,
+  :message "Wrong unparser category.",
+  :disposition :deferred,
+  :to "the slice that admits latte_kernel.unparser/register-unparser!"}
+ {:ns latte_kernel.unparser,
+  :fn unregister-unparser!,
+  :line 31,
+  :message "No such unparser.",
+  :disposition :deferred,
+  :to
+  "the slice that admits latte_kernel.unparser/unregister-unparser!"}
+ {:ns latte_kernel.utils,
+  :fn safe-get,
+  :line 41,
+  :message "No such value in collection",
+  :disposition :fixture}
+ {:ns latte_kernel.utils,
+  :fn zip,
+  :line 57,
+  :message "Cannot zip sequence with odd number of elements.",
+  :disposition :fixture}]
