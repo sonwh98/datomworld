@@ -16,6 +16,7 @@
   (:require [yin.vm.semantic.linearize :as sr-linearize]
             [yin.vm.semantic.derive :as derive]
             [dao.jing.mem :as mem]
+            [yang.core.call :as call]
             [yang.typescript.antlr.prelude :as prelude]
             [yang.typescript.antlr.safepoint :as safepoint]
             [yin.vm :as vm]
@@ -53,12 +54,18 @@
 
 (def published
   "`js` published once into its own content store:
-   `{:store s :result r :address a}`, `r` `publish-module!`'s answer."
+   `{:store s :result r :address a :call-address ca}`. `yang.call` is
+   published first so `js` pins its shared calling runtime."
   (delay
     (let [store (mem/create-content-mem)
+          call-result (publish/publish-module! store (call/module-spec (registry)))
           result (publish/publish-module! store
-                                          (prelude/module-spec (registry)))]
-      {:store store, :result result, :address (:address result)})))
+                                          (prelude/module-spec (registry)
+                                                               (:address call-result)))]
+      {:store store,
+       :result result,
+       :address (:address result),
+       :call-address (:address call-result)})))
 
 
 (def published-jssp
@@ -73,10 +80,10 @@
 
 (defn source
   "The serving composition over the published store: `name-env` defaults
-   to `{js <address>}`, derivation `:trusted`, the test being the
-   publisher. `jssp`-serving sources pass their own `name-env`, the
-   safepointed runs' `{'js a 'jssp b}` both."
-  ([] (source {'js (:address @published)}))
+   to `{js <address> yang.call <address>}`, derivation `:trusted`, the test
+   being the publisher. `jssp`-serving sources pass their own `name-env`."
+  ([] (source {'js (:address @published),
+               'yang.call (:call-address @published)}))
   ([name-env]
    (link/composition {:content-store (:store @published),
                       :name-env name-env,
@@ -84,10 +91,12 @@
 
 
 (defn safepoint-source
-  "The serving composition over both published modules: `jssp` requires
-   `js`, so a safepointed linked run resolves both names."
+  "The serving composition over the published modules: `jssp` requires
+   `js`, and `js` requires `yang.call`."
   []
-  (source {'js (:address @published), 'jssp (:address @published-jssp)}))
+  (source {'js (:address @published),
+           'jssp (:address @published-jssp),
+           'yang.call (:call-address @published)}))
 
 
 (defn publish-guest-module!

@@ -27,16 +27,18 @@
                       :props <om> :extensible? true}; the guest reference
                       is the cell ref, identity is `=` on refs
      function         a cell holding {:js/type :function :code
-                      (fn [this args] ..) :this-mode :strict|:lexical
+                      (fn [this args] ..) :yang.call/entry
+                      (fn [invocation] ..) :this-mode :strict|:lexical
                       :name s :length n :props <om> :proto ref}
      property slot    {:value v :writable b :enumerable b :configurable b}
      own-key map      `om`: {:index {key slot} :ints [..sorted..] :strs
                       [..insertion..] :syms []}; guest-visible order is the
                       vectors, never a host map's
 
-   Calling convention, fixed: every guest call is (js/call f this args)
-   with `args` a vector built by `js/vconj`; every construct is
-   (js/construct F args); a function's code is (fn [this args] ..).
+   Calling convention: source calls are (js/call f this args), with `args`
+   a vector built by `js/vconj`; `js/call` supplies one invocation record
+   to the shared entry. Constructors retain (js/construct F args), and a
+   function's private code is (fn [this args] ..).
 
    Control flow is continuations: `js/throw`, `js/try`, `js/try-finally`
    and `js/call-ec` copy the Python prelude's escape machinery with JS
@@ -62,6 +64,7 @@
     #?(:cljd [clojure.edn :as edn])
     [yang.core.prelude :as core]
     [yang.core.uast :as u]
+    [yang.core.call :as call]
     [yin.vm.integer :as integer]))
 
 
@@ -78,17 +81,18 @@
 
 (def host-names
   "Module exports the prelude calls."
-  '#{cell/new cell/get cell/set! data/count data/into data/subvec
-     data/number? data/str-concat data/str-length data/substring
-     data/str->code-points data/code-points->str data/float64
-     data/float-value data/content= data/str-unit-length data/str-unit-at
-     data/str-units data/units->str integer/add integer/sub integer/neg
-     integer/mul integer/compare integer/quot-rem integer/to-float
-     integer/compare-float integer/pow integer/shift-right
-     integer/shift-left integer/bit-and integer/bit-or integer/bit-xor
-     integer/bit-not integer/from-float integer/floor-div-mod
-     integer/format integer/parse integer/float-digits
-     integer/decimal->float})
+  (into '#{cell/new cell/get cell/set! data/count data/into data/subvec
+           data/number? data/nth data/str-concat data/str-length data/substring
+           data/str->code-points data/code-points->str data/float64
+           data/float-value data/content= data/str-unit-length data/str-unit-at
+           data/str-units data/units->str integer/add integer/sub integer/neg
+           integer/mul integer/compare integer/quot-rem integer/to-float
+           integer/compare-float integer/pow integer/shift-right
+           integer/shift-left integer/bit-and integer/bit-or integer/bit-xor
+           integer/bit-not integer/from-float integer/floor-div-mod
+           integer/format integer/parse integer/float-digits
+           integer/decimal->float}
+        call/host-names))
 
 
 (defquoted ^:private core-definitions
@@ -141,7 +145,7 @@
          (if (= t :number) true (if (= t :symbol) true (= t :bigint)))))]
     [js/callable?
      (fn [x]
-       (if (js/cell? x) (= (get (cell/get x) :js/type) :function) false))]
+       (yang.call/eligible? x))]
     [js/mknum (fn [x] (data/float64 x))]
     [js/fval (fn [x] (data/float-value x))]
     [js/nan-raw (fn [] (let [i (data/float-value ##Inf)] (- i i)))]
@@ -1547,54 +1551,68 @@
 
     ;; ------------------------------------------------------------ functions
     ;; A function cell holds {:js/type :function :code (fn [this args] ..)
+    ;; :yang.call/entry (fn [invocation] ..)
     ;; :this-mode :strict|:lexical :name s :length n :props om :proto ref
     ;; :extensible? true}; every call is (js/call f this args).
     [js/make-function
      (fn [name length this-mode kind code]
-       (let [f (cell/new
-                 (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
-                                                                                :js/type
-                                                                                :function)
-                                                                         :code code)
-                                                                  :this-mode this-mode)
-                                                           :name name)
-                                                    :length length)
-                                             :props (js/om-new))
-                                      :proto js.rt/fn-proto)
-                               :extensible? true)
-                        :kind
-                        kind))]
-         (do (js/define-own! f
-                             {:js/str "length"}
-                             (js/slot (data/float64 length) false false true))
-             (js/define-own! f {:js/str "name"} (js/slot name false false true))
-             (if (= kind :normal)
-               (let [p (js/make-object js.rt/obj-proto)]
-                 (do (js/define-own! f
-                                     {:js/str "prototype"}
-                                     (js/slot p true false false))
-                     (js/define-own! p
-                                     {:js/str "constructor"}
-                                     (js/slot f true false true))))
-               :js/undefined)
-             f)))]
+       (let [entry
+             (fn [invocation]
+               (let [callee (get invocation :yang.call/callee)
+                     receiver (if (data/contains? invocation :yang.call/receiver)
+                                (get invocation :yang.call/receiver)
+                                :js/undefined)]
+                 (code (if (= this-mode :lexical) :js/undefined receiver)
+                       (get invocation :yang.call/positional))))]
+         (let [f (cell/new
+                   (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
+                                                                                         :js/type
+                                                                                         :function)
+                                                                                  :code code)
+                                                                           :yang.call/entry entry)
+                                                                    :this-mode this-mode)
+                                                             :name name)
+                                                      :length length)
+                                               :props (js/om-new))
+                                        :proto js.rt/fn-proto)
+                                 :extensible? true)
+                          :kind
+                          kind))]
+           (do (js/define-own! f
+                               {:js/str "length"}
+                               (js/slot (data/float64 length) false false true))
+               (js/define-own! f {:js/str "name"} (js/slot name false false true))
+               (if (= kind :normal)
+                 (let [p (js/make-object js.rt/obj-proto)]
+                   (do (js/define-own! f
+                                       {:js/str "prototype"}
+                                       (js/slot p true false false))
+                       (js/define-own! p
+                                       {:js/str "constructor"}
+                                       (js/slot f true false true))))
+                 :js/undefined)
+               f))))]
     [js/call
      (fn [f this args]
-       (if (js/callable? f)
-         (let [c (cell/get f)]
-           ((get c :code)
-            (if (= (get c :this-mode) :lexical) :js/undefined this)
-            args))
-         (js/throw-type-error {:js/str "value is not a function"})))]
+       (yang.call/invoke-with
+         f args []
+         (fn [condition]
+           (js/throw-type-error
+             (if (= (get condition :yang.call/reason) :yang.call/not-callable)
+               {:js/str "value is not a function"}
+               {:js/str "invalid function invocation"})))
+         (assoc {} :yang.call/receiver this)))]
     [js/is-constructor?
      ;; [[Construct]] exists on :normal functions and on the builtins
      ;; flagged :ctor?; arrows, methods, accessors and the rest have none
      (fn [v]
-       (if (js/callable? v)
+       (if (js/cell? v)
          (let [c (cell/get v)]
-           (if (= (get c :kind) :normal)
-             true
-             (if (= (get c :kind) :builtin) (= (get c :ctor?) true) false)))
+           (if (= (get c :js/type) :function)
+             (if (= (get c :kind) :normal)
+               (= (get c :this-mode) :strict)
+               (if (= (get c :kind) :builtin) (= (get c :ctor?) true) false))
+             false))
          false))]
     [js/construct
      (fn [f args]
@@ -3680,9 +3698,15 @@
   "The single definition list, `[store-key form]` in definition order:
    every prelude function, the literal state slot, then `js/init!`.
    Defining them runs nothing."
-  (into (into (into (into core-definitions object-definitions) array-definitions)
+  (into (into (into (into core-definitions object-definitions)
+                    array-definitions)
               json-definitions)
         [['js.rt/state :js/uninit] ['js/init! (init-form)]]))
+
+
+(def ^:private linked-definitions
+  "The `js` module body; the common call runtime is pinned as a requirement."
+  definitions)
 
 
 (defn- definitions->uast
@@ -3691,9 +3715,9 @@
 
 
 (def functions-uast
-  "Every definition: lambdas and the literal state slot. Defining them
-   runs nothing, so this loads on any composition, with or without cells."
-  (definitions->uast definitions))
+  "The shared calling runtime followed by every js definition. Defining
+   them runs nothing, so this loads on any composition, with or without cells."
+  (definitions->uast (into call/definitions definitions)))
 
 
 (def uast
@@ -3703,7 +3727,7 @@
 
 
 ;; =============================================================================
-;; The module emitter: the same definition list as the linker module `js`
+;; The linked js module requires the separately published `yang.call` module
 ;; =============================================================================
 
 (def module-name
@@ -3730,7 +3754,7 @@
 (def ^:private module-definitions
   "The module's definition list: a `:js/uninit` placeholder for every
    runtime key, then every definition, stripped."
-  (core/module-definitions "js" :js/uninit runtime-keys definitions))
+  (core/module-definitions "js" :js/uninit runtime-keys linked-definitions))
 
 
 (def module-uast
@@ -3763,14 +3787,16 @@
 
 (defn module-spec
   "`yin.vm.linker.publish/publish-module!`'s spec for the module `js` over
-   the host registry `registry`. A free name nothing supplies is refused
-   before anything is published. This namespace emits; it never publishes."
-  [registry]
+   the host registry `registry`, pinned to the published `yang.call` module
+   at `call-address`. A free name nothing supplies is refused before
+   anything is published. This namespace emits; it never publishes."
+  [registry call-address]
   (core/module-spec {:module-name module-name,
                      :ast module-uast,
                      :exports module-exports,
-                     :requires {},
+                     :requires {'yang.call call-address},
                      :free-names module-free-names,
+                     :skip? #(= "yang.call" (namespace %)),
                      :registry registry,
                      :message "the js module reads an undeclared name",
                      :refusal-ns "yang.typescript.antlr"}))

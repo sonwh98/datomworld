@@ -238,6 +238,19 @@
      [(prints "true") "console.log((function () { return this === undefined; })());"]]))
 
 
+(deftest ^:slow shared-call-convention-test
+  (program-test
+    "shared-call-convention"
+    [[(prints "42")
+      "function f(x) { return x + 1; } console.log(f(41));"]
+     [(prints "true 8")
+      "function apply(f, x) { return f(x); } const add = n => n + 5; console.log(apply(add, 3) === 8, apply(add, 3));"]
+     [(prints "true 5 6")
+      "function identity(x) { return x; } function make(n) { return () => n; } const f = make(5); const g = identity(f); console.log(f === g, f(), g() + 1);"]
+     [(prints "true true")
+      "function receiver() { return this; } function relay(f) { return f; } const original = receiver; const returned = relay(original); console.log(original === returned, returned() === undefined);"]]))
+
+
 (deftest ^:slow exceptions-test
   (program-test
     "exceptions"
