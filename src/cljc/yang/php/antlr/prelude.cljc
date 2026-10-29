@@ -26,7 +26,8 @@
                      absent until the first integer key is written
      error object    {:php/type :obj :class name :ord n :props {\"message\"
                      \"code\" \"previous\"}}
-     function        a cell {:php/type :function :name s :code (fn [args])}
+     function        a cell {:php/type :function :name s :code (fn [args])
+                             :yang.call/entry (fn [invocation])}
 
    Runtime state is allocated by `php/init!`, once per task, under the slot
    `php.rt/state` (the literal `:php/uninit` until `php/init!` flips it to
@@ -1986,14 +1987,27 @@
          (php/make-statics names (+ i 1) n (assoc acc (get names i) (cell/new :php/undef)))
          acc))]
     [php/make-function
-     ;; the function cell; `code` is (fn [fn-cell args]) so the body can
-     ;; reach its own statics
+     ;; The function cell keeps its source body and publishes the common
+     ;; unary entry. `:yang.call/callee` supplies self, preserving cell identity.
      (fn [name spec code statics]
-       (cell/new (assoc (assoc (assoc (assoc (assoc {} :php/type :function) :name name)
-                                      :spec spec)
-                               :code code)
-                        :statics
-                        (php/make-statics statics 0 (data/count statics) {}))))]
+       (let [f (cell/new (assoc (assoc (assoc (assoc (assoc {} :php/type :function) :name name)
+                                              :spec spec)
+                                       :code code)
+                                :statics
+                                (php/make-statics statics 0 (data/count statics) {})))]
+         (do
+           (cell/set! f (assoc (cell/get f) :yang.call/entry
+                               (fn [invocation]
+                                 (let [callee (get invocation :yang.call/callee)
+                                       positional (get invocation :yang.call/positional)
+                                       named (get invocation :yang.call/named)
+                                       args (if (> (data/count named) 0)
+                                              (php/place-named callee (get (cell/get callee) :spec)
+                                                               positional named 0 (data/count named)
+                                                               (php/empty-array))
+                                              positional)]
+                                   ((get (cell/get callee) :code) callee args)))))
+           f)))]
     [php/register!
      (fn [name code]
        (cell/set! php.rt/functions
@@ -2050,7 +2064,12 @@
                                              written "()"))
            f)))]
     [php/call
-     (fn [f args] ((get (cell/get f) :code) f args))]
+     (fn [f args]
+       ((get (cell/get f) :yang.call/entry)
+        (assoc (assoc (assoc (assoc {} :yang.call/callee f)
+                             :yang.call/positional args)
+                      :yang.call/named [])
+               :yang.call/raise (fn [condition] (php/raise condition)))))]
     ;; the internal array pointer (row 55): an ordinal in the table's `:ptr`,
     ;; so it travels with the value (copy, DUP, upgrade); absent means 0
     [php/ptr-of
@@ -2494,7 +2513,11 @@
        (let [spec (get (cell/get f) :spec)]
          (if (nil? (get spec :names))
            (php/throw-error "Error" "Named arguments are not supported for this function")
-           (php/call f (php/place-named f spec pos named 0 (data/count named) (php/empty-array))))))]
+           ((get (cell/get f) :yang.call/entry)
+            (assoc (assoc (assoc (assoc {} :yang.call/callee f)
+                                 :yang.call/positional pos)
+                          :yang.call/named named)
+                   :yang.call/raise (fn [condition] (php/raise condition)))))))]
     [php/place-named
      (fn [f spec pos named i n extras]
        (if (< i n)
