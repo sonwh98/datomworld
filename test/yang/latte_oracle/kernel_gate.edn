@@ -1,0 +1,57 @@
+;; Slice 9 kernel calls; env is upstream empty-env on A, immutable context on B/C.
+{:fixtures [
+{:id :minimal-last, :dependency-of latte-kernel.nbe/evaluation, :call (last (quote [1 2]))}
+{:id :minimal-with-meta, :dependency-of latte-kernel.nbe/quotation-, :call (with-meta (quote x) {:name (quote source)})}
+{:id :minimal-nth, :dependency-of latte-kernel.presyntax/parse-binder-term, :call (nth (quote [a b]) 1)}
+{:id :minimal-var, :dependency-of latte-kernel.presyntax/parse-compound-term, :call (var? (quote x))}
+{:id :minimal-gensym-freshness, :dependency-of latte-kernel.typing/rebuild-type, :call (let [a (gensym "fresh") b (gensym "fresh")] (= a b))}
+{:id :parse-binder, :call (latte-kernel.presyntax/parse env (quote (lambda [x :type] x)))}
+{:id :parse-application, :call (latte-kernel.presyntax/parse env (quote (f x y)))}
+{:id :parse-empty, :negative? true, :call (latte-kernel.presyntax/parse env (quote ()))}
+{:id :parse-bad-binding, :negative? true, :call (latte-kernel.presyntax/parse env (quote (lambda [x x :type] x)))}
+{:id :parse-reserved, :negative? true, :call (latte-kernel.presyntax/parse env (quote lambda))}
+{:id :parse-short-arrow, :negative? true, :call (latte-kernel.presyntax/parse env (quote (==> A)))}
+{:id :subst-capture, :call (latte-kernel.syntax/subst (quote (λ [x A] [x y])) (quote {y x}))}
+{:id :subst-shadow, :call (latte-kernel.syntax/subst (quote (λ [x A] (λ [x A] x))) (quote {x z}))}
+{:id :subst-three-arity, :call (latte-kernel.syntax/subst (quote (Π [x A] [x z])) (quote {z x}) (quote #{x x'}))}
+{:id :free-vars-local-capture, :call (latte-kernel.syntax/free-vars (latte-kernel.defenv/register-definition env (latte-kernel.defenv/->Definition (quote d) [] 0 (quote x) (quote #{x}) (quote A) {}) true) (quote (d)))}
+{:id :nbe-beta, :call (latte-kernel.nbe/norm env [] (quote [(λ [x ✳] x) y]))}
+{:id :nbe-binder, :call (latte-kernel.nbe/norm (quote (λ [x ✳] x)))}
+{:id :normalize-beta, :call (latte-kernel.norm/normalize env [] (quote [(λ [x ✳] x) y]))}
+{:id :normalize-one-arity, :call (latte-kernel.norm/normalize (quote [(λ [x ✳] x) y]))}
+{:id :normalize-two-arity, :call (latte-kernel.norm/normalize env (quote [(λ [x ✳] x) y]))}
+{:id :nbe-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.nbe/norm env [] (quote (d)))}
+{:id :normalize-opaque, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {:opaque true})], :call (latte-kernel.norm/normalize env [] (quote (d)))}
+{:id :normalize-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.norm/normalize env [] (quote (d)))}
+{:id :beta-eq-true, :call (latte-kernel.norm/beta-eq? env [] (quote [(λ [x ✳] x) y]) (quote y))}
+{:id :beta-eq-false, :negative? true, :call (latte-kernel.norm/beta-eq? (quote x) (quote y))}
+{:id :beta-eq-three-arity, :call (latte-kernel.norm/beta-eq? env (quote x) (quote x))}
+{:id :typing-type, :call (latte-kernel.typing/type-of-term env [] (quote ✳))}
+{:id :typing-lambda, :call (latte-kernel.typing/type-of-term env (quote [[A ✳]]) (quote (λ [x A] x)))}
+{:id :typing-unknown, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote x))}
+{:id :typing-kind, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote □))}
+{:id :typing-ascription, :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (:latte-kernel.syntax/ascribe x A)))}
+{:id :type-of-valid, :call (latte-kernel.typing/type-of (quote ✳))}
+{:id :type-of-context, :call (latte-kernel.typing/type-of (quote [[A ✳] [x A]]) (quote x))}
+{:id :type-of-invalid, :negative? true, :call (latte-kernel.typing/type-of env [] (quote x))}
+{:id :type-check-valid, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote A))}
+{:id :type-check-wrong, :negative? true, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote ✳))}
+{:id :type-check-unbound, :negative? true, :call (latte-kernel.typing/type-check? env [] (quote x) (quote ✳))}
+{:id :compile-proof, :call (latte-kernel.proof/compile-proof (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}
+{:id :compile-assume, :call (latte-kernel.proof/compile-proof (quote [:type]) (quote [[:assume {} [A _] [:have p _ (lambda [x A] x) {}]] [:qed p {}]]))}
+{:id :compile-malformed, :negative? true, :call (latte-kernel.proof/compile-proof (quote [42]))}
+{:id :compile-unknown, :negative? true, :call (latte-kernel.proof/compile-proof (quote [[:unknown {}]]))}
+{:id :elab-accepted, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}
+{:id :elab-rejected, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed missing {}]]))}
+{:id :elab-incomplete, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote []))}
+{:id :elab-after-qed, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))}
+{:id :check-accepted, :call (latte-kernel.proof/check-proof env [] (quote identity) (quote (Π [A ✳] (Π [x A] A))) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}
+{:id :check-assume-have-discharge, :call (latte-kernel.proof/check-proof env [] (quote composition) (latte-kernel.presyntax/parse env (quote (forall [A B :type] (==> (==> A B) (==> A A B))))) (quote [[:assume {:line 1} [A :type B :type f (==> A B) x A] [:have <a> (==> A B) f {:line 2}] [:have <b> B (<a> x) {:line 3}]] [:qed <a> {:line 4}]]))}
+{:id :check-rejected, :negative? true, :call (latte-kernel.proof/check-proof env [] (quote wrong) (quote (Π [A ✳] A)) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}
+{:id :check-incomplete, :negative? true, :call (latte-kernel.proof/check-proof env [] (quote unfinished) (quote ✳) (quote []))}
+{:id :check-after-qed, :negative? true, :call (latte-kernel.proof/check-proof env [] (quote late) (quote ✳) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))}
+{:id :implicit-typed-closure, :definitions [(latte-kernel.defenv/->Implicit (quote i) (fn [kernel ctx typed] (first typed)))], :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (i x)))}
+{:id :implicit-throwing-closure, :negative? true, :definitions [(latte-kernel.defenv/->Implicit (quote i) (fn [kernel ctx typed] (throw (ex-info "extension failed" {:extra 7}))))], :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (i x)))}
+{:id :parse-to-normalize-to-type, :call (let [t (latte-kernel.presyntax/parse env (quote ((lambda [x :type] x) :type))) n (latte-kernel.norm/normalize env [] t)] [n (latte-kernel.typing/type-of-term env [] n)])}
+{:id :unparser-guest-closure, :mode :unparser, :extension (fn [t] (if (= t (quote x)) [(quote shown) true] [t false])), :term (λ [z ✳] [z x])}
+]}
