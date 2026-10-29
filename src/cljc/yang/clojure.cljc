@@ -172,6 +172,8 @@
   (when-let [hit (and (::convention env) (some #{'conj 'vec} names))]
     (throw (ex-info (str "Binding " hit " would capture the argument-vector constructor")
                     {:names names})))
+  (when (and (::invoker env) (some #{'invoke-value} names))
+    (throw (ex-info "Binding invoke-value would capture the guest collection invoker" {:names names})))
   (assoc env ::locals (into (locals env) (remove #(= '& %)) names)))
 
 
@@ -677,6 +679,13 @@
     (cond
       (empty? form) form
       (= 'quote (first form)) form
+      (#{'.getMessage 'ex-message 'ex-data} (first form))
+      (do (when-not (= 2 (count form))
+            (reject! "Error accessor requires one portable error value" {:form form}))
+          (list (if (= 'ex-data (first form)) :yin.k/data :yin.k/message)
+                (rewrite-ex-info (second form))))
+      (and (symbol? (first form)) (= \. (first (name (first form)))))
+      (reject! "Host exception/interop accessor is not portable" {:form form})
       (= 'ex-info (first form))
       (let [[_ msg data cause] (map rewrite-ex-info form)]
         (cond-> {:yin.k/message msg, :yin.k/data data}
@@ -699,7 +708,7 @@
 
 
 (def ^:private lowered-specials
-  #{'if 'let 'do 'loop 'recur 'throw 'quote 'fn 'and 'or})
+  #{'if 'let 'do 'loop 'recur 'throw 'try 'quote 'fn 'and 'or})
 
 
 (declare failing? expand-control)
@@ -708,7 +717,7 @@
 (def ^:private control-heads
   "case and the standard control forms: compiler forms that lower to
    if/let/do, so the outcome pass sees through them like those."
-  #{'case 'cond 'when 'if-let 'if-some 'when-let 'when-some})
+  #{'case 'cond 'when 'if-let 'if-some 'when-let 'when-some '->})
 
 
 (defn- any-failing?
@@ -750,6 +759,7 @@
         (cond
           (contains? #{'quote 'fn} head) false
           (= 'throw head) true
+          (= 'try head) true
           (= 'let head) (let [[bindings & body] ops]
                           (scoped-failing? env (partition 2 (expand-bindings bindings env)) body))
           ;; the raw outcome of one guest call is a value, not a failure
@@ -882,8 +892,26 @@
           loop (lower-loop env (first ops) (rest ops))
           recur (lower-operands env (vec ops) (fn [vs] (rebuild form (cons 'recur vs))))
           throw (lower-operand env (first ops) (fn [v] [error-tag v]))
+          try (let [clauses (filter #(and (seq? %) (#{'catch 'finally} (first %))) ops)
+                    body (take-while #(not (and (seq? %) (#{'catch 'finally} (first %)))) ops)
+                    [clause] clauses
+                    [_ klass binding & handler] clause
+                    outcome (gen-sym env)]
+                (when-not (and (= (count ops) (+ (count body) (count clauses)))
+                               (= 1 (count clauses)) (= 'catch (first clause))
+                               (#{'Exception 'java.lang.Exception
+                                  'clojure.lang.ExceptionInfo} klass)
+                               (symbol? binding))
+                  (reject! "Portable try requires one Exception/ExceptionInfo catch and no finally"
+                           {:form form :clauses clauses}))
+                (check-binder! binding clause)
+                (list 'dsg__let [outcome (lower-tail env (body-expression body))]
+                      (list 'if (list 'data/content= (list 'data/nth outcome 0) error-tag)
+                            (list 'dsg__let [binding (list 'data/nth outcome 1)]
+                                  (lower-tail (with-locals env [binding]) (body-expression handler)))
+                            outcome)))
           (quote fn) (ok-form form)
-          (case cond when if-let if-some when-let when-some)
+          (case cond when if-let if-some when-let when-some ->)
           (lower-tail env (expand-control env head ops))
           and (case (count ops)
                 0 (ok-form true)
@@ -1129,6 +1157,12 @@
                          (seq (meta operator)) (with-meta (meta operator)))
              :operands (mapv #(compile-form % false env macro-env) operands)}
       tail? (assoc :tail? true))
+
+    ;; The guest library supplies collection invocation. The apply intrinsic
+    ;; in invoke-value is the raw closure call, so this never wraps itself.
+    (and (::invoker env)
+         (or (contains? (locals env) operator) (not (symbol? operator))))
+    (compile-av-application 'invoke-value [operator (vec operands)] env tail? macro-env)
 
     ;; anything else: one guest invocation, in tail position when the call is
     :else
@@ -1493,6 +1527,11 @@
              (list 'if test (cons 'do body) nil))
       if-let (expand-if-let head operands (temp "iflet"))
       if-some (expand-if-let head operands (temp "ifsome"))
+      -> (reduce (fn [value step]
+                   (if (seq? step)
+                     (rebuild step (list* (first step) value (rest step)))
+                     (list step value)))
+                 (first operands) (rest operands))
       when-let (let [[bindings & body] operands]
                  (expand-control env 'if-let [bindings (cons 'do body) nil]))
       when-some (let [[bindings & body] operands]
@@ -1594,7 +1633,7 @@
           dsg__let (compile-let-simple (first operands) (body-expression (rest operands))
                                        env tail? macro-env)
           recur (compile-recur operands env tail? macro-env)
-          (case cond when if-let if-some when-let when-some)
+          (case cond when if-let if-some when-let when-some ->)
           (compile-lowered (expand-control env operator operands)
                            tail? env macro-env)
           ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
@@ -1693,7 +1732,9 @@
                                                           [sym a])))
                                                 (when (map? (:native opts)) (:native opts)))
                                  :macros (set (:macros opts))}
-                   ::defined defined}
+                   ::defined defined
+                   ::invoker (boolean (some #(and (seq? %) (= 'defn (first %))
+                                                  (:yin.k/invoker (meta (second %)))) forms))}
             (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})}))))))
 
 
@@ -1832,17 +1873,19 @@
 ;; What stays a host primitive, named by the `kind` module: a symbol, a
 ;; keyword and a host string are distinguished or built only by the host
 ;; (symbol?, keyword?, name, symbol, keyword, str, int?), as is metadata access
-;; (meta). No `data` export or
-;; VM primitive tells a symbol from a keyword. var? and resolve are the host's
-;; Var primitives: a harness on a host with Vars registers them in `kind`
-;; (`kind-module` leaves them out); a program that never mentions them does
-;; not need them.
+;; (meta and with-meta). The current data ABI has no metadata-write export,
+;; so with-meta is an explicit pure representation seam, not an ambient store.
+;; No VM primitive tells a symbol from a keyword. Clojure Var identity is an
+;; explicitly admitted kind/var? seam on the JVM; namespace lookup (resolve)
+;; still requires a separately installed host capability.
 ;;
 ;; Known compromises: `reduced` is an untyped tagged map, so reduced? matches
 ;; any map holding :yin.k/reduced true; seq refuses a non-collection (a string
 ;; is the data module's str-* ops, not a seq); eager sequences are lists;
 ;; rem rejects non-integers and a zero divisor before arithmetic; the compiler
 ;; emits bare conj and vec, so a program may not define or bind either.
+;; When collection calls are needed, invoke-value is a library helper whose
+;; local capture is refused explicitly.
 ;;
 ;; Variadic Clojure functions are fixed-arity here (the convention has no
 ;; variadic parameter): str, list and vector admit 0 to 6 arguments, concat and
@@ -1857,26 +1900,30 @@
   {'data/count 'portable/count
    'data/peek 'portable/peek
    'data/dissoc 'portable/dissoc
-   'data/disj 'portable/disj})
+   'data/disj 'portable/disj
+   'data/str-length 'portable/str-length})
 
 
 (def kind-module
   "The `kind` host module's exports, symbol to host function: the irreducible
    kind and name primitives (see the library notes). Every export is pure."
-  {'symbol? symbol?
-   'keyword? keyword?
-   'name name
-   'symbol symbol
-   'keyword keyword
-   'str str
-   'int? int?
-   'meta meta})
+  (merge
+    {'symbol? symbol?
+     'keyword? keyword?
+     'name name
+     'symbol symbol
+     'keyword keyword
+     'str str
+     'int? int?
+     'with-meta with-meta
+     'meta meta}
+    #?(:clj {'var? var?} :default {})))
 
 
 (def kind-arities
   "The published arities of each `kind` export."
   {'symbol? [1], 'keyword? [1], 'name [1], 'symbol [1 2], 'keyword [1 2]
-   'str [0 1 2 3 4 5 6 :variadic], 'int? [1], 'meta [1]})
+   'str [0 1 2 3 4 5 6 :variadic], 'int? [1], 'var? [1], 'with-meta [2], 'meta [1]})
 
 
 (def library
@@ -1902,6 +1949,26 @@
     (defn fn?
       [x]
       (data/callable? x))
+    (defn ^:yin.k/invoker invoke-value
+      [f args]
+      (cond
+        (data/callable? f) (apply f args)
+        (vector? f) (if (= 1 (count args)) (nth f (first args))
+                        (throw (ex-info "Vector invocation requires one index" {:argc (count args)})))
+        (or (map? f) (keyword? f))
+        (if (<= 1 (count args) 2)
+          (if (keyword? f) (get (first args) f (second args))
+              (get f (first args) (second args)))
+          (throw (ex-info "Lookup invocation requires one key and optional default" {:argc (count args)})))
+        (set? f) (if (= 1 (count args))
+                   (if (contains? f (first args)) (first args) nil)
+                   (throw (ex-info "Set invocation requires one key" {:argc (count args)})))
+        :else (apply f args)))
+    (defn update
+      ([m k f] (assoc m k (f (get m k))))
+      ([m k f a] (assoc m k (f (get m k) a)))
+      ([m k f a b] (assoc m k (f (get m k) a b)))
+      ([m k f a b c] (assoc m k (f (get m k) a b c))))
     (defn count
       [x]
       (data/count x))
@@ -1943,9 +2010,40 @@
       ([a b c d] (kind/str a b c d))
       ([a b c d e] (kind/str a b c d e))
       ([a b c d e f] (kind/str a b c d e f)))
+    ;; A supply is immutable data. The caller must retain the returned supply;
+    ;; there is deliberately no ambient one-argument prefix allocator.
+    (defn fresh-symbol
+      [supply prefix]
+      [(kind/symbol (kind/str "G__" prefix (:counter supply)))
+       (assoc supply :counter (+ (:counter supply) 1))])
     (defn gensym
-      ([n] (kind/symbol (kind/str "G__" n)))
-      ([prefix n] (kind/symbol (kind/str prefix n))))
+      ([n] (if (int? n)
+             (kind/symbol (kind/str "G__" n))
+             (throw (ex-info "gensym requires an explicit fresh-name supply"
+                             {:prefix n :required 'fresh-symbol}))))
+      ([prefix n] (if (map? prefix) (fresh-symbol prefix n)
+                      (kind/symbol (kind/str prefix n)))))
+    (defn last
+      [coll]
+      (if (empty? coll) nil
+          (loop [s coll]
+            (if (empty? (rest s)) (first s) (recur (rest s))))))
+    (defn butlast
+      [coll]
+      (loop [s coll acc []]
+        (if (empty? s) (seq acc)
+            (if (empty? (rest s)) (seq acc)
+                (recur (rest s) (conj acc (first s)))))))
+    (defn nth
+      ([coll n] (if (nil? coll) nil (data/nth (vec coll) n)))
+      ([coll n missing] (if (and (int? n) (<= 0 n) (< n (count coll)))
+                          (data/nth (vec coll) n) missing)))
+    (defn string?
+      [x]
+      (= :yin.k/ok (first (yin.k/outcome-of (data/str-length x)))))
+    (defn with-meta
+      [x m]
+      (kind/with-meta x m))
     (defn coll?
       [x]
       (if (nil? x)
@@ -2165,7 +2263,27 @@
                        (recur (into (rest todo)
                                     (remove (conj defined n) (mentions (by-name n))))
                               (conj seen n))))))]
-    (filterv #(contains? needed (second %)) library)))
+    (letfn [(nodes
+              [form]
+              (cons form (when (and (coll? form) (not (and (seq? form) (= 'quote (first form)))))
+                           (mapcat nodes form))))
+            (dynamic-call?
+              [source]
+              (let [tree (nodes source)
+                    possible-locals (into #{} (comp (filter vector?) (mapcat identity) (filter symbol?)) tree)]
+                (some (fn [x]
+                        (and (seq? x) (seq x) (not= 'quote (first x))
+                             (or (contains? possible-locals (first x))
+                                 (and (not (symbol? (first x))) (not (keyword? (first x))))))) tree)))
+            (close
+              [todo seen]
+              (if-let [n (first todo)]
+                (if (or (contains? seen n) (contains? defined n) (not (contains? by-name n)))
+                  (recur (rest todo) seen)
+                  (recur (concat (rest todo) (mentions (by-name n))) (conj seen n))) seen))]
+      (let [source (concat forms (map by-name needed))
+            needed (if (some dynamic-call? source) (close ['invoke-value] needed) needed)]
+        (filterv #(contains? needed (second %)) library)))))
 
 
 (defn compile

@@ -1994,3 +1994,60 @@
       (is (= [:yin.k/ok 10] (run-library '[(let [g +] (g 1 2 3 4))] opts)))
       (is (= :arity (:yin.vm.data/reason
                       (second (run-library '[(let [g +] (g 1 2 3 4 5))] opts))))))))
+
+
+(deftest test-hardening-library-admissions
+  (doseq [lane [:walker :semantic]]
+    (is (= [:yin.k/ok [nil 2 nil '(1 2) 'b :missing true false false {:name 'source}]]
+           (run-library '[[(last nil) (last [1 2]) (butlast [1]) (butlast [1 2 3])
+                           (nth '(a b) 1) (nth [1] 3 :missing)
+                           (string? "") (string? 'x) (var? 'x)
+                           (meta (with-meta 'x {:name 'source}))]]
+                        library-opts lane 1000000))))
+  (testing "fresh supply crosses function calls and repeated loop iterations"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok [false 12]]
+             (run-library
+               '[(defn allocate
+                   [s]
+                   (fresh-symbol s "fresh"))
+                 (let [[a s] (allocate {:counter 0})
+                       [b s] (allocate s)
+                       s (loop [s s i 0]
+                           (if (= i 10) s
+                               (let [[n next-s] (allocate s)] (recur next-s (inc i)))))]
+                   [(= a b) (:counter s)])]
+               library-opts lane 1000000)))))
+  (is (= :yin.k/error (first (run-library '[(gensym "fresh")])))))
+
+
+(deftest test-portable-try-outcomes
+  (doseq [lane [:walker :semantic]
+          [form expected]
+          [['(try :ok (catch Exception e :bad)) :ok]
+           ['(try (throw (ex-info "failure" {:extra 7}))
+                  (catch Exception e [(.getMessage e) (ex-data e)])) ["failure" {:extra 7}]]
+           ['(try (try (throw (ex-info "inner" {}))
+                       (catch Exception e (throw (ex-info "outer" (ex-data e)))))
+                  (catch Exception e (.getMessage e))) "outer"]
+           ['(let [v (try (+ 1 (throw (ex-info "early" {})))
+                          (catch Exception e 8))] (inc v)) 9]]]
+    (is (= [:yin.k/ok expected] (run-library [form] library-opts lane 1000000))))
+  (doseq [form '[(try 1 (catch Exception e 2) :ignored)
+                 (try 1 (finally 2))
+                 (try 1 (catch Throwable e 2))
+                 (try 1 (catch Exception e (.getStackTrace e)))]]
+    (is (thrown? clojure.lang.ExceptionInfo
+          (yang/compile-program [form] true library-opts)))))
+
+
+(deftest test-guest-callable-collections-and-threading
+  (doseq [lane [:walker :semantic]]
+    (is (= [:yin.k/ok ['b 2 :absent :k nil 3 {:n 3}]]
+           (run-library
+             '[(let [v '[a b] m {:k 2} s #{:k} k :n]
+                 [(v 1) (m :k) (m :missing :absent) (s :k) (s :missing)
+                  (k {:n 3}) (-> {:n 1} (update :n + 2))])]
+             library-opts lane 1000000))))
+  (is (= [:yin.k/ok :caught]
+         (run-library '[(try (let [v [1]] (v)) (catch Exception e :caught))]))))
