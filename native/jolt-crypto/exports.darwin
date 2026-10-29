@@ -1,1 +1,10 @@
-_jolt_crypto_*
+_jolt_crypto_layout_version
+_jolt_crypto_cleanse
+_jolt_crypto_random
+_jolt_crypto_blake3
+_jolt_crypto_sha256
+_jolt_crypto_sha1
+_jolt_crypto_ed25519_public
+_jolt_crypto_ed25519_sign
+_jolt_crypto_ed25519_verify
+_jolt_crypto_provenance

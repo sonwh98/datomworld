@@ -24,6 +24,21 @@
 ;;      memory zeroed; nothing allocated while cleansing;
 ;;   14. collect-safety: probes/collect.clj.
 ;;
+;; J6c (layout 4, J6 plan v2 A7):
+;;   J6c-1. the build record: exactly ten exports, the layout-3 nine plus
+;;      jolt_crypto_sha1;
+;;   J6c-2. twenty provenance entries with EVP_sha1 among them; an EVP_sha1
+;;      outside libcrypto answers JC_SPLIT (probes/sha1_split.c, with a
+;;      control compiled the same way);
+;;   J6c-3. dao.stream.ws.crypto: RFC 3174 and handshake SHA-1 KATs,
+;;      masking keys (probes/ws_crypto.clj);
+;;   J6c-4. a layout-3 wrapper built from the J2 source: refused at load
+;;      before guest work;
+;;   J6c-5. a layout-4 wrapper missing jolt_crypto_sha1: refused at load;
+;;   J6c-6. wrong library first, through dao.stream.ws.crypto;
+;;   J6c-7. no masking-key draw before the gate (unqualified library; on
+;;      Linux a RAND-only preload with a marker).
+;;
 ;; The fake-root gates (3-7) change the toolchain record, not the system
 ;; library: they show each field is enforced, not a real upgrade.
 ;;
@@ -276,6 +291,214 @@
                     (not (fs/exists? marker)))
                {:exit exit :out out}))))
   (println "RECORD RAND-only preload gate: not applicable on macOS; LD_PRELOAD is a Linux loader mechanism. Linux execution UNRUN."))
+
+
+;; =============================================================================
+;; J6c (layout 4): jolt_crypto_sha1, EVP_sha1 in the provenance audit,
+;; dao.stream.ws.crypto behind the gate
+;; =============================================================================
+
+(def ext (if linux? ".so" ".dylib"))
+(def j6c-scratch (fs/path root "build/j1b-probe/j6c"))
+(fs/delete-tree j6c-scratch)
+(fs/create-dirs j6c-scratch)
+
+
+(def j2-wrapper-commit
+  ;; the last layout-3 jolt_crypto.c (J2), compiled below as the stale
+  ;; prebuilt wrapper a host keeps until it reruns bb build:jolt-native
+  "86f36bc62215156ebc1cd753e950a000a9a8f64d")
+
+
+(defn- compile-wrapper
+  "A shared library built from C `source` with the same headers, BLAKE3 and
+   declared libcrypto as the real wrapper, plus `flags`; answers its path or
+   nil (the compiler output printed)."
+  [nm source & flags]
+  (let [prefix (str (fs/path root "build/native" plat))
+        lib (str (fs/path j6c-scratch (str nm ext)))
+        r (apply p/shell {:out :string :err :string :continue true}
+                 "cc" "-shared" "-fPIC"
+                 (str "-I" prefix "/blake3/include")
+                 (str "-I" (fs/parent (fs/parent declared)) "/include")
+                 (concat flags
+                         [source (str prefix "/blake3/lib/libblake3.a") declared]
+                         (when linux? ["-ldl" (str "-Wl,-rpath," (fs/parent declared))])
+                         ["-o" lib]))]
+    (if (zero? (:exit r)) lib (do (println "RECORD compile" nm (:out r) (:err r)) nil))))
+
+
+(defn- wrapper-root
+  "A root sharing this checkout's sources, toolchain record, jolt and every
+   other native library, with `wrapper` installed as the jolt-crypto library."
+  [nm wrapper]
+  (let [dir (fs/path j6c-scratch nm)
+        native (fs/path dir "build/native" plat)]
+    (fs/create-dirs native)
+    (doseq [f ["deps.edn" "src" "jolt-toolchain.edn"]]
+      (fs/create-sym-link (fs/path dir f) (fs/path root f)))
+    (fs/create-sym-link (fs/path dir "build/tools") (fs/real-path (fs/path root "build/tools")))
+    (doseq [entry (fs/list-dir (fs/path root "build/native" plat))
+            :when (not (#{"jolt-crypto" "jolt-crypto-build"} (str (fs/file-name entry))))]
+      (fs/create-sym-link (fs/path native (fs/file-name entry)) (fs/real-path entry)))
+    (fs/create-dirs (fs/path native "jolt-crypto/lib"))
+    (fs/copy wrapper (fs/path native "jolt-crypto/lib" (str "libjolt_crypto" ext)))
+    (str dir)))
+
+
+(defn- refused-before-guest-work
+  "The child exits nonzero with `message` in its output, never loaded the
+   probe namespace's guest code and never digested or drew."
+  [label {:keys [exit out]} message]
+  (check label
+         (and (not (zero? exit)) (str/includes? out message)
+              (not (line out "LOADED")) (not (line out "GUEST-WORK")))
+         {:exit exit :out (first (filter #(str/includes? % "jolt") (str/split-lines out)))}))
+
+
+;; J6c-1. the build record: exactly the ten-entry allowlist, one more than
+;; layout 3 (jolt_crypto_sha1), and the record is this build
+(let [record (edn/read-string (slurp (str (fs/path root "build/native" plat "build-record.edn"))))
+      {:keys [allowlist exported outputs]} (:jolt-crypto record)
+      lib (first (keys outputs))
+      layout-3 #{"jolt_crypto_layout_version" "jolt_crypto_cleanse" "jolt_crypto_random"
+                 "jolt_crypto_blake3" "jolt_crypto_sha256" "jolt_crypto_ed25519_public"
+                 "jolt_crypto_ed25519_sign" "jolt_crypto_ed25519_verify" "jolt_crypto_provenance"}
+      digest (let [md (java.security.MessageDigest/getInstance "SHA-256")]
+               (.update md (fs/read-all-bytes lib))
+               (apply str (map #(format "%02x" (bit-and % 0xff)) (.digest md))))]
+  (println "RECORD jolt-crypto exports" (pr-str (get exported lib)))
+  (check "build record: jolt-crypto exports exactly its allowlist, the layout-3 nine plus jolt_crypto_sha1, and is the recorded build"
+         (and (= allowlist (get exported lib))
+              (= (conj layout-3 "jolt_crypto_sha1") (set allowlist))
+              (= 10 (count allowlist))
+              (= digest (get outputs lib)))
+         {:allowlist allowlist :exported (get exported lib) :digest-matches (= digest (get outputs lib))}))
+
+
+;; J6c-2. EVP_sha1 is audited: the provenance list is exactly the set of
+;; libcrypto functions the wrapper calls (twenty), and an EVP_sha1 that
+;; resolves outside libcrypto splits the audit (the control, compiled the
+;; same way without the substitution, reports one origin)
+(let [src (str/replace (slurp (str (fs/path root "native/jolt-crypto/jolt_crypto.c")))
+                       #"(?s)/\*.*?\*/" "")
+      entries (second (re-find #"(?s)void \*entries\[\] = \{(.*?)\};" src))
+      audited (map second (re-seq #"\(void \*\)&(\w+)" (or entries "")))
+      ;; every libcrypto function the wrapper calls: a name in the OpenSSL
+      ;; public prefixes followed by an argument list (types such as
+      ;; EVP_MD_CTX and macros such as EVP_PKEY_ED25519 are never called)
+      called (set (map second (re-seq #"\b((?:EVP|OPENSSL|RAND|OpenSSL)_\w+)\s*\(" src)))]
+  (println "RECORD provenance entries" (count audited) (pr-str audited))
+  (check "provenance audits exactly the twenty libcrypto functions the wrapper calls, EVP_sha1 among them"
+         (and (= 20 (count audited) (count (distinct audited)))
+              (= (set audited) called)
+              (contains? called "EVP_sha1"))
+         {:count (count audited)
+          :called-not-audited (sort (remove (set audited) called))
+          :audited-not-called (sort (remove called audited))}))
+
+
+(doseq [[label flags]
+        [["provenance control: the probe route reports one origin for all twenty entries" []]
+         ["EVP_sha1 outside libcrypto: provenance answers JC_SPLIT, writes nothing" ["-DSPLIT_SHA1"]]]]
+  (let [prefix (str (fs/path root "build/native" plat))
+        exe (str (fs/path j6c-scratch (if (seq flags) "sha1-split" "sha1-control")))
+        cc (apply p/shell {:out :string :err :string :continue true}
+                  "cc" "-Wall" "-Wextra" "-Werror"
+                  (str "-I" prefix "/blake3/include")
+                  (str "-I" (fs/parent (fs/parent declared)) "/include")
+                  (concat flags
+                          [(str probes "/sha1_split.c")
+                           (str prefix "/blake3/lib/libblake3.a") declared]
+                          (when linux? ["-ldl"])
+                          ["-o" exe]))
+        result (when (zero? (:exit cc))
+                 (p/shell {:out :string :err :string :continue true} exe))]
+    (check label (and result (zero? (:exit result)))
+           {:compile-exit (:exit cc)
+            :out (str/trim (str (:out cc) (:err cc) (:out result) (:err result)))})))
+
+
+;; J6c-3. SHA-1 known answers and masking keys through the qualified wrapper
+(let [{:keys [exit out]} (jolt root {} (str probes "/ws_crypto.clj"))]
+  (run! println (map #(str "  " %) (filter #(re-find #"^(PASS|FAIL)" %) (str/split-lines out))))
+  (check "dao.stream.ws.crypto: RFC 3174 and handshake SHA-1 KATs, four-byte masking keys"
+         (and (zero? exit) (line out "SUMMARY ok"))
+         {:exit exit :out (when-not (zero? exit) out)}))
+
+
+;; J6c-4. a layout-3 (J2-built) wrapper: dao.host.hash refuses at load, so
+;; neither dao.stream.ws.crypto nor the hash/sign probe does guest work
+(let [source (str (fs/path j6c-scratch "jolt_crypto_layout3.c"))
+      shown (p/shell {:dir root :out :string :err :string :continue true}
+                     "git" "show" (str j2-wrapper-commit ":native/jolt-crypto/jolt_crypto.c"))
+      _ (spit source (:out shown))
+      lib (when (and (zero? (:exit shown)) (str/includes? (:out shown) "#define JOLT_CRYPTO_LAYOUT 3"))
+            (compile-wrapper "layout3" source))]
+  (check "a layout-3 wrapper builds from the J2 source" (some? lib)
+         {:git-exit (:exit shown) :err (:err shown)})
+  (when lib
+    (let [dir (wrapper-root "layout3" lib)]
+      (refused-before-guest-work
+        "layout-3 wrapper: dao.stream.ws.crypto refused at load, nonzero, before guest work"
+        (jolt dir {} (str probes "/ws_crypto.clj")) "the library writes another layout")
+      (refused-before-guest-work
+        "layout-3 wrapper: dao.host.hash refused at load, nonzero, before any digest"
+        (jolt dir {} (str probes "/provenance.clj")) "the library writes another layout"))))
+
+
+;; J6c-5. a layout-4 wrapper without jolt_crypto_sha1 (the entry renamed at
+;; compile time): the gate passes, and dao.stream.ws.crypto's entry check
+;; refuses the load before guest work (defcfn alone binds lazily)
+(let [lib (compile-wrapper "missing-sha1" (str (fs/path root "native/jolt-crypto/jolt_crypto.c"))
+                           "-Djolt_crypto_sha1=jolt_crypto_sha1_absent")]
+  (check "a layout-4 wrapper without jolt_crypto_sha1 builds" (some? lib) {})
+  (when lib
+    (refused-before-guest-work
+      "missing jolt_crypto_sha1: dao.stream.ws.crypto refused at load, nonzero, before guest work"
+      (jolt (wrapper-root "missing-sha1" lib) {} (str probes "/ws_crypto.clj"))
+      "jolt-crypto refused: the library lacks jolt_crypto_sha1")))
+
+
+;; J6c-6. wrong library first: the copy is resident before
+;; dao.stream.ws.crypto loads; the qualified library is kept (and the KATs
+;; pass) or the load refuses, never answers from the copy
+(let [{:keys [exit out]} (jolt root {} (str probes "/ws_crypto.clj") "wrong-first" copy)
+      outcome (cond (and (zero? exit) (line out "SUMMARY ok")) :kept-declared
+                    (and (not (zero? exit)) (str/includes? out "EVP resolved to an undeclared libcrypto")
+                         (not (line out "GUEST-WORK")))
+                    :refused
+                    :else :other)]
+  (check "wrong library first: dao.stream.ws.crypto keeps the qualified library or refuses"
+         (not= :other outcome)
+         {:outcome outcome :exit exit :out (when (= :other outcome) out)}))
+
+
+;; J6c-7. no masking-key draw before the gate: an unqualified library
+;; (digest differs) refuses dao.stream.ws.crypto before guest work; on Linux a
+;; RAND-only preload is refused before RAND_bytes is ever called
+(refused-before-guest-work
+  "unqualified libcrypto: dao.stream.ws.crypto refused at load, nonzero, before any draw"
+  (jolt (fake-root "j6c-replaced" (with-qualified #(assoc % :sha256 (apply str (repeat 64 "0")))) true)
+        {} (str probes "/ws_crypto.clj"))
+  "libcrypto file digest differs from the qualified one")
+
+
+(if linux?
+  (let [so (str (fs/path j6c-scratch "rand-only.so"))
+        marker (str (fs/path j6c-scratch "rand-called"))
+        cc (p/shell {:out :string :err :string :continue true}
+                    "cc" "-shared" "-fPIC" "-Wall" "-Wextra" "-Werror"
+                    "-o" so (str probes "/rand_only.c"))]
+    (check "RAND-only interposer builds (J6c)" (zero? (:exit cc)) {:exit (:exit cc)})
+    (when (zero? (:exit cc))
+      (fs/delete-if-exists marker)
+      (let [r (jolt root {"LD_PRELOAD" so "JOLT_RAND_MARKER" marker} (str probes "/ws_crypto.clj"))]
+        (refused-before-guest-work
+          "RAND-only preload: dao.stream.ws.crypto refused before any masking-key draw"
+          r "libcrypto provenance unavailable")
+        (check "RAND-only preload: RAND_bytes never called" (not (fs/exists? marker)) {}))))
+  (println "RECORD J6c RAND-only preload gate: not applicable on macOS; LD_PRELOAD is a Linux loader mechanism. Linux execution UNRUN."))
 
 
 (let [{:keys [exit out]} (jolt root {} (str probes "/random_faults.clj"))]
