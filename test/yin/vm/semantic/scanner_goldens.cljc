@@ -700,7 +700,6 @@
         py.b/isinstance
         mod-p
         float-text-error
-        make-function
         float-key
         delegate-step
         module-new
@@ -839,6 +838,7 @@
         integer/max-digits
         abs
         power-overflow
+        make-builtin-function
         chars
         str
         next
@@ -856,12 +856,14 @@
         integer/mul
         restore!
         class-lookup
+        function-entry
         py.b/hex
         fpow
         star-item
         all-in?
         round-integer
         slice-of
+        function-cell
         kind
         py.b/dict-values
         data/into
@@ -1111,7 +1113,7 @@
        [cell/get true]
        [get true]
        [setattr true]
-       [make-function true]
+       [make-builtin-function true]
        [cell/new true]
        [assoc true]
        [assoc true]
@@ -1177,13 +1179,15 @@
        [get true]
        [get true]
        [cell/get true]
-       [cell/new true]
+       [get true]
        [assoc true]
        [assoc true]
        [assoc true]
        [assoc true]
        [assoc true]
        [assoc true]
+       [function-cell true]
+       [function-cell true]
        [type-error true]
        [str true]
        [data/str-concat true]
@@ -2022,7 +2026,7 @@
        [index-type-error true]
        [type-error true]
        [type-text true]
-       [make-function true]
+       [make-builtin-function true]
        [cell/set! true]
        [assoc true]
        [cell/get true]
@@ -2196,6 +2200,8 @@
        [get true]
        [get true]
        [= true]
+       [get true]
+       [cell/new true]
        [= true]
        [= true]
        [index-of true]
@@ -2897,8 +2903,8 @@
        [py.b/builtins true]
        [py.b/object true]
        [dict-new true]
-       [make-function true]
-       [make-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
        [make-class true]
        [cell/new true]
        [cell/new true]
@@ -3037,6 +3043,10 @@
        [= true]
        [get true]
        [get true]
+       [get true]
+       [cell/set! true]
+       [assoc true]
+       [cell/get true]
        [index-of true]
        [get true]
        [= true]
@@ -3700,47 +3710,47 @@
        [dict-set true]
        [py.b/builtins true]
        [py.b/BaseException true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
        [vconj true]
        [str true]
-       [make-function true]
+       [make-builtin-function true]
        [vconj true]
        [float true]
        [data/float-value true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
-       [make-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
+       [make-builtin-function true]
        [len true]
        [arg true]
        [stop-iteration-class true]
@@ -3830,6 +3840,8 @@
        [setattr true]
        [get true]
        [get true]
+       [get true]
+       [function-entry true]
        [str true]
        [data/str-concat true]
        [get true]
@@ -4131,6 +4143,7 @@
        [get true]
        [get true]
        [get true]
+       [get true]
        [< true]
        [= true]
        [get true]
@@ -4295,6 +4308,16 @@
        [vconj true]
        [type-of true]
        [raise true]
+       [= true]
+       [= true]
+       [= true]
+       [= true]
+       [not true]
+       [= true]
+       [not true]
+       [= true]
+       [assoc true]
+       [cell/get true]
        [fill-defaults true]
        [get true]
        [get true]
@@ -4370,6 +4393,7 @@
        [snapshot-exc true]
        [globals-fn true]
        [restore! true]
+       [cell/new true]
        [fill-kwdefaults true]
        [get true]
        [get true]
@@ -4407,6 +4431,7 @@
        [= true]
        [= true]
        [get true]
+       [try true]
        [vconj true]
        [tuple true]
        [< true]
@@ -4430,6 +4455,11 @@
        [= true]
        [get true]
        [+ true]
+       [cell/set! true]
+       [get true]
+       [bind-args true]
+       [assoc true]
+       [cell/get true]
        [data/into true]
        [= true]
        [integer/add true]
@@ -4645,7 +4675,10 @@
        [global-set false]
        [global-or false]
        [class-ns-get false]
+       [function-entry false]
+       [function-cell false]
        [make-function false]
+       [make-builtin-function false]
        [fn-error false]
        [index-of false]
        [pad false]
@@ -4952,7 +4985,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 3968,
+      :application-count 4010,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5275,6 +5308,7 @@
          abs
          power-overflow
          rt-ctx
+         make-builtin-function
          chars
          str
          next
@@ -5297,12 +5331,14 @@
          restore!
          slice
          class-lookup
+         function-entry
          py.b/hex
          fpow
          star-item
          all-in?
          round-integer
          slice-of
+         function-cell
          kind
          py.b/dict-values
          range3
@@ -5487,7 +5523,7 @@
         [get true]
         [get true]
         [cell/get true]
-        [cell/new true]
+        [get true]
         [assoc true]
         [assoc true]
         [assoc true]
@@ -5987,6 +6023,8 @@
         [get true]
         [get true]
         [= true]
+        [get true]
+        [cell/new true]
         [= true]
         [= true]
         [+ true]
@@ -6510,6 +6548,10 @@
         [get true]
         [get true]
         [get true]
+        [cell/set! true]
+        [assoc true]
+        [cell/get true]
+        [get true]
         [= true]
         [data/str-concat true]
         [assoc true]
@@ -6879,6 +6921,7 @@
         [cell/set! true]
         [get true]
         [get true]
+        [get true]
         [data/str-concat true]
         [get true]
         [= true]
@@ -7013,6 +7056,7 @@
         [get true]
         [get true]
         [get true]
+        [get true]
         [< true]
         [= true]
         [get true]
@@ -7116,6 +7160,16 @@
         [cell/get true]
         [= true]
         [get true]
+        [= true]
+        [= true]
+        [= true]
+        [= true]
+        [not true]
+        [= true]
+        [not true]
+        [= true]
+        [assoc true]
+        [cell/get true]
         [get true]
         [get true]
         [> true]
@@ -7161,6 +7215,7 @@
         [cell/get true]
         [cell/get true]
         [= true]
+        [cell/new true]
         [get true]
         [get true]
         [< true]
@@ -7203,6 +7258,10 @@
         [= true]
         [get true]
         [+ true]
+        [cell/set! true]
+        [get true]
+        [assoc true]
+        [cell/get true]
         [data/into true]
         [= true]
         [integer/add true]
