@@ -686,7 +686,13 @@
   #{'if 'let 'do 'loop 'recur 'throw 'quote 'fn 'and 'or})
 
 
-(declare failing?)
+(declare failing? expand-control)
+
+
+(def ^:private control-heads
+  "case and the standard control forms: compiler forms that lower to
+   if/let/do, so the outcome pass sees through them like those."
+  #{'case 'cond 'when 'if-let 'if-some 'when-let 'when-some})
 
 
 (defn- any-failing?
@@ -741,6 +747,7 @@
                                (scoped-failing? env (partition 2 bindings) body))
           (= 'loop head) (let [[bindings & body] ops]
                            (scoped-failing? env (partition 2 bindings) body))
+          (contains? control-heads head) (failing? env (expand-control env head ops))
           (contains? lowered-specials head) (any-failing? env ops)
           :else (case (call-kind env head)
                   (:guest :adapted) true
@@ -860,6 +867,8 @@
           recur (lower-operands env (vec ops) (fn [vs] (rebuild form (cons 'recur vs))))
           throw (lower-operand env (first ops) (fn [v] [error-tag v]))
           (quote fn) (ok-form form)
+          (case cond when if-let if-some when-let when-some)
+          (lower-tail env (expand-control env head ops))
           and (case (count ops)
                 0 (ok-form true)
                 1 (lower-tail env (first ops))
@@ -1322,8 +1331,18 @@
     (constant-test g k)))
 
 
+(defn- no-match-form
+  "The fall-through of a case without a default: under the outcome model a
+   throw, which lowers to the error outcome naming the form."
+  [env g]
+  (if (outcomes? env)
+    (list 'throw {:yin.k/message "No matching clause in case"
+                  :yin.k/data {:yin.k/form (list 'quote 'case), :yin.k/value g}})
+    (list 'dsg__case-no-match ''case g)))
+
+
 (defn- expand-case
-  [operands g]
+  [env operands g]
   (when (empty? operands)
     (reject! "case requires an expression" {}))
   (let [[e & clauses] operands
@@ -1339,7 +1358,7 @@
           (reduce (fn [else [k v]] (list 'if (case-clause-test g k) v else))
                   (if default?
                     (last clauses)
-                    (list 'dsg__case-no-match ''case g))
+                    (no-match-form env g))
                   (reverse pairs)))))
 
 
@@ -1369,6 +1388,25 @@
             (if (= 'if-some operator)
               (list 'if (list '= g nil) else bound)
               (list 'if g bound else))))))
+
+
+(defn- expand-control
+  "The if/let/do form a case or standard control form lowers to. A temporary
+   is named from the outcome pass's counter when one is running, else from the
+   nesting depth."
+  [env head operands]
+  (let [temp (fn [tag] (if (::gen env) (gen-sym env) (gen-name env tag)))]
+    (case head
+      case (expand-case env operands (temp "case"))
+      cond (expand-cond operands)
+      when (let [[test & body] operands]
+             (list 'if test (cons 'do body) nil))
+      if-let (expand-if-let head operands (temp "iflet"))
+      if-some (expand-if-let head operands (temp "ifsome"))
+      when-let (let [[bindings & body] operands]
+                 (expand-control env 'if-let [bindings (cons 'do body) nil]))
+      when-some (let [[bindings & body] operands]
+                  (expand-control env 'if-some [bindings (cons 'do body) nil])))))
 
 
 (defn- compile-lowered
@@ -1456,28 +1494,9 @@
           dsg__let (compile-let-simple (first operands) (body-expression (rest operands))
                                        env tail? macro-env)
           recur (compile-recur operands env tail? macro-env)
-          ;; Internal let for generated temporaries: flat symbol bindings, no
-          ;; reserved-prefix check (user binders still get it)
-          dsg__let (let [[bindings body] operands]
-                     (compile-let-simple bindings body env tail? macro-env))
-          case (compile-lowered (expand-case operands (gen-name env "case"))
-                                tail? env macro-env)
-          cond (compile-lowered (expand-cond operands) tail? env macro-env)
-          when (let [[test & body] operands]
-                 (compile-lowered (list 'if test (cons 'do body) nil)
-                                  tail? env macro-env))
-          if-let (compile-lowered (expand-if-let operator operands
-                                                 (gen-name env "iflet"))
-                                  tail? env macro-env)
-          if-some (compile-lowered (expand-if-let operator operands
-                                                  (gen-name env "ifsome"))
-                                   tail? env macro-env)
-          when-let (let [[bindings & body] operands]
-                     (compile-lowered (list 'if-let bindings (cons 'do body) nil)
-                                      tail? env macro-env))
-          when-some (let [[bindings & body] operands]
-                      (compile-lowered (list 'if-some bindings (cons 'do body) nil)
-                                       tail? env macro-env))
+          (case cond when if-let if-some when-let when-some)
+          (compile-lowered (expand-control env operator operands)
+                           tail? env macro-env)
           ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
           ;; (and)       → true
           ;; (and x)     → x

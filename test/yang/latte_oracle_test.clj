@@ -13,6 +13,7 @@
             [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [clojure.tools.reader :as r]
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]

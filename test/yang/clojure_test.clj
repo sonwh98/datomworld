@@ -1331,28 +1331,34 @@
 
 
 (deftest test-outcome-refusals
-  (let [opts (assoc outcome-opts :macros #{'cond})
+  (let [opts (assoc outcome-opts :macros #{'unless})
         refused (fn [forms]
                   (try (yang/compile-program forms true opts) nil
                        (catch clojure.lang.ExceptionInfo e (ex-message e))))]
     (testing "a macro call with an operand that may fail is refused, naming the macro"
-      (is (re-find #"Macro call cond"
+      (is (re-find #"Macro call unless"
                    (refused '[(defn g
                                 [x]
                                 x) (defn f
                                      [x]
-                                     (cond (g x) 1 :else 2))])))
-      (is (re-find #"Macro call cond"
+                                     (unless (g x) 1 :else 2))])))
+      (is (re-find #"Macro call unless"
                    (refused '[(defn g
                                 [x]
                                 x) (defn f
                                      [x]
-                                     (+ 1 (cond :else (g x))))]))
+                                     (+ 1 (unless :else (g x))))]))
           "in operand position too"))
     (testing "a macro call whose operands cannot fail is still opaque and accepted"
       (is (nil? (refused '[(defn f
                              [x]
-                             (cond (= x 1) 1 :else 2))]))))
+                             (unless (= x 1) 1 :else 2))]))))
+    (testing "cond is a compiler form: a may-fail operand is lowered, not refused"
+      (is (nil? (refused '[(defn g
+                             [x]
+                             x) (defn f
+                                  [x]
+                                  (cond (g x) 1 :else 2))]))))
     (testing "a non-final top-level form that may fail is refused"
       (is (re-find #"non-final top-level"
                    (refused '[(defn g
@@ -1556,3 +1562,83 @@
     (is (false? (compile-and-run '(and 1 false 3))))
     (is (= 2 (compile-and-run '(or nil false 2 3))))
     (is (= 5 (compile-and-run '(and (or nil 5) (or false 5)))))))
+
+
+(def ^:private fails-on-nil
+  '(defn g
+     [x]
+     (if x x (throw (ex-info "bad" {})))))
+
+
+(defn- outcome-of-call
+  [body call & more-defs]
+  (run-outcome (into [fails-on-nil (list 'defn 'f '[x] body)] (concat more-defs [call]))))
+
+
+(defn- error?
+  [out]
+  (= :yin.k/error (first out)))
+
+
+(deftest test-outcome-control-forms
+  (testing "case: a may-fail scrutinee unwraps once, in order"
+    (is (= [:yin.k/ok :one] (outcome-of-call '(case (g (probe/note x)) 1 :one :z) '(f 1))))
+    (is (= [1] @effect-log) "the scrutinee evaluates once")
+    (is (error? (outcome-of-call '(case (g x) 1 :one :z) '(f nil))))
+    (is (= [:yin.k/ok :z] (outcome-of-call '(case (g x) 1 :one :z) '(f 5)))))
+  (testing "case: a may-fail branch in non-tail position"
+    (is (= [:yin.k/ok [:z]] (outcome-of-call '[(case x 1 (g nil) :z)] '(f 2))))
+    (is (error? (outcome-of-call '[(case x 1 (g nil) :z)] '(f 1))))
+    (is (= [:yin.k/ok [5]] (outcome-of-call '[(case x 1 (g 5) :z)] '(f 1)))))
+  (testing "case: a may-fail branch in tail position forwards the callee's outcome"
+    (is (= [:yin.k/ok 5] (outcome-of-call '(case x 1 (g 5) (g nil)) '(f 1))))
+    (is (error? (outcome-of-call '(case x 1 (g 5) (g nil)) '(f 2)))))
+  (testing "case without a default: no match is a named error outcome"
+    (is (= [:yin.k/ok :a] (outcome-of-call '(case x 1 :a) '(f 1))))
+    (let [out (outcome-of-call '(case x 1 :a) '(f 9))]
+      (is (error? out))
+      (is (= 'case (get-in (second out) [:yin.k/data :yin.k/form])))
+      (is (= 9 (get-in (second out) [:yin.k/data :yin.k/value])))
+      (is (re-find #"case" (:yin.k/message (second out))))))
+  (testing "case: duplicates and arity rejections are unchanged"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (outcome-ast '[(defn f [x] (case x 1 :a 1 :b :z))])))
+    (is (thrown? clojure.lang.ExceptionInfo (outcome-ast '[(defn f [x] (case x))]))))
+  (testing "cond: may-fail tests and branches"
+    (is (= [:yin.k/ok :t] (outcome-of-call '(cond (g x) :t :else :e) '(f 1))))
+    (is (error? (outcome-of-call '(cond (g x) :t :else :e) '(f nil))))
+    (is (= [:yin.k/ok [:e]] (outcome-of-call '[(cond (= x 1) :t :else :e)] '(f 2))))
+    (is (= [:yin.k/ok [4]] (outcome-of-call '[(cond (= x 1) (g 4) :else :e)] '(f 1))))
+    (is (error? (outcome-of-call '[(cond (= x 1) (g nil) :else :e)] '(f 1))))
+    (is (= [:yin.k/ok :e] (outcome-of-call '(cond (= x 1) (g nil) :else :e) '(f 2)))
+        "an untaken failing branch never runs")
+    (is (= [:yin.k/ok nil] (outcome-of-call '(cond (= x 1) :t) '(f 2)))))
+  (testing "when"
+    (is (= [:yin.k/ok 3] (outcome-of-call '(when (g x) (g 3)) '(f 1))))
+    (is (error? (outcome-of-call '(when (g x) :t) '(f nil))))
+    (is (error? (outcome-of-call '[(when true (g nil))] '(f 1))))
+    (is (= [:yin.k/ok nil] (outcome-of-call '(when (= x 1) (g nil)) '(f 2)))))
+  (testing "if-let and when-let: a may-fail initializer"
+    (is (= [:yin.k/ok 2] (outcome-of-call '(if-let [y (g x)] (+ y 1) :none) '(f 1))))
+    (is (error? (outcome-of-call '(if-let [y (g x)] y :none) '(f nil))))
+    (is (= [:yin.k/ok :none]
+           (outcome-of-call '(if-let [y (= x 1)] :yes :none) '(f 2))))
+    (is (= [:yin.k/ok 2] (outcome-of-call '(when-let [y (g x)] (+ y 1)) '(f 1))))
+    (is (error? (outcome-of-call '(when-let [y (g x)] y) '(f nil))))
+    (is (error? (outcome-of-call '[(if-let [y x] (g nil) :none)] '(f 1)))))
+  (testing "if-some and when-some: a may-fail initializer, false is some"
+    (is (= [:yin.k/ok :some] (outcome-of-call '(if-some [y (g x)] :some :none) '(f 1))))
+    (is (error? (outcome-of-call '(if-some [y (g x)] :some :none) '(f nil))))
+    (is (= [:yin.k/ok :some] (outcome-of-call '(if-some [y (= x 1)] :some :none) '(f 2))))
+    (is (= [:yin.k/ok 2] (outcome-of-call '(when-some [y (g x)] (+ y 1)) '(f 1))))
+    (is (error? (outcome-of-call '(when-some [y (g x)] y) '(f nil)))))
+  (testing "the initializer evaluates once"
+    (is (= [:yin.k/ok 1] (outcome-of-call '(if-let [y (g (probe/note x))] y 0) '(f 1))))
+    (is (= [1] @effect-log)))
+  (testing "a user macro operand that may fail is still refused, naming the macro"
+    (is (re-find #"Macro call unless"
+                 (try (yang/compile-program
+                        [fails-on-nil '(defn f [x] (unless (g x) 1 2))]
+                        true (assoc outcome-opts :macros #{'unless}))
+                      nil
+                      (catch clojure.lang.ExceptionInfo e (ex-message e)))))))
