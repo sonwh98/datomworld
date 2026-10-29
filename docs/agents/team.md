@@ -147,9 +147,10 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `kimi-for-coding-highspeed` | K2.7 Code Highspeed; 5-6x faster output with 256K context.         | Uses about 3x quota; fixed thinking; Pro tier required. **Avoid     |
 |                             | **Best for:** Latency-sensitive routine coding and iteration.      | for:** 1M-context work or tasks needing adjustable reasoning.       |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `k3.1-pro`                  | Latest 3T-class flagship; 1M context, image/video input, and       | Thinking is mandatory; regular output speed; 1M context requires    |
-|                             | strongest long-horizon agentic coding. **Best for:** Hardest       | Pro. **Avoid for:** Latency-sensitive loops (use Highspeed) or      |
-|                             | implementation, large refactors, architecture, and deep review.    | clients that cannot keep thinking enabled.                          |
+| `k3.1-pro`                  | Latest 3T-class flagship; 1M context, image/video input, and       | Higher resource use than K3 256K; thinking is mandatory; 1M         |
+|                             | strongest long-horizon agentic coding. **Best for:** Hardest       | context requires Pro. **Avoid for:** Routine Clojure or latency-    |
+|                             | implementation, large refactors, architecture, deep review, and    | sensitive loops; use K3 256K or Highspeed instead. Also avoid       |
+|                             | difficult multi-file Clojure, compiler, VM, and invariant work.    | clients that cannot keep thinking enabled.                          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `k3.1-pro-highspeed`        | Same K3.1 Pro capabilities with 2-3x faster output and 1M          | About 2x quota usage; Pro tier; accelerates model output, not       |
 |                             | context. **Best for:** Responsive complex coding, long-horizon     | tools. **Avoid for:** Quota-sensitive or tool-bound work where      |
@@ -160,8 +161,9 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | refactors, and long-document processing.                           | available, or small jobs that fit K3 256K.                          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `k3-256k`                   | Same K3 results within 256K at about half the 1M-context quota.    | 256K limit; image input only, no video. **Avoid for:** Vast         |
-|                             | **Best for:** Routine features, code completion, Q&A, and small    | codebase contexts, long documents, or video-input tasks.            |
-|                             | edits.                                                             |                                                                     |
+|                             | Most quota-efficient Clojure choice; use low thinking for routine  | contexts, long documents, video, or difficult multi-file Clojure,   |
+|                             | REPL fixes, features, and small/medium refactors. **Best for:**    | compiler, VM, and invariant work; use K3.1 Pro for those instead.   |
+|                             | routine coding, code completion, Q&A, and small edits.             |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `inclusionai/ling-3.0-sante`| Lightweight MoE model capable of coding with health/medicine focus.| Narrower general knowledge base outside its tuning. **Avoid for:**  |
 |                             | **Best for:** Cost-effective, specialized workflows.               | Complex multi-step autonomous architecture building.                |
