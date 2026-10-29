@@ -22,6 +22,13 @@ language SDK, multi-host benchmarks). The "none of it has landed" and
 true when written; sections 8.5.2 to 8.5.6 and section 12 carry the
 per-slice state.
 
+Proposed amendment, 2026-10-29: section 8.10 specifies the shared function
+calling convention for ANTLR-based Yang frontends, replacing its earlier
+interoperability placeholder. This is a design proposal, not an
+implementation or conformance claim: the Python, TypeScript, and PHP
+preludes still have different callable entry paths. The related amendments
+in sections 8.1, 8.5.6, and 8.11 have the same status.
+
 Updated 2026-10-01 with the Architect rulings of 2026-09-30 and
 2026-10-01, each accepted by the owner. Later sections cite them by the
 short names given here:
@@ -1110,7 +1117,10 @@ the SPI of section 3 and changes nothing here.
 The common target is a small computation language with explicit language
 runtime libraries.
 
-The reference semantic ABI should define:
+Section 8.10 specifies their shared function calling convention. It is
+machine-internal compiler linkage, not another system ABI;
+[`datom.world.abi.md`](./datom.world.abi.md) reserves that name for
+`dao.stream`. A language's semantic profile must additionally define:
 
 - Evaluation order.
 - Argument binding and arity checks.
@@ -3101,8 +3111,10 @@ realizes sections 3.3 and 3.6 for the REPL:
   parser, revision f4, every host); the selector is the frontend id —
   `(lang :yang/python)` — never a language keyword. Capability loss: the retired Python frontend could
   call Clojure macros and functions in the same session; the ANTLR
-  frontend cannot until the section 8.10 ABI, because a Python name
-  missing from the module dict raises `NameError`.) Selecting a frontend
+  frontend cannot until the section 8.10 calling convention and explicit
+  name projection are implemented, because a Python name missing from
+  the module dict raises `NameError`. The proposed convention alone does
+  not install foreign names.) Selecting a frontend
   answers unavailable-parser only when neither a local parser nor an explicitly configured service is
   available, on any host (section 4.1).
 - Support claims derive from explicit semantic and runtime declarations
@@ -3498,17 +3510,557 @@ checking, and Ruby dynamic dispatch are plugin-owned stages. Each has
 explicit inputs, outputs, and dependencies. None requires Yang core to
 recognize its language by name.
 
-### 8.10 Cross-language calls
+### 8.10 Shared function calling convention
 
-A common AST does not imply a common object model.
+**Status: proposed, 2026-10-29; not implemented.** This section specifies
+one invocation convention for every conforming ANTLR-based Yang frontend.
+Examples are non-exhaustive. Adding a language must not add a case to Yang
+core, a language-pair bridge, or an evaluator transition. The words
+**must**, **must not**, and **may** state requirements on a future
+conforming implementation, not claims about current code.
 
-Interop exports need an explicit ABI describing scalar conversion,
-strings, numeric ranges, callable arguments, exceptions, object handles,
-ownership, and asynchronous results.
+#### 8.10.1 Decision and scope
 
-Start with a small portable-value interop profile. Rich object sharing
-requires adapters; JavaScript `null`, Python `None`, PHP `null`, and Java
-null references must not be conflated accidentally.
+A Yin function is a Yin function, independent of its source syntax. The
+VM applies a closure to operands. Source calling semantics are ordinary
+UAST implementing the call site and callee entry, above the VM.
+
+Every supported source-level callable, after its source-required
+resolution, exposes `:yang.call/entry`, an ordinary Yin closure taking
+exactly one invocation record. Invoking it is an ordinary
+`:application`. No AST tag, lambda slot, instruction, host primitive,
+effect kind, or source-language test is added to the VM.
+
+This is an internal calling convention, not a transport, another system
+ABI, or a host callback interface. Calls between source languages inside
+one task do not themselves cross a host boundary. Portable I/O and
+cross-task interaction continue through `dao.stream`.
+
+**Transparent calling** means that an admitted callable can be passed,
+stored, returned, and invoked by any conforming frontend without a
+handwritten language-pair wrapper. It does not mean every foreign value
+satisfies every source operation. Invocation, name visibility, and value
+interpretation are distinct obligations.
+
+The convention covers ordinary source calls and supported callable
+objects, including higher-order calls. It does not make macros runtime
+functions, grant JavaScript `[[Construct]]`, turn a generator into an
+ordinary returning function, or add a source feature a frontend refuses.
+Constructors and asynchronous operations keep their declared source
+semantics; ordinary callability does not imply either capability.
+
+#### 8.10.2 Callable representation and identity
+
+Keep the callable's existing identity and source-specific data. Add the
+common entry beside its private code and metadata:
+
+```clojure
+;; Illustrative contents of one task-owned Python function cell.
+;; `entry` and `body-code` are live Yin closures, not literal AST maps.
+{:yang.call/entry entry
+ :py/type :function
+ :spec parameter-spec
+ :defaults defaults
+ :code body-code}
+```
+
+The existing `:code` field is not the shared entry: its signature differs
+between preludes. It may remain private. Cross-language callers must not
+inspect it or extract it to bypass the entry.
+
+A cell-backed callable stores the entry in its cell contents. An
+immutable callable descriptor, such as a bound method, may carry it
+directly in its map. The common prelude projects the entry structurally:
+read an existing sealed cell reference through `cell/get`, or inspect
+the immutable descriptor, then obtain `:yang.call/entry`. It must not
+dispatch on `:py/type`, `:js/type`, `:php/type`, language names, or a
+registry of languages.
+
+An admitted callable is a runtime cell/descriptor constructed or exposed
+by the callable constructors or import/export projections of a pinned,
+conforming profile. The entry slot is a runtime descriptor field, not a
+source property that promotes arbitrary data to a function. A Python
+dictionary, JavaScript object, or PHP array containing a source key
+spelled `:yang.call/entry` remains ordinary source data unless an explicit
+profile-defined projection makes it a callable descriptor. Source
+property access must not overwrite or masquerade as this runtime slot.
+This is an obligation of construction and source resolution, not a new
+VM type, descriptor seal, or runtime provenance/language registry. Once
+the resolved descriptor is admitted, the shared projection is structural;
+UAST deliberately constructing a conforming descriptor opts into the
+convention rather than changing a source language's data-map semantics.
+
+Missing entry means not callable. Constructors must install a genuine
+unary Yin closure, and supported source mutations must preserve that
+invariant. Unary arity is a constructor/profile conformance obligation,
+not a signature introspection operation: Yin closures are opaque and the
+VM's existing argument binding does not enforce this convention's arity.
+A key in a map grants no VM privilege; application, ownership, and
+effect checks still apply. A non-applicable entry remains an operational
+VM application defect, not a source exception caught by the shared helper.
+
+For callable kinds whose eligibility can change, the same cell or
+descriptor may also contain `:yang.call/eligible?`, a unary Yin predicate
+on the original callable. Without it, an entry is eligible by default.
+With it, the common callable test uses its boolean result. The predicate
+reads explicit runtime metadata/heap only; it must not mutate state,
+evaluate arguments, execute the target body, or invoke getters/user hooks.
+It has the same constructor/arity obligations as the entry. For example,
+an instance can keep one dispatch entry while eligibility follows whether
+its class currently supplies a supported call method; changing the class
+does not require rewriting every instance.
+
+Call eligibility is tested at the callability-check point required by
+the caller's source, not universally before argument evaluation. The
+entry resolves/rechecks a dynamic target at its source-required dispatch
+point so argument side effects that change eligibility remain visible.
+Static callable kinds need no predicate.
+
+Source callable designators, such as PHP function-name strings and
+callable arrays where supported, are resolved under their source's rules
+before common invocation. They do not gain entry slots merely by being
+strings or arrays. Exporting a designator as a first-class callable needs
+an explicit frontend projection to an admitted descriptor, retaining any
+source-required late lookup and receiver semantics. Passing the raw
+string or array as data leaves it unchanged; a foreign caller must not
+guess its language or search an ambient namespace to invoke it. This is
+source resolution/projection, not a language-pair wrapper around an
+already admitted function.
+
+Cross-language passage must not allocate a replacement function cell.
+Returned functions retain their original identity, captures, defaults,
+bound receiver, properties, and static state. A receiving frontend's
+callable test follows this common eligibility rule rather than rejecting
+foreign native tags. Foreign attribute access and type reflection remain
+profile-owned; callability grants no general right to interpret another
+runtime's cell layout.
+
+Compiler-internal lambdas and host functions do not acquire this
+convention merely by being applicable in Yin. A source import exposing
+one must emit an entry from its declared signature and effect profile.
+It must not guess an opaque closure's signature or bypass host-effect
+and custody rules. Internal helper calls need not construct records.
+
+#### 8.10.3 Invocation record
+
+The invocation is an ephemeral in-machine value. These keys are proposed
+vocabulary, not existing repository APIs:
+
+```clojure
+{:yang.call/callee     f
+ :yang.call/positional [v0 v1 ...]
+ :yang.call/named      [["name" value] ...]
+ :yang.call/raise      raise-exit
+ ;; Optional: presence means a receiver was supplied, even when nil.
+ :yang.call/receiver   receiver
+ ;; Optional: pinned argument-binding extension, for example locations.
+ :yang.call/binding-profile "<content-address>"}
+```
+
+The four required fields mean:
+
+- `:yang.call/callee`: the original resolved callable, including its
+  identity. The invocation helper supplies it; an extracted entry must
+  not be applied to another object's substituted state.
+- `:yang.call/positional`: a dense ordered vector of evaluated values.
+  Its length records presence; no missing-argument sentinel is inserted.
+- `:yang.call/named`: ordered name/value pairs, not a map. Names are
+  plain text without caller-side case folding or normalization.
+  Duplicate names remain visible until the callee's binder decides them.
+- `:yang.call/raise`: this activation's caller-supplied, non-returning
+  guest exit, accepting the condition in section 8.10.7. It closes over
+  the caller's continuation and exception machinery, never a host
+  callback or hidden global handler slot.
+
+An absent receiver differs from one whose value is `nil`, `:py/None`,
+`:php/null`, `:js/null`, or `:js/undefined`. Empty argument vectors are
+required rather than represented by absent keys. Presence must not be
+inferred from truthiness.
+
+The optional binding profile pins additional argument semantics. It
+does not name the caller's language or select a language-pair bridge.
+Absent that extension, arguments are by-value runtime values as in
+section 8.10.6. The callee entry compares the supplied profile address
+with its declared accepted/required binding profiles before acquiring
+references or entering the body. An unsupported required profile or a
+missing required extension fails there. The pinned profile defines the
+shape and validation of any extra invocation fields it requires; values
+in the base vectors alone do not establish a location protocol.
+
+Convention revision is pinned by the existing lowering/runtime profiles.
+It is not a new canonical AST slot, a per-function language tag, or a
+repeated version field in every invocation. Incompatible revisions need
+new profiles and explicit admission, never entry-shape guessing.
+
+The shared helper validates the record's map shape, required presence,
+positional vector, and ordered pairs with text names. The callee entry
+validates extension fields under its admitted binding profile; the shared
+helper knows no extension-specific representation. A valid caller-owned
+raise exit is established before constructing the record, so structural
+failures can be transferred through it. If no valid raise exit exists,
+that is an operational wiring failure; do not invent a source exception
+path, default missing fields to `nil`, or broadly catch VM application
+errors. Checking live entry/exit/predicate closure arity is not part of
+this validation; constructor fixtures and admission under pinned
+profiles establish those obligations.
+
+#### 8.10.4 Source semantics at caller and callee
+
+The caller's lowering preserves its source rules for callable resolution,
+argument/receiver evaluation, and spread or unpacking. Evaluate each
+expression exactly once, in the source-defined order. Errors required
+before argument evaluation must still occur before it. The record holds
+evaluated values; the callee must not reevaluate source expressions.
+
+After source resolution, calls use the common projection and application.
+For a cell-backed callable, the successful path is schematically:
+
+```clojure
+;; UAST notation after source evaluation/resolution and validation.
+;; The caller has already established `raise-exit`.
+(let [entry (get (cell/get f) :yang.call/entry)
+      invocation (assoc evaluated-arguments
+                        :yang.call/callee f
+                        :yang.call/raise raise-exit)]
+  (entry invocation))
+```
+
+The shared prelude handles projection and validation for cell-backed and
+immutable callables. Existing `py/call`, `js/call`, or `php/call` names
+may remain as source call-site helpers, but must not reject an admitted
+foreign callable because its native type tag differs.
+
+The callee entry installs its exception boundary **before parameter
+binding**. It owns defaults, arity checks, positional/named/variadic
+binding, receiver interpretation, and supported source constraints and
+coercions. It then invokes its body using its private lowered signature
+and captured environment.
+
+Entry boilerplate is not an additional source function activation.
+Source recursion limits, tracing, and safepoint call marks must count the
+original source activation once, not both the entry and its private body
+as two source calls. Genuine nested source calls remain observable.
+
+| Callee example | Interpretation of the same invocation |
+|---|---|
+| Python function | Python binding/default/keyword rules and captured module globals. A missing required argument raises the Python binding error. |
+| JavaScript function | Its receiver mode and argument/default/rest rules. An absent argument yields `undefined` where specified. Nonempty named arguments raise a guest `TypeError`; they are not discarded or converted to a positional object. |
+| PHP function | Named-parameter, static-state, reference and declared type rules. Function self comes from `:yang.call/callee`, not the JavaScript receiver. |
+| Further frontend | Its declared binding rules, with no new case in the shared prelude or evaluator. |
+
+A Python unbound function does not gain a first positional argument
+because a JavaScript member call supplied a receiver. A bound-method entry
+supplies its already-bound self once. An arrow entry retains lexical
+`this`. Callables that do not use a receiver ignore its presence.
+
+Source callable objects perform dynamic target lookup in their entry
+when required. Entry publication must not freeze a target whose meaning
+may change under supported source operations. Callability does not alter
+name lookup or introduce fallback to another language's globals.
+
+#### 8.10.5 Values and projections
+
+The base convention passes arguments, results, callable values, cell
+references, and thrown payloads **unchanged**. It performs no scalar
+conversion, copying, serialization, or object-model translation. Opaque
+values may be stored and passed back without understanding them. Within
+one task, aliases retain the same sealed references and ownership.
+
+A Python identity function can return a JavaScript object unchanged. A
+JavaScript higher-order function can invoke an admitted Python function.
+Language-specific operations on unsupported foreign encodings may raise
+the receiving profile's documented guest error. Calling compatibility
+does not establish that Python `2` is a JavaScript Number rather than a
+BigInt, or that a Python string map is a JavaScript string.
+
+In particular, preserve:
+
+- The distinction between null, None, undefined, and absent arguments.
+- Exact integers without silent narrowing or floating-point rounding.
+- Float64 content, signed zero, declared NaN behavior, byte strings,
+  Unicode scalar strings, and UTF-16 code-unit strings in their own forms.
+- Object identity and aliasing; an object's cell is not a caller's
+  writable variable binding.
+
+If conversion is wanted, the export/import declaration must pin an
+explicit value projection by content address. Its loss/range/null/string/
+identity rules are compilation inputs, and its code remains in the UAST.
+Projections may be implemented once per language and agreed data
+vocabulary. The shared mechanism must not grow a matrix of caller-language/
+callee-language conversions or silently select a projection.
+
+Conformance therefore distinguishes **invocation compatibility** from
+**value-operation compatibility**. Transparent invocation is mandatory;
+arbitrary foreign arithmetic or object access is not implied. Every
+advertised projection needs separate behavioral conformance tests.
+
+#### 8.10.6 References, higher-order calls, and ownership
+
+By-value arguments may contain shared object references. That does not
+authorize rebinding the caller's variable: a value read from a local is
+not a location capability.
+
+Source-local reference arguments keep their pinned native binding
+profile. A call requiring foreign writable locations must declare a
+compatible profile or fail with a guest binding error before the body.
+Silently allocating a temporary and claiming writeback is forbidden.
+A location extension must define read/write operations, alias identity,
+evaluation of nested paths exactly once, lifetime, ownership, cleanup,
+and suspension. Generic callers must not decode PHP reference markers
+or bypass its copy/count rules.
+
+Functions passed, returned, or called recursively keep the common entry
+and original identity. This includes calls back into a runtime already
+on the stack. No caller-side rewrapping or language-pair cache is allowed.
+
+These are in-task rules. A closure, continuation, cell, or live invocation
+is not made portable by this convention. Linker/UCF custody and admission
+still govern task/host crossings; currently refused cell-bearing lifts
+remain refused. Live closures in an invocation must not be placed in
+canonical literal data or sent as a purported portable request.
+
+#### 8.10.7 Normal return and escaping conditions
+
+Normal return is the value of ordinary Yin application. There is no
+extra return continuation, completion packet around each result, or new
+language-specific return instruction.
+
+An escaping source exception invokes the supplied raise exit with:
+
+```clojure
+{:yang.call/reason :yang.call/thrown
+ :yang.call/value  original-thrown-value}
+```
+
+This is the argument to an exceptional continuation transfer, not an
+ordinary return. Returning an identical-looking map returns normal data.
+Likewise, a source program throwing a map with these keys throws that
+map as the **payload of a new condition**; its shape is never evidence
+that it is already a condition to forward. No engine-effect value is
+synthesized.
+
+Protocol failures use qualified reasons such as
+`:yang.call/not-callable`, `:yang.call/invalid-invocation`, and
+`:yang.call/unsupported-binding`, with plain evidence. The caller maps
+them to a documented local exception form retaining the complete
+original condition. Callee argument-binding failures retain the actual
+callee exception under `:yang.call/thrown`. These reasons do not extend
+`dao.stream`'s outcome algebra.
+
+The receiving caller interprets an escaping exception as follows:
+
+1. A payload valid as an exception in its own runtime retains that
+   runtime's ordinary catching and identity behavior.
+2. A runtime permitting arbitrary thrown values, such as JavaScript,
+   may deliver the original payload directly.
+3. A runtime requiring exception objects, such as Python or PHP,
+   represents an otherwise foreign payload with its own
+   `ForeignException`, retaining the complete condition and original
+   payload. Catch-all catches this local object. Typed source catches
+   match its local hierarchy, never guessed foreign class names.
+
+`ForeignException` is a proposed prelude-owned type, not a VM type.
+Unchanged rethrow propagates the original condition without adding
+wrappers. Raising a new exception creates a new condition. Crossing back
+into a runtime recognizing the original exception restores its original
+type and identity. Formatting a foreign payload must not implicitly
+invoke a foreign method.
+
+The runtime associates its generated wrapper's identity with the retained
+condition for the wrapper's entire lifetime, separate from source-writable
+attributes. The association normally lives in private wrapper-cell
+contents, or an equivalent task-owned identity structure with the same
+lifetime. It survives storing or returning the wrapper after the creating
+call/catch activation has ended, and remains recoverable when that same
+wrapper is rethrown in another activation. Temporary catch state alone is
+insufficient. Reachability/reclamation must retain the condition and its
+payload while the wrapper is live, without an ambient registry.
+
+The runtime must not detect wrappers or unwrap arbitrary maps by their
+key names. JavaScript may expose raw payloads for
+`:yang.call/thrown`; its local exception for a protocol failure must still
+retain that failure's qualified condition. Rethrowing the same generated
+exception forwards that complete condition, including protocol reasons;
+throwing an unrelated value creates a new `:yang.call/thrown` condition.
+Saved activation state refers to this identity-owned association; exiting
+or restoring a catch does not destroy it.
+
+VM application/custody defects and host implementation failures remain
+operational failures. Do not catch them broadly and relabel them as
+source exceptions. Existing explicit stream/module refusals keep their
+source mappings under the relevant profiles.
+
+#### 8.10.8 Cleanup, re-entry, and suspension
+
+Each activation establishes its own exception bridge and saves its
+callee runtime's dynamic context. Binding, body, and exit run under that
+bridge. Before invoking the caller's raise exit, let source catches and
+cleanup complete and restore saved handler/depth/frame state. Normal
+return restores it too. A source `finally` replacing a pending return
+or exception does so before common propagation under its own rules.
+
+In A-to-B-to-A calls, the innermost activation must not jump to an older
+A handler past B. Its entry bridge is the boundary: inner A cleanup
+precedes B cleanup, which precedes outer A handling. Every activation
+owns its saved state and raise exit, without a single current-foreign-
+handler cell or ambient dispatcher. Unchanged rethrow preserves the
+inner exception as specified in section 8.10.7.
+
+Cleanup runs once per actual exit. Resuming a suspended VM transition
+must not repeat parameter binding, argument evaluation, defaults,
+reference acquisition, or completed cleanup. The record, continuations,
+and explicit runtime state use the existing continuation machinery and
+its admission restrictions.
+
+A generator or asynchronous function returns its source-defined object.
+Suspension on a stream effect keeps the activation; it is not a new
+call. A later generator resume or scheduled job has a new activation and
+valid bridge, never the raise exit of a call that already returned.
+Unrestricted continuation escape across foreign frames is not implicitly
+supported: a claiming profile must define and test restoration and
+reference lifetimes for every crossed frame.
+
+Invoking a function-valued argument is internal Yin computation.
+Host-initiated callbacks remain stream events under
+`datom.world.abi.md`; this convention adds no host callback facility.
+
+#### 8.10.9 Publication, visibility, and reproducibility
+
+Shared callability creates no common global scope. An import or
+composition explicitly binds exports in the receiving source namespace
+under its normal name/module rules. Missing names keep their source
+errors. No fallback searches other frontends, the filesystem, a host
+package registry, or ambient globals.
+
+Linked modules publish code and immutable specifications. Their bodies
+instantiate function objects and common entries in the importing task,
+as section 8.5.6 requires. Install children must not export live function
+cells. A higher-order result is an ordinary runtime value, not a new
+linker publication on each call.
+
+Lowering/runtime profiles pin the implementation and binding/value
+extensions. Existing dependency/effect/custody checks remain. Type facts
+stay beside code under `yin.vm.typecheck`, not in lambda language tags.
+Do not duplicate existing lambda parameters in another persisted
+authority over the private body signature.
+
+Before admitting a compiled composition, its profile/dependency
+declarations must establish one compatible convention revision for the
+entries it exposes. An incompatible revision needs an explicitly pinned
+projection or is refused before execution. Neither a common slot name nor
+an opaque runtime closure proves revision compatibility. No runtime
+language registry or inspection of captured environments supplies it.
+
+Changed entry code changes code identities through the normal encoder.
+Retain source, lowered UAST, pinned profiles, and projections under
+existing provenance/unitarity rules. A fast path may omit the record
+only after proving equivalent evaluation, binding, foreign callability,
+exceptions, effects, suspension, and identity. Correctness must not
+depend on that optimization.
+
+#### 8.10.10 Current code and migration
+
+The current code records the gap, not a second normative convention:
+
+| Current implementation | Private call path |
+|---|---|
+| `yang.python.antlr.prelude` | `py/call-kw` binds arguments and applies the function cell's `:code` to one vector. |
+| `yang.typescript.antlr.prelude` | `js/call` checks `:js/type :function` and applies `:code` to receiver and argument vector. |
+| `yang.php.antlr.prelude` | `php/call` applies `:code` to the function cell and argument vector; named/reference handling is separate. |
+| `test/yang/cross_lang_test.clj` | Demonstrates PHP/TypeScript substrate composition using lookup rewriting and a test-local `js-shaped` wrapper; not proof of this convention. |
+
+Implementation proceeds as separately verified changes:
+
+1. Supply the shared guest prelude and fixtures for entry discovery,
+   record validation, and condition transfer, using existing bundled/
+   linked prelude emitter machinery.
+2. Add entries to each supported callable constructor and builtin;
+   preserve source metadata/private code while putting binding and
+   exception boundaries under the entry. Keep existing source `:call`
+   safepoint marks on their original source activation, normally the
+   private body; generated entry/binding boilerplate remains unmarked.
+   Do not copy a body's source mark onto its entry and count both. A
+   separately proved instrumentation transformation may relocate a mark
+   only while preserving its source timing and exactly one activation.
+3. Route source-resolved calls and callable tests through the convention,
+   including supported bound methods, callable objects, recursion, and
+   nested runtime re-entry.
+4. Integrate explicit export/name projections with module publication
+   and task-local instantiation; remove test-only language-pair wrappers
+   from the new conformance paths.
+5. Pass the acceptance gates before advertising a conforming frontend
+   revision. Old body signatures must not be mistaken for new entries.
+
+A frontend is not conformant while its advertised supported callable
+kinds need pairwise wrappers. Legacy non-ANTLR frontends gain no claim
+from this proposal; joining later requires the same entry obligations.
+There is no implication that current Python, PHP, TypeScript, or a host
+target has completed this migration.
+
+#### 8.10.11 Acceptance gates
+
+Execute real lowered source bodies, not only synthetic functions with
+the expected slot. A harness may compose published exports and namespace
+projections explicitly. It must not rewrite call nodes, extract foreign
+`:code`, or insert test-local language-pair wrappers to make calls work.
+
+Required evidence:
+
+- **Local semantics:** existing suites preserve argument order, defaults,
+  required/extra arguments, keyword errors, receivers, exceptions, and
+  supported reference/static behavior.
+- **Direct calls:** each implemented frontend calls every other
+  conforming frontend through the same mechanism in both directions
+  with compatible values. Derive the test matrix from admitted
+  frontends; do not hard-code it into runtime dispatch.
+- **Higher-order calls:** pass, return, store, recurse, and call back
+  through received functions. Assert identity and captures without
+  replacement cells.
+- **Callable admission:** source data with an entry-spelled property
+  remains data; profile-constructed descriptors are admitted. Exercise
+  supported PHP string/array designators both under local resolution and
+  explicit callable export, preserving required late lookup without
+  foreign namespace guessing.
+- **Presence and binding:** distinguish missing from explicit
+  null/None/undefined; retain duplicate keywords until binding; supply
+  bound self once; evaluate receiver/spreads/defaults at source-defined
+  times and counts.
+- **Dynamic callability:** where supported, an existing instance becomes
+  eligible after its class gains a call method and ineligible after
+  deletion. Calls whose arguments change this metadata observe the
+  correct source-required lookup time without instance rewrapping.
+- **Opaque values:** round-trip foreign objects, functions, strings,
+  float64 content, and exact integers unchanged. Assert aliasing and no
+  silent rounding/null conversion. Unsupported operations yield
+  documented guest errors.
+- **References:** absent/incompatible writable-location profiles fail
+  before reference acquisition and the body, with no reference-induced
+  writeback. Source-required side effects from evaluating arguments still
+  occur; rejection must not erase them. Compatible profiles prove
+  mutation, aliasing, cleanup, and suspension behavior.
+- **Exceptions:** cover binding failures, arbitrary foreign thrown data,
+  catch-all/typed catches, unchanged rethrow, replacement in `finally`,
+  protocol-error rethrow, condition-shaped thrown maps, and A-to-B-to-A
+  propagation. Assert original exception identity and cleanup order,
+  not only rendered text. Store/return a generated `ForeignException`,
+  finish its creating activation, then rethrow it from another activation
+  and assert recovery of the original condition and payload identity.
+- **Context lifetime:** repeated success/raise/success, cross-runtime
+  recursion, and stream suspension/resume restore handler/depth/frame
+  state and perform arguments/cleanup exactly once. Entry boilerplate
+  must not double-count source recursion or tracing activations.
+- **Publication/custody:** bundled/linked forms agree; two importing
+  tasks have independent state. Existing gates still refuse foreign-task
+  cells, forged refs, host functions, and inadmissible continuations.
+- **Portability:** execute portable packet-to-UAST fixtures on JVM,
+  Node, and Dart over the four VMs wherever existing contracts admit
+  the program. JVM-only parsers may supply checked-in CST fixtures;
+  parser availability is distinct from calling conformance.
+
+Report callable kinds, binding/value extensions, actual host/VM
+coverage as an explicit host-by-VM matrix, refusals, and remaining gaps
+per frontend revision. A scalar example or common UAST grammar alone
+does not establish conformance.
 
 ### 8.11 Mutable objects and collections over cells
 
@@ -3580,8 +4132,9 @@ Aliasing and identity:
 - Functions: two closures from one lambda with equal environments compare
   equal structurally, while JS and Python require them distinct and allow
   attributes on functions. Full fidelity wraps a function as an object in
-  a cell; the Python spike uses bare closures and leaves `is` on functions
-  unsupported.
+  a cell. Section 8.10 adds the shared entry to that same identity object;
+  crossing languages must not allocate a replacement wrapper.
+  Historical spike status: bare closures left `is` on functions unsupported.
 
 Value-semantics languages map as follows. PHP reference binding cannot be
 a lexical rebinding of the name, since a continuation captured earlier
@@ -3644,9 +4197,10 @@ Where the semantics lives:
 - The `cell` module: only allocation, read, and write.
 - The runtime profile per language: value encoding. Each language's null
   is its own tagged sentinel, never host `nil` shared across languages.
-- Cross-language calls: a cell ref crosses as an opaque object handle
-  under the section 8.10 interop profile. The receiver may hold it and
-  pass it back but not read its content without an adapter.
+- Cross-language calls: a cell ref crosses as an opaque object handle.
+  Section 8.10 admits its common entry projection for invocation; the
+  receiver may otherwise hold it and pass it back. Attribute/object-model
+  access needs an explicitly declared projection, not merely callability.
 - Grammar: unchanged. Every operation is an ordinary `:application`.
 - Inline caches, field-slot layouts, and un-boxing are separately attached
   interpreters writing their own stream; the lowering emits naive prelude
