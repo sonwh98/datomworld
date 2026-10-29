@@ -438,3 +438,233 @@
                 (str "level " level " " (pr-str forbid)))))
         (is (= 'x-5 (c-fn 'x '#{x x' x'' x''' x-4})))
         (is (= 'x (c-fn 'x #{})))))))
+
+
+;; =============================================================================
+;; Slice 5: outcome channel beside the value channel
+;; =============================================================================
+
+(def ^:private outcome-scaffold
+  "Pure host functions standing in for the guest collection library (slice 7)
+   on the throw-site fixtures' paths."
+  (assoc scaffold-primitives
+         'cons cons, 'symbol? symbol?, 'var? var?, 'resolve resolve))
+
+
+(def ^:private outcome-opts
+  {:convention :arg-vector, :outcomes true, :adapters {}
+   :native (into (set (keys vm/primitives)) (keys outcome-scaffold))})
+
+
+(defn- run-outcome
+  "Compile `forms` plus `call-form` with the outcome model and return the
+   RAW outcome of the call: the value channel carries [tag payload]."
+  [forms call-form]
+  (let [registry (-> (stdlib-module)
+                     module/register-stream-module
+                     data/register-data-module)]
+    (-> (tu/make-observer-session
+          (tu/create-vm {:modules registry
+                         :primitives (merge vm/primitives outcome-scaffold)}))
+        (tu/queue-ast! (yang/compile-program
+                         (into [] (concat forms [call-form])) true outcome-opts))
+        tu/run-session
+        :consumer
+        vm/value)))
+
+
+(defn- desugar
+  "Interim lowering of the corpus macros the compiler has no expander for
+   here: cond and if-let become ifs and lets, lazy-seq evaluates eagerly, and
+   a namespace alias is dropped so the call is a program-defined guest call."
+  [form]
+  (walk/postwalk
+    (fn [f]
+      (cond
+        (and (seq? f) (= 'cond (first f)))
+        (reduce (fn [else [test then]] (if (= :else test) then (list 'if test then else)))
+                nil
+                (reverse (partition 2 (rest f))))
+        (and (seq? f) (= 'if-let (first f)))
+        (let [[_ [v e] then else] f]
+          (list 'let [v e] (list 'if v then else)))
+        (and (seq? f) (= 'lazy-seq (first f))) (second f)
+        (and (symbol? f) (#{"stx" "defenv" "nbe" "norm" "utils"} (namespace f)))
+        (symbol (name f))
+        :else f))
+    form))
+
+
+(defn- a-leg
+  "The upstream result as a value or a caught ex-info (message and data; a
+   stack trace is never compared)."
+  [f args]
+  (try {:value (let [v (apply f args)] (if (seq? v) (doall v) v))}
+       (catch clojure.lang.ExceptionInfo e
+         {:thrown {:message (ex-message e), :data (ex-data e)}})))
+
+
+(defn- agrees?
+  "The outcome `c` is the A leg's value as a success or its exception as the
+   portable error map."
+  [a c]
+  (if (contains? a :value)
+    (= [:yin.k/ok (:value a)] c)
+    (= [:yin.k/error {:yin.k/message (get-in a [:thrown :message])
+                      :yin.k/data (get-in a [:thrown :data])}]
+       c)))
+
+
+(defn- ab
+  "Run upstream `qsym` and the outcome-model C leg (`deps` first) on `args`;
+   returns [a c] and asserts they agree."
+  [qsym ns-sym deps args]
+  (let [fname (symbol (name qsym))
+        forms (mapv #(desugar (get top-forms (if (vector? %) % [ns-sym %]))) deps)
+        a (a-leg (upstream-fn qsym) args)
+        c (run-outcome forms (list* fname (map #(list 'quote %) args)))]
+    (is (agrees? a c) (str fname " " (pr-str args) " A=" (pr-str a) " C=" (pr-str c)))
+    [a c]))
+
+
+(deftest test-oracle-slice5-throw-site-fixtures
+  (testing "utils/safe-get: success and failure"
+    (let [[a1 _] (ab 'latte-kernel.utils/safe-get 'latte_kernel.utils '[safe-get] ['{:a 1} :a])
+          [a2 c2] (ab 'latte-kernel.utils/safe-get 'latte_kernel.utils '[safe-get] ['{:a 1} :b])]
+      (is (contains? a1 :value))
+      (is (= "No such value in collection" (get-in a2 [:thrown :message])))
+      (is (= :yin.k/error (first c2)))))
+  (testing "utils/zip: even length succeeds, odd length throws"
+    (doseq [s ['(a b c d) '() '(a b)]]
+      (ab 'latte-kernel.utils/zip 'latte_kernel.utils '[zip] [s]))
+    (let [[a _] (ab 'latte-kernel.utils/zip 'latte_kernel.utils '[zip] ['(a b c)])]
+      ;; upstream is lazy: realizing the sequence is what throws
+      (is (or (contains? a :thrown) (nil? (try (doall (:value a)) nil
+                                               (catch clojure.lang.ExceptionInfo e e)))))))
+  (testing "defenv/fetch-definition: the non-symbol, non-var branch throws"
+    (ab 'latte-kernel.defenv/fetch-definition 'latte_kernel.defenv '[fetch-definition]
+        ['[{} {}] 5])
+    (ab 'latte-kernel.defenv/fetch-definition 'latte_kernel.defenv '[fetch-definition]
+        ['[{} {}] 5 true])
+    (ab 'latte-kernel.defenv/fetch-definition 'latte_kernel.defenv '[fetch-definition]
+        ['[{} {foo {:name foo}}] 'foo]))
+  (testing "a wrong-count call is the function's OWN arity error, not a count refusal"
+    (is (= [:yin.k/error {:yin.vm.data/reason :arity, :yin.k/fn 'fetch-definition, :yin.k/argc 1}]
+           (run-outcome [(desugar (get top-forms ['latte_kernel.defenv 'fetch-definition]))]
+                        '(fetch-definition [{} {}])))))
+  (testing "norm and nbe delta-reduction: No such definition"
+    (doseq [[qsym ns-sym args] [['latte-kernel.nbe/delta-reduction 'latte_kernel.nbe
+                                 ['[{} {}] [] '(no-such-definition-xyz)]]
+                                ['latte-kernel.norm/delta-reduction 'latte_kernel.norm
+                                 ['[{} {}] [] '(no-such-definition-xyz)]]]
+            :let [[a c] (ab qsym ns-sym
+                                          [['latte_kernel.defenv 'fetch-definition]
+                                           ['latte_kernel.syntax 'ref?]
+                                           'delta-reduction]
+                                          args)]]
+      (is (= "No such definition" (get-in a [:thrown :message])) (str qsym))
+      (is (= :yin.k/error (first c))))))
+
+
+;; =============================================================================
+;; Slice 5: unfold-implicit, adapted from typing.cljc:453
+;; =============================================================================
+
+(def ^:private unfold-implicit-adaptation
+  "The checked-in B-leg source of `typing/unfold-implicit`
+   (test/yang/latte_oracle/unfold_implicit.edn)."
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/unfold_implicit.edn"))))
+
+
+(defn- upstream-unfold
+  "The upstream catch shape over a host implicit fn."
+  [implicit-def args]
+  (try [:ok ((:fn implicit-def) args) args]
+       (catch clojure.lang.ExceptionInfo e
+         [:ko (merge {:implicit (:name implicit-def), :msg (ex-message e)} (ex-data e)) nil])))
+
+
+(deftest test-oracle-slice5-unfold-implicit
+  (let [b-leg (fn [fn-form args]
+                (run-outcome [(list 'def 'impl {:name ''imp, :fn fn-form})
+                              unfold-implicit-adaptation]
+                             (list 'unfold-implicit 'impl (list 'quote args))))
+        ok-form '(fn [args] (first args))
+        a-ok {:name 'imp, :fn first}
+        a-throw {:name 'imp, :fn (fn [_] (throw (ex-info "implicit failed" {:msg "data wins" :extra 1})))}
+        throw-form '(fn [args] (throw (ex-info "implicit failed" {:msg "data wins", :extra 1})))]
+    (testing "success: [:ok value args]"
+      (is (= (upstream-unfold a-ok '[7 8])
+             (second (b-leg ok-form '[7 8])))))
+    (testing "failure: error outcome consumed, data overrides :msg, result is [:ko ... nil]"
+      (is (= (upstream-unfold a-throw '[7])
+             (second (b-leg throw-form '[7]))))
+      (is (= [:ko {:implicit 'imp, :msg "data wins", :extra 1} nil]
+             (second (b-leg throw-form '[7])))))))
+
+
+;; =============================================================================
+;; Slice 5: the throw-site inventory
+;; =============================================================================
+
+(defn- throw-forms
+  [form]
+  (filter #(and (seq? %) (= 'throw (first %))) (tree-seq coll? seq form)))
+
+
+(defn- throw-symbol-count
+  "Every `throw` symbol in the manifest's top-level forms."
+  []
+  (count (for [{:keys [ns name]} manifest
+               s (tree-seq coll? seq (get top-forms [ns name]))
+               :when (= 'throw s)]
+           s)))
+
+
+(def ^:private fixture-sites
+  "[ns fn message-fragment] of the sites slice 5 fixes with an A/B fixture."
+  #{['latte_kernel.utils 'safe-get "No such value"]
+    ['latte_kernel.utils 'zip "odd number"]
+    ['latte_kernel.defenv 'fetch-definition "Cannot fetch"]
+    ['latte_kernel.norm 'delta-reduction "No such definition"]
+    ['latte_kernel.nbe 'delta-reduction "No such definition"]})
+
+
+(defn- disposition
+  [ns-sym fname message]
+  (if (some (fn [[n f frag]]
+              (and (= n ns-sym) (= f fname) message (str/includes? message frag)))
+            fixture-sites)
+    {:disposition :fixture}
+    {:disposition :deferred
+     :to (str "the slice that admits " ns-sym "/" fname)}))
+
+
+(defn- throw-site-rows
+  []
+  (vec (for [{:keys [ns name]} manifest
+             t (throw-forms (get top-forms [ns name]))
+             :let [message (first (filter string? (tree-seq coll? seq t)))]]
+         (merge {:ns ns, :fn name, :line (:line (meta t)), :message message}
+                (disposition ns name message)))))
+
+
+(def ^:private throw-site-table
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/throw_sites.edn"))))
+
+
+(deftest test-throw-site-inventory
+  (testing "the checked-in table has one row per throw symbol in the manifest forms"
+    (is (= (throw-symbol-count) (count throw-site-table)))
+    (is (= (throw-site-rows) throw-site-table)
+        "regenerate test/yang/latte_oracle/throw_sites.edn when the corpus or a disposition changes"))
+  (testing "every row has a disposition"
+    (is (every? #{:fixture :deferred :excluded} (map :disposition throw-site-table)))
+    (is (every? #(or (not= :deferred (:disposition %)) (:to %)) throw-site-table)))
+  (testing "slice 5 assigns the fixtures the design names"
+    (let [fixtures (filter #(= :fixture (:disposition %)) throw-site-table)]
+      (is (= 5 (count fixtures)))
+      (is (= #{['latte_kernel.utils 'safe-get] ['latte_kernel.utils 'zip]
+               ['latte_kernel.defenv 'fetch-definition] ['latte_kernel.norm 'delta-reduction]
+               ['latte_kernel.nbe 'delta-reduction]}
+             (set (map (juxt :ns :fn) fixtures)))))))

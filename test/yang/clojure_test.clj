@@ -1056,3 +1056,205 @@
           [_ d0] (run 0)
           [_ d100] (run 100)]
       (is (> d100 (+ d0 50)) "the semantic gate detects the missing flag"))))
+
+
+;; =============================================================================
+;; Slice 5: the outcome model
+;; =============================================================================
+
+(def ^:private effect-log (atom []))
+
+
+(def ^:private outcome-modules
+  (let [host (fn [name entries]
+               (fn [registry]
+                 (module/register-host-module
+                   registry name
+                   (into {} (map (fn [[op f _]] [op f])) entries)
+                   (into {} (map (fn [[op _ p]] [op p])) entries))))]
+    (-> av-modules
+        ((host 'portable
+               [['nth
+                 (yang/outcome-adapter data/refusal-message (get data/data-module 'nth))
+                 (get data/data-profiles 'nth)]]))
+        ((host 'probe
+               [['note
+                 (fn [x] (swap! effect-log conj x) x)
+                 (vm/primitive-profile 'note :pure [1] #{} :none)]])))))
+
+
+(def ^:private outcome-opts
+  {:convention :arg-vector, :outcomes true
+   :native (set (keys vm/primitives))
+   :adapters {'data/nth 'portable/nth}})
+
+
+(defn- outcome-ast
+  [forms]
+  (yang/compile-program forms true outcome-opts))
+
+
+(defn- run-outcome
+  "The raw outcome the last form of `forms` returns."
+  [forms]
+  (reset! effect-log [])
+  (-> (tu/make-observer-session (tu/create-vm {:modules outcome-modules}))
+      (tu/queue-ast! (outcome-ast forms))
+      tu/run-session
+      :consumer
+      vm/value))
+
+
+(deftest test-outcome-success-and-throw
+  (is (= [:yin.k/ok 2] (run-outcome '[(defn f [x] (+ x 1)) (f 1)])))
+  (is (= [:yin.k/ok [:ok 1]] (run-outcome '[(defn f [x] [:ok x]) (f 1)]))
+      "LaTTe's own [:ok ...] stays an ordinary value inside the payload")
+  (is (= [:yin.k/error {:yin.k/message "boom", :yin.k/data {:x 1}}]
+         (run-outcome '[(defn f [x] (throw (ex-info "boom" {:x x}))) (f 1)])))
+  (testing "an untaken throw branch leaves the success outcome"
+    (is (= [:yin.k/ok :survived]
+           (run-outcome '[(defn f [x] (if x (throw (ex-info "t" {})) :survived))
+                          (f false)])))))
+
+
+(deftest test-outcome-safe-get
+  (let [forms '[(defn safe-get
+                  [coll key]
+                  (let [val (get coll key)]
+                    (if val val (throw (ex-info "No such value in collection" {:coll coll, :key key})))))]]
+    (is (= [:yin.k/ok 1] (run-outcome (conj forms '(safe-get {:a 1} :a)))))
+    (is (= [:yin.k/error {:yin.k/message "No such value in collection"
+                          :yin.k/data {:coll {:a 1}, :key :b}}]
+           (run-outcome (conj forms '(safe-get {:a 1} :b)))))))
+
+
+(deftest test-outcome-nested-call-operand
+  (let [defs '[(defn g [x] (if x x (throw (ex-info "g failed" {:x x}))))
+               (defn h [x] x)]
+        failed [:yin.k/error {:yin.k/message "g failed", :yin.k/data {:x nil}}]]
+    (testing "an error in an operand of a nested call ends the caller"
+      (is (= failed (run-outcome (into defs '[(defn f [x] (+ 1 (g x))) (f nil)]))))
+      (is (= [:yin.k/ok 6] (run-outcome (into defs '[(defn f [x] (+ 1 (g x))) (f 5)]))))
+      (is (= failed (run-outcome (into defs '[(defn f [x] (h (h (g x)))) (f nil)])))
+          "through two enclosing calls"))
+    (testing "operands evaluate left to right and stop at the first failure"
+      (is (= [failed [:a]]
+             [(run-outcome (into defs '[(defn f [x] [(probe/note :a) (g x) (probe/note :b)])
+                                        (f nil)]))
+              @effect-log])))))
+
+
+(deftest test-outcome-mid-do-stops-later-effects
+  (let [forms '[(defn boom [] (throw (ex-info "stop" {})))
+                (defn run [] (do (probe/note :before) (boom) (probe/note :after) :done))
+                (run)]]
+    (is (= [[:yin.k/error {:yin.k/message "stop", :yin.k/data {}}] [:before]]
+           [(run-outcome forms) @effect-log]))
+    (is (= [[:yin.k/ok :done] [:before :after]]
+           [(run-outcome (assoc forms 0 '(defn boom [] nil))) @effect-log]))))
+
+
+(deftest test-outcome-loop-and-control
+  (testing "loop and function-level recur return the outcome of their exit"
+    (is (= [:yin.k/ok 55]
+           (run-outcome '[(defn sum [n acc] (if (= n 0) acc (recur (- n 1) (+ acc n)))) (sum 10 0)])))
+    (is (= [:yin.k/ok :found]
+           (run-outcome '[(defn find-it [xs] (loop [xs xs] (if (= (first xs) 3) :found (recur (rest xs)))))
+                          (find-it [1 2 3])])))
+    (is (= [:yin.k/error {:yin.k/message "bad 3", :yin.k/data {}}]
+           (run-outcome '[(defn chk [n] (if (= n 3) (throw (ex-info "bad 3" {})) n))
+                          (defn all [n] (loop [i 0] (if (< i n) (do (chk i) (recur (+ i 1))) :ok)))
+                          (all 5)]))))
+  (testing "and / or / let / destructuring around may-fail calls"
+    (is (= [:yin.k/ok [2 1]]
+           (run-outcome '[(defn id [x] x)
+                          (defn f [[a b]] (let [[c d] [(id b) (id a)]] [c d]))
+                          (f [1 2])])))
+    (is (= [:yin.k/ok :y]
+           (run-outcome '[(defn id [x] x) (defn f [a] (or (id nil) (and (id a) :y))) (f 1)])))))
+
+
+(deftest test-outcome-arity-names-the-function
+  (let [forms '[(defn f ([x] x) ([x y] y))]]
+    (is (= [:yin.k/error {:yin.vm.data/reason :arity, :yin.k/fn 'f, :yin.k/argc 3}]
+           (run-outcome (conj forms '(f 1 2 3)))))
+    (is (= [:yin.k/ok 2] (run-outcome (conj forms '(f 1 2)))))))
+
+
+(deftest test-outcome-primitive-adapter
+  (testing "an adapted refusal is an error outcome with the refusal's op and reason"
+    (let [out (run-outcome '[(data/nth [1 2] 5)])]
+      (is (= :yin.k/error (first out)))
+      (is (= 'nth (:yin.vm.data/op (second out))))
+      (is (= :out-of-range (:yin.vm.data/reason (second out))))))
+  (is (= [:yin.k/ok 2] (run-outcome '[(data/nth [1 2] 1)])))
+  (testing "the adapter catches only the module's own refusal"
+    (let [other (yang/outcome-adapter
+                  data/refusal-message
+                  (fn [] (throw (ex-info "other" {:yin.vm.data/op 'x, :yin.vm.data/reason :y}))))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"other" (other))))
+    (let [npe (yang/outcome-adapter data/refusal-message
+                                    (fn [] (throw (NullPointerException.))))]
+      (is (thrown? NullPointerException (npe))))))
+
+
+(deftest test-outcome-native-path-emits-none
+  (let [forms '[(defn f [x] (throw (ex-info "t" {}))) (defn g [x] (+ x 1)) (g 1)]]
+    (is (not-any? #(= :yin.k/ok %) (ast-nodes (yang/compile-program forms true av-opts)))
+        "the convention without :outcomes carries no outcome tags")
+    (is (not-any? #(= :yin.k/ok %) (ast-nodes (yang/compile-program '[(defn g [x] (+ x 1)) (g 1)]))))
+    (is (some #(= :yin.k/ok %) (ast-nodes (yang/compile-program forms true outcome-opts))))))
+
+
+(deftest test-outcome-tail-forwarding-depth
+  (let [prog (fn [defs n] (yang/compile-program (conj defs (list 'cnt n)) true outcome-opts))
+        three '[(defn c [n] (if (= n 0) :done (a (- n 1))))
+                (defn b [n] (c n))
+                (defn a [n] (b n))
+                (defn cnt [n] (a n))]
+        direct '[(defn cnt [n] (if (= n 0) :done (cnt (- n 1))))]
+        wrapped '[(defn cnt [n] (if (= n 0) 0 (+ 1 (cnt (- n 1)))))]]
+    (doseq [[label defs] [["self tail call" direct] ["three tail calls" three]]
+            [lane run-lane] [[:walker walker-run] [:semantic semantic-run]]]
+      (let [[v0 d0] (run-lane (prog defs 0))
+            [v100 d100] (run-lane (prog defs 100))
+            [v1000 d1000] (run-lane (prog defs 1000))
+            tag (str lane " " label)]
+        (is (= [:yin.k/ok :done] v0 v100 v1000) tag)
+        (is (= d100 d1000) (str tag ": depth constant in the iteration count"))
+        (when (= lane :semantic)
+          (is (<= d1000 (+ d0 2)) (str tag ": constant over the base depth")))))
+    (testing "negative control: a non-tail unwrap grows with the iteration count"
+      (let [[_ d10] (semantic-run (prog wrapped 10))
+            [_ d100] (semantic-run (prog wrapped 100))]
+        (is (> d100 (+ d10 50)))))))
+
+
+(deftest test-program-pre-pass
+  (testing "a reserved-prefix symbol is refused in any position"
+    (doseq [forms ['[(def x dsg__y)]
+                   '[(defn f [] (g dsg__av))]
+                   '[(let [a dsg__z] a)]
+                   '[(def dsg__w 1)]
+                   '[[dsg__q]]
+                   '[(fn [x] {:k dsg__v})]]]
+      (is (thrown? clojure.lang.ExceptionInfo (yang/compile-program forms)) (pr-str forms))))
+  (testing "bare loop and recur are refused outside operator position"
+    (doseq [forms ['[(map recur [1])]
+                   '[[loop]]
+                   '[(let [loop 1] loop)]
+                   '[(fn [recur] recur)]
+                   '[(def x loop)]]]
+      (is (thrown? clojure.lang.ExceptionInfo (yang/compile-program forms)) (pr-str forms))))
+  (testing "quoted data is exempt and operator position stays legal"
+    (is (= '(loop recur dsg__x) (compile-program-and-run '[(quote (loop recur dsg__x))])))
+    (is (some? (yang/compile-program '[(loop [i 0] (if (< i 2) (recur (+ i 1)) i))])))))
+
+
+(deftest test-recur-count-message-names-its-target
+  (letfn [(message [thunk] (try (thunk) nil
+                                (catch clojure.lang.ExceptionInfo e (ex-message e))))]
+    (is (re-find #"loop bindings" (message #(yang/compile '(loop [a 1 b 2] (recur 1))))))
+    (is (re-find #"fn parameters" (message #(yang/compile '(fn [a b] (recur 1))))))
+    (is (re-find #"fn parameters"
+                 (message #(av-ast '[(defn h ([n] (recur 1 2)) ([a b] a))]))))))
