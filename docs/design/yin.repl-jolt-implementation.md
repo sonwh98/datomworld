@@ -960,40 +960,152 @@ above the bound. Bracket counting alone does not bound every recursion path;
 reviewed guards go before unsafe recursion where needed. If safe enforcement
 cannot be shown, feasibility fails and goes back to the owner.
 
-Enforced (J5, known-gaps row 59, glm-5.3 ruling `1793096000000` §2). The C++
-wrapper refuses before any ANTLR object exists, at the top of
-`jolt_parser_export` (`native/jolt-parser/jolt_parser.cpp`, "THE BUDGET"):
+Enforced (J5b, known-gaps row 59). J5 first enforced nesting with a flat
+pre-parse scan of the source; the review of that slice found four inputs the
+scan misread (lexer differences, an uncounted comprehension chain, unary runs
+discarded inside brackets, and flat binary chains whose deep trees the
+recursive walkers overflowed), and the scan was replaced rather than
+repaired: a sound scan would have to reproduce the lexer and every recursive
+path of the grammar, which is a parser. The only exact measure of the
+nesting that costs native stack is the parser's own, so the bounds are
+guards inside recognition (`native/jolt-parser/jolt_parser.cpp`, "THE
+BUDGET"):
 
-- input: more than 4 MiB of source is status -6 (`input <measured> <bound>`);
-  `yang.antlr.cst` mirrors the check before the FFI call;
-- nesting: one flat O(bytes), O(1)-space prescan charges each recursive
-  carrier of the pinned grammar one level and refuses when the worst
-  simultaneous sum exceeds the depth bound, status -7
-  (`nesting <measured> <bound>`). Strings and comments are skipped; explicit
-  line joins are followed.
+- input: more than 4 MiB of source is status -6 (`input <measured> <bound>`),
+  decided before any ANTLR object exists; `yang.antlr.cst` mirrors the check
+  before the FFI call.
+- rule frames: `BoundedParser` overrides the virtual rule entries every
+  generated rule function calls first (`Parser::enterRule`,
+  `enterRecursionRule`; runtime `Parser.h:273-290`, generated
+  `Python3Parser.cpp:8438`, `:8879`). `Parser::exitRule` is not virtual
+  (`Parser.h:275`), so the count is not a counter decremented on exit: the
+  frame depth is the length of the current context's parent chain, which
+  equals the live rule activations because each activation contributes
+  exactly one context to the chain at all times (a left-recursive loop
+  replaces its frame's context and reparents the previous one beneath it;
+  unrolling restores the caller's). The generated parser has no labelled
+  alternatives. The depth is recorded per context at entry (its parent's
+  plus one; a `pushNewRecursionContext` context inherits its frame's) rather
+  than walked: walking the chain at each entry measured 9-123 percent slower
+  on the at-bound shapes. Entering a frame deeper than `N_rule` refuses. The
+  loop of a left-recursive rule adds tree depth, not stack, and is not
+  counted.
+- lookahead: prediction recurses over its own context chains, ahead of the
+  parser, where no rule-entry guard sees it (closure pops, merge, equality,
+  caching and the recursive destruction of `shared_ptr` parent chains).
+  `BoundedSimulator` overrides `getEpsilonTarget` (`ParserATNSimulator.h:788`):
+  on every RULE transition the chain it makes (the longest parent path of the
+  configuration's context, plus one) must not pass `N_look` in SLL
+  prediction, nor the outer context's length plus `N_full` in full-LL
+  prediction, whose start state is the outer rule stack (`computeStartState`
+  records that length). The walk is iterative and memoized for one
+  prediction (its references keep the contexts it names alive). A prediction
+  whose context graph exceeds 4x the bound in distinct nodes also refuses (a
+  cap, not an undercount; not reached on the oracle corpus).
+- refusal: a `NestingRefused` derived from no exception class. Generated rule
+  bodies catch only `RecognitionException` (`Python3Parser.cpp:762`), so it
+  unwinds every frame, whose RAII finally (`support/CPPUtils.h:23`) runs the
+  base `exitRule`/`unrollRecursionContexts`; nothing the guards override runs
+  during the unwinding. The answer is status -7,
+  `nesting <measured> <bound> rule|lookahead`, made before any buffer
+  exists, so no partial packet can escape.
+- thread: everything from the source stream to the buffer handed back, in
+  both entries, and the destruction of a worker's caches run on a
+  wrapper-owned pthread with a fixed 16 MiB stack (committed lazily), joined
+  before the `:blocking` call returns. The worker's busy flag is taken on the
+  caller before the spawn and released after the join; the helper touches no
+  jolt memory (the source is `ffi/alloc` native memory). A thread that cannot
+  be started answers -3 with a message; a worker freed then is leaked, never
+  destroyed on the caller's stack. The §7.5 contract is unchanged: jolt makes
+  one synchronous blocking call.
+- walkers: both export walkers use an explicit stack and emit the same
+  preorder bytes, so a tree as deep as its input (`1+1+...`) costs them no
+  native stack.
 
-| carrier | counted                                                            |
-|---------|--------------------------------------------------------------------|
-| bracket | `(` `[` `{` open depth                                             |
-| unary   | a run of `-` `+` `~` `not` in operand position                     |
-| power   | `**` per logical line                                              |
-| ternary | `if` after an operand, per logical line                            |
-| lambda  | `lambda` per logical line                                          |
-| indent  | INDENT levels from leading whitespace (tabs to 8), counted, never inferred from size |
+| constant | value | derivation |
+|---|---|---|
+| `kMaxInputBytes` | 4 MiB | unchanged from J5 |
+| `kParseStack` | 16 MiB | fixed; replaces J5's stack clamp |
+| `N_rule` | 8,192 frames | `N_rule` x c_rule <= `kParseStack`/4 |
+| `N_look` | 4,096 links | `N_look` x c_link <= `kParseStack`/4 |
+| `N_full` | 256 links | time, not stack: full-LL lookahead over a unary run grows about 9x per doubling |
 
-Derivation: the shallowest r5 crash bracket on the 512 KiB macOS jolt thread
-is 512 levels (call, unary; parens/list 544), about 1 KiB a level at the
-worst per-level cost, which every carrier is charged. `N_depth` = 256 is a 2x
-margin under it at the 512 KiB basis; a thread with a smaller stack (the
-production `pthread_get_stacksize_np`/`pthread_getattr_np` read) clamps the
-bound down in proportion, never up. Time is derived, not interrupted: the
-worst at-bound legal parse on macOS arm64 is unary at 256 (about 3.5 s; 4 MiB
-of comment 1.6 s), Linux in the J5 findings. A refusal is operational:
-`{:diagnostic :parser-budget :axis :input|:nesting :bound n :measured m
-:lang :yang/python}` through the `:unavailable-parser` channel, thrown at the
-parse stage, never a syntax error, no partial packet, the session survives.
-The JVM, Node and Dart parsers have no such bound: an above-bound source the
-JVM parses is refused on jolt (a recorded divergence, not a parity pin).
+The calibration record (`bb calibrate:jolt-j5`, a guards-off build,
+`-DJOLT_PARSER_UNBOUNDED=ON`, test seams only) paints the 16 MiB parse thread's
+stack and divides each shape's high-water mark by its deepest rule frame or
+longest chain. On macOS arm64 the rule shapes cost 89-105 bytes a frame
+(`N_rule` at most 858 KB, error recovery at the deepest frame included), the
+SLL shapes at most 199 bytes a link (815 KB), the unary full-LL run 681 bytes
+a link (174 KB at 256), and a full-LL decision under 800 brackets of outer
+stack 199 bytes a frame (1.6 MB at `N_rule`): every bound is under the 4 MiB
+quarter.
+
+In source terms (measured per level; `src/dev/jolt_j5_shapes.cljc` holds the
+table the probe asserts, n parsing and n+1 refused with exactly
+`{:axis :nesting :bound B :measured B+1}` and its `:kind`):
+
+| shape | per level | binding bound | largest n |
+|---|---|---|---|
+| `(`/`[` nests | 9 frames | rule | 908 |
+| nested calls `f(` | 10 links | SLL | 408 |
+| bracket nest inside a call, closed or open at EOF | 9 links | SLL | 453 |
+| `not` runs, ternaries (also backslash-continued) | 1 frame | rule | 8,178 |
+| `lambda` chains | 2 frames | rule | 4,089 |
+| comprehension `for` clauses | 2 frames | rule | 4,085 |
+| INDENT levels | 4 frames | rule | 2,045 |
+| unary `-` runs | 1 full-LL link | full | 253 |
+| `**` chains, `1+1+...` | none: the generated `expr` loop is iterative; the 100,000-deep tree is the walker leg | input | - |
+
+Time is not bounded inside the axes. The at-bound nesting parses are seconds
+(macOS arm64: 4.4 s backslash-continued ternaries at 8,178, 4.1 s ternaries,
+1.9 s comprehensions, 1.6 s INDENT, 1.3 s unary at 253, under 1 s elsewhere;
+4 MiB of comment 1.3 s; Linux x86_64 in the J5b record). Two flat shapes are
+slow and no axis addresses them: the pinned runtime parses a `1+1+…` chain in
+quadratic time (16,000 operators 7.4 s natively, 100,000 about 340 s; the
+backslash-joined chained assignment `x = 1 if 1 else \` ×100,000, 16 frames,
+89 to 150 s) and an SLL decision whose lookahead walks a `1*1*…` chain grows
+faster still (2,000 operators 21 s, 4,000 about 490 s; the chain refuses at
+4,097 links). An under-bound source of a few kilobytes can therefore hold the
+parse thread for minutes. No cancellation of an under-bound parse is offered
+and no refusal is keyed on elapsed time (a refusal is a function of the
+source, identical on every host). For the Local REPL milestone the only
+source is the local user and this is disclosed; before any parse of remotely
+sourced Python (J6), slice J5c adds a deterministic work budget (prediction
+steps plus rule entries, refused as `:axis :work`), see known-gaps. The
+pinned runtime parses a flat `1+` chain in quadratic time; R4 at full size is
+measured, not gated: the walker legs are the 20,000-operator `1+` chain, the
+backslash-joined chained assignment at 10,000 lines and the 100,000-deep `**`
+tree, each equal to the JVM's packet (macOS arm64 walls on jolt: 12.3 s,
+7.6 s, 21.2 s).
+
+A refusal is operational: `{:diagnostic :parser-budget :axis :input|:nesting
+:bound n :measured m [:kind :rule|:lookahead] :lang :yang/python}` through the
+`:unavailable-parser` channel, thrown at the parse stage, never a syntax
+error, no partial packet, the same worker parses again and the session
+survives. The JVM, Node and Dart parsers have no such bound: an above-bound
+source the JVM parses is refused on jolt (a recorded divergence, not a parity
+pin). The JVM oracle's own exporter recurses per tree level and overflows its
+default stack on a 20,000-deep `1+` tree; the comparison runs it with
+`-Xss1g`.
+
+Platforms. J5b's budget, crash, calibration and time legs ran on macOS arm64
+(`bb probe:jolt-j5`, `bb calibrate:jolt-j5`). The owner's "linux only" waiver
+covers the long lanes and the sanitizer.
+
+On Linux x86_64 (shiva, 2026-10-29) the budget and below legs ran green at the
+J5b round-3b bytes: `bb probe:jolt-j5` exited 0 and `bb test:jolt-j5` printed
+ALL PASS with 0 FAIL. The sanitizer harness, run there at 0, 5, 50 and 100
+cycles, measured a constant 181,088 bytes in 3,312 allocations at every count:
+the leak is independent of the cycle count. It is the ANTLR4 full-context
+prediction reach set, which leaks once per parser-budget refusal because the
+guard throws inside `ParserATNSimulator::closure`'s exception path and the set
+is freed on the normal and no-viable-alternative exits only. It is bounded and
+benign at the observed scale; the fix, a reach-computation override in the
+bounded simulator, rides with J5c (see known-gaps).
+
+The earlier J5 closure's corrected crash-depth driver, -4 parity/sanitizer
+legs and shell corpus ran on Linux only; its macOS results predate those
+fixes.
 
 Blast radius. Catches contain catchable C++ exceptions only. An access
 violation, abort, stack exhaustion or fatal runtime/parser bug takes down the
@@ -1472,11 +1584,15 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 | both APPROVE                                |                   |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J5: complete standard frontends             | The selected      | §7.8 J5 gate. Standard catalog loads and `(lang :yang/python)` works;                               |
-| landed on jolt-j5, review pending           | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
+| landed on jolt-j5; J5b review pending       | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
 |                                             | parser, standard  | local-build-only packaging. **Local REPL milestone**, native C++ parser library disclosed; no       |
 |                                             | catalog, complete | process crash isolation claimed.                                                                    |
 |                                             | ness-probe        | Amended (row 59): enforced input/nesting budget, stage-owned worker lifecycle and the               |
-|                                             | integration       | unavailable-helper answer (§7.6); bb probe:jolt-j5, bb test:jolt-j5 on both platforms.              |
+|                                             | integration       | unavailable-helper answer (§7.6). Reopened in J5b: the prescan replaced by in-parser guards on a    |
+|                                             |                   | 16 MiB parse thread (§7.6). J5b budget/crash legs (bb probe:jolt-j5, bb calibrate:jolt-j5) on       |
+|                                             |                   | macOS arm64 and one Linux host; sanitizer on Linux; long lanes Linux only (shiva, jupiter) under    |
+|                                             |                   | the owner's "linux only" waiver. J5c (deterministic work budget) ledgered; precondition for         |
+|                                             |                   | J6 Python over the network.                                                                         |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J6: native WebSocket and network REPL peers | RFC 6455 host     | Preconditions: C0-C4 on master; the Autobahn release, case list and exception list pinned in the    |
 | not started                                 | adapter on the    | brief (§9.5). §9.6 on both platforms, including the frame-too-large matrix (ruling 3, A4 wording).  |

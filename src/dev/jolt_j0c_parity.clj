@@ -435,12 +435,12 @@
 
 
 (check "repl-probe's parser is the tracked parser.cljc (J5: its :jolt arms), with the native rule-name table and the same grammar id"
-       (let [names @(resolve 'yang.python.antlr.parser/rule-names)]
+       (let [names ((resolve 'yang.python.antlr.parser/rule-names))]
          (and (true? ((resolve 'yang.python.antlr.parser/available?)))
               (vector? names) (some #{"file_input"} names)
               (= grammar-id @(resolve 'yang.python.antlr.parser/grammar-id))))
        {:grammar-id @(resolve 'yang.python.antlr.parser/grammar-id),
-        :rules (count @(resolve 'yang.python.antlr.parser/rule-names))})
+        :rules (count ((resolve 'yang.python.antlr.parser/rule-names)))})
 
 
 (doseq [{:keys [text first-failure-calls], answer :probe} (:probe oracle)]

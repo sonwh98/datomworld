@@ -185,7 +185,7 @@
 
 (deftest every-grammar-rule-name-is-exported-by-name-test
   (testing "rule records use the grammar's rule names"
-    (let [names (set parser/rule-names)
+    (let [names (set (parser/rule-names))
           pk (parser/parse-source
                "class A(B):\n    def m(self, *a):\n        while x: pass\n")]
       (is (every? #(contains? names (:rule %))

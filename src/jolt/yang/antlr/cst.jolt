@@ -119,9 +119,11 @@
                      :library library}))))
 
 
-;; The budget (J5, known-gaps row 59): the wrapper refuses an input over
-;; either bound before any ANTLR object exists (statuses -6 and -7). The input
-;; bound is mirrored here so an oversized source is refused without the call.
+;; The budget (J5b, known-gaps row 59): the wrapper refuses an input over the
+;; input bound before any ANTLR object exists (status -6), and nesting from
+;; guards inside recognition (status -7, kind rule or lookahead), before any
+;; buffer is built. The input bound is mirrored here so an oversized source
+;; is refused without the call.
 (def input-bound
   "The largest source, in UTF-8 bytes, the native parser accepts: 4 MiB, as
    native/jolt-parser's kMaxInputBytes."
@@ -129,14 +131,23 @@
 
 
 (defn- budget-refusal
-  "The qualified :parser-budget diagnostic for `axis` (:input or :nesting):
-   an operational refusal, never a syntax error, never another parser."
-  [axis measured bound]
-  (ex-info (str "parser-budget: " (name axis) " " measured " is over the bound "
-                bound (if (= :input axis) " bytes" " nesting levels")
-                " (the native Python parser refuses before parsing)")
-           {:diagnostic :parser-budget, :axis axis, :bound bound,
-            :measured measured}))
+  "The qualified :parser-budget diagnostic for `axis` (:input, or :nesting
+   with `kind` :rule or :lookahead): an operational refusal, never a syntax
+   error, never another parser, never a partial packet."
+  ([axis measured bound] (budget-refusal axis measured bound nil))
+  ([axis measured bound kind]
+   (ex-info (str "parser-budget: " (name axis) " " measured " is over the bound "
+                 bound
+                 (case kind
+                   :rule " rule frames"
+                   :lookahead " lookahead links"
+                   " bytes")
+                 (if (= :input axis)
+                   " (the native Python parser refuses before parsing)"
+                   " (the native Python parser refuses; no partial packet)"))
+            (cond-> {:diagnostic :parser-budget, :axis axis, :bound bound,
+                     :measured measured}
+              kind (assoc :kind kind)))))
 
 
 (defn- with-native
@@ -307,10 +318,11 @@
             (throw (budget-refusal :input (alength src) input-bound)))
         [status bs] (call-export (handle worker) src)]
     (when (#{-6 -7} status)
-      ;; the wrapper's message: "input|nesting <measured> <bound>"
-      (let [[axis measured bound] (str/split (String. ^bytes bs "UTF-8") #" ")]
+      ;; the wrapper's message: "input <measured> <bound>" or
+      ;; "nesting <measured> <bound> <rule|lookahead>"
+      (let [[axis measured bound kind] (str/split (String. ^bytes bs "UTF-8") #" ")]
         (throw (budget-refusal (keyword axis) (parse-long measured)
-                               (parse-long bound)))))
+                               (parse-long bound) (some-> kind keyword)))))
     (when-not (zero? status)
       (throw (ex-info "jolt parser failed"
                       {:status status,
@@ -368,19 +380,21 @@
   nil)
 
 
-(def ^:private rule-table
-  (delay
-    (let [w (make-worker {})]
-      (try (:rules (export-records w ""))
-           (finally (close-worker w))))))
+;; the table once a read has succeeded; a failed read (no library yet) is
+;; retried by the next call
+(def ^:private rule-table (atom nil))
 
 
 (defn rule-names
   "The grammar's rule-name table, as the native parser reports it (the
-   JPX1 buffer carries it with every parse; read once). Jolt-only: the
-   other hosts read it from their generated parser class."
+   JPX1 buffer carries it with every parse; read once it succeeds). Throws
+   unavailable-parser while the library is unavailable. Jolt-only: the other
+   hosts read it from their generated parser class."
   []
-  @rule-table)
+  (or @rule-table
+      (let [w (make-worker {})]
+        (try (reset! rule-table (:rules (export-records w "")))
+             (finally (close-worker w))))))
 
 
 (defn- error-record

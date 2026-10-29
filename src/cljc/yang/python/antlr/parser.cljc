@@ -44,17 +44,19 @@
              :cljs (fn [^js p] (.file_input p)))})
 
 
-(def rule-names
-  "The grammar's rule-name table."
+(defn rule-names
+  "The grammar's rule-name table. A function, so requiring this namespace
+   does no native work: on jolt the table is what the native parser reports,
+   read when first asked for (unavailable-parser is thrown while the library
+   is unavailable, and a later call retries)."
+  []
   ;; Dart's table is an instance member of the generated parser.
   #?(:cljd (vec (.-ruleNames
                   (parser-ns/Python3Parser
                     (antlr4/CommonTokenStream
                       (lexer-ns/Python3Lexer
                         (antlr4/InputStream.fromString ""))))))
-     ;; jolt: the table the native parser reports; nil when the native
-     ;; library is unavailable (see `available?`)
-     :jolt (when (cst/available?) (cst/rule-names))
+     :jolt (cst/rule-names)
      :clj (vec (seq Python3Parser/ruleNames))
      :cljs (vec (.-ruleNames Python3Parser))))
 
@@ -123,10 +125,17 @@
    CST packets to `cst-stream`. The stage owns its worker: `close-stage`
    disposes it and `reset-stage` replaces it with a fresh one."
   [source-stream cst-stream]
-  (let [w (make-worker)]
-    (assoc (stage/open source-stream {:cst cst-stream} {})
-           ::worker w
-           ::transform (cst/parse-transform w))))
+  ;; the stage first: opening it can refuse (a source cursor that cannot be
+  ;; had), and then no worker exists to leak
+  (let [s (stage/open source-stream {:cst cst-stream} {})
+        w (make-worker)]
+    (try
+      (assoc s
+             ::worker w
+             ::transform (cst/parse-transform w))
+      (catch #?(:cljd Object :clj Throwable :cljs :default) e
+        (close-worker w)
+        (throw e)))))
 
 
 (defn close-stage

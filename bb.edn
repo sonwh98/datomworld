@@ -48,9 +48,14 @@
            (:exit (shell {:continue true} "bb" "src/dev/jolt_j5_acceptance.clj")))}
 
   probe:jolt-j5
-  {:doc "J5: the native Python parser's budget (input 4 MiB, nesting 256, stack-clamped) below/at/above both axes, 10x the old crash depths, the JVM's packets below the bound, the old crash depths refusing in children, injected C++ faults, the abort-is-a-failure harness property, and the unavailable-library legs (needs bb build:jolt-native)"
+  {:doc "J5b: the native Python parser's budget (input 4 MiB; in-parser guards: 8192 rule frames, 4096 SLL lookahead links, 256 full-LL links, on a 16 MiB parse thread): the review's repros, at/over per shape against the predicted table, 10x the old crash depths, the JVM's packets (incl. a 20,000-deep 1+ tree), the old crash depths in children on the jolt thread, injected C++ faults, the abort-is-a-failure property, lifecycle and unavailable-library legs. Args select legs: budget below crash inject abort unavailable (needs bb build:jolt-native)"
    :task (System/exit
-           (:exit (shell {:continue true} "bb" "src/dev/jolt_j5_run.clj")))}
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j5_run.clj" *command-line-args*)))}
+
+  calibrate:jolt-j5
+  {:doc "J5b C4: build the guards-off calibration variant of native/jolt-parser and record each nesting shape's stack cost per rule frame and per lookahead link on the 16 MiB parse thread; asserts every bound fits a quarter of the stack (writes build/j5b/calibration.edn; needs bb build:jolt-native)"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j5_calibrate.clj" *command-line-args*)))}
 
   probe:jolt-file
   {:doc "J4a: native/jolt-file gates, each in a child process: JVM-identical frame bytes (both hash algorithms), F2 s32BE prefixes, strict reads, injected short/EINTR/zero-progress/error transfers, corrupt-open byte identity, idempotent close, no fd or native-memory leak, a full collection during a 1 GiB :blocking pwrite, missing/wrong-layout wrapper refused before guest work, exported-symbol allowlist (needs bb build:jolt-native)"

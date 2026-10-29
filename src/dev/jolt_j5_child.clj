@@ -14,6 +14,8 @@
 ;;                    Python is not in the catalog and answers
 ;;                    unavailable-parser; Clojure and PHP evaluate in the same
 ;;                    session
+;;   require          with the library present: requiring loaded nothing; the
+;;                    first rule-names call loads it (C8)
 ;;   retry <lib>      starts unavailable, then the library appears at the
 ;;                    expected path (copied from <lib>): the next selection
 ;;                    loads it and evaluates Python
@@ -66,15 +68,27 @@
              :texts (session ["(lang :yang/python)" "(+ 1 2)" "(lang :yang/php)" "1 + 2;"
                               "(lang :yang/clojure)" "(* 6 7)"])})
 
+    "require"
+    ;; in a root whose library exists: requiring the parser, the frontends
+    ;; and the REPL (this namespace's requires) loaded nothing
+    (result {:loaded-after-require @@(resolve 'yang.antlr.cst/loaded?)
+             :names (first (parser/rule-names))
+             :loaded-after-ask @@(resolve 'yang.antlr.cst/loaded?)})
+
     "retry"
-    (let [before (parser/available?)
+    (let [loaded @@(resolve 'yang.antlr.cst/loaded?)
+          names-before (try (first (parser/rule-names))
+                            (catch Exception e (:diagnostic (ex-data e))))
+          before (parser/available?)
           t1 (session ["(lang :yang/python)"])
           dest (java.io.File. ^String cst/library)]
       (.mkdirs (.getParentFile dest))
       (let [r (.start (ProcessBuilder. ^java.util.List ["cp" arg (.getPath dest)]))]
         (.waitFor r))
-      (result {:before before, :first t1, :after (parser/available?),
-               :then (session ["(lang :yang/python)" "1 + 2"])}))))
+      (result {:loaded-after-require loaded, :names-before names-before,
+               :before before, :first t1, :after (parser/available?),
+               :then (session ["(lang :yang/python)" "1 + 2"])
+               :names-after (first (parser/rule-names))}))))
 
 
 (System/exit 0)
