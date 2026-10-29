@@ -694,6 +694,16 @@
   (boolean (some #(failing? env %) forms)))
 
 
+(defn- check-macro-operands!
+  "A macro call is opaque to the lowering pass, so an operand that may fail
+   would escape the early return: refuse it, naming the macro."
+  [env head ops]
+  (when (any-failing? env ops)
+    (reject! (str "Macro call " head " has an operand that may fail; "
+                  "the outcome model cannot lower it")
+             {:macro head})))
+
+
 (defn- scoped-failing?
   "Whether a sequence of [target init] pairs or the body after them can fail,
    each init seeing the targets before it."
@@ -734,7 +744,7 @@
           (contains? lowered-specials head) (any-failing? env ops)
           :else (case (call-kind env head)
                   (:guest :adapted) true
-                  :macro false
+                  :macro (do (check-macro-operands! env head ops) false)
                   (any-failing? env ops)))))
     (or (vector? form) (set? form)) (any-failing? env form)
     (map? form) (any-failing? env (concat (keys form) (vals form)))
@@ -861,7 +871,7 @@
                  (lower-tail env (list 'dsg__let [g (first ops)]
                                        (list 'if g g (cons 'or (rest ops)))))))
           (case (call-kind env head)
-            :macro (ok-form form)
+            :macro (do (check-macro-operands! env head ops) (ok-form form))
             :keyword (lower-operands env (vec ops)
                                      (fn [vs] (ok-form (rebuild form (cons head vs)))))
             :native (lower-operands env (vec ops)
@@ -1451,6 +1461,20 @@
     (coll? form) (run! check-program-symbols! form)))
 
 
+(defn- check-top-level-discard!
+  "Only the last top-level form's outcome reaches the harness, so a non-final,
+   non-definition form that may fail would have its error silently discarded:
+   refuse it, as a def value that calls guest functions is refused. Returns
+   `form`."
+  [env macro-env forms form]
+  (when (and (next forms)
+             (not (and (seq? form) (contains? #{'def 'defn 'defn- 'defmacro} (first form))))
+             (failing? (assoc env ::macro-env macro-env) (rewrite-ex-info form)))
+    (reject! "A non-final top-level form that may fail would discard its error outcome"
+             {:form form}))
+  form)
+
+
 (defn- lower-top-form
   "Under the outcome model a top-level expression returns an outcome like a
    function body; definitions keep their own lowering."
@@ -1478,6 +1502,7 @@
                (if (empty? forms)
                  (compile-literal nil tail?)
                  (let [head       (cond->> (first forms)
+                                    (outcomes? env) (check-top-level-discard! env macro-env forms)
                                     (outcomes? env) (lower-top-form env macro-env))
                        rest-forms (rest forms)]
                    (cond

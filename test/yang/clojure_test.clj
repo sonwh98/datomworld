@@ -1230,6 +1230,26 @@
         (is (> d100 (+ d10 50)))))))
 
 
+(deftest test-outcome-refusals
+  (let [opts (assoc outcome-opts :macros #{'cond})
+        refused (fn [forms]
+                  (try (yang/compile-program forms true opts) nil
+                       (catch clojure.lang.ExceptionInfo e (ex-message e))))]
+    (testing "a macro call with an operand that may fail is refused, naming the macro"
+      (is (re-find #"Macro call cond"
+                   (refused '[(defn g [x] x) (defn f [x] (cond (g x) 1 :else 2))])))
+      (is (re-find #"Macro call cond"
+                   (refused '[(defn g [x] x) (defn f [x] (+ 1 (cond :else (g x))))]))
+          "in operand position too"))
+    (testing "a macro call whose operands cannot fail is still opaque and accepted"
+      (is (nil? (refused '[(defn f [x] (cond (= x 1) 1 :else 2))]))))
+    (testing "a non-final top-level form that may fail is refused"
+      (is (re-find #"non-final top-level"
+                   (refused '[(defn g [x] x) (g 1) (g 2)])))
+      (is (nil? (refused '[(defn g [x] x) (g 1)])) "the final form is the harness's")
+      (is (nil? (refused '[(defn g [x] x) (+ 1 2) (g 2)])) "a non-failing form is fine"))))
+
+
 (deftest test-program-pre-pass
   (testing "a reserved-prefix symbol is refused in any position"
     (doseq [forms ['[(def x dsg__y)]
