@@ -64,6 +64,14 @@
     (is (= {:kind :global} (scope/resolve a (:id f) "console")))))
 
 
+(deftest enum-binding-test
+  (let [[_ a] (analysis "const enum E { A = 1 } console.log(E.A);")
+        module (get (:scopes a) (:module a))]
+    (is (= ["E"] (:vars module)))
+    (is (= {:kind :cell, :tdz? false, :const? false}
+           (scope/resolve a (:module a) "E")))))
+
+
 (deftest scope-kinds-test
   (let [[_ a] (analysis "for (let i = 0; i < 2; i++) { } try { } catch (e) { }
                          const h = (x) => x; const g = function (y) { return this; };")]

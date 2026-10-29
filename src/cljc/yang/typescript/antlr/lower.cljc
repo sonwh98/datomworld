@@ -75,7 +75,6 @@
    "exportStatement" {:construct "module syntax", :slice :T7},
    "withStatement" {:construct "with statement", :slice :never},
    "yieldStatement" {:construct "yield", :slice :T5},
-   "enumDeclaration" {:construct "enum", :slice :T9},
    "namespaceDeclaration" {:construct "namespace", :slice :T9},
    "generatorFunctionDeclaration" {:construct "generator function",
                                    :slice :T5},
@@ -109,6 +108,7 @@
     "expressionSequence" "singleExpression" "anonymousFunction"
     "arrayLiteral" "objectLiteral"
     "arrowFunctionDeclaration" "literal" "templateStringLiteral"
+    "enumDeclaration" "enumBody" "enumMemberList" "enumMember"
     "classDeclaration" "classTail" "classElement" "classHeritage"
     "classExtendsClause" "constructorDeclaration" "staticBlock"
     "propertyMemberDeclaration" "propertyMemberBase" "classElementName"
@@ -1760,6 +1760,51 @@
             decls))))
 
 
+(defn- lower-enum
+  "Lower a runtime enum object with ordered forward and numeric reverse
+   mappings. `const enum` intentionally follows the same object path under
+   the pinned preserveConstEnums/isolatedModules profile."
+  [ctx n]
+  (let [id (first (rules ctx n "identifier"))
+        nm (text-of ctx id)
+        body (first (rules ctx n "enumBody"))
+        members (when body (rules ctx body "enumMemberList"))
+        members (if-let [lst (first members)] (rules ctx lst "enumMember") [])
+        init (init-name nm (app* 'js/make-object))]
+    (letfn [(emit-member
+              [i previous]
+              (if (= i (count members))
+                undefined
+                (let [member (nth members i)
+                      pn (first (rules ctx member "propertyName"))
+                      {:keys [key hint]} (property-key ctx pn)
+                      val-node (first (rules ctx member "singleExpression"))
+                      value (gen "enumv" member)
+                      value-expr (if val-node
+                                   (if hint (lower-named ctx val-node hint)
+                                       (lower-expr ctx val-node))
+                                   (if previous
+                                     (app* 'js/add (u/v previous)
+                                           (u/lit (cbor/float64 1.0)))
+                                     (u/lit (cbor/float64 0.0))))
+                      forward (app* 'js/create-data-prop!
+                                    (read-name ctx nm) key (u/v value))
+                      reverse (app* 'js/create-data-prop!
+                                    (read-name ctx nm)
+                                    (app* 'js/to-string (u/v value))
+                                    (app* 'js/to-string key))]
+                  (u/let1 value value-expr
+                          (u/then forward
+                                  (u/then
+                                    (u/if-node
+                                      (app* '= (app* 'js/typeof (u/v value))
+                                            (u/lit (jstr "number")))
+                                      reverse
+                                      undefined)
+                                    (emit-member (inc i) value)))))))]
+      (u/then init (emit-member 0 nil)))))
+
+
 (defn- lower-if
   [ctx n]
   (let [test (first (rules ctx n "expressionSequence"))
@@ -2117,6 +2162,7 @@
     (case (:rule n)
       "block" (lower-block ctx n)
       "variableStatement" (lower-var ctx n)
+      "enumDeclaration" (lower-enum ctx n)
       "emptyStatement_" undefined
       "expressionStatement" (lower-seq ctx (first (rules ctx n "expressionSequence")))
       "ifStatement" (lower-if ctx n)

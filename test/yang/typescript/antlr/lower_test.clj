@@ -285,7 +285,6 @@
            ["async function f() {}" "async function" :T6]
            ["import x from 'y';" "module syntax" :T7]
            ["export const a = 1;" "module syntax" :T7]
-           ["enum E { A }" "enum" :T9]
            ["namespace N {}" "namespace" :T9]
            ["eval('1');" "eval" :never]
            ["new Function('return 1');" "Function" :never]
@@ -308,6 +307,18 @@
 ;; =============================================================================
 ;; Classes (T3)
 ;; =============================================================================
+
+(deftest enum-runtime-emission-test
+  (doseq [src ["enum E { A, B, C = 7, D }\nconsole.log(E.A, E.B, E.C, E.D, E[0], E[7], E[8]);"
+               "const enum E { A = 2, B = 'bee' }\nconsole.log(E.A, E.B, E[2], typeof E[2]);"]]
+    (testing src
+      (let [result (run-all src)]
+        (is (every? #(= (first (vals result)) %) (vals result)) (pr-str result))
+        (is (= (if (str/starts-with? src "enum")
+                 ["0 1 7 8 A C D"]
+                 ["2 bee A string"])
+               (first (vals result))))))))
+
 
 (defn- ops
   "The operators `src` lowers to applications of."

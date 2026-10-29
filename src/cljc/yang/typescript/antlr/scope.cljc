@@ -634,6 +634,15 @@
                 (case (:rule n)
                   "variableStatement" (do (variable-statement n env)
                                           (walk-children n env))
+                  "enumDeclaration"
+                  (let [id (rule-child pk n "identifier")
+                        name (first-token-text pk id)]
+                    (when (p/has-token? pk n "declare")
+                      (early-error! "Ambient enum has no runtime value" n
+                                    {:name name
+                                     :yang.ts/diagnostic :yang.ts/ambient-const-enum}))
+                    (declare-var! (:scope env) n name)
+                    (walk-children n env))
                   "functionDeclaration"
                   (let [name (function-name pk n)
                         expr? (:fn-expr env)]
