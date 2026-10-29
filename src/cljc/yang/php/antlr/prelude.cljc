@@ -1436,8 +1436,10 @@
          (if (= (php/slot-kind cur) :ref-marker)
            (let [rc (get cur :php/ref)
                  st (cell/get rc)
-                 v2 (php/acquire v mode)]
-             (do (cell/set! rc (assoc st :value v2))
+                 v2 (php/acquire v mode)
+                 v3 (php/verify-ref-assign cur v2 (cell/get php.rt/strict))]
+             (do (cell/set! rc (assoc st :value v3))
+                 (php/release-unless-same v2 v3)
                  (php/delref (get st :value))
                  cont))
            (let [v2 (php/acquire v mode)
@@ -1768,7 +1770,7 @@
            (let [raw (php/slot-get a key)]
              (if (= (php/slot-kind raw) :ref-marker)
                (let [nv (php/path-assign-at (php/ref-value raw) ks (+ i 1) v)]
-                 (do (php/ref-set! raw nv) a))
+                 (do (php/ref-write! raw nv) a))
                (php/store a key (php/path-assign-at (if (nil? raw) :php/null raw)
                                                     ks
                                                     (+ i 1)
@@ -1810,7 +1812,7 @@
                      c
                      (let [a (php/separate c)]
                        (if (= (php/slot-kind raw) :ref-marker)
-                         (do (php/ref-set! raw (php/path-unset-at (php/ref-value raw) ks (+ i 1)))
+                         (do (php/ref-write! raw (php/path-unset-at (php/ref-value raw) ks (+ i 1)))
                              a)
                          (php/store a key (php/path-unset-at raw ks (+ i 1)))))))))
              (if (= kind :null)
@@ -1845,7 +1847,7 @@
            (let [raw (php/slot-get a key)]
              (if (= (php/slot-kind raw) :ref-marker)
                (let [r (php/path-ref-at (php/ref-value raw) ks (+ i 1))]
-                 (do (php/ref-set! raw (get r 0)) (php/pair a (get r 1))))
+                 (do (php/ref-write! raw (get r 0)) (php/pair a (get r 1))))
                (let [r (php/path-ref-at (if (nil? raw) :php/null raw) ks (+ i 1))]
                  (php/pair (php/store a key (get r 0)) (get r 1))))))))]
     [php/path-ref (fn [c ks] (php/path-ref-at c ks 0))]
@@ -1904,7 +1906,7 @@
            (let [c2 (php/store a key (php/addref m))]
              (do (php/delref raw) c2))
            (if (= (php/slot-kind raw) :ref-marker)
-             (do (php/ref-set! raw (php/path-bind-at (php/ref-value raw) ks (+ i 1) m)) a)
+             (do (php/ref-write! raw (php/path-bind-at (php/ref-value raw) ks (+ i 1) m)) a)
              (php/store a key (php/path-bind-at (if (nil? raw) :php/null raw) ks (+ i 1) m))))))]
     [php/path-bind (fn [c ks m] (php/path-bind-at c ks 0 m))]
 

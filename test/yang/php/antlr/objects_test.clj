@@ -92,3 +92,14 @@
                      " try { throw new E('abc'); } catch (E $e) { echo $e->getMessage(); }"))))
     (is (= {:class "E", :message "boom"}
            (-> (h/run-raw "<?php class E extends Exception {} throw new E('boom');") :php/uncaught)))))
+
+
+(deftest checkpoint-b-typed-property-destructuring-reference-test
+  (let [r (h/run-raw
+            (str "<?php class C { public int $p = 0; } $o = new C; $a = [5]; "
+                 "[&$o->p] = $a; "
+                 "try { $a[0] = 'x'; } catch (TypeError $e) { echo $e->getMessage(); } "
+                 "echo $o->p;"))]
+    (is (nil? (:php/uncaught r)))
+    (is (= "Cannot assign string to reference held by property C::$p of type int5"
+           (:php/out r)))))

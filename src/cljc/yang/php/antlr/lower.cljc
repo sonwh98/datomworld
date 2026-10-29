@@ -1436,8 +1436,19 @@
                     k (core/gen "dk" n)]
                 (u/let1 k
                         keynode
-                        (bind-var ctx (:var loc)
-                                  (ref-source-loc ctx n (update src-loc :path conj (u/v k)))))))
+                        (with-keys
+                          ctx
+                          loc
+                          (fn [target-loc]
+                            (let [marker (ref-source-loc ctx n (update src-loc :path conj (u/v k)))]
+                              (if (empty? (:path target-loc))
+                                (bind-var ctx (:var target-loc) marker)
+                                (put-var ctx
+                                         (:var target-loc)
+                                         (app* 'php/path-bind
+                                               (peek-var ctx (:var target-loc))
+                                               (path-node (:path target-loc))
+                                               marker)))))))))
           (vector? target)
           (let [t (core/gen "dt" n)]
             (u/let1 t
