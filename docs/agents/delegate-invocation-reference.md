@@ -182,14 +182,46 @@ authorized edits.
 **Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
 The managed 3.x aliases are `kimi-code/k3.1-pro`,
 `kimi-code/k3.1-pro-highspeed`, `kimi-code/k3`, and `kimi-code/k3-256k`; `-m`
-expects a configured model alias, not a bare model ID. Headless `-p` uses
+expects a configured model alias, not a bare model ID. The alias must be the
+**full provider-qualified name exactly as it appears in
+`~/.kimi-code/config.toml`'s `[models."…"]` keys** — e.g. `kimi-code/kimi-for-coding`
+(K2.8 Preview) and `kimi-code/kimi-for-coding-highspeed` (K2.7 Code Highspeed)
+are valid entries, while the bare forms `kimi-for-coding` or `kimi-k3` fail with
+`error: failed to run prompt: Model "…" is not configured in config.toml`.
+`kimi --version` and `--help` print to stderr/stdout without touching a session,
+so they are safe sanity checks; there is no trivial-prompt warm-up that avoids
+consuming a session slot. Headless `-p` uses
 `auto` permissions by default and cannot be combined with `--plan`, `--yolo`,
 or `--auto`. For a read-only review, bind a read-only agent at session creation
 with `--agent <read-only-agent>` or `--agent-file <path>`; for implementation,
-omit those flags. Resume with `--session <id>` and the original `-m` alias;
+omit those flags. Resume with `--session <id>` (equivalently `-S <id>`) and the
+original `-m` alias;
 the bound agent is restored, so do not pass agent-selection flags on resume.
 Start a fresh session when changing models or thinking effort. K3.1 Pro models
 require thinking to remain enabled.
+
+Kimi quirks learned in service (2026-10-29):
+
+- **A headless `-p` run holds an exclusive session lock until its process
+  exits.** A second `kimi` invocation on the same session fails immediately
+  with "This session is in use by another Kimi Code CLI instance". When an
+  orchestrator launches `kimi -p … &` in a background shell, the harness may
+  report the *shell* finished while the nohup'd kimi keeps running — check
+  `pgrep -f kimi` (or whether the stdout log has stopped growing) before
+  resuming; "session in use" almost always means the first run is still alive,
+  not that it died.
+- **`dispatch.sh` does not know `kimi`** (its cli case covers only
+  claude/glm/deepseek/muse/claude-cloud). Invoke kimi directly, mirroring the
+  reviewer/architect flags yourself:
+  `kimi -m "kimi-code/k3.1-pro" --output-format text -p "Read <prompt> and
+  complete it now." < /dev/null > <prompt-stem>.stdout.log 2>&1 &`.
+  A run cut off mid-review can be resumed with `-S <sessionId>` recovered from
+  `~/.kimi-code/session_index.jsonl` (last line for the working directory);
+  the resumed run sees the earlier transcript, so ask it to print the complete
+  deliverable rather than only the missing tail.
+- **Rolling 5-hour quota**: an exhausted quota answers
+  `API Error: Request rejected (429)` with the reset timestamp inline; park the
+  dispatch and re-dispatch after the stated reset (the prompt file survives).
 
 > [!CAUTION]
 > **Never use the `--bare` flag with any CLI above.** It forces Claude Code to ignore user settings files,
