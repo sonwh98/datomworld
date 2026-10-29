@@ -1668,3 +1668,215 @@
                         true (assoc outcome-opts :macros #{'unless}))
                       nil
                       (catch clojure.lang.ExceptionInfo e (ex-message e)))))))
+
+
+;; =============================================================================
+;; Slice 7: the guest collection and higher-order library
+;; =============================================================================
+
+(def ^:private library-modules
+  "The library's whole host surface: the `kind` module and the `portable`
+   adapters of the data exports the collection predicates read."
+  (let [host (fn [registry module-name fns arities]
+               (module/register-host-module
+                 registry module-name fns
+                 (into {} (map (fn [[op _]]
+                                 [op (vm/primitive-profile op :pure (get arities op [1]) #{} :none)]))
+                       fns)))
+        portable (into {}
+                       (map (fn [[source _]]
+                              (let [op (symbol (name source))]
+                                [op (yang/outcome-adapter data/refusal-message
+                                                          (get data/data-module op))])))
+                       yang/library-adapters)]
+    (-> av-modules
+        (host 'kind yang/kind-module yang/kind-arities)
+        (host 'portable portable
+              (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))
+                    (keys portable))))))
+
+
+(def ^:private library-opts
+  {:convention :arg-vector, :outcomes true
+   :adapters yang/library-adapters
+   :native vm/primitive-profiles})
+
+
+(defn- run-library
+  "The raw outcome of the last of `forms`, compiled with the library
+   definitions the program needs."
+  ([forms] (run-library forms library-opts))
+  ([forms opts]
+   (-> (tu/make-observer-session (tu/create-vm {:modules library-modules}))
+       (tu/queue-ast! (yang/compile-program (into (yang/library-for forms) forms) true opts))
+       tu/run-session
+       :consumer
+       vm/value)))
+
+
+(defn- lib
+  "The value of the single expression `form`, or the raw error outcome."
+  [form]
+  (let [[tag payload] (run-library [form])]
+    (if (= :yin.k/ok tag) payload [tag payload])))
+
+
+(deftest test-library-closes-over-its-own-names
+  (testing "library-for returns the definitions a program mentions, transitively"
+    (let [names (set (map second (yang/library-for '[(seq? x)])))]
+      (is (every? names '[seq? sequential? vector? map? set? coll?])
+          "seq? pulls sequential?, vector?, map?, set? and coll?")
+      (is (not (contains? names 'map))))
+    (is (= [] (yang/library-for '[(+ 1 2)])))
+    (is (= [] (yang/library-for '[(quote (map f xs))])) "quoted data mentions nothing")
+    (is (= [] (yang/library-for '[(defn map [f c] c) (map 1 2)]))
+        "a program definition shadows the library's")))
+
+
+(deftest test-library-kind-predicates
+  (testing "collection predicates are derived from the data module's refusals"
+    (is (= [true false false false false false]
+           (lib '[(vector? [1]) (vector? '(1)) (vector? {}) (vector? #{}) (vector? 1) (vector? nil)])))
+    (is (= [true false false false false]
+           (lib '[(map? {}) (map? [1]) (map? #{}) (map? nil) (map? "s")])))
+    (is (= [true false false]
+           (lib '[(set? #{1}) (set? [1]) (set? nil)])))
+    (is (= [true true true true false false false]
+           (lib '[(coll? []) (coll? '()) (coll? {}) (coll? #{}) (coll? nil) (coll? 1) (coll? "s")])))
+    (is (= [true false false false false]
+           (lib '[(seq? '(1 2)) (seq? []) (seq? {}) (seq? nil) (seq? 1)])))
+    (is (= [true true false false]
+           (lib '[(sequential? []) (sequential? '(1)) (sequential? {}) (sequential? 1)]))))
+  (testing "boolean?, fn?, identity, not=, inc, dec"
+    (is (= [true true false false] (lib '[(boolean? true) (boolean? false) (boolean? nil) (boolean? 0)])))
+    (is (= [true true false] (lib '[(fn? first) (fn? (fn [x] x)) (fn? 1)])))
+    (is (= [5 6 4 true false] (lib '[(identity 5) (inc 5) (dec 5) (not= 1 2) (not= 1 1)]))))
+  (testing "symbol?, keyword?, name, symbol, keyword, str, int? are the kind module's"
+    (is (= [true false true false] (lib '[(symbol? 'a) (symbol? :a) (keyword? :a) (keyword? 'a)])))
+    (is (= ["a" "b" 'a/b :k :a/b true false]
+           (lib '[(name 'a) (name :b) (symbol "a" "b") (keyword "k") (keyword "a" "b") (int? 1) (int? 1.5)])))
+    (is (= ["" "a1:kx" "abcdef"]
+           (lib '[(str) (str "a" 1 :k 'x) (str "a" "b" "c" "d" "e" "f")])))
+    (is (= ['G__5 'p7] (lib '[(gensym 5) (gensym "p" 7)]))
+        "gensym takes its supply explicitly; there is no hidden counter")))
+
+
+(deftest test-library-sequences
+  (is (= [nil nil [1 2] [1 2] [[:a 1]] nil]
+         (lib '[(seq nil) (seq []) (seq [1 2]) (seq '(1 2)) (seq {:a 1}) (seq #{})])))
+  (is (= [3 0 3 true false]
+         (lib '[(count [1 2 3]) (count nil) (count {:a 1 :b 2 :c 3}) (contains? {:a 1} :a) (contains? #{1} 2)])))
+  (is (= [2 nil] (lib '[(second [1 2 3]) (second [1])])))
+  (testing "rem on integers, with the dividend's sign"
+    (is (= [1 0 2 -1 1 0] (lib '[(rem 7 2) (rem 8 2) (rem 2 5) (rem -7 2) (rem 7 -2) (rem 0 3)]))))
+  (testing "rem by zero is an error outcome, never a hang"
+    (let [[tag payload] (run-library '[(rem 7 0)])]
+      (is (= :yin.k/error tag))
+      (is (= "Divide by zero" (:yin.k/message payload)))))
+  (testing "seq refuses a string or a number rather than returning it"
+    (doseq [form ['(seq "ab") '(seq 5)]]
+      (let [[tag payload] (run-library [form])]
+        (is (= :yin.k/error tag) (pr-str form))
+        (is (= "seq of a non-collection is not supported" (:yin.k/message payload))))))
+  (testing "a program cannot define the constructors the compiler emits"
+    (doseq [form '[(defn vec [x] x) (def conj 1)]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"would capture"
+            (yang/compile-program [form '(vec [1])] true library-opts))
+          (pr-str form))))
+  (testing "reverse, list, cons, vector: lists are lists"
+    (is (= [[3 2 1] [] true true]
+           (lib '[(reverse [1 2 3]) (reverse nil) (seq? (reverse [1 2])) (seq? (list 1 2))])))
+    (is (= ['() '(1) '(1 2) '(1 2 3) '(1 2 3 4 5 6)]
+           (lib '[(list) (list 1) (list 1 2) (list 1 2 3) (list 1 2 3 4 5 6)])))
+    (is (= ['(0 1 2) '(0) true [] [1 2 3]]
+           (lib '[(cons 0 [1 2]) (cons 0 nil) (seq? (cons 0 [1])) (vector) (vector 1 2 3)])))))
+
+
+(deftest test-library-higher-order
+  (testing "map, mapv, filter, remove over a guest closure"
+    (is (= [[2 3 4] [2 3 4] [1 3] [2] [5 7 9]]
+           (lib '[(map inc [1 2 3]) (mapv inc '(1 2 3)) (filter (fn [x] (not= x 2)) [1 2 3])
+                  (remove (fn [x] (not= x 2)) [1 2 3]) (map + [1 2 3] [4 5 6])])))
+    (is (= [[] []] (lib '[(map inc nil) (map + [] [1])])))
+    (is (= [[2 3]] (lib '[(map (partial + 1) [1 2])]))))
+  (testing "reduce, with and without an initial value, and reduced"
+    (is (= [6 10 0 7 :done]
+           (lib '[(reduce + [1 2 3]) (reduce + 4 [1 2 3]) (reduce + []) (reduce + 7 nil)
+                  (reduce (fn [acc x] (if (= x 3) (reduced :done) acc)) 0 [1 2 3 4 5])])))
+    (is (= [:early] (lib '[(reduce (fn [acc x] (reduced :early)) 0 [1 2 3])]))
+        "a reduced value ends the reduction and is unwrapped")
+    (is (= [false true :v] (lib '[(reduced? 1) (reduced? (reduced 1)) (unreduced (reduced :v))]))))
+  (testing "into, concat, merge"
+    (is (= [[1 2 3] #{1 2} {:a 1 :b 2} [] [1 2 3 4] [1 2 3]]
+           (lib '[(into [1] [2 3]) (into #{} [1 2 1]) (into {} [[:a 1] [:b 2]]) (concat)
+                  (concat [1 2] '(3 4)) (concat [1] nil [2] [3])])))
+    (is (= [nil {:a 1} {:a 2 :b 3} {:a 1 :b 2 :c 3}]
+           (lib '[(merge) (merge nil {:a 1}) (merge {:a 1} {:a 2 :b 3}) (merge {:a 1} {:b 2} nil {:c 3})]))))
+  (testing "comp and partial"
+    (is (= [2 6 7 5 12 9]
+           (lib '[((comp inc inc) 0) ((comp inc +) 2 3) ((partial + 1) 6) ((partial + 1 1) 3)
+                  ((partial * 3) 4) ((comp inc inc inc) 6)])))
+    (is (= [7] (lib '[((comp) 7)])))))
+
+
+(deftest test-library-failures-flow-through-closures
+  (let [bad [:yin.k/error {:yin.k/message "bad two", :yin.k/data {:x 2}}]
+        g '(fn [x] (if (= x 2) (throw (ex-info "bad two" {:x x})) x))]
+    (testing "a closure's error outcome ends map and reduce with that outcome"
+      (is (= bad (run-library [(list 'map g [1 2 3])])))
+      (is (= bad (run-library [(list 'reduce (list 'fn '[a x] (list g 'x)) 0 [1 2 3])]))))
+    (testing "an untaken failure leaves the success outcome"
+      (is (= [:yin.k/ok [1]] (run-library [(list 'map g [1])]))))))
+
+
+(deftest test-apply
+  (testing "apply assembles one argument vector and applies once"
+    (is (= [6 10 3 11 1]
+           (lib '[(apply + [1 2 3]) (apply + 4 [1 2 3]) (apply inc [2])
+                  (apply (fn [a b c] (+ a b c)) 1 2 [8]) (apply (fn [x] x) '(1))]))
+        "native names in value position and convention closures alike")
+    (is (= [0 [1 2] 6] (lib '[(apply + nil) (apply vector [1 2]) (apply + '(1 2 3))]))
+        "nil, a list and a vector as the collection"))
+  (testing "a wrong count is the callee's own arity error"
+    (let [out (run-library '[(defn f [a b] a) (apply f [1])])]
+      (is (= :yin.k/error (first out)))
+      (is (= {:yin.vm.data/reason :arity, :yin.k/fn 'f, :yin.k/argc 1} (second out)))))
+  (testing "a local named apply is an ordinary guest call"
+    (is (= [:yin.k/ok :mine]
+           (run-library '[(let [apply (fn [f c] :mine)] (apply 1 2))]))))
+  (testing "apply needs a function and a collection"
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (yang/compile-program '[(apply f)] true library-opts)))))
+
+
+(deftest test-anonymous-fn-arity-error
+  (testing "an anonymous fn is :anonymous and carries its source position"
+    (let [form (with-meta '(fn [x] x) {:line 7, :column 3, :file "ignored.clj"})]
+      (is (= [:yin.k/error {:yin.vm.data/reason :arity, :yin.k/argc 2, :yin.k/kind :anonymous
+                            :yin.k/source {:line 7, :column 3}}]
+             (run-library [(list form 1 2)])))))
+  (testing "without reader metadata there is no source key"
+    (is (= [:yin.k/error {:yin.vm.data/reason :arity, :yin.k/argc 0, :yin.k/kind :anonymous}]
+           (run-library [(list (list 'fn '[x] 'x))]))))
+  (testing "a named function still names itself and has no :anonymous kind"
+    (is (= [:yin.k/error {:yin.vm.data/reason :arity, :yin.k/fn 'f, :yin.k/argc 2}]
+           (run-library '[(defn f [x] x) (f 1 2)])))))
+
+
+(deftest test-adapter-counts-from-profiles
+  (testing "an adapter admits exactly the profile's fixed arities"
+    (is (= [:yin.k/ok false] (run-library '[(let [g not] (g true))])))
+    (is (= [:yin.k/error {:yin.vm.data/reason :arity, :yin.k/fn 'not, :yin.k/argc 0}]
+           (run-library '[(let [g not] (g))])))
+    (is (= [:yin.k/error {:yin.vm.data/reason :arity, :yin.k/fn 'not, :yin.k/argc 2}]
+           (run-library '[(let [g not] (g 1 2))]))))
+  (testing "a variadic profile extends to the stated bound, not a magic 4"
+    (is (= [:yin.k/ok 28] (run-library '[(let [g +] (g 1 2 3 4 5 6 7))])))
+    (is (= [:yin.k/ok 36] (run-library '[(let [g +] (g 1 2 3 4 5 6 7 8))])))
+    (is (= :arity (:yin.vm.data/reason
+                    (second (run-library '[(let [g +] (g 1 2 3 4 5 6 7 8 9))]))))))
+  (testing "a set of native names keeps the default bound"
+    (let [opts (assoc library-opts :native (set (keys vm/primitives)))]
+      (is (= [:yin.k/ok 10] (run-library '[(let [g +] (g 1 2 3 4))] opts)))
+      (is (= :arity (:yin.vm.data/reason
+                      (second (run-library '[(let [g +] (g 1 2 3 4 5))] opts))))))))

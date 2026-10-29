@@ -168,8 +168,8 @@
 
 (defn- with-locals
   [env names]
-  (when (and (::convention env) (some #{'conj} names))
-    (throw (ex-info "Binding conj would capture the argument-vector constructor"
+  (when-let [hit (and (::convention env) (some #{'conj 'vec} names))]
+    (throw (ex-info (str "Binding " hit " would capture the argument-vector constructor")
                     {:names names})))
   (assoc env ::locals (into (locals env) (remove #(= '& %)) names)))
 
@@ -564,7 +564,15 @@
 
 (def ^:private av-sym (symbol (str reserved-prefix "av")))
 
-(def ^:private adapter-max-arity 4)
+(def ^:private default-adapter-arity
+  "The largest count an adapter admits for a native name with no declared
+   profile (`:native` given as a plain set)."
+  4)
+
+(def ^:private adapter-variadic-cap
+  "How far an adapter extends a `:variadic` profile arity: an adapter is a
+   finite dispatch, so an open-ended arity needs a stated bound."
+  8)
 
 
 (defn- native-name?
@@ -911,13 +919,26 @@
               (rewrite-ex-info (body-expression body-forms))))
 
 
+(def ^:private source-keys [:line :column :end-line :end-column])
+
+
+(defn- source-meta
+  "The source position keys of `form`'s reader metadata, or nil."
+  [form]
+  (not-empty (select-keys (meta form) source-keys)))
+
+
 (defn- arity-error-form
   "The outcome of a call whose argument count no arity admits: it names the
-   function, never a zero-argument data/count refusal naming count."
-  [fn-name]
-  [error-tag {:yin.vm.data/reason :arity
-              :yin.k/fn (list 'quote fn-name)
-              :yin.k/argc (list 'data/count av-sym)}])
+   function, never a zero-argument data/count refusal naming count. An
+   anonymous fn has no name: it is `:yin.k/kind :anonymous` and carries the
+   fn form's source position, when the reader gave one."
+  [fn-name source]
+  [error-tag (cond-> {:yin.vm.data/reason :arity
+                      :yin.k/argc (list 'data/count av-sym)}
+               fn-name (assoc :yin.k/fn (list 'quote fn-name))
+               (nil? fn-name) (assoc :yin.k/kind :anonymous)
+               (and (nil? fn-name) source) (assoc :yin.k/source source))])
 
 
 (defn outcome-adapter
@@ -963,8 +984,8 @@
    {:n count :form branch}. An unmatched count falls through to a
    zero-argument data/count, which the data module refuses with :reason
    :arity; under the outcome model it is an arity error outcome naming
-   `fn-name` instead."
-  [env fn-name arities]
+   `fn-name` (or the anonymous fn's `source`) instead."
+  [env fn-name source arities]
   (let [counts (map :n arities)]
     (when (not= (count counts) (count (set counts)))
       (reject! "Two arities with the same parameter count" {:counts (vec counts)}))
@@ -973,7 +994,7 @@
                     (list 'data/content= (list 'data/count av-sym) n)
                     form
                     else))
-            (if (outcomes? env) (arity-error-form fn-name) (list 'data/count))
+            (if (outcomes? env) (arity-error-form fn-name source) (list 'data/count))
             (reverse arities))))
 
 
@@ -990,14 +1011,15 @@
 (defn- compile-av-fn
   "Compile arities [{:params :body}] to one closure over an argument vector.
    `fn-name` names the function in an arity error outcome."
-  ([arities env tail? macro-env] (compile-av-fn arities env tail? macro-env nil))
-  ([arities env tail? macro-env fn-name]
+  ([arities env tail? macro-env] (compile-av-fn arities env tail? macro-env nil nil))
+  ([arities env tail? macro-env fn-name] (compile-av-fn arities env tail? macro-env fn-name nil))
+  ([arities env tail? macro-env fn-name source]
    (let [arities (mapv (fn [{:keys [params body]}]
                          (check-av-params! params)
                          {:n (count params)
                           :form (av-let env macro-env params body)})
                        arities)]
-     (compile-lambda [av-sym] (av-dispatch env fn-name arities) env tail? macro-env))))
+     (compile-lambda [av-sym] (av-dispatch env fn-name source arities) env tail? macro-env))))
 
 
 (defn- fn-arities
@@ -1013,6 +1035,21 @@
     :else (reject! "fn parameters must be a vector" {:params (first operands)})))
 
 
+(defn- adapter-counts
+  "The argument counts an adapter for native `sym` admits: the fixed arities
+   of its `:yin.k/arities` profile, extended to `adapter-variadic-cap` when
+   the profile is `:variadic`. A name with no declared profile admits
+   0 to `default-adapter-arity`."
+  [env sym]
+  (if-let [declared (get-in env [::convention :arities sym])]
+    (let [fixed (filter number? declared)
+          from (if (seq fixed) (apply max fixed) 0)]
+      (vec (sort (distinct (concat fixed
+                                   (when (some #{:variadic} declared)
+                                     (range from (inc (max from adapter-variadic-cap)))))))))
+    (vec (range (inc default-adapter-arity)))))
+
+
 (defn- compile-adapter
   "A fresh closure over the convention that calls native `sym` with the
    unpacked arguments, for each admitted count."
@@ -1023,13 +1060,44 @@
                            :form (if (outcomes? env)
                                    (lower-function-body env macro-env [] [call])
                                    call)}))
-                      (range (inc adapter-max-arity)))]
-    (compile-lambda [av-sym] (av-dispatch env sym arities) env tail? macro-env)))
+                      (adapter-counts env sym))]
+    (compile-lambda [av-sym] (av-dispatch env sym nil arities) env tail? macro-env)))
+
+
+(defn- apply-call?
+  "True when `operator` is the `apply` intrinsic: not bound locally and not
+   defined by the program."
+  [env operator]
+  (and (= 'apply operator)
+       (not (contains? (locals env) operator))
+       (not (contains? (::defined env) operator))))
+
+
+(defn- compile-apply
+  "(apply f a b coll) as one application of f to the assembled argument
+   vector (into [a b] (vec coll)): the convention's own calling shape, so it
+   serves a guest closure and an adapted native alike."
+  [operands env tail? macro-env]
+  (when (< (count operands) 2)
+    (reject! "apply takes a function and an argument collection"
+             {:operands (count operands)}))
+  (let [[f & more] operands
+        lead (vec (butlast more))
+        coll-form (list 'vec (last more))]
+    (cond-> {:type :application
+             :operator (compile-form f false env macro-env)
+             :operands [(compile-form (if (seq lead)
+                                        (list 'data/into lead coll-form)
+                                        coll-form)
+                                      false env macro-env)]}
+      tail? (assoc :tail? true))))
 
 
 (defn- compile-av-application
   [operator operands env tail? macro-env]
   (cond
+    (apply-call? env operator) (compile-apply operands env tail? macro-env)
+
     ;; (:k m) / (:k m default): a static lookup
     (keyword? operator)
     (do (when-not (<= 1 (count operands) 2)
@@ -1445,6 +1513,16 @@
   (when (contains? #{'+ '- '* '/ '= '< '>} sym) sym))
 
 
+(defn- adapt-head
+  "`call` with an adapted primitive's head replaced by its adapter, so
+   yin.k/outcome-of observes the adapter's outcome, as a tail call would."
+  [env call]
+  (let [head (first call)]
+    (if (and (symbol? head) (native-name? env head) (contains? (adapters env) head))
+      (rebuild call (cons (get (adapters env) head) (rest call)))
+      call)))
+
+
 (defn- compile-form*
   "Compile a Clojure form to Universal AST.
 
@@ -1477,7 +1555,7 @@
           (compile-dao-stream-apply-call op args env tail? macro-env))
         ;; (yin.k/outcome-of (f x)): the call's outcome as a value, not unwrapped
         (and (= operator 'yin.k/outcome-of) (outcomes? env))
-        (compile-form (first operands) tail? env macro-env)
+        (compile-form (adapt-head env (first operands)) tail? env macro-env)
         ;; Native defn fallback: used only when no defmacro defn is in scope
         ;; and the form actually matches defn syntax.
         (and (contains? #{'defn 'defn-} operator)
@@ -1490,7 +1568,7 @@
         (case operator
           ;; Lambda: (fn [params] body)
           fn (if (::convention env)
-               (compile-av-fn (fn-arities operands) env tail? macro-env)
+               (compile-av-fn (fn-arities operands) env tail? macro-env nil (source-meta form))
                (let [[params & body] operands]
                  (compile-fn params body env tail? macro-env)))
           ;; Conditional: (if test consequent alternate?)
@@ -1570,7 +1648,9 @@
   "The compile-time env of one program. Without `opts` it is empty: the
    native path. `{:convention :arg-vector, :native #{symbol}, :macros
    #{symbol}}` opts into the argument-vector convention: `:native` names the
-   primitives a bare symbol may call directly, `:macros` the expander-side
+   primitives a bare symbol may call directly (a set, or a map from name to
+   its published profile, whose `:yin.k/arities` give an adapter its admitted
+   counts), `:macros` the expander-side
    macro names whose calls must stay ordinary applications. The program's
    own top-level definitions are never native. `:outcomes true` adds the
    outcome model (see its section); `:adapters` maps a primitive that
@@ -1582,16 +1662,31 @@
           (reject! "Unknown compile-program convention" {:opts opts}))
         (when-let [hit (seq (filter control-heads (:macros opts)))]
           (reject! "A :macros entry names a compiler form" {:macros (vec hit)}))
-        (cond-> {::convention {:native (set (:native opts)), :macros (set (:macros opts))}
-                 ::defined (into #{}
-                                 (keep (fn [f]
-                                         (when (and (seq? f)
-                                                    (contains? #{'def 'defn 'defn- 'defmacro}
-                                                               (first f))
-                                                    (symbol? (second f)))
-                                           (strip-symbol-meta (second f)))))
-                                 forms)}
-          (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})})))))
+        (let [defined (into #{}
+                            (keep (fn [f]
+                                    (when (and (seq? f)
+                                               (contains? #{'def 'defn 'defn- 'defmacro} (first f))
+                                               (symbol? (second f)))
+                                      (strip-symbol-meta (second f)))))
+                            forms)]
+          ;; the compiler emits bare conj and vec (collection literals, apply),
+          ;; so a program definition of either would capture them
+          (when-let [hit (first (filter #{'conj 'vec} defined))]
+            (reject! (str "Defining " hit " would capture the argument-vector constructor")
+                     {:name hit}))
+          (cond-> {::convention {:native (set (if (map? (:native opts))
+                                                 (keys (:native opts))
+                                                 (:native opts)))
+                                 :arities (into {}
+                                                (keep (fn [[sym profile]]
+                                                        (when-let [a (if (map? profile)
+                                                                       (:yin.k/arities profile)
+                                                                       profile)]
+                                                          [sym a])))
+                                                (when (map? (:native opts)) (:native opts)))
+                                 :macros (set (:macros opts))}
+                   ::defined defined}
+            (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})}))))))
 
 
 (defn- check-program-symbols!
@@ -1703,6 +1798,278 @@
                                                        (assoc env ::top-level true) macro-env)]}
                        tail? (assoc :tail? true))))))]
        (go forms initial-macro-env)))))
+
+
+;; =============================================================================
+;; The guest collection and higher-order library (slice 7)
+;; =============================================================================
+;;
+;; Guest-side source, compiled through this compiler like any program: the
+;; functions that invoke guest closures (map, filter, reduce, comp, partial)
+;; must run on the VM, never on the host, because a closure is a VM value. It
+;; is written for the argument-vector convention with the outcome model, so a
+;; closure it calls is unwrapped by the compiler's own early-return pattern
+;; and a closure's failure ends the library function with the same outcome.
+;;
+;; What is derived, from the VM primitives and the `data` module only:
+;; identity, inc/dec, second, the collection predicates (coll?/vector?/map?/
+;; set?/seq?/list?/sequential?, from the `portable/*` adapters of data/count,
+;; peek, dissoc and disj: a refusal as data says "not that kind"), boolean?,
+;; fn? (data/callable?), seq, rem, reverse, list, cons, vector, count,
+;; contains?, map/mapv/filter/remove/reduce (with reduced)/into/concat/merge,
+;; comp, partial, gensym (explicit supply), not=, and `apply`, which is a
+;; compiler intrinsic over the convention's argument vector.
+;;
+;; What stays a host primitive, named by the `kind` module: a symbol, a
+;; keyword and a host string are distinguished or built only by the host
+;; (symbol?, keyword?, name, symbol, keyword, str, int?). No `data` export or
+;; VM primitive tells a symbol from a keyword. var? and resolve are the host's
+;; Var primitives: a harness on a host with Vars registers them in `kind`
+;; (`kind-module` leaves them out); a program that never mentions them does
+;; not need them.
+;;
+;; Known compromises: `reduced` is an untyped tagged map, so reduced? matches
+;; any map holding :yin.k/reduced true; seq refuses a non-collection (a string
+;; is the data module's str-* ops, not a seq); rem needs integers and throws
+;; on a zero divisor; the compiler emits bare conj and vec, so a program may
+;; not define or bind either.
+;;
+;; Variadic Clojure functions are fixed-arity here (the convention has no
+;; variadic parameter): str, list and vector admit 0 to 6 arguments, concat and
+;; merge 0 to 4, comp 0 to 3, partial binds 1 to 3. A larger count is the
+;; function's own arity error.
+
+(def library-adapters
+  "The `:adapters` a program using `library` is compiled with: the data
+   exports whose refusal the predicates read as data. The harness registers
+   `portable/<name>` as `outcome-adapter` over the same `data/<name>`."
+  {'data/count 'portable/count
+   'data/peek 'portable/peek
+   'data/dissoc 'portable/dissoc
+   'data/disj 'portable/disj})
+
+
+(def kind-module
+  "The `kind` host module's exports, symbol to host function: the irreducible
+   kind and name primitives (see the library notes). Every export is pure."
+  {'symbol? symbol?
+   'keyword? keyword?
+   'name name
+   'symbol symbol
+   'keyword keyword
+   'str str
+   'int? int?})
+
+
+(def kind-arities
+  "The published arities of each `kind` export."
+  {'symbol? [1], 'keyword? [1], 'name [1], 'symbol [1 2], 'keyword [1 2]
+   'str [0 1 2 3 4 5 6 :variadic], 'int? [1]})
+
+
+(def library
+  "The library's definitions, in order, as quoted source."
+  '[(defn identity [x] x)
+    (defn inc [x] (+ x 1))
+    (defn dec [x] (- x 1))
+    (defn second [x] (first (rest x)))
+    (defn not= [a b] (not (= a b)))
+    (defn boolean? [x] (or (= x true) (= x false)))
+    (defn fn? [x] (data/callable? x))
+    (defn count [x] (data/count x))
+    (defn contains? [coll k] (data/contains? coll k))
+    (defn symbol? [x] (kind/symbol? x))
+    (defn keyword? [x] (kind/keyword? x))
+    (defn int? [x] (kind/int? x))
+    (defn name [x] (kind/name x))
+    (defn var? [x] (kind/var? x))
+    (defn resolve [x] (kind/resolve x))
+    (defn symbol
+      ([n] (kind/symbol n))
+      ([ns n] (kind/symbol ns n)))
+    (defn keyword
+      ([n] (kind/keyword n))
+      ([ns n] (kind/keyword ns n)))
+    (defn str
+      ([] "")
+      ([a] (kind/str a))
+      ([a b] (kind/str a b))
+      ([a b c] (kind/str a b c))
+      ([a b c d] (kind/str a b c d))
+      ([a b c d e] (kind/str a b c d e))
+      ([a b c d e f] (kind/str a b c d e f)))
+    (defn gensym
+      ([n] (kind/symbol (kind/str "G__" n)))
+      ([prefix n] (kind/symbol (kind/str prefix n))))
+    (defn coll? [x]
+      (if (nil? x)
+        false
+        (= :yin.k/ok (first (yin.k/outcome-of (data/count x))))))
+    (defn vector? [x]
+      (if (nil? x)
+        false
+        (= :yin.k/ok (first (yin.k/outcome-of (data/peek x))))))
+    (defn map? [x]
+      (if (nil? x)
+        false
+        (= :yin.k/ok (first (yin.k/outcome-of (data/dissoc x))))))
+    (defn set? [x]
+      (if (nil? x)
+        false
+        (= :yin.k/ok (first (yin.k/outcome-of (data/disj x))))))
+    (defn sequential? [x]
+      (if (coll? x) (if (map? x) false (not (set? x))) false))
+    (defn seq? [x]
+      (if (sequential? x) (not (vector? x)) false))
+    (defn list? [x] (seq? x))
+    (defn seq [x]
+      (cond
+        (nil? x) nil
+        (if (coll? x) (empty? x) false) nil
+        (if (map? x) true (set? x)) (vec x)
+        (coll? x) x
+        :else (throw (ex-info "seq of a non-collection is not supported"
+                              {:value x}))))
+    (defn rem [a b]
+      (cond
+        (= b 0) (throw (ex-info "Divide by zero" {:a a}))
+        (< a 0) (- 0 (rem (- 0 a) b))
+        (< b 0) (rem a (- 0 b))
+        :else (loop [r a]
+                (if (< r b) r (recur (- r b))))))
+    (defn reverse [coll]
+      (loop [s coll
+             acc '()]
+        (if (empty? s) acc (recur (rest s) (conj acc (first s))))))
+    (defn cons [x coll] (conj (reverse (reverse coll)) x))
+    (defn list
+      ([] '())
+      ([a] (conj '() a))
+      ([a b] (conj '() b a))
+      ([a b c] (conj '() c b a))
+      ([a b c d] (conj '() d c b a))
+      ([a b c d e] (conj '() e d c b a))
+      ([a b c d e f] (conj '() f e d c b a)))
+    (defn vector
+      ([] [])
+      ([a] [a])
+      ([a b] [a b])
+      ([a b c] [a b c])
+      ([a b c d] [a b c d])
+      ([a b c d e] [a b c d e])
+      ([a b c d e f] [a b c d e f]))
+    (defn reduced [x] {:yin.k/reduced true, :yin.k/value x})
+    (defn reduced? [x]
+      (if (nil? x) false (= true (get x :yin.k/reduced))))
+    (defn unreduced [x] (if (reduced? x) (get x :yin.k/value) x))
+    (defn reduce
+      ([f coll]
+       (if (empty? coll) (f) (reduce f (first coll) (rest coll))))
+      ([f init coll]
+       (loop [acc init
+              s coll]
+         (if (empty? s)
+           acc
+           (let [r (f acc (first s))]
+             (if (reduced? r) (get r :yin.k/value) (recur r (rest s))))))))
+    (defn map
+      ([f coll]
+       (loop [s coll
+              acc []]
+         (if (empty? s) acc (recur (rest s) (conj acc (f (first s)))))))
+      ([f a b]
+       (loop [x a
+              y b
+              acc []]
+         (if (if (empty? x) true (empty? y))
+           acc
+           (recur (rest x) (rest y) (conj acc (f (first x) (first y))))))))
+    (defn mapv
+      ([f coll] (map f coll))
+      ([f a b] (map f a b)))
+    (defn filter [pred coll]
+      (loop [s coll
+             acc []]
+        (if (empty? s)
+          acc
+          (recur (rest s) (if (pred (first s)) (conj acc (first s)) acc)))))
+    (defn remove [pred coll]
+      (loop [s coll
+             acc []]
+        (if (empty? s)
+          acc
+          (recur (rest s) (if (pred (first s)) acc (conj acc (first s)))))))
+    (defn into [to from]
+      (loop [acc to
+             s from]
+        (if (empty? s) acc (recur (conj acc (first s)) (rest s)))))
+    (defn concat
+      ([] [])
+      ([a] (into [] a))
+      ([a b] (into (into [] a) b))
+      ([a b c] (into (into (into [] a) b) c))
+      ([a b c d] (into (into (into (into [] a) b) c) d)))
+    (defn merge
+      ([] nil)
+      ([a] a)
+      ([a b] (if (nil? b) a (if (nil? a) b (conj a b))))
+      ([a b c] (merge (merge a b) c))
+      ([a b c d] (merge (merge (merge a b) c) d)))
+    (defn comp
+      ([] identity)
+      ([f] f)
+      ([f g]
+       (fn
+         ([x] (f (g x)))
+         ([x y] (f (g x y)))
+         ([x y z] (f (g x y z)))))
+      ([f g h] (comp f (comp g h))))
+    (defn partial
+      ([f a]
+       (fn
+         ([] (f a))
+         ([x] (f a x))
+         ([x y] (f a x y))
+         ([x y z] (f a x y z))))
+      ([f a b]
+       (fn
+         ([] (f a b))
+         ([x] (f a b x))
+         ([x y] (f a b x y))
+         ([x y z] (f a b x y z))))
+      ([f a b c]
+       (fn
+         ([] (f a b c))
+         ([x] (f a b c x))
+         ([x y] (f a b c x y))
+         ([x y z] (f a b c x y z)))))])
+
+
+(defn library-for
+  "The definitions of `library` that `forms` need: those whose names `forms`
+   mention (outside quoted data), and the ones those mention in turn, in
+   library order. Compiling only these keeps a program small."
+  [forms]
+  (let [by-name (into {} (map (fn [f] [(second f) f])) library)
+        mentions (fn mentions [form]
+                   (cond
+                     (symbol? form) #{form}
+                     (seq? form) (if (= 'quote (first form))
+                                   #{}
+                                   (into #{} (mapcat mentions) form))
+                     (coll? form) (into #{} (mapcat mentions) form)
+                     :else #{}))
+        defined (into #{} (comp (filter seq?) (filter #(= 'defn (first %))) (map second)) forms)
+        needed (loop [todo (remove defined (mentions forms)), seen #{}]
+                 (if (empty? todo)
+                   seen
+                   (let [n (first todo)]
+                     (if (or (contains? seen n) (not (contains? by-name n)))
+                       (recur (rest todo) seen)
+                       (recur (into (rest todo)
+                                    (remove (conj defined n) (mentions (by-name n))))
+                              (conj seen n))))))]
+    (filterv #(contains? needed (second %)) library)))
 
 
 (defn compile

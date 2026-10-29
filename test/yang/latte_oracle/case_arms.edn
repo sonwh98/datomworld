@@ -1,0 +1,54 @@
+;; GENERATED from the manifest forms by yang.latte-oracle-test/case-arm-rows.
+;; One row per case site: each arm's clause constants, and whether it has a default.
+[{:ns latte_kernel.norm,
+  :fn beta-red,
+  :line 181,
+  :default? false,
+  :arms
+  [{:arm 0, :constants [:beta-norm]}
+   {:arm 1, :constants [:nbe]}
+   {:arm 2, :constants [:both]}
+   {:arm 3, :constants [:all]}]}
+ {:ns latte_kernel.norm,
+  :fn beta-delta-normalize,
+  :line 436,
+  :default? false,
+  :arms
+  [{:arm 0, :constants [:nbe]}
+   {:arm 1, :constants [:beta-norm]}
+   {:arm 2, :constants [:both]}
+   {:arm 3, :constants [:all]}]}
+ {:ns latte_kernel.proof,
+  :fn elab-proof-step,
+  :line 348,
+  :default? true,
+  :arms
+  [{:arm 0, :constants [:declare]}
+   {:arm 1, :constants [:have]}
+   {:arm 2, :constants [:discharge]}
+   {:arm 3, :constants [:qed]}
+   {:arm 4, :constants [:print-term]}
+   {:arm 5, :constants [:print-type]}
+   {:arm 6, :constants [:print-def]}
+   {:arm 7, :constants [:print-defenv]}
+   {:arm 8, :constants [:opaque]}
+   {:arm 9, :constants [:transparent]}]}
+ {:ns latte_kernel.proof,
+  :fn elab-proof,
+  :line 450,
+  :default? true,
+  :arms [{:arm 0, :constants [:ok]} {:arm 1, :constants [:ko]}]}
+ {:ns latte_kernel.syntax,
+  :fn mk-fresh,
+  :line 268,
+  :default? true,
+  :arms
+  [{:arm 0, :constants [0]}
+   {:arm 1, :constants [1]}
+   {:arm 2, :constants [2]}
+   {:arm 3, :constants [3]}]}
+ {:ns latte_kernel.typing,
+  :fn type-of-term,
+  :line 79,
+  :default? true,
+  :arms [{:arm 0, :constants [λ]} {:arm 1, :constants [Π]}]}]

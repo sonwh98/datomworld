@@ -132,62 +132,71 @@
     (set (filter #(or (contains? scanned-symbols %) (keyword? %)) @fs))))
 
 
-(defn- stdlib-module
+(defn- host-module
+  "Register `fns` as host module `module-name`, every export `:pure`."
+  [registry module-name fns arities]
+  (module/register-host-module
+    registry module-name fns
+    (into {} (map (fn [[op]] [op (vm/primitive-profile op :pure (get arities op [1]) #{} :none)]))
+          fns)))
+
+
+(def ^:private kind-fns
+  "The irreducible kind and name primitives (yang.clojure/kind-module), plus
+   the two host Var primitives the throw-site fixtures reach."
+  (assoc yang/kind-module 'var? var? 'resolve resolve))
+
+
+(defn- oracle-registry
+  "The guest library's whole host surface: the stream and data modules, the
+   `kind` module, and `portable`, the outcome adapters of the data exports the
+   collection predicates read."
   []
-  ;; slice-1 scaffolding: pure host fns standing in for the guest library the
-  ;; later slices build. Replaced per the architect's slices 2 and 7.
-  (let [pf {:yin.k/profile :yin.k.pp/latte-spike
-            :yin.k/class :pure
-            :yin.k/arities [1 2 3 :variadic]
-            :yin.k/effects #{}
-            :yin.k/host-state :none}]
-    (module/register-host-module
-      (module/default-registry)
-      'latte.lib
-      {'seq seq, 'count count, 'vector? vector?, 'vector vector, 'rem rem
-       'name name, 'keyword? keyword?, 'symbol? symbol?, 'list? list?
-       'map? map?, 'set? set?, 'fn? fn?, 'coll? coll?, 'nil? nil?
-       'identity identity, 'boolean? boolean?, 'int? int?}
-      (zipmap (keys {'seq seq, 'count count, 'vector? vector?, 'vector vector
-                     'rem rem, 'name name, 'keyword? keyword?, 'symbol? symbol?
-                     'list? list?, 'map? map?, 'set? set?, 'fn? fn?, 'coll? coll?
-                     'nil? nil?, 'identity identity, 'boolean? boolean?, 'int? int?})
-              (repeat pf)))))
-
-
-(def ^:private scaffold-primitives
-  "Pure host functions standing in for the guest collection library (slice 7)
-   as bare primitives; the loop/recur anchors need them."
-  {'seq? seq?, 'seq seq, 'reverse reverse, 'list list, 'second second
-   'symbol symbol, 'str str, 'contains? contains?, 'inc inc})
+  (let [portable (into {}
+                       (map (fn [[source _]]
+                              (let [op (symbol (name source))]
+                                [op (yang/outcome-adapter data/refusal-message
+                                                          (get data/data-module op))])))
+                       yang/library-adapters)]
+    (-> (module/default-registry)
+        module/register-stream-module
+        data/register-data-module
+        (host-module 'kind kind-fns yang/kind-arities)
+        (host-module 'portable portable
+                     (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))
+                           (keys portable))))))
 
 
 (def ^:private arg-vector-opts
-  "The argument-vector convention (slice 3b): primitives, plus the scaffold
-   primitives, are the statically native names."
-  {:convention :arg-vector
-   :native (into (set (keys vm/primitives)) (keys scaffold-primitives))})
+  "The argument-vector convention with the outcome model, the guest library's
+   adapters and the VM primitives' published profiles as the native names."
+  {:convention :arg-vector, :outcomes true
+   :adapters yang/library-adapters
+   :native vm/primitive-profiles})
+
+
+(defn- run-outcome
+  "Compile `forms` plus `call-form` (with the library definitions they need)
+   and return the RAW outcome of the call: the value channel carries
+   [tag payload]."
+  [forms call-form]
+  (let [program (into [] (concat forms [call-form]))]
+    (-> (tu/make-observer-session (tu/create-vm {:modules (oracle-registry)}))
+        (tu/queue-ast! (yang/compile-program
+                         (into (yang/library-for program) program) true arg-vector-opts))
+        tu/run-session
+        :consumer
+        vm/value)))
 
 
 (defn- run-on-vm
-  "Compile `forms` plus `call-form` through yang.clojure and run the result;
-   `opts` opts the program into a compile-program convention."
-  ([forms call-form] (run-on-vm forms call-form nil))
-  ([forms call-form opts]
-   ;; `seq?` is a scaffold primitive until the guest collection library
-   ;; lands (slice 7); the data module (count/nth) serves the convention's
-   ;; arity dispatch
-   (let [registry (-> (stdlib-module)
-                      module/register-stream-module
-                      data/register-data-module)]
-     (-> (tu/make-observer-session
-           (tu/create-vm {:modules registry
-                          :primitives (merge vm/primitives scaffold-primitives)}))
-         (tu/queue-ast! (yang/compile-program
-                          (into [] (concat forms [call-form])) true opts))
-         tu/run-session
-         :consumer
-         vm/value))))
+  "run-outcome, unwrapped: the call's value, or its error outcome thrown as
+   ex-info carrying the error data."
+  [forms call-form]
+  (let [[tag payload] (run-outcome forms call-form)]
+    (if (= :yin.k/ok tag)
+      payload
+      (throw (ex-info (str "guest error: " (pr-str payload)) payload)))))
 
 
 (def ^:private clean-forms
@@ -232,8 +241,13 @@
                       fname (symbol (name qsym))
                       c-result (try
                                  {:status :ok
-                                  :value (run-on-vm (vec clean-forms)
-                                                    (list* fname args))}
+                                  :value (run-on-vm
+                                           (cond-> (vec clean-forms)
+                                             (not (some #{fname} (map second clean-forms)))
+                                             (conj (get top-forms
+                                                        [(symbol (str/replace (namespace qsym) "-" "_"))
+                                                         fname])))
+                                           (list* fname args))}
                                  (catch Exception e
                                    {:status :error :msg (.getMessage e)}))]]
             {:qsym qsym, :a a-value, :c c-result})]
@@ -243,13 +257,12 @@
       (let [mkenv (first (filter #(= 'latte-kernel.defenv/mkenv (:qsym %)) results))]
         (is (= :ok (get-in mkenv [:c :status])))
         (is (= (:a mkenv) (get-in mkenv [:c :value]))))
-      ;; vectorn?: classified blocked (host stdlib fns vector/count/rem), so
-      ;; its C-leg must FAIL with an unresolved symbol — the recorded gap,
-      ;; never a silent pass
+      ;; vectorn? is classified blocked by the host stdlib names it uses
+      ;; (vector/count/rem); the guest library now serves them, so A = C
       (let [v? (first (filter #(= 'latte-kernel.utils/vectorn? (:qsym %)) results))]
         (is (seq (classify-form (get top-forms ['latte_kernel.utils 'vectorn?]))))
-        (is (= :error (get-in v? [:c :status])))
-        (is (re-find #"resolve" (get-in v? [:c :msg] ""))))))
+        (is (= :ok (get-in v? [:c :status])))
+        (is (= (:a v?) (get-in v? [:c :value]))))))
   (testing "keyword identities read from each file's own ns declaration"
     (let [kws (distinct (filter keyword?
                                 (tree-seq coll? identity
@@ -307,7 +320,7 @@
   "run-with-deps through the argument-vector convention."
   [ns-sym dep-names fname args]
   (let [forms (mapv #(get top-forms [ns-sym %]) dep-names)]
-    (run-on-vm forms (list* fname (map #(list 'quote %) args)) arg-vector-opts)))
+    (run-on-vm forms (list* fname (map #(list 'quote %) args)))))
 
 
 (deftest test-oracle-slice3b-multi-arity
@@ -401,8 +414,7 @@
   (let [a-fn (upstream-fn 'latte-kernel.syntax/mk-fresh)
         form (get top-forms ['latte_kernel.syntax 'mk-fresh])
         c-fn (fn [& args]
-               (run-on-vm [form] (list* 'mk-fresh (map #(list 'quote %) args))
-                          arg-vector-opts))]
+               (run-on-vm [form] (list* 'mk-fresh (map #(list 'quote %) args))))]
     (testing "the source carries a multi-arity branch that recurs"
       (let [source (get top-forms ['latte_kernel.syntax 'mk-fresh])]
         (is (= 2 (count (filter #(and (seq? %) (vector? (first %))) source))))
@@ -428,35 +440,6 @@
 ;; =============================================================================
 ;; Slice 5: outcome channel beside the value channel
 ;; =============================================================================
-
-(def ^:private outcome-scaffold
-  "Pure host functions standing in for the guest collection library (slice 7)
-   on the throw-site fixtures' paths."
-  (assoc scaffold-primitives
-         'cons cons, 'symbol? symbol?, 'var? var?, 'resolve resolve))
-
-
-(def ^:private outcome-opts
-  {:convention :arg-vector, :outcomes true, :adapters {}
-   :native (into (set (keys vm/primitives)) (keys outcome-scaffold))})
-
-
-(defn- run-outcome
-  "Compile `forms` plus `call-form` with the outcome model and return the
-   RAW outcome of the call: the value channel carries [tag payload]."
-  [forms call-form]
-  (let [registry (-> (stdlib-module)
-                     module/register-stream-module
-                     data/register-data-module)]
-    (-> (tu/make-observer-session
-          (tu/create-vm {:modules registry
-                         :primitives (merge vm/primitives outcome-scaffold)}))
-        (tu/queue-ast! (yang/compile-program
-                         (into [] (concat forms [call-form])) true outcome-opts))
-        tu/run-session
-        :consumer
-        vm/value)))
-
 
 (defn- desugar
   "Interim lowering of what the compiler does not own: lazy-seq evaluates
@@ -635,7 +618,7 @@
   (testing "the checked-in table has one row per throw symbol in the manifest forms"
     (is (= (throw-symbol-count) (count throw-site-table)))
     (is (= (throw-site-rows) throw-site-table)
-        "regenerate test/yang/latte_oracle/throw_sites.edn when the corpus or a disposition changes"))
+        "regenerate with: clj -X:test:dev latte-oracle-tables/-main (corpus or disposition change)"))
   (testing "every row has a disposition"
     (is (every? #{:fixture :deferred :excluded} (map :disposition throw-site-table)))
     (is (every? #(or (not= :deferred (:disposition %)) (:to %)) throw-site-table)))
@@ -646,3 +629,106 @@
                ['latte_kernel.defenv 'fetch-definition] ['latte_kernel.norm 'delta-reduction]
                ['latte_kernel.nbe 'delta-reduction]}
              (set (map (juxt :ns :fn) fixtures)))))))
+
+
+;; =============================================================================
+;; Slice 7: per-arm case fixtures
+;; =============================================================================
+;;
+;; The corpus has six `case` sites. Each is walked, every clause's constants are
+;; extracted, and a synthetic dispatch (one arm per clause, each returning its
+;; arm index, plus the site's default) runs on the host (A leg) and through
+;; yang.clojure on the VM (C leg). The extracted table is checked in
+;; (test/yang/latte_oracle/case_arms.edn) and regenerated, with the throw-site
+;; table, by src/dev/latte_oracle_tables.clj.
+
+(defn- case-forms
+  [form]
+  (filter #(and (seq? %) (= 'case (first %))) (tree-seq coll? seq form)))
+
+
+(defn- case-clause-constants
+  "The constants of one clause key: a list groups them, anything else is one."
+  [k]
+  (if (seq? k) (vec k) [k]))
+
+
+(defn- case-arm-rows
+  "One row per `case` site in the manifest forms: the clause constants of each
+   arm, and whether the site has a default."
+  []
+  (vec (for [{:keys [ns name]} manifest
+             c (case-forms (get top-forms [ns name]))
+             :let [clauses (drop 2 c)]]
+         {:ns ns, :fn name, :line (:line (meta c))
+          :default? (odd? (count clauses))
+          :arms (vec (map-indexed (fn [i [k _]] {:arm i, :constants (case-clause-constants k)})
+                                  (partition 2 clauses)))})))
+
+
+(def ^:private case-arm-table
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/case_arms.edn"))))
+
+
+(def ^:private unmatched
+  "An input no corpus clause names."
+  :yang.latte-oracle/unmatched)
+
+
+(defn- dispatch-clauses
+  "The clauses of a synthetic `case`: each arm's constants as one group
+   returning the arm index, then the default `:default` when the site has one."
+  [{:keys [arms default?]}]
+  (concat (mapcat (fn [{:keys [arm constants]}] [(apply list constants) arm]) arms)
+          (when default? [:default])))
+
+
+(defn- a-dispatch
+  "The host `case` over the same clauses, applied to `input`; ::no-match when
+   no clause (and no default) takes it."
+  [row input]
+  (try ((eval (list 'fn '[e] (list* 'case 'e (dispatch-clauses row)))) input)
+       (catch IllegalArgumentException _ ::no-match)))
+
+
+(defn- c-dispatch
+  "The synthetic dispatch compiled through yang.clojure and run on the VM:
+   the outcomes of calling it on each of `inputs`, in order."
+  [row inputs]
+  (let [dispatch (list 'defn 'dispatch '[e] (list* 'case 'e (dispatch-clauses row)))]
+    (mapv (fn [input] (run-outcome [dispatch] (list 'dispatch (list 'quote input)))) inputs)))
+
+
+(deftest test-case-arm-table
+  (testing "the checked-in table is the walk of the corpus's case sites"
+    (is (= 6 (count case-arm-table)))
+    (is (= (case-arm-rows) case-arm-table)
+        "regenerate with: clj -X:test:dev latte-oracle-tables/-main")
+    (is (= #{['latte_kernel.norm 'beta-red] ['latte_kernel.norm 'beta-delta-normalize]
+             ['latte_kernel.proof 'elab-proof] ['latte_kernel.proof 'elab-proof-step]
+             ['latte_kernel.typing 'type-of-term] ['latte_kernel.syntax 'mk-fresh]}
+           (set (map (juxt :ns :fn) case-arm-table)))))
+  (testing "every arm of every site has constants, and arms never share one"
+    (doseq [{:keys [arms] :as row} case-arm-table
+            :let [constants (mapcat :constants arms)]]
+      (is (every? (comp seq :constants) arms) (pr-str (:fn row)))
+      (is (apply distinct? constants) (pr-str (:fn row))))))
+
+
+(deftest test-case-arm-fixtures
+  (doseq [{:keys [arms default?] :as row} case-arm-table
+          :let [label (str (:ns row) "/" (:fn row) " line " (:line row))]]
+    (testing label
+      (testing "every constant of every arm dispatches to its own arm, A = C"
+        (let [inputs (mapcat :constants arms)
+              expected (mapcat (fn [{:keys [arm constants]}] (repeat (count constants) arm)) arms)]
+          (is (= expected (map #(a-dispatch row %) inputs)) "host case")
+          (is (= (map (fn [e] [:yin.k/ok e]) expected) (c-dispatch row inputs)) "VM")))
+      (testing "an input no clause names takes the default, or fails without one"
+        (let [[c] (c-dispatch row [unmatched])]
+          (if default?
+            (do (is (= :default (a-dispatch row unmatched)))
+                (is (= [:yin.k/ok :default] c)))
+            (do (is (= ::no-match (a-dispatch row unmatched)))
+                (is (= :yin.k/error (first c)))
+                (is (= "No matching clause in case" (:yin.k/message (second c)))))))))))
