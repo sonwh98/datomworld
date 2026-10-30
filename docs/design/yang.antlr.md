@@ -3687,6 +3687,15 @@ missing required extension fails there. The pinned profile defines the
 shape and validation of any extra invocation fields it requires; values
 in the base vectors alone do not establish a location protocol.
 
+The PHP reference-argument profile is pinned as
+`sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb`.
+PHP call sites include it when their declared target has reference
+parameters; corresponding positional values may then be PHP reference
+markers for caller locations. The PHP entry rejects unknown profile
+addresses before parameter binding, and only this profile authorizes its
+binder to attach a parameter to a caller marker. The markers alone carry
+no binding authority.
+
 Convention revision is pinned by the existing lowering/runtime profiles.
 It is not a new canonical AST slot, a per-function language tag, or a
 repeated version field in every invocation. Incompatible revisions need

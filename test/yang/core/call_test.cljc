@@ -177,20 +177,50 @@
                            (fn [condition]
                              (assoc condition :seen true))
                            (yang.call/condition :yang.call/not-callable
-                                                {:callee :value}))))))
-    (testing "bundled and linked emitters use the same definition source"
-      (is (= call/module-uast
-             (core/module-tree
-               (core/module-definitions "yang.call" :yang.call/uninit
-                                        [] call/definitions)
-               [])))
-      (is (= call/module-exports
-             (:exports (call/module-spec registry))))
-      (is (every? true?
-                  (vals (run-everywhere
-                          call/module-uast
-                          '(valid-invocation?
-                             {:yang.call/callee :f
-                              :yang.call/positional []
-                              :yang.call/named []
-                              :yang.call/raise :exit}))))))))
+                                                {:callee :value})))))))
+  (testing "bundled and linked emitters use the same definition source"
+    (is (= call/module-uast
+           (core/module-tree
+             (core/module-definitions "yang.call" :yang.call/uninit
+                                      [] call/definitions)
+             [])))
+    (is (= call/module-exports
+           (:exports (call/module-spec registry))))
+    (is (every? true?
+                (vals (run-everywhere
+                        call/module-uast
+                        '(valid-invocation?
+                           {:yang.call/callee :f
+                            :yang.call/positional []
+                            :yang.call/named []
+                            :yang.call/raise :exit})))))))
+
+
+(deftest cross-frontend-callable-identity-fixture-test
+  (testing "a stored PHP function crosses a TS entry, is called, and stays same-cell"
+    (let [results (run-everywhere
+                    call/uast
+                    '(let [php-function
+                           (cell/new
+                             (assoc {:php/type :function}
+                                    :yang.call/entry
+                                    (fn [invocation]
+                                      (get invocation :yang.call/callee))))
+                           stored (cell/new php-function)
+                           original (cell/get stored)
+                           typescript-relay
+                           (assoc {}
+                                  :yang.call/entry
+                                  (fn [invocation]
+                                    (yang.call/invoke
+                                      (get invocation :yang.call/receiver)
+                                      [] []
+                                      (get invocation :yang.call/raise))))
+                           returned
+                           (yang.call/invoke-with
+                             typescript-relay [] []
+                             (fn [condition] condition)
+                             (assoc {} :yang.call/receiver original))]
+                       (if (= original returned) :same :different)))]
+      (is (every? #{:same} (vals results))
+          (pr-str results)))))

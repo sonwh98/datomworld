@@ -369,6 +369,18 @@
     (is (= :none (:yin.k/host-state profile)) (str sym))))
 
 
+(deftest host-shape-predicates-test
+  (testing "the shape exports are total across nil, scalars, functions and maps"
+    (doseq [[value expected]
+            [[nil false] [7 false] ["text" false] [[] false]
+             [{} true] [{:type :cell-ref} true] [(fn [] nil) false]]]
+      (is (= expected (call 'map? value)) (str value)))
+    (doseq [[value expected] [[nil false] [7 false] [[] true] [{} false]]]
+      (is (= expected (call 'vector? value)) (str value)))
+    (doseq [[value expected] [[nil false] [7 false] ["text" true] [[] false]]]
+      (is (= expected (call 'string? value)) (str value)))))
+
+
 (deftest installed-only-by-composition-test
   (testing "no data export is a standard primitive"
     (is (not-any? #(contains? vm/primitives %) (keys data/data-module)))

@@ -2001,19 +2001,30 @@
                                  (let [callee (get invocation :yang.call/callee)
                                        positional (get invocation :yang.call/positional)
                                        named (get invocation :yang.call/named)
+                                       binding-profile (get invocation :yang.call/binding-profile)
                                        args (if (> (data/count named) 0)
                                               (php/place-named callee (get (cell/get callee) :spec)
                                                                positional named 0 (data/count named)
                                                                (php/empty-array))
                                               positional)]
-                                   ((get (cell/get callee) :code) callee args)))))
+                                   (if (if (nil? binding-profile)
+                                         true
+                                         (= binding-profile
+                                            "sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb"))
+                                     ((get (cell/get callee) :code)
+                                      callee args binding-profile)
+                                     ((get invocation :yang.call/raise)
+                                      {:yang.call/reason :yang.call/unsupported-binding
+                                       :yang.call/data
+                                       {:yang.call/binding-profile binding-profile}}))))))
            f)))]
     [php/register!
      (fn [name code]
        (cell/set! php.rt/functions
                   (assoc (cell/get php.rt/functions)
                          name
-                         (php/make-function name :php/null (fn [f args] (code args)) []))))]
+                         (php/make-function name :php/null
+                                            (fn [f args binding-profile] (code args)) []))))]
     [php/declare-function!
      (fn [lc f]
        (if (nil? (get (cell/get php.rt/functions) lc))
@@ -2043,9 +2054,12 @@
              (php/bind-marker cv (cell/get slot)))))]
     [php/param-ref
      ;; a by-reference parameter: the caller's marker (counted by the CV), or
-     ;; a fresh one around a value that is not a variable
-     (fn [arg]
-       (if (= (php/slot-kind arg) :ref-marker) (php/addref arg) (php/new-ref arg)))]
+     ;; a fresh one around a value that is not a variable. The marker is
+     ;; binding-authorized only by the pinned invocation profile.
+     (fn [arg binding-profile]
+       (if (= binding-profile "sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb")
+         (if (= (php/slot-kind arg) :ref-marker) (php/addref arg) (php/new-ref arg))
+         (php/new-ref (php/addref (php/deref arg)))))]
     [php/too-few
      (fn [name passed required exact]
        (php/throw-error
@@ -2070,6 +2084,14 @@
                              :yang.call/positional args)
                       :yang.call/named [])
                :yang.call/raise (fn [condition] (php/raise condition)))))]
+    [php/call-with-binding-profile
+     (fn [f args named binding-profile]
+       ((get (cell/get f) :yang.call/entry)
+        (assoc (assoc (assoc (assoc (assoc {} :yang.call/callee f)
+                                    :yang.call/positional args)
+                             :yang.call/named named)
+                      :yang.call/raise (fn [condition] (php/raise condition)))
+               :yang.call/binding-profile binding-profile)))]
     ;; the internal array pointer (row 55): an ordinal in the table's `:ptr`,
     ;; so it travels with the value (copy, DUP, upgrade); absent means 0
     [php/ptr-of
