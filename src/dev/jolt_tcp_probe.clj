@@ -30,7 +30,9 @@
 ;;              unterminated tail and then nil;
 ;;   deadline   A2: :deadline is nil on an empty registry and a round waits the
 ;;              cadence; an upgrade deadline 50 ms before a 1000 ms cadence
-;;              wakes the round at about 50 ms and pump! runs with ready [];
+;;              wakes the round at about 50 ms and pump! runs with ready []
+;;              (each round through driver/sleep-fds!, which folds the
+;;              deadline since J6e);
 ;;   control    A3 both event orders (ping then M2, M2 then ping) with exact
 ;;              :queued-bytes; A4 ten pings whole and octet-wise, a ping behind
 ;;              a short-written pong, 17 pings against a non-writable socket
@@ -39,7 +41,8 @@
 ;;              the deadline;
 ;;   close      A5 scripted close cases, D2 peer-first deadline and its
 ;;              readiness companion, D3 the five close payloads and the
-;;              1005/1006 refusal;
+;;              1005/1006 refusal, J6e R12 a parser failure after a requested
+;;              close (still queued, already sent);
 ;;   listener   the 64 pending-upgrade cap against 80 clients (completion and
 ;;              expiry each admit exactly one), lower-deadlines!, drained?.
 ;;
@@ -839,31 +842,20 @@
 ;; =============================================================================
 
 (defn- owner-round!
-  "One owner round as a driver performs it (the J6e folding, here in the
-   probe): poll the pump's interest until min(cadence, :deadline), then
-   pump! the observed readiness, [] on a timeout."
+  "One owner round through the real driver: driver/sleep-fds! polls the
+   pump's interest until min(cadence, :deadline) (the J6e folding) and
+   pump!s the observed readiness, [] on a timeout; `calls` records it."
   [p cadence-ms calls]
-  (let [hp (pump/host-pump p)
-        t0 (poller/clock-ms)
+  (let [w (driver/make-wake)
+        hp (pump/host-pump p)
         d ((:deadline hp))
-        deadline (if d (min d (+ t0 cadence-ms)) (+ t0 cadence-ms))
-        interest ((:interest hp))
-        n (count interest)
-        fds (native/alloc-pollfds (max 1 n))]
+        t0 (poller/clock-ms)]
     (try
-      (dotimes [i n] (let [[fd ev] (nth interest i)] (native/init-pollfd! fds i fd ev)))
-      (loop []
-        (let [ms (max 0 (long (Math/ceil (- deadline (poller/clock-ms)))))
-              [rc e] (native/c-poll fds n ms)]
-          (when (and (neg? rc) (native/eintr? e)) (recur))))
-      (let [ready (vec (keep (fn [i]
-                               (let [rev (native/pollfd-revents fds i)]
-                                 (when (pos? rev) [(first (nth interest i)) rev])))
-                             (range n)))]
-        (swap! calls conj ready)
-        ((:pump! hp) ready)
-        {:ms (- (poller/clock-ms) t0), :ready ready, :deadline d})
-      (finally (ffi/free fds)))))
+      (driver/sleep-fds! w cadence-ms
+                         (assoc hp :pump! (fn [ready] (swap! calls conj ready) ((:pump! hp) ready)))
+                         nil)
+      {:ms (- (poller/clock-ms) t0), :ready (last @calls), :deadline d}
+      (finally (driver/close! w)))))
 
 
 (defn- section-deadline
@@ -1315,6 +1307,44 @@
           (check "A5 fail: EOF before the close frame is written reports 1006 (:eof), pending released"
                  (and (= [[:closed 1006 :eof]] (terminals events)) (zero? (pump/queued-bytes h)))
                  {:terminals (terminals events)})
+          (done c))
+        ;; R12 (i): a parser failure after a requested close still queued:
+        ;; that frame keeps the slot, the connection fails once it is written
+        (let [{:keys [a b p events h] :as c} (fresh)
+              calls (atom 0)]
+          (with-redefs-fn {send-var (scripted-send calls (fn [_ _] :eagain))}
+            (fn []
+              (pump/close! p h 4000 "ended")
+              (feed! p a b [0x83 0x00])
+              (let [tags (pump/pending-tags h)
+                    rec (pump/close-record h)]
+                (check "R12 (i): close! 4000 under EAGAIN then a failing frame: still exactly one :close pending, :failed? true, no terminal yet"
+                       (and (= [:close] (mapv first tags)) (= :queued (:local rec)) (true? (:failed? rec))
+                            (= 4000 (:code rec)) (empty? (terminals events)))
+                       {:tags tags, :rec (dissoc rec :deadline)}))
+              (feed! p a b (wire (ping 3)))
+              (check "R12 (i): bytes the peer writes afterwards are not parsed: no pong"
+                     (= [:close] (mapv first (pump/pending-tags h))) {:tags (pump/pending-tags h)})))
+          (drain-rounds! w p h 50)
+          (pump/pump! p [])
+          (let [got (read-n! b 100 500)]
+            (check "R12 (i): on readiness the wire holds the 4000 frame only; one terminal 4000 :fail, :queued-bytes 0, registry empty"
+                   (and (= (wire (close-f 4000 "ended")) (:bytes got))
+                        (= [[:closed 4000 :fail]] (terminals events)) (zero? (pump/queued-bytes h))
+                        (= empty-registry (pump/debug-state p)))
+                   {:wire (:bytes got), :terminals (terminals events)}))
+          (done c))
+        ;; R12 (ii): the same with the 4000 frame already sent: fails at once
+        (let [{:keys [a b p events h] :as c} (fresh)]
+          (pump/close! p h 4000 "ended")
+          (check "R12 (ii): the 4000 frame is sent" (= :sent (:local (pump/close-record h))) {})
+          (feed! p a b [0x83 0x00])
+          (check "R12 (ii): a failing frame after our close was sent ends the connection at once: one terminal 4000 :fail, registry empty"
+                 (and (= [[:closed 4000 :fail]] (terminals events)) (= empty-registry (pump/debug-state p)))
+                 {:terminals (terminals events)})
+          (let [got (read-n! b 100 500)]
+            (check "R12 (ii): the wire holds the 4000 frame only"
+                   (= (wire (close-f 4000 "ended")) (:bytes got)) {:wire (:bytes got)}))
           (done c))
         (let [{:keys [h] :as c} (fresh)]
           (check "D3: the close-frame builder refuses 1005 and 1006"

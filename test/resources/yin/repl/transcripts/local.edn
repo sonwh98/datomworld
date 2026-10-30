@@ -51,10 +51,6 @@
  {:id :transit-refusal :args ["--codec" "transit"]
   :startup-only true :hosts [:jolt] :out "--codec takes cbor, not \"transit\"" :exit 1
   :capability {:owner :J6 :reason "CBOR only on jolt"}}
- {:id :port-refusal :args ["--port" "8080"]
-  :startup-only true :hosts [:jolt]
-  :out {:re "(?s)no host WebSocket package is composed for this build:.*"} :exit 1
-  :capability {:owner :J6 :reason "no jolt socket adapter yet"}}
  {:id :dht-refusal :args ["--index-store" "dht:x"]
   :startup-only true :hosts [:jolt]
   :out "the dht: index store arrives at J7 on jolt" :exit 1

@@ -59,9 +59,13 @@
    :prefixes ["yang.typescript"]
    :layer 3}
 
+  {:name "yang.php"
+   :prefixes ["yang.php"]
+   :layer 3}
+
   {:name "yang.base"
-   :prefixes ["yang.clojure" "yang.php" "yang.frontend" "yang.safepoint"
-              "yang.stage" "yang.tails" "yang.io"]
+   :prefixes ["yang.clojure" "yang.frontend" "yang.safepoint"
+              "yang.stage" "yang.tails" "yang.io" "yang.core"]
    :layer 3}
 
   ;; Layer 4: Demos & World Applications

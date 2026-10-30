@@ -215,8 +215,7 @@
   (let [state (repl/boot (repl/parse-args []))]
     (is (some? (:input state)))
     (is (some? (:input-cursor state)))
-    #?(:jolt (is (nil? (:host state)))
-       :default (is (host-common/adapter? (:host state))))
+    (is (host-common/adapter? (:host state)))
     (is (true? (:running? state)))
     #?(:jolt (is (= [shell/host-text
                      "python: the native C++ ANTLR4 parser (native/jolt-parser), in process; no process crash isolation"]
@@ -1861,6 +1860,42 @@
         (is (zero? @(:attaches w))
             "no program step ran: nothing was ever attached, before or after
              the shell stopped"))
+      (finally
+        (compose-test/cleanup-world! w)))))
+
+
+(deftest a-drain-round-lasts-a-tick-however-often-a-sleep-returns-early-test
+  ;; R17: the owner's drain sleeps out each round's tick, so readiness that
+  ;; ends every sleep at once cannot spend the stop-ticks budget early.  A
+  ;; drain nothing can end (a release its full inbound holds back for good)
+  ;; runs through run-owner! with a clock that moves 5 ms per sleep! and a
+  ;; sleep! that returns at once.
+  (let [gate (atom false)
+        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+    (try
+      (let [_ (reset! gate true)
+            c (compose/restart (:c w) "h1")
+            state (custody-state c "(quit)")
+            clock (atom 0)
+            sleeps (atom 0)
+            exited (atom nil)
+            out (with-out-str
+                  (repl/run-owner! state nil true #(deref clock)
+                                   (fn [_ms] (swap! sleeps inc) (swap! clock + 5))
+                                   #(reset! exited %)))
+            attempts (release-attempts c)]
+        (is (some? @exited) "the owner reached its exit")
+        (is (= (+ repl/stop-ticks 2) (count attempts))
+            "exactly the stop-ticks budget of rounds: one control tick for the
+             stopping tick, one per drain round and the budget's last round,
+             as when every sleep lasted its tick")
+        (is (= (* (quot repl/tick-millis 5) repl/stop-ticks) @sleeps)
+            "every round slept out its whole tick: tick-millis / 5 early-waking
+             sleeps per round, for each of the stop-ticks rounds that sleep")
+        (is (= (* repl/tick-millis repl/stop-ticks) @clock)
+            "so the drain lasted tick-millis x stop-ticks of (fake) wall time")
+        (is (= 1 (count (re-seq #"did not report :stopped" out)))
+            "the budget ran out once and said so once"))
       (finally
         (compose-test/cleanup-world! w)))))
 
