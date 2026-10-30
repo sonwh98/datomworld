@@ -13,7 +13,7 @@
 
 (def host-names
   "Host module names read by the guest definitions."
-  '#{cell/get data/callable? data/contains? data/count data/map?
+  '#{cell/get data/callable? data/contains? data/count data/map? data/nth
      data/string? data/vector?})
 
 

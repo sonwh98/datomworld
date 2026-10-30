@@ -25,8 +25,8 @@
 
 (defn c4-specs
   []
-  (let [registry (h/registry) a :test/address]
-    (into [[:py (prelude/module-spec registry)]
+  (let [registry (h/registry) a :test/address call-address :test/call-address]
+    (into [[:py (prelude/module-spec registry call-address)]
            [:pysp (safepoint/module-spec registry a)]]
           (mapv (fn [[n packet deps]]
                   [(keyword n) (lower/module-spec registry packet

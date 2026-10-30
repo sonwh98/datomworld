@@ -143,9 +143,10 @@
                            (lower/lower-module-body x-equals-1)))
         linked (lower/lower-packet x-equals-1 {:prelude :linked})
         symbols (filter symbol? (tree-seq coll? seq linked))]
-    (testing "require py, allocate the task's runtime state, run the body"
+    (testing "require yang.call and py, allocate task state, run the body"
       (is (= (u/mark-tails
-               (u/seq-nodes [(u/app (u/v 'require) (u/lit 'py))
+               (u/seq-nodes [(u/app (u/v 'require) (u/lit 'yang.call))
+                             (u/app (u/v 'require) (u/lit 'py))
                              (u/app (u/v 'py/init!))
                              main]))
              linked)))

@@ -2035,8 +2035,8 @@
 
    `:prelude` selects how the runtime profile arrives: `:bundled` (the
    default) carries the prelude tree ahead of the body; `:linked`
-   requires the module `py` from the task's link pair, then allocates the
-   task's runtime state with `(py/init!)`. Either way the body names only
+   requires `yang.call` and `py` from the task's link pair, then allocates
+   the task's runtime state with `(py/init!)`. Either way the body names only
    `py/` exports, never a runtime key.
 
    Guest imports deliver through try-require thunks at the executed
@@ -2063,7 +2063,8 @@
                               :construct "import under the bundled prelude"}))
                     (u/then prelude/uast main))
          :linked (u/seq-nodes
-                   [(app* 'require (u/lit prelude/module-name))
+                   [(app* 'require (u/lit 'yang.call))
+                    (app* 'require (u/lit prelude/module-name))
                     (app* 'py/init!) main]))))))
 
 

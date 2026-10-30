@@ -32,7 +32,8 @@
                      dicts
      function        a cell holding {:py/type :function :name s :spec spec
                      :defaults [...] :kwdefaults [[name v] ...]
-                     :code (fn [args] ...)}; identity is the cell ref
+                     :code (fn [args] ...) :yang.call/entry
+                     (fn [invocation] ...)}; identity is the cell ref
      class           a cell holding {:py/type :class :name s :base cls
                      :attrs {name value}}
      instance        a cell holding {:py/type :instance :class cls
@@ -60,11 +61,11 @@
                      module objects `py/init!` pre-seeds into it; :body
                      retains an imported module's image for reload
 
-   Calling convention: a function's `:code` takes one vector of arguments
-   laid out as the parameters are written. `py/call-kw` (and `py/call`,
-   its positional-only form) binds positional arguments, keywords, defaults,
-   `*args` and `**kwargs` from the function's static spec; every binding
-   failure is a Python TypeError.
+   Calling convention: `py/call-kw` resolves Python methods and classes,
+   then discovers admitted entries through `yang.call`. Python function
+   entries bind positional arguments, keywords, defaults, `*args` and
+   `**kwargs` before applying their private `:code`; entryless builtins keep
+   their existing Python-local path.
 
    Runtime state is allocated by `py/init!`, once per task, under the slot
    `py.rt/state` (the literal `:py/uninit` until `py/init!` flips it to
@@ -181,6 +182,7 @@
   #?(:cljs (:require-macros [yang.python.antlr.prelude :refer [defquoted]]))
   (:require
     #?(:cljd [clojure.edn :as edn])
+    [yang.core.call :as call]
     [yang.core.prelude :as core]
     [yang.python.antlr.uast :as u]
     [yin.vm.integer :as integer]))
@@ -200,17 +202,18 @@
 
 (def host-names
   "Module exports the prelude calls."
-  '#{cell/new cell/get cell/set! data/count data/into data/subvec
-     data/number? data/contains? data/dissoc data/str-concat data/str-length
-     data/str-index-of data/str->code-points data/code-points->str
-     data/float64 data/float-value data/content=
-     integer/add integer/sub integer/neg integer/mul integer/compare
-     integer/to-float integer/compare-float integer/true-div
-     integer/pow integer/shift-right integer/bit-and
-     integer/bit-or integer/bit-xor integer/bit-not integer/from-float
-     integer/floor-div-mod integer/shift-left integer/format integer/parse
-     integer/float-digits integer/decimal->float integer/max-digits
-     data/substring data/max-items})
+  (into '#{cell/new cell/get cell/set! data/count data/into data/subvec
+           data/number? data/contains? data/dissoc data/str-concat data/str-length
+           data/str-index-of data/str->code-points data/code-points->str
+           data/float64 data/float-value data/content=
+           integer/add integer/sub integer/neg integer/mul integer/compare
+           integer/to-float integer/compare-float integer/true-div
+           integer/pow integer/shift-right integer/bit-and
+           integer/bit-or integer/bit-xor integer/bit-not integer/from-float
+           integer/floor-div-mod integer/shift-left integer/format integer/parse
+           integer/float-digits integer/decimal->float integer/max-digits
+           data/substring data/max-items}
+        call/host-names))
 
 
 (defquoted ^:private core-definitions
@@ -1032,11 +1035,18 @@
      (fn [f args kwargs]
        (if (= (get f :py/type) :method)
          (py/call-kw (get f :fn) (data/into (py/vconj [] (get f :self)) args) kwargs)
-         (let [t (py/content-type f)]
-           (if (= t :function)
-             (let [fc (cell/get f)] ((get fc :code) (py/bind-args fc args kwargs)))
-             (if (= t :class)
-               (py/instantiate f args kwargs)
+         (if (= (py/content-type f) :class)
+           (py/instantiate f args kwargs)
+           (if (yang.call/eligible? f)
+             (yang.call/invoke
+               f args kwargs
+               (fn [condition]
+                 (if (= (get condition :yang.call/reason) :yang.call/thrown)
+                   (py/raise (get condition :yang.call/value))
+                   (py/type-error {:py/str "object is not callable"}))))
+             (if (= (py/content-type f) :function)
+               (let [fc (cell/get f)]
+                 ((get fc :code) (py/bind-args fc args kwargs)))
                (py/type-error {:py/str "object is not callable"}))))))]
     [py/instantiate
      (fn [cls args kwargs]
@@ -3638,9 +3648,9 @@
 
 
 (def functions-uast
-  "Every definition: lambdas and the literal state slot. Defining them
-   runs nothing, so this loads on any composition, with or without cells."
-  (definitions->uast definitions))
+  "The shared call runtime followed by every Python definition. Defining
+   them runs nothing, so this loads on any composition, with or without cells."
+  (definitions->uast (into call/definitions definitions)))
 
 
 (def uast
@@ -3724,12 +3734,13 @@
    is declared under `:primitives`; a free name nothing supplies is
    refused before anything is published. This namespace emits; it never
    publishes."
-  [registry]
+  [registry call-address]
   (core/module-spec {:module-name module-name,
                      :ast module-uast,
                      :exports module-exports,
-                     :requires {},
+                     :requires {'yang.call call-address},
                      :free-names module-free-names,
+                     :skip? #(= "yang.call" (namespace %)),
                      :registry registry,
                      :message "the py module reads an undeclared name",
                      :refusal-ns "yang.python.antlr"}))

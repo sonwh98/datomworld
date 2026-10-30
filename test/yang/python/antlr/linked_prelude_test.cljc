@@ -13,8 +13,8 @@
    a value from one unit to another, so the Python-source form is I1's."
   (:require
     [clojure.test :refer [deftest is testing]]
-    [dao.jing.mem :as mem]
     [dao.test-slow :as slow]
+    [yang.core.call :as call]
     [yang.python.antlr.linked-harness :as h]
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.lower-portable-test :as portable]
@@ -135,11 +135,11 @@
 
 
 (deftest module-spec-test
-  (let [spec (prelude/module-spec registry)]
+  (let [spec (prelude/module-spec registry :test/call-address)]
     (is (= 'py (:name spec) prelude/module-name))
     (is (= prelude/module-uast (:ast spec)))
     (is (= prelude/module-exports (:exports spec)))
-    (is (= {} (:requires spec)))
+    (is (= {'yang.call :test/call-address} (:requires spec)))
     (testing "a host export is declared by its registry profile and effects"
       (is (= {:yin.k/profile (get-in module/cell-profiles
                                      ['new :yin.k/profile]),
@@ -154,7 +154,7 @@
     (let [no-data (-> (module/empty-registry)
                       module/register-cell-module
                       (prelude/register-integer-module limits))
-          refusal (refusal-of #(prelude/module-spec no-data))]
+          refusal (refusal-of #(prelude/module-spec no-data :test/call-address))]
       (is (= :yang.python.antlr/undeclared-free
              (:yang.python.antlr/refusal refusal)))
       (is (= "data" (namespace (:name refusal)))))))
@@ -165,9 +165,10 @@
 ;; =============================================================================
 
 (deftest module-spec-declares-every-free-name-test
-  (let [declared (keys (:primitives (prelude/module-spec registry)))]
+  (let [declared (keys (:primitives (prelude/module-spec registry :test/call-address)))]
     (testing "the qualified declarations are exactly the host names (I7)"
-      (is (= prelude/host-names (set (filter namespace declared)))))
+      (is (= prelude/host-names
+             (into (set (filter namespace declared)) call/host-names))))
     (testing "the bare declarations are primitives"
       (is (every? #(contains? vm/primitives %) (remove namespace declared))))
     (testing "the exports are no primitive and all defined at module level"
@@ -235,9 +236,10 @@
    landed I5 re-mints it through dht-import-v1.generate.clj. The
    value-display slice (06065e42: py/result!, py.rt/value, the :py/value
    answer of py/run-session) moved it to this address; the s3 tracing
-   slice moved only the hook prelude, so this address did not move."
+   slice moved only the hook prelude, so this address did not move. The
+   S3 shared-call publication moved the Python module manifest."
   (keyword (str "segment/blake3-"
-                "093fc4045c2c0b6ae740dd967e164d65b4319f4e09256419ae16ca81c88cf73b")))
+                "281b18a60d6dbda283ce6f8319f544d5969ee6403f8d8e54f5653f27052fd942")))
 
 
 (def ^:private vector-formats
@@ -257,7 +259,8 @@
     (testing "publishing twice into one store answers one address"
       (is (= address
              (:address (publish/publish-module!
-                         store (prelude/module-spec registry))))))))
+                         store (prelude/module-spec registry
+                                                    (:call-address @h/published)))))))))
 
 
 (deftest ^:slow manifest-address-test
@@ -314,8 +317,8 @@
 
 (def ^:private program-root-golden
   (keyword (str "segment/blake3-"
-                "dbe72b291a26a4f594ad55cf52e5ffd0"
-                "88fdd262b58fd26212a01a7dd983a6df")))
+                "8ed7a31a0181df972099235fcff6cab3"
+                "ce943c590f703fb9e7ac564fd4afca40")))
 
 
 (defn- holds-no-prelude
@@ -343,9 +346,9 @@
 (defn- program-root-is-prelude-independent
   []
   (let [root (:root (vm/ast->semantic-bytecode linked-x-equals-1))
-        revised (publish/publish-module! (mem/create-content-mem)
-                                         (with-probe
-                                           (prelude/module-spec registry)))]
+        revised (h/publish-guest-module!
+                  (with-probe
+                    (prelude/module-spec registry (:call-address @h/published))))]
     (testing "the linked program root is one address on every host (JVM
               golden)"
       (is (= program-root-golden root) (str root)))
@@ -532,7 +535,7 @@
             held (keys (vm/store task))]
         (is (empty? (:pending served)))
         (is (= :absent (:reason refusal)) (pr-str refusal))
-        (is (= 'py (:name refusal)))
+        (is (= 'yang.call (:name refusal)))
         (testing "the task's store holds no prelude key"
           (is (not-any? #(contains? prelude/module-exports %) held))
           (is (not-any? #(and (symbol? %)
