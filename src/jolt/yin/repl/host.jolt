@@ -1,0 +1,34 @@
+(ns yin.repl.host
+  "The jolt composition of the Yin REPL host WebSocket seam (J6e).
+
+   This jolt namespace shadows the `.cljc` one, so it carries only
+   `websocket`; the portable contract is `yin.repl.host.common`. It
+   composes the native RFC 6455 edge (`dao.stream.ws.jolt`) for the REPL:
+   upgrades reach `dao.stream.ws/accept-connection!` through the endpoint's
+   `accept!`, and each accepted connection reports through the
+   `dao.stream.ws/adapter` of its handle.
+
+   Unlike the JVM, Node and Dart packages, jolt's sockets move only when
+   their owner pumps them, so the adapter also carries `:pump` (the
+   driver's `{:interest :deadline :pump!}`, A2) and `:close-host!` (forced
+   cleanup once the owner loop has ended, A6). One instance per call: two
+   adapters never share a descriptor."
+  (:require [dao.stream.ws :as ws]
+            [dao.stream.ws.jolt :as wsj]))
+
+
+(defn websocket
+  "Return a fresh jolt host adapter: `{:connect! :bind! :unbind! :pump
+   :close-host! :debug-state}` over one new instance. `opts` (tests only):
+   `:upgrade-timeout-ms`, `:close-deadline-ms`."
+  ([] (websocket nil))
+  ([opts]
+   (let [inst (wsj/create opts)]
+     {:connect! (fn [descriptor adapter] (wsj/connect! inst descriptor adapter))
+      :bind! (fn [options]
+               (wsj/bind! inst (assoc options :ws.jolt/adapter-of
+                                      #(some-> (:ws/handle %) ws/adapter))))
+      :unbind! (fn [listener deposit!] (wsj/unbind! inst listener deposit!))
+      :pump (wsj/host-pump inst)
+      :close-host! #(wsj/close-host! inst)
+      :debug-state #(wsj/debug-state inst)})))

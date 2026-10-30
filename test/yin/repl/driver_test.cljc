@@ -179,10 +179,8 @@
 
 (deftest the-default-host-is-ready-for-a-real-connection
   (let [state (driver/create-state)]
-    ;; jolt-applicability.edn :host-expectations / J6: the default host is nil.
-    #?(:jolt (is (nil? (:host state)) "J6: no native WebSocket adapter yet")
-       :default (do (is (host-common/adapter? (:host state)))
-                    (is (host-common/binder? (:host state)))))))
+    (is (host-common/adapter? (:host state)))
+    (is (host-common/binder? (:host state)))))
 
 
 (deftest connect-without-a-url-answers-with-its-usage

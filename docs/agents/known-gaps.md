@@ -175,3 +175,4 @@ reported zero errors/warnings; `cljstyle check` passed. The requested
 `clj -M:kondo --lint src/dev` reported 31 errors and 27 warnings in unrelated
 files. Linting an archived `1fe3eb07` baseline produced identical findings;
 those pre-existing Jolt/probe findings are outside this contract's file scope.
+| jolt ws: a ping after a local close is queued gets no pong (A4 "every ping produces one pong" holds until a local close exists) | pump.jolt:597 (handle-event! :ping guard); wave-1 Architect sign-off P3 | jolt (J6) | documented behaviour, closed by J6e's docstring sentences; J6h cites the archived sign-off | P3 |
