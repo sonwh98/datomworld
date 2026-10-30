@@ -542,8 +542,12 @@
 ;; step waits at least this long (a larger --timeout-ms still wins).
 ;; yin.repl.python-antlr-test runs the ^:slow Python programs over the native
 ;; parser: 7218 s alone on jupiter (J5; the JVM takes about 1200 s).
+;; yin.vm.semantic.safepoint-harness-test is the 265,225-assertion safepoint
+;; oracle: 23251 s (~6.5 h) on jupiter at a0a49b8e (the J2 close
+;; evidence) — the bound is the measured wall plus an hour.
 (def ^:private step-timeout-ms
-  {"yin.repl.python-antlr-test" (* 3 3600000)})
+  {"yin.repl.python-antlr-test" (* 3 3600000)
+   "yin.vm.semantic.safepoint-harness-test" (* 7 3600000)})
 
 
 (defn- core-step
