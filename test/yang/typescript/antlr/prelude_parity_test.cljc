@@ -728,6 +728,42 @@
               objects-and-functions-on-every-vm))
 
 
+(deftest ^:slow shared-call-binding-presence-on-every-vm-test
+  (doseq [[k result]
+          (run-with-prelude
+            prelude/uast
+            '(let [f (js/make-function {:js/str "arity"} 0 :strict :normal
+                                       (fn [this args] (data/count args)))]
+               (js/vconj
+                 (js/vconj [] (js/call f :js/undefined []))
+                 (js/call f :js/undefined [:js/undefined]))))]
+    (testing (str k)
+      (is (= [0 1] (if (vector? result) result [:thrown result]))))))
+
+
+(deftest ^:slow shared-call-eligibility-on-every-vm-test
+  (doseq [[k result]
+          (run-with-prelude
+            prelude/uast
+            '(let [foreign
+                   (cell/new
+                     (assoc (assoc {} :py/type :function)
+                            :yang.call/entry
+                            (fn [invocation]
+                              (get invocation :yang.call/callee))))
+                   disabled
+                   (cell/new
+                     (assoc (assoc (assoc {} :py/type :native)
+                                   :yang.call/entry (fn [invocation] invocation))
+                            :yang.call/eligible? (fn [callee] false)))]
+               (js/vconj
+                 (js/vconj (js/vconj [] (js/callable? foreign))
+                           (= foreign (js/call foreign :js/undefined [])))
+                 (js/callable? disabled))))]
+    (testing (str k)
+      (is (= [true true false] (if (vector? result) result [:thrown result]))))))
+
+
 (defn- finally-order-on-every-vm
   []
   (testing "nested finally frames run inner first, once each, before the

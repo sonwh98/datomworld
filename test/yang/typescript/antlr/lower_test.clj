@@ -434,5 +434,7 @@
     (is (< (count (pr-str linked)) (count (pr-str bundled)))
         "the linked program carries no prelude tree")
     (is (some #(= (u/lit 'js) %) (nodes linked)) "it requires the module js")
+    (is (some #(= (u/lit 'yang.call) %) (nodes linked))
+        "it requires the shared calling runtime")
     (is (some #(= (u/v 'js/init!) (:operator %)) (filter map? (nodes linked)))
         "and allocates the task's state")))

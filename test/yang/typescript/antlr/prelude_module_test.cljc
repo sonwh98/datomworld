@@ -3,8 +3,8 @@
    emitter strips the namespace `js/`, so a definition named like a
    primitive would shadow it inside the module, and a binder named like a
    definition would shadow that definition inside the function that binds
-   it; neither may exist. The module's free names are all declared by the
-   host registry."
+   it; neither may exist. Host free names come from the registry, and
+   shared call names come from the pinned `yang.call` requirement."
   (:require [clojure.test :refer [deftest is testing]]
             [yang.core.uast :as u]
             [yang.typescript.antlr.prelude :as prelude]
@@ -49,8 +49,9 @@
 
 (deftest module-spec-declares-every-free-name-test
   (testing "a registry with the host modules supplies the module's free names"
-    (let [spec (prelude/module-spec registry)]
+    (let [spec (prelude/module-spec registry :test/call-address)]
       (is (= 'js (:name spec)))
       (is (= prelude/module-exports (:exports spec)))
+      (is (= {'yang.call :test/call-address} (:requires spec)))
       (is (contains? (:exports spec) 'init!))
       (is (contains? (:exports spec) 'get-prop)))))

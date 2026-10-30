@@ -1714,8 +1714,8 @@
 
    `:prelude` selects how the runtime profile arrives: `:bundled` (the
    default) carries the prelude tree ahead of the body; `:linked` requires
-   the module `js` from the task's link pair, then allocates the task's
-   runtime state with `(js/init!)`."
+   the modules `yang.call` and `js` from the task's link pair, then allocates
+   the task's runtime state with `(js/init!)`."
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
    (let [ctx (context packet)
@@ -1725,6 +1725,9 @@
        (case prelude
          :bundled (u/then prelude/uast main)
          :linked (u/seq-nodes [(u/sexp->uast (list 'require
+                                                   (list 'quote
+                                                         'yang.call)))
+                               (u/sexp->uast (list 'require
                                                    (list 'quote
                                                          prelude/module-name)))
                                (app* 'js/init!)

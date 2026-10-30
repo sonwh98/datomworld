@@ -122,25 +122,6 @@
     (php-h/render (run (bind fn-ast '%tsfn php-ast)))))
 
 
-;; `js/call` admits only a cell whose `:js/type` is `:function`, so the PHP
-;; function cell cannot be called by TS bare. The adapter is a test-local
-;; `js/make-function` node (no prelude change) whose code forwards the
-;; argument vector to the PHP cell's own `:code`.
-(defn- js-shaped
-  [cell-var]
-  (letfn [(lit [v] {:type :literal, :value v})
-          (app
-            [op & args]
-            {:type :application, :operator (var-node op), :operands (vec args)})]
-    (app 'js/make-function
-         (lit {:js/str "phpfn"}) (lit 0) (lit :lexical) (lit :arrow)
-         {:type :lambda,
-          :params ['%t '%a],
-          :body {:type :application,
-                 :operator (app 'get (app 'cell/get (var-node cell-var)) (lit :code)),
-                 :operands [(var-node cell-var) (var-node '%a)]}})))
-
-
 (defn php-into-ts
   "TS `source` calling `phpfn(...)`, with `phpfn` the PHP closure `php-src`
    (a program holding one closure expression). Returns the rendered value."
@@ -150,7 +131,7 @@
                  (fn [n]
                    (if (and (app? n 'js/global-get)
                             (= "phpfn" (get-in n [:operands 0 :value :js/str])))
-                     (js-shaped '%phpfn)
+                     (var-node '%phpfn)
                      n))
                  (lowered-ts source))]
     (render/output (run (bind fn-ast '%phpfn ts-ast)))))
@@ -167,9 +148,10 @@
 
 
 (deftest php-closure-called-from-ts-test
-  (is (= {:js/out ["5"], :js/uncaught nil}
-         (php-into-ts "<?php fn($a, $b) => $a + $b;"
-                      "console.log(phpfn(2, 3));"))))
+  (testing "TS stores and calls the same PHP function cell it received"
+    (is (= {:js/out ["true 5"], :js/uncaught nil}
+           (php-into-ts "<?php fn($a, $b) => $a + $b;"
+                        "const stored = phpfn; console.log(stored === phpfn, stored(2, 3));")))))
 
 
 (deftest limits-test

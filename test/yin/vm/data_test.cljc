@@ -360,13 +360,25 @@
            'str-join 'char-at 'str->code-points 'code-points->str
            'str-compare 'str-unit-length 'str-unit-at 'str-units 'units->str
            'well-formed-utf16? 'number? 'float64 'float-value 'content=
-           'callable?}
+           'callable? 'map? 'vector? 'string?}
          (set (keys data/data-module))
          (set (keys data/data-profiles))))
   (doseq [[sym profile] data/data-profiles]
     (is (= :pure (:yin.k/class profile)) (str sym))
     (is (= #{} (:yin.k/effects profile)) (str sym))
     (is (= :none (:yin.k/host-state profile)) (str sym))))
+
+
+(deftest host-shape-predicates-test
+  (testing "the shape exports are total across nil, scalars, functions and maps"
+    (doseq [[value expected]
+            [[nil false] [7 false] ["text" false] [[] false]
+             [{} true] [{:type :cell-ref} true] [(fn [] nil) false]]]
+      (is (= expected (call 'map? value)) (str value)))
+    (doseq [[value expected] [[nil false] [7 false] [[] true] [{} false]]]
+      (is (= expected (call 'vector? value)) (str value)))
+    (doseq [[value expected] [[nil false] [7 false] ["text" true] [[] false]]]
+      (is (= expected (call 'string? value)) (str value)))))
 
 
 (deftest installed-only-by-composition-test
@@ -520,7 +532,13 @@
              [(d 'number? {:type :lambda, :params [], :body (lit 1)}) false]
              [(d 'callable? {:type :lambda, :params [], :body (lit 1)}) true]
              [(d 'callable? (v '+)) true]
-             [(d 'callable? (lit {:type :closure})) false]]]
+             [(d 'callable? (lit {:type :closure})) false]
+             [(d 'map? (lit {:a 1})) true]
+             [(d 'map? (lit [])) false]
+             [(d 'vector? (lit [])) true]
+             [(d 'vector? (lit '(1))) false]
+             [(d 'string? (lit "text")) true]
+             [(d 'string? (lit :text)) false]]]
       (doseq [[k result] (on-every-vm with-data ast)]
         (is (= expected (vm/value result)) (str k " " (:operator ast))))))
   (testing "a composed program: the length of the second split field"
