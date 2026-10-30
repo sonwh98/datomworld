@@ -581,7 +581,8 @@
   "The serving composition over py and every published guest module."
   []
   (let [a @published-guests]
-    (h/source (into {'py (:address @h/published)}
+    (h/source (into {'py (:address @h/published),
+                     'yang.call (:call-address @h/published)}
                     (map (fn [[n a]] [(lower/module-symbol (name n)) a]))
                     a))))
 
@@ -781,7 +782,8 @@
   "The serving composition over py and every published I2 guest; `nf.sub`
    is served but nothing requires it."
   []
-  (h/source (into {'py (:address @h/published)}
+  (h/source (into {'py (:address @h/published),
+                   'yang.call (:call-address @h/published)}
                   (map (fn [[n a]] [(lower/module-symbol n) a]))
                   @published-i2-guests)))
 
@@ -975,7 +977,8 @@
   [backend ast refusal]
   (let [pair (link/make-pair)
         initial ((get h/backends backend)
-                 (u/sexp->uast '(require (quote py)))
+                 (u/sexp->uast '(do (require (quote yang.call))
+                                    (require (quote py))))
                  (h/composition (h/registry) pair))
         [loaded pair] (h/drive initial pair (h/source))
         task ((get h/continues backend) loaded ast)]
@@ -1113,12 +1116,14 @@
   (let [py (:address @h/published)
         spec (lower/module-spec (h/registry) (retry-packet "ModuleNotFoundError")
                                 {:name "optional", :py-address py,
+                                 :call-address (:call-address @h/published),
                                  :deps {"w" (:w @published-guests)}})
         published (h/publish-guest-module! spec)
         pk (portable/packet [:file_input
                              (statement (import-simple-stmt "optional"))
                              ["EOF" "<EOF>"]])
-        src (h/source {'py py, 'pym.optional (:address published)})]
+        src (h/source {'py py, 'yang.call (:call-address @h/published),
+                       'pym.optional (:address published)})]
     (testing "a concretely pinned dependency absent from the reader does
               not abort module installation; its body catches and retries"
       (every= [true false {:py/out ["cleaned" "again"], :py/exception nil}]
@@ -1170,7 +1175,8 @@
   (let [result (publication/publish-units! (:store @h/published) (h/registry)
                                            (:address @h/published) units)]
     (is (= :ok (:status result)) (pr-str result))
-    (h/source (merge {'py (:address @h/published)}
+    (h/source (merge {'py (:address @h/published),
+                      'yang.call (:call-address @h/published)}
                      (into {} (map (fn [[n a]] [(lower/module-symbol n) a])) (:addresses result))
                      (:bundles result)))))
 
@@ -1376,7 +1382,8 @@
   []
   (let [ast (u/mark-tails
               (u/sexp->uast
-                '(do (require (quote py))
+                '(do (require (quote yang.call))
+                     (require (quote py))
                      (py/init!)
                      (let [body (fn [d gf]
                                   (do (py/dict-set d {:py/str "x"}

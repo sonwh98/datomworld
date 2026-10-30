@@ -3698,11 +3698,12 @@
 
 (def module-uast
   "The module tree: one application whose operands are the definitions,
-   in order, applied to a lambda that returns nil. Every definition runs
-   on the main sequence, unconditionally and before the one call, so the
-   linker's scanners discharge every body read of a sibling or a runtime
-   key. Defining runs nothing."
-  (core/module-tree module-definitions []))
+   in order, followed by `require yang.call`, applied to a lambda that
+   returns nil. Every definition runs on the main sequence before the
+   require, so the linker's scanners discharge every body read of a sibling
+   or runtime key. Defining runs nothing."
+  (core/module-tree module-definitions
+                    [(u/sexp->uast '(require (quote yang.call)))]))
 
 
 (def module-exports

@@ -745,6 +745,7 @@
         zero?
         abs-depth
         round-float
+        require
         char-escape
         reindex
         float-to-int
@@ -909,7 +910,8 @@
         slice-walk
         check-print},
       :occurrences
-      [[= true]
+      [[require false]
+       [= true]
        [get true]
        [not true]
        [nil? true]
@@ -4995,7 +4997,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 4017,
+      :application-count 4018,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5396,7 +5398,8 @@
       :join
       {:status :ok,
        :obligations
-       [[= true]
+       [[require false]
+        [= true]
         [get true]
         [not true]
         [nil? true]

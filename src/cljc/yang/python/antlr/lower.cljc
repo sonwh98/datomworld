@@ -2075,6 +2075,13 @@
 (def ^:private require-node core-module/require-node)
 
 
+(defn- calls-yang-call?
+  [ast]
+  (some (fn [n]
+          (and (symbol? n) (= "yang.call" (namespace n))))
+        (prelude/free-names ast)))
+
+
 (def module-exports
   "The exports of a compiled Python unit: its spec and body, immutable
    after install (docs/design/yang.antlr.md 8.5.6's module shape)."
@@ -2096,8 +2103,9 @@
 
 (defn module-packet
   "One ok packet as the linker module `pym.<mangled>`: one wide
-   application whose operands are `(require 'py)`, then the spec and
-   body definitions. Guest imports deliver at statement time; module-spec
+   application requiring `yang.call` first when the body reads that
+   convention, then `py`, then defining spec and body. Guest imports deliver
+   at statement time; module-spec
    still pins every static import. `name` is
    the dotted Python module name and `package?` (default false) whether
    the unit is a package, which is source layout, not derivable from
@@ -2108,10 +2116,13 @@
   [packet {:keys [name package?]}]
   (validate-module-name! name)
   (let [unit {:name name, :package? (boolean package?)}
-        defs [(u/def! 'spec (u/lit unit))
-              (u/def! 'body (u/lam [globals-sym globals-fn-sym]
-                                   (lower-module-body packet unit)))]
-        operands (into [(require-node prelude/module-name)] defs)
+        body (u/lam [globals-sym globals-fn-sym]
+                    (lower-module-body packet unit))
+        defs [(u/def! 'spec (u/lit unit)) (u/def! 'body body)]
+        operands (into (vec (concat (when (calls-yang-call? body)
+                                      [(require-node 'yang.call)])
+                                    [(require-node prelude/module-name)]))
+                       defs)
         params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
     (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
 
@@ -2147,7 +2158,7 @@
    publishes. A free name none of these supplies is refused before
    anything is published. `package?` is `module-packet`'s. This
    namespace emits; it never publishes."
-  [registry packet {:keys [name package? py-address deps]}]
+  [registry packet {:keys [name package? py-address call-address deps]}]
   (core-module/module-spec
     :yang.python.antlr/refusal :yang.python.antlr/undeclared-free registry
     {:name (module-symbol name),
@@ -2155,7 +2166,9 @@
      :exports module-exports,
      :runtime-name prelude/module-name,
      :runtime-address py-address,
-     :deps (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)}))
+     :deps (cond-> (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)
+             (calls-yang-call? (module-packet packet {:name name, :package? package?}))
+             (assoc 'yang.call call-address))}))
 
 
 (def ^:private module-tree core-module/module-tree)
@@ -2191,13 +2204,14 @@
                                 (u/lam [] (app* 'cell/get (u/v '%from-result))))))))
 
 
-(defn scc-module-specs
+(defn- scc-module-specs*
   "Canonical I5 construction: sorted members, indexed bare exports
    m0-spec/m0-body, etc.; one pyscc.<mangled-members> bundle followed by
    aliases in member order. Internal deliveries read those exports without
-   requiring aliases. Only py and outgoing imports are pinned by the bundle.
+   requiring aliases. The bundle pins py, yang.call when a body reads it,
+   and outgoing imports.
    Alias :requires is filled with the bundle address after publication."
-  [registry units py-address deps]
+  [registry units py-address call-address deps]
   (doseq [{:keys [name]} units]
     (validate-module-name! name))
   (let [units (vec (sort-by :name units))
@@ -2264,8 +2278,10 @@
         ;; The linker discharges body reads only when their definitions
         ;; precede every module-level application site. Install the pure
         ;; sibling bindings before require; defining the lambdas runs no py.
+        needs-call? (some calls-yang-call? wrapped-bodies)
         ast (module-tree (concat spec-defs
                                  body-defs
+                                 (when needs-call? [(require-node 'yang.call)])
                                  [(require-node prelude/module-name)]))
         exports (set (mapcat val keys-for))
         bundle (core-module/module-spec
@@ -2276,7 +2292,8 @@
                   :exports exports,
                   :runtime-name prelude/module-name,
                   :runtime-address py-address,
-                  :deps (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)})
+                  :deps (cond-> (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)
+                          needs-call? (assoc 'yang.call call-address))})
         require-profile (vm/profile-of vm/primitives 'require)]
     (core-module/scc-module-specs
       bundle
@@ -2285,6 +2302,18 @@
                 (core-module/alias-spec (module-symbol name) module-exports
                                         require-profile bundle-name sk bk)))
             units))))
+
+
+(defn scc-module-specs
+  "Canonical I5 construction: sorted members, indexed bare exports
+   m0-spec/m0-body, etc.; one pyscc.<mangled-members> bundle followed by
+   aliases in member order. Internal deliveries read those exports without
+   requiring aliases. Only py and outgoing imports are pinned by the bundle.
+   Alias :requires is filled with the bundle address after publication."
+  ([registry units py-address deps]
+   (scc-module-specs* registry units py-address nil deps))
+  ([registry units py-address call-address deps]
+   (scc-module-specs* registry units py-address call-address deps)))
 
 
 ;; =============================================================================
