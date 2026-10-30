@@ -13,8 +13,8 @@
      :source    PHP source
      :out       expected stdout pinned from the rows, or absent for oracle-only
      :oracle    `:pending` until the shiva recording pass has run; `pin` then
-                sets the banner from `recorded`. A mismatch is escalated to the
-                architect and never fixed by editing :out.
+                folds the recorded result. A recorded result is authoritative
+                and replaces any hand-authored output pin.
 
    `all-fixtures` is unconditional (the oracle iterates it). `enabled` is the
    subset whose :requires are all in `completed-steps`; implementation runners
@@ -354,10 +354,11 @@
    non-empty `:diag`/`:uncaught` are kept. Unrecorded fixtures stay pending."
   [fixture]
   (if-let [r (get recorded (:id fixture))]
-    (cond-> (assoc fixture :oracle banner)
-      (not (contains? fixture :out)) (assoc :out (:out r))
-      (seq (:diag r)) (assoc :diag (:diag r))
-      (:uncaught r) (assoc :uncaught (:uncaught r)))
+    (assoc fixture
+           :oracle banner
+           :out (:out r)
+           :diag (:diag r)
+           :uncaught (:uncaught r))
     fixture))
 
 

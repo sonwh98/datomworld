@@ -1,12 +1,10 @@
 (ns yang.php.antlr.programs-p4
   "Slice P4 Stage 0 (S0) fixture data: classes, exceptions, constructors and
    readonly groups (P4 plan v2, S0). Same schema as
-   `yang.php.antlr.programs-p3b`; every fixture here is `:oracle :pending`
-   until the shiva recording pass, and `:requires` names the P4 steps
-   (:p4-s1 .. :p4-s12) that must land before an implementation runner may
-   execute it. `:out` is pinned only where the row or the language fixes it;
-   otherwise it is absent and the recorded output is taken. A mismatch is
-   escalated to the architect and never fixed by editing :out.
+   `yang.php.antlr.programs-p3b`; `:oracle` is `:pending` until a recording is
+   folded, and `:requires` names the P4 steps (:p4-s1 .. :p4-s12) that must land
+   before an implementation runner may execute it. A recorded result is
+   authoritative and replaces any hand-authored output pin.
 
    `all-fixtures` is unconditional (the oracle iterates it). `enabled` is the
    subset whose :requires have all landed in `completed-steps`."
@@ -676,9 +674,12 @@
           :departure {:gap "C25", :zend "1"}
           :impl-out ""
           :throws true)
-   (fx :obj-row65-positional-after-string-key-spread :objects-v1 [65] #{:p4-s6}
-       "<?php function f($a, $b) { return $a - $b; } try { echo f(...['a' => 1], ...[2]); } catch (Error $e) { echo 'E'; }"
-       nil)
+   (assoc (fx :obj-row65-positional-after-string-key-spread :objects-v1 [65] #{:p4-s6}
+              "<?php function f($a, $b) { return $a - $b; } try { echo f(...['a' => 1], ...[2]); } catch (Error $e) { echo 'E'; }"
+              nil)
+          :departure {:gap "C25", :zend "-1"}
+          :impl-out "E"
+          :throws true)
    (fx :ctor-no-constructor-zero-args :constructor-v1 [53] #{:p4-s6}
        "<?php class A {} $a = new A(); echo get_class($a);"
        "A")
@@ -774,8 +775,8 @@
   "Oracle RECORD values from shiva pass 6 (php-8.3.35, docker php:8.3-cli, branch
    tip ec54182f), copied exactly from the pass log, plus the seven pass-7
    records (branch tip 56b622ad; :exc-user-ctor-override was absent from pass 6,
-   which ran its earlier strtoupper source). Withheld, escalated to the
-   Architect: :f3-shutdown-after-uncaught (see `awaiting-oracle`)."
+   which ran its earlier strtoupper source), and the three checkpoint-B pass-12
+   records from shiva (490 targets checked)."
   {:cls-new-and-method {:out "1", :diag [], :uncaught nil}
    :cls-static-prop-shared {:out "22", :diag [], :uncaught nil}
    :cls-static-prop-redeclared-unshared {:out "15", :diag [], :uncaught nil}
@@ -906,19 +907,23 @@
    :decl-exception-handler-then-shutdown {:out "HS", :diag [], :uncaught nil}
    :decl-byref-rejection-releases-ownership {:out "cED", :diag [], :uncaught nil}
    :decl-byref-rejection-exception-freed-then-unset {:out "cDE", :diag [], :uncaught nil}
-   :decl-byref-later-rejection-releases-earlier-param {:out "cDE", :diag [], :uncaught nil}})
+   :decl-byref-later-rejection-releases-earlier-param {:out "cDE", :diag [], :uncaught nil}
+   :obj-row65-spread-string-keys {:out "1", :diag [], :uncaught nil}
+   :obj-row65-positional-after-string-key-spread {:out "-1", :diag [], :uncaught nil}
+   :ro-clone-child-modifies-parent-readonly {:out "2", :diag [], :uncaught nil}})
 
 
 (defn- pin
-  "Fold a recorded oracle result into its fixture. Design-pinned outputs are
-   normative and do not require a recording; other unrecorded fixtures stay
-   pending."
+  "Fold a recorded oracle result into its fixture. Recorded values override
+   hand-authored pins; unrecorded fixtures with design-pinned outputs keep
+   those outputs, and other unrecorded fixtures stay pending."
   [fixture]
   (if-let [r (get recorded (:id fixture))]
-    (cond-> (assoc fixture :oracle banner)
-      (not (contains? fixture :out)) (assoc :out (:out r))
-      (seq (:diag r)) (assoc :diag (:diag r))
-      (:uncaught r) (assoc :uncaught (:uncaught r)))
+    (assoc fixture
+           :oracle banner
+           :out (:out r)
+           :diag (:diag r)
+           :uncaught (:uncaught r))
     (cond-> fixture
       (contains? fixture :out) (assoc :oracle banner))))
 
@@ -941,59 +946,6 @@
 
 
 (def awaiting-oracle
-  "The enabled fixtures that are still `:oracle :pending`: the S6 closure,
-   callable and return-type fixtures and the checkpoint-B object, constructor,
-   readonly and typed-reference fixtures, awaiting the next oracle pass. A fold
-   shrinks this set; changing it is a reviewed edit (Architect ruling on P4
-   activation: every enabled pending fixture is recorded before its
-   checkpoint closes)."
-  #{:clo-bind-grants-private-access
-    :clo-bindto-scope-by-name
-    :clo-bindto-without-scope-keeps-scope
-    :clo-bound-this-sets-static
-    :clo-call-binds-this-and-scope
-    :clo-call-passes-arguments
-    :clo-callable-array-string-forms
-    :clo-callable-private-from-inside
-    :clo-callable-private-from-outside
-    :clo-closure-keeps-called-class
-    :clo-from-callable-function
-    :clo-from-callable-invokable
-    :clo-from-callable-method
-    :clo-nested-closure-keeps-this
-    :clo-static-closure-has-no-this
-    :clo-this-captured-in-method
-    :clo-trait-closure-this
-    :clo-trait-self-and-static
-    :ctor-no-constructor-side-effecting-args
-    :ctor-no-constructor-zero-args
-    :ctor-private-constructor-text
-    :decl-never-implicit-return-is-type-error
-    :decl-never-throws
-    :decl-signed-literal-defaults-accepted
-    :decl-static-return-type
-    :obj-row22-destructor-creates-global
-    :obj-row46-static-typed-ref-source
-    :obj-row57-unknown-named-by-ref-callee-no-vivification
-    :obj-row57-unknown-named-object-argument-destroyed
-    :obj-row59-dim-write-autovivifies-array
-    :obj-row59-dim-write-refuses-int
-    :obj-row59-uninitialized-concat-assign
-    :obj-row59-uninitialized-increment
-    :obj-row65-positional-after-string-key-spread
-    :obj-row65-spread-string-keys
-    :p4-typed-ref-row41-readonly-initialized
-    :p4-typed-ref-row41-uninitialized-non-nullable
-    :p4-typed-ref-row41-uninitialized-nullable
-    :p4-typed-ref-row42-assign-null
-    :p4-typed-ref-row42-assign-string
-    :p4-typed-ref-row42-coerces-numeric-string
-    :p4-typed-ref-row43-increment-past-max
-    :p4-typed-ref-row44-unset-uninitializes
-    :p4-typed-ref-row45-first-failing-source
-    :p4-typed-ref-row45-second-source-mismatch
-    :ro-clone-child-modifies-parent-readonly
-    :ro-clone-uninitialized-unset
-    :ro-clone-unset-twice
-    :ro-f3-unset-then-reassign-in-clone
-    :ro-uninitialized-reference-text})
+  "The enabled fixtures still awaiting oracle records. Pass 12 closes the
+   checkpoint-B set in this registry."
+  #{})
