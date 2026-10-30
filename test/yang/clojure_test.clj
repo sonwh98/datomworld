@@ -1201,6 +1201,26 @@
           (is (= expected (first (run ast)))))))))
 
 
+(deftest test-common-call-profile-eligibility
+  (doseq [eligible? [true false]
+          run [walker-run semantic-run]]
+    (let [descriptor (#'yang/admit-call-descriptor
+                      (u/app (u/v 'assoc) (u/lit {})
+                             (u/lit :yang.call/entry) (u/lam ['record] (u/lit :called))
+                             (u/lit :yang.call/eligible?) (u/lam ['callee] (u/lit eligible?)))
+                      false)
+          profile-ast (fn [form]
+                        (walk/postwalk
+                          (fn [node]
+                            (if (= node (u/v 'profile-function)) descriptor node))
+                          (outcome-ast [form])))]
+      (is (= [:yin.k/ok eligible?]
+             (first (run (profile-ast '(yang.call/eligible? profile-function))))))
+      (when-not eligible?
+        (let [result (first (run (profile-ast '(profile-function))))]
+          (is (= :yang.call/not-callable (:yang.call/reason (second result)))))))))
+
+
 (deftest test-common-call-shadowed-helpers
   (doseq [binding '[get = assoc empty?]]
     (testing (str "construction and invocation with a local " binding)
