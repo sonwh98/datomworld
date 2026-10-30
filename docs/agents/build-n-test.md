@@ -633,6 +633,15 @@ An orchestrator landing a slice cites the subset runs plus the gate
 sign-off; the nightly catches what the subset could not see, and a red
 nightly owns the follow-up.
 
+**The merge precondition (2026-10-30 owner ruling):** before any merge
+into master, the `dao.stream` tests must run and pass — dao.stream is
+what everything is built on. Concretely: `bb test:sub dao.stream` (the
+subsystem's tests, `--slow` when the slice touches slow-guarded
+surfaces) is part of every branch gate regardless of which subsystems
+the diff's own changes select, because a change can break the foundation
+without touching it. A red dao.stream blocks the merge until fixed or
+diagnosed as pre-existing by the owning seat.
+
 ### The nightly full suite and the branch-testing rule (2026-10-30 owner ruling)
 
 Owner, verbatim: "since the complete test can take a good 7-8hrs to run
