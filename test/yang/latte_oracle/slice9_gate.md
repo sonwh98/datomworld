@@ -70,7 +70,8 @@ agreement for ambient-only resolution.
 Passing direct calls contribute only their original function and argument
 count. Passing named integrations contribute their declared source dependency
 closures under the existing acceptance rule; this is not dynamic branch or
-arity tracing. The three new named integrations are `:unfold-install-use`,
+arity tracing. (Provenance: this named-integration coverage basis is computed
+by this round's counting change — it is not a pre-existing measure.) The three new named integrations are `:unfold-install-use`,
 `:opacity-install-use`, and `:fundamental-install-use`. Their context adapter
 identities are recorded explicitly alongside the existing five integrations.
 All final residuals have an individually asserted primary path.
