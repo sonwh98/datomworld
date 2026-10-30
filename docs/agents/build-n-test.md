@@ -511,6 +511,40 @@ The first run on shiva (2026-10-11) overlapped JVM and Dart in one clone before
 this rule was written down; its results are advisory until repeated with a
 separate Dart clone.
 
+### The jolt J2 lane: run it with `--jobs` on the servers
+
+The jolt lane's core mode (`bb src/dev/jolt_j2_lane.clj core [--jobs N]
+[--only re] [--timeout-ms M]`) runs each test namespace as its own child jolt
+process (own Chez VM, own native parser library load, own log under
+`build/j2-logs/core/`), so the namespaces cannot corrupt one another — the
+only thing `--jobs N` overlaps is the waiting. The default is `jobs 1`
+(strictly serial), which on jupiter makes the full ~179-namespace lane a
+5-6-hour run.
+
+On the servers, run it with `--jobs 16`:
+
+- jolt children are essentially single-threaded (the 16 MiB parse thread
+  only burns during parses) and cost 1-2 GB each, so 16 concurrent children
+  sit far inside jupiter's 48 cores / 62 GB and shiva's 24 / 62;
+- the lane's wall time is dominated by a few long namespaces
+  (`yin.repl.python-antlr-test` has an explicit 3-hour step,
+  `yin.vm.semantic.safepoint-harness-test` needs one — see
+  `step-timeout-ms` in `src/dev/jolt_j2_lane.clj`), so beyond ~16 workers
+  the critical path is the longest child, not the count;
+- **parallel is unproven until checked once**: the recorded lane evidence
+  (J2 closure, the safepoint 60/265,225/0 pass) was all produced `jobs 1`.
+  The first parallel run must be compared per-namespace against a serial
+  baseline; any namespace that flips red gets one serial re-run to
+  attribute before its evidence is trusted. Until that first comparison
+  passes, keep `jobs 1` for anything whose verdict is timing-sensitive —
+  timeout and wall-time measurements, native-memory/leak gates, and the
+  merge-decision qualification runs.
+
+Suites that exceed the lane's default step budget are pinned in the lane's
+`step-timeout-ms` map with their measured wall time; a namespace timing out
+under the default budget is a reason to measure it serially and add an
+entry, not to re-run under the same bound.
+
 ### The full run
 
 Run long jobs inside `tmux` so the SSH session can drop. The script below does the
