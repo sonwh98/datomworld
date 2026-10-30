@@ -1,0 +1,63 @@
+Command: clj -Sdeps '{:aliases {:gate-refresh {:main-opts ["-e" "(require (quote yang.latte-oracle-test)) (prn (dissoc (yang.latte-oracle-test/write-kernel-gate-evidence!) :coverage))"]}}}' -M:test:gate-refresh
+Exit: 0
+
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+KERNEL-FIXTURE :minimal-last :pass
+KERNEL-FIXTURE :minimal-with-meta :pass
+KERNEL-FIXTURE :minimal-nth :pass
+KERNEL-FIXTURE :minimal-var :pass
+KERNEL-FIXTURE :minimal-gensym-freshness :pass
+KERNEL-FIXTURE :rebuild-type-explicit-supply :pass
+KERNEL-FIXTURE :parse-binder :pass
+KERNEL-FIXTURE :parse-application :pass
+KERNEL-FIXTURE :parse-empty :pass
+KERNEL-FIXTURE :parse-bad-binding :pass
+KERNEL-FIXTURE :parse-reserved :pass
+KERNEL-FIXTURE :parse-short-arrow :pass
+KERNEL-FIXTURE :subst-capture :pass
+KERNEL-FIXTURE :subst-shadow :pass
+KERNEL-FIXTURE :subst-three-arity :pass
+KERNEL-FIXTURE :free-vars-local-capture :pass
+KERNEL-FIXTURE :nbe-beta :pass
+KERNEL-FIXTURE :nbe-binder :pass
+KERNEL-FIXTURE :normalize-beta :pass
+KERNEL-FIXTURE :normalize-one-arity :pass
+KERNEL-FIXTURE :normalize-two-arity :pass
+KERNEL-FIXTURE :nbe-delta :pass
+KERNEL-FIXTURE :normalize-opaque :pass
+KERNEL-FIXTURE :normalize-delta :pass
+KERNEL-FIXTURE :beta-eq-true :pass
+KERNEL-FIXTURE :beta-eq-false :pass
+KERNEL-FIXTURE :beta-eq-three-arity :pass
+KERNEL-FIXTURE :typing-type :pass
+KERNEL-FIXTURE :typing-lambda :pass
+KERNEL-FIXTURE :typing-unknown :pass
+KERNEL-FIXTURE :typing-kind :pass
+KERNEL-FIXTURE :typing-ascription :blocked
+KERNEL-FIXTURE :type-of-valid :pass
+KERNEL-FIXTURE :type-of-context :pass
+KERNEL-FIXTURE :type-of-invalid :pass
+KERNEL-FIXTURE :type-check-valid :pass
+KERNEL-FIXTURE :type-check-wrong :pass
+KERNEL-FIXTURE :type-check-unbound :pass
+KERNEL-FIXTURE :compile-proof :pass
+KERNEL-FIXTURE :compile-assume :pass
+KERNEL-FIXTURE :compile-malformed :blocked
+KERNEL-FIXTURE :compile-unknown :pass
+KERNEL-FIXTURE :opacity-context-proof :pass
+KERNEL-FIXTURE :opacity-context-refusal :pass
+KERNEL-FIXTURE :elab-accepted :pass
+KERNEL-FIXTURE :elab-rejected :pass
+KERNEL-FIXTURE :elab-incomplete :pass
+KERNEL-FIXTURE :elab-after-qed :recorded-deviation
+KERNEL-FIXTURE :check-accepted :pass
+KERNEL-FIXTURE :check-assume-have-discharge :pass
+KERNEL-FIXTURE :check-rejected :pass
+KERNEL-FIXTURE :check-incomplete :pass
+KERNEL-FIXTURE :check-after-qed :recorded-deviation
+KERNEL-FIXTURE :implicit-typed-closure :pass
+KERNEL-FIXTURE :implicit-throwing-closure :pass
+KERNEL-FIXTURE :parse-to-normalize-to-type :pass
+KERNEL-FIXTURE :unparser-guest-closure :pass
+{:gate-status :blocked, :counts {:pass 53, :blocked 2, :recorded-deviation 2}, :fixture-count 57, :manifest-bindings 155, :function-arity-candidates 175}
