@@ -1284,9 +1284,16 @@
           tail? (assoc :tail? true)))
 
     (and (outcomes? env) (= operator 'yang.call/eligible?))
-    (cond-> (apply u/app (u/v 'dsg__admitted?)
-                   (map #(compile-form % false env macro-env) operands))
-      tail? (assoc :tail? true))
+    (let [candidate 'dsg__eligibility_candidate]
+      (cond-> (u/mark-tails
+                (apply u/app
+                       (u/lam [candidate]
+                              (u/if-node
+                                (u/app (u/v 'dsg__admitted?) (u/v candidate))
+                                (u/app (u/v 'yang.call/eligible?) (u/v candidate))
+                                (u/lit false)))
+                       (map #(compile-form % false env macro-env) operands)))
+        tail? (assoc :tail? true)))
 
     ;; a statically native name: call it directly
     (native-name? env operator)
