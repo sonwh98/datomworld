@@ -1,6 +1,8 @@
-Command: clj -Sdeps '{:aliases {:gate-refresh {:main-opts ["-e" "(require (quote yang.latte-oracle-test)) (prn (dissoc (yang.latte-oracle-test/write-kernel-gate-evidence!) :coverage))"]}}}' -M:test:gate-refresh
+Command: clj -Sdeps '{:aliases {:gate-refresh {:main-opts ["-e" "(require (quote yang.latte-oracle-test)) (let [evidence (yang.latte-oracle-test/write-kernel-gate-evidence!)] (assert (= :pass (:gate-status evidence))) (prn (assoc (dissoc evidence :coverage) :exercise-counts (frequencies (map :exercise (get-in evidence [:coverage :entries]))) :unexercised (get-in evidence [:coverage :unexercised])))) (shutdown-agents)"]}}}' -M:test:gate-refresh
 Exit: 0
 
+DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
+DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
 Loading initial Timbre config from: :default
 WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
 KERNEL-FIXTURE :minimal-last :pass
@@ -34,7 +36,7 @@ KERNEL-FIXTURE :typing-type :pass
 KERNEL-FIXTURE :typing-lambda :pass
 KERNEL-FIXTURE :typing-unknown :pass
 KERNEL-FIXTURE :typing-kind :pass
-KERNEL-FIXTURE :typing-ascription :blocked
+KERNEL-FIXTURE :typing-ascription :recorded-upstream-failure
 KERNEL-FIXTURE :type-of-valid :pass
 KERNEL-FIXTURE :type-of-context :pass
 KERNEL-FIXTURE :type-of-invalid :pass
@@ -43,7 +45,7 @@ KERNEL-FIXTURE :type-check-wrong :pass
 KERNEL-FIXTURE :type-check-unbound :pass
 KERNEL-FIXTURE :compile-proof :pass
 KERNEL-FIXTURE :compile-assume :pass
-KERNEL-FIXTURE :compile-malformed :blocked
+KERNEL-FIXTURE :compile-malformed :recorded-upstream-failure
 KERNEL-FIXTURE :compile-unknown :pass
 KERNEL-FIXTURE :opacity-context-proof :pass
 KERNEL-FIXTURE :opacity-context-refusal :pass
@@ -60,4 +62,53 @@ KERNEL-FIXTURE :implicit-typed-closure :pass
 KERNEL-FIXTURE :implicit-throwing-closure :pass
 KERNEL-FIXTURE :parse-to-normalize-to-type :pass
 KERNEL-FIXTURE :unparser-guest-closure :pass
-{:gate-status :blocked, :counts {:pass 53, :blocked 2, :recorded-deviation 2}, :fixture-count 57, :manifest-bindings 155, :function-arity-candidates 175}
+KERNEL-FIXTURE :constructor-mkenv :pass
+KERNEL-FIXTURE :constructor-mkenv-empty :pass
+KERNEL-FIXTURE :entry-beta-red :pass
+KERNEL-FIXTURE :entry-beta-red-refusal :pass
+KERNEL-FIXTURE :entry-delta-normalize :pass
+KERNEL-FIXTURE :entry-delta-normalize-refusal :pass
+KERNEL-FIXTURE :entry-delta-local :pass
+KERNEL-FIXTURE :entry-delta-local-global :pass
+KERNEL-FIXTURE :entry-delta-local-missing :pass
+KERNEL-FIXTURE :entry-delta-local-namespace-shadow :pass
+KERNEL-FIXTURE :predicate-exists :pass
+KERNEL-FIXTURE :predicate-exists-ascii :pass
+KERNEL-FIXTURE :predicate-exists-refusal :pass
+KERNEL-FIXTURE :display-deftype :pass
+KERNEL-FIXTURE :display-deftype-axiom :pass
+KERNEL-FIXTURE :display-deftype-theorem :pass
+KERNEL-FIXTURE :display-deftype-implicit :pass
+KERNEL-FIXTURE :display-deftype-unknown :pass
+KERNEL-FIXTURE :syntax-appify :pass
+KERNEL-FIXTURE :syntax-appify-empty :pass
+KERNEL-FIXTURE :syntax-term :pass
+KERNEL-FIXTURE :syntax-term-refusal :pass
+KERNEL-FIXTURE :syntax-bound-vars :pass
+KERNEL-FIXTURE :syntax-bound-vars-free :pass
+KERNEL-FIXTURE :proper-type-one :pass
+KERNEL-FIXTURE :proper-type-one-refusal :pass
+KERNEL-FIXTURE :proper-type-two :pass
+KERNEL-FIXTURE :proper-type-two-refusal :pass
+KERNEL-FIXTURE :proper-type-three :pass
+KERNEL-FIXTURE :proper-type-three-refusal :pass
+KERNEL-FIXTURE :product-unparser :pass
+KERNEL-FIXTURE :product-unparser-dependent :pass
+KERNEL-FIXTURE :product-unparser-nonproduct :pass
+KERNEL-FIXTURE :fundamental-install-use :pass
+KERNEL-FIXTURE :predicate-pair :pass
+KERNEL-FIXTURE :predicate-pair-refusal :pass
+KERNEL-FIXTURE :predicate-vectorn :pass
+KERNEL-FIXTURE :predicate-vectorn-refusal :pass
+KERNEL-FIXTURE :lookup-safe-get :pass
+KERNEL-FIXTURE :lookup-safe-get-missing :pass
+KERNEL-FIXTURE :lookup-safe-get-false :pass
+KERNEL-FIXTURE :lookup-safe-get-nil :pass
+KERNEL-FIXTURE :removal-vremove :pass
+KERNEL-FIXTURE :removal-vremove-none :pass
+KERNEL-FIXTURE :removal-vremove-refusal :pass
+KERNEL-FIXTURE :unfold-install-use :pass
+KERNEL-FIXTURE :unfold-install-refusal :pass
+KERNEL-FIXTURE :opacity-install-use :pass
+KERNEL-FIXTURE :opacity-install-refusal :pass
+{:gate-status :pass, :counts {:pass 102, :recorded-upstream-failure 2, :recorded-deviation 2}, :fixture-count 106, :manifest-bindings 155, :function-arity-candidates 175, :exercise-counts {:named-integration 126, :direct 39}, :unexercised []}

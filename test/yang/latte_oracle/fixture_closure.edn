@@ -1,0 +1,47 @@
+;; Primary consumer path for each of the final 20 residual arities.
+;; Expected values pin behavior as well as cross-lane agreement.
+{[latte-kernel.defenv/mkenv 1]
+ {:fixture :constructor-mkenv :expected [{:sentinel [1 2]} {}]}
+ [latte-kernel.norm/beta-red 1]
+ {:fixture :entry-beta-red :expected y}
+ [latte-kernel.norm/delta-normalize 3]
+ {:fixture :entry-delta-normalize :expected ✳}
+ [latte-kernel.norm/delta-normalize-local 3]
+ {:fixture :entry-delta-local :expected local-body}
+ [latte-kernel.norm/install-unfold-implicit! 1]
+ {:fixture :unfold-install-use :expected [x x]
+  :boundary "A installs into both isolated upstream atoms; B/C install once in an explicit context read by both normalizers. Installer return values are consumed only through subsequent use."}
+ [latte-kernel.presyntax/exists-kw? 1]
+ {:fixture :predicate-exists :expected true}
+ [latte-kernel.proof/show-deftype 1]
+ {:fixture :display-deftype :expected "definition"
+  :boundary "Pure string result; only the portable record-kind predicates are dependencies. No host formatter or stdout is entered."}
+ [latte-kernel.proof/install-opacity-function 1]
+ {:fixture :opacity-install-use
+  :expected [:ok ((λ [A ✳] (λ [x A] x)) (Π [A ✳] (Π [x A] A)))]
+  :boundary "A installs a host-local Var policy inside an isolated namespace; B/C install the equivalent immutable definition policy and thread the context through the real proof dispatcher. Both start with a refusing policy."}
+ [latte-kernel.syntax/appify 2]
+ {:fixture :syntax-appify :expected [[f x] y]}
+ [latte-kernel.syntax/term? 1]
+ {:fixture :syntax-term :expected true}
+ [latte-kernel.syntax/bound-vars 1]
+ {:fixture :syntax-bound-vars :expected #{x}}
+ [latte-kernel.typing/proper-type? 1]
+ {:fixture :proper-type-one :expected true}
+ [latte-kernel.typing/proper-type? 2]
+ {:fixture :proper-type-two :expected true}
+ [latte-kernel.typing/proper-type? 3]
+ {:fixture :proper-type-three :expected true}
+ [latte-kernel.unparser/prod-impl-unparser 1]
+ {:fixture :product-unparser :expected [(==> A B) true]}
+ [latte-kernel.unparser/install-fundamental-unparsers! 0]
+ {:fixture :fundamental-install-use :expected [(==> A B C) (Π [x A] [B x]) z]
+  :boundary "A starts from an isolated empty registry; B/C return a new context registry, then use its installed product unparser. Dependent products and atoms remain unchanged."}
+ [latte-kernel.utils/pair? 1]
+ {:fixture :predicate-pair :expected true}
+ [latte-kernel.utils/vectorn? 2]
+ {:fixture :predicate-vectorn :expected true}
+ [latte-kernel.utils/safe-get 2]
+ {:fixture :lookup-safe-get :expected 7}
+ [latte-kernel.utils/vremove 2]
+ {:fixture :removal-vremove :expected [1 3]}}

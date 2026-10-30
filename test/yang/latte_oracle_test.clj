@@ -1344,17 +1344,23 @@
 
 
 (defn- a-opacity-proof
-  [script]
-  (let [ns-sym (gensym "latte-proof-a-")
-        sandbox (create-ns ns-sym)
-        ddef ((upstream-fn 'latte-kernel.defenv/->Definition) 'd [] 0 'body #{} 'T {})]
-    (try
-      (intern sandbox 'd ddef)
-      (binding [*ns* sandbox]
-        (with-redefs-fn {(upstream-fn 'latte-kernel.proof/+opacity-fn+)
-                         (atom (fn [v flag] (alter-var-root v assoc-in [:opts :opaque] flag)))}
-          #(a-leg (upstream-fn 'latte-kernel.proof/elab-proof) [[{} {}] [] script])))
-      (finally (remove-ns ns-sym)))))
+  ([script] (a-opacity-proof script false))
+  ([script install?]
+   (let [ns-sym (gensym "latte-proof-a-")
+         sandbox (create-ns ns-sym)
+         ddef ((upstream-fn 'latte-kernel.defenv/->Definition) 'd [] 0 'body #{} 'T {})
+         policy (fn [v flag] (alter-var-root v assoc-in [:opts :opaque] flag))]
+     (try
+       (intern sandbox 'd ddef)
+       (binding [*ns* sandbox]
+         (with-redefs-fn {(upstream-fn 'latte-kernel.proof/+opacity-fn+)
+                          (atom (if install?
+                                  (fn [_ _] (throw (ex-info "Policy not installed" {}))) policy))}
+           (fn []
+             (when install?
+               ((upstream-fn 'latte-kernel.proof/install-opacity-function) policy))
+             (a-leg (upstream-fn 'latte-kernel.proof/elab-proof) [[{} {}] [] script]))))
+       (finally (remove-ns ns-sym))))))
 
 
 (deftest test-oracle-slice8-upstream-proof-loop
@@ -1376,6 +1382,10 @@
 
 (def ^:private kernel-gate-corpus
   (edn/read-string (slurp (io/resource "yang/latte_oracle/kernel_gate.edn"))))
+
+
+(def ^:private kernel-fixture-closure
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/fixture_closure.edn"))))
 
 
 (defn- kernel-symbol
@@ -1632,16 +1642,33 @@
   [fixture]
   (kernel-attempt
     #(let [value (cond
-                   (= :opacity-proof (:mode fixture))
-                   (let [outcome (a-opacity-proof (:script fixture))]
+                   (#{:opacity-proof :opacity-install} (:mode fixture))
+                   (let [outcome (a-opacity-proof (:script fixture) (= :opacity-install (:mode fixture)))]
                      (if (= :ok (first (:value outcome)))
                        (update outcome :value (fn [v] [:ok (rest (second v))])) outcome))
-                   (= :unparser (:mode fixture))
+                   (= :unfold-install (:mode fixture))
+                   (with-redefs-fn {(upstream-fn 'latte-kernel.norm/+unfold-implicit+) (atom nil)
+                                    (upstream-fn 'latte-kernel.nbe/+unfold-implicit+) (atom nil)}
+                     (fn [] (a-leg (eval (list 'fn [] (kernel-fixture-call fixture false))) [])))
+                   (= :namespace-isolation (:mode fixture))
+                   (let [sandbox (create-ns (gensym "gate-ambient-a-"))]
+                     (try
+                       (intern sandbox 'gate-ambient-definition
+                               ((upstream-fn 'latte-kernel.defenv/->Definition)
+                                'gate-ambient-definition [] 0 'ambient #{} 'T {}))
+                       (binding [*ns* sandbox]
+                         (refer 'clojure.core)
+                         (a-leg (eval (list 'fn [] (kernel-fixture-call fixture false))) []))
+                       (finally (remove-ns (ns-name sandbox)))))
+                   (#{:unparser :unparser-install} (:mode fixture))
                    (with-redefs-fn {(upstream-fn 'latte-kernel.unparser/+unparser-registry+)
                                     (atom {:fundamental [] :standard [] :user [] :unparsers {}})}
                      (fn []
-                       ((upstream-fn 'latte-kernel.unparser/register-unparser!) :gate (eval (:extension fixture)))
-                       (a-leg (upstream-fn 'latte-kernel.unparser/unparse) [(:term fixture)])))
+                       (if (= :unparser-install (:mode fixture))
+                         (a-leg (eval (list 'fn [] (kernel-fixture-call fixture false))) [])
+                         (do
+                           ((upstream-fn 'latte-kernel.unparser/register-unparser!) :gate (eval (:extension fixture)))
+                           (a-leg (upstream-fn 'latte-kernel.unparser/unparse) [(:term fixture)])))))
                    :else (a-leg (eval (list 'fn [] (kernel-fixture-call fixture false))) []))]
        {:status :completed :outcome (evidence-data value) :shape (result-shape (evidence-data value))})))
 
@@ -1772,7 +1799,8 @@
   ;; Slice-9 acceptance admits the dependency closures of these named
   ;; top-level integrations. This is not a runtime branch/arity trace.
   #{:unparser-guest-closure :implicit-typed-closure :implicit-throwing-closure
-    :check-assume-have-discharge :parse-to-normalize-to-type})
+    :check-assume-have-discharge :parse-to-normalize-to-type
+    :fundamental-install-use :unfold-install-use :opacity-install-use})
 
 
 (def ^:private kernel-context-integration-names
@@ -1784,7 +1812,10 @@
    'latte-kernel.unparser/unparse 'unparse
    'latte-kernel.unparser/register-unparser! 'register-unparser
    'latte-kernel.unparser/unparse-term-once 'unparse-term-once
-   'latte-kernel.unparser/unparse-term-rec 'unparse-term-rec})
+   'latte-kernel.unparser/unparse-term-rec 'unparse-term-rec
+   'latte-kernel.norm/install-unfold-implicit! 'install-unfold-implicit
+   'latte-kernel.unparser/install-fundamental-unparsers! 'install-fundamental-unparsers
+   'latte-kernel.unparser/prod-impl-unparser 'prod-impl-unparser})
 
 
 (def ^:private kernel-unexercised-reasons
@@ -1847,6 +1878,47 @@
      :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}))
 
 
+(defn- kernel-upstream-failure
+  "Disposition for two pinned upstream failures, guarded by the original call
+   and every observed boundary. A new failure must still block the gate."
+  [fixture a b walker semantic]
+  (let [completed-c? (= :completed (:status walker) (:status semantic))
+        c (:outcome walker)
+        same-c? (= c (:outcome semantic))
+        unbound-message "Pinned upstream declaration has no definition"
+        unbound-data {:refusal :upstream-unbound :binding 'latte-kernel.typing/type-of-ascribe}
+        failure
+        (when (and completed-c? same-c?)
+          (case (:id fixture)
+            :typing-ascription
+            (when (and (= (:call fixture)
+                          '(latte-kernel.typing/type-of-term env '[[A ✳] [x A]]
+                                                             '(:latte-kernel.syntax/ascribe x A)))
+                       (= :blocked (:status a))
+                       (= "class java.lang.IllegalStateException" (:exception a))
+                       (= "Attempting to call unbound fn: #'latte-kernel.typing/type-of-ascribe" (:message a))
+                       (= :completed (:status b))
+                       (= {:thrown {:message unbound-message :data unbound-data}} (:outcome b))
+                       (= [:yin.k/error {:yin.k/message unbound-message :yin.k/data unbound-data}] c))
+              {:boundary :upstream-unbound-definition
+               :reason "Pinned upstream declares type-of-ascribe without a definition; B/C explicitly refuse that branch."})
+            :compile-malformed
+            (when (and (= (:call fixture) '(latte-kernel.proof/compile-proof '[42]))
+                       (= :blocked (:status a) (:status b))
+                       (= "class java.lang.IllegalArgumentException" (:exception a) (:exception b))
+                       (= "Don't know how to create ISeq from: java.lang.Long" (:message a) (:message b))
+                       (nil? (:data a)) (nil? (:data b))
+                       (= [:yin.k/error {:yin.k/message "seq of a non-collection is not supported"
+                                         :yin.k/data {:value 42}}] c))
+              {:boundary :upstream-malformed-proof-sequence
+               :reason "Scalar proof step raises a native sequence exception upstream and a portable sequence refusal in C; no agreement is claimed."})
+            nil))]
+    (when failure
+      (assoc failure :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279"
+             :evidence {:file "slice9_evidence.edn" :fixture-id (:id fixture)
+                        :paths [[:a] [:b] [:c-walker] [:c-semantic]]}))))
+
+
 (deftest test-kernel-acceptance-counting
   (let [inventory [{:symbol 'latte-kernel.syntax/subst :arities [2 3] :disposition :admitted}
                    {:symbol 'latte-kernel.syntax/term? :arities [1] :disposition :admitted}]
@@ -1901,12 +1973,15 @@
                       (= (result-shape (get-in a [:outcome :thrown :data]))
                          (result-shape (get-in walker [:outcome 1 :yin.k/data])))))
         deviation (kernel-host-value-deviation (:id fixture) a b walker semantic)
+        upstream-failure (kernel-upstream-failure fixture a b walker semantic)
         status (cond match? :pass
+                     upstream-failure :recorded-upstream-failure
                      (some #(= :blocked (:status %)) [a b walker semantic]) :blocked
                      deviation :recorded-deviation
                      :else :mismatch)]
-    {:id (:id fixture) :negative? (boolean (:negative? fixture)) :status status
+    {:id (:id fixture) :mode (:mode fixture) :negative? (boolean (:negative? fixture)) :status status
      :recorded-deviation deviation
+     :recorded-upstream-failure upstream-failure
      :dependency-of (:dependency-of fixture)
      :call (or (:call fixture) (kernel-c-program fixture))
      :adapted-call (:guest-call fixture)
@@ -1938,11 +2013,11 @@
         admitted-arities (set (for [{:keys [symbol arities disposition]} inventory
                                     :when (= :admitted disposition) n arities] [symbol n]))
         unexercised (vec (sort-by pr-str (remove exercised admitted-arities)))]
-    {:slice 9 :gate-status (if (and (every? #(contains? #{:pass :recorded-deviation} (:status %)) results)
+    {:slice 9 :gate-status (if (and (every? #(contains? #{:pass :recorded-deviation :recorded-upstream-failure} (:status %)) results)
                                     (empty? unexercised)) :pass :blocked)
      :baseline {:revision "7dc18478" :fixture-count 54 :counts {:pass 4 :mismatch 2 :blocked 48}}
      :generated-at (str (java.time.Instant/now))
-     :adaptation-version {:context 2 :kernel-assembly 2}
+     :adaptation-version {:context 2 :kernel-assembly 3}
      :executions {:a :original-upstream-clojure :b :context-source-clojure
                   :c [:walker :semantic]}
      :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279"
@@ -1972,7 +2047,8 @@
      :excluded-function-arity-count (- (count all-arities) (count admitted-arities))
      :binding-dispositions (frequencies (map :disposition manifest))
      :admission-note "Manifest dispositions define the denominator independently of fixture success; excluded bindings retain explicit portability reasons."
-     :program-status :gate-verification-complete
+     :program-status :fixture-closure-complete
+     :residual-closure kernel-fixture-closure
      :coverage {:proven-direct-function-arities (vec (sort-by pr-str direct))
                 :exercised-count (count exercised) :unexercised unexercised
                 :entries exercise-entries
@@ -1983,6 +2059,9 @@
      :recorded-portability-boundaries
      (mapv #(select-keys % [:id :status :recorded-deviation])
            (filter #(= :recorded-deviation (:status %)) results))
+     :recorded-upstream-failures
+     (mapv #(select-keys % [:id :status :recorded-upstream-failure])
+           (filter #(= :recorded-upstream-failure (:status %)) results))
      :counts (frequencies (map :status results)) :fixture-count (count results)
      :negative-fixture-count (count (filter :negative? results))
      :dependency-graph
@@ -2014,8 +2093,10 @@
         "Every named fixture runs exactly once, including negatives")
     (doseq [row (:fixtures evidence)
             :when (and (:negative? row) (= :completed (get-in row [:a :status])))
-            :let [outcome (get-in row [:a :outcome]) value (:value outcome)]]
-      (is (or (:thrown outcome) (false? value) (and (sequential? value) (= :ko (first value))))
+            :let [outcome (get-in row [:a :outcome]) value (:value outcome)
+                  fixture (first (filter #(= (:id row) (:id %)) (:fixtures kernel-gate-corpus)))]]
+      (is (or (:thrown outcome) (false? value) (and (sequential? value) (= :ko (first value)))
+              (and (:refusal-path fixture) (false? (get-in outcome (:refusal-path fixture)))))
           (str "A must actually reject the named negative: " (:id row))))
     (is (= (:function-arity-candidates evidence)
            (+ (:admitted-function-arity-count evidence) (:excluded-function-arity-count evidence)))
@@ -2040,10 +2121,37 @@
       (is (= #{:elab-after-qed :check-after-qed} (set (map :id deviations))))
       (is (every? #(and (:recorded-deviation %)
                         (not (every? true? (vals (:agreement %))))) deviations)))
+    (testing "Every final residual has a passing consumer and a concrete expected result"
+      (is (= 20 (count kernel-fixture-closure)))
+      (doseq [[arity {:keys [fixture expected] :as closure}] kernel-fixture-closure
+              :let [row (first (filter #(= fixture (:id %)) (:fixtures evidence)))
+                    entry (first (filter #(= arity (:function-arity %)) (get-in evidence [:coverage :entries])))]]
+        (is (= :pass (:status row)) (str arity " via " fixture))
+        (is (some #{fixture} (concat (:direct-fixture-ids entry) (:integration-fixture-ids entry)))
+            (str "Primary consumer must contribute to arity evidence: " arity))
+        (is (contains? closure :expected))
+        (is (= {:value expected} (get-in row [:a :outcome])) (str fixture " has the intended result"))))
+    (is (= #{:typing-ascription :compile-malformed}
+           (set (map :id (:recorded-upstream-failures evidence)))))
+    (doseq [row (:fixtures evidence)
+            :when (= :recorded-upstream-failure (:status row))
+            :let [fixture (first (filter #(= (:id row) (:id %)) (:fixtures kernel-gate-corpus)))]]
+      (is (:recorded-upstream-failure row))
+      (is (not (every? true? (vals (:agreement row)))))
+      (is (nil? (kernel-upstream-failure (assoc fixture :id :unexpected)
+                                         (:a row) (:b row) (:c-walker row) (:c-semantic row))))
+      (is (nil? (kernel-upstream-failure (assoc fixture :call '(changed-input))
+                                         (:a row) (:b row) (:c-walker row) (:c-semantic row))))
+      (is (nil? (kernel-upstream-failure fixture (:a row) (:b row)
+                                         (assoc-in (:c-walker row) [:outcome 1 :yin.k/data] {:changed true})
+                                         (:c-semantic row)))))
     (println "KERNEL-GATE" (pr-str (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates
-                                                          :recorded-portability-boundaries])))
+                                                          :recorded-portability-boundaries :recorded-upstream-failures])))
     (doseq [row (:fixtures evidence) :when (not= :pass (:status row))]
-      (println (if (= :recorded-deviation (:status row)) "KERNEL-RECORDED-BOUNDARY" "KERNEL-BLOCKER")
+      (println (case (:status row)
+                 :recorded-deviation "KERNEL-RECORDED-BOUNDARY"
+                 :recorded-upstream-failure "KERNEL-RECORDED-UPSTREAM-FAILURE"
+                 "KERNEL-BLOCKER")
                (pr-str {:id (:id row) :status (:status row)
                         :blocked-by (get-in row [:c-walker :blocked-by])
                         :a (get-in row [:a :status]) :b (get-in row [:b :status])

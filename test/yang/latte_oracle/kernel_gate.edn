@@ -70,4 +70,111 @@
 {:id :implicit-throwing-closure, :negative? true, :definitions [(latte-kernel.defenv/->Implicit (quote i) (fn [kernel ctx typed] (throw (ex-info "extension failed" {:extra 7}))))], :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (i x)))}
 {:id :parse-to-normalize-to-type, :call (let [t (latte-kernel.presyntax/parse env (quote ((lambda [x :type] x) :type))) n (latte-kernel.norm/normalize env [] t)] [n (latte-kernel.typing/type-of-term env [] n)])}
 {:id :unparser-guest-closure, :mode :unparser, :extension (fn [t] (if (= t (quote x)) [(quote shown) true] [t false])), :term (λ [z ✳] [z x])}
+
+;; Final residual entries: the entry calls stay visible for direct arity evidence.
+{:id :constructor-mkenv, :call (latte-kernel.defenv/mkenv {:sentinel [1 2]})}
+{:id :constructor-mkenv-empty, :call (latte-kernel.defenv/mkenv {})}
+{:id :entry-beta-red, :call (latte-kernel.norm/beta-red (quote [(λ [x ✳] x) y]))}
+{:id :entry-beta-red-refusal, :negative? true, :call (latte-kernel.norm/beta-red (quote (gate-missing-definition)))}
+{:id :entry-delta-normalize,
+ :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})],
+ :call (latte-kernel.norm/delta-normalize env [] (quote (d)))}
+{:id :entry-delta-normalize-refusal, :negative? true,
+ :call (latte-kernel.norm/delta-normalize env [] (quote (gate-missing-definition)))}
+{:id :entry-delta-local,
+ :call (latte-kernel.norm/delta-normalize-local
+        (latte-kernel.defenv/register-definition env
+         (latte-kernel.defenv/->Definition (quote d) [] 0 (quote local-body) #{} (quote T) {}) true)
+        [] (quote (d)))}
+{:id :entry-delta-local-global,
+ :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote global-body) #{} (quote T) {})],
+ :call (latte-kernel.norm/delta-normalize-local env [] (quote (d)))}
+{:id :entry-delta-local-missing, :negative? true,
+ :call (latte-kernel.norm/delta-normalize-local env [] (quote (gate-missing-definition)))}
+{:id :entry-delta-local-namespace-shadow, :mode :namespace-isolation,
+ :call (latte-kernel.norm/delta-normalize-local
+        (latte-kernel.defenv/register-definition env
+         (latte-kernel.defenv/->Definition (quote gate-ambient-definition) [] 0 (quote local-body) #{} (quote T) {}) true)
+        [] (quote (gate-ambient-definition)))}
+{:id :predicate-exists, :call (latte-kernel.presyntax/exists-kw? (quote ∃))}
+{:id :predicate-exists-ascii, :call (latte-kernel.presyntax/exists-kw? (quote exists))}
+{:id :predicate-exists-refusal, :negative? true, :call (latte-kernel.presyntax/exists-kw? (quote forall))}
+{:id :display-deftype, :call (latte-kernel.proof/show-deftype
+ (latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {}))}
+{:id :display-deftype-axiom, :call (latte-kernel.proof/show-deftype
+ (latte-kernel.defenv/->Axiom (quote a) [] 0 (quote T)))}
+{:id :display-deftype-theorem, :call (latte-kernel.proof/show-deftype
+ (latte-kernel.defenv/->Theorem (quote t) [] 0 (quote T) (quote body)))}
+{:id :display-deftype-implicit, :call (latte-kernel.proof/show-deftype
+ (latte-kernel.defenv/->Implicit (quote i) (fn [k ctx x] x)))}
+{:id :display-deftype-unknown, :call (latte-kernel.proof/show-deftype {})}
+{:id :syntax-appify, :call (latte-kernel.syntax/appify (quote f) (quote [x y]))}
+{:id :syntax-appify-empty, :call (latte-kernel.syntax/appify (quote f) [])}
+{:id :syntax-term, :call (latte-kernel.syntax/term? (quote (λ [x ✳] x)))}
+{:id :syntax-term-refusal, :negative? true, :call (latte-kernel.syntax/term? {})}
+{:id :syntax-bound-vars, :call (latte-kernel.syntax/bound-vars (quote (λ [x A] [x y])))}
+{:id :syntax-bound-vars-free, :call (latte-kernel.syntax/bound-vars (quote [x y]))}
+{:id :proper-type-one, :call (latte-kernel.typing/proper-type? (quote ✳))}
+{:id :proper-type-one-refusal, :negative? true, :call (latte-kernel.typing/proper-type? (quote missing))}
+{:id :proper-type-two, :call (latte-kernel.typing/proper-type? (quote [[A ✳]]) (quote A))}
+{:id :proper-type-two-refusal, :negative? true, :call (latte-kernel.typing/proper-type? (quote [[A ✳] [x A]]) (quote x))}
+{:id :proper-type-three,
+ :definitions [(latte-kernel.defenv/->Axiom (quote A) [] 0 (quote ✳))],
+ :call (latte-kernel.typing/proper-type? env [] (quote (A)))}
+{:id :proper-type-three-refusal, :negative? true, :call (latte-kernel.typing/proper-type? env [] (quote missing))}
+{:id :product-unparser, :call (latte-kernel.unparser/prod-impl-unparser (quote (Π [x A] B)))}
+{:id :product-unparser-dependent, :negative? true, :refusal-path [:value 1],
+ :call (latte-kernel.unparser/prod-impl-unparser (quote (Π [x A] [B x])))}
+{:id :product-unparser-nonproduct, :negative? true, :refusal-path [:value 1],
+ :call (latte-kernel.unparser/prod-impl-unparser (quote x))}
+{:id :fundamental-install-use, :mode :unparser-install,
+ :call (do (latte-kernel.unparser/install-fundamental-unparsers!)
+           [(latte-kernel.unparser/unparse (quote (Π [x A] (Π [y B] C))))
+            (latte-kernel.unparser/unparse (quote (Π [x A] [B x])))
+            (latte-kernel.unparser/unparse (quote z))]),
+ :guest-call (let [installed (install-fundamental-unparsers env)]
+               [(unparse installed (quote (Π [x A] (Π [y B] C))))
+                (unparse installed (quote (Π [x A] [B x])))
+                (unparse installed (quote z))])}
+{:id :predicate-pair, :call (latte-kernel.utils/pair? [1 2])}
+{:id :predicate-pair-refusal, :negative? true, :call (latte-kernel.utils/pair? [1])}
+{:id :predicate-vectorn, :call (latte-kernel.utils/vectorn? [1 2 3 4] 2)}
+{:id :predicate-vectorn-refusal, :negative? true, :call (latte-kernel.utils/vectorn? [1 2 3] 2)}
+{:id :lookup-safe-get, :call (latte-kernel.utils/safe-get {:present 7} :present)}
+{:id :lookup-safe-get-missing, :negative? true, :call (latte-kernel.utils/safe-get {:present 7} :missing)}
+{:id :lookup-safe-get-false, :negative? true, :call (latte-kernel.utils/safe-get {:present false} :present)}
+{:id :lookup-safe-get-nil, :negative? true, :call (latte-kernel.utils/safe-get {:present nil} :present)}
+{:id :removal-vremove, :call (latte-kernel.utils/vremove (fn [x] (= x 2)) [1 2 3 2])}
+{:id :removal-vremove-none, :call (latte-kernel.utils/vremove (fn [x] (= x 2)) [1 3])}
+{:id :removal-vremove-refusal, :negative? true,
+ :call (latte-kernel.utils/vremove (fn [x] (throw (ex-info "removal refused" {:value x}))) [1])}
+{:id :unfold-install-use, :mode :unfold-install,
+ :definitions [(latte-kernel.defenv/->Implicit (quote i) (fn [k ctx x] x))],
+ :call (do (latte-kernel.norm/install-unfold-implicit! (fn [k ctx ddef args] [:ok (first args) args]))
+           [(latte-kernel.norm/delta-normalize env [] (quote (i x)))
+            (latte-kernel.nbe/norm env [] (quote (i x)))]),
+ :guest-call (let [installed (install-unfold-implicit env (fn [k ctx ddef args] [:ok (first args) args]))]
+               [(latte-kernel.norm/delta-normalize installed [] (quote (i x)))
+                (latte-kernel.nbe/norm installed [] (quote (i x)))])}
+{:id :unfold-install-refusal, :mode :unfold-install, :negative? true,
+ :definitions [(latte-kernel.defenv/->Implicit (quote i) (fn [k ctx x] x))],
+ :call (do (latte-kernel.norm/install-unfold-implicit! (fn [k ctx ddef args] [:ko {:msg "installed refusal"} args]))
+           (latte-kernel.norm/delta-normalize env [] (quote (i x)))),
+ :guest-call (let [installed (install-unfold-implicit env (fn [k ctx ddef args] [:ko {:msg "installed refusal"} args]))]
+               (latte-kernel.norm/delta-normalize installed [] (quote (i x))))}
+{:id :opacity-install-use, :mode :opacity-install,
+ :script [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]],
+ :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})],
+ :project-proof? true,
+ :call (latte-kernel.proof/elab-proof env [] (quote [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]])),
+ :guest-call (let [installed (latte-kernel.proof/install-opacity-function
+                              (install-opacity-function env missing-opacity-policy) definition-opacity)]
+               (latte-kernel.proof/elab-proof installed [] (quote [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]])))}
+{:id :opacity-install-refusal, :mode :opacity-install, :negative? true,
+ :script [[:opaque d] [:opaque d]],
+ :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})],
+ :call (latte-kernel.proof/elab-proof env [] (quote [[:opaque d] [:opaque d]])),
+ :guest-call (let [installed (latte-kernel.proof/install-opacity-function
+                              (install-opacity-function env missing-opacity-policy) definition-opacity)]
+               (latte-kernel.proof/elab-proof installed [] (quote [[:opaque d] [:opaque d]])))}
 ]}
