@@ -108,8 +108,8 @@
   (let [program (lower/lower-packet programs/d-packet {:prelude :linked})
         body (get-in (first (call-sites program 'py/run-main))
                      [:operands 0 :body])]
-    (testing "the wrapper requires only py, then initializes"
-      (is (= '#{py} (required-modules program))))
+    (testing "the wrapper requires the call and py modules, then initializes"
+      (is (= '#{yang.call py} (required-modules program))))
     (testing "the statement passes a delivery thunk to py/import and
               the binding of the module object to the global m"
       (let [vars (set (keep #(when (= :variable (:type %)) (:name %))
@@ -139,7 +139,7 @@
         body (get-in (first (call-sites program 'py/run-main))
                      [:operands 0 :body])]
     (testing "sys is pre-seeded: delivery is None"
-      (is (= '#{py} (required-modules program)))
+      (is (= '#{yang.call py} (required-modules program)))
       (is (some #(and (= {:type :literal, :value {:py/str "sys"}}
                          (get-in % [:operands 0]))
                       (= :py/None (get-in % [:operands 1 :value])))
@@ -185,7 +185,7 @@
         program (lower/lower-packet plain {:prelude :linked})]
     (testing "no import, no extra require and no import call: the P2
               wrapper exactly, so its program-root golden does not move"
-      (is (= '[py] (requires-of program)))
+      (is (= '[yang.call py] (requires-of program)))
       (is (empty? (call-sites program 'py/import)))
       (is (nil? (vm/ast-reserved-defect program))))))
 
@@ -286,8 +286,8 @@
   (let [program (lower/lower-packet programs/dotted-main-packet
                                     {:prelude :linked})
         calls (import-calls (main-body program))]
-    (testing "import a.b.c leaves only py eagerly required"
-      (is (= '[py]
+    (testing "import a.b.c requires the call ABI and py, with no guest module eagerly required"
+      (is (= '[yang.call py]
              (requires-of program))))
     (testing "the statement imports the chain in order, the root with
               py/import and each submodule with py/import-sub"
@@ -314,7 +314,7 @@
              (mapv #(:py/str (get-in % [:operands 1 :value]))
                    (ordered-call-sites body 'py/import-from)))))
     (testing "from a import b has no eager guest require or submodule auto-import"
-      (is (= '[py] (requires-of program))))
+      (is (= '[yang.call py] (requires-of program))))
     (let [analysis (scope/analyze programs/forms-main-packet)
           module (get (:scopes analysis) (:module analysis))]
       (is (every? (set (:assigned module)) ["x" "ww" "b" "bb" "a" "g"])))))
@@ -359,7 +359,7 @@
             relative imports and raises at each executed statement"
     (let [program (lower/lower-packet programs/packageless-main-packet
                                       {:prelude :linked})]
-      (is (= '[py] (requires-of program)))
+      (is (= '[yang.call py] (requires-of program)))
       (is (= 3 (count (call-sites program 'py/import-fail))))
       (is (empty? (import-calls program)))))
   (testing "a package's own `from . import x` resolves to itself: the
@@ -418,7 +418,7 @@
       (is (some? f-scope) "m is a local of f")
       (is (= :cell (:kind (scope/resolve analysis (:id f-scope) "m")))
           "read inside f reaches the cell")
-      (is (= '#{py} (required-modules program))))))
+      (is (= '#{yang.call py} (required-modules program))))))
 
 
 (deftest del-lowers-to-delattr-and-a-strict-unbind-test
@@ -1325,7 +1325,7 @@
             ['py/import-sub "a.b"]]
            (vec (import-calls (main-body ast)))))
     (is (= 1 (count (call-sites ast 'py/import-module?))))
-    (is (= '[py] (requires-of ast)))
+    (is (= '[yang.call py] (requires-of ast)))
     (is (nil? (vm/ast-reserved-defect ast)))))
 
 

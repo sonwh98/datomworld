@@ -1005,8 +1005,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 167 (count (closure-files))) "the union of the three lanes")
-    (is (= 167 (count (gate-files))) "no profile addition outside the closure after H3")
+    (is (= 168 (count (closure-files))) "the union of the three lanes")
+    (is (= 168 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))
