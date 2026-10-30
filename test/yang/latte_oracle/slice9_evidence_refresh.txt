@@ -1,8 +1,16 @@
-Command: clj -Sdeps '{:aliases {:gate-refresh {:main-opts ["-e" "(require (quote yang.latte-oracle-test)) (let [evidence (yang.latte-oracle-test/write-kernel-gate-evidence!)] (assert (= :pass (:gate-status evidence))) (prn (assoc (dissoc evidence :coverage) :exercise-counts (frequencies (map :exercise (get-in evidence [:coverage :entries]))) :unexercised (get-in evidence [:coverage :unexercised])))) (shutdown-agents)"]}}}' -M:test:gate-refresh
+Command: clj -Sdeps '{:aliases {:arity-refresh {:main-opts ["/tmp/latte-refresh.clj"]}}}' -M:test:arity-refresh
 Exit: 0
 
-DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
-DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
+Script /tmp/latte-refresh.clj (recreate this file to repeat the command):
+(require '[yang.latte-oracle-test :as oracle])
+(let [evidence (oracle/write-kernel-gate-evidence!)]
+  (assert (= :blocked (:gate-status evidence)))
+  (prn (assoc (dissoc evidence :coverage)
+              :exercise-counts (frequencies (map :exercise (get-in evidence [:coverage :entries])))
+              :unexercised (get-in evidence [:coverage :unexercised]))))
+(shutdown-agents)
+
+Output:
 Loading initial Timbre config from: :default
 WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
 KERNEL-FIXTURE :minimal-last :pass
@@ -111,4 +119,4 @@ KERNEL-FIXTURE :unfold-install-use :pass
 KERNEL-FIXTURE :unfold-install-refusal :pass
 KERNEL-FIXTURE :opacity-install-use :pass
 KERNEL-FIXTURE :opacity-install-refusal :pass
-{:gate-status :pass, :counts {:pass 102, :recorded-upstream-failure 2, :recorded-deviation 2}, :fixture-count 106, :manifest-bindings 155, :function-arity-candidates 175, :exercise-counts {:named-integration 126, :direct 39}, :unexercised []}
+{:gate-status :blocked, :counts {:pass 102, :recorded-upstream-failure 2, :recorded-deviation 2}, :fixture-count 106, :manifest-bindings 155, :function-arity-candidates 175, :exercise-counts {:named-integration 106, :direct 39, :unexercised 20}, :unexercised [[latte-kernel.defenv/axiom? 1] [latte-kernel.defenv/registered-definition? 1] [latte-kernel.nbe/evaluation 1] [latte-kernel.nbe/instantiate-def 3] [latte-kernel.norm/beta-reduction 1] [latte-kernel.norm/beta-step 1] [latte-kernel.norm/beta-step 2] [latte-kernel.norm/beta-step-args 2] [latte-kernel.norm/delta-step 4] [latte-kernel.norm/delta-step-args 5] [latte-kernel.norm/instantiate-def 3] [latte-kernel.norm/redex? 1] [latte-kernel.presyntax/parse 1] [latte-kernel.syntax/binderify 3] [latte-kernel.syntax/mk-fresh 2] [latte-kernel.syntax/mk-fresh 3] [latte-kernel.syntax/readable-term 1] [latte-kernel.syntax/readable-term- 2] [latte-kernel.syntax/readable-term- 3] [latte-kernel.unparser/unregister-unparser! 1]]}
