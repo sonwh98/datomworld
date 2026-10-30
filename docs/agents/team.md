@@ -51,10 +51,9 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +=================+========================================+=============================================================================================================+
 | agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| claude          | Flat: Pro Max plan ($100/mo)           | Use freely within budget. Invoked only through `claude` or `agy`.                                           |
+| claude          | Inactive / Cancelled                   | Subscription stopped by owner. Do not route tasks here.                                                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| claude-api      | Metered: Anthropic API (balance per owner)  | Dedicated API credits. Reached through the `claude-cloud` wrapper script (Anthropic API endpoint); the wrapper name stays even though the billing lane is called claude-api. Reserved strictly for Fable until reset           |
-|                 |                                        | (Architect & security sign-offs). Do not assign general implementation or routine reviews.                   |
+| claude-api      | Inactive / Cancelled                   | Anthropic API access stopped by owner. Do not route tasks here.                                             |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Reserved strictly for Architectural Review roles. Do not assign implementation tasks.   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
