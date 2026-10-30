@@ -192,6 +192,17 @@
             tree))
 
 
+(defn- tree-depth
+  [tree]
+  (loop [level [tree], depth 0]
+    (if (empty? level)
+      depth
+      (recur (into [] (mapcat #(cond (map? %) (vals %)
+                                     (sequential? %) %
+                                     :else [])) level)
+             (inc depth)))))
+
+
 (deftest hand-packet-golden-test
   (is (= (u/app (u/lam ['x]
                        (u/then (u/then (u/app (u/v 'cell/set!)
@@ -290,6 +301,14 @@
         "and allocates the task's state")
     (is (some #(and (map? %) (= (u/v 'js/run-main) (:operator %)))
               (nodes bundled)))))
+
+
+(deftest bundled-program-depth-test
+  ;; A linear prelude sequence reached 976 levels with 481 definitions:
+  ;; `pr-str` could overflow even though the tree contained no cycle.
+  ;; Leave room for the runtime bodies, but catch that sequencing growth
+  ;; independently of the JVM printer's stack size and JIT warmup.
+  (is (< (tree-depth (lower/lower-packet var-x)) 512)))
 
 
 (deftest transform-routes-programs-and-diagnostics-test
