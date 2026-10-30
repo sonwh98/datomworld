@@ -2,8 +2,10 @@
   "P4 S8 generators, live iteration and protocol integration on the JVM."
   (:require
     [clojure.test :refer [deftest is testing]]
+    [yang.core.uast :as u]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.programs-p4 :as p4]
+    [yang.tails :as tails]
     [yin.vm :as vm]
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
@@ -12,7 +14,9 @@
     [yin.vm.semantic.derive :as derive]
     [yin.vm.semantic.linearize :as sr-linearize]
     [yin.vm.test-utils :as tu]
-    [yin.vm.values :as values]))
+    [yin.vm.values :as values])
+  (:import
+    [java.util IdentityHashMap]))
 
 
 (def ^:private vms [:ast-walker :semantic :stack :register])
@@ -67,36 +71,57 @@
 
 
 (defn- deep-size
+  "Count shared compound values once, including closure/continuation payloads."
   [x]
-  (cond
-    (values/host-typed? x) (+ 1 (deep-size (values/payload x)))
-    (map? x) (reduce + 1 (map deep-size (concat (keys x) (vals x))))
-    (coll? x) (reduce + 1 (map deep-size x))
-    :else 1))
+  (let [seen (IdentityHashMap.)]
+    (loop [work [x], size 0]
+      (if (empty? work)
+        size
+        (let [x (peek work)
+              work (pop work)
+              compound? (or (values/host-typed? x) (coll? x))]
+          (if (and compound? (.put seen x true))
+            (recur work size)
+            (recur (cond
+                     (values/host-typed? x) (conj work (values/payload x))
+                     (map? x) (into (into work (keys x)) (vals x))
+                     (coll? x) (into work x)
+                     :else work)
+                   (inc size))))))))
 
 
 (defn- live-after-collection
   [k source]
   (let [lowered (:ast (h/lower-program source))
-        main (get-in lowered [:operator :body :operands 0])
-        ast (assoc-in lowered [:operator :body]
-                      {:type :application :operator main :operands []})
-        final ((get final-vms k) ast (vm/ast->datoms ast))
-        roots (into []
-                    (keep (fn [[id {:keys [value seal]}]]
-                            (when (and (= "h" (get-in value [:gen :name]))
-                                       (= :suspended (get-in value [:gen :state])))
-                              {:type :cell-ref :id id :seal seal})))
-                    (:heap final))
-        heap (:heap (engine/collect final roots))]
-    (is (= 1 (count roots)) (str k " one suspended delegating generator"))
-    [(count heap) (reduce + (map (fn [[_ {:keys [value]}]] (deep-size value)) heap))]))
+        ;; Keep the normal unit entry point, but block its body before it
+        ;; returns to php/run-main and shutdown. This fresh stream has no
+        ;; producer, so h stays live and suspended in the captured heap.
+        blocker {:type :stream/next
+                 :source {:type :stream/cursor
+                          :source {:type :stream/make :buffer 1}}}
+        ast (tails/remark-tails
+              (update-in lowered [:operator :body :operands 0 :body]
+                         u/then blocker))
+        blocked ((get final-vms k) ast (vm/ast->datoms ast))]
+    (when (is (vm/blocked? blocked) (str k " blocked before shutdown"))
+      (let [roots (into []
+                        (keep (fn [[id {:keys [value seal]}]]
+                                (when (and (= "h" (get-in value [:gen :name]))
+                                           (= :suspended (get-in value [:gen :state])))
+                                  {:type :cell-ref :id id :seal seal})))
+                        (:heap blocked))]
+        (when (is (= 1 (count roots)) (str k " one suspended delegating generator"))
+          (let [heap (:heap (engine/collect blocked roots))]
+            [(count heap)
+             (deep-size (mapv :value (vals heap)))]))))))
 
 
 (defn- changing-caller-source
   [n]
   (str "<?php function g() { $i=0; while (true) { yield $i; $i++; } }"
-       " function h() { yield from g(); } $it=h(); $it->self=$it;"
+       ;; Own the delegate across caller statements, whose temporary cleanup
+       ;; would otherwise release the bare g() result while h is suspended.
+       " function h() { $d=g(); yield from $d; } $it=h(); $it->self=$it;"
        " function byFunction($x) { $x->next(); }"
        " function byGenerator($x) { yield $x->current(); $x->next(); }"
        " $k=0; while ($k < " n ") {"
@@ -107,5 +132,7 @@
 (deftest ^:slow reachable-heap-is-stable-under-delegation-test
   (doseq [k vms]
     (testing (str k)
-      (is (= (live-after-collection k (changing-caller-source 10))
-             (live-after-collection k (changing-caller-source 1000)))))))
+      (let [small (live-after-collection k (changing-caller-source 10))
+            large (live-after-collection k (changing-caller-source 1000))]
+        (when (and small large)
+          (is (= small large)))))))
