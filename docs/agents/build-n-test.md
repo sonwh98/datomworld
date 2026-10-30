@@ -92,6 +92,136 @@ dao.stream, codecs) and before a big merge. Not seen: dynamic loads
 (`requiring-resolve`, `resolve`), paths or walk roots built at run time,
 and spawned programs that changed (target/yin-repl.js, Dart peers).
 
+### Sharded quick JVM feedback and change routing
+
+```sh
+bb test:quick-sharded                           # Full G3-sized JVM quick lane, 4 workers
+bb test:quick-sharded --changed src/cljc/yang/clojure.cljc
+bb test:quick-sharded --base master --workers 6  # Changed selection, explicit worker limit
+bb test:quick-sharded --list --changed src/cljc/yang/clojure.cljc
+bb test:routed docs/agents/build-n-test.md       # Explicit changed paths (absolute OK)
+bb test:routed --dry-run deps.edn               # Print dispatch; executes no gate
+bb test:routed                                 # Git change set, same base as test:changed
+bb deps:npm                                    # Content-checked local npm ci
+bb -cp src/dev -m quick-sharded-test            # Runner/routing/cache self-tests
+```
+
+`test:quick-sharded` is a JVM-only execution alternative for broad G2 and
+the JVM portion of G3. Without selection flags it selects every JVM test;
+`--changed FILE...` or `--base REF` uses `affected/select` and
+`affected/lane-tests`, exactly as `test:changed:clj` does. Wide input selects
+the full JVM set here. It never changes `test:changed`'s selection or exit-2
+semantics. `--workers N` must be positive (default 4 on the laptop).
+
+Shard membership comes from every entry in `src/dev/subsystems.edn`, using
+`affected/select-subsystems` and the same longest-prefix ownership rule as
+`test:sub`. As in the shiva script below, currently unowned namespaces run
+in an explicit `unmapped` residual shard, printed by name. Registry omissions
+therefore cannot silently shrink coverage. Each nonempty shard gets its own
+`clojure -M:test -e :slow -n <ns> ...` process, with at most N JVMs running.
+Prerequisites are derived from the entire selected JVM reach and finish
+serially before workers start; the Node REPL build prerequisite
+(`build:yin-repl-node`) also ensures `bb deps:npm`.
+
+Each invocation writes a separate `target/profile/quick-sharded-<id>/`:
+`selected.txt`, `ns-<shard>.txt`, `covered.txt`, `uncovered.txt`, per-shard logs,
+and `summary.edn`. Before execution it checks **set equality** between selected
+namespaces and the union of shard lists, plus absence of duplicate assignments.
+Any uncovered, unexpected, or duplicate namespace fails loudly before tests.
+The final summary totals tests, assertions, failures and errors and separates
+JVM wall time from total time including selection/builds. A nonzero child exit,
+failure/error, or missing final test-runner summary makes the task exit nonzero.
+Dry plans write namespace evidence but execute no builds or tests. An empty
+selection prints `0 JVM namespaces selected` and exits 1, including dry plans.
+The final `summary.edn` includes a `:verification-scope` record; the same EDN
+record is printed on stdout with `:type :verification-scope`, `:runner`,
+`:scope`, `:exit`, `:dry-run?`, and `:gate-complete?`. JVM feedback always has
+`:scope :jvm-feedback` and `:gate-complete? false`, even on exit 0.
+
+`test:routed <changed-files...>` applies this priority table to the whole change
+set, prints the exact dispatch, executes it and propagates its result:
+
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Change class (first match wins)                                                              | Dispatch                                                              |
++==============================================================================================+=======================================================================+
+| Existing wide inputs (`deps.edn`, `bb.edn`, `src/dev/`, ANTLR, package locks, runner         | `bb test` — full quick tri-host; success required                     |
+| configs, etc.), toolchain manifests, CI workflows, build scripts                             |                                                                       |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Only `.md`, `.txt`, `.rst` documentation, excluding test resources                           | `git diff --check HEAD -- <paths>` — documentation whitespace/format  |
+|                                                                                              | lint only                                                             |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Foundation code owned by a layer-0 entry in `subsystems.edn`, or `yang.clojure`, `yang.php`, | `bb test:quick-sharded --changed <paths>` — broad selected JVM        |
+| `yang.typescript`, `yang.python` code                                                        | feedback                                                              |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Other code/tests/fixtures with a nonempty affected selection                                 | `bb test:changed --changed <paths>` — existing quick tri-host         |
+|                                                                                              | selection                                                             |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+| Other non-doc input with no statically selected tests                                        | `bb test` — fail closed rather than report a vacuous green gate       |
++----------------------------------------------------------------------------------------------+-----------------------------------------------------------------------+
+
+Mixed changes take the widest matching route. Missing paths, an empty git change
+set, unknown flags, and the wrong cwd fail. Deleted paths are validated against
+the base tree. If the leaf command returns exit 2, routing immediately dispatches
+`bb test` and requires its success. `--dry-run`/`--list` only reports the route;
+its zero exit is **not** a verification result. Documentation checks inspect
+staged and unstaged changes together against HEAD. Paths absent from
+`git ls-files` print `unchecked (untracked)` and appear in the scope record
+under `:unchecked`; they cannot complete the docs gate. These checks do not lint
+executable examples or validate documentation links.
+
+Routing prints its own final EDN verification-scope record. `:gate-complete?`
+means the dispatched gate completed successfully, not that every landing gate
+is satisfied. It is false for foundation/JVM feedback, dry runs, unchecked docs,
+and failed dispatches. Successful checked docs, selected tri-host, and full
+quick tri-host routes report `:docs-whitespace`, `:selected-quick-tri-host`, and
+`:full-quick-tri-host` respectively. Exit codes continue to propagate child
+results, so automation must inspect the scope as well as the exit code.
+
+**Gate requirements are unchanged.** Sharded JVM success alone is not G2/G3
+tri-host success: for foundation/compiler changes also run
+`bb test:changed:cljs --changed <paths>` and
+`bb test:changed:cljd --changed <paths>`, respecting the existing JVM/Dart
+serialization rule. G1, full post-merge `bb test` (G3), applicable slow G4,
+demo smoke checks and review/landing gates all remain required. Node and Dart
+lanes retain their current commands. The original unsharded tasks remain
+available. Do not run another lane set concurrently on the laptop.
+
+#### Worktree-local prerequisite caches
+
+`bb gen:antlr` now checks a content key over all grammar/manifests (including
+recorded helper/generated digests and runtime pins), the generator/cache source,
+`deps.edn`, `mise.toml`, actual Java/javac versions and canonical worktree path.
+It also verifies the names and SHA-256 bytes of all generated targets, compiled
+classes and cached upstream helpers before a hit. Changed inputs or missing,
+removed or corrupted outputs trigger a full generation, retaining the generator's
+digest checks. Filtered/discovery invocations retain their CLI behavior and
+invalidate the complete-build stamp.
+
+`bb deps:npm` wraps `npm ci` with a key covering `package-lock.json`,
+`package.json`, npm configuration, Node/npm versions, platform, relevant npm/Node
+environment and worktree identity; it verifies the installed file tree before
+reuse. A failed command never establishes a cache hit. Existing Node build tasks
+ensure this dependency too. Direct `npm ci` is still available.
+
+Stamps and fail-fast writer locks live under `target/prereq-cache/`. Remove a
+lock only after confirming its owning process died. Symlinked output parents
+that escape the worktree are refused. This is reuse **within one worktree**,
+not a shared artifact store: never share mutable `build/`, `lib/`, `target/` or
+`node_modules/` across live worktrees. ANTLR generation and Dart compilation
+still require the existing worktree isolation/serialization rules; the cache
+does not make overlapping builds and tests safe. Peer executables and shadow
+builds themselves are not cached by this mechanism.
+
+Laptop pilot (2026-10-29, 8 cores, 4 workers, `yang.clojure.cljc` changed):
+the unchanged selector and the sharded plan both covered **61 JVM namespaces**;
+both completed with **955 tests, 14,848 assertions, zero failures/errors**.
+Sharded JVM wall time was **177.165 s** (total including prerequisites **257.207 s**;
+outer command **258.27 s**). The original `test:changed:clj` command completed
+in **376.79 s** overall and reported **298 s** for its JVM lane (that runner
+rounds to whole seconds). The investigation's earlier unsharded command had
+timed out at 300 s without a summary. These are single-run observations, not
+a median/p95 claim or a replacement for tri-host landing verification.
+
 ### Subsystem-first tests: `bb test:sub`
 
 `bb test:sub <subsystem>...` (src/dev/affected.clj) runs the tests belonging to
@@ -117,7 +247,7 @@ bb -cp src/dev -m affected-test   # Run affected-test self-tests directly in Bab
 - **Layer 4 (Applications & Demos)**: `demo`, `world`
 - **Infrastructure**: `dev`, `bench`
 
-Prerequisites (`build:yin-repl-peer`, `build:yin-repl-node`, `gen:python-antlr`)
+Prerequisites (`build:yin-repl-peer`, `build:yin-repl-node`, `gen:antlr`)
 and lane serialization (`[:clj :cljd]`) are derived purely from text reach of the
 selected namespaces and run automatically when needed.
 
@@ -251,7 +381,7 @@ ts() { date +%H:%M:%S; }
 echo "start $(ts) $(git rev-parse --short HEAD) par=$PAR" | tee "$OUT/summary.txt"
 npm ci --silent >"$OUT/npm.log" 2>&1                   && echo "npm ok $(ts)" | tee -a "$OUT/summary.txt"
 bb build:yin-repl-node >"$OUT/build-node.log" 2>&1     && echo "node repl built $(ts)" | tee -a "$OUT/summary.txt"
-bb gen:python-antlr >"$OUT/antlr.log" 2>&1             && echo "antlr ok $(ts)" | tee -a "$OUT/summary.txt"
+bb gen:antlr >"$OUT/antlr.log" 2>&1             && echo "antlr ok $(ts)" | tee -a "$OUT/summary.txt"
 SUBS="yang.python yin.repl yin.vm yin.vm.ucf dao.stream dao.jing dao.gui dao.space demo dao.data dao.postgraphics yang.base dao.base"
 : > "$OUT/covered.txt"
 for s in $SUBS; do
@@ -307,7 +437,7 @@ and `git`.
 | Host | Cores / RAM | Toolchain state (server snapshot checked 2026-10-11; repo selection comes from `mise.toml`) |
 |---|---|---|
 | `shiva.stigmergy.systems` | 24 / 62 GB | Server snapshot: java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.1. The repo's `mise.toml` selects Flutter `latest` on beta, not a fixed version. Activate the repo toolchain before running any lane. |
-| `jupiter.stigmergy.systems` | 48 / 62 GB | Server snapshot: java 21, clojure, node, zprint, babashka, flutter 3.41.9. The repo's `mise.toml` selects Flutter `latest` on beta, not a fixed version; use mise in the scratch clone to install and activate that selection before the Dart lane. |
+| `jupiter.stigmergy.systems` | 48 / 62 GB | Server snapshot (rechecked 2026-10-29): java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.8 (the stale hand-symlinked 3.41.9 was replaced via `mise install flutter@3.47.8` after it failed to compile `dart:ui`-using cljd namespaces; if the Dart lane dies in the cljd compile, check `mise ls flutter` first). Tri-host quick tier verified green on 2026-10-29 (see Measured times). |
 
 **Never test in `~/workspace/datomworld` on either host.** It is a working copy
 that is behind origin (shiva: 45 commits behind on 2026-10-11) and belongs to its
@@ -381,6 +511,40 @@ The first run on shiva (2026-10-11) overlapped JVM and Dart in one clone before
 this rule was written down; its results are advisory until repeated with a
 separate Dart clone.
 
+### The jolt J2 lane: run it with `--jobs` on the servers
+
+The jolt lane's core mode (`bb src/dev/jolt_j2_lane.clj core [--jobs N]
+[--only re] [--timeout-ms M]`) runs each test namespace as its own child jolt
+process (own Chez VM, own native parser library load, own log under
+`build/j2-logs/core/`), so the namespaces cannot corrupt one another — the
+only thing `--jobs N` overlaps is the waiting. The default is `jobs 1`
+(strictly serial), which on jupiter makes the full ~179-namespace lane a
+5-6-hour run.
+
+On the servers, run it with `--jobs 16`:
+
+- jolt children are essentially single-threaded (the 16 MiB parse thread
+  only burns during parses) and cost 1-2 GB each, so 16 concurrent children
+  sit far inside jupiter's 48 cores / 62 GB and shiva's 24 / 62;
+- the lane's wall time is dominated by a few long namespaces
+  (`yin.repl.python-antlr-test` has an explicit 3-hour step,
+  `yin.vm.semantic.safepoint-harness-test` needs one — see
+  `step-timeout-ms` in `src/dev/jolt_j2_lane.clj`), so beyond ~16 workers
+  the critical path is the longest child, not the count;
+- **parallel is unproven until checked once**: the recorded lane evidence
+  (J2 closure, the safepoint 60/265,225/0 pass) was all produced `jobs 1`.
+  The first parallel run must be compared per-namespace against a serial
+  baseline; any namespace that flips red gets one serial re-run to
+  attribute before its evidence is trusted. Until that first comparison
+  passes, keep `jobs 1` for anything whose verdict is timing-sensitive —
+  timeout and wall-time measurements, native-memory/leak gates, and the
+  merge-decision qualification runs.
+
+Suites that exceed the lane's default step budget are pinned in the lane's
+`step-timeout-ms` map with their measured wall time; a namespace timing out
+under the default budget is a reason to measure it serially and add an
+entry, not to re-run under the same bound.
+
 ### The full run
 
 Run long jobs inside `tmux` so the SSH session can drop. The script below does the
@@ -392,7 +556,7 @@ same commit, with a name like `~/ci/datomworld-<name>-dart`:
 
 ```sh
 #!/usr/bin/env bash
-# ~/ci/run-full.sh <jvm-node-clone> [<dart-clone>]   (omit the second on jupiter: no Dart)
+# ~/ci/run-full.sh <jvm-node-clone> [<dart-clone>]   (both hosts run all three lanes; a second clone for Dart is recommended)
 set -u
 export PATH="$HOME/.local/bin:/snap/bin:$PATH"
 DART="${2:-}"
@@ -404,13 +568,13 @@ ts() { date +%H:%M:%S; }
 echo "start $(ts) $(git rev-parse --short HEAD)" | tee "$LOG/summary.txt"
 npm ci --silent >"$LOG/npm.log" 2>&1               && echo "npm ok $(ts)" | tee -a "$LOG/summary.txt"
 bb build:yin-repl-node >"$LOG/build-node.log" 2>&1 && echo "node repl built $(ts)" | tee -a "$LOG/summary.txt"
-bb gen:python-antlr >"$LOG/antlr.log" 2>&1         && echo "antlr ok $(ts)" | tee -a "$LOG/summary.txt"
-bb build:yin-repl-peer >"$LOG/build-peer.log" 2>&1 && echo "dart peer built $(ts)" | tee -a "$LOG/summary.txt"  # shiva only
+bb gen:antlr >"$LOG/antlr.log" 2>&1         && echo "antlr ok $(ts)" | tee -a "$LOG/summary.txt"
+bb build:yin-repl-peer >"$LOG/build-peer.log" 2>&1 && echo "dart peer built $(ts)" | tee -a "$LOG/summary.txt"
 lane() { name=$1; shift; s=$(date +%s); "$@" >"$LOG/$name.log" 2>&1; rc=$?
          echo "$name rc=$rc secs=$(( $(date +%s)-s )) $(ts)" | tee -a "$LOG/summary.txt"; }
 lane jvm  clojure -M:test -e :slow &
 lane node clj -M:cljs -m shadow.cljs.devtools.cli compile test &
-if [ -n "$DART" ]; then                            # shiva only: its own clone (own lib/cljd-out, build/)
+if [ -n "$DART" ]; then                            # its own clone (own lib/cljd-out, build/)
   ( cd "$DART" && mise trust >/dev/null 2>&1 && eval "$(mise env -s bash)"
     bb build:yin-repl-peer >"$LOG/build-peer-dart.log" 2>&1
     lane dart bb src/dev/cljd_agg.clj ) &
@@ -444,6 +608,69 @@ scanner row took about 11-19 minutes on the JVM and about 79 minutes on Node
 - Both hosts run other work (a QEMU guest and rustdesk on shiva); idle load is
   under 1, but timings are not a clean benchmark.
 
+### The nightly full suite and the branch-testing rule (2026-10-30 owner ruling)
+
+Owner, verbatim: "since the complete test can take a good 7-8hrs to run
+completely, it should be schedule to run once a day at 3am. while
+branch/worktree test should only run test that are targeting code
+changes."
+
+Two tiers, by purpose:
+
+- **The nightly full suite** (`~/ci/nightly-full.sh` on shiva, tmux
+  session `nightly`, scheduled 03:00 daily through the orchestrator's
+  automation): every lane, every host target, against origin/master —
+  the JVM full suite, the full Node suite, the full Dart suite. Its
+  results are a post-hoc integrity net, NOT a landing gate. Failures it
+  finds route to fix rounds the next morning.
+- **Branch/worktree testing**: only the namespaces that target the
+  changed code (the diff's own tests plus the surfaces the diff touches),
+  one JVM per namespace, plus one cheap portable lane (Node) when cljc
+  goldens or fixtures moved. Never the full tier on a branch: a branch
+  gate needs the changed code proven, not the whole tree re-proven.
+
+An orchestrator landing a slice cites the subset runs plus the gate
+sign-off; the nightly catches what the subset could not see, and a red
+nightly owns the follow-up.
+
+**The merge precondition (2026-10-30 owner ruling):** before any merge
+into master, the `dao.stream` tests must run and pass — dao.stream is
+what everything is built on. Concretely: `bb test:sub dao.stream` (the
+subsystem's tests, `--slow` when the slice touches slow-guarded
+surfaces) is part of every branch gate regardless of which subsystems
+the diff's own changes select, because a change can break the foundation
+without touching it. A red dao.stream blocks the merge until fixed or
+diagnosed as pre-existing by the owning seat.
+
+### The nightly full suite and the branch-testing rule (2026-10-30 owner ruling)
+
+Owner, verbatim: "since the complete test can take a good 7-8hrs to run
+completely, it should be schedule to run once a day at 3am. while
+branch/worktree test should only run test that are targeting code
+changes" — and, clarifying the nightly's target: "it should not be for
+only a worktree/branch. the nightly complete test should be for master."
+
+Two tiers, by target and purpose:
+
+- **The nightly full suite runs MASTER ONLY** (`~/ci/nightly-full.sh` on
+  shiva, tmux session `nightly`, scheduled 03:00 daily through the
+  orchestrator's automation; it fetches and checks out origin/master
+  before anything runs). Every lane, every host target: the JVM full
+  suite, the full Node suite, the full Dart suite. Its results are a
+  post-hoc integrity net for master, NOT a landing gate. Failures it
+  finds route to fix rounds the next morning.
+- **Branch/worktree testing runs only the namespaces that target the
+  changed code** (the diff's own tests plus the surfaces the diff
+  touches), one JVM per namespace, plus one cheap portable lane (Node)
+  when cljc goldens or fixtures moved. Never the full tier on a branch:
+  a branch gate needs the changed code proven, not the whole tree
+  re-proven. A branch is never promoted by its own testing — the merge
+  to master is what puts it under the nightly.
+
+An orchestrator landing a slice cites the subset runs plus the gate
+sign-off; the nightly catches what the subset could not see, and a red
+nightly owns the follow-up.
+
 ### Measured times (first runs, 2026-10-11, commit 84c7c9b7, all lanes concurrent)
 
 Shiva, Dart lane: 1054 s (17.5 min) cold, with the JVM and Node lanes running beside
@@ -452,6 +679,21 @@ Node REPL, ANTLR) took about 30 s; the Dart peer 91 s. JVM and Node lane times a
 not recorded yet: fill them in from `summary.txt` after a completed run. Running the
 lanes concurrently on one host did not make the Dart lane faster, so count on the
 extra cores and a free laptop, and measure before relying on a speedup.
+
+### Jupiter verification run (2026-10-29, commit 7c0a078f, scratch clone, sequential lanes)
+
+First full tri-host verification of jupiter. Prerequisites (npm ci, Node REPL,
+ANTLR via `gen:antlr`, Dart peer) all succeeded; the stale 3.41.9 Flutter was
+replaced with 3.47.8 before the Dart lane. Results: **JVM quick tier
+(`test:quick-sharded`, 12 workers) rc=0 in 702 s** (cold, every shard green);
+**Node quick tier rc=0 in 4583 s** (all tests pass, but roughly 15x the
+laptop — route Node lanes to the laptop or shiva); **Dart quick tier
+rc=1 in 1495 s with the ONLY failure the documented known Linux-only red**
+(`dao.stream.datagram.dart-test/refusals-and-lifecycle-events`, same
+taken-port/bind-failed signature recorded above). Routing summary: jupiter
+is the preferred JVM/sharding box (48 cores); Node stays off it when wall
+time matters; Dart works on either host. Timings are single cold runs, not
+medians, and two foreign QEMU guests idle on the host.
 
 One exception to the concurrency above: never run two lanes that both trigger
 `gen:antlr` (the quick `test:cljs`/`test:cljd` tasks) in the SAME worktree at the
@@ -501,9 +743,10 @@ reference):
 
 Known state: `claude` and `codex` verified working on shiva (2026-10-24, the
 jolt canonical-fixes verification ran there); `glm` reported available by the
-owner on both hosts, not yet exercised. Jupiter's inventory mirrors shiva's
-toolchain snapshot above — verify per the "Activate the toolchain" order on
-first use of each host.
+owner on both hosts, not yet exercised. Both hosts are toolchain-verified for
+the full tri-host suite (jupiter verified 2026-10-29 — see Measured times;
+its 3.41.9 Flutter was replaced with 3.47.8, and model availability per
+host is governed by `routing-status.md`, not this file).
 
 ## Testing Philosophy & TDD
 

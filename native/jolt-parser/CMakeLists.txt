@@ -14,6 +14,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Test seams (fault injection, cache/stack/heap probes): OFF unless a test
 # build asks for them; bb build:jolt-native builds both variants.
 option(JOLT_PARSER_TEST_SEAMS "compile the jolt_parser test seams" OFF)
+# The calibration build (J5b, §7.6): the nesting guards measure but never
+# refuse. Test seams only; never a library the REPL loads.
+option(JOLT_PARSER_UNBOUNDED "compile the nesting guards without refusal" OFF)
+if(JOLT_PARSER_UNBOUNDED AND NOT JOLT_PARSER_TEST_SEAMS)
+  message(FATAL_ERROR "JOLT_PARSER_UNBOUNDED needs JOLT_PARSER_TEST_SEAMS")
+endif()
 
 if(NOT ANTLR4_PREFIX OR NOT GENERATED_DIR)
   message(FATAL_ERROR "ANTLR4_PREFIX and GENERATED_DIR are required")
@@ -34,6 +40,13 @@ target_include_directories(jolt_parser PRIVATE
 target_compile_definitions(jolt_parser PRIVATE ANTLR4CPP_STATIC)
 if(JOLT_PARSER_TEST_SEAMS)
   target_compile_definitions(jolt_parser PRIVATE JOLT_PARSER_TEST_SEAMS)
+endif()
+if(JOLT_PARSER_UNBOUNDED)
+  target_compile_definitions(jolt_parser PRIVATE JOLT_PARSER_UNBOUNDED)
+endif()
+if(NOT APPLE)
+  find_package(Threads REQUIRED)
+  target_link_libraries(jolt_parser PRIVATE Threads::Threads)
 endif()
 if(APPLE)
   target_link_options(jolt_parser PRIVATE

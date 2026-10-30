@@ -1,7 +1,12 @@
 {:tasks
  {gen:antlr
   {:doc "Generate the pinned grammars-v4 parsers for every target (antlr/*/manifest.edn): Java compiled into build/antlr/<g>/classes, JavaScript in build/antlr/<g>/js, Dart in lib/antlr/<g>; filters after --: --grammar g --target t"
-   :task (apply shell "clojure" "-M:antlr-gen" *command-line-args*)}
+   :task (apply shell "bb" "src/dev/build_cache.clj"
+                "antlr" *command-line-args*)}
+
+  deps:npm
+  {:doc "Worktree-local npm ci, reused only while input and installed-file digests match"
+   :task (shell "bb" "src/dev/build_cache.clj" "npm")}
 
   ;; jolt host lane (experimental, docs/design/yin.repl-jolt-implementation.md)
   bootstrap:jolt
@@ -37,6 +42,21 @@
    :task (System/exit
            (:exit (shell {:continue true} "bb" "native/jolt-crypto/probes/run.clj")))}
 
+  test:jolt-j5
+  {:doc "J5 acceptance: one Python session through the JVM and jolt REPL entry points with the standard catalog (output equal line for line), the multiline probe sequence, and the unavailable-library REPL legs (needs bb build:jolt-native)"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "src/dev/jolt_j5_acceptance.clj")))}
+
+  probe:jolt-j5
+  {:doc "J5b: the native Python parser's budget (input 4 MiB; in-parser guards: 8192 rule frames, 4096 SLL lookahead links, 256 full-LL links, on a 16 MiB parse thread): the review's repros, at/over per shape against the predicted table, 10x the old crash depths, the JVM's packets (incl. a 20,000-deep 1+ tree), the old crash depths in children on the jolt thread, injected C++ faults, the abort-is-a-failure property, lifecycle and unavailable-library legs. Args select legs: budget below crash inject abort unavailable (needs bb build:jolt-native)"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j5_run.clj" *command-line-args*)))}
+
+  calibrate:jolt-j5
+  {:doc "J5b C4: build the guards-off calibration variant of native/jolt-parser and record each nesting shape's stack cost per rule frame and per lookahead link on the 16 MiB parse thread; asserts every bound fits a quarter of the stack (writes build/j5b/calibration.edn; needs bb build:jolt-native)"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j5_calibrate.clj" *command-line-args*)))}
+
   probe:jolt-file
   {:doc "J4a: native/jolt-file gates, each in a child process: JVM-identical frame bytes (both hash algorithms), F2 s32BE prefixes, strict reads, injected short/EINTR/zero-progress/error transfers, corrupt-open byte identity, idempotent close, no fd or native-memory leak, a full collection during a 1 GiB :blocking pwrite, missing/wrong-layout wrapper refused before guest work, exported-symbol allowlist (needs bb build:jolt-native)"
    :task (System/exit
@@ -46,6 +66,34 @@
   {:doc "J0b probe: raw nonblocking SOCK_DGRAM over jolt.ffi on macOS arm64 and Linux x86_64, printing the platform header first (needs bb bootstrap:jolt)"
    :task (System/exit
            (:exit (shell {:continue true} "sh" "src/dev/jolt_udp_probe.sh")))}
+
+  probe:jolt-tcp
+  {:doc "J6d: the jolt TCP substrate and owner-thread pump (dao.stream.ws.tcp, dao.stream.ws.pump, driver sleep-fds!), one child jolt process per section: closure (no jolt.socket), address (literals/localhost, resolver trap), substrate (port 0, nonblocking accept/connect, EOF vs reset, gone-peer write survives), ordered (A3 short write, drain order, failure), fairness (A1 ii/iv), stdin (A1 i, held partial line), deadline (A2 seam), control (A3 event orders, A4 pong budget, D1 close slot), close (A5, D2, D3), listener (64 cap, lower-deadlines!, drained?); native memory and registry empty after close. Arguments select sections (needs bb bootstrap:jolt)"
+   :task (let [sections (or (seq *command-line-args*)
+                            ["closure" "address" "substrate" "ordered" "fairness" "stdin"
+                             "deadline" "control" "close" "listener"])
+               results (mapv (fn [s]
+                               (println "== probe:jolt-tcp section" s)
+                               [s (:exit (shell {:continue true} "sh" "-c"
+                                                ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_tcp_probe.clj \"$1\""
+                                                "jolt" s))])
+                             sections)]
+           (println "probe:jolt-tcp exits" (pr-str results))
+           (System/exit (if (every? (comp zero? second) results) 0 1)))}
+
+  probe:jolt-ws
+  {:doc "J6e: the jolt WebSocket host adapter (dao.stream.ws.jolt, the yin.repl.host shadow, the jolt -main wiring), one child jolt process per section: closure (C1), handshake (C2), bind (C3), address (C4), io (C5), close (C6), shutdown (C7, the real owner loop), isolation (C8), driver (C9, deadline folding, a --headless --port child), fairness (C10); native memory and registries empty after close. Arguments select sections (needs bb bootstrap:jolt and bb build:jolt-native)"
+   :task (let [sections (or (seq *command-line-args*)
+                            ["closure" "handshake" "bind" "address" "io" "close" "shutdown"
+                             "isolation" "driver" "fairness"])
+               results (mapv (fn [s]
+                               (println "== probe:jolt-ws section" s)
+                               [s (:exit (shell {:continue true} "sh" "-c"
+                                                ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_ws_probe.clj \"$1\""
+                                                "jolt" s))])
+                             sections)]
+           (println "probe:jolt-ws exits" (pr-str results))
+           (System/exit (if (every? (comp zero? second) results) 0 1)))}
 
   build:jolt-native
   {:doc "Fetch (by pinned SHA-256, only when absent) and build the jolt-toolchain.edn :native sources with the mise-pinned CMake into build/native/<platform>/"
@@ -184,7 +232,7 @@
   {:doc "Compile the Node yin.repl (shadow-cljs build :yin-repl) to target/yin-repl.js"
    ;; The Node lanes (test:cljs and its variants) depend on this task, so the
    ;; generated JavaScript parser reaches them through it.
-   :depends [gen:antlr]
+   :depends [deps:npm gen:antlr]
    ;; yin.repl.dht-process-test spawns it as the JVM-to-Node reader of
    ;; DHT epic S5, a required leg: a missing build fails that test.
    :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile yin-repl")}
@@ -212,7 +260,7 @@
    ;; The demo pulls in yang.python.antlr.parser, whose JavaScript
    ;; recognizers live in build/antlr/python3/js (a :cljs classpath root),
    ;; so a clean checkout generates them before compiling.
-   :depends [gen:antlr]
+   :depends [deps:npm gen:antlr]
    :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli release demo")}
 
   ;; Fast default lanes: no ^:slow test, no dao.test-slow/guard body.
@@ -277,6 +325,18 @@
 
   test {:doc "All three lanes in their fast default form (JVM, Node, Dart)"
         :depends [build:yin-repl-peer build:yin-repl-node test:clj test:cljs test:cljd]}
+
+  test:quick-sharded
+  {:doc "Quick JVM lane in subsystem JVMs, 4 workers; --changed FILE... / --base REF selects G2; --list plans only"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "-m" "quick-sharded" *command-line-args*)))}
+
+  test:routed
+  {:doc "Dispatch changed files by risk: docs checks, changed tests, sharded JVM or full tri-host; --dry-run plans only"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "-m" "test-routed" *command-line-args*)))}
 
   ;; Only the tests a change can affect (src/dev/affected.clj): the
   ;; reverse require closure of the changed files since the merge-base

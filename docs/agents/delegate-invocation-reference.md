@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, cmd, agy)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, codex, agy, kimi)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -16,7 +16,7 @@ exact session, conversation, or thread ID — reading earlier prompts, logs,
 findings, and diffs reconstructs task context but does not resume the session.
 
 Before the first invocation of a Claude Code-based CLI (`claude`, `claude-cloud`,
-`glm`, `deepseek`, or `muse`), generate and record an ID:
+`glm`, or `deepseek`), generate and record an ID:
 
 ```sh
 TASK_SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
@@ -35,8 +35,9 @@ provider's session store (Claude Code: match the custom title in the
 project JSONL within its configuration store — see below for AGY's
 equivalent), record an append-only provenance correction, and resume it.
 
-Codex, AGY, and Command Code don't accept a caller-selected ID for a new run in
-the installed versions — capture the generated ID immediately via structured output:
+Codex, AGY, Command Code, and Kimi Code don't accept a caller-selected ID for
+a new run in the installed versions — capture the generated ID immediately.
+Codex, AGY, and Command Code expose it via structured output:
 
 ```sh
 # Codex JSONL: first thread.started event
@@ -51,6 +52,10 @@ TASK_SESSION_ID="$(jq -r '.conversation_id' \
 TASK_SESSION_ID="$(jq -r 'select(.type == "result") | .sessionId' \
   collab/<timestamp>-<role>-<task>.<model>.stdout.log | tail -1)"
 ```
+
+For Kimi Code, record the new session's exact ID from
+`~/.kimi-code/session_index.jsonl` (or `$KIMI_CODE_HOME/session_index.jsonl`).
+Sessions are grouped by working directory under `~/.kimi-code/sessions/`.
 
 Fail the handoff if the extracted value is empty or `null`. Never use Codex
 `--ephemeral`, Command Code `--no-session`, or any provider's non-persistent
@@ -81,7 +86,6 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | claude-cloud | `~/.claude`                 | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| cmd          | `~/.commandcode`            | NDJSON `result.sessionId`        | `--resume <id>` or `--session <id|path>` |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | codex        | `~/.codex`                  | JSONL `thread.started.thread_id` | `codex exec resume <id> --json -`        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
@@ -89,7 +93,8 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | glm          | `~/.claude-glm`             | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| muse         | `~/.claude-muse`            | caller UUID via `--session-id`   | `--resume <uuid>`                        |
+| kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
@@ -149,29 +154,16 @@ listed CLIs.
 |                | (Sonnet/Haiku tier:        |                            |                      |                            |                      |                    |
 |                | `deepseek-flash`)          |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `muse`         | Meta/Muse; default **muse- | `MODEL=<model> muse`       | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
-|                | spark-1.3-contributor**    |                            |                      |                            |                      |                    |
-|                | (Sonnet tier: `muse-       |                            |                      |                            |                      |                    |
-|                | spark-1.3`)                |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 | `codex`        | OpenAI, flat-rate ChatGPT  | `-m <model>`               | `-s read-only`       | `-s workspace-write`       | no caller ID;        | `codex exec resume |
 |                | Plus; `gpt-6-astra`,       |                            |                      |                            | capture `thread.star | <thread-id>`       |
 |                | `gpt-6.1-sol`,             |                            |                      |                            | ted.thread_id` (see  |                    |
-|                | `gpt-6-terra`,             |                            |                      |                            | Session continuity)  |                    |
+|                | `gpt-6.1-terra`,           |                            |                      |                            | Session continuity)  |                    |
 |                | `gpt-6-luna`,              |                            |                      |                            |                      |                    |
 |                | `gpt-5.4-mini`             |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `cmd`          | CommandCode.ai; **reserved | `-m <model>`               | `--plan`             | `--permission-mode auto-   | no caller ID;        | `--resume          |
-|                | strictly for               |                            |                      | accept`                    | capture              | <session-id>` (or  |
-|                | external/unsupported       |                            |                      |                            | `result.sessionId`   | `--session         |
-|                | models with no dedicated   |                            |                      |                            |                      | <id|path>`)        |
-|                | wrapper** (e.g.            |                            |                      |                            |                      |                    |
-|                | `moonshotai/kimi-k3`, `moo |                            |                      |                            |                      |                    |
-|                | nshotai/kimi-k2.7-code`,   |                            |                      |                            |                      |                    |
-|                | `qwen/qwen3.8-max`) —      |                            |                      |                            |                      |                    |
-|                | never for models a         |                            |                      |                            |                      |                    |
-|                | dedicated CLI already      |                            |                      |                            |                      |                    |
-|                | covers                     |                            |                      |                            |                      |                    |
+| `kimi`         | Moonshot AI; native Kimi   | `-m <model-alias>`         | `--agent <agent>` or | `-p` (auto permissions)    | no caller ID;        | `--session <id>`   |
+|                | K3.1 Pro / K3 families     |                            | `--agent-file        |                            | capture session ID   |                    |
+|                |                            |                            | <path>` (read-only)  |                            | from session index   |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 | `agy`          | Gemini, flat-rate;         | `--model <model> --effort  | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
 |                | `gemini-3.1-ultra`,        | <effort>`                  | --sandbox`           | --sandbox`                 | capture              | <id>`              |
@@ -179,13 +171,57 @@ listed CLIs.
 |                | `gemini-3.8-flash`         |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 
-Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute
-`claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek`/`muse` share one CLI base: none needs a PTY, all
+Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`) configure provider endpoints and credentials, then execute
+`claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek` share one CLI base: none needs a PTY, all
 accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and their startup warning
 `claude-code:unrecognized_model` is expected and benign. `claude-cloud` scrubs wrapper routing overrides (`ANTHROPIC_BASE_URL`,
 `ANTHROPIC_AUTH_TOKEN`) and injects the official Anthropic API key to draw directly from metered cloud credits without
-interfering with `glm`, `muse`, or `deepseek`. Never convert a review command into an editing command unless the user explicitly
+interfering with `glm` or `deepseek`. Never convert a review command into an editing command unless the user explicitly
 authorized edits.
+
+**Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
+The managed 3.x aliases are `kimi-code/k3.1-pro`,
+`kimi-code/k3.1-pro-highspeed`, `kimi-code/k3`, and `kimi-code/k3-256k`; `-m`
+expects a configured model alias, not a bare model ID. The alias must be the
+**full provider-qualified name exactly as it appears in
+`~/.kimi-code/config.toml`'s `[models."…"]` keys** — e.g. `kimi-code/kimi-for-coding`
+(K2.8 Preview) and `kimi-code/kimi-for-coding-highspeed` (K2.7 Code Highspeed)
+are valid entries, while the bare forms `kimi-for-coding` or `kimi-k3` fail with
+`error: failed to run prompt: Model "…" is not configured in config.toml`.
+`kimi --version` and `--help` print to stderr/stdout without touching a session,
+so they are safe sanity checks; there is no trivial-prompt warm-up that avoids
+consuming a session slot. Headless `-p` uses
+`auto` permissions by default and cannot be combined with `--plan`, `--yolo`,
+or `--auto`. For a read-only review, bind a read-only agent at session creation
+with `--agent <read-only-agent>` or `--agent-file <path>`; for implementation,
+omit those flags. Resume with `--session <id>` (equivalently `-S <id>`) and the
+original `-m` alias;
+the bound agent is restored, so do not pass agent-selection flags on resume.
+Start a fresh session when changing models or thinking effort. K3.1 Pro models
+require thinking to remain enabled.
+
+Kimi quirks learned in service (2026-10-29):
+
+- **A headless `-p` run holds an exclusive session lock until its process
+  exits.** A second `kimi` invocation on the same session fails immediately
+  with "This session is in use by another Kimi Code CLI instance". When an
+  orchestrator launches `kimi -p … &` in a background shell, the harness may
+  report the *shell* finished while the nohup'd kimi keeps running — check
+  `pgrep -f kimi` (or whether the stdout log has stopped growing) before
+  resuming; "session in use" almost always means the first run is still alive,
+  not that it died.
+- **`dispatch.sh` does not know `kimi`** (its cli case covers only
+  claude/glm/deepseek/muse/claude-cloud). Invoke kimi directly, mirroring the
+  reviewer/architect flags yourself:
+  `kimi -m "kimi-code/k3.1-pro" --output-format text -p "Read <prompt> and
+  complete it now." < /dev/null > <prompt-stem>.stdout.log 2>&1 &`.
+  A run cut off mid-review can be resumed with `-S <sessionId>` recovered from
+  `~/.kimi-code/session_index.jsonl` (last line for the working directory);
+  the resumed run sees the earlier transcript, so ask it to print the complete
+  deliverable rather than only the missing tail.
+- **Rolling 5-hour quota**: an exhausted quota answers
+  `API Error: Request rejected (429)` with the reset timestamp inline; park the
+  dispatch and re-dispatch after the stated reset (the prompt file survives).
 
 > [!CAUTION]
 > **Never use the `--bare` flag with any CLI above.** It forces Claude Code to ignore user settings files,
@@ -197,8 +233,8 @@ One example per CLI. For a follow-up, swap the session-start flags for that row'
 table above and append `-r<n>` to the output artifact's basename.
 
 ```sh
-# Claude Code family (claude, claude-cloud, glm, deepseek, muse) — CLAUDE_BIN picks the wrapper, MODEL=<model> the model
-CLAUDE_BIN="claude-cloud"   # or: claude | MODEL=<model> glm | MODEL=<model> deepseek | MODEL=<model> muse
+# Claude Code family (claude, claude-cloud, glm, deepseek) — CLAUDE_BIN picks the wrapper, MODEL=<model> the model
+CLAUDE_BIN="claude-cloud"   # or: claude | MODEL=<model> glm | MODEL=<model> deepseek
 $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
   --output-format text -p "Read <prompt> and complete it now." < /dev/null \
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
@@ -207,9 +243,16 @@ $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
   > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 
-# Command Code
-cmd -p -m <model> <review-or-implementation-flags> --output-format json < <prompt> \
-  > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
+# Kimi Code — native CLI for every Kimi model
+# New implementation session; for a read-only review, add --agent <read-only-agent>.
+kimi -m kimi-code/k3.1-pro -p "Read <prompt> and complete it now." \
+  --output-format stream-json < /dev/null \
+  > collab/<timestamp>-<role>-<task>.kimi-k3.1-pro.stdout.log 2>&1
+
+# Kimi follow-up: exact generated ID, original model, new prompt and artifact.
+kimi --session <session-id> -m kimi-code/k3.1-pro \
+  -p "Read <follow-up-prompt> and complete it now." --output-format stream-json \
+  < /dev/null > collab/<timestamp>-<role>-<task>-r2.kimi-k3.1-pro.stdout.log 2>&1
 
 # Gemini / AGY
 # No --print-timeout: it is optional and defaults to 0 (wait until the turn
@@ -225,6 +268,22 @@ agy --model <model> --effort <effort> <review-or-implementation-flags> \
 Each of these is a host or provider diagnostic, not a real capability gap.
 Recognize it, apply the fix, and don't declare failure prematurely:
 
+- **Claude `Session ID <uuid> is already in use` survives killing the holder
+  process** — the id is pinned by the session file in the store (`~/.claude`),
+  not by a live process, so `pgrep` clean does not free it. Killing the zombie
+  and relaunching with the same id fails identically. The fix: dispatch a
+  FRESH session id with a by-state resume brief (the worktree diff plus the
+  original brief's path — "your work on disk is intact, resume by state"),
+  and reference the dead session's artifacts from the new log entry. Observed
+  2026-10-29 after killing two zombie holders of a session that backgrounded
+  its own test lanes and idled.
+- **A delegate that backgrounds its own test lanes and waits on completion
+  notifications idles the session indefinitely** — the harness's background
+  notification may never arrive, and the session sits consuming a window.
+  The standing brief rule "FOREGROUND only, explicit timeouts" exists for
+  this; enforce it at resume (the nudge prompt: "do NOT background anything,
+  run the lanes foreground with timeouts"). Observed 2026-10-29 on the P6
+  S0-S2 round (144 minutes idle).
 - **AGY language-server bind/log failures** are host sandbox restrictions.
   Rerun with the same `--sandbox`/`--mode plan` policy through the host tool
   with narrowly scoped escalation. For an authorized implementation run,
@@ -254,7 +313,7 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   to the intended working directory (`cd <worktree> && codex exec resume <id>
   --json -m <model> - < prompt`) and write the resumed prompt's relative paths
   against that cwd; the resumed turn keeps the original thread's sandbox.
-- **GLM/Muse `claude-code:unrecognized_model` startup warnings** are expected
+- **GLM `claude-code:unrecognized_model` startup warnings** are expected
   for their wrappers; verify the resulting artifact before declaring failure.
 - **The same benign startup warning can precede a real outage, not just a
   successful fallback.** The warning alone never distinguishes them — only
@@ -299,3 +358,10 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   one simple command per step — never `--dangerously-skip-permissions` —
   treating a denial as a signal to simplify, not a capability gap to route
   around.
+
+**Codex session writer-lock (observed 2026-10-30):** `codex exec resume <id>` fails with
+"thread already has an active writer" when the resumed thread is mid-turn in another
+chat — the shared Codex engineering chat referenced by multi-owner briefs is
+single-writer. Do not wait on it; dispatch the work to a fresh session with a
+self-contained brief (prompt-file paths, exact revisions), and record the original
+thread id for provenance.

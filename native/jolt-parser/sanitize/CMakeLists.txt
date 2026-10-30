@@ -22,3 +22,8 @@ if(SANITIZE)
   target_link_options(jolt_parser_harness PRIVATE ${SAN})
 endif()
 target_link_libraries(jolt_parser_harness PRIVATE "${ANTLR4_PREFIX}/lib/libantlr4-runtime.a")
+if(NOT APPLE)
+  # J5b: recognition runs on a wrapper-owned pthread
+  find_package(Threads REQUIRED)
+  target_link_libraries(jolt_parser_harness PRIVATE Threads::Threads)
+endif()

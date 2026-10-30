@@ -45,9 +45,9 @@ and the JavaScript/Dart lexer-helper manifest patches. J2b closing is necessary
 for J5 acceptance, not sufficient. Slice states are in §10.1.
 
 This document consolidates the architect plan r7
-(`collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
+(`archive/jolt/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
 its independent review
-(`collab/1792427469000-architect-jolt-lane-plan-review-r7.claude-opus-5-5.findings.md`,
+(`archive/jolt/1792427469000-architect-jolt-lane-plan-review-r7.claude-opus-5-5.findings.md`,
 findings W1-W9) and the owner decisions of 2026-10-19. The four design points
 the review left open are ruled on in §13.4 (Architect, 2026-10-20; the owner
 may overrule). Later owner rulings are recorded in §13.5. The codec
@@ -56,7 +56,7 @@ document and keeps its own owner questions; this document states only J6's
 dependency on it (§9.4).
 
 Change note 2026-10-20 (Architect: claude-fable-5-1,
-`collab/1792454059000-architect-jolt-design-points.claude-fable-5-1.findings.md`):
+`archive/jolt/1792454059000-architect-jolt-design-points.claude-fable-5-1.findings.md`):
 §13.4 becomes "Architect rulings (owner may overrule)" and rules on the
 Transit require, the WebSocket substrate, the 1009/1006 expectation and the
 initial pin; §4.2, §4.4, §5, §6.4, §9.2-§9.4, §9.6, §10.1, §12, Appendix A and
@@ -66,7 +66,7 @@ owner-settled in §13.1 and removed from §13.3. Nothing else changed; nothing
 was commissioned.
 
 Change note 2026-10-20, later (Architect: claude-fable-5-1,
-`collab/1792454808000-architect-transit-decoupling.claude-fable-5-1.findings.md`):
+`archive/dao-stream/1792454808000-architect-transit-decoupling.claude-fable-5-1.findings.md`):
 the owner redirected ruling 1 with "we should rethink dependency on transit
 namespace. it should not require transit". Ruling 1 is replaced: no shared
 namespace requires `dao.stream.transit`; the portable domain moves to a
@@ -79,7 +79,7 @@ the owner's and is flagged, not decided: which codec profile the yin.repl
 network compositions select by default once no shared default exists.
 
 Change note 2026-10-20, third (Architect: claude-fable-5-1,
-`collab/1792455434000-architect-stream-codec-design.claude-fable-5-1.findings.md`):
+`archive/dao-stream/1792455434000-architect-stream-codec-design.claude-fable-5-1.findings.md`):
 the owner widened the requirement to peer codecs ("cbor and transit are peer
 encoding ... open to ... protocol buffers or apache arrow") and then separated
 the tracks ("the codec redesign should be independent of jolt design doc"). The
@@ -88,7 +88,7 @@ independent track that never mentions this one. Ruling 1 and slice T0 here are
 withdrawn; this document now states one dependency (J6 needs the codec track's
 C0-C4 landed; jolt requires nothing else of it) and the jolt-side consequences
 only (§9.4, §10.1). Three review corrections from gpt-6-astra
-(`collab/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md`)
+(`archive/jolt/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md`)
 are folded in: A4 (the 1009/1006 ruling asserts the diagnostic at the
 detecting endpoint and one terminal event plus sender-specific wire behaviour
 at the peer, not identical observables at both ends; §9.6, §13.4 ruling 3), A5
@@ -100,7 +100,7 @@ for non-strict results is not acceptance; §9.5, §9.6, J6 row). Astra's A1-A3
 concerned the withdrawn ruling-1 shape and are moot here.
 
 Change note 2026-10-20, fourth (Engineer: claude-opus-5-5, owner-directed,
-`collab/1792489765000-engineer-jolt-j0a-os-packages.claude-opus-5-5.findings.md`):
+`archive/jolt/1792489765000-engineer-jolt-j0a-os-packages.claude-opus-5-5.findings.md`):
 the owner decided "lets assume debian distribution and apt get for dependency
 management of package", then "yes to 1, 2, 3 and 4 as recommended". Linux
 means the Debian family with apt: host packages are declared in
@@ -132,7 +132,7 @@ Authorities:
   [build-n-test.md](../agents/build-n-test.md): test lanes, subsystem taxonomy
   and the shiva scratch-clone CI.
 - The spike:
-  `collab/1792412960461-engineer-jolt-yin-repl-spike.claude-opus-5-5.findings.md`
+  `archive/jolt/1792412960461-engineer-jolt-yin-repl-spike.claude-opus-5-5.findings.md`
   (evidence label S).
 
 ---
@@ -960,6 +960,153 @@ above the bound. Bracket counting alone does not bound every recursion path;
 reviewed guards go before unsafe recursion where needed. If safe enforcement
 cannot be shown, feasibility fails and goes back to the owner.
 
+Enforced (J5b, known-gaps row 59). J5 first enforced nesting with a flat
+pre-parse scan of the source; the review of that slice found four inputs the
+scan misread (lexer differences, an uncounted comprehension chain, unary runs
+discarded inside brackets, and flat binary chains whose deep trees the
+recursive walkers overflowed), and the scan was replaced rather than
+repaired: a sound scan would have to reproduce the lexer and every recursive
+path of the grammar, which is a parser. The only exact measure of the
+nesting that costs native stack is the parser's own, so the bounds are
+guards inside recognition (`native/jolt-parser/jolt_parser.cpp`, "THE
+BUDGET"):
+
+- input: more than 4 MiB of source is status -6 (`input <measured> <bound>`),
+  decided before any ANTLR object exists; `yang.antlr.cst` mirrors the check
+  before the FFI call.
+- rule frames: `BoundedParser` overrides the virtual rule entries every
+  generated rule function calls first (`Parser::enterRule`,
+  `enterRecursionRule`; runtime `Parser.h:273-290`, generated
+  `Python3Parser.cpp:8438`, `:8879`). `Parser::exitRule` is not virtual
+  (`Parser.h:275`), so the count is not a counter decremented on exit: the
+  frame depth is the length of the current context's parent chain, which
+  equals the live rule activations because each activation contributes
+  exactly one context to the chain at all times (a left-recursive loop
+  replaces its frame's context and reparents the previous one beneath it;
+  unrolling restores the caller's). The generated parser has no labelled
+  alternatives. The depth is recorded per context at entry (its parent's
+  plus one; a `pushNewRecursionContext` context inherits its frame's) rather
+  than walked: walking the chain at each entry measured 9-123 percent slower
+  on the at-bound shapes. Entering a frame deeper than `N_rule` refuses. The
+  loop of a left-recursive rule adds tree depth, not stack, and is not
+  counted.
+- lookahead: prediction recurses over its own context chains, ahead of the
+  parser, where no rule-entry guard sees it (closure pops, merge, equality,
+  caching and the recursive destruction of `shared_ptr` parent chains).
+  `BoundedSimulator` overrides `getEpsilonTarget` (`ParserATNSimulator.h:788`):
+  on every RULE transition the chain it makes (the longest parent path of the
+  configuration's context, plus one) must not pass `N_look` in SLL
+  prediction, nor the outer context's length plus `N_full` in full-LL
+  prediction, whose start state is the outer rule stack (`computeStartState`
+  records that length). The walk is iterative and memoized for one
+  prediction (its references keep the contexts it names alive). A prediction
+  whose context graph exceeds 4x the bound in distinct nodes also refuses (a
+  cap, not an undercount; not reached on the oracle corpus).
+- refusal: a `NestingRefused` derived from no exception class. Generated rule
+  bodies catch only `RecognitionException` (`Python3Parser.cpp:762`), so it
+  unwinds every frame, whose RAII finally (`support/CPPUtils.h:23`) runs the
+  base `exitRule`/`unrollRecursionContexts`; nothing the guards override runs
+  during the unwinding. The answer is status -7,
+  `nesting <measured> <bound> rule|lookahead`, made before any buffer
+  exists, so no partial packet can escape.
+- thread: everything from the source stream to the buffer handed back, in
+  both entries, and the destruction of a worker's caches run on a
+  wrapper-owned pthread with a fixed 16 MiB stack (committed lazily), joined
+  before the `:blocking` call returns. The worker's busy flag is taken on the
+  caller before the spawn and released after the join; the helper touches no
+  jolt memory (the source is `ffi/alloc` native memory). A thread that cannot
+  be started answers -3 with a message; a worker freed then is leaked, never
+  destroyed on the caller's stack. The §7.5 contract is unchanged: jolt makes
+  one synchronous blocking call.
+- walkers: both export walkers use an explicit stack and emit the same
+  preorder bytes, so a tree as deep as its input (`1+1+...`) costs them no
+  native stack.
+
+| constant | value | derivation |
+|---|---|---|
+| `kMaxInputBytes` | 4 MiB | unchanged from J5 |
+| `kParseStack` | 16 MiB | fixed; replaces J5's stack clamp |
+| `N_rule` | 8,192 frames | `N_rule` x c_rule <= `kParseStack`/4 |
+| `N_look` | 4,096 links | `N_look` x c_link <= `kParseStack`/4 |
+| `N_full` | 256 links | time, not stack: full-LL lookahead over a unary run grows about 9x per doubling |
+
+The calibration record (`bb calibrate:jolt-j5`, a guards-off build,
+`-DJOLT_PARSER_UNBOUNDED=ON`, test seams only) paints the 16 MiB parse thread's
+stack and divides each shape's high-water mark by its deepest rule frame or
+longest chain. On macOS arm64 the rule shapes cost 89-105 bytes a frame
+(`N_rule` at most 858 KB, error recovery at the deepest frame included), the
+SLL shapes at most 199 bytes a link (815 KB), the unary full-LL run 681 bytes
+a link (174 KB at 256), and a full-LL decision under 800 brackets of outer
+stack 199 bytes a frame (1.6 MB at `N_rule`): every bound is under the 4 MiB
+quarter.
+
+In source terms (measured per level; `src/dev/jolt_j5_shapes.cljc` holds the
+table the probe asserts, n parsing and n+1 refused with exactly
+`{:axis :nesting :bound B :measured B+1}` and its `:kind`):
+
+| shape | per level | binding bound | largest n |
+|---|---|---|---|
+| `(`/`[` nests | 9 frames | rule | 908 |
+| nested calls `f(` | 10 links | SLL | 408 |
+| bracket nest inside a call, closed or open at EOF | 9 links | SLL | 453 |
+| `not` runs, ternaries (also backslash-continued) | 1 frame | rule | 8,178 |
+| `lambda` chains | 2 frames | rule | 4,089 |
+| comprehension `for` clauses | 2 frames | rule | 4,085 |
+| INDENT levels | 4 frames | rule | 2,045 |
+| unary `-` runs | 1 full-LL link | full | 253 |
+| `**` chains, `1+1+...` | none: the generated `expr` loop is iterative; the 100,000-deep tree is the walker leg | input | - |
+
+Time is not bounded inside the axes. The at-bound nesting parses are seconds
+(macOS arm64: 4.4 s backslash-continued ternaries at 8,178, 4.1 s ternaries,
+1.9 s comprehensions, 1.6 s INDENT, 1.3 s unary at 253, under 1 s elsewhere;
+4 MiB of comment 1.3 s; Linux x86_64 in the J5b record). Two flat shapes are
+slow and no axis addresses them: the pinned runtime parses a `1+1+…` chain in
+quadratic time (16,000 operators 7.4 s natively, 100,000 about 340 s; the
+backslash-joined chained assignment `x = 1 if 1 else \` ×100,000, 16 frames,
+89 to 150 s) and an SLL decision whose lookahead walks a `1*1*…` chain grows
+faster still (2,000 operators 21 s, 4,000 about 490 s; the chain refuses at
+4,097 links). An under-bound source of a few kilobytes can therefore hold the
+parse thread for minutes. No cancellation of an under-bound parse is offered
+and no refusal is keyed on elapsed time (a refusal is a function of the
+source, identical on every host). For the Local REPL milestone the only
+source is the local user and this is disclosed; before any parse of remotely
+sourced Python (J6), slice J5c adds a deterministic work budget (prediction
+steps plus rule entries, refused as `:axis :work`), see known-gaps. The
+pinned runtime parses a flat `1+` chain in quadratic time; R4 at full size is
+measured, not gated: the walker legs are the 20,000-operator `1+` chain, the
+backslash-joined chained assignment at 10,000 lines and the 100,000-deep `**`
+tree, each equal to the JVM's packet (macOS arm64 walls on jolt: 12.3 s,
+7.6 s, 21.2 s).
+
+A refusal is operational: `{:diagnostic :parser-budget :axis :input|:nesting
+:bound n :measured m [:kind :rule|:lookahead] :lang :yang/python}` through the
+`:unavailable-parser` channel, thrown at the parse stage, never a syntax
+error, no partial packet, the same worker parses again and the session
+survives. The JVM, Node and Dart parsers have no such bound: an above-bound
+source the JVM parses is refused on jolt (a recorded divergence, not a parity
+pin). The JVM oracle's own exporter recurses per tree level and overflows its
+default stack on a 20,000-deep `1+` tree; the comparison runs it with
+`-Xss1g`.
+
+Platforms. J5b's budget, crash, calibration and time legs ran on macOS arm64
+(`bb probe:jolt-j5`, `bb calibrate:jolt-j5`). The owner's "linux only" waiver
+covers the long lanes and the sanitizer.
+
+On Linux x86_64 (shiva, 2026-10-29) the budget and below legs ran green at the
+J5b round-3b bytes: `bb probe:jolt-j5` exited 0 and `bb test:jolt-j5` printed
+ALL PASS with 0 FAIL. The sanitizer harness, run there at 0, 5, 50 and 100
+cycles, measured a constant 181,088 bytes in 3,312 allocations at every count:
+the leak is independent of the cycle count. It is the ANTLR4 full-context
+prediction reach set, which leaks once per parser-budget refusal because the
+guard throws inside `ParserATNSimulator::closure`'s exception path and the set
+is freed on the normal and no-viable-alternative exits only. It is bounded and
+benign at the observed scale; the fix, a reach-computation override in the
+bounded simulator, rides with J5c (see known-gaps).
+
+The earlier J5 closure's corrected crash-depth driver, -4 parity/sanitizer
+legs and shell corpus ran on Linux only; its macOS results predate those
+fixes.
+
 Blast radius. Catches contain catchable C++ exceptions only. An access
 violation, abort, stack exhaustion or fatal runtime/parser bug takes down the
 whole jolt process. A timeout does not make native termination safe, stack
@@ -1284,6 +1431,9 @@ fragments; a peer that never answers close.
 
 ### 9.6 J6 gates (both platforms)
 
+- Handshake gate (extensions): the client never offers an extension and fails an
+  unsolicited extension in the 101; the server ignores offers and negotiates
+  none; RSV bits set without negotiation close 1002.
 - Handshake: SHA-1 known-answer; invalid handshakes; version mismatch (426);
   subprotocol negotiation exactness (exact offer, endpoint-order pick, mismatch
   fails, no downgrade); the 400 refusals; canonical-path cases.
@@ -1421,31 +1571,35 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J3: local shell and demo                    | Jolt main/stdin/w | API and CLI from tracked roots; demo = 5050; EOF/quit; no duplicate eval; cadence/wake/pending      |
 | implemented; gates open                     | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |
-|                                             | catalog, shell    | unavailable until J5.                                                                               |
+|                                             | catalog, shell    | selectable since J5 (the native C++ parser, §7.6 budget).                                           |
 |                                             | driver, index,    |                                                                                                     |
 |                                             | query             |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J4: persistence and authority               | File/store FS,    | Existing file/B-tree/store crash, recovery and lock fixtures and RFC/envelope/signature vectors     |
-| J4a-J4c landed                              | Ed25519 keygen    | pass; cross-host reopen and two-way signing; no security stubs; local storage options and shutdown  |
-| (890dc68f,                                  | and key files,    | work. J4d: the file: store opens on jolt (only dht: refuses, at composition, J7); saved flags       |
-| 9c4ce1df,                                   | lifecycle cleanup | persist through the jolt -main (--reset, --no-state); key files are created O_EXCL at 0600 and      |
-| f5397a15); J4d on                           |                   | never overwritten; no J4-owned entry remains in jolt-applicability.edn or the J2 lane; cross-host   |
-| jolt-j4d, review                            |                   | reopen JVM, Node and Dart <-> jolt.                                                                 |
-| pending                                     |                   |                                                                                                     |
+| J4a-J4d landed                              | Ed25519 keygen    | pass; cross-host reopen and two-way signing; no security stubs; local storage options and shutdown  |
+| (890dc68f, 9c4ce1df,                        | and key files,    | work. J4d: the file: store opens on jolt (only dht: refuses, at composition, J7); saved flags       |
+| f5397a15, J4d merge);                       | lifecycle cleanup | persist through the jolt -main (--reset, --no-state); key files are created O_EXCL at 0600 and      |
+| J4 closed 2026-10-28;                       |                   | never overwritten; no J4-owned entry remains in jolt-applicability.edn or the J2 lane; cross-host   |
+| reviews fable + codex/astra,                |                   | reopen JVM, Node and Dart <-> jolt.                                                                 |
+| both APPROVE                                |                   |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J5: complete standard frontends             | The selected      | §7.8 J5 gate. Standard catalog loads and `(lang :yang/python)` works;                               |
-| not started                                 | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
+| landed on jolt-j5; J5b review pending       | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
 |                                             | parser, standard  | local-build-only packaging. **Local REPL milestone**, native C++ parser library disclosed; no       |
 |                                             | catalog, complete | process crash isolation claimed.                                                                    |
-|                                             | ness-probe        |                                                                                                     |
-|                                             | integration       |                                                                                                     |
+|                                             | ness-probe        | Amended (row 59): enforced input/nesting budget, stage-owned worker lifecycle and the               |
+|                                             | integration       | unavailable-helper answer (§7.6). Reopened in J5b: the prescan replaced by in-parser guards on a    |
+|                                             |                   | 16 MiB parse thread (§7.6). J5b budget/crash legs (bb probe:jolt-j5, bb calibrate:jolt-j5) on       |
+|                                             |                   | macOS arm64 and one Linux host; sanitizer on Linux; long lanes Linux only (shiva, jupiter) under    |
+|                                             |                   | the owner's "linux only" waiver. J5c (deterministic work budget) ledgered; precondition for         |
+|                                             |                   | J6 Python over the network.                                                                         |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J6: native WebSocket and network REPL peers | RFC 6455 host     | Preconditions: C0-C4 on master; the Autobahn release, case list and exception list pinned in the    |
 | not started                                 | adapter on the    | brief (§9.5). §9.6 on both platforms, including the frame-too-large matrix (ruling 3, A4 wording).  |
 |                                             | native socket +   | Native deployment only. ws:// only (owner-settled). The adapter's closure contains                  |
 |                                             | poller substrate  | `jolt.socket.native`, `jolt.io-poller` and `jolt.ffi` and not `jolt.socket` (ruling 2); `send!`     |
 |                                             |                   | never waits; `:queued-bytes` is exact and drains on readiness.                                      |
-|                                             | (§9.3), full §9.2 |                                                                                                     |
+|                                             | (§9.3), full §9.2 | **2026-10-27 proposal, owner ruling pending:** pinned harness/case policy; see note below.             |
 |                                             | contract, CBOR    |                                                                                                     |
 |                                             | subprotocol only  |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
@@ -1463,6 +1617,20 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | benchmark         |                                                                                                     |
 |                                             | reporting         |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
+
+**J6 harness amendment proposal (2026-10-27; not an adopted gate change).**
+The [Autobahn prep and proposed gate](../../tools/jolt-autobahn/README.md#5-proposed-j6-amendment-for-owner-ruling)
+pins official 25.10.1 by image digest and inventories 517 exact cases: 298
+must-pass, three assertion-constrained informational cases (7.1.6, 7.13.1, 7.13.2), 216 compression
+cases not applicable without extension negotiation (offers ignored, none negotiated). The proposed gate runs
+301 cases in each native testee role on both platforms, zero unlisted
+non-strict outcomes, with raw evidence retained; all existing §9.6 and real
+jolt↔JVM/Node/Dart peer gates remain. Re-pinned 2026-10-28 (J6a) from 299/2/216
+to 298/3/216: upstream 7.1.6 labels both behaviors INFORMATIONAL unconditionally. The included jolt echo stub verifies
+harness plumbing only and makes no RFC 6455 or J6 conformance claim. Owner
+approval is required for the case/exception policy. This proposal does not
+transfer the J7 UDP no-`full` policy to WebSocket or change WS backpressure.
+
 
 ### 10.2 Order, dependencies and platforms
 
@@ -1490,8 +1658,9 @@ capability-qualified reporting so a slow exclusion, an unsupported host
 capability and a failure are distinguishable.
 
 J3 implementation note (2026-10-22; macOS only, Linux unrun): the tracked
-local CLI selects a Clojure/PHP catalog, refuses Python until J5 and durable
-stores until J4/J7, and runs one plain-thread owner through `run-owner!`.
+local CLI selects a Clojure/PHP catalog, refuses Python until J5 (J5 lifts
+it: the standard catalog installs Python when the native parser loads) and
+durable stores until J4/J7, and runs one plain-thread owner through `run-owner!`.
 The wake implementation multiplexes stdin and a self-pipe using jolt's existing
 native `poll` binding: `io-poller/wait-ready` accepts one fd only. It uses
 poller monotonic deadlines and checks Chez buffered input before fd readiness.
@@ -1677,7 +1846,7 @@ profile and others) belong to that track's document, not to this one.
 ### 13.4 Architect rulings (owner may overrule)
 
 Ruled 2026-10-20 by the Architect (claude-fable-5-1; rationale in
-`collab/1792454059000-architect-jolt-design-points.claude-fable-5-1.findings.md`)
+`archive/jolt/1792454059000-architect-jolt-design-points.claude-fable-5-1.findings.md`)
 on the four points the r7 review left open. Each ruling states its reasons,
 the falsifiable consequences the slices must show, and the condition that
 reverses it. The owner may overrule any of them; an overruling is recorded in
@@ -1825,7 +1994,7 @@ refresh brief `collab/1792740000000-engineer-jolt-design-refresh.codex.prompt.md
 ## Appendix A. Review findings and where this document handles them
 
 R1-R10 are the Opus review of r5
-(`collab/1792425688000-architect-jolt-lane-plan-review-r5.claude-opus-5-5.findings.md`),
+(`archive/jolt/1792425688000-architect-jolt-lane-plan-review-r5.claude-opus-5-5.findings.md`),
 as disposed of in r7. W1-W9 are the Opus review of r7.
 
 +---------+----------------------------------------------------------------------------------------+--------------------------------------------------------------------+
@@ -1992,7 +2161,7 @@ read-only `git log -1`, `git tag --contains`, `git describe --tags` and
 Reopened 2026-10-20, later, for the Transit decoupling and then the codec
 design (read only; `grep` over `src/` and `test/`; the codec design's own
 citations are in `dao.stream.codec.md` Appendix A). Also read:
-`collab/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md`
+`archive/jolt/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md`
 (A1-A5 and the Autobahn point).
 
 +------------------------------------------------------+-----------------------------------------------------------------------------------------------------------------+

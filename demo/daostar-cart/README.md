@@ -46,7 +46,7 @@ gitignored — copy them from the build host or ask the owner (they are also in
 the running demo container).
 
 ```sh
-cd demo/daostar
+cd demo/daostar-cart
 clj -M -m dao.star-cart.main                    # or: bb cart from the repo root
 ```
 
@@ -74,7 +74,7 @@ The image sets `LANG=C.UTF-8` (the catalog has non-ASCII image filenames).
 ## Test it
 
 ```sh
-cd demo/daostar
+cd demo/daostar-cart
 clj -M:test        # 39 tests, ~550 assertions; JVM only
 ```
 

@@ -94,10 +94,10 @@
 
 (def resource-blake3
   "BLAKE3 of datomic-q-v1.json's bytes, frozen at corpus review."
-  "51e021815d94ea0f9e4a9af119590c19af2a7450b20db7c7e918c0a0c7bb128c")
+  "692ba5a018413a3a36a6e4bc2c6f6f5ecde80fcb02de7bccdc625e671315c54b")
 
 
-(def expected-case-count 113)
+(def expected-case-count 120)
 
 
 ;; ==========================================================================
@@ -112,6 +112,13 @@
 (def ^:private implemented-comparisons
   "The comparison rules `same?` implements; keep in step with its case."
   #{"exact" "unordered-coll" "unordered-nested" "row-count" "slice-size" "numeric-value"})
+
+
+(def ^:private conclusive-oracle-outcomes
+  "Oracle outcomes that are recorded, conclusive evidence. `pending` (not
+   observed) and `inconclusive` (observed, nothing established) are not."
+  #{"agrees" "agrees-refusal" "agrees-contract-expectation"
+    "differs-documented" "datomic-accepts"})
 
 
 (def ^:private required-case-keys
@@ -164,8 +171,24 @@
       (when (and (= "unverified" (get c "classification"))
                  (not= "pending" status))
         ["unverified classification must be pending"])
-      (when (= "oracle-executed" (get c "evidence"))
-        ["oracle-executed evidence without oracle provenance"])
+      ;; oracle evidence is a conclusive recorded execution, kept distinct from
+      ;; an inconclusive or unobserved one (Phase 5 r11 ruling)
+      (when-not (contains? (vocab "oracle") (get c "oracle"))
+        ["bad oracle outcome"])
+      (when (not= (= "oracle-executed" (get c "evidence"))
+                  (contains? conclusive-oracle-outcomes (get c "oracle")))
+        ["oracle-executed evidence must match a conclusive oracle outcome"])
+      (when (and (not= "pending" (get c "oracle"))
+                 (not (contains-text? (cfx/read-path fx/observations-path)
+                                      (str "\"" (get c "id") "\""))))
+        ["oracle outcome without a preserved observation"])
+      (when (and (contains? #{"differs-documented" "datomic-accepts" "inconclusive"}
+                            (get c "oracle"))
+                 (not (string? (get c "oracle-note"))))
+        ["oracle outcome without an oracle-note"])
+      (for [p (get c "entity-ids")
+            :when (not (contains? (fx/fixtures) (get p "source")))]
+        (str "entity-ids names unknown fixture " (get p "source")))
       (when (and (= "difference" status)
                  (not= "documented-difference" (get c "classification")))
         ["difference status requires documented-difference classification"])
@@ -281,15 +304,42 @@
         "provenance records the same digest")))
 
 
+(deftest entity-id-substitution-touches-only-annotated-positions
+  (let [c {"id" "t"
+           "entity-ids" [{"source" "g", "path" ["query" 3 1]}
+                         {"source" "g", "path" [1 0]}]}
+        q '[:find ?x :where (r 1 ?x) [?x :n/v 1]]
+        ins [:db [1 "Ada" 1]]
+        l->r {"g" {1 100}}]
+    (testing "ordinary numbers equal to a logical id stay unchanged"
+      (is (= ['[:find ?x :where (r 100 ?x) [?x :n/v 1]] [:db [100 "Ada" 1]]]
+             (fx/substitute-entity-ids c q ins l->r))))
+    (testing "an unannotated case is untouched"
+      (is (= [q ins] (fx/substitute-entity-ids {"id" "u"} q ins l->r))))
+    (testing "a position that is not an integer, or names an unmapped id, is refused"
+      (is (not= ::none (thrown-message
+                         #(fx/substitute-entity-ids c q [:db ["no" "Ada" 1]] l->r))))
+      (is (not= ::none (thrown-message
+                         #(fx/substitute-entity-ids c q ins {"g" {2 200}})))))))
+
+
 (deftest the-companion-documents-exist
   (is (contains-text? (cfx/read-path fx/readme-path) "datomic-q-v1"))
   (is (contains-text? (cfx/read-path fx/errata-path) "## E1 ")))
 
 
-(deftest nothing-claims-oracle-evidence-yet
-  (is (empty? (filter #(= "oracle-executed" (get % "evidence")) (fx/cases)))
-      "oracle-executed evidence requires recorded backend provenance")
-  (is (contains-text? (cfx/read-path fx/provenance-path) ":backend :unselected")))
+(deftest oracle-evidence-names-its-backend-and-its-superseded-runs
+  (let [prov (cfx/read-path fx/provenance-path)]
+    (is (seq (filter #(= "oracle-executed" (get % "evidence")) (fx/cases)))
+        "conclusive oracle outcomes exist")
+    (testing "oracle-executed evidence requires recorded backend provenance"
+      (is (contains-text? prov ":backend :datomic-local"))
+      (is (contains-text? prov ":backend-version \"1.0.301\""))
+      (is (contains-text? prov ":status :executed")))
+    (testing "historical observations are preserved with the run that made them"
+      (let [obs (cfx/read-path fx/observations-path)]
+        (is (contains-text? obs ":run :jupiter-r1"))
+        (is (contains-text? obs ":run :local-r2"))))))
 
 
 ;; ==========================================================================
@@ -438,8 +488,9 @@
   (testing "a pending case claims nothing about compatibility"
     (assert-none (for [c (fx/cases)
                        :when (and (= "pending" (get c "status"))
-                                  (or (contains? (get c "expect") "value")
-                                      (not= "pending" (get c "oracle"))))]
+                                  ;; an oracle outcome is Datomic's answer, not a
+                                  ;; DaoSpace-side assertion; only a value expectation is
+                                  (contains? (get c "expect") "value"))]
                    [(get c "id") "pending case asserts an answer"])
                  "pending claims"))
   (testing "core observations are regression pins, not compatibility claims"

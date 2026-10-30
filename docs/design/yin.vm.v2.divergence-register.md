@@ -402,7 +402,7 @@ and no such conflict.
 **Inherited, and recorded here as the finding directed.** The UCF
 Phase 1 review found it at `ucf.cljc:203-207 (inherited)` and
 prescribed "Record in the divergence register, not in ucf.cljc"
-(`collab/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md`,
+(`archive/yin-ucf/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md`,
 last finding; recorded here 2026-10-01). The stamp names no address
 basis, and UCF 7.3.2 forbids minting a second one
 (`yin.vm.ucf-revisions.md` section 2). The finding was made against

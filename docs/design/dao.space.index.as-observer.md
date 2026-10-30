@@ -794,7 +794,7 @@ checkpoint plus suffix when one is offered.
 
 ## Appendix A. Review findings and their resolution
 
-Round 1 (`collab/1789289033041-runtime-review-index-as-observer.glm-5.3.findings.md`), on `5296ee5`; glm-5.3 verified every mechanism claim against the code (all nine hold, claim 9 partially) and requested changes on:
+Round 1 (`archive/dao-space/1789289033041-runtime-review-index-as-observer.glm-5.3.findings.md`), on `5296ee5`; glm-5.3 verified every mechanism claim against the code (all nine hold, claim 9 partially) and requested changes on:
 
 | # | Finding (reviewer) | Resolution |
 |---|---|---|
@@ -804,20 +804,20 @@ Round 1 (`collab/1789289033041-runtime-review-index-as-observer.glm-5.3.findings
 | F4 | Assert-then-retract on a `t 0` medium hits `current`'s `m`-conflict throw (glm P3) | §2.3 states it: folded, `history` correct, `current` throws loudly; not a defect, since recognising a retraction is payload interpretation |
 | F5 | "A query, not a scan" overstates; "dirty-tracked against storage" misplaces dirtiness; tx records and `v`-only tempids on `:unresolved` media inferred, not stated (glm P3) | §4.2 and §2.2 reworded; both cases stated in §2.2 steps 1–2 |
 
-Round 2 (`collab/1789289033041-runtime-review-index-as-observer-r2.glm-5.3.findings.md`), on `280dda2`; F1, F3, F4, F5 confirmed resolved, F2 partially:
+Round 2 (`archive/dao-space/1789289033041-runtime-review-index-as-observer-r2.glm-5.3.findings.md`), on `280dda2`; F1, F3, F4, F5 confirmed resolved, F2 partially:
 
 | # | Finding (reviewer) | Resolution |
 |---|---|---|
 | N1 | The `:strong` remedy binds to the session's recording storage, but ref-pinning consults the *tree's* settings; a session resumed via `open-published!`/`restored-indexes` gets the JVM `:soft` default and the F2 sequence survives (glm P2) | §4.1 states where settings come from per session kind; a resumed session restores through a session-constructed `:strong` `kv-storage`, never the query read path; §4.2 reworded |
 | N2 | "Survives a forced GC" is not a deterministic test; soft clearing cannot be forced (glm P3) | Phase 0′ pins the hazard both ways through the `:test` ref-type and `clear-test-refs!` |
 
-Round 3 (`collab/1789289033041-runtime-review-index-as-observer-r3.glm-5.3.findings.md`), on `0bd7550` — **APPROVE** (glm-5.3); N1, N2 confirmed resolved and the resumed path verified closed against `btree.cljc` with no other refault route:
+Round 3 (`archive/dao-space/1789289033041-runtime-review-index-as-observer-r3.glm-5.3.findings.md`), on `0bd7550` — **APPROVE** (glm-5.3); N1, N2 confirmed resolved and the resumed path verified closed against `btree.cljc` with no other refault route:
 
 | # | Finding (reviewer) | Resolution |
 |---|---|---|
 | N3 | The "wrong construction" assertion is vacuous off the JVM, where the read path already defaults `:strong` (glm P3) | Phase 0′ asserts against `bt/default-ref-type*` and gates that assertion to the JVM |
 
-Architecture round (`collab/1789289314611-architect-review-index-as-observer-r2.gpt-6-astra.findings.md`, thread `01a099f1-87d6-7811-8a69-b3336b956fac`, resumed after a provider usage-limit failure), on `e101932`; gpt-6-astra confirmed symmetric ignorance, the core boundaries, the dirty-subgraph claim, the refault fix, and the checkpoint/serialization corrections, and requested changes on:
+Architecture round (`archive/dao-space/1789289314611-architect-review-index-as-observer-r2.gpt-6-astra.findings.md`, thread `01a099f1-87d6-7811-8a69-b3336b956fac`, resumed after a provider usage-limit failure), on `e101932`; gpt-6-astra confirmed symmetric ignorance, the core boundaries, the dirty-subgraph claim, the refault fix, and the checkpoint/serialization corrections, and requested changes on:
 
 | # | Finding (reviewer) | Resolution |
 |---|---|---|
@@ -833,7 +833,7 @@ Architecture round (`collab/1789289314611-architect-review-index-as-observer-r2.
 | A10 | `history` promises no `t` order; `as-of` mixes two clocks; the retraction example must be qualified by resolved identity (astra P3) | §2.3 reworded |
 | A11 | Even/odd partition is a real alternative; "never equate `?e`" is advisory for *any* independent sources; two invariant-table entries stale; shared allocator must be a threaded value (astra P3) | §3.1 and §6 reworded |
 
-Architecture round 3 (`collab/1789289314611-architect-review-index-as-observer-r3.gpt-6-astra.findings.md`), on `3d32eb4`; A1, A2, A4, A9, A10, A11 confirmed resolved, the promotion predicate confirmed sound and the two-attribute macro amendment confirmed the right shape (a structured external coordinate carrying source identity is an optional strengthening for merged logs); requested changes on:
+Architecture round 3 (`archive/dao-space/1789289314611-architect-review-index-as-observer-r3.gpt-6-astra.findings.md`), on `3d32eb4`; A1, A2, A4, A9, A10, A11 confirmed resolved, the promotion predicate confirmed sound and the two-attribute macro amendment confirmed the right shape (a structured external coordinate carrying source identity is an optional strengthening for merged logs); requested changes on:
 
 | # | Finding (reviewer) | Resolution |
 |---|---|---|
@@ -843,9 +843,9 @@ Architecture round 3 (`collab/1789289314611-architect-review-index-as-observer-r
 | R4 | Empty batches have no greatest `t`; `:max-t` had no empty-history value; within-row order unspecified (astra P2; glm R4-2) | §2.2: empty batch advances the ordinal only; `:max-t` is `nil` until a row folds, watermark `0` then; order `e`, `v`, `m` |
 | R5 | Restoring a session-local `:ids` can rewind a shared allocator (astra P2) | §4.2: `restore` refuses `:shared`; coordinated recovery deferred (§8) |
 
-Runtime round 4 (`collab/1789289033041-runtime-review-index-as-observer-r4.glm-5.3.findings.md`), on `3d32eb4` — **APPROVE** (glm-5.3); all seven new mechanisms verified against the code; four P3s (R4-1 reserved-`e` decision, R4-2 `:max-t` initial, R4-3 cursor supplier, R4-4 category partition and `history` wording) resolved by the rows above and §2.3.
+Runtime round 4 (`archive/dao-space/1789289033041-runtime-review-index-as-observer-r4.glm-5.3.findings.md`), on `3d32eb4` — **APPROVE** (glm-5.3); all seven new mechanisms verified against the code; four P3s (R4-1 reserved-`e` decision, R4-2 `:max-t` initial, R4-3 cursor supplier, R4-4 category partition and `history` wording) resolved by the rows above and §2.3.
 
-Architecture round 4 (`collab/1789289314611-architect-review-index-as-observer-r4.gpt-6-astra.findings.md`) and runtime round 5 (`collab/1789289033041-runtime-review-index-as-observer-r5.glm-5.3.findings.md`), both on `a4395d8` — **APPROVE** from both reviewers. R1–R5 confirmed resolved; the `:shared` refusal confirmed as the right mandatory boundary; `coverage`/`checkpoint` placement in `dao.space.index` accepted as ordinary composition over protocol state in the permitted direction. Trailing P3s folded after approval:
+Architecture round 4 (`archive/dao-space/1789289314611-architect-review-index-as-observer-r4.gpt-6-astra.findings.md`) and runtime round 5 (`archive/dao-space/1789289033041-runtime-review-index-as-observer-r5.glm-5.3.findings.md`), both on `a4395d8` — **APPROVE** from both reviewers. R1–R5 confirmed resolved; the `:shared` refusal confirmed as the right mandatory boundary; `coverage`/`checkpoint` placement in `dao.space.index` accepted as ordinary composition over protocol state in the permitted direction. Trailing P3s folded after approval:
 
 | # | Finding (reviewer) | Resolution |
 |---|---|---|

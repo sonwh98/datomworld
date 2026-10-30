@@ -59,7 +59,7 @@ engineer report `archive/yin-vm/1792340000000-engineer-6c-layouts.report.md`
 (deviations 1-8, design defects D1-D5), the codex review
 `archive/yin-vm/1792350000000-review-6c-layouts.gpt-6.1-sol.findings.md` (F1-F6,
 D1-D5) and the Architect's rulings
-`collab/1792360000000-architect-6c-rulings.report.md` (R1-R6), whose
+`archive/yin-vm-wasm/1792360000000-architect-6c-rulings.report.md` (R1-R6), whose
 wording is applied verbatim where it says so. **Revision 6 (2026-10-13,
 Architect: claude-fable-5-1)** corrects every clause that called the de
 Bruijn kernels, the native lanes or their refusals short-lived: by the
@@ -3096,7 +3096,7 @@ property, not a reader restriction.
   slot becomes a constant; if not, row 11 stays a synthetic case. Which?
 
 **Revision 5 (after 6c) adds the three questions the rulings left
-(`collab/1792360000000-architect-6c-rulings.report.md`); they are
+(`archive/yin-vm-wasm/1792360000000-architect-6c-rulings.report.md`); they are
 numbered on their own, as 6c Q1-Q3, so the 6b numbering above stands.**
 
 - **6c Q1, the native-lane matrix scope (changes acceptance counts).

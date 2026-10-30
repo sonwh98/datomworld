@@ -36,6 +36,69 @@
 //       grows, so an oversize answer is never built in full
 //   -5  the worker is in use by another call (a worker serves one thread at
 //       a time; this call did nothing)
+//   -6  input over budget: more than kMaxInputBytes (4 MiB) of source; *out
+//       holds "input <measured> <bound>" (J5, known-gaps row 59), decided
+//       before any ANTLR object exists
+//   -7  nesting over budget: a guard inside recognition refused; *out holds
+//       "nesting <measured> <bound> <kind>", kind "rule" or "lookahead"
+// A -7 is thrown out of recognition before any buffer is built, so no partial
+// answer can escape; the lexer, parser and tree are destroyed with the call.
+//
+// THE BUDGET (J5b, docs/design/yin.repl-jolt-implementation.md §7.6). Stack
+// exhaustion is uncatchable, so the nesting that costs native stack is
+// measured where it happens, by the parser itself, and refused before it can
+// exhaust the parse thread's stack:
+//
+//   rule       BoundedParser counts the rule frames live on the native stack
+//              (every generated rule function enters through the virtual
+//              Parser::enterRule or enterRecursionRule, Parser.h:273-290,
+//              Python3Parser.cpp:8438/:8879). Parser::exitRule is not virtual
+//              (Parser.h:275), so the count is not a counter decremented on
+//              exit: the frame depth is the length of the current context's
+//              parent chain, which equals the live rule activations because
+//              each activation contributes exactly one context to the chain
+//              at all times (a left-recursive loop replaces its frame's
+//              context and reparents the previous one beneath it; unrolling
+//              restores the caller's). The generated parser has no labelled
+//              alternatives. The depth is recorded per context at entry
+//              (its parent's plus one; a pushNewRecursionContext context
+//              inherits its frame's) rather than walked, which measured up
+//              to 2x slower at the bounds. Entering a frame deeper than
+//              kMaxRule refuses.
+//   lookahead  BoundedSimulator bounds prediction's own recursion
+//              (closureCheckingStopState pops, PredictionContext merge,
+//              equality, caching and destruction all recurse over context
+//              chains, ParserATNSimulator.cpp:851-900): on every RULE
+//              transition of a closure (getEpsilonTarget,
+//              ParserATNSimulator.h:788) the chain the transition makes, the
+//              longest parent path of config->context plus one, must not pass
+//              kMaxLook in SLL prediction, or the outer context's length plus
+//              kMaxFull in full-LL prediction (whose start state is the outer
+//              rule stack, computeStartState). The walk is memoized for the
+//              prediction, so flat input pays nothing. A prediction whose
+//              context graph exceeds 4x the bound in distinct nodes also
+//              refuses (a cap, not an undercount; not reached on the oracle
+//              corpus).
+//
+// The refusal (NestingRefused) derives from no exception class: the generated
+// rule bodies catch only RecognitionException (Python3Parser.cpp:762), so it
+// unwinds every rule frame, whose RAII finally (support/CPPUtils.h:23) runs
+// exitRule/unrollRecursionContexts, and adaptivePredict's, which restores the
+// input. Nothing the guards override runs during that unwinding.
+//
+// Recognition, export and the destruction of the parser, the tree and the
+// worker's caches run on a wrapper-owned thread with a fixed kParseStack (16
+// MiB, committed lazily), joined before the call returns, so the bounds hold
+// whatever thread the caller parses on. The export walkers are iterative: a
+// left-recursive chain (1+1+...) is a deep tree that costs recognition no
+// stack and the walkers none either.
+//
+// Constants (§7.6 records the derivation): kMaxRule 8,192 frames and
+// kMaxLook 4,096 links are each at most a quarter of kParseStack at the
+// worst cost per frame and per link measured (the C4 calibration record);
+// kMaxFull 256 links is set by time, not stack (full-LL lookahead over a
+// unary run grows about 9x per doubling). Time is not bounded inside the
+// axes (§7.6; slice J5c): no cancellation of an under-bound parse is offered.
 //
 // jolt_parser_parse (J0c round 1) recognizes with the generated static
 // caches. jolt_parser_export takes a worker (§7.4, round 4): an opaque handle
@@ -53,7 +116,12 @@
 // exhausting memory; jolt_parser_static_cache_stats and
 // jolt_parser_worker_cache_stats count cache contents;
 // jolt_parser_thread_info reports the calling thread's stack;
-// jolt_parser_heap_in_use reports malloc's bytes in use.
+// jolt_parser_heap_in_use reports malloc's bytes in use;
+// jolt_parser_live_workers counts workers not yet freed;
+// jolt_parser_last_stats reports the last parse's deepest rule frame and
+// chains and, with jolt_parser_stack_probe on, its parse thread's stack
+// high-water mark. -DJOLT_PARSER_UNBOUNDED=ON (test builds only) keeps the
+// guards measuring but never refusing, for the calibration record.
 //
 // jolt_parser_export answers the records the jolt yang.antlr.cst adapter
 // hands to the shared exporter (§7.3). Indexes are i32, -1 for ANTLR's
@@ -85,6 +153,7 @@
 //             (i32 type, i32 token index, i32 start, i32 stop)
 
 #include <atomic>
+#include <cstdio>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -92,6 +161,8 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "antlr4-runtime.h"
@@ -180,22 +251,39 @@ class Collect : public antlr4::BaseErrorListener {
   }
 };
 
-void walk(antlr4::tree::ParseTree* t, Out& out, uint32_t& count) {
-  ++count;
-  if (auto* term = dynamic_cast<antlr4::tree::TerminalNode*>(t)) {
-    antlr4::Token* tok = term->getSymbol();
-    out.u8(1);
-    out.u32(static_cast<uint32_t>(static_cast<int32_t>(tok->getType())));
-    out.u32(idx(tok->getStartIndex()));
-    out.u32(idx(tok->getStopIndex()));
-    out.str(tok->getText());
-    return;
+// Preorder over `root` with an explicit stack (a tree may be as deep as its
+// input is long: a left-recursive chain), calling node(t) for each node and
+// counting them.
+template <typename Node>
+void preorder(antlr4::tree::ParseTree* root, uint32_t& count, Node node) {
+  std::vector<antlr4::tree::ParseTree*> stack{root};
+  while (!stack.empty()) {
+    antlr4::tree::ParseTree* t = stack.back();
+    stack.pop_back();
+    ++count;
+    node(t);
+    if (!dynamic_cast<antlr4::tree::TerminalNode*>(t))
+      for (auto c = t->children.rbegin(); c != t->children.rend(); ++c)
+        stack.push_back(*c);
   }
-  auto* ctx = dynamic_cast<antlr4::ParserRuleContext*>(t);
-  out.u8(0);
-  out.u32(idx(ctx->getRuleIndex()));
-  out.u32(idx(ctx->children.size()));
-  for (auto* c : ctx->children) walk(c, out, count);
+}
+
+void walk(antlr4::tree::ParseTree* tree, Out& out, uint32_t& count) {
+  preorder(tree, count, [&](antlr4::tree::ParseTree* t) {
+    if (auto* term = dynamic_cast<antlr4::tree::TerminalNode*>(t)) {
+      antlr4::Token* tok = term->getSymbol();
+      out.u8(1);
+      out.u32(static_cast<uint32_t>(static_cast<int32_t>(tok->getType())));
+      out.u32(idx(tok->getStartIndex()));
+      out.u32(idx(tok->getStopIndex()));
+      out.str(tok->getText());
+      return;
+    }
+    auto* ctx = dynamic_cast<antlr4::ParserRuleContext*>(t);
+    out.u8(0);
+    out.u32(idx(ctx->getRuleIndex()));
+    out.u32(idx(ctx->children.size()));
+  });
 }
 
 int32_t hand_off(const std::vector<uint8_t>& bytes, uint8_t** out,
@@ -227,6 +315,341 @@ int32_t message(const char* what, int32_t status, uint8_t** out,
   return status;
 }
 
+// --- the budget (J5b) ---------------------------------------------------------
+
+constexpr size_t kMaxInputBytes = size_t{4} << 20;  // 4 MiB
+constexpr size_t kParseStack = size_t{16} << 20;    // 16 MiB
+constexpr uint64_t kMaxRule = 8192;                 // rule frames
+constexpr uint64_t kMaxLook = 4096;                 // SLL chain links
+constexpr uint64_t kMaxFull = 256;                  // full-LL links past the outer context
+
+#ifdef JOLT_PARSER_UNBOUNDED
+constexpr bool kEnforce = false;  // the calibration build: measure, never refuse
+#else
+constexpr bool kEnforce = true;
+#endif
+
+enum class Kind : uint8_t { Rule, Lookahead };
+
+// The guards' refusal. Not derived from std::exception or RecognitionException,
+// so no handler in the generated parser or the runtime catches it.
+struct NestingRefused {
+  Kind kind;
+  uint64_t measured;
+  uint64_t bound;
+};
+
+// What the guards saw in one parse (the jolt_parser_last_stats seam).
+struct Stats {
+  uint64_t max_rule = 0;   // deepest rule frame entered
+  uint64_t max_look = 0;   // longest SLL chain a rule transition made
+  uint64_t max_full = 0;   // longest full-LL chain past the outer context
+  uint64_t full_predictions = 0;
+};
+
+// The input bound, checked before any ANTLR object exists.
+int32_t over_input(size_t len, uint8_t** out, size_t* out_len) noexcept {
+  if (len <= kMaxInputBytes) return 0;
+  char text[96];
+  std::snprintf(text, sizeof text, "input %zu %zu", len, kMaxInputBytes);
+  return message(text, -6, out, out_len);
+}
+
+int32_t refused(const NestingRefused& r, uint8_t** out, size_t* out_len) noexcept {
+  char text[96];
+  std::snprintf(text, sizeof text, "nesting %llu %llu %s",
+                static_cast<unsigned long long>(r.measured),
+                static_cast<unsigned long long>(r.bound),
+                r.kind == Kind::Rule ? "rule" : "lookahead");
+  return message(text, -7, out, out_len);
+}
+
+// The rule-depth guard. A frame's depth is the length of the current
+// context's parent chain plus one: each live rule activation contributes
+// exactly one context to that chain at all times. The depth is recorded per
+// context when it is entered (its parent's plus one) rather than walked: the
+// walk measured 9-123% slower on the at-bound shapes (J5b round 2). A frame
+// deeper than kMaxRule is refused before the base entry runs, so the refused
+// frame never becomes the current context and installs no finally.
+class BoundedParser : public Python3Parser {
+ public:
+  BoundedParser(antlr4::TokenStream* input, Stats& stats)
+      : Python3Parser(input), stats_(stats) {}
+
+  using Python3Parser::enterRecursionRule;
+
+  void enterRule(antlr4::ParserRuleContext* localctx, size_t state,
+                 size_t ruleIndex) override {
+    enter_frame(localctx);
+    Python3Parser::enterRule(localctx, state, ruleIndex);
+  }
+
+  void enterRecursionRule(antlr4::ParserRuleContext* localctx, size_t state,
+                          size_t ruleIndex, int precedence) override {
+    enter_frame(localctx);
+    Python3Parser::enterRecursionRule(localctx, state, ruleIndex, precedence);
+  }
+
+  // the loop of a left-recursive rule: a new context, the same frame
+  void pushNewRecursionContext(antlr4::ParserRuleContext* localctx,
+                               size_t state, size_t ruleIndex) override {
+    depth_[localctx] = depth_of(_ctx);
+    Python3Parser::pushNewRecursionContext(localctx, state, ruleIndex);
+  }
+
+  // a labelled alternative would replace the context in the same frame; the
+  // pinned grammar has none, so this never records anything
+  void enterOuterAlt(antlr4::ParserRuleContext* localctx, size_t altNum) override {
+    if (localctx != _ctx) depth_[localctx] = depth_of(_ctx);
+    Python3Parser::enterOuterAlt(localctx, altNum);
+  }
+
+ private:
+  void enter_frame(antlr4::ParserRuleContext* localctx) {
+    uint64_t d = depth_of(_ctx) + 1;
+    if (d > stats_.max_rule) stats_.max_rule = d;
+    if (kEnforce && d > kMaxRule) throw NestingRefused{Kind::Rule, d, kMaxRule};
+    depth_[localctx] = d;
+  }
+
+  // The frame depth of `ctx` (0 for none): the recorded depth of its nearest
+  // recorded ancestor, plus one per unrecorded link, which can only overstate.
+  uint64_t depth_of(antlr4::RuleContext* ctx) const {
+    uint64_t unknown = 0;
+    for (antlr4::tree::ParseTree* c = ctx; c; c = c->parent) {
+      auto it = depth_.find(static_cast<antlr4::RuleContext*>(c));
+      if (it != depth_.end()) return it->second + unknown;
+      ++unknown;
+    }
+    return unknown;
+  }
+
+  Stats& stats_;
+  std::unordered_map<const antlr4::RuleContext*, uint64_t> depth_;
+};
+
+// The prediction guard (see the header). Installed per parse over the
+// worker's (or the static) caches.
+class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
+ public:
+  using Ctx = antlr4::atn::PredictionContext;
+
+  BoundedSimulator(antlr4::Parser* parser, const antlr4::atn::ATN& atn,
+                   std::vector<antlr4::dfa::DFA>& dfa,
+                   antlr4::atn::PredictionContextCache& cache, Stats& stats)
+      : ParserATNSimulator(parser, atn, dfa, cache), stats_(stats) {}
+
+  size_t adaptivePredict(antlr4::TokenStream* input, size_t decision,
+                         antlr4::ParserRuleContext* outer) override {
+    // the memo lives for one prediction; its references keep the contexts
+    // it names alive, so no address is reused while it is keyed
+    struct Clear {
+      BoundedSimulator* s;
+      ~Clear() {
+        s->memo_.clear();
+        s->full_base_ = 0;
+      }
+    } clear{this};
+    return ParserATNSimulator::adaptivePredict(input, decision, outer);
+  }
+
+  std::unique_ptr<antlr4::atn::ATNConfigSet> computeStartState(
+      antlr4::atn::ATNState* p, antlr4::RuleContext* ctx, bool fullCtx) override {
+    if (fullCtx) {
+      // the length of PredictionContext::fromRuleContext(ctx)
+      uint64_t n = 0;
+      for (antlr4::RuleContext* c = ctx;
+           c && c->parent && c != &antlr4::ParserRuleContext::EMPTY;
+           c = static_cast<antlr4::RuleContext*>(c->parent))
+        ++n;
+      full_base_ = n;
+      ++stats_.full_predictions;
+    }
+    return ParserATNSimulator::computeStartState(p, ctx, fullCtx);
+  }
+
+  Ref<antlr4::atn::ATNConfig> getEpsilonTarget(
+      Ref<antlr4::atn::ATNConfig> const& config, const antlr4::atn::Transition* t,
+      bool collectPredicates, bool inContext, bool fullCtx,
+      bool treatEofAsEpsilon) override {
+    if (t->getTransitionType() == antlr4::atn::TransitionType::RULE)
+      check(config->context, fullCtx);
+    return ParserATNSimulator::getEpsilonTarget(config, t, collectPredicates,
+                                                inContext, fullCtx,
+                                                treatEofAsEpsilon);
+  }
+
+ private:
+  // A RULE transition pushes one link onto `ctx`.
+  void check(const Ref<const Ctx>& ctx, bool fullCtx) {
+    const uint64_t base = fullCtx ? full_base_ : 0;
+    const uint64_t bound = fullCtx ? kMaxFull : kMaxLook;
+    const uint64_t made = links(ctx, base + bound, 4 * (base + bound)) + 1;
+    const uint64_t past = made > base ? made - base : 0;
+    uint64_t& seen = fullCtx ? stats_.max_full : stats_.max_look;
+    if (past > seen) seen = past;
+    if (kEnforce && past > bound)
+      throw NestingRefused{Kind::Lookahead, past, bound};
+  }
+
+  // The longest parent path of `root` in links, memoized for this
+  // prediction: iterative, at most `visits` new contexts walked; a path
+  // longer than `cap`, or the visit cap reached, answers cap + 1.
+  uint64_t links(const Ref<const Ctx>& root, uint64_t cap, uint64_t visits) {
+    struct Frame {
+      const Ref<const Ctx>* ctx;
+      size_t next;
+      uint64_t best;
+    };
+    auto known = [&](const Ctx* c, uint64_t& v) {
+      if (c->isEmpty()) {
+        v = 0;
+        return true;
+      }
+      auto it = memo_.find(c);
+      if (it == memo_.end()) return false;
+      v = it->second.second;
+      return true;
+    };
+    uint64_t v = 0;
+    if (known(root.get(), v)) return v;
+    std::vector<Frame> stack{{&root, 0, 0}};
+    uint64_t walked = 0;
+    while (!stack.empty()) {
+      Frame& f = stack.back();
+      const Ctx* c = f.ctx->get();
+      if (f.next < c->size()) {
+        size_t i = f.next++;
+        if (c->getReturnState(i) == Ctx::EMPTY_RETURN_STATE) continue;
+        const Ref<const Ctx>& parent = c->getParent(i);
+        if (!parent) continue;
+        uint64_t pv = 0;
+        if (known(parent.get(), pv)) {
+          if (pv + 1 > f.best) f.best = pv + 1;
+          continue;
+        }
+        if (stack.size() > cap || ++walked > visits) return cap + 1;
+        stack.push_back({&parent, 0, 0});
+        continue;
+      }
+      uint64_t len = f.best;
+      memo_.emplace(c, std::make_pair(*f.ctx, len));
+      stack.pop_back();
+      if (stack.empty()) return len;
+      Frame& up = stack.back();
+      if (len + 1 > up.best) up.best = len + 1;
+    }
+    return 0;
+  }
+
+  Stats& stats_;
+  uint64_t full_base_ = 0;
+  std::unordered_map<const Ctx*, std::pair<Ref<const Ctx>, uint64_t>> memo_;
+};
+
+// --- the parse thread -----------------------------------------------------------
+
+#ifdef JOLT_PARSER_TEST_SEAMS
+std::atomic<bool> g_stack_probe{false};
+std::atomic<uint64_t> g_last[6];  // the last parse's Stats, high-water, stack
+
+// The stack's lowest usable address on this thread (0 unknown).
+uintptr_t stack_low() noexcept {
+#if defined(__APPLE__)
+  pthread_t self = pthread_self();
+  return reinterpret_cast<uintptr_t>(pthread_get_stackaddr_np(self)) -
+         pthread_get_stacksize_np(self);
+#elif defined(__GLIBC__)
+  pthread_attr_t attr;
+  if (pthread_getattr_np(pthread_self(), &attr) != 0) return 0;
+  void* low = nullptr;
+  size_t size = 0;
+  pthread_attr_getstack(&attr, &low, &size);
+  pthread_attr_destroy(&attr);
+  return reinterpret_cast<uintptr_t>(low);
+#else
+  return 0;
+#endif
+}
+
+constexpr uint64_t kPaint = 0xa5a5a5a5a5a5a5a5ull;
+constexpr uintptr_t kPaintMargin = 64u << 10;  // left unpainted above the guard
+#endif
+
+uint64_t thread_stack_size() noexcept {
+#if defined(__APPLE__)
+  return static_cast<uint64_t>(pthread_get_stacksize_np(pthread_self()));
+#elif defined(__GLIBC__)
+  pthread_attr_t attr;
+  if (pthread_getattr_np(pthread_self(), &attr) != 0) return 0;
+  void* low = nullptr;
+  size_t size = 0;
+  pthread_attr_getstack(&attr, &low, &size);
+  pthread_attr_destroy(&attr);
+  return static_cast<uint64_t>(size);
+#else
+  return 0;
+#endif
+}
+
+// One job on a parse thread: `run` answers a status; it catches everything
+// itself, so nothing unwinds out of the thread.
+struct Job {
+  int32_t (*run)(Job&);
+  void* arg;
+  Stats stats;
+  int32_t status = -3;
+  bool record = false;  // a parse: its Stats become the last parse's
+};
+
+void* parse_thread_main(void* p) {
+  Job& job = *static_cast<Job*>(p);
+#ifdef JOLT_PARSER_TEST_SEAMS
+  // paint the unused stack below this frame, run, then find the deepest
+  // unpainted word: the job's high-water mark
+  const bool probe = g_stack_probe.load();
+  volatile char here = 0;
+  const uintptr_t top = reinterpret_cast<uintptr_t>(&here) - 4096;
+  const uintptr_t low = stack_low() + kPaintMargin;
+  if (probe && low && low < top)
+    for (auto* w = reinterpret_cast<volatile uint64_t*>(low);
+         reinterpret_cast<uintptr_t>(w) < top; ++w)
+      *w = kPaint;
+#endif
+  job.status = job.run(job);
+#ifdef JOLT_PARSER_TEST_SEAMS
+  if (!job.record) return nullptr;
+  uint64_t high_water = 0;
+  if (probe && low && low < top) {
+    auto* w = reinterpret_cast<volatile uint64_t*>(low);
+    while (reinterpret_cast<uintptr_t>(w) < top && *w == kPaint) ++w;
+    high_water = reinterpret_cast<uintptr_t>(&here) - reinterpret_cast<uintptr_t>(w);
+  }
+  g_last[0] = job.stats.max_rule;
+  g_last[1] = job.stats.max_look;
+  g_last[2] = job.stats.max_full;
+  g_last[3] = job.stats.full_predictions;
+  g_last[4] = high_water;
+  g_last[5] = thread_stack_size();
+#endif
+  return nullptr;
+}
+
+// Run `job` on a new thread with a kParseStack stack and wait for it. The
+// caller's thread only waits; the job touches no caller memory but its
+// arguments. -3 with a message when the thread cannot be made.
+int32_t on_parse_thread(Job& job, uint8_t** out, size_t* out_len) noexcept {
+  pthread_attr_t attr;
+  if (pthread_attr_init(&attr) != 0)
+    return message("parse thread attributes could not be made", -3, out, out_len);
+  pthread_t thread;
+  int rc = pthread_attr_setstacksize(&attr, kParseStack);
+  if (rc == 0) rc = pthread_create(&thread, &attr, parse_thread_main, &job);
+  pthread_attr_destroy(&attr);
+  if (rc != 0) return message("parse thread could not be started", -3, out, out_len);
+  pthread_join(thread, nullptr);
+  return job.status;
+}
 // --- jolt_parser_export ------------------------------------------------------
 
 int32_t sidx(size_t i) {
@@ -292,25 +715,25 @@ class ExportCollect : public antlr4::BaseErrorListener {
   antlr4::CommonTokenStream* tokens_;
 };
 
-void walk_export(antlr4::tree::ParseTree* t, Out& out, uint32_t& count) {
-  ++count;
-  if (auto* term = dynamic_cast<antlr4::tree::TerminalNode*>(t)) {
-    antlr4::Token* tok = term->getSymbol();
-    out.u8(1);
-    out.u32(static_cast<uint32_t>(static_cast<int32_t>(tok->getType())));
-    out.u32(static_cast<uint32_t>(sidx(tok->getStartIndex())));
-    out.u32(static_cast<uint32_t>(sidx(tok->getStopIndex())));
-    out.u32(static_cast<uint32_t>(sidx(tok->getTokenIndex())));
-    out.str(tok->getText());
-    return;
-  }
-  auto* ctx = dynamic_cast<antlr4::ParserRuleContext*>(t);
-  out.u8(0);
-  out.u32(idx(ctx->getRuleIndex()));
-  out.u32(idx(ctx->children.size()));
-  out.u8(ctx->start ? 1 : 0);
-  out.u32(static_cast<uint32_t>(ctx->start ? sidx(ctx->start->getStartIndex()) : -1));
-  for (auto* c : ctx->children) walk_export(c, out, count);
+void walk_export(antlr4::tree::ParseTree* tree, Out& out, uint32_t& count) {
+  preorder(tree, count, [&](antlr4::tree::ParseTree* t) {
+    if (auto* term = dynamic_cast<antlr4::tree::TerminalNode*>(t)) {
+      antlr4::Token* tok = term->getSymbol();
+      out.u8(1);
+      out.u32(static_cast<uint32_t>(static_cast<int32_t>(tok->getType())));
+      out.u32(static_cast<uint32_t>(sidx(tok->getStartIndex())));
+      out.u32(static_cast<uint32_t>(sidx(tok->getStopIndex())));
+      out.u32(static_cast<uint32_t>(sidx(tok->getTokenIndex())));
+      out.str(tok->getText());
+      return;
+    }
+    auto* ctx = dynamic_cast<antlr4::ParserRuleContext*>(t);
+    out.u8(0);
+    out.u32(idx(ctx->getRuleIndex()));
+    out.u32(idx(ctx->children.size()));
+    out.u8(ctx->start ? 1 : 0);
+    out.u32(static_cast<uint32_t>(ctx->start ? sidx(ctx->start->getStartIndex()) : -1));
+  });
 }
 
 // The source as code points, exactly: a strict UTF-8 decode that throws on an
@@ -334,6 +757,9 @@ class SourceStream : public antlr4::ANTLRInputStream {
 // --- workers (§7.4) -----------------------------------------------------------
 
 constexpr uint64_t kWorkerTag = 0x4a504152534552ull;  // "JPARSER"
+
+// Workers made and not yet destroyed (the jolt_parser_live_workers seam).
+std::atomic<int64_t> g_live_workers{0};
 
 std::vector<antlr4::dfa::DFA> fresh_dfa(const antlr4::atn::ATN& atn) {
   std::vector<antlr4::dfa::DFA> dfa;
@@ -400,7 +826,10 @@ struct Worker {
       : lexer_atn(atns.lexer),
         parser_atn(atns.parser),
         lexer_dfa(fresh_dfa(*atns.lexer)),
-        parser_dfa(fresh_dfa(*atns.parser)) {}
+        parser_dfa(fresh_dfa(*atns.parser)) {
+    g_live_workers.fetch_add(1);
+  }
+  ~Worker() { g_live_workers.fetch_sub(1); }
 };
 
 Worker* as_worker(void* w) {
@@ -423,51 +852,33 @@ struct Hold {
 
 }  // namespace
 
-// A new worker owning fresh DFA vectors and PredictionContextCaches. NULL when
-// it cannot be made (nothing throws across the boundary).
-JOLT_EXPORT void* jolt_parser_worker_new(void) {
-  try {
-    return new Worker(published_atns());
-  } catch (...) {
-    return nullptr;
-  }
-}
+namespace {
 
-// Dispose a worker and its caches. NULL is accepted. The caller must not use
-// the handle again, nor free it while a call on it runs.
-JOLT_EXPORT void jolt_parser_worker_free(void* w) {
-  if (Worker* worker = as_worker(w)) {
-    worker->tag = 0;
-    delete worker;
-  }
-}
+// One parse's arguments, for the parse thread. `w` is null for
+// jolt_parser_parse, which recognizes over the generated static caches.
+struct Call {
+  Worker* w;
+  const uint8_t* src;
+  size_t len;
+  uint8_t** out;
+  size_t* out_len;
+};
 
-// Parse UTF-8 `src[0, len)` from `file_input` with `worker`'s caches and
-// answer the exporter's records (layout "JPX1" above). Statuses as
-// jolt_parser_parse, plus -5; -1 also for a NULL or unrecognized worker.
-JOLT_EXPORT int32_t jolt_parser_export(void* worker, const uint8_t* src,
-                                       size_t len, uint8_t** out,
-                                       size_t* out_len) {
-  if (!out || !out_len || (!src && len != 0)) return -1;
-  *out = nullptr;
-  *out_len = 0;
-  Worker* w = as_worker(worker);
-  if (!w) return -1;
-  Hold hold(w);
-  if (!hold.held) return -5;
+int32_t export_job(Job& job) {
+  Call& c = *static_cast<Call*>(job.arg);
   try {
     maybe_fault();
     SourceStream input(
-        std::string_view(reinterpret_cast<const char*>(src), len));
+        std::string_view(reinterpret_cast<const char*>(c.src), c.len));
     Python3Lexer lexer(&input);
     // setInterpreter deletes the generated default simulator, the one over
     // the static caches; the generated destructors delete these at scope exit
     lexer.setInterpreter(new antlr4::atn::LexerATNSimulator(
-        &lexer, *w->lexer_atn, w->lexer_dfa, w->lexer_ctx));
+        &lexer, *c.w->lexer_atn, c.w->lexer_dfa, c.w->lexer_ctx));
     antlr4::CommonTokenStream tokens(&lexer);
-    Python3Parser parser(&tokens);
-    parser.setInterpreter(new antlr4::atn::ParserATNSimulator(
-        &parser, *w->parser_atn, w->parser_dfa, w->parser_ctx));
+    BoundedParser parser(&tokens, job.stats);
+    parser.setInterpreter(new BoundedSimulator(
+        &parser, *c.w->parser_atn, c.w->parser_dfa, c.w->parser_ctx, job.stats));
     ExportCollect errors(&tokens);
     lexer.removeErrorListeners();
     parser.removeErrorListeners();
@@ -517,31 +928,34 @@ JOLT_EXPORT int32_t jolt_parser_export(void* worker, const uint8_t* src,
       o.u32(static_cast<uint32_t>(sidx(t->getStartIndex())));
       o.u32(static_cast<uint32_t>(sidx(t->getStopIndex())));
     }
-    return hand_off(o.buf, out, out_len);
+    return hand_off(o.buf, c.out, c.out_len);
+  } catch (const NestingRefused& r) {
+    return refused(r, c.out, c.out_len);
   } catch (const Oversize&) {
     return -4;
   } catch (const std::exception& e) {
-    return message(e.what(), -2, out, out_len);
+    return message(e.what(), -2, c.out, c.out_len);
   } catch (...) {
-    return message("unknown exception", -3, out, out_len);
+    return message("unknown exception", -3, c.out, c.out_len);
   }
 }
 
-// Parse UTF-8 `src[0, len)` from the `file_input` rule, with the generated
-// static caches (the round-1 probe surface).
-JOLT_EXPORT int32_t jolt_parser_parse(const uint8_t* src, size_t len,
-                                      uint8_t** out, size_t* out_len) {
-  if (!out || !out_len || (!src && len != 0)) return -1;
-  *out = nullptr;
-  *out_len = 0;
+int32_t parse_job(Job& job) {
+  Call& c = *static_cast<Call*>(job.arg);
   try {
     published_atns();
     maybe_fault();
     SourceStream input(
-        std::string_view(reinterpret_cast<const char*>(src), len));
+        std::string_view(reinterpret_cast<const char*>(c.src), c.len));
     Python3Lexer lexer(&input);
     antlr4::CommonTokenStream tokens(&lexer);
-    Python3Parser parser(&tokens);
+    BoundedParser parser(&tokens, job.stats);
+    // the guard over the generated static caches the default simulator uses
+    auto* generated = parser.getInterpreter<antlr4::atn::ParserATNSimulator>();
+    std::vector<antlr4::dfa::DFA>& dfa = generated->decisionToDFA;
+    antlr4::atn::PredictionContextCache& cache = generated->getSharedContextCache();
+    parser.setInterpreter(
+        new BoundedSimulator(&parser, parser.getATN(), dfa, cache, job.stats));
     Collect errors;
     lexer.removeErrorListeners();
     parser.removeErrorListeners();
@@ -573,14 +987,86 @@ JOLT_EXPORT int32_t jolt_parser_parse(const uint8_t* src, size_t len,
       o.u32(e.column);
       o.str(e.msg);
     }
-    return hand_off(o.buf, out, out_len);
+    return hand_off(o.buf, c.out, c.out_len);
+  } catch (const NestingRefused& r) {
+    return refused(r, c.out, c.out_len);
   } catch (const Oversize&) {
     return -4;
   } catch (const std::exception& e) {
-    return message(e.what(), -2, out, out_len);
+    return message(e.what(), -2, c.out, c.out_len);
   } catch (...) {
-    return message("unknown exception", -3, out, out_len);
+    return message("unknown exception", -3, c.out, c.out_len);
   }
+}
+
+int32_t free_job(Job& job) {
+  delete static_cast<Worker*>(job.arg);
+  return 0;
+}
+
+int32_t stack_job(Job& job) {
+  *static_cast<uint64_t*>(job.arg) = thread_stack_size();
+  return 0;
+}
+
+}  // namespace
+
+// A new worker owning fresh DFA vectors and PredictionContextCaches. NULL when
+// it cannot be made (nothing throws across the boundary).
+JOLT_EXPORT void* jolt_parser_worker_new(void) {
+  try {
+    return new Worker(published_atns());
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+// Dispose a worker and its caches. NULL is accepted. The caller must not use
+// the handle again, nor free it while a call on it runs. The caches are
+// destroyed on a parse thread: a cached prediction-context chain is destroyed
+// recursively, as deep as the lookahead bound allows. When no parse thread
+// can be started the worker is leaked, never destroyed on the caller's stack.
+JOLT_EXPORT void jolt_parser_worker_free(void* w) {
+  if (Worker* worker = as_worker(w)) {
+    worker->tag = 0;
+    Job job{free_job, worker, {}, -3};
+    uint8_t* msg = nullptr;
+    size_t msg_len = 0;
+    on_parse_thread(job, &msg, &msg_len);
+    std::free(msg);
+  }
+}
+
+// Parse UTF-8 `src[0, len)` from `file_input` with `worker`'s caches and
+// answer the exporter's records (layout "JPX1" above). Statuses as
+// jolt_parser_parse, plus -5; -1 also for a NULL or unrecognized worker.
+JOLT_EXPORT int32_t jolt_parser_export(void* worker, const uint8_t* src,
+                                       size_t len, uint8_t** out,
+                                       size_t* out_len) {
+  if (!out || !out_len || (!src && len != 0)) return -1;
+  *out = nullptr;
+  *out_len = 0;
+  Worker* w = as_worker(worker);
+  if (!w) return -1;
+  if (int32_t refused = over_input(len, out, out_len)) return refused;
+  Hold hold(w);
+  if (!hold.held) return -5;
+  Call call{w, src, len, out, out_len};
+  Job job{export_job, &call, {}, -3, true};
+  return on_parse_thread(job, out, out_len);
+}
+
+// Parse UTF-8 `src[0, len)` from the `file_input` rule, with the generated
+// static caches (the round-1 probe surface).
+JOLT_EXPORT int32_t jolt_parser_parse(const uint8_t* src, size_t len,
+                                      uint8_t** out, size_t* out_len) {
+  if (!out || !out_len || (!src && len != 0)) return -1;
+  *out = nullptr;
+  *out_len = 0;
+  if (int32_t refused = over_input(len, out, out_len)) return refused;
+  Call call{nullptr, src, len, out, out_len};
+  Job job{parse_job, &call, {}, -3, true};
+  return on_parse_thread(job, out, out_len);
 }
 
 // Release a buffer jolt_parser_parse handed out. NULL is accepted.
@@ -592,12 +1078,53 @@ JOLT_EXPORT int32_t jolt_parser_layout_version(void) { return 1; }
 // The JPX1 layout version jolt_parser_export writes.
 JOLT_EXPORT int32_t jolt_parser_export_layout_version(void) { return 2; }
 
+// The budget (J5b): out[0] the input bound in bytes, out[1] the rule-frame
+// bound, out[2] the SLL lookahead bound, out[3] the full-LL lookahead bound
+// (links past the outer context), out[4] the stack a parse thread actually
+// has (read on one; 0 unreadable). -3 when no parse thread can be started.
+JOLT_EXPORT int32_t jolt_parser_budget(uint64_t* out) {
+  if (!out) return -1;
+  out[0] = kMaxInputBytes;
+  out[1] = kMaxRule;
+  out[2] = kMaxLook;
+  out[3] = kMaxFull;
+  out[4] = 0;
+  Job job{stack_job, &out[4], {}, -3};
+  uint8_t* msg = nullptr;
+  size_t msg_len = 0;
+  int32_t status = on_parse_thread(job, &msg, &msg_len);
+  std::free(msg);
+  return status;
+}
+
 #ifdef JOLT_PARSER_TEST_SEAMS
 
 // TEST SEAM: set the fault mode (0 off, 1-3 as g_fault above) for later
 // parses. Answers the previous mode.
 JOLT_EXPORT int32_t jolt_parser_inject_fault(int32_t mode) {
   return g_fault.exchange(mode);
+}
+
+// TEST SEAM: workers made and not yet destroyed, process-wide.
+JOLT_EXPORT int64_t jolt_parser_live_workers(void) { return g_live_workers.load(); }
+
+// TEST SEAM: paint each later parse thread's stack and measure its
+// high-water mark (1 on, 0 off). Answers the previous setting.
+JOLT_EXPORT int32_t jolt_parser_stack_probe(int32_t on) {
+  return g_stack_probe.exchange(on != 0) ? 1 : 0;
+}
+
+// TEST SEAM: the last parse (either entry, any thread): out[0] the deepest
+// rule frame entered, out[1] the longest SLL chain made, out[2] the longest
+// full-LL chain past the outer context, out[3] full-LL predictions, out[4]
+// the parse thread's stack high-water mark in bytes (0 unless the probe was
+// on), out[5] that thread's stack size; out[6] 1 when this build enforces the
+// bounds (0: -DJOLT_PARSER_UNBOUNDED).
+JOLT_EXPORT int32_t jolt_parser_last_stats(uint64_t* out) {
+  if (!out) return -1;
+  for (int i = 0; i < 6; ++i) out[i] = g_last[i].load();
+  out[6] = kEnforce ? 1 : 0;
+  return 0;
 }
 
 namespace {

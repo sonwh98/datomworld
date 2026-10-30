@@ -118,6 +118,7 @@
     (is (= {:saved "a"} (fx/apply-edit! st asset-root {:item "a" :changes {:remove-image real}})))
     (is (contains? (fx/apply-edit! st asset-root {:item "a" :changes {:add-image "/images/%zz.png"}}) :rejected))))
 
+
 (deftest filesystem-alias-image-paths-are-rejected
   (let [st (fixture [(item "a")])]
     (doseq [alias ["/images/./P-141  Green Camouflage.png"
@@ -139,12 +140,13 @@
   (is (not (re-find #"[\r\n  ]" (v/js-lit nasty))))
   (let [catalog {:items (fn [] [{:key "k" :name nasty :price 5 :description nasty :images [] :tagories [nasty]}])
                  :item (fn [_] {:key "k" :name nasty :price 5 :description nasty :images [] :tagories [nasty]})}]
-    (doseq [sse [(grid-view/grid-project catalog "T" {:sel "k" :status "" :msg ""})
-                 (grid-view/grid-project catalog "T" {:sel "k" :status "rejected" :msg nasty})
-                 (v/shop-project catalog "T" {:page "item" :item "k" :cart {}})
-                 (v/shop-project catalog "T" {:page "cart" :cart {"k" 1}})]]
+    (doseq [[sse nl] [[(grid-view/grid-project catalog "T" {:sel "k" :status "" :msg ""}) 6]
+                      [(grid-view/grid-project catalog "T" {:sel "k" :status "rejected" :msg nasty}) 6]
+                      [(v/shop-project (assoc catalog :tagories (fn [] ["t"])) "T" {:page "item" :item "k" :cart {}}) 6]
+                      [(v/shop-project (assoc catalog :tagories (fn [] ["t"])) "T" {:page "cart" :cart {"k" 1}}) 6]]]
       (is (not (str/includes? sse "\r")) "no raw CR")
-      (is (= 3 (count (re-seq #"\n" sse))) "only the framing newlines")
+      (is (= nl (count (re-seq #"\n" sse)))
+          "only the framing newlines (both faces open with the tok signals patch)")
       (is (str/ends-with? sse "\n\n")))))
 
 

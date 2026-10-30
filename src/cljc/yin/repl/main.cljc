@@ -14,6 +14,7 @@
                        ["dart:io" :as io]]
                 :jolt [[dao.host.text :as text]
                        [dao.posix.file :as posix-file]
+                       [yang.python.antlr.parser :as python.antlr.parser]
                        [yin.repl.host.common :as host-common]])
             [clojure.string :as str]
             [dao.space.store.fs :as fs]
@@ -831,9 +832,11 @@
    `--dht-keygen` composes nothing: it writes the key file and answers
    `{:lines [...] :exit 0}` for the host to print and exit with.  A
    `--dht-key` file is loaded here (`load-key`); the key reaches the
-   shell, and only its principal reaches the options the banner reads."
+   shell, and only its principal reaches the options the banner reads.
+   An `:adapter` option is the host WebSocket adapter the shell, the head
+   board and the endpoint compose over (else `host/websocket`)."
   ([args] (startup args nil))
-  ([args {:keys [persist? home]}]
+  ([args {:keys [persist? home adapter]}]
    (try
      (if (some #{"--help" "-h"} args)
        {:lines help-lines :exit 0}
@@ -866,7 +869,8 @@
                                                         "; --reset forgets it)")
                                                    (ex-data e))
                                           e))))
-                    made (assoc :startup-lines made))]
+                    made (assoc :startup-lines made)
+                    adapter (assoc :adapter adapter))]
          (if-some [path (:dht-keygen opts)]
            (keygen! path)
            (let [key (some-> (:dht-key-file opts) load-key)
@@ -974,7 +978,15 @@
       (conj (str "dht: no --dht-key: (yin.link/publish ...) is refused; names"
                  " are still read, resolved, loaded and linked"))
       #?(:cljd false :jolt true :default false)
-      (into [shell/host-text "python: not installed on this host until J5"]))))
+      (into [shell/host-text
+             ;; J5: the native parser is disclosed; with no usable library
+             ;; Python is left out of the catalog and the reason is printed
+             #?(:jolt (if (python.antlr.parser/available?)
+                        (str "python: the native C++ ANTLR4 parser"
+                             " (native/jolt-parser), in process; no process"
+                             " crash isolation")
+                        "python: unavailable-parser (the native parser library is missing or incompatible; bb build:jolt-native)")
+                :default nil)]))))
 
 
 (defn- exit-with!
@@ -1127,7 +1139,8 @@
 ;; =============================================================================
 
 (def stop-ticks
-  "How many ticks a host steps a stopping endpoint before exiting anyway.  The
+  "How many ticks a host steps a stopping endpoint before exiting anyway; each
+   tick lasts at least `tick-millis`.  The
    endpoint's `:stopped` fact comes from the host's own close completion, which
    a wedged listener may never deposit; the shell says so and exits rather than
    hanging on it."
@@ -1249,8 +1262,10 @@
         something (`shutdown-enter?` -- a shell with no endpoint enters it
         on owed custody writes alone).  A connected client must observe the
         ended answer, not the bare close a process exit would leave behind.
-        The bounded drain sleeps the base interval; it is a budget, not a
-        cadence.  The custody control plane steps on every one of its ticks
+        Each drain round lasts at least the base interval of wall time,
+        however many early wakes readiness causes; the budget counts rounds,
+        so the drain is at least `tick-millis x stop-ticks` of wall time.
+        The custody control plane steps on every one of its ticks
         (`shutdown-tick`); the state it reaches is durable in the progress
         journal, so what the budget leaves outstanding is a restart's to
         resend.  Answers the drained state."
@@ -1267,8 +1282,13 @@
         (cond
           (shutdown-drained? state' server') state'
           (zero? remaining) (do (println stop-timeout-text) state')
-          :else (do (sleep! tick-millis)
-                    (recur state' server' (dec remaining))))))
+          :else (let [round-end (+ (now) tick-millis)]
+                  ;; a sleep readiness ends early pumps, then sleeps the
+                  ;; rest: an early wake cannot spend a round (R17)
+                  (loop []
+                    (sleep! (max 0 (- round-end (now))))
+                    (when (< (now) round-end) (recur)))
+                  (recur state' server' (dec remaining))))))
     state))
 
 
@@ -1393,14 +1413,15 @@
 #?(:jolt
    (defn -main
      "One plain-thread owner. Stdin deposits only; EOF deposits (quit).
-      A partial line without newline blocks the owner until its newline.
+      One host WebSocket instance serves the shell, the head board and
+      --port; every owner round polls its sockets (headless included) and
+      the instance is closed before exit, however the drain ended.
       Saved flags persist in the node directory, as on the JVM (J4d):
       --reset forgets them and --no-state neither reads nor writes them."
      [& args]
-     (let [started (startup args {:persist? true})]
+     (let [adapter (host/websocket)
+           started (startup args {:persist? true :adapter adapter})]
        (when (contains? started :exit) (exit-with! started))
-       (when (:port (:opts started))
-         (refuse! host-common/missing-text))
        (if-some [refusal (:refusal started)]
          (refuse! refusal)
          (let [{:keys [opts state server]} started
@@ -1413,16 +1434,23 @@
                              (driver/submit-line! (:input state) "(quit)"))
                          (driver/submit-line! (:input state) line)))
                sleep! (fn [ms]
-                        (if (or headless? @eof?)
-                          (wake/sleep! w ms)
-                          (wake/sleep-input! w ms line!)))]
+                        (wake/sleep-fds! w ms (:pump adapter)
+                                         (when-not (or headless? @eof?) line!)))]
            (doseq [line (banner opts)] (println line))
            (when-not headless? (print prompt))
            (flush)
+           ;; the exit status leaves through System/exit, which skips the
+           ;; finally, so the exit path closes the instance itself too
            (try
              (run-owner! state server headless? #(System/currentTimeMillis)
-                         sleep! (fn [status] (flush) (System/exit status)))
-             (finally (wake/close! w))))))))
+                         sleep! (fn [status]
+                                  ((:close-host! adapter))
+                                  (wake/close! w)
+                                  (flush)
+                                  (System/exit status)))
+             (finally
+               ((:close-host! adapter))
+               (wake/close! w))))))))
 
 
 ;; =============================================================================

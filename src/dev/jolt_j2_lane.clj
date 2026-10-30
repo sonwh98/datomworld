@@ -62,7 +62,7 @@
    "dao.stream.middleware" "dao.stream.observe" "dao.stream.ringbuffer"
    "dao.stream.apply" "dao.stream.forward" "dao.stream.observer"
    "dao.stream.rpc" "dao.stream.waitset" "dao.stream.waitset.cadence"
-   "dao.stream.ws" "dao.stream.datagram" "dao.stream.journal"
+   "dao.stream.ws" "dao.stream.ws.rfc6455" "dao.stream.ws.upgrade" "dao.stream.datagram" "dao.stream.journal"
    "dao.stream.remote" "dao.stream.remote_meet" "dao.stream.remote_pair"
    "dao.stream.remote_channel" "dao.stream.remote_route" "dao.stream.ws_project"
    "dao.stream.udp" "dao.stream.journal.file"
@@ -123,7 +123,6 @@
     :reason "loads dao.stream.http.jvm, the JVM http-kit adapter (b55fdfe1, dao.star Mode 1); jolt has no http-kit, so the namespace cannot load (J4d probe: load failure on org.httpkit.server)"
     :capability "JVM HTTP server (http-kit)" :owner "dao.star"}
    {:ns "yin.repl.shell-session-test" :reason "JVM process corpus runs on JVM lane; bb test:jolt-shell runs both hosts" :capability "JVM subprocess harness" :owner "J3"}
-   {:ns "yin.repl.python-antlr-test" :reason "Python parser fixture" :capability "Python parser" :owner "J5"}
    {:ns "yin.repl.dht-test" :reason "UDP + durable store fixture" :capability "UDP + durable store" :owner "J7"}
    {:ns "yin.repl.dht-head-test" :reason "WebSocket + durable store fixture" :capability "WebSocket + durable store" :owner "J6/J7"}
    {:ns "yin.repl.dht-process-test" :reason "JVM process + UDP fixture" :capability "JVM process + UDP" :owner "J7"}
@@ -221,7 +220,7 @@
 ;; Dependency order (the max rank of each suite's source requires), so a low
 ;; failure is reported before the suites that ride on it.
 (def included
-  ["yin.repl-test" "yin.repl.owner-test" "yin.repl.state-test" "yin.repl.index-test" "yin.repl.query-test" "yin.repl.ast-index-test" "yin.repl.ast-query-e2e-test" "yin.repl.driver-test" "yin.repl.adapter-test" "yin.repl.embed-test" "yin.repl.trust-test" "yin.repl.require-test" "yin.repl.frontend-catalog-test" "yin.repl.main-test" "yin.repl.connect-test" "yin.repl.serve-test" "yin.repl.store-test"
+  ["yin.repl-test" "yin.repl.owner-test" "yin.repl.state-test" "yin.repl.index-test" "yin.repl.query-test" "yin.repl.ast-index-test" "yin.repl.ast-query-e2e-test" "yin.repl.driver-test" "yin.repl.adapter-test" "yin.repl.embed-test" "yin.repl.trust-test" "yin.repl.require-test" "yin.repl.frontend-catalog-test" "yin.repl.python-antlr-test" "yin.repl.main-test" "yin.repl.connect-test" "yin.repl.serve-test" "yin.repl.store-test"
    "dao.jing.dht.facade-test" "dao.stream.waitset.driver-test"
    "yin.vm.linker.production-pipeline-test"
    "dao.data.arrays-test" "dao.data.sorted-user-type-test"
@@ -237,6 +236,7 @@
    "dao.stream.remote-pair-test" "dao.stream.remote-test" "dao.stream.rpc-test"
    "dao.jing-test" "dao.jing.cbor-conformance-test" corpus-suite-name
    "dao.jing.cbor-test" "dao.jing.hash-registry-contract-test" "dao.stream.base64-test"
+   "dao.stream.ws.rfc6455-test" "dao.stream.ws.upgrade-test"
    "dao.stream.journal-test"
    "dao.stream.journal.file-test" ; rejoined (J4c)
    "dao.data.btree-durability-test" "dao.host.hash-test"
@@ -538,9 +538,22 @@
 ;; ---------------------------------------------------------------------------
 
 
+;; Suites whose jolt run is longer than the lane's default step budget: the
+;; step waits at least this long (a larger --timeout-ms still wins).
+;; yin.repl.python-antlr-test runs the ^:slow Python programs over the native
+;; parser: 7218 s alone on jupiter (J5; the JVM takes about 1200 s).
+;; yin.vm.semantic.safepoint-harness-test is the 265,225-assertion safepoint
+;; oracle: 23251 s (~6.5 h) on jupiter at a0a49b8e (the J2 close
+;; evidence) — the bound is the measured wall plus an hour.
+(def ^:private step-timeout-ms
+  {"yin.repl.python-antlr-test" (* 3 3600000)
+   "yin.vm.semantic.safepoint-harness-test" (* 7 3600000)})
+
+
 (defn- core-step
   [diag? timeout-ms ns]
   (let [log (str logs "/core/" (dash ns) ".log")
+        timeout-ms (max timeout-ms (get step-timeout-ms ns 0))
         r (run-jolt {:script core-runner :args [ns]
                      :log log :diag? diag? :timeout-ms timeout-ms})
         out (:out r)

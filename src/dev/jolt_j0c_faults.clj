@@ -29,6 +29,13 @@
     [yang.antlr.cst :as cst]))
 
 
+;; J5: yang.antlr.cst loads the native library on first use; load it before
+;; any raw jolt_parser_* binding below is called
+(when-not (cst/available?)
+  (println "FAIL the native parser library did not load")
+  (System/exit 1))
+
+
 (def failures (atom 0))
 
 (def orig-alloc ffi/alloc)

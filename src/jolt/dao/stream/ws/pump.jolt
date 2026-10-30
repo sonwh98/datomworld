@@ -1,0 +1,907 @@
+(ns dao.stream.ws.pump
+  "Jolt-only owner-thread pump under the native WebSocket host adapter (J6d;
+   J6 plan rulings A1-A5). One instance per `create` call: its registry of
+   descriptors, write queues, close records and deadlines live in that
+   instance and nowhere else, so two instances never share state.
+
+   Ownership (A1). Every entry runs on the thread that drives the instance;
+   nothing here waits, parks or polls a socket. A driver polls the `interest`
+   descriptors until the earlier of its cadence and `next-deadline`
+   (`jolt.io-poller/clock-ms`, nil when nothing is due), then hands the
+   `[[fd revents] ...]` it observed to `pump!`, `[]` on a timeout: every
+   call runs the due expiries. A composition that never pumps an instance
+   makes no progress, by design.
+
+   Bounded turn (A1). One `pump!` visits each ready descriptor at most once,
+   starting after the one visited last in the previous turn (round robin in
+   registration order). A connection visit attempts at most one write of
+   the head of its queue and reads at most one chunk (one reused 64 KiB
+   native buffer); a listener visit accepts at most `accept-batch`.
+
+   One ordered write path (A3). Each connection owns one FIFO of whole wire
+   segments; the head carries an offset and is never rewritten. `send!`
+   writes at once only into an empty FIFO and queues the unsent tail;
+   otherwise it appends. Protocol output (pongs, close frames) joins the
+   same FIFO at generation time; nothing has priority. `send!` answers nil
+   or `{:dao.stream/outcome :dao.stream/closed}`, never false.
+   `queued-bytes` counts every byte handed over and not yet accepted by the
+   kernel, control frames included; 0 after the terminal.
+
+   Two connection modes. A :raw connection (an HTTP upgrade in progress, or
+   a plain byte stream) delivers `:on-data` chunks, `:on-eof` once and
+   `:on-error` once. `upgraded!` turns it into a :ws connection, which parses
+   its input one frame at a time through the injected `:protocol`
+   (`{:parser :parse-frame :encode-frame :close-payload :mask-key}`; the
+   parse contract is `(parse-frame state chunk offset)` =>
+   `[event-or-nil state' offset']` with `:message`, `:ping`, `:pong`,
+   `:close` and `:fail` events, a close-frame failure carrying `:close?
+   true`), answers each ping with one pong, delivers `:on-message`, and
+   reports exactly one `:on-closed` terminal.
+
+   Control budget (A4). At most `max-pongs` pending pongs per connection plus
+   one reserved close slot. When the pongs fill the budget the connection
+   stops parsing after that frame, leaves read interest and keeps the
+   unparsed rest of its chunk; when a drain frees a pong slot the rest is
+   parsed before any new read, and read interest returns once it is
+   consumed. The close slot never counts against the budget and is never
+   refused.
+
+   Close record (A5). `{:local nil|:queued|:sent, :peer nil|:received,
+   :peer-status nil|:absent|:invalid|code, :code, :reason, :initiator,
+   :deadline}`. The first of a local `close!` and the peer's close frame
+   starts the 5 s `close-deadline`; the first local request wins. The
+   terminal code: a completed handshake reports the local code when this
+   side initiated, else the peer's status (an empty close reports 1005, an
+   invalid one 1002); a peer close followed by end of stream before the
+   response left reports the peer's status; end of stream, reset or a
+   transfer failure without a peer close reports 1006; deadline expiry in
+   any state reports 1006. A parser `:fail` without `:close?` fails the
+   connection (RFC 6455 section 7.1.7) and opens no handshake: the record
+   gets `:failed? true`, the close frame takes the reserved slot, input is
+   read only to see end of stream and discarded, and once the frame is
+   written the terminal is the local code with cause `:fail`; the peer's
+   reply is never parsed. A `:fail` after a local `close!` keeps that
+   request's frame and code and ends the same way. 1005 and 1006 are never
+   put on the wire. A ping that arrives once a local close is queued gets no
+   pong: the pong would queue behind our close frame, RFC 6455 section 5.5.1
+   forbids only data frames after a close, and no Autobahn case exercises
+   it.
+
+   Listeners. Accepted sockets register with `:listener` and `:upgrading?`;
+   at `max-pending-upgrades` upgrading sockets (or `:max-connections` owned
+   ones) the listener leaves the interest set until a slot frees. An
+   upgrade not completed within its timeout is released and reported to
+   `:on-upgrade-expired`. `close-listener!` closes the listener descriptor;
+   `drained?` answers true once no connection it owns is left, and its
+   `:on-drained` is called once then. `lower-deadlines!` brings the close
+   deadline of every connection a listener owns to at most a given time.
+
+   Callbacks. Data callbacks (`:on-data`, `:on-message`) run inside the
+   visit. Terminals and other lifecycle reports run at the start or end of
+   a turn, never inside an entry the composition called; `next-deadline`
+   answers now while one is owed.
+
+   Native memory: the read and write buffers exist while the registry is
+   non-empty and are freed when its last descriptor leaves."
+  (:require
+    [dao.stream.ws.tcp :as tcp]
+    [jolt.ffi :as ffi]
+    [jolt.io-poller :as poller]
+    [jolt.socket.native :as native]))
+
+
+(def chunk-bytes
+  "The read chunk and the largest single write attempt."
+  (* 64 1024))
+
+
+(def accept-batch
+  "The most connections one listener visit accepts."
+  16)
+
+
+(def max-pongs
+  "Pending pongs per connection before its input pauses (A4)."
+  16)
+
+
+(def close-deadline-ms
+  "From the first close event to forced teardown (A5)."
+  5000)
+
+
+(def max-pending-upgrades
+  "Default per-listener cap on accepted, not yet upgraded sockets (A4)."
+  64)
+
+
+(def upgrade-timeout-ms
+  "Default deadline for an upgrade, from accept or connect (A4)."
+  10000)
+
+
+(def closed-outcome {:dao.stream/outcome :dao.stream/closed})
+
+
+(def ^:private no-close
+  {:local nil, :peer nil, :peer-status nil, :code nil, :reason nil, :initiator nil,
+   :deadline nil})
+
+
+;; =============================================================================
+;; Instance
+;; =============================================================================
+
+(defn create
+  "A fresh pump instance with an empty registry."
+  []
+  {::state (atom {:handles {}           ; fd -> handle, registered only
+                  :last-id -1           ; id of the handle visited last
+                  :next-id 0
+                  :notify []            ; thunks owed (terminals, lifecycle reports)
+                  :closed-listeners {}  ; id -> handle, closed and not yet reported drained
+                  :rbuf nil
+                  :wbuf nil})})
+
+
+(defn- st
+  [p]
+  (::state p))
+
+
+(defn- cell
+  [h]
+  @(::cell h))
+
+
+(defn- cell!
+  [h f & args]
+  (apply swap! (::cell h) f args))
+
+
+(defn- alloc-buffer
+  []
+  (let [b (ffi/alloc chunk-bytes)]
+    (when (ffi/null? b)
+      (throw (ex-info "dao.stream.ws.pump native allocation failed" {:bytes chunk-bytes})))
+    b))
+
+
+(defn- maybe-release!
+  "Free the native buffers once the registry is empty."
+  [p]
+  (let [s (st p)
+        {:keys [handles rbuf wbuf]} @s]
+    (when (and rbuf (empty? handles))
+      (swap! s assoc :rbuf nil :wbuf nil)
+      (ffi/free rbuf)
+      (ffi/free wbuf))))
+
+
+(defn- owe!
+  "Queue thunk `f` for the start or end of a turn."
+  [p f]
+  (swap! (st p) update :notify conj f)
+  nil)
+
+
+(defn- register!
+  [p fd fields]
+  (let [s (st p)]
+    (when-not (:rbuf @s)
+      (swap! s assoc :rbuf (alloc-buffer) :wbuf (alloc-buffer)))
+    (let [h {:id (:next-id @s), :fd fd, ::cell (atom fields)}]
+      (swap! s #(-> % (assoc-in [:handles fd] h) (update :next-id inc)))
+      h)))
+
+
+(defn- registered?
+  [p h]
+  (identical? h (get-in @(st p) [:handles (:fd h)])))
+
+
+(defn open?
+  [h]
+  (= :open (:status (cell h))))
+
+
+(defn- owned
+  "The registered connections listener `lh` owns."
+  [p lh]
+  (filter #(= (:id lh) (:owner (cell %))) (vals (:handles @(st p)))))
+
+
+;; =============================================================================
+;; Registration
+;; =============================================================================
+
+(defn listener!
+  "Register listener `fd` (nonblocking, listening). Options: `:on-accept`
+   (each `{:fd :peer}`, inside the visit; the callee registers it with
+   `connection!` passing `:listener` and `:upgrading? true`, or closes it;
+   without one, accepted descriptors are closed), `:on-accept-error`,
+   `:on-drained`, `:max-pending-upgrades` (default 64), `:max-connections`
+   (default nil, unbounded), `:upgrade-timeout-ms` (default 10 s). Answers
+   the handle."
+  [p fd opts]
+  (register! p fd (merge {:max-pending-upgrades max-pending-upgrades
+                          :upgrade-timeout-ms upgrade-timeout-ms}
+                         (select-keys opts [:on-accept :on-accept-error :on-drained
+                                            :max-pending-upgrades :max-connections
+                                            :upgrade-timeout-ms])
+                         {:kind :listener, :status :open, :accepting? true})))
+
+
+(defn connection!
+  "Register connection `fd` (nonblocking) in :raw mode. `:connecting? true`
+   marks a dial in progress: its first ready turn reads SO_ERROR and calls
+   `:on-connected` or reports `:on-error`. `:listener` names the owning
+   listener; `:upgrading? true` starts the upgrade deadline (the listener's
+   or `:upgrade-timeout-ms`) and counts against the listener's pending
+   cap. `:close-deadline-ms` overrides the 5 s close deadline. Callbacks: `:on-data`, `:on-eof`, `:on-error`, `:on-drained`,
+   `:on-upgrade-expired`, and for :ws mode `:on-message`, `:on-closed`.
+   Answers the handle."
+  [p fd {:keys [connecting? listener upgrading?] :as opts}]
+  (let [timeout (or (:upgrade-timeout-ms opts)
+                    (when listener (:upgrade-timeout-ms (cell listener)))
+                    upgrade-timeout-ms)]
+    (register! p fd (merge (select-keys opts [:on-connected :on-data :on-eof :on-error
+                                              :on-drained :on-upgrade-expired
+                                              :on-message :on-closed])
+                           {:kind (if connecting? :connecting :connection)
+                            :mode :raw
+                            :status :open, :pending [], :queued 0, :reading? true
+                            :owner (:id listener)
+                            :upgrading? (boolean upgrading?)
+                            :upgrade-deadline (when upgrading? (+ (poller/clock-ms) timeout))
+                            :pongs 0, :remainder nil
+                            :close-deadline-ms (or (:close-deadline-ms opts) close-deadline-ms)
+                            :close no-close}))))
+
+
+(defn upgraded!
+  "Turn :raw connection `h` into a :ws connection parsing through
+   `protocol` (`{:parser :parse-frame :encode-frame :close-payload
+   :mask-key}`); `leftover` (bytes after the upgrade head, or nil) is parsed
+   before any new read. Frees its pending-upgrade slot."
+  [_p h protocol leftover]
+  (cell! h assoc
+         :mode :ws, :protocol protocol, :parser (:parser protocol)
+         :upgrading? false, :upgrade-deadline nil
+         :remainder (when (and leftover (pos? (alength leftover)))
+                      {:chunk leftover, :offset 0}))
+  nil)
+
+
+(defn set-accepting!
+  "Pause (false) or resume (true) accepting on listener `h`."
+  [_p h accepting?]
+  (cell! h assoc :accepting? (boolean accepting?))
+  nil)
+
+
+(defn set-reading!
+  "Stop (false) or resume (true) reading connection `h`."
+  [_p h reading?]
+  (cell! h assoc :reading? (boolean reading?))
+  nil)
+
+
+(defn set-deadline!
+  "Call `(f)` once on the first turn at or after monotonic `at-ms`
+   (`jolt.io-poller/clock-ms`). Replaces any earlier such deadline of `h`."
+  [_p h at-ms f]
+  (cell! h assoc :deadline at-ms :on-deadline f)
+  nil)
+
+
+(defn clear-deadline!
+  [_p h]
+  (cell! h dissoc :deadline :on-deadline)
+  nil)
+
+
+(defn queued-bytes
+  "Bytes handed to `h` and not yet accepted by the kernel: exact, 0 after
+   the terminal."
+  [h]
+  (:queued (cell h) 0))
+
+
+(defn pending-tags
+  "The tags of `h`'s pending segments in FIFO order (:pong, :close, or nil
+   for data), with the head's offset: `[[tag offset len] ...]`."
+  [h]
+  (mapv (fn [{:keys [tag off bytes]}] [tag off (alength bytes)]) (:pending (cell h))))
+
+
+(defn close-record
+  [h]
+  (:close (cell h)))
+
+
+(defn read-interest?
+  "Whether `h` is asking to be read."
+  [h]
+  (let [{:keys [reading? pongs remainder]} (cell h)]
+    (boolean (and reading? (< pongs max-pongs) (nil? remainder)))))
+
+
+;; =============================================================================
+;; Release and terminals
+;; =============================================================================
+
+(defn- release!
+  "Close `h`'s descriptor and drop it from the registry with `status`; true
+   when it was open."
+  [p h status]
+  (when (open? h)
+    (cell! h assoc :status status :pending [] :queued 0 :remainder nil)
+    (when (registered? p h)
+      (swap! (st p) update :handles dissoc (:fd h)))
+    (tcp/shutdown! (:fd h) :both)
+    (tcp/close! (:fd h))
+    true))
+
+
+(defn discard!
+  "Release `h` now: descriptor closed, queue dropped, `queued-bytes` 0, no
+   callback. Idempotent."
+  [p h]
+  (release! p h :closed)
+  (maybe-release! p)
+  nil)
+
+
+(defn- status-code
+  [peer-status]
+  (case peer-status :absent 1005 :invalid 1002 peer-status))
+
+
+(defn- terminal
+  "The terminal `{:code :reason}` for close record `c` and `cause`."
+  [c cause]
+  (let [{:keys [initiator peer peer-status code reason peer-reason]} c]
+    (case cause
+      :handshake (if (= :local initiator)
+                   {:code code, :reason (or reason "")}
+                   {:code (status-code peer-status), :reason (or peer-reason "")})
+      :fail {:code code, :reason (or reason "")}
+      (:eof :reset :transfer) (if (= :received peer)
+                                {:code (status-code peer-status), :reason (or peer-reason "")}
+                                {:code 1006, :reason ""})
+      {:code 1006, :reason ""})))
+
+
+(defn- terminate!
+  "End :ws connection `h` once with `cause` (:handshake, :eof, :reset,
+   :transfer, :deadline): descriptor shut, queue released, one owed
+   `:on-closed`."
+  [p h cause detail]
+  (let [c (:close (cell h))]
+    (when (release! p h :closed)
+      (let [t (assoc (terminal c cause) :cause cause)
+            t (if detail (assoc t :detail detail) t)]
+        (when-let [f (:on-closed (cell h))]
+          (owe! p #(f t)))))))
+
+
+(defn- fail!
+  "A transfer failure: a :ws connection terminates per A5, a :raw one owes
+   `:on-error` once with `failure`."
+  [p h failure]
+  (if (= :ws (:mode (cell h)))
+    (terminate! p h (if (= :reset (:class failure)) :reset :transfer) failure)
+    (when (release! p h :failed)
+      (when-let [f (:on-error (cell h))]
+        (owe! p #(f failure))))))
+
+
+;; =============================================================================
+;; Writes (A3)
+;; =============================================================================
+
+(defn- write-once!
+  "One send of at most `chunk-bytes` of `bs` from `off`: the bytes the
+   kernel accepted (0 on EAGAIN), or a failure map."
+  [p fd bs off]
+  (let [wbuf (:wbuf @(st p))
+        n (min chunk-bytes (- (alength bs) off))]
+    (ffi/write-array wbuf bs off n)
+    (let [r (tcp/send-chunk! fd wbuf n)]
+      (cond
+        (= :would-block r) 0
+        (:error r) r
+        :else (:n r)))))
+
+
+(declare segment-done!)
+
+
+(defn- enqueue!
+  "Hand whole segment `bs` tagged `tag` to `h`'s FIFO: one write attempt
+   when the FIFO is empty and the connection is established, else append.
+   Answers nil, or `closed-outcome` when the immediate write failed (nothing
+   sent)."
+  [p h bs tag]
+  (let [{:keys [kind pending]} (cell h)
+        len (alength bs)
+        seg {:bytes bs, :off 0, :tag tag}]
+    (if (or (seq pending) (not= :connection kind))
+      (do (cell! h #(-> % (update :pending conj seg) (update :queued + len)))
+          nil)
+      (let [r (write-once! p (:fd h) bs 0)]
+        (cond
+          (map? r) (do (fail! p h r) closed-outcome)
+          (= r len) (do (segment-done! p h tag) nil)
+          :else (do (cell! h #(-> % (update :pending conj (assoc seg :off r))
+                                  (update :queued + (- len r))))
+                    nil))))))
+
+
+(defn send!
+  "Hand whole segment `bs` (a byte array the caller no longer mutates) to
+   connection `h`. Answers nil (accepted: on the wire or queued) or
+   `closed-outcome` (failed, closed or closing: nothing sent). A :ws
+   connection refuses data once either side's close exists, so no data
+   frame follows our close frame (RFC 6455 section 5.5.1)."
+  [p h bs]
+  (let [{:keys [status mode close]} (cell h)]
+    (cond
+      (not= :open status) closed-outcome
+      (and (= :ws mode) (or (:local close) (:peer close))) closed-outcome
+      (zero? (alength bs)) nil
+      :else (let [r (enqueue! p h bs nil)]
+              (maybe-release! p)
+              r))))
+
+
+(defn- drain-once!
+  "One write of the head segment; answers whether bytes moved."
+  [p h]
+  (let [{:keys [bytes off tag]} (first (:pending (cell h)))
+        r (write-once! p (:fd h) bytes off)]
+    (cond
+      (map? r) (do (fail! p h r) true)
+      (zero? r) false
+      :else (let [off' (+ off r)
+                  done? (= off' (alength bytes))]
+              (cell! h #(-> %
+                            (update :queued - r)
+                            (update :pending (fn [q]
+                                               (if done?
+                                                 (subvec q 1)
+                                                 (assoc-in q [0 :off] off'))))))
+              (when done? (segment-done! p h tag))
+              true))))
+
+
+;; =============================================================================
+;; Close (A5) and control output (A4)
+;; =============================================================================
+
+(defn- frame
+  "The wire bytes of a control frame through `h`'s protocol."
+  [h opcode payload]
+  (let [{:keys [encode-frame mask-key]} (:protocol (cell h))]
+    (encode-frame (cond-> {:opcode opcode, :payload payload}
+                    mask-key (assoc :mask-key (mask-key))))))
+
+
+(defn close-frame
+  "The wire bytes of a close frame with `code` and `reason` through `h`'s
+   protocol; a nil `code` is the empty close. 1005 and 1006 are refused:
+   they are reports, never wire codes (RFC 6455 section 7.4.1)."
+  [h code reason]
+  (when (#{1005 1006} code)
+    (throw (ex-info "close code 1005/1006 is never serialized" {:code code})))
+  (frame h :close ((:close-payload (:protocol (cell h))) code reason)))
+
+
+(defn- start-close
+  "Close record `c` after its first close event: initiator and deadline
+   (`ms` from now, kept if an earlier one was lowered in)."
+  [c initiator ms]
+  (if (or (:local c) (:peer c))
+    c
+    (let [d (+ (poller/clock-ms) ms)]
+      (assoc c :initiator initiator :deadline (if (:deadline c) (min d (:deadline c)) d)))))
+
+
+(defn close!
+  "Request the close handshake on :ws connection `h` with `code` and
+   `reason`. The first request wins: a later one, or one after the peer's
+   close was answered, changes nothing. The close frame takes the reserved
+   control slot behind everything already queued."
+  [p h code reason]
+  (let [{:keys [status mode close]} (cell h)]
+    (when (and (= :open status) (= :ws mode) (nil? (:local close)))
+      (let [bs (close-frame h code reason)]
+        (cell! h update :close #(-> (start-close % :local (:close-deadline-ms (cell h)))
+                                    (assoc :local :queued :code code :reason reason)))
+        (enqueue! p h bs :close)
+        (maybe-release! p))))
+  nil)
+
+
+(defn- segment-done!
+  [p h tag]
+  (case tag
+    :pong (cell! h update :pongs dec)
+    :close (do (cell! h assoc-in [:close :local] :sent)
+               (cond
+                 (:failed? (:close (cell h))) (terminate! p h :fail nil)
+                 (= :received (:peer (:close (cell h)))) (terminate! p h :handshake nil)))
+    nil)
+  (when (and (open? h) (empty? (:pending (cell h))))
+    (when-let [f (:on-drained (cell h))] (owe! p f))))
+
+
+(defn- fail-connection!
+  "A parser :fail without :close? fails the connection (RFC 6455 section
+   7.1.7): the close frame takes the reserved slot, later input is
+   discarded unparsed (read only to see EOF or reset) and the unparsed rest
+   is dropped. The peer's reply is never parsed: the terminal is `:fail`
+   with the local code once the frame is written. After a local `close!`
+   the requested frame keeps the slot (no second frame) and its code: still
+   queued, the connection fails once it is written; already sent, it fails
+   now."
+  [p h code reason]
+  (let [{:keys [status mode close]} (cell h)]
+    (when (and (= :open status) (= :ws mode) (nil? (:peer close)))
+      (case (:local close)
+        nil (let [bs (close-frame h code reason)]
+              (cell! h #(-> %
+                            (assoc :remainder nil)
+                            (update :close (fn [c]
+                                             (-> (start-close c :local (:close-deadline-ms %))
+                                                 (assoc :local :queued :code code :reason reason
+                                                        :failed? true))))))
+              (enqueue! p h bs :close)
+              (maybe-release! p))
+        :queued (cell! h #(-> %
+                              (assoc :remainder nil)
+                              (assoc-in [:close :failed?] true)))
+        :sent (do (cell! h assoc-in [:close :failed?] true)
+                  (terminate! p h :fail nil)
+                  (maybe-release! p)))))
+  nil)
+
+
+(defn- peer-close!
+  "The peer's close frame: record it, start the deadline if first, and
+   answer it unless this side's close is already queued or sent."
+  [p h status code reason]
+  (cell! h update :close #(-> (start-close % :peer (:close-deadline-ms (cell h)))
+                              (assoc :peer :received :peer-status status :peer-reason reason)))
+  (let [{:keys [local]} (:close (cell h))]
+    (cond
+      (= :sent local) (terminate! p h :handshake nil)
+      (= :queued local) nil
+      :else (let [[rcode rreason] (case status
+                                    :absent [nil nil]
+                                    :invalid [1002 "dao.stream/protocol-error"]
+                                    [code nil])]
+              (cell! h update :close assoc :local :queued :code rcode :reason rreason)
+              (enqueue! p h (close-frame h rcode rreason) :close)))))
+
+
+(defn- pong!
+  [p h payload]
+  (cell! h update :pongs inc)
+  (enqueue! p h (frame h :pong payload) :pong))
+
+
+(defn- handle-event!
+  [p h ev]
+  (let [{:keys [local peer]} (:close (cell h))]
+    (case (:type ev)
+      :ping (when (nil? local) (pong! p h (:payload ev)))
+      :pong nil
+      :message (when (and (nil? local) (nil? peer))
+                 (when-let [f (:on-message (cell h))] (f ev)))
+      :close (when (nil? peer)
+               (peer-close! p h (if (nil? (:code ev)) :absent (:code ev)) (:code ev) (:reason ev)))
+      :fail (if (:close? ev)
+              (when (nil? peer) (peer-close! p h :invalid nil nil))
+              (fail-connection! p h (:code ev) (:reason ev)))
+      nil)))
+
+
+(defn- parse-input!
+  "Parse `chunk` from `offset` one frame at a time until it is consumed,
+   the connection ends, or the pong budget fills; keep the unparsed rest."
+  [p h chunk offset]
+  (let [parse (:parse-frame (:protocol (cell h)))
+        n (alength chunk)]
+    (loop [off offset]
+      (cond
+        (not (open? h)) nil
+        (>= off n) (cell! h assoc :remainder nil)
+        (>= (:pongs (cell h)) max-pongs) (cell! h assoc :remainder {:chunk chunk, :offset off})
+        :else (let [[ev parser' off'] (parse (:parser (cell h)) chunk off)]
+                (cell! h assoc :parser parser')
+                (if (nil? ev)
+                  (cell! h assoc :remainder nil)
+                  (do (handle-event! p h ev)
+                      (recur off'))))))))
+
+
+(defn- resume!
+  "Parse a held remainder once the pong budget has room; answers whether
+   anything was parsed."
+  [p h]
+  (when (and (open? h) (< (:pongs (cell h)) max-pongs))
+    (when-let [{:keys [chunk offset]} (:remainder (cell h))]
+      (parse-input! p h chunk offset)
+      true)))
+
+
+;; =============================================================================
+;; Reads and visits (A1)
+;; =============================================================================
+
+(defn- read-once!
+  "One recv chunk into the reused buffer; answers whether anything
+   happened."
+  [p h]
+  (let [rbuf (:rbuf @(st p))
+        r (tcp/recv-chunk! (:fd h) rbuf chunk-bytes)
+        ws? (= :ws (:mode (cell h)))]
+    (cond
+      (= :would-block r) false
+      (= :eof r) (do (if ws?
+                       (terminate! p h :eof nil)
+                       (do (cell! h assoc :reading? false :eof? true)
+                           (when-let [f (:on-eof (cell h))] (owe! p f))))
+                     true)
+      (:error r) (do (fail! p h r) true)
+      :else (let [chunk (ffi/read-array rbuf (:n r))]
+              (if ws?
+                ;; a failed connection reads only to see EOF or reset: the
+                ;; input is discarded, never parsed
+                (when-not (:failed? (:close (cell h))) (parse-input! p h chunk 0))
+                (when-let [f (:on-data (cell h))] (f chunk)))
+              true))))
+
+
+(def ^:private write-ready (bit-or native/pollout native/pollerr native/pollhup native/pollnval))
+
+
+(defn- visit-connection!
+  [p h rev]
+  (let [wrote? (when (and (pos? (bit-and rev write-ready)) (seq (:pending (cell h))))
+                 (drain-once! p h))
+        ;; resume before read: a held remainder is parsed first, and read
+        ;; interest returns only once it is consumed
+        resumed? (resume! p h)
+        read? (when (and (not resumed?) (open? h) (read-interest? h)
+                         (pos? (bit-and rev native/poll-readable)))
+                (read-once! p h))]
+    (boolean (or wrote? resumed? read?))))
+
+
+(defn- visit-connecting!
+  [p h rev]
+  (when (pos? rev)
+    (let [r (tcp/connect-result (:fd h))]
+      (if (map? r)
+        (fail! p h r)
+        (do (cell! h assoc :kind :connection)
+            (when-let [f (:on-connected (cell h))] (owe! p f)))))
+    true))
+
+
+(defn- can-accept?
+  [p lh]
+  (let [{:keys [status accepting? max-pending-upgrades max-connections]} (cell lh)
+        mine (owned p lh)]
+    (and (= :open status) accepting?
+         (< (count (filter #(:upgrading? (cell %)) mine)) max-pending-upgrades)
+         (or (nil? max-connections) (< (count mine) max-connections)))))
+
+
+(defn- visit-listener!
+  [p h]
+  (loop [i 0, moved? false]
+    (if (or (= i accept-batch) (not (can-accept? p h)))
+      moved?
+      (let [r (tcp/accept! (:fd h))]
+        (cond
+          (= :would-block r) moved?
+          (:error r) (do (when-let [f (:on-accept-error (cell h))] (owe! p #(f r))) true)
+          ;; :on-accept runs inside the visit: the callee's registration is
+          ;; what the pending-upgrade cap counts. Without one, nobody owns
+          ;; the descriptor, so it is closed rather than leaked.
+          :else (do (if-let [f (:on-accept (cell h))]
+                      (f r)
+                      (tcp/close! (:fd r)))
+                    (recur (inc i) true)))))))
+
+
+(defn interest
+  "`[[fd events] ...]` for this instance's next poll, registration order."
+  [p]
+  (vec (keep (fn [h]
+               (let [{:keys [kind pending]} (cell h)
+                     ev (case kind
+                          :listener (if (can-accept? p h) native/pollin 0)
+                          :connecting native/pollout
+                          :connection (bit-or (if (read-interest? h) native/pollin 0)
+                                              (if (seq pending) native/pollout 0)))]
+                 (when (pos? ev) [(:fd h) ev])))
+             (sort-by :id (vals (:handles @(st p)))))))
+
+
+(defn- runnable-remainder?
+  [h]
+  (let [{:keys [remainder pongs]} (cell h)]
+    (and remainder (< pongs max-pongs))))
+
+
+(defn next-deadline
+  "The nearest due time on `jolt.io-poller/clock-ms`: now while a report is
+   owed or a held remainder can be parsed; else the nearest upgrade, close
+   or registered deadline; nil when nothing is due (an empty registry)."
+  [p]
+  (let [{:keys [handles notify closed-listeners]} @(st p)
+        hs (vals handles)
+        ;; a closed listener is due only once its drain report is owed: while
+        ;; it still owns connections, their own deadlines bound the wait
+        drained (some (fn [[_ lh]] (empty? (owned p lh))) closed-listeners)]
+    (if (or (seq notify) drained (some runnable-remainder? hs))
+      (poller/clock-ms)
+      (let [ds (mapcat (fn [h]
+                         (let [c (cell h)]
+                           (keep identity [(:deadline c) (:upgrade-deadline c)
+                                           (:deadline (:close c))])))
+                       hs)]
+        (when (seq ds) (reduce min ds))))))
+
+
+(defn- deliver-notify!
+  [p]
+  (let [owed (:notify @(st p))]
+    (swap! (st p) assoc :notify [])
+    (doseq [f owed] (f))
+    (boolean (seq owed))))
+
+
+(defn- expire!
+  "Run every due deadline; answers whether any fired."
+  [p]
+  (let [now (poller/clock-ms)
+        due? #(and % (<= % now))
+        fired (atom false)]
+    (doseq [h (sort-by :id (vals (:handles @(st p))))]
+      (let [c (cell h)]
+        (cond
+          (not (registered? p h)) nil
+          (due? (:upgrade-deadline c))
+          (do (reset! fired true)
+              (release! p h :closed)
+              (when-let [f (:on-upgrade-expired c)] (owe! p f)))
+          (due? (:deadline (:close c)))
+          (do (reset! fired true)
+              (cond
+                (= :ws (:mode c)) (terminate! p h :deadline nil)
+                (:upgrading? c) (do (release! p h :closed)
+                                    (when-let [f (:on-upgrade-expired c)] (owe! p f)))
+                ;; a plain :raw stream has no upgrade to expire: its lowered
+                ;; deadline ends it as a failure
+                :else (fail! p h {:error :close-deadline, :class :other})))
+          (due? (:deadline c))
+          (let [f (:on-deadline c)]
+            (reset! fired true)
+            (cell! h dissoc :deadline :on-deadline)
+            (when f (f))))))
+    @fired))
+
+
+(defn- report-drained!
+  [p]
+  (doseq [[id lh] (:closed-listeners @(st p))]
+    (when (empty? (owned p lh))
+      (swap! (st p) update :closed-listeners dissoc id)
+      (when-let [f (:on-drained (cell lh))] (owe! p f)))))
+
+
+(defn- rotation
+  "The handles named in `ready`, in registration order starting after the
+   id visited last."
+  [p ready]
+  (let [{:keys [handles last-id]} @(st p)
+        revents (reduce (fn [m [fd rev]] (update m fd (fnil bit-or 0) rev)) {} ready)
+        hs (sort-by (comp :id first)
+                    (keep (fn [[fd rev]]
+                            (when-let [h (get handles fd)]
+                              (when (pos? rev) [h rev])))
+                          revents))
+        after? #(> (:id (first %)) last-id)]
+    (concat (filter after? hs) (remove after? hs))))
+
+
+(defn pump!
+  "One bounded turn over `ready` (`[[fd revents] ...]` from the driver's
+   poll; `[]` after a timeout): owed reports, one visit per ready
+   descriptor, held remainders that can resume, due expiries, owed reports.
+   Answers `{:progressed? boolean}`."
+  [p ready]
+  (let [s (st p)]
+    (try
+      (let [notified? (deliver-notify! p)
+            turn (vec (rotation p ready))
+            visited (doall
+                      (for [[h rev] turn
+                            ;; a descriptor released earlier in this turn,
+                            ;; or its number reused, is not visited
+                            :when (registered? p h)]
+                        (let [moved? (case (:kind (cell h))
+                                       :listener (visit-listener! p h)
+                                       :connecting (visit-connecting! p h rev)
+                                       :connection (visit-connection! p h rev))]
+                          (swap! s assoc :last-id (:id h))
+                          moved?)))
+            seen (set (map (comp :id first) turn))
+            resumed (doall
+                      (for [h (sort-by :id (vals (:handles @s)))
+                            :when (and (not (seen (:id h))) (runnable-remainder? h))]
+                        (resume! p h)))
+            fired? (expire! p)
+            _ (report-drained! p)
+            late? (deliver-notify! p)]
+        {:progressed? (boolean (or notified? (some true? visited) (some true? resumed)
+                                   fired? late?))})
+      (finally
+        (maybe-release! p)))))
+
+
+;; =============================================================================
+;; Listener lifecycle (A6 seam)
+;; =============================================================================
+
+(defn close-listener!
+  "Close listener `lh`'s descriptor (no more accepts). Connections it owns
+   stay; `drained?` turns true once none is left, and `:on-drained` is owed
+   once then."
+  [p lh]
+  (when (release! p lh :closed)
+    (swap! (st p) assoc-in [:closed-listeners (:id lh)] lh))
+  (maybe-release! p)
+  nil)
+
+
+(defn drained?
+  "True when listener `lh`'s descriptor is closed and no connection it owns
+   is left."
+  [p lh]
+  (and (not (open? lh)) (empty? (owned p lh))))
+
+
+(defn lower-deadlines!
+  "Bring the close deadline of every connection listener `lh` owns to at
+   most monotonic `at-ms`, setting one where none exists. Expiry is the
+   A5 deadline: shut, 1006."
+  [p lh at-ms]
+  (doseq [h (owned p lh)]
+    (cell! h update-in [:close :deadline] #(if % (min % at-ms) at-ms)))
+  nil)
+
+
+(defn host-pump
+  "The instance as the driver's `:pump` value (A2): `:interest`,
+   `:deadline` (clock-ms or nil) and `:pump!`."
+  [p]
+  {:interest #(interest p)
+   :deadline #(next-deadline p)
+   :pump! #(pump! p %)})
+
+
+(defn debug-state
+  "This instance's registry for diagnostics: its descriptors, whether its
+   native buffers are held, and owed reports."
+  [p]
+  (let [{:keys [handles rbuf notify]} @(st p)]
+    {:fds (vec (sort (keys handles)))
+     :buffers? (some? rbuf)
+     :notify (count notify)}))

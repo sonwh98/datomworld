@@ -129,10 +129,25 @@
     (is (= #{[1 10]} (qq '[:find (min ?v) (max ?v) :where [?e :s/v ?v]] scores)))))
 
 
+(deftest a-non-positive-integer-parameter-yields-an-empty-vector
+  (testing "ungrouped: the value is an empty vector in its normal result cell"
+    (doseq [agg '[min max] n [0 -1 -100]]
+      (is (= #{[[]]} (qq [:find (list agg n '?v) :where '[?e :s/v ?v]] scores))
+          (str agg " " n))))
+  (testing "grouped: every existing group gets an empty vector"
+    (doseq [agg '[min max] n [0 -1]]
+      (is (= #{["a" []] ["b" []]}
+             (qq [:find '?g (list agg n '?v) :where '[?e :s/g ?g] '[?e :s/v ?v]] scores))
+          (str agg " " n))))
+  (testing "positive parameters keep the ordering and multiplicity rules"
+    (is (= #{[[1 2]]} (qq '[:find (min 2 ?v) :where [?e :s/v ?v]] scores)))
+    (is (= #{[[10 4]]} (qq '[:find (max 2 ?v) :where [?e :s/v ?v]] scores)))))
+
+
 (deftest aggregate-arity-and-parameters-are-validated
-  (doseq [form ['[:find (min 0 ?v) :where [?e :s/v ?v]]
-                '[:find (min -1 ?v) :where [?e :s/v ?v]]
-                '[:find (min 1.5 ?v) :where [?e :s/v ?v]]
+  (doseq [form ['[:find (min 1.5 ?v) :where [?e :s/v ?v]]
+                '[:find (max 1.5 ?v) :where [?e :s/v ?v]]
+                '[:find (max :a ?v) :where [?e :s/v ?v]]
                 '[:find (min :a ?v) :where [?e :s/v ?v]]
                 '[:find (min 1 2 ?v) :where [?e :s/v ?v]]
                 '[:find (median 2 ?v) :where [?e :s/v ?v]]

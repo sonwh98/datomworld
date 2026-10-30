@@ -2069,7 +2069,8 @@
         was-hit? (hit? st call-key)
         restore (fn [st]
                   (if was-hit? (note-hit st call-key) (clear-hit st call-key)))
-        run (fn run [st table acc]
+        run (fn run
+              [st table acc]
               (let [st (clear-hit st call-key)
                     a2 {:seen (:seen table), :new [], :acc acc}]
                 (bind (bounce (fn []
@@ -2362,7 +2363,9 @@
 (defn- parse-aggregate
   "Parse `(name arg)` or `(min|max n arg)`: the parameters are preserved
    (the leading literals), the arity validated against the aggregate's
-   declared arities, and a parameter must be a positive integer."
+   declared arities, and a parameter must be an integer. `n <= 0` is
+   accepted and yields an empty vector for an existing group (Datomic Local
+   1.0.301 behavior, errata E15); a non-integer is refused."
   [el]
   (let [[agg-sym & args] el
         spec (get aggregate-fns agg-sym)]
@@ -2380,8 +2383,8 @@
         (throw (ex-info "aggregate argument must be a query variable"
                         {:aggregate agg-sym})))
       (doseq [p params]
-        (when-not (and (integer? p) (pos? p))
-          (throw (ex-info "aggregate parameter must be a positive integer"
+        (when-not (integer? p)
+          (throw (ex-info "aggregate parameter must be an integer"
                           {:aggregate agg-sym, :parameter p}))))
       {:agg (fn [xs] ((:f spec) params xs)), :arg arg, :agg-name agg-sym, :agg-params params})))
 

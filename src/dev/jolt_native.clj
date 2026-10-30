@@ -16,7 +16,8 @@
    one of the declared runtime packages is installed (this task, not
    bootstrap:jolt, checks them), and its canonical path and SHA-256 equal
    :libcrypto :qualified; it records both. native/jolt-crypto links it by the
-   declared path. `--requalify` skips only the :qualified comparison, so a
+   declared path and, since J6c (layout 4), must export exactly the allowlist
+   in its exports.{darwin,linux}. `--requalify` skips only the :qualified comparison, so a
    library that changed can be built against and then qualified (`bb
    qualify:jolt-libcrypto`); the record says so.
 
@@ -276,6 +277,18 @@
          (mapv str/trim))))
 
 
+(defn- allowlist
+  "The exported-symbol allowlist of a native/<dir> wrapper for this
+   platform, without the Mach-O leading underscore."
+  [dir]
+  (if (str/starts-with? (platform) "darwin")
+    (->> (str/split-lines (slurp (str (fs/path dir "exports.darwin"))))
+         (map str/trim) (remove str/blank?) (map #(str/replace % #"^_" ""))
+         sort vec)
+    (->> (re-seq #"(?m)^\s*(jolt_\w+);" (slurp (str (fs/path dir "exports.linux"))))
+         (map second) sort vec)))
+
+
 (defn- build-jolt-crypto!
   "native/jolt-crypto over the built BLAKE3 and the declared libcrypto."
   [blake3 libcrypto cmake plat]
@@ -292,29 +305,23 @@
           (str "-DCMAKE_INSTALL_PREFIX=" dest))
     (run! cmake "--build" bld "--parallel" "--config" "Release")
     (run! cmake "--install" bld "--config" "Release")
-    (let [libs (sort (map str (fs/glob dest "lib/*jolt_crypto*")))]
+    (let [libs (sort (map str (fs/glob dest "lib/*jolt_crypto*")))
+          allowed (allowlist "native/jolt-crypto")]
       (when (empty? libs) (fail! "no jolt_crypto library installed under " dest))
-      (let [exported (into (sorted-map) (map (fn [l] [l (exported-symbols l)])) libs)]
-        (doseq [[l syms] exported
-                s syms]
-          (when-not (str/starts-with? (str/replace s #"^_" "") "jolt_crypto_")
-            (fail! l " exports " s ", outside jolt_crypto_*")))
+      (let [exported (into (sorted-map)
+                           (map (fn [l]
+                                  [l (vec (sort (map #(str/replace % #"^_" "")
+                                                     (exported-symbols l))))]))
+                           libs)]
+        ;; J6c: exactly the named allowlist (layout 4 added jolt_crypto_sha1)
+        (doseq [[l syms] exported]
+          (when-not (= allowed syms)
+            (fail! l " exports " syms ", the allowlist is " allowed)))
         {:prefix dest
+         :allowlist allowed
          :outputs (into (sorted-map) (map (fn [l] [l (file-sha256 l)])) libs)
          :exported exported
          :linked (into (sorted-map) (map (fn [l] [l (linked-libraries l)])) libs)}))))
-
-
-(defn- allowlist
-  "The exported-symbol allowlist of a native/<dir> wrapper for this
-   platform, without the Mach-O leading underscore."
-  [dir]
-  (if (str/starts-with? (platform) "darwin")
-    (->> (str/split-lines (slurp (str (fs/path dir "exports.darwin"))))
-         (map str/trim) (remove str/blank?) (map #(str/replace % #"^_" ""))
-         sort vec)
-    (->> (re-seq #"(?m)^\s*(jolt_\w+);" (slurp (str (fs/path dir "exports.linux"))))
-         (map second) sort vec)))
 
 
 (defn- build-jolt-file!

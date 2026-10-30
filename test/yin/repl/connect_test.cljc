@@ -50,6 +50,17 @@
   (is (= "/a%2Fb" (connect/canonical-path "/a%2fb")))
   (is (= "/a%20b" (connect/canonical-path "/a%20b")))
   (is (= "/repl" (connect/canonical-path "/repl?x=1#y")))
+  (is (= "/b" (connect/canonical-path "/a/%2e%2e/b")))
+  (is (= "/b" (connect/canonical-path "/a/%2E%2E/b")))
+  (is (= "/a%2Fb" (connect/canonical-path "/a%2Fb")))
+  (is (= "/relative" (connect/canonical-path "relative")))
+  (is (nil? (connect/canonical-path "/bad/%zz")))
+  (is (nil? (connect/canonical-path "/bad/%2")))
+  (is (= :yin.repl.connect/invalid-url
+         (get (connect/parse-url "ws://h:1/bad/%zz") connect/outcome-key)))
+  (is (= :yin.repl.connect/invalid-url
+         (get (connect/parse-url "ws://h:1/%2") connect/outcome-key)))
+  (is (= "/b" (:path (parsed-spec "ws://h:1/a/%2e%2e/b"))))
   (is (= "/repl" (:path (parsed-spec "ws://h:1/repl?x=/y")))))
 
 

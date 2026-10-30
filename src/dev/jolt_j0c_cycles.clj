@@ -18,6 +18,13 @@
     [yang.antlr.cst :as cst]))
 
 
+;; J5: yang.antlr.cst loads the native library on first use; load it before
+;; any raw jolt_parser_* binding below is called
+(when-not (cst/available?)
+  (println "FAIL the native parser library did not load")
+  (System/exit 1))
+
+
 (ffi/defcfn c-heap "jolt_parser_heap_in_use" [] :uint64)
 (ffi/defcfn c-export "jolt_parser_export" [:pointer :pointer :size_t :pointer :pointer] :int :blocking)
 (ffi/defcfn c-free "jolt_parser_free" [:pointer] :void)
@@ -90,6 +97,26 @@
   (let [h1 (second (peek @samples))]
     (println "RECORD bare export/free cycles heap samples [cycle bytes]" (pr-str @samples))
     (check (str cycles " bare jolt_parser_export/jolt_parser_free cycles keep malloc growth under 1 MiB")
+           (< (- h1 h0) bound) {:start h0, :end h1, :growth (- h1 h0)})))
+
+
+;; J5 (known-gaps row 59): the convenience calls make and dispose a worker per
+;; call (yang.python.antlr.parser/parse-source and first-failure, the REPL's
+;; path); their native memory must stay flat as well
+(require '[yang.python.antlr.parser :as parser])
+
+
+(let [h0 (settle)
+      samples (volatile! [[0 h0]])]
+  (dotimes [i cycles]
+    (let [src (sources (mod i (count sources)))]
+      (try (parser/parse-source src) (catch Throwable _ nil))
+      (parser/first-failure src))
+    (when (zero? (mod (inc i) 1000))
+      (vswap! samples conj [(inc i) (settle)])))
+  (let [h1 (second (peek @samples))]
+    (println "RECORD convenience parse-source/first-failure cycles heap samples [cycle bytes]" (pr-str @samples))
+    (check (str cycles " convenience parse-source + first-failure calls (a worker made and disposed in each) keep malloc growth under 1 MiB")
            (< (- h1 h0) bound) {:start h0, :end h1, :growth (- h1 h0)})))
 
 

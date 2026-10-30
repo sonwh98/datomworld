@@ -1,0 +1,133 @@
+;; Slice 8 portability source, adaptation v1, pinned LaTTe 86fca0d1.
+;; A context occupies the def-env argument throughout the adapted kernel.
+;; Read operations retain it; writes return a new context. No ambient defaults:
+;; callers supply both extension bindings at initialization. A fresh allocation
+;; returns [name context]. Runtime closures are constructed by guest evaluation.
+[(defn context-not-empty [x] (if (seq x) x nil))
+ (defn context-ffirst [x] (first (first x)))
+ (defn context-list-star
+   ([a tail] (cons a tail))
+   ([a b tail] (cons a (cons b tail))))
+ (defn lookup-in [coll path]
+   (reduce (fn [coll k] (get coll k)) coll path))
+ (defn ->Definition [name params arity parsed-term term-free-vars type opts]
+   {:latte/kind :definition :name name :params params :arity arity
+    :parsed-term parsed-term :term-free-vars term-free-vars :type type :opts opts})
+ (defn ->Theorem [name params arity type proof]
+   {:latte/kind :theorem :name name :params params :arity arity :type type :proof proof})
+ (defn ->Axiom [name params arity type]
+   {:latte/kind :axiom :name name :params params :arity arity :type type})
+ (defn ->Notation [name notation-fn]
+   {:latte/kind :notation :name name :notation-fn notation-fn})
+ (defn ->Implicit [name implicit-fn]
+   {:latte/kind :implicit :name name :implicit-fn implicit-fn})
+ (defn definition? [v] (= :definition (:latte/kind v)))
+ (defn theorem? [v] (= :theorem (:latte/kind v)))
+ (defn axiom? [v] (= :axiom (:latte/kind v)))
+ (defn notation? [v] (= :notation (:latte/kind v)))
+ (defn implicit? [v] (= :implicit (:latte/kind v)))
+ (defn latte-definition? [v]
+   (or (definition? v) (theorem? v) (axiom? v) (notation? v) (implicit? v)))
+ (defn kernel-context [definitions opacity-policy unfold-implicit]
+   {:definitions definitions
+    :unparser-registry {:fundamental [] :standard [] :user [] :unparsers {}}
+    :opacity-policy opacity-policy :unfold-implicit unfold-implicit :fresh 0})
+ (defn local-definitions [kernel] (second (:definitions kernel)))
+ (defn register-definition
+   ([kernel rdef] (register-definition kernel rdef false))
+   ([kernel rdef local?]
+    (let [[globals locals] (:definitions kernel)]
+      (assoc kernel :definitions
+             (if local? [globals (assoc locals (:name rdef) rdef)]
+                 [(assoc globals (:name rdef) rdef) locals])))))
+ (defn fetch-definition
+   ([kernel dname] (fetch-definition kernel dname false))
+   ([kernel dname local-only?]
+    (let [[globals locals] (:definitions kernel)]
+      (if (symbol? dname)
+        (if-let [ldef (get locals dname)]
+          [:ok ldef]
+          (if local-only?
+            [:ko {:msg "No such (local) definition" :def dname}]
+            (if-let [gdef (get globals dname)]
+              [:ok gdef]
+              [:ko {:msg "No such (global) definition" :def dname}])))
+        (throw (ex-info "Cannot fetch definition (please report)" {:dname dname}))))))
+ (defn registered-definition?
+   ([kernel dname] (registered-definition? kernel dname false))
+   ([kernel dname local?] (= :ok (first (fetch-definition kernel dname local?)))))
+ (defn qualify-def [kernel dname]
+   (if (= :ok (first (fetch-definition kernel dname)))
+     dname
+     (throw (ex-info "Cannot qualify symbol: not a known definition" {:symbol dname}))))
+ (defn fresh-name [kernel prefix]
+   [(gensym prefix (:fresh kernel)) (assoc kernel :fresh (+ (:fresh kernel) 1))])
+ (defn install-unfold-implicit [kernel unfold-fn]
+   (assoc kernel :unfold-implicit unfold-fn))
+ (defn install-opacity-function [kernel opacity-fn]
+   (assoc kernel :opacity-policy opacity-fn))
+ (defn missing-opacity-policy [ddef opaque?]
+   (throw (ex-info "Opacity management function not installed (please report)" {:weird true})))
+ (defn missing-unfold-implicit [kernel ctx implicit-def args]
+   (throw (ex-info "Implicit unfolding function not installed" {})))
+ (defn definition-opacity [ddef opaque?]
+   (assoc ddef :opts (assoc (:opts ddef) :opaque opaque?)))
+ (defn is-opaque? [ddef]
+   (if-let [opts (get ddef :opts)] (get opts :opaque)))
+ (defn elab-opacity [kernel names opaque?]
+   (reduce
+     (fn [kernel dname]
+       (let [[status ddef] (fetch-definition kernel dname)]
+         (when (= status :ko)
+           (throw (ex-info "Cannot qualify symbol: not a known definition" {:symbol dname})))
+         (when (= (if (is-opaque? ddef) true false) opaque?)
+           (throw (ex-info (if opaque? ":opaque fails: definition is already opaque"
+                              ":transparent fails: definition is not opaque") {:name dname})))
+         (let [updated ((:opacity-policy kernel) ddef opaque?)]
+           (register-definition kernel updated (contains? (local-definitions kernel) dname)))))
+     kernel names))
+ (defn elab-opaque [kernel names] (elab-opacity kernel names true))
+ (defn elab-transparent [kernel names] (elab-opacity kernel names false))
+ ;; Preserve the upstream unregister's :user-from-:standard behavior exactly.
+ (defn unregister-unparser [kernel ident]
+   (let [registry (:unparser-registry kernel)]
+     (when (not (contains? (:unparsers registry) ident))
+       (throw (ex-info "No such unparser." {:ident ident})))
+     (assoc kernel :unparser-registry
+            {:fundamental (into [] (remove (fn [x] (= x ident)) (:fundamental registry)))
+             :standard (into [] (remove (fn [x] (= x ident)) (:standard registry)))
+             :user (into [] (remove (fn [x] (= x ident)) (:standard registry)))
+             :unparsers (data/dissoc (:unparsers registry) ident)})))
+ (defn register-unparser
+   ([kernel ident unparser] (register-unparser kernel :user ident unparser))
+   ([kernel category ident unparser]
+    (let [kernel (if (lookup-in kernel [:unparser-registry :unparsers ident])
+                   (unregister-unparser kernel ident) kernel)
+          registry (:unparser-registry kernel)]
+      (when (not (contains? #{:fundamental :standard :user} category))
+        (throw (ex-info "Wrong unparser category." {:category category})))
+      (assoc kernel :unparser-registry
+             (assoc registry category (conj (get registry category) ident)
+                    :unparsers (assoc (:unparsers registry) ident unparser))))))
+ (defn unparser-order [kernel]
+   (let [registry (:unparser-registry kernel)]
+     (concat (:fundamental registry) (:standard registry) (:user registry))))
+ ;; Same typed-argument boundary as the slice-5 catch adaptation, now with
+ ;; the real record field and calling convention (def-env ctx & typed-args).
+ (defn unfold-typed-implicit [kernel ctx implicit-def targs args]
+   (let [outcome (yin.k/outcome-of (apply (:implicit-fn implicit-def) kernel ctx targs))]
+     (if (= :yin.k/error (first outcome))
+       [:ko (merge {:implicit (:name implicit-def) :msg (:yin.k/message (second outcome))}
+                   (:yin.k/data (second outcome))) nil]
+       [:ok (second outcome) args])))
+ ;; These are the state/diagnostic arms of proof/elab-proof-step. The full
+ ;; parsing/typing arms belong to slice 9; unsupported steps fail explicitly.
+ ;; The updated context occupies the original def-env slot in :cont, so the
+ ;; existing proof loop passes it to all subsequent steps.
+ (defn elab-proof-step [kernel ctx var-deps def-uses step args]
+   (case step
+     :opaque [:cont [(elab-opaque kernel args) ctx var-deps def-uses]]
+     :transparent [:cont [(elab-transparent kernel args) ctx var-deps def-uses]]
+     (:print-term :print-type :print-def :print-defenv)
+     [:cont [kernel ctx var-deps def-uses]]
+     (throw (ex-info "Unsupported context proof step" {:step step :args args}))))]

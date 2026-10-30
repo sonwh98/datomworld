@@ -143,5 +143,5 @@ If a problem appears complex:
 - **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
 - **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
 - **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
-- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; each orchestrator session has its own append-only log at `orchestrator-logs/<unix-time-stamp>-<brief-orchestrator-descriptive-name>.md` under the repository root.
 - **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.

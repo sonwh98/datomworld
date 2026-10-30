@@ -95,12 +95,12 @@
 
 (deftest prelude-address-test
   (testing "the bundled prelude: one address on every host (JVM golden; it
-            moves with every prelude change; re-pinned for balanced
-            sequencing of the bundled definitions)"
+            moves with every prelude change; re-pinned for the shared
+            call runtime and the T3 constructor entry)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "67f28d491675195c73779c83a30921a8"
-                  "5f09cc817121cbdb930a593dc89df83d"))
+                  "112fda52dc1e1f0aa60e3d5fb2fedc6f"
+                  "6ea474567f51b63573701cb08da55f70"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))))
 
 
@@ -134,11 +134,11 @@
 
 (deftest program-address-test
   (testing "the float-bearing program: one address on every host (JVM
-            golden; includes the balanced bundled prelude)"
+            golden; includes the shared call runtime and T3 bundled prelude)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "5ef27556601d7d1417368efc313639c6"
-                  "b08c8dcc851fb61ab6eb0ef7f45e7f2b"))
+                  "b92ab1304c794af19ef3db745dfca9a5"
+                  "8050389029086efe54052bd989142bce"))
            (:root (vm/ast->semantic-bytecode float-program)))))
   (testing "decoding the program and projecting it again keeps the address"
     (let [bytecode (vm/ast->semantic-bytecode float-program)

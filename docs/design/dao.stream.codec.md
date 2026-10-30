@@ -7,17 +7,17 @@ them.
 
 Status: design only; nothing commissioned. Written 2026-10-20 by the Architect
 (claude-fable-5-1; rationale in
-`collab/1792455434000-architect-stream-codec-design.claude-fable-5-1.findings.md`,
+`archive/dao-stream/1792455434000-architect-stream-codec-design.claude-fable-5-1.findings.md`,
 made standalone the same day per
-`collab/1792456214000-architect-stream-codec-standalone.claude-fable-5-1.findings.md`).
+`archive/dao-stream/1792456214000-architect-stream-codec-standalone.claude-fable-5-1.findings.md`).
 Revised the same day (r2) to address the independent review
-`collab/1792456650000-architect-stream-codec-design-review.gpt-6-astra.findings.md`
+`archive/dao-stream/1792456650000-architect-stream-codec-design-review.gpt-6-astra.findings.md`
 (findings A1-A5; the revision's rationale is in
-`collab/1792456810000-architect-stream-codec-design-r2.claude-fable-5-1.findings.md`),
+`archive/dao-stream/1792456810000-architect-stream-codec-design-r2.claude-fable-5-1.findings.md`),
 and again (r3) to address the round-2 review
-`collab/1792457440000-architect-stream-codec-design-r2-review.gpt-6-astra.findings.md`
+`archive/dao-stream/1792457440000-architect-stream-codec-design-r2-review.gpt-6-astra.findings.md`
 (findings A1-r2 through A4-r2; rationale in
-`collab/1792458220000-architect-stream-codec-design-r3.claude-fable-5-1.findings.md`).
+`archive/dao-stream/1792458220000-architect-stream-codec-design-r3.claude-fable-5-1.findings.md`).
 This is an independent track: it depends on no other design document and no
 other document's slices, and an orchestrator can run it from this document
 alone (§10, §11). No code was changed; every claim about the tree is labelled.

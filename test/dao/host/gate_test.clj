@@ -751,7 +751,9 @@
    "src/cljc/dao/jing/dht.cljc" {:rand 1}
    "src/cljc/dao/space/dht.cljc" {:secure-random 3}
    "src/cljc/yin/vm/linker/sign.cljc" {:secure-random 2}
-   "src/cljc/yang/clojure.cljc" {:gensym 2}
+   ;; yang.clojure.cljc left the gensym list in slice 7: the library's gensym
+   ;; uses an explicit supply and the and/or expansion temps are dsg__-prefixed,
+   ;; so the file no longer calls host gensym at all.
    "src/cljc/yang/php.cljc" {:gensym 1}
    "src/cljc/dao/space/transact.cljc" {:gensym 1}
    ;; §3.2 clocks, ambient reads, printing, timers: the driver and the seams
@@ -981,12 +983,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after H4 + the yang.core L2 regeneration: 154 / 152 / 153 files, 146 shared"
+  (testing "§3.1 after H4, the yang.core L2 regeneration and J6b's ws parser/upgrade: 155 / 153 / 154 files, 147 shared"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 154 (count (files :clj))))
-      (is (= 152 (count (files :cljs))))
-      (is (= 153 (count (files :cljd))))
-      (is (= 146 (count (apply set/intersection (vals files)))))
+      (is (= 155 (count (files :clj))))
+      (is (= 153 (count (files :cljs))))
+      (is (= 154 (count (files :cljd))))
+      (is (= 147 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
@@ -1003,8 +1005,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 166 (count (closure-files))) "the union of the three lanes")
-    (is (= 166 (count (gate-files))) "no profile addition outside the closure after H3")
+    (is (= 167 (count (closure-files))) "the union of the three lanes")
+    (is (= 167 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))

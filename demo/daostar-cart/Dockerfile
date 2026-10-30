@@ -23,6 +23,7 @@ FROM clojure:temurin-21-tools-deps
 WORKDIR /app
 COPY --from=build /root/.m2 /root/.m2
 COPY --from=build /root/.clojure /root/.clojure
+COPY --from=build /root/.gitlibs /root/.gitlibs
 COPY --from=build /app /app
 ENV PORT=3004 \
     CATALOG_PATH=/data/catalog.edn \

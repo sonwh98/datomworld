@@ -1075,9 +1075,13 @@
   [ctx f arguments refs]
   (let [[pos named] (lower-arguments ctx arguments refs)]
     (core/site :call
-               (if named
-                 (app* 'php/call-named f pos named)
-                 (app* 'php/call f pos)))))
+               (if (seq refs)
+                 (app* 'php/call-with-binding-profile
+                       f pos (or named (u/lit []))
+                       (u/lit "sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb"))
+                 (if named
+                   (app* 'php/call-named f pos named)
+                   (app* 'php/call f pos))))))
 
 
 (defn- argument-chains
@@ -2115,7 +2119,9 @@
                                        (u/lit required)
                                        (u/lit exact?)))
                                (cond
-                                 ref? (app* 'php/param-ref (u/v a))
+                                 ref? (app* 'php/param-ref
+                                            (u/v a)
+                                            (u/v '%binding-profile))
                                  :else (app* 'php/addref (u/v a)))))))))
 
 
@@ -2186,8 +2192,11 @@
                    (map (fn [c]
                           [(symbol (:name c))
                            (app* 'cell/new
-                                 (app* (if (:ref? c) 'php/param-ref 'php/copy-capture)
-                                       (u/v (:sym c))))])
+                                 (if (:ref? c)
+                                   (app* 'php/param-ref
+                                         (u/v (:sym c))
+                                         (u/lit "sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb"))
+                                   (app* 'php/copy-capture (u/v (:sym c)))))])
                         captures)
                    (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))])
                         (:statics scope))
@@ -2195,7 +2204,7 @@
         wrapped (reduce (fn [inner [sym value]] (u/let1 sym value inner))
                         body
                         (reverse bindings))]
-    [(u/lam ['%fn '%args] wrapped)
+    [(u/lam ['%fn '%args '%binding-profile] wrapped)
      {:required required,
       :total total,
       :variadic variadic?,

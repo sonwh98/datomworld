@@ -16,6 +16,7 @@
     [yang.antlr.cst :as cst]
     [yang.stage :as stage])
   #?@(:cljd []
+      :jolt []
       :clj [(:import
               (yang.python.antlr.gen
                 Python3Lexer
@@ -29,45 +30,128 @@
 
 (def profile
   {:grammar-id grammar-id,
+   ;; jolt: the C++ recognizers live in native/jolt-parser behind the jolt
+   ;; yang.antlr.cst, which builds no lexer or parser from the profile
    :make-lexer #?(:cljd (fn [cs] (lexer-ns/Python3Lexer cs))
+                  :jolt nil
                   :default (fn [cs] (Python3Lexer. cs))),
    :make-parser #?(:cljd (fn [ts] (parser-ns/Python3Parser ts))
+                   :jolt nil
                    :default (fn [ts] (Python3Parser. ts))),
    :start #?(:cljd (fn [p] (.file_input ^parser-ns/Python3Parser p))
+             :jolt nil
              :clj (fn [^Python3Parser p] (.file_input p))
              :cljs (fn [^js p] (.file_input p)))})
 
 
-(def rule-names
-  "The grammar's rule-name table."
+(defn rule-names
+  "The grammar's rule-name table. A function, so requiring this namespace
+   does no native work: on jolt the table is what the native parser reports,
+   read when first asked for (unavailable-parser is thrown while the library
+   is unavailable, and a later call retries)."
+  []
   ;; Dart's table is an instance member of the generated parser.
   #?(:cljd (vec (.-ruleNames
                   (parser-ns/Python3Parser
                     (antlr4/CommonTokenStream
                       (lexer-ns/Python3Lexer
                         (antlr4/InputStream.fromString ""))))))
+     :jolt (cst/rule-names)
      :clj (vec (seq Python3Parser/ruleNames))
      :cljs (vec (.-ruleNames Python3Parser))))
 
 
+(defn available?
+  "True when this host's recognizers can be built. Always on the JVM, Node
+   and Dart (the generated parser ships with the build); on jolt, only when
+   native/jolt-parser loaded and writes the expected layout, so a missing or
+   incompatible library leaves Python out of the catalog (never another
+   parser) instead of failing the load."
+  []
+  #?(:jolt (cst/available?) :default true))
+
+
 (defn make-worker
+  "A worker for this grammar. On jolt it owns a native handle; dispose it with
+   `close-worker` (the convenience calls below dispose their own)."
   []
   (cst/make-worker profile))
 
 
+(defn close-worker
+  "Dispose `worker` (jolt: its native handle and caches; idempotent, and a
+   closed worker refuses further parses). The other hosts' workers are
+   collected, so this does nothing there."
+  [worker]
+  #?(:jolt (cst/close-worker worker) :default nil))
+
+
+(defn- with-worker
+  "(f worker) over a worker made for this one call and disposed however f
+   exits (J5, known-gaps row 59: no convenience call leaves a native worker)."
+  [f]
+  (let [w (make-worker)]
+    (try (f w)
+         (finally (close-worker w)))))
+
+
 (defn parse-source
   "Parse one complete source string as unit `unit`: the packet a sealed unit
-   with this text produces."
-  ([source] (parse-source (make-worker) [:unit 0] source))
+   with this text produces. The one-argument form makes a worker for the
+   call and disposes it."
+  ([source] (with-worker #(parse-source % [:unit 0] source)))
   ([worker unit source] (cst/parse-unit worker unit source)))
+
+
+(defn first-failure
+  "Where the grammar first refuses `source` (`yang.antlr.cst/first-failure`:
+   nil, :end or :early), with a worker made for this call and disposed.
+
+   On jolt an input over the native parser's budget answers :early: more
+   lines can only grow its size and its nesting, so it cannot be mended, and
+   the parse stage then reports the qualified :parser-budget refusal."
+  [source]
+  (with-worker
+    (fn [w]
+      (try (cst/first-failure w source)
+           (catch #?(:cljd Object :clj Exception :cljs :default) e
+             (if (= :parser-budget (:diagnostic (ex-data e)))
+               :early
+               (throw e)))))))
 
 
 (defn open-stage
   "A parser stage reading source events from `source-stream` and writing
-   CST packets to `cst-stream`, with its own worker."
+   CST packets to `cst-stream`. The stage owns its worker: `close-stage`
+   disposes it and `reset-stage` replaces it with a fresh one."
   [source-stream cst-stream]
-  (assoc (stage/open source-stream {:cst cst-stream} {})
-         ::transform (cst/parse-transform (make-worker))))
+  ;; the stage first: opening it can refuse (a source cursor that cannot be
+  ;; had), and then no worker exists to leak
+  (let [s (stage/open source-stream {:cst cst-stream} {})
+        w (make-worker)]
+    (try
+      (assoc s
+             ::worker w
+             ::transform (cst/parse-transform w))
+      (catch #?(:cljd Object :clj Throwable :cljs :default) e
+        (close-worker w)
+        (throw e)))))
+
+
+(defn close-stage
+  "Dispose the stage's worker (teardown). The stage parses no more."
+  [s]
+  (close-worker (::worker s))
+  nil)
+
+
+(defn reset-stage
+  "The stage with its worker disposed and a fresh one in its place, so no
+   recognizer cache survives a reset."
+  [s]
+  (close-worker (::worker s))
+  (let [w (make-worker)]
+    (assoc s ::worker w ::transform (cst/parse-transform w))))
 
 
 (defn step-stage

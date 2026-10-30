@@ -25,7 +25,6 @@
    a block."
   (:require
     [clojure.string :as str]
-    [yang.antlr.cst :as cst]
     [yang.python.antlr.parser :as parser]))
 
 
@@ -160,12 +159,12 @@
       error :complete
       ;; the open string stands as an empty one: an error on it or before
       ;; it is not mended by more lines
-      string (if (= :early (cst/first-failure (parser/make-worker) (str (subs text 0 string-at)
-                                                                        "''\n")))
+      string (if (= :early (parser/first-failure (str (subs text 0 string-at)
+                                                      "''\n")))
                :complete
                :incomplete)
       (and (not open?) (last-line-blank? text)) :complete
-      :else (case (cst/first-failure (parser/make-worker) (str text "\n"))
+      :else (case (parser/first-failure (str text "\n"))
               nil (if (or open? block?) :incomplete :complete)
               :end :incomplete
               :early :complete))))

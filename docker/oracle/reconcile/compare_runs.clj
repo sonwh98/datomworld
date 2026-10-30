@@ -1,0 +1,18 @@
+(require '[clojure.edn :as edn])
+(def a (edn/read-string (slurp "target/p5-smoke.edn")))
+(def b (edn/read-string (slurp "/tmp/jupiter-observations.edn")))
+(println "jars local  " (:datomic-jars a))
+(println "jars jupiter" (:datomic-jars b))
+(def ia (into {} (map (juxt :id identity)) (:observations a)))
+(def ib (into {} (map (juxt :id identity)) (:observations b)))
+(println "same ids" (= (set (keys ia)) (set (keys ib))) (count ia) (count ib))
+(def ks [:observation :normalized :message :phase :error-class :arg-map-options])
+
+
+(let [diffs (for [[id oa] ia :let [ob (ib id)] :when (not= (select-keys oa ks) (select-keys ob ks))] id)
+      order-only (for [id diffs :let [x (ia id) y (ib id)] :when (= (frequencies (:normalized x)) (frequencies (:normalized y)))] id)]
+  (println "differing on observation/normalized/message/phase/class:" (vec diffs))
+  (println "of which equal as multisets (row order only):" (vec order-only)))
+
+
+(println "not-eligible equal" (= (:not-eligible a) (:not-eligible b)))

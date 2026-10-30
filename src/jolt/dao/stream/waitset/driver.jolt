@@ -1,16 +1,27 @@
 (ns dao.stream.waitset.driver
   "Jolt wait-set wake policy: a nonblocking self-pipe carrying contentless
    tokens. No interpreter state or dispatch lives here. Plain-thread waits
-   use the poller's monotonic deadline; stdin waits multiplex the same pipe
-   with fd 0 through jolt's existing native poll binding. No reader thread.
-   Accepted shell limitation: a partial line blocks its owner until newline."
-  (:require [jolt.ffi :as ffi]
+   use the poller's monotonic deadline; stdin and socket waits multiplex the
+   same pipe with fd 0 and a pump's interest descriptors through jolt's
+   native poll binding, on the one owner thread. No reader thread.
+
+   Stdin is read raw from fd 0 into a driver-owned line buffer (plan v2 A1),
+   one read(2) per round and only after poll reported fd 0 ready, so the
+   read never waits. Complete lines are deposited; a partial line stays
+   buffered and never blocks the owner; a zero-length read is end of input.
+   Chez's buffered System/in is never read, so no byte is split between two
+   readers."
+  (:require [dao.host.text :as text]
+            [jolt.ffi :as ffi]
             [jolt.io-poller :as poller]
             [jolt.socket.native :as native]))
 
 
 (ffi/load-library)
 (ffi/defcfn c-pipe "pipe" [:pointer] :int)
+
+
+(def ^:private stdin-chunk 4096)
 
 
 (defn make-wake
@@ -22,7 +33,9 @@
       (let [r (ffi/read fds :int 0) w (ffi/read fds :int 4)]
         (poller/nonblock! r)
         (poller/nonblock! w)
-        {:read r :write w})
+        ;; :stdin is the partial line held between rounds (bytes after the
+        ;; last newline), owned by this wake's one owner thread
+        {:read r :write w :stdin (atom (byte-array 0))})
       (finally (ffi/free fds)))))
 
 
@@ -69,27 +82,131 @@
   (drain! wake))
 
 
+;; =============================================================================
+;; Stdin lines
+;; =============================================================================
+
+(defn- concat-bytes
+  [a b]
+  (let [na (alength a) nb (alength b) out (byte-array (+ na nb))]
+    (dotimes [i na] (aset out i (aget a i)))
+    (dotimes [i nb] (aset out (+ na i) (aget b i)))
+    out))
+
+
+(defn- slice
+  [bs start end]
+  (let [out (byte-array (- end start))]
+    (dotimes [i (- end start)] (aset out i (aget bs (+ start i))))
+    out))
+
+
+(defn- decode-line
+  "The text of line bytes `bs` (newline excluded), one trailing CR dropped
+   as the JVM's readLine does. Ill-formed UTF-8 falls back to jolt's
+   lossy decode rather than losing the line."
+  [bs]
+  (let [n (alength bs)
+        n (if (and (pos? n) (= 13 (aget bs (dec n)))) (dec n) n)]
+    (try
+      (text/utf8-decode bs 0 n)
+      (catch Throwable _
+        (let [p (ffi/alloc (max 1 n))]
+          (try (ffi/write-array p bs 0 n)
+               (ffi/read-bytes p n)
+               (finally (ffi/free p))))))))
+
+
+(defn- deposit-lines!
+  "Append `chunk` to the held partial line and deposit every complete line
+   through `line!`, keeping the remainder."
+  [wake chunk line!]
+  (let [bs (concat-bytes @(:stdin wake) chunk)
+        n (alength bs)]
+    (loop [start 0 i 0]
+      (cond
+        (= i n) (reset! (:stdin wake) (slice bs start n))
+        (= 10 (aget bs i)) (do (line! (decode-line (slice bs start i)))
+                               (recur (inc i) (inc i)))
+        :else (recur start (inc i))))))
+
+
+(defn- end-of-input!
+  "Deposit a held unterminated last line, as read-line answers it, then
+   nil."
+  [wake line!]
+  (let [held @(:stdin wake)]
+    (reset! (:stdin wake) (byte-array 0))
+    (when (pos? (alength held)) (line! (decode-line held)))
+    (line! nil)))
+
+
+(defn- read-stdin!
+  "One read(2) of fd 0, which poll reported ready. Answers true when it
+   deposited or reached end of input."
+  [wake line!]
+  (let [buf (ffi/alloc stdin-chunk)]
+    (try
+      (let [n (poller/c-read 0 buf stdin-chunk) e (ffi/errno)]
+        (cond
+          (pos? n) (do (deposit-lines! wake (ffi/read-array buf n) line!) true)
+          (and (neg? n) (or (poller/eintr? e) (poller/eagain? e))) false
+          ;; zero, or a descriptor that cannot be read (closed fd 0): end
+          :else (do (end-of-input! wake line!) true)))
+      (finally (ffi/free buf)))))
+
+
+;; =============================================================================
+;; One owner round
+;; =============================================================================
+
+(defn sleep-fds!
+  "One owner round's wait (plan v2 A1): poll the wake pipe, fd 0 (when
+   `line!` is given) and `pump`'s interest descriptors (when `pump` is
+   given) until one is ready or the earlier of `sleep-ms` and the pump's
+   `:deadline` (`jolt.io-poller/clock-ms`; nil, or a pump without one, is
+   the cadence alone) passes; then drain the wake pipe, run one
+   `(:pump! pump)` turn over the observed `[[fd revents] ...]` (every
+   round; `[]` after a timeout), then deposit stdin lines through `line!`
+   (nil at end of input). A deadline already due still polls once, with a
+   zero timeout, so readiness seen then reaches the same `pump!` turn as
+   the expiry. Never evaluates. Answers truthy when anything was woken,
+   moved or deposited."
+  [wake sleep-ms pump line!]
+  (let [interest (if pump (vec ((:interest pump))) [])
+        base (if line! 2 1)
+        n (+ base (count interest))
+        fds (native/alloc-pollfds n)
+        cadence (poller/deadline-ms sleep-ms)
+        due (when-let [f (:deadline pump)] (f))
+        deadline (if due (min due cadence) cadence)]
+    (try
+      (native/init-pollfd! fds 0 (:read wake) native/pollin)
+      (when line! (native/init-pollfd! fds 1 0 native/pollin))
+      (dotimes [i (count interest)]
+        (let [[fd events] (nth interest i)]
+          (native/init-pollfd! fds (+ base i) fd events)))
+      (loop []
+        (let [remaining (max 0 (long (Math/ceil (- deadline (poller/clock-ms)))))
+              [rc e] (native/c-poll fds n remaining)]
+          (cond
+            (and (neg? rc) (native/eintr? e)) (recur)
+            (neg? rc) (throw (ex-info "owner poll failed" {:errno e}))
+            :else nil)))
+      (let [ready (vec (keep (fn [i]
+                               (let [rev (native/pollfd-revents fds (+ base i))]
+                                 (when (pos? rev) [(first (nth interest i)) rev])))
+                             (range (count interest))))
+            woken? (drain! wake)
+            progressed? (when pump (:progressed? ((:pump! pump) ready)))
+            stdin? (when (and line! (pos? (native/pollfd-revents fds 1)))
+                     (read-stdin! wake line!))]
+        (or woken? progressed? stdin?))
+      (finally (ffi/free fds)))))
+
+
 (defn sleep-input!
   "Wait for a nudge, stdin, or the cadence deadline. `line!` only deposits
-   one line (nil at EOF). Check Chez's buffered port before the fd: read-line
-   can have prefetched the next submission. Never evaluate from this seam."
+   lines (nil at EOF). Never evaluate from this seam."
   [wake sleep-ms line!]
-  (let [ready? #(pos? (.available System/in))
-        fds (native/alloc-pollfds 2)
-        deadline (poller/deadline-ms sleep-ms)]
-    (try
-      (when-not (ready?)
-        (native/init-pollfd! fds 0 (:read wake) native/pollin)
-        (native/init-pollfd! fds 1 0 native/pollin)
-        (loop []
-          (let [remaining (max 0 (long (Math/ceil (- deadline (poller/clock-ms)))))
-                [rc e] (native/c-poll fds 2 remaining)]
-            (cond
-              (and (neg? rc) (native/eintr? e)) (recur)
-              (neg? rc) (throw (ex-info "stdin/wake poll failed" {:errno e}))
-              :else nil))))
-      (let [woken? (drain! wake)
-            stdin? (or (ready?) (pos? (native/pollfd-revents fds 1)))]
-        (when stdin? (line! (read-line)))
-        (or woken? stdin?))
-      (finally (ffi/free fds)))))
+  (sleep-fds! wake sleep-ms nil line!))

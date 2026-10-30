@@ -42,6 +42,19 @@
             "'")))
 
 
+(defn json-lit
+  "A double-quoted JSON string literal (for signal patches)."
+  [s]
+  (str "\"" (-> (str s)
+                (str/replace "\\" "\\\\")
+                (str/replace "\"" "\\\"")
+                (str/replace "\r" "\\r")
+                (str/replace "\n" "\\n")
+                (str/replace "\u2028" "\\u2028")
+                (str/replace "\u2029" "\\u2029"))
+       "\""))
+
+
 (defn enc-path
   "Make an asset path safe inside an attribute and a URL: the characters that
    would end an attribute, a path or start a query are percent-encoded.  Other
@@ -75,12 +88,15 @@
 
 
 (defn act
-  "A click action: set the `act`/`arg` signals and post to the occurrence token.
-   `prefix` is \"\" for the shop and \"/grid\" for the grid."
-  ([prefix token a] (act prefix token a nil))
-  ([prefix token a arg]
+  "A click action: set the `act`/`arg` signals and post to /k/ + the `tok`
+   signal — the CURRENT occurrence, which every projection keeps updated.
+   Baking a token into the attribute would go stale after the first consumed
+   action (the reviewer's HIGH finding).  `prefix` is \"\" for the shop and
+   \"/grid\" for the grid."
+  ([prefix _token a] (act prefix _token a nil))
+  ([prefix _token a arg]
    (str "$act=" (js-lit a) "; $arg=" (js-lit (or arg "")) "; @post('"
-        prefix "/k/" (esc token) "')")))
+        prefix "/k/'+$tok)")))
 
 
 (defn button
@@ -94,15 +110,18 @@
    stylesheet, base signals, a subscription to the lineage's token, and
    `pre` — markup placed before the app body (the search input renders there
    once, as a sibling of every patched element)."
-  [{:keys [prefix title signals root pre]}]
+  [{:keys [prefix title signals root pre app-id] :or {app-id "app-body"}}]
   (str "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
        "<title>" (esc title) "</title>"
-       "<link rel=\"stylesheet\" href=\"/css/cart.css\">"
+       "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">"
+       "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>"
+       "<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Rajdhani:wght@600;700&display=swap\" rel=\"stylesheet\">"
+       "<link rel=\"stylesheet\" href=\"/css/cart.css?v=6\">"
        "<script type=\"module\" src=\"/js/datastar.js\"></script></head>"
        "<body data-signals=\"" (esc signals) "\" data-init=\"@get('" prefix "/s/" (esc root) "',{retry:'always'})\">"
        pre
-       "<div id=\"app-body\"><p class=\"loading\">Loading…</p></div></body></html>"))
+       "<div id=\"" app-id "\"><p class=\"loading\">Loading…</p></div></body></html>"))
 
 
 ;; -----------------------------------------------------------------------------
@@ -129,12 +148,6 @@
   (reduce + 0 (map #(* (:qty %) (or (:price %) 0)) lines)))
 
 
-(defn- header
-  [token cart-count]
-  (str "<header><h1>" (button "" token "Shop" "nav" "catalog") "</h1>"
-       "<nav>" (button "" token (str "Cart (" cart-count ")") "nav" "cart") "</nav></header>"))
-
-
 (defn- card
   [token item]
   (str "<article class=\"card\">"
@@ -150,16 +163,15 @@
 (defn- search-box
   "The catalog's search field.  Rendered ONCE, on the begin page, and never
    re-projected: the input is outside every patched element, so typing is
-   never clobbered by a morph (the letters-disappearing bug).  The input
-   binds the `search` signal; the debounced handler reads `$search` from the
-   signal store — `event` is out of scope under `__debounce` (the console
-   TypeError this replaces) — and posts to the occurrence token; the program
-   holds the text, and the grid under the field filters on it."
-  [token]
+   never clobbered by a morph.  The input binds the `search` signal; the
+   debounced handler reads `$search` (event is out of scope under
+   `__debounce`) and posts to `/k/` + the `tok` signal, which every
+   projection updates to the CURRENT occurrence — so the input never posts
+   to the long-consumed root token."
+  [_root]
   (str "<section class=\"search\"><input type=\"search\" placeholder=\"Search products…\""
        " data-bind:search"
-       " data-on:input__debounce.150ms=\"$act='search'; $arg=$search; @post('/k/"
-       (esc token) "')\""
+       " data-on:input__debounce.150ms=\"$act='search'; $arg=$search; @post('/k/'+$tok)\""
        " autocomplete=\"off\"></section>"))
 
 
@@ -181,28 +193,89 @@
       (some #(= tagory %) (:tagories item))))
 
 
-(defn- tagory-chips
+(defn- tagory-strip
   "The tagory row: All, then one chip per tagory; the selected one is
    highlighted.  A chip is a button with the `tagory` act."
   [token tagories selected]
-  (str "<section class=\"tagories\">"
+  (str "<section class=\"tagstrip\">"
+       "<button class=\"tarr\" aria-label=\"Scroll left\" data-on:click=\"document.querySelector('.tagories').scrollBy({left:-280,behavior:'smooth'})\">‹</button>"
+       "<section class=\"tagories\">"
        (button "" token "All" "tagory" "")
        (apply str (for [t tagories]
                     (str "<button type=\"button\" class=\"chip"
                          (when (= t selected) " on")
                          "\" data-on:click=\"" (act "" token "tagory" t) "\">"
                          (esc t) "</button>")))
+       "</section>"
+       "<button class=\"tarr\" aria-label=\"Scroll right\" data-on:click=\"document.querySelector('.tagories').scrollBy({left:280,behavior:'smooth'})\">›</button>"
        "</section>"))
+
+
+(defn- header
+  "The nav tabs strip (the projection's changing part of the header): the
+   brand, the search input and the mobile hamburger live on the begin page,
+   never patched.  On mobile the strip is the hamburger's drawer: it shows
+   while the $menu signal is set (the drawer closes when a tab is clicked —
+   each tab's action prepends $menu=false); on desktop a media query keeps
+   the strip visible regardless."
+  [_token cart-count tagories tagory]
+  (str "<nav class=\"tabs\" data-class:open=\"$menu\">"
+       "<button type=\"button\" data-on:click=\"$act='nav'; $arg='catalog'; $menu=false; @post('/k/'+$tok)\">All Products</button>"
+       "<button type=\"button\" data-on:click=\"$act='nav'; $arg='cart'; $menu=false; @post('/k/'+$tok)\">"
+       "Cart (" cart-count ")</button>"
+       "<div class=\"drawer-tagories\">"
+       (apply str (for [tg tagories]
+                    (str "<button type=\"button\" class=\"tbtn"
+                         (when (= tg tagory) " on")
+                         "\" data-on:click=\"$act='tagory'; $arg=" (js-lit tg) "; $menu=false; @post('/k/'+$tok)\">"
+                         (esc tg) "</button>")))
+       "</div></nav>"))
+
+
+(defn- disclaimer-banner
+  []
+  (str "<div class=\"disclaimer\"><span class=\"badge\">⚠ Notice</span>"
+       "<span class=\"main\">Used / AS-IS / BER / Returns / Refurbished</span>"
+       "<span class=\"sub\">Consoles, Controllers and Electronic Components</span></div>"))
+
+
+(defn- hero
+  "The landing hero, in the production site's voice and copy."
+  []
+  (str "<section class=\"hero\"><span class=\"tag\">⚡ Gaming Stock &amp; Controllers</span>"
+       "<h2>Gaming Hardware &amp; Controllers</h2>"
+       "<p>Browse our inventory of consoles, pro controllers, replacement parts, and gaming electronics.</p>"
+       "<div class=\"perks\">"
+       "<span class=\"perk\">⚠️ <strong>AS-IS / Refurbished</strong> Hardware</span>"
+       "<span class=\"perk\">🎮 <strong>Controllers &amp; Parts</strong> In Stock</span>"
+       "<span class=\"perk\">⚡ <strong>Fast Dispatch</strong> Worldwide Logistics</span>"
+       "<span class=\"perk\">🔒 <strong>Web3 &amp; Crypto</strong> Fast Checkout</span>"
+       "</div></section>"))
+
+
+(defn- section-title
+  "The production section title: the search query when searching, the
+   selected tagory when one is, All Products otherwise."
+  [q tagory]
+  (let [t (str/trim (str q))]
+    (cond
+      (seq t) (str "Search: \"" t "\"")
+      (seq (str/trim (str tagory))) tagory
+      :else "All Products")))
 
 
 (defn- catalog-page
   [catalog token q tagory]
-  (str (tagory-chips token ((:tagories catalog)) tagory)
-       "<section class=\"grid\">"
-       (apply str (map #(card token %)
-                       (filter #(and (matches? q %) (in-tagory? tagory %))
-                               (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))))
-       "</section>"))
+  (let [shown (filter #(and (matches? q %) (in-tagory? tagory %))
+                      (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))]
+    (str (disclaimer-banner)
+         (hero)
+         (tagory-strip token ((:tagories catalog)) tagory)
+         "<div class=\"section-head\"><h2>" (esc (section-title q tagory)) "</h2>"
+         "<span class=\"count\">" (count shown) " items</span></div>"
+         "<section class=\"grid\">"
+         (apply str (map #(card token %) shown))
+         "</section>")))
 
 
 (defn- item-page
@@ -236,6 +309,17 @@
            (button "" token "Checkout" "checkout" nil) "</section>"))))
 
 
+(defn- footer
+  "The site footer, production copy, plus the demo's honesty note."
+  []
+  (str "<footer class=\"site\">"
+       "<div class=\"ftitle\">Inventory Condition Disclaimer</div>"
+       "<p>Used / AS-IS / BER / Returns / Refurbished</p>"
+       "<p>Consoles, Controllers and Electronic Components</p>"
+       "<p class=\"copy\">© 2026 TT Game Stock — dao.star cart demo. Catalog as of last page load.</p>"
+       "</footer>"))
+
+
 (defn shop-project
   "`(project-fn occurrence-id model)` for the shop, over `catalog`, a map of
    `:items (fn [])` and `:item (fn [slug])`.  Pure: re-projecting a stored
@@ -243,23 +327,57 @@
    its last projection.
 
    The patched element is `#app-body`: the search input on the begin page is
-   its SIBLING, so a morph never touches it while the user types."
+   its SIBLING, so a morph never touches it while the user types.  Every
+   projection is preceded by a signals patch updating `tok` to the current
+   occurrence: the persistent search input posts to `/k/${tok}`, so it
+   always names the CURRENT token, never the long-consumed root (the
+   stale-token defect the reviewer found)."
   [catalog token model]
   (let [cart (:cart model)
-        n (reduce + 0 (filter pos? (vals cart)))]
-    (sse-elements
-      (str "<div id=\"app-body\">" (header token n)
-           "<main>"
-           (case (:page model)
-             "item" (item-page catalog token (:item model))
-             "cart" (cart-page catalog token cart)
-             "checkout" "<section class=\"cart\"><h2>Order received</h2><p>This is a demo: no payment was taken.</p></section>"
-             (catalog-page catalog token (:search model) (:tagory model)))
-           "</main><footer>Catalog as of last page load.</footer></div>"))))
+        n (reduce + 0 (filter pos? (vals cart)))
+        tagories (when-some [tf (:tagories catalog)] (tf))]
+    (str (sse-signals (str "{\"tok\":" (json-lit token) "}"))
+         (sse-elements
+           (str "<div id=\"app-body\">" (header token n tagories (:tagory model))
+                "<main>"
+                (case (:page model)
+                  "item" (item-page catalog token (:item model))
+                  "cart" (cart-page catalog token cart)
+                  "checkout" "<section class=\"cart\"><h2>Order received</h2><p>This is a demo: no payment was taken.</p></section>"
+                  (catalog-page catalog token (:search model) (:tagory model)))
+                "</main>" (footer) "</div>")))))
+
+
+(defn- landing
+  "The splash gate, the production site's structure: the full-viewport
+   landing.jpg background, gradient overlay, and the glass card.  Enter
+   Store removes the splash element and restores document scrolling — both
+   client-side; no stream round trip.  The store renders beneath from the
+   same subscription, and while the splash exists html:has(.landing-page)
+   keeps the scrollbars off (the owner's no-scrollbars-on-splash rule)."
+  []
+  (str "<div class=\"landing-page\">"
+       "<img class=\"landing-bg\" src=\"/images/landing.jpg\" alt=\"Gamer holding a PS5 pro controller\">"
+       "<div class=\"landing-overlay\"></div>"
+       "<div class=\"landing-content\">"
+       "<div class=\"landing-tag\">⚡ TT GAME STOCK</div>"
+       "<h1 class=\"landing-title\">Gaming Hardware <span>&amp;</span> Pro Controllers</h1>"
+       "<p class=\"landing-subtitle\">Consoles, pro controllers, replacement parts, and gaming electronics — AS-IS, refurbished, and ready to ship.</p>"
+       "<div class=\"landing-notice\"><span class=\"warn-ico\">⚠</span>"
+       "<span><strong>Used / AS-IS / BER / Returns / Refurbished</strong> — Consoles, Controllers &amp; Electronic Components</span></div>"
+       "<button class=\"landing-enter\" data-on:click=\"document.querySelector('.landing-page').remove(); document.documentElement.style.overflow='auto'\">Enter Store →</button>"
+       "</div></div>"))
 
 
 (defn shop-begin
   [root]
-  (begin-page {:prefix "" :title "dao.star cart" :root root
-               :signals "{act: '', arg: '', search: ''}"
-               :pre (search-box root)}))
+  (begin-page {:prefix "" :title "TT Game Stock | Next-Gen Video Game Controllers" :root root
+               :signals (str "{act: '', arg: '', search: '', tok: " (json-lit root) ", menu: false}")
+               :pre (str (landing)
+                         "<header class=\"top\"><div class=\"brand\">"
+                         "<span class=\"icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><line x1=\"6\" y1=\"12\" x2=\"10\" y2=\"12\"></line><line x1=\"8\" y1=\"10\" x2=\"8\" y2=\"14\"></line><line x1=\"15\" y1=\"13\" x2=\"15.01\" y2=\"13\"></line><line x1=\"18\" y1=\"11\" x2=\"18.01\" y2=\"11\"></line><rect x=\"2\" y=\"6\" width=\"20\" height=\"12\" rx=\"2\"></rect></svg></span>"
+                         "<div class=\"name\">TT <span>GAME</span> STOCK</div>"
+                         "<div class=\"subtitle\">PRO CONTROLLERS &amp; GEAR</div>"
+                         "</div>" (search-box root)
+                         "<button class=\"menu-toggle\" aria-label=\"Menu\" data-on:click=\"$menu = !$menu\">"
+                         "<span></span><span></span><span></span></button></header>")}))

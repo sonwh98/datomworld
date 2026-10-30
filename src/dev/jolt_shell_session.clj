@@ -56,7 +56,7 @@
   [host args]
   (case host
     :jolt (into ["sh" "-c"
-                 ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-yin-repl \"$@\""
+                 ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-yin-repl --no-state \"$@\""
                  "jolt"] args)
     :jvm (into ["clj" "-M:clj-yin-repl" "--no-state"] args)))
 
@@ -88,7 +88,7 @@
         (when (= host :jolt)
           (when-not (and (str/includes? @stdout "Host: jolt ")
                          (str/includes? @stdout " / Chez ")
-                         (str/includes? @stdout "python: not installed on this host until J5"))
+                         (str/includes? @stdout "python: the native C++ ANTLR4 parser"))
             (fail! "missing jolt banner" {:stdout @stdout})))
         (when idle-ms (Thread/sleep idle-ms))
         (doseq [[i line] (map-indexed vector in)]
@@ -129,6 +129,54 @@
         (spit (str path ".err") @stderr)))))
 
 
+(defn run-port-session!
+  "J6e (C11): `--port 0` serves on jolt. The banner names the ephemeral
+   bind, the Serving line the bound port; a typed (quit) exits 0 once the
+   endpoint reports :stopped (Endpoint stopped: confirmed)."
+  [host {:keys [id args]}]
+  (let [t0 (now)
+        process (.start (ProcessBuilder. ^java.util.List (command host args)))
+        stdout (atom "") stderr (atom "")
+        capture (fn [stream sink]
+                  (future
+                    (with-open [r (java.io.InputStreamReader. stream "UTF-8")]
+                      (loop []
+                        (let [c (.read r)]
+                          (when (not= -1 c)
+                            (swap! sink str (char c)) (recur)))))))
+        out-reader (capture (.getInputStream process) stdout)
+        err-reader (capture (.getErrorStream process) stderr)
+        writer (java.io.OutputStreamWriter. (.getOutputStream process) "UTF-8")
+        serving #"Serving daostream:ws://127\.0\.0\.1:(\d+)/repl"
+        path (str "build/j3-logs/shell/" (name host) "-" (name id))]
+    (try
+      (await! #(re-find serving @stdout) process (+ t0 timeout-ms) "the Serving line")
+      (let [port (parse-long (second (re-find serving @stdout)))]
+        (when-not (and (pos? port) (str/includes? @stdout "serving on all interfaces on an ephemeral port"))
+          (fail! "ephemeral banner or bound port missing" {:stdout @stdout}))
+        (.write writer "(quit)\n")
+        (.flush writer)
+        (when-not (.waitFor process timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)
+          (fail! "deadline waiting for exit after (quit)" {:id id}))
+        @out-reader @err-reader
+        (when-not (zero? (.exitValue process))
+          (fail! "exit mismatch" {:id id :expected 0 :actual (.exitValue process) :stderr @stderr}))
+        (when-not (and (str/includes? @stdout "Bye")
+                       (str/ends-with? (str/trim @stdout) "Endpoint stopped: confirmed"))
+          (fail! "missing clean quit after :stopped" {:id id :stdout @stdout}))
+        {:host host :id id :status :pass :port port :elapsed-ms (- (now) t0) :exit 0})
+      (finally
+        (when (.isAlive process) (.destroyForcibly process))
+        (spit (str path ".out") @stdout)
+        (spit (str path ".err") @stderr)))))
+
+
+(def port-cases
+  "Rows run by `run-port-session!` (C11), jolt only: the JVM's own --port
+   rows are its socket fixtures."
+  [{:id :port-serve-ephemeral :args ["--port" "0"] :hosts [:jolt] :port-session? true}])
+
+
 (defn corpus
   []
   (mapcat (fn [case]
@@ -137,7 +185,8 @@
                 (-> case (assoc :id (keyword (str (name (:id case)) "-" (name vm))))
                     (assoc :args ["--vm" (name vm)])))
               [case]))
-          (edn/read-string (slurp "test/resources/yin/repl/transcripts/local.edn"))))
+          (concat (edn/read-string (slurp "test/resources/yin/repl/transcripts/local.edn"))
+                  port-cases)))
 
 
 (defn demo!
@@ -191,6 +240,7 @@
                   (try
                     (let [r (cond probe? (probe! (name (:id case)))
                                   demo? (demo! h)
+                                  (:port-session? case) (run-port-session! h case)
                                   :else (run-session! h case))]
                       (println "PASS" (name h) (:id case) (pr-str r)) (flush) r)
                     (catch Exception e

@@ -1,26 +1,29 @@
 /*
  * jolt-crypto: the extern "C" wrapper behind the jolt overrides of
- * dao.host.hash and dao.host.sign
- * (docs/design/yin.repl-jolt-implementation.md §6.2-6.3).
+ * dao.host.hash and dao.host.sign, and behind dao.stream.ws.crypto
+ * (docs/design/yin.repl-jolt-implementation.md §6.2-6.3, §9).
  *
  * It implements no algorithm. BLAKE3 is the vendored upstream C reference,
- * linked in statically; SHA-256 and Ed25519 are the system libcrypto's public
- * EVP API, linked by absolute path. Every entry takes caller-owned pointer and
+ * linked in statically; SHA-256, SHA-1 and Ed25519 are the system libcrypto's
+ * public EVP API, linked by absolute path. Every entry takes caller-owned pointer and
  * length arguments (never C strings: binary input may hold NUL) and writes a
  * fixed-size result into a caller-owned buffer; nothing it allocates outlives
  * the call. Entries answer 0 on success and a negative status on failure,
  * except ed25519_verify (1 valid, 0 invalid, negative failure) and provenance
  * (the byte count written).
  *
- * Export policy: nine narrow entries and nothing else — layout_version,
+ * Export policy: ten narrow entries and nothing else — layout_version,
  * cleanse, blake3, sha256, ed25519_{public,sign,verify}, provenance (the
- * J1b eight) and random (J2: fresh entropy for yin.vm.linker.sign/generate's
+ * J1b eight), random (J2: fresh entropy for yin.vm.linker.sign/generate's
  * :jolt arm, owner ruling 1792655000000; libcrypto RAND_bytes from the same
- * qualified library every other entry resolved to). A new export is a
- * documented, reviewable event, never a general-purpose surface.
+ * qualified library every other entry resolved to) and sha1 (J6c: the
+ * RFC 6455 Sec-WebSocket-Accept digest for dao.stream.ws.crypto, never a
+ * content hash). A new export is a documented, reviewable event, never a
+ * general-purpose surface; exports.{darwin,linux} list the ten by name.
  *
  * jolt_crypto_provenance reports OpenSSL_version_num(), the dladdr path of
- * all 19 libcrypto entries (including RAND_bytes) this file resolved and the SHA-256 of that library file, so
+ * all 20 libcrypto entries (including RAND_bytes and EVP_sha1) this file
+ * resolved and the SHA-256 of that library file, so
  * dao.host.hash can refuse to load when the process bound them to a library
  * other than the qualified one. The digest is computed by the library being
  * checked: it detects an upgrade or a replaced file, not an adversary able to
@@ -54,10 +57,11 @@
 #define JOLT_CRYPTO_EXPORT __attribute__((visibility("default")))
 
 /* Bump when an entry's signature, a status meaning, or the exported set
-   changes (J2: the random entry added it to 3); hash.jolt refuses a library
+   changes (J2: the random entry made it 3; J6c: the sha1 entry made it 4);
+   hash.jolt refuses a library
    that answers another layout, so a stale prebuilt wrapper fails the load
    gate instead of a missing-symbol error far from it. */
-#define JOLT_CRYPTO_LAYOUT 3
+#define JOLT_CRYPTO_LAYOUT 4
 
 enum {
   JC_OK = 0,
@@ -104,6 +108,17 @@ JOLT_CRYPTO_EXPORT int jolt_crypto_sha256(const uint8_t *in, size_t n,
   if (!in || !out32) return JC_ARG;
   unsigned int len = 0;
   if (EVP_Digest(in, n, out32, &len, EVP_sha256(), NULL) != 1 || len != 32)
+    return JC_OPENSSL;
+  return JC_OK;
+}
+
+/* SHA-1 for the RFC 6455 opening handshake only (Sec-WebSocket-Accept,
+   §4.2.2); not a content or integrity hash anywhere in the system. */
+JOLT_CRYPTO_EXPORT int jolt_crypto_sha1(const uint8_t *in, size_t n,
+                                        uint8_t *out20) {
+  if (!in || !out20) return JC_ARG;
+  unsigned int len = 0;
+  if (EVP_Digest(in, n, out20, &len, EVP_sha1(), NULL) != 1 || len != 20)
     return JC_OPENSSL;
   return JC_OK;
 }
@@ -183,16 +198,18 @@ static int file_sha256(const char *path, char hex[65]) {
 /*
  * "<OpenSSL_version_num decimal>\t<OpenSSL_version text>\t<library path>\t
  *  <SHA-256 hex of that file>" into buf (not NUL-terminated); answers the
- * byte count or a negative status. The path is the one library all 19 libcrypto
+ * byte count or a negative status. The path is the one library all 20 libcrypto
  * entries below resolved to.
  */
 JOLT_CRYPTO_EXPORT int jolt_crypto_provenance(char *buf, size_t cap) {
   if (!buf) return JC_ARG;
-  /* All 19 libcrypto entries, including entropy, must share one origin. */
+  /* All 20 libcrypto entries, including entropy and SHA-1, must share one
+     origin. */
   void *entries[] = {
       (void *)&EVP_DigestInit_ex,           (void *)&EVP_Digest,
       (void *)&EVP_DigestUpdate,            (void *)&EVP_DigestFinal_ex,
-      (void *)&EVP_sha256,                  (void *)&EVP_PKEY_new_raw_private_key,
+      (void *)&EVP_sha256,                  (void *)&EVP_sha1,
+      (void *)&EVP_PKEY_new_raw_private_key,
       (void *)&EVP_PKEY_new_raw_public_key, (void *)&EVP_PKEY_get_raw_public_key,
       (void *)&EVP_DigestSignInit,          (void *)&EVP_DigestSign,
       (void *)&EVP_DigestVerifyInit,        (void *)&EVP_DigestVerify,

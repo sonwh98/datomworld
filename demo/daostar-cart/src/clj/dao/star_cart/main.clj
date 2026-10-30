@@ -16,6 +16,8 @@
 
 (def seed-path "resources/catalog.edn")
 (def default-asset-root "resources/public")
+
+
 (def default-catalog-path
   "Where saves go when CATALOG_PATH is unset: a writable local file, so edits
    survive a restart.  The baked seed is copied there on first boot."
@@ -31,11 +33,11 @@
         shop (assemble/assemble
                {:program program/shop-program
                 :project-fn (fn [occ model] (view/shop-project catalog occ model))
-                :begin-fn view/shop-begin :timing timing})
+                :begin-fn view/shop-begin :app-id "app-body" :timing timing})
         grid (assemble/assemble
                {:program grid-program/grid-program
                 :project-fn (fn [occ model] (grid-view/grid-project catalog occ model))
-                :begin-fn grid-view/grid-begin :timing timing})
+                :begin-fn grid-view/grid-begin :app-id "app" :timing timing})
         fx (grid-effects/make-effects {:driver (:driver grid) :store st :asset-root asset-root})
         tick-ms (get (merge assemble/default-timing timing) :tick-ms)
         edge-handler (edge/make-edge {:asset-root asset-root

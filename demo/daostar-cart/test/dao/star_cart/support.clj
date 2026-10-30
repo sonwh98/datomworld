@@ -76,12 +76,17 @@
         text (atom "")
         t (doto (Thread.
                   (fn []
-                    (let [buf (byte-array 8192)]
+                    ;; An InputStreamReader, not per-chunk String decoding: a
+                    ;; multi-byte UTF-8 sequence split across a read boundary
+                    ;; must survive (the catalog has CJK filenames).
+                    (let [rdr (java.io.InputStreamReader.
+                                (.getInputStream s) "UTF-8")
+                          cbuf (char-array 4096)]
                       (try
                         (loop []
-                          (let [n (.read (.getInputStream s) buf)]
+                          (let [n (.read rdr cbuf)]
                             (when (pos? n)
-                              (swap! text str (String. buf 0 n "UTF-8"))
+                              (swap! text str (String. cbuf 0 n))
                               (recur))))
                         (catch Exception _ nil)))))
             (.setDaemon true) (.start))]
@@ -102,9 +107,11 @@
 
 
 (defn token-of
-  "The newest `/k/<token>` in `text` (the last action URL projected)."
+  "The newest `tok` in `text` — the occurrence id every projection emits as
+   a signals patch (buttons post to /k/ + the tok signal, so the baked-token
+   grep is gone)."
   [text]
-  (last (map second (re-seq #"/k/([0-9a-f-]{36})" text))))
+  (last (map second (re-seq #"\"tok\":\"([0-9a-f-]{36})\"" text))))
 
 
 (defn begin!

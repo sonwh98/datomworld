@@ -7,13 +7,13 @@
  ;; BLAKE3 of the resource bytes (the file is pure ASCII). Equals
  ;; resource-blake3 in the conformance test.
  :digest {:algorithm :blake3
-          :hex "51e021815d94ea0f9e4a9af119590c19af2a7450b20db7c7e918c0a0c7bb128c"}
- :cases {:total 113 :executable 56 :difference 9 :refusal 19 :pending 29}
- :points 28
+          :hex "692ba5a018413a3a36a6e4bc2c6f6f5ecde80fcb02de7bccdc625e671315c54b"}
+ :cases {:total 120 :executable 62 :difference 12 :refusal 18 :pending 28}
+ :points 29
  :fixtures 12
  :baseline-revision "f6856bbc"
  :contract "docs/design/dao.space.query.datomic-compat.md"
- :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded; bounds.published-source-refused note updated for the Phase 4b admission profile, previous digest a4983d69 superseded; Phase 2: aggregate, unbound-variable and fixture cases promoted/added and numeric-value comparison introduced, previous digest a1c99136 superseded; tied-kind even median host-scoped (arithmetic needs a float64 CARRIER, which only JavaScript has), refusal and odd-count cases added, previous digest 73f92822 superseded; Phase 3: rules.* cases graduated, ten rules cases and one aggregate refusal added with a graph fixture, previous digest 17b53dd3 superseded)"
+ :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded; bounds.published-source-refused note updated for the Phase 4b admission profile, previous digest a4983d69 superseded; Phase 2: aggregate, unbound-variable and fixture cases promoted/added and numeric-value comparison introduced, previous digest a1c99136 superseded; tied-kind even median host-scoped (arithmetic needs a float64 CARRIER, which only JavaScript has), refusal and odd-count cases added, previous digest 73f92822 superseded; Phase 3: rules.* cases graduated, ten rules cases and one aggregate refusal added with a graph fixture, previous digest 17b53dd3 superseded; Phase 3 review: vector-head negation case added, previous digest 862e2042 superseded, then 51e02181 superseded by Phase 5; Phase 5 promotion: oracle outcomes and conclusive oracle-executed evidence recorded per case against Datomic Local 1.0.301, entity-ids annotations, min/max n<=0 pins, median and absent-attribute documented differences, empty-input cases over a declared attribute, point schema.absent-attribute)"
  :reviewed-by nil
  :inspected-artifacts
  [{:coordinate com.datomic/client-api
@@ -22,34 +22,63 @@
    :scope "~/.m2 jar; public q arities, :query/:args/:offset/:limit/:timeout, limit default -1"
    :declared-dependency "deps.edn :oracle alias only; not a production dependency"}]
  :oracle
- {:status :pending
+ {:status :executed
   :api "datomic.client.api/q"
   :api-version "1.0.69"
-  ;; No Client backend is selected. A Peer-only runner may add language
-  ;; evidence but cannot certify Client behavior; mocks and DaoSpace-generated
-  ;; answers are not oracle evidence.
-  :backend :unselected
-  :backend-version nil
+  ;; Datomic Local is an in-process library; the Client API runs against it
+  ;; (:server-type :datomic-local, :storage-dir :mem). A Peer-only runner,
+  ;; mock or DaoSpace-generated answer is not oracle evidence.
+  :backend :datomic-local
+  :backend-version "1.0.301"
+  :backend-jars {"client-api" "1.0.69" "local" "1.0.301" "client" "1.0.146" "peer" "1.0.7364"}
+  ;; local 1.0.301 declares client-api 1.0.72; the alias pins 1.0.69 (the
+  ;; contract's artifact) and the pairing runs.
+  :pairing-note "com.datomic/local 1.0.301 requests client-api 1.0.72; client-api 1.0.69 is pinned and works"
+  :execution "docker on jupiter (docker/oracle/run-oracle.sh) and local JVM; identical Datomic jars"
   :runner "src/dev/dao/space/datomic_query_oracle.clj"
   :observations-output "target/datomic-q-v1-observations.edn (separate; never the frozen corpus)"
-  :cases-oracle-executed 0}
+  ;; The observations of both runs are preserved, with the run that made them.
+  :observations-archive "test/resources/dao/space/datomic-q-v1.oracle-observations.edn"
+  :runs [{:run :jupiter-r1
+          :runner "p5-r1 (e07f479b)"
+          :corpus-blake3 "51e021815d94ea0f9e4a9af119590c19af2a7450b20db7c7e918c0a0c7bb128c"
+          :observed 110
+          :superseded-for "the ten logical-id cases (in.relation, in.tuple, rules.*): ids were not mapped"}
+         {:run :local-r2
+          :runner "p5-r2 (enumerated entity-ids; :e as ref; value-only graph nodes materialized with :fx/id)"
+          :corpus-blake3 "3bc9132f8e09890bb09781bd9f39ae72ddfe50f0198877051e43da77bc40bcb7"
+          :observed 117
+          :note "observed against the structural corpus (annotations, new cases) before the oracle fields were promoted into it; the promoted corpus is the digest above"}]
+  ;; Loader provenance: references are loaded with :db.type/ref for the
+  ;; backend's :ref-attrs (:person/friend :note/session :e). Graph nodes that
+  ;; appear only as reference targets have no datom of their own, so they are
+  ;; materialized with :fx/id (their logical id) and nothing else.
+  :loader "tempids per fixture entity; ref attrs per backend; value-only ref targets get :fx/id"
+  ;; "oracle-executed" evidence marks a CONCLUSIVE recorded execution. The
+  ;; per-case :oracle field keeps the outcome distinct.
+  :outcomes {:agrees 60 :agrees-refusal 9 :agrees-contract-expectation 13
+             :differs-documented 17 :datomic-accepts 10
+             :inconclusive 8 :pending 3}
+  :cases-oracle-executed 109}
  :host-verification
  {:clj "focused JVM gate (G0) in phase 0"
   :cljs "node discovery preflight only; three-host G1 not yet run"
   :cljd "not run"}
  :unresolved-observations
  ["E1 final-set collapse of content-distinct numerics (clj asserted; cljs/cljd unasserted)"
-  "E2 core string query returns #{[]} (adapter must read safe EDN)"
+  "E2 core string query returns #{[]} (adapter must read safe EDN); Datomic reads a string query as EDN"
   "E3 unbound find variable: RESOLVED in Phase 2 (static refusal)"
-  "E4 trailing map accepted as options; unknown options not refused"
+  "E4 trailing map accepted as options; unknown options not refused; Datomic ignores them silently (documented-stricter)"
   "E5 aggregate parameters and the four new aggregates: RESOLVED in Phase 2 (see E15)"
-  "E6 recursive pull markers fail with a host exception"
-  "E7 empty-input aggregate behavior unmeasured against Datomic"
+  "E6 recursive pull markers fail with a host exception; Datomic supports recursive pull (documented-stricter)"
+  "E7 empty-input aggregates: count and sum over a declared attribute with no match return no row on both; other aggregates unmeasured"
   "E8 cross-host float carrier equality unverified"
   "E9 reverse-pull and :limit results depend on JVM shape/enumeration order (clj only)"
   "E11 adapter-executed refusals (list-form pull option) are pinned in dao.space.query.datomic-test, not this harness"
   "E10 first pull-option pins recorded list-shape refusal only; re-encoded and re-pinned after review (previous digest e129fd6a superseded)"
   "E12 Phase 4a timeout/max-steps surface and admission refusal are DaoSpace-specific, pinned in the adapter tests, not this harness"
   "E13 core relation-slot laxness: RESOLVED in Phase 2 (refused)"
-  "E15 Phase 2 aggregate conventions: population variance, median even/odd, n smallest/largest, exact float equality only for the integer inputs used, carrier refusals on cljs/cljd"
-  "30 cases are pending: adapter, option validation, timeout and Client oracle evidence are all outstanding"]}
+  "E15 Phase 2 aggregate conventions; Phase 5: median is a documented difference, min/max n<=0 yields an empty vector"
+  "E16 Phase 3 rules: Datomic agrees on every positive-recursion case; recursion through negation overflows Datomic's stack"
+  "E17 Phase 5: schema-free attribute matching, unrepresentable ties fixture, non-comparable cases, fulltext deferred"
+  "8 cases are oracle-inconclusive (ties x3, in.multiple-sources, ambient.fulltext-refused, bounds.* x3) and 3 were not observed (no Client equivalent)"]}

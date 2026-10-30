@@ -1,0 +1,240 @@
+;; datomic-q-v1 oracle observations, preserved. Never the corpus; the corpus cites
+;; these by case id and run. Raw entity ids are dropped (they differ per run);
+;; :normalized maps them back to the logical ids. A later run SUPERSEDES an
+;; earlier one for the cases it re-observed; both are kept.
+{:format 1
+ :runs
+ {
+ :jupiter-r1
+{:run :jupiter-r1, :label "docker on jupiter, runner p5-r1 (e07f479b), corpus 51e02181...128c (113 cases); the 10 logical-id cases (in.relation, in.tuple, rules.*) were NOT meaningfully observed here: the runner did not map ids (superseded by :local-r2)", :datomic-jars {"client-api" "1.0.69", "local" "1.0.301", "client" "1.0.146", "peer" "1.0.7364"}, :eligible 110, :not-eligible ["api.db-first-refused" "source.raw-vector-refused" "source.current-d5-view"], :superseded-for ["in.relation" "in.tuple" "rules.both-sided-recursion" "rules.left-recursion" "rules.mutual-recursion" "rules.positive-recursive" "rules.required-bound-head" "rules.right-recursion-cycle" "rules.stratified-negation" "rules.unbound-entry-call"]
+  :observations {
+  "agg.arity-mismatch" {:observation :error, :phase :query, :error-class "clojure.lang.ArityException", :message "Wrong number of args (2) passed to: datomic.core.aggregation/median", :arg-map-options nil}
+  "agg.avg" {:observation :result, :normalized [[41.0]], :arg-map-options nil}
+  "agg.count" {:observation :result, :normalized [[4]], :arg-map-options nil}
+  "agg.distinct" {:observation :result, :normalized [[#{45 37}]], :arg-map-options nil}
+  "agg.distinct-with-multiplicity" {:observation :result, :normalized [[#{1 4 3 2 10}]], :arg-map-options nil}
+  "agg.empty-input" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/not-an-entity Unable to resolve entity: :person/nothing", :arg-map-options nil}
+  "agg.grouped-count" {:observation :result, :normalized [[37 2] [45 1]], :arg-map-options nil}
+  "agg.median" {:observation :result, :normalized [[41]], :arg-map-options nil}
+  "agg.median-grouped" {:observation :result, :normalized [["a" 2] ["b" 7]], :arg-map-options nil}
+  "agg.median-non-numeric" {:observation :error, :phase :query, :error-class "java.lang.ClassCastException", :message "class java.lang.String cannot be cast to class java.lang.Number (java.lang.String and java.lang.Number are in module java.base of loader 'bootstrap')", :arg-map-options nil}
+  "agg.median-tied-kinds" {:observation :error, :phase :fixture-load, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/wrong-type-for-attribute Value 1.0 is not a valid :int for attribute :k/v", :arg-map-options nil}
+  "agg.median-tied-kinds-carrier-refused" {:observation :error, :phase :fixture-load, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/wrong-type-for-attribute Value 1.0 is not a valid :int for attribute :k/v", :arg-map-options nil}
+  "agg.median-tied-kinds-odd" {:observation :error, :phase :fixture-load, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/wrong-type-for-attribute Value 1.0 is not a valid :int for attribute :k/v", :arg-map-options nil}
+  "agg.median-with-multiplicity" {:observation :result, :normalized [[3]], :arg-map-options nil}
+  "agg.min-n-grouped" {:observation :result, :normalized [["a" [1 2]] ["b" [4 10]]], :arg-map-options nil}
+  "agg.min-n-with-multiplicity" {:observation :result, :normalized [[[1 2 3] [10 4 4]]], :arg-map-options nil}
+  "agg.non-variable-argument" {:observation :error, :phase :query, :error-class "java.lang.IllegalArgumentException", :message "Argument [1 2] in :find is not a variable", :arg-map-options nil}
+  "agg.parameter-exceeds-count" {:observation :result, :normalized [[[10 4 4 3 2 1]]], :arg-map-options nil}
+  "agg.parameter-not-positive" {:observation :result, :normalized [[[]]], :arg-map-options nil}
+  "agg.parameterized-max" {:observation :result, :normalized [[[45 37]]], :arg-map-options nil}
+  "agg.parameterized-min" {:observation :result, :normalized [[[37 45]]], :arg-map-options nil}
+  "agg.rand-excluded" {:observation :result, :normalized [[37]], :arg-map-options nil}
+  "agg.stddev" {:observation :result, :normalized [[4.0]], :arg-map-options nil}
+  "agg.sum-min-max-count-distinct" {:observation :result, :normalized [[82 37 45 2]], :arg-map-options nil}
+  "agg.variance" {:observation :result, :normalized [[16.0]], :arg-map-options nil}
+  "agg.variance-carrier-refused" {:observation :result, :normalized [[0.0]], :arg-map-options nil}
+  "agg.variance-stddev-grouped" {:observation :result, :normalized [["a" 0.6666666666666666 0.816496580927726] ["b" 9.0 3.0]], :arg-map-options nil}
+  "agg.variance-stddev-with-multiplicity" {:observation :result, :normalized [[8.333333333333334 2.886751345948129]], :arg-map-options nil}
+  "agg.with-multiplicity" {:observation :result, :normalized [[3 2]], :arg-map-options nil}
+  "agg.without-with-dedupes" {:observation :result, :normalized [[5]], :arg-map-options nil}
+  "ambient.fulltext-refused" {:observation :error, :phase :query, :error-class "clojure.lang.Compiler$CompilerException", :message "Syntax error compiling at (0:0).", :arg-map-options nil}
+  "ambient.rand-refused" {:observation :result, :normalized [[4] [1] [2] [3]], :arg-map-options nil}
+  "ambient.symbol-resolution-refused" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.arg-map" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.list-query" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.map-query" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.string-query" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.vector-query" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "bounds.deadline-exhausted" {:observation :result, :normalized [], :arg-map-options {:timeout 1}}
+  "bounds.eager-before-pagination" {:observation :result, :normalized [[205]], :arg-map-options {:limit 1}}
+  "bounds.published-source-refused" {:observation :result, :normalized [[4] [1] [2] [3]], :arg-map-options {:timeout 1000}}
+  "find.collection" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message "Only find-rel elements are allowed in client :find", :arg-map-options nil}
+  "find.in-bound-var" {:observation :result, :normalized [[1 "x"]], :arg-map-options nil}
+  "find.keys" {:observation :result, :normalized [{:name "Grace", :age 45}], :arg-map-options nil}
+  "find.keys-arity-refused" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message "Count of :keys/:strs/:syms must match count of :find", :arg-map-options nil}
+  "find.relation" {:observation :result, :normalized [["Grace" 45]], :arg-map-options nil}
+  "find.scalar" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message "Only find-rel elements are allowed in client :find", :arg-map-options nil}
+  "find.tuple" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message "Only find-rel elements are allowed in client :find", :arg-map-options nil}
+  "find.unbound-var" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/unbound-query-variables Query is referencing unbound variables: #{?z}", :arg-map-options nil}
+  "find.unbound-var-in-aggregate" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/unbound-query-variables Query is referencing unbound variables: #{?z}", :arg-map-options nil}
+  "in.arity-mismatch-refused" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/too-few-inputs Query expected 2 inputs but received 1", :arg-map-options nil}
+  "in.collection" {:observation :result, :normalized [["Grace"]], :arg-map-options nil}
+  "in.default-source" {:observation :result, :normalized [["Grace"]], :arg-map-options nil}
+  "in.empty-source" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/not-an-entity Unable to resolve entity: :person/name", :arg-map-options nil}
+  "in.multiple-sources" {:observation :result, :normalized [], :arg-map-options nil}
+  "in.relation" {:observation :result, :normalized [], :arg-map-options nil}
+  "in.scalar" {:observation :result, :normalized [["Grace"]], :arg-map-options nil}
+  "in.tuple" {:observation :result, :normalized [], :arg-map-options nil}
+  "neg.not" {:observation :result, :normalized [["Ken"]], :arg-map-options nil}
+  "neg.not-join" {:observation :result, :normalized [["Ken"] ["Grace"]], :arg-map-options nil}
+  "numeric.builtin-arithmetic" {:observation :result, :normalized [[38] [46]], :arg-map-options nil}
+  "numeric.scale-collapse" {:observation :result, :normalized [[1.0M] [1.00M]], :arg-map-options nil}
+  "numeric.signed-zero-collapse" {:observation :result, :normalized [[0.0] [-0.0]], :arg-map-options nil}
+  "opts.limit" {:observation :result, :normalized [[205] [200]], :arg-map-options {:limit 2}}
+  "opts.limit-default-unlimited" {:observation :result, :normalized [[205] [200] [201] [202] [203] [204]], :arg-map-options nil}
+  "opts.limit-zero" {:observation :result, :normalized [], :arg-map-options {:limit 0}}
+  "opts.negative-offset-refused" {:observation :result, :normalized [[205] [200] [201] [202] [203] [204]], :arg-map-options {:offset -1}}
+  "opts.offset" {:observation :result, :normalized [[203] [204]], :arg-map-options {:offset 4}}
+  "opts.offset-large-past-end" {:observation :result, :normalized [], :arg-map-options {:offset 1000, :limit 10}}
+  "opts.query-stats-refused" {:observation :result, :normalized {:ret [[1]], :query-stats {:query [:find ?e :where [?e :person/name "Ada"]], :phases [{:sched [[[?e :person/name "Ada"]]], :clauses [{:clause [?e :person/name "Ada"], :rows-in 0, :rows-out 1, :binds-in [], :binds-out [?e], :expansion 1, :warnings {:unbound-vars #{?e}}}]}]}}, :arg-map-options {:query-stats true}}
+  "opts.ret-refused" {:observation :result, :normalized [[1]], :arg-map-options {:ret :coll}}
+  "opts.timeout-positive-integer" {:observation :result, :normalized [[1]], :arg-map-options {:timeout 1000}}
+  "opts.unknown-option-refused" {:observation :result, :normalized [[1]], :arg-map-options {:bogus 1}}
+  "or.or" {:observation :result, :normalized [["Grace"] ["Ada"] ["Linus"]], :arg-map-options nil}
+  "or.or-join" {:observation :result, :normalized [["Grace"]], :arg-map-options nil}
+  "pattern.five-position-history-refused" {:observation :result, :normalized [], :arg-map-options nil}
+  "pattern.three-position" {:observation :result, :normalized [[4] [1] [2] [3]], :arg-map-options nil}
+  "pattern.two-position-padding" {:observation :result, :normalized [[4] [1] [2] [3]], :arg-map-options nil}
+  "pull.alias-option" {:observation :result, :normalized [[{:n "Ken"}]], :arg-map-options nil}
+  "pull.default-option" {:observation :result, :normalized [[#:person{:age 0}]], :arg-map-options nil}
+  "pull.flat" {:observation :result, :normalized [[#:person{:name "Grace", :age 45}]], :arg-map-options nil}
+  "pull.limit-option" {:observation :result, :normalized [[#:person{:email ["a2@x"]}]], :arg-map-options nil}
+  "pull.list-form-option" {:observation :result, :normalized [[#:person{:age 0}]], :arg-map-options nil}
+  "pull.missing-attribute-omitted" {:observation :result, :normalized [[#:person{:name "Ken"}]], :arg-map-options nil}
+  "pull.multivalued" {:observation :result, :normalized [[#:person{:name "Ada", :email ["a2@x" "a@x"]}]], :arg-map-options nil}
+  "pull.nested" {:observation :result, :normalized [[#:person{:name "Ada", :friend #:person{:name "Grace"}}]], :arg-map-options nil}
+  "pull.no-match-empty" {:observation :result, :normalized [], :arg-map-options nil}
+  "pull.recursive-marker-refused" {:observation :result, :normalized [[#:person{:name "Ada", :friend #:person{:name "Grace", :friend #:person{:name "Linus"}}}]], :arg-map-options nil}
+  "pull.reverse-attribute" {:observation :result, :normalized [[#:person{:name "Grace", :_friend [#:person{:name "Ada"}]}]], :arg-map-options nil}
+  "pull.wildcard" {:observation :result, :normalized [[{:db/id 1, :person/name "Ada", :person/age 37, :person/email ["a2@x" "a@x"], :person/friend #:db{:id 2}}]], :arg-map-options nil}
+  "rules.both-sided-recursion" {:observation :result, :normalized [], :arg-map-options nil}
+  "rules.call-arguments-are-flat" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/invalid-lookup-ref Invalid list form: [2]", :arg-map-options nil}
+  "rules.left-recursion" {:observation :result, :normalized [], :arg-map-options nil}
+  "rules.multiple-definitions" {:observation :result, :normalized [[5 6] [1 2] [2 3] [3 4] [6 5] [2 1] [3 2] [4 3] [3 1] [1 3]], :arg-map-options nil}
+  "rules.mutual-recursion" {:observation :result, :normalized [], :arg-map-options nil}
+  "rules.non-recursive" {:observation :result, :normalized [["Grace"] ["Linus"]], :arg-map-options nil}
+  "rules.positive-recursive" {:observation :result, :normalized [], :arg-map-options nil}
+  "rules.recursion-through-negation" {:observation :error, :phase :query, :error-class "java.lang.StackOverflowError", :message nil, :arg-map-options nil}
+  "rules.recursion-through-negation-vector-head" {:observation :error, :phase :query, :error-class "java.lang.StackOverflowError", :message nil, :arg-map-options nil}
+  "rules.required-bound-head" {:observation :result, :normalized [], :arg-map-options nil}
+  "rules.required-bound-unbound-call" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/insufficient-binding [?z] not bound in clause: (r ?z ?e)", :arg-map-options nil}
+  "rules.right-recursion-cycle" {:observation :result, :normalized [], :arg-map-options nil}
+  "rules.stratified-negation" {:observation :result, :normalized [[1] [2] [5]], :arg-map-options nil}
+  "rules.unbound-entry-call" {:observation :result, :normalized [[5 6] [1 2] [2 3] [3 4] [3 1]], :arg-map-options nil}
+  "special.get-else" {:observation :result, :normalized [["Ken"]], :arg-map-options nil}
+  "special.missing" {:observation :result, :normalized [["Ken"]], :arg-map-options nil}
+  "workload.list-join-duplicates" {:observation :result, :normalized [[200] [201]], :arg-map-options nil}
+  "workload.session-isolation-s1" {:observation :result, :normalized [["a"] ["b"]], :arg-map-options nil}
+  "workload.session-isolation-s2" {:observation :result, :normalized [["c"]], :arg-map-options nil}
+  "workload.view-summary-grouped" {:observation :result, :normalized [[10 2] [11 1]], :arg-map-options nil}}}
+ :local-r2
+{:run :local-r2, :label "local JVM, runner p5-r2 (enumerated entity-id positions, :e as ref, value-only graph nodes materialized with :fx/id)", :datomic-jars {"client-api" "1.0.69", "local" "1.0.301", "client" "1.0.146", "peer" "1.0.7364"}, :eligible 117, :not-eligible ["api.db-first-refused" "source.raw-vector-refused" "source.current-d5-view"], :corpus-blake3-observed "3bc9132f8e09890bb09781bd9f39ae72ddfe50f0198877051e43da77bc40bcb7", :runner {:version "p5-r2", :entity-ids "enumerated per-case positions (fx/substitute-entity-ids)", :loader "ref attrs per backend :ref-attrs; value-only ref targets materialized with :fx/id"}
+  :observations {
+  "agg.arity-mismatch" {:observation :error, :phase :query, :error-class "clojure.lang.ArityException", :message "Wrong number of args (2) passed to: datomic.core.aggregation/median", :arg-map-options nil}
+  "agg.avg" {:observation :result, :normalized [[41.0]], :arg-map-options nil}
+  "agg.count" {:observation :result, :normalized [[4]], :arg-map-options nil}
+  "agg.distinct" {:observation :result, :normalized [[#{45 37}]], :arg-map-options nil}
+  "agg.distinct-with-multiplicity" {:observation :result, :normalized [[#{1 4 3 2 10}]], :arg-map-options nil}
+  "agg.empty-input" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/not-an-entity Unable to resolve entity: :person/nothing", :arg-map-options nil}
+  "agg.empty-input-declared-count" {:observation :result, :normalized [], :arg-map-options nil}
+  "agg.empty-input-declared-sum" {:observation :result, :normalized [], :arg-map-options nil}
+  "agg.grouped-count" {:observation :result, :normalized [[37 2] [45 1]], :arg-map-options nil}
+  "agg.median" {:observation :result, :normalized [[41]], :arg-map-options nil}
+  "agg.median-grouped" {:observation :result, :normalized [["a" 2] ["b" 7]], :arg-map-options nil}
+  "agg.median-non-numeric" {:observation :error, :phase :query, :error-class "java.lang.ClassCastException", :message "class java.lang.String cannot be cast to class java.lang.Number (java.lang.String and java.lang.Number are in module java.base of loader 'bootstrap')", :arg-map-options nil}
+  "agg.median-tied-kinds" {:observation :error, :phase :fixture-load, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/wrong-type-for-attribute Value 1.0 is not a valid :int for attribute :k/v", :arg-map-options nil}
+  "agg.median-tied-kinds-carrier-refused" {:observation :error, :phase :fixture-load, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/wrong-type-for-attribute Value 1.0 is not a valid :int for attribute :k/v", :arg-map-options nil}
+  "agg.median-tied-kinds-odd" {:observation :error, :phase :fixture-load, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/wrong-type-for-attribute Value 1.0 is not a valid :int for attribute :k/v", :arg-map-options nil}
+  "agg.median-with-multiplicity" {:observation :result, :normalized [[3]], :arg-map-options nil}
+  "agg.min-n-grouped" {:observation :result, :normalized [["a" [1 2]] ["b" [4 10]]], :arg-map-options nil}
+  "agg.min-n-with-multiplicity" {:observation :result, :normalized [[[1 2 3] [10 4 4]]], :arg-map-options nil}
+  "agg.non-variable-argument" {:observation :error, :phase :query, :error-class "java.lang.IllegalArgumentException", :message "Argument [1 2] in :find is not a variable", :arg-map-options nil}
+  "agg.parameter-exceeds-count" {:observation :result, :normalized [[[10 4 4 3 2 1]]], :arg-map-options nil}
+  "agg.parameter-negative-max" {:observation :result, :normalized [[[]]], :arg-map-options nil}
+  "agg.parameter-negative-min" {:observation :result, :normalized [[[]]], :arg-map-options nil}
+  "agg.parameter-not-positive" {:observation :result, :normalized [[[]]], :arg-map-options nil}
+  "agg.parameter-zero-grouped-max" {:observation :result, :normalized [["a" []] ["b" []]], :arg-map-options nil}
+  "agg.parameter-zero-grouped-min" {:observation :result, :normalized [["a" []] ["b" []]], :arg-map-options nil}
+  "agg.parameter-zero-max" {:observation :result, :normalized [[[]]], :arg-map-options nil}
+  "agg.parameterized-max" {:observation :result, :normalized [[[45 37]]], :arg-map-options nil}
+  "agg.parameterized-min" {:observation :result, :normalized [[[37 45]]], :arg-map-options nil}
+  "agg.rand-excluded" {:observation :result, :normalized [[37]], :arg-map-options nil}
+  "agg.stddev" {:observation :result, :normalized [[4.0]], :arg-map-options nil}
+  "agg.sum-min-max-count-distinct" {:observation :result, :normalized [[82 37 45 2]], :arg-map-options nil}
+  "agg.variance" {:observation :result, :normalized [[16.0]], :arg-map-options nil}
+  "agg.variance-carrier-refused" {:observation :result, :normalized [[0.0]], :arg-map-options nil}
+  "agg.variance-stddev-grouped" {:observation :result, :normalized [["a" 0.6666666666666666 0.816496580927726] ["b" 9.0 3.0]], :arg-map-options nil}
+  "agg.variance-stddev-with-multiplicity" {:observation :result, :normalized [[8.333333333333334 2.886751345948129]], :arg-map-options nil}
+  "agg.with-multiplicity" {:observation :result, :normalized [[3 2]], :arg-map-options nil}
+  "agg.without-with-dedupes" {:observation :result, :normalized [[5]], :arg-map-options nil}
+  "ambient.fulltext-refused" {:observation :error, :phase :query, :error-class "clojure.lang.Compiler$CompilerException", :message "Syntax error compiling at (0:0).", :arg-map-options nil}
+  "ambient.rand-refused" {:observation :result, :normalized [[4] [1] [2] [3]], :arg-map-options nil}
+  "ambient.symbol-resolution-refused" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.arg-map" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.list-query" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.map-query" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.string-query" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "api.vector-query" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "bounds.deadline-exhausted" {:observation :result, :normalized [], :arg-map-options {:timeout 1}}
+  "bounds.eager-before-pagination" {:observation :result, :normalized [[205]], :arg-map-options {:limit 1}}
+  "bounds.published-source-refused" {:observation :result, :normalized [[4] [1] [2] [3]], :arg-map-options {:timeout 1000}}
+  "find.collection" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message "Only find-rel elements are allowed in client :find", :arg-map-options nil}
+  "find.in-bound-var" {:observation :result, :normalized [[1 "x"]], :arg-map-options nil}
+  "find.keys" {:observation :result, :normalized [{:name "Grace", :age 45}], :arg-map-options nil}
+  "find.keys-arity-refused" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message "Count of :keys/:strs/:syms must match count of :find", :arg-map-options nil}
+  "find.relation" {:observation :result, :normalized [["Grace" 45]], :arg-map-options nil}
+  "find.scalar" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message "Only find-rel elements are allowed in client :find", :arg-map-options nil}
+  "find.tuple" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message "Only find-rel elements are allowed in client :find", :arg-map-options nil}
+  "find.unbound-var" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/unbound-query-variables Query is referencing unbound variables: #{?z}", :arg-map-options nil}
+  "find.unbound-var-in-aggregate" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/unbound-query-variables Query is referencing unbound variables: #{?z}", :arg-map-options nil}
+  "in.arity-mismatch-refused" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/too-few-inputs Query expected 2 inputs but received 1", :arg-map-options nil}
+  "in.collection" {:observation :result, :normalized [["Grace"]], :arg-map-options nil}
+  "in.default-source" {:observation :result, :normalized [["Grace"]], :arg-map-options nil}
+  "in.empty-source" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/not-an-entity Unable to resolve entity: :person/name", :arg-map-options nil}
+  "in.multiple-sources" {:observation :result, :normalized [], :arg-map-options nil}
+  "in.relation" {:observation :result, :normalized [[1] [2]], :arg-map-options nil}
+  "in.scalar" {:observation :result, :normalized [["Grace"]], :arg-map-options nil}
+  "in.tuple" {:observation :result, :normalized [[1 "Ada"]], :arg-map-options nil}
+  "neg.not" {:observation :result, :normalized [["Ken"]], :arg-map-options nil}
+  "neg.not-join" {:observation :result, :normalized [["Ken"] ["Grace"]], :arg-map-options nil}
+  "numeric.builtin-arithmetic" {:observation :result, :normalized [[38] [46]], :arg-map-options nil}
+  "numeric.scale-collapse" {:observation :result, :normalized [[1.0M] [1.00M]], :arg-map-options nil}
+  "numeric.signed-zero-collapse" {:observation :result, :normalized [[0.0] [-0.0]], :arg-map-options nil}
+  "opts.limit" {:observation :result, :normalized [[205] [200]], :arg-map-options {:limit 2}}
+  "opts.limit-default-unlimited" {:observation :result, :normalized [[205] [200] [201] [202] [203] [204]], :arg-map-options nil}
+  "opts.limit-zero" {:observation :result, :normalized [], :arg-map-options {:limit 0}}
+  "opts.negative-offset-refused" {:observation :result, :normalized [[205] [200] [201] [202] [203] [204]], :arg-map-options {:offset -1}}
+  "opts.offset" {:observation :result, :normalized [[203] [204]], :arg-map-options {:offset 4}}
+  "opts.offset-large-past-end" {:observation :result, :normalized [], :arg-map-options {:offset 1000, :limit 10}}
+  "opts.query-stats-refused" {:observation :result, :normalized {:ret [[1]], :query-stats {:query [:find ?e :where [?e :person/name "Ada"]], :phases [{:sched [[[?e :person/name "Ada"]]], :clauses [{:clause [?e :person/name "Ada"], :rows-in 0, :rows-out 1, :binds-in [], :binds-out [?e], :expansion 1, :warnings {:unbound-vars #{?e}}}]}]}}, :arg-map-options {:query-stats true}}
+  "opts.ret-refused" {:observation :result, :normalized [[1]], :arg-map-options {:ret :coll}}
+  "opts.timeout-positive-integer" {:observation :result, :normalized [[1]], :arg-map-options {:timeout 1000}}
+  "opts.unknown-option-refused" {:observation :result, :normalized [[1]], :arg-map-options {:bogus 1}}
+  "or.or" {:observation :result, :normalized [["Grace"] ["Ada"] ["Linus"]], :arg-map-options nil}
+  "or.or-join" {:observation :result, :normalized [["Grace"]], :arg-map-options nil}
+  "pattern.five-position-history-refused" {:observation :result, :normalized [], :arg-map-options nil}
+  "pattern.three-position" {:observation :result, :normalized [[4] [1] [2] [3]], :arg-map-options nil}
+  "pattern.two-position-padding" {:observation :result, :normalized [[4] [1] [2] [3]], :arg-map-options nil}
+  "pull.alias-option" {:observation :result, :normalized [[{:n "Ken"}]], :arg-map-options nil}
+  "pull.default-option" {:observation :result, :normalized [[#:person{:age 0}]], :arg-map-options nil}
+  "pull.flat" {:observation :result, :normalized [[#:person{:name "Grace", :age 45}]], :arg-map-options nil}
+  "pull.limit-option" {:observation :result, :normalized [[#:person{:email ["a2@x"]}]], :arg-map-options nil}
+  "pull.list-form-option" {:observation :result, :normalized [[#:person{:age 0}]], :arg-map-options nil}
+  "pull.missing-attribute-omitted" {:observation :result, :normalized [[#:person{:name "Ken"}]], :arg-map-options nil}
+  "pull.multivalued" {:observation :result, :normalized [[#:person{:name "Ada", :email ["a2@x" "a@x"]}]], :arg-map-options nil}
+  "pull.nested" {:observation :result, :normalized [[#:person{:name "Ada", :friend #:person{:name "Grace"}}]], :arg-map-options nil}
+  "pull.no-match-empty" {:observation :result, :normalized [], :arg-map-options nil}
+  "pull.recursive-marker-refused" {:observation :result, :normalized [[#:person{:name "Ada", :friend #:person{:name "Grace", :friend #:person{:name "Linus"}}}]], :arg-map-options nil}
+  "pull.reverse-attribute" {:observation :result, :normalized [[#:person{:name "Grace", :_friend [#:person{:name "Ada"}]}]], :arg-map-options nil}
+  "pull.wildcard" {:observation :result, :normalized [[{:db/id 1, :person/name "Ada", :person/age 37, :person/email ["a2@x" "a@x"], :person/friend #:db{:id 2}}]], :arg-map-options nil}
+  "rules.both-sided-recursion" {:observation :result, :normalized [[1] [2] [3] [4]], :arg-map-options nil}
+  "rules.call-arguments-are-flat" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/invalid-lookup-ref Invalid list form: [2]", :arg-map-options nil}
+  "rules.left-recursion" {:observation :result, :normalized [[1] [2] [3] [4]], :arg-map-options nil}
+  "rules.multiple-definitions" {:observation :result, :normalized [[3 1] [4 3] [6 5] [2 1] [3 2] [3 4] [5 6] [1 3] [1 2] [2 3]], :arg-map-options nil}
+  "rules.mutual-recursion" {:observation :result, :normalized [[1] [2] [3] [4]], :arg-map-options nil}
+  "rules.non-recursive" {:observation :result, :normalized [["Grace"] ["Linus"]], :arg-map-options nil}
+  "rules.positive-recursive" {:observation :result, :normalized [[2] [3]], :arg-map-options nil}
+  "rules.recursion-through-negation" {:observation :error, :phase :query, :error-class "java.lang.StackOverflowError", :message nil, :arg-map-options nil}
+  "rules.recursion-through-negation-vector-head" {:observation :error, :phase :query, :error-class "java.lang.StackOverflowError", :message nil, :arg-map-options nil}
+  "rules.required-bound-head" {:observation :result, :normalized [[1]], :arg-map-options nil}
+  "rules.required-bound-unbound-call" {:observation :error, :phase :query, :error-class "clojure.lang.ExceptionInfo", :message ":db.error/insufficient-binding [?z] not bound in clause: (r ?z ?e)", :arg-map-options nil}
+  "rules.right-recursion-cycle" {:observation :result, :normalized [[1] [2] [3] [4]], :arg-map-options nil}
+  "rules.stratified-negation" {:observation :result, :normalized [[5]], :arg-map-options nil}
+  "rules.unbound-entry-call" {:observation :result, :normalized [[3 4] [5 6] [1 3] [1 2] [2 3] [1 1] [3 3] [2 2] [3 2] [2 1] [1 4] [2 4] [3 1]], :arg-map-options nil}
+  "special.get-else" {:observation :result, :normalized [["Ken"]], :arg-map-options nil}
+  "special.missing" {:observation :result, :normalized [["Ken"]], :arg-map-options nil}
+  "workload.list-join-duplicates" {:observation :result, :normalized [[200] [201]], :arg-map-options nil}
+  "workload.session-isolation-s1" {:observation :result, :normalized [["a"] ["b"]], :arg-map-options nil}
+  "workload.session-isolation-s2" {:observation :result, :normalized [["c"]], :arg-map-options nil}
+  "workload.view-summary-grouped" {:observation :result, :normalized [[10 2] [11 1]], :arg-map-options nil}}}}}

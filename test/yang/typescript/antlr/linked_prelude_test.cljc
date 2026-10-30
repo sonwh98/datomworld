@@ -116,14 +116,16 @@
 
 
 (deftest js-module-spec-declares-every-free-name-test
-  (let [spec (prelude/module-spec (h/registry))]
+  (let [call-address (:call-address @h/published)
+        spec (prelude/module-spec (h/registry) call-address)]
     (is (= 'js (:name spec)))
     (is (= prelude/module-exports (:exports spec)))
+    (is (= {'yang.call call-address} (:requires spec)))
     (testing "a registry without the data module is refused"
       (let [no-data (-> (module/empty-registry)
                         module/register-cell-module
                         (prelude/register-integer-module h/integer-limits))
-            refusal (refusal-of #(prelude/module-spec no-data))]
+            refusal (refusal-of #(prelude/module-spec no-data call-address))]
         (is (= :yang.typescript.antlr/undeclared-free
                (:yang.typescript.antlr/refusal refusal)))
         (is (= "data" (namespace (:name refusal))))))))

@@ -21,11 +21,15 @@
    collected). A worker serves one thread at a time; a concurrent call on the
    same worker is refused by the wrapper (status -5) and throws here.
 
+   The library is loaded on first use, not with this namespace (J5): a
+   missing, unloadable or wrong-layout library is recorded, `available?`
+   answers false, and asking for a worker throws the qualified
+   `unavailable-parser` diagnostic, so a host composing its frontend catalog
+   can leave Python out (never another parser) instead of failing to load.
+
    Disclosed limits: the native library is the one Python3 grammar the
-   wrapper was built with, whatever the profile names; the library loads with
-   this namespace, so a missing library fails the load rather than answering a
-   qualified unavailable-parser result (J5); a worker nobody closes keeps its
-   native caches until the process exits."
+   wrapper was built with, whatever the profile names; a worker nobody closes
+   keeps its native caches until the process exits."
   (:require
     [clojure.string :as str]
     [jolt.ffi :as ffi]
@@ -53,7 +57,6 @@
        (if (str/starts-with? platform "darwin") ".dylib" ".so")))
 
 
-(ffi/load-library library)
 (ffi/defcfn ^:private c-export "jolt_parser_export"
   [:pointer :pointer :size_t :pointer :pointer] :int :blocking)
 (ffi/defcfn ^:private c-free "jolt_parser_free" [:pointer] :void)
@@ -65,10 +68,86 @@
 (def ^:private export-layout 2)
 
 
-(when-not (= export-layout (c-export-layout-version))
-  (throw (ex-info "jolt parser library writes another export layout"
-                  {:library library, :expected export-layout,
-                   :actual (c-export-layout-version)})))
+;; jolt binds a foreign symbol when it is first called, so the bindings above
+;; are inert until a load has succeeded. The load is attempted on first use
+;; and, after a refusal, again on every later use (a cheap re-stat), so a
+;; library built after the REPL started is picked up by the next selection.
+(def ^:private loaded? (atom false))
+
+
+(defn- load-refusal
+  "nil when the native library is loaded and writes this namespace's export
+   layout, else the refusal {:reason :message}."
+  []
+  (if @loaded?
+    nil
+    (let [refusal
+          (cond
+            (not (.exists (java.io.File. ^String library)))
+            {:reason :missing,
+             :message (str "the native Python parser library is not built: " library
+                           " (bb build:jolt-native)")}
+
+            :else
+            (try
+              (ffi/load-library library)
+              (let [actual (c-export-layout-version)]
+                (when-not (= export-layout actual)
+                  {:reason :incompatible,
+                   :message (str "the native Python parser library writes export layout "
+                                 actual ", not " export-layout ": " library)}))
+              (catch Throwable t
+                {:reason :unloadable,
+                 :message (str "the native Python parser library did not load: "
+                               (or (ex-message t) (str t)))})))]
+      (when-not refusal (reset! loaded? true))
+      refusal)))
+
+
+(defn available?
+  "True when the native parser library is loaded and writes this namespace's
+   export layout. Attempts the load when it has not succeeded yet."
+  []
+  (nil? (load-refusal)))
+
+
+(defn- ensure-native!
+  []
+  (when-let [{:keys [reason message]} (load-refusal)]
+    (throw (ex-info (str "unavailable-parser: " message)
+                    {:diagnostic :unavailable-parser, :reason reason,
+                     :library library}))))
+
+
+;; The budget (J5b, known-gaps row 59): the wrapper refuses an input over the
+;; input bound before any ANTLR object exists (status -6), and nesting from
+;; guards inside recognition (status -7, kind rule or lookahead), before any
+;; buffer is built. The input bound is mirrored here so an oversized source
+;; is refused without the call.
+(def input-bound
+  "The largest source, in UTF-8 bytes, the native parser accepts: 4 MiB, as
+   native/jolt-parser's kMaxInputBytes."
+  (* 4 1024 1024))
+
+
+(defn- budget-refusal
+  "The qualified :parser-budget diagnostic for `axis` (:input, or :nesting
+   with `kind` :rule or :lookahead): an operational refusal, never a syntax
+   error, never another parser, never a partial packet."
+  ([axis measured bound] (budget-refusal axis measured bound nil))
+  ([axis measured bound kind]
+   (ex-info (str "parser-budget: " (name axis) " " measured " is over the bound "
+                 bound
+                 (case kind
+                   :rule " rule frames"
+                   :lookahead " lookahead links"
+                   " bytes")
+                 (if (= :input axis)
+                   " (the native Python parser refuses before parsing)"
+                   " (the native Python parser refuses; no partial packet)"))
+            (cond-> {:diagnostic :parser-budget, :axis axis, :bound bound,
+                     :measured measured}
+              kind (assoc :kind kind)))))
 
 
 (defn- with-native
@@ -234,7 +313,16 @@
    through it); a wrapper failure status throws, so a failed parse never
    yields a packet."
   [worker source]
-  (let [[status bs] (call-export (handle worker) (.getBytes ^String source "UTF-8"))]
+  (let [src (.getBytes ^String source "UTF-8")
+        _ (when (> (alength src) input-bound)
+            (throw (budget-refusal :input (alength src) input-bound)))
+        [status bs] (call-export (handle worker) src)]
+    (when (#{-6 -7} status)
+      ;; the wrapper's message: "input <measured> <bound>" or
+      ;; "nesting <measured> <bound> <rule|lookahead>"
+      (let [[axis measured bound kind] (str/split (String. ^bytes bs "UTF-8") #" ")]
+        (throw (budget-refusal (keyword axis) (parse-long measured)
+                               (parse-long bound) (some-> kind keyword)))))
     (when-not (zero? status)
       (throw (ex-info "jolt parser failed"
                       {:status status,
@@ -268,6 +356,7 @@
    state with another worker. Host state owned by one parser stage; it is not
    data and never crosses a stream. Dispose it with `close-worker`."
   [profile]
+  (ensure-native!)
   (let [h (c-worker-new)]
     (when (ffi/null? h)
       (throw (ex-info "jolt parser worker could not be made" {})))
@@ -289,6 +378,23 @@
       (when (and h (compare-and-set! box h nil))
         (c-worker-free h))))
   nil)
+
+
+;; the table once a read has succeeded; a failed read (no library yet) is
+;; retried by the next call
+(def ^:private rule-table (atom nil))
+
+
+(defn rule-names
+  "The grammar's rule-name table, as the native parser reports it (the
+   JPX1 buffer carries it with every parse; read once it succeeds). Throws
+   unavailable-parser while the library is unavailable. Jolt-only: the other
+   hosts read it from their generated parser class."
+  []
+  (or @rule-table
+      (let [w (make-worker {})]
+        (try (reset! rule-table (:rules (export-records w "")))
+             (finally (close-worker w))))))
 
 
 (defn- error-record

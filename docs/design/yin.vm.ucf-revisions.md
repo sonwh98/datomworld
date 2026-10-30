@@ -110,7 +110,7 @@ appendix). Images: none existed.
 D-2. The r2 revision (2026-09-14). Canonical form: the attributed-map
 record `{pc -> {attr -> value}}`, answering findings 1-19 of the
 architectural review
-(`collab/1789387292000-architect-ucf-review.gpt-6-astra.findings.md`,
+(`archive/yin-ucf/1789387292000-architect-ucf-review.gpt-6-astra.findings.md`,
 absent from `collab/`). UCF 7.3.2's verdict, quoted: "sound but
 carried datom vocabulary into the identity layer -- attribute names
 and admissibility rules where position and the opcode table suffice".
@@ -254,11 +254,11 @@ hash acceptance changes intentionally."
 Gates recorded on I-2 (not yet discharged in-tree):
 
 - Reviewer verdict READY with seven P3s, none blocking
-  (`collab/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md`),
+  (`archive/yin-ucf/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md`),
   including the `:reasons` finding (section 8 here) and the
   saturation nil-vs-truthiness P3 at ucf.cljc:171.
 - Architect verdict GRANTED with Phase 2 gates
-  (`collab/1790280923723-architect-ucf-phase1-signoff.gpt-6-sol.stdout.log`):
+  (`archive/yin-ucf/1790280923723-architect-ucf-phase1-signoff.gpt-6-sol.stdout.log`):
   P2 -- the revision history (this document); P3 -- `:reasons`
   (section 8 here); P3 -- the transitional encoder's metadata-
   bearing payloads ("Storage owner: preserve or refuse metadata-
@@ -277,7 +277,7 @@ section 7.3.3)". The format field names the execution revision;
 `yin.vm.semantic/load-vector`. This is a design consumer, not a new
 runtime implementation or a contract revision. The M2 attempt is gated
 REQUEST CHANGES / Sign-off DENIED
-(`collab/1790320431837-architect-linker-m2-gate.gpt-6-sol.stdout.log`,
+(`archive/yin-linker/1790320431837-architect-linker-m2-gate.gpt-6-sol.stdout.log`,
 2026-09-25 07:17:54 GMT) on record-scanner, Dart-typing, and
 fetch-bounds P1s -- implementation defects, not contract revisions.
 
@@ -623,12 +623,12 @@ UCF 7.11's safepoint harness must run each 7.4.1 row, including both
 FFI outcomes and effectful calls. It checks static kind membership,
 the observed reason and pending variant, and lift/lower parity. The
 Phase 1 reviewer and architect identified this as a Phase 2 gate:
-`collab/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md`
-and `collab/1790280923723-architect-ucf-phase1-signoff.gpt-6-sol.stdout.log`.
+`archive/yin-ucf/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md`
+and `archive/yin-ucf/1790280923723-architect-ucf-phase1-signoff.gpt-6-sol.stdout.log`.
 
 I-6. Phase 8 cutover records (2026-10-15; slices 8d, 8f-1, 8f-3 and
 the documentation slice 8g, per the phase-8 plan
-`collab/1792560000000-architect-phase8-plan.report.md`). Three facts
+`archive/yin-vm/1792560000000-architect-phase8-plan.report.md`). Three facts
 this history owes its reader.
 
 First, the old transport **sources** died in 8f-1, not 8d. 8d removed
@@ -637,7 +637,7 @@ the old-codec tests (16 files, 141 deftests) and fixtures; the sources
 `export-task`/`resume-task`) and `src/cljc/yin/vm/ucf/checkpoint.cljc`
 were retained past 8d only because one other-seat C4 test still called
 `handoff/export-task`, and were deleted in 8f-1 (Architect ruling R2/R3,
-`collab/1792050511876-architect-8f1-ruling.report.md`) together with
+`archive/yin-vm/1792050511876-architect-8f1-ruling.report.md`) together with
 `yin.vm.completion`. With them the version-0/1/2 wire bytes are
 unreadable in-tree by design; the row carrier of body version 3
 (`yin.vm.ucf-transport-tuples.md`) is the one carrier, and this

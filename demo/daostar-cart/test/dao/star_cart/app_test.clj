@@ -19,8 +19,14 @@
            (finally ((:stop! site)))))))
 
 
-(defn- port [] (:port *site*))
-(defn- named [] (remove #(sup/blank? (:name %)) (store/items (:store *site*))))
+(defn- port
+  []
+  (:port *site*))
+
+
+(defn- named
+  []
+  (remove #(sup/blank? (:name %)) (store/items (:store *site*))))
 
 
 (defn- subscribed
@@ -33,7 +39,9 @@
     {:sse sse :root root :token (sup/token-of @(:text sse))}))
 
 
-(defn- sse-text [{:keys [sse]}] @(:text sse))
+(defn- sse-text
+  [{:keys [sse]}]
+  @(:text sse))
 
 
 (deftest the-full-page-renders-the-real-catalog-with-real-image-urls
@@ -76,7 +84,7 @@
 
 (deftest add-to-cart-parks-and-resumes-with-state-intact
   (let [[a b] (take 2 (vals (into (sorted-map) (map (juxt (comp str/trim :name) identity)
-                                                        (filter #(pos? (:price %)) (named))))))
+                                                    (filter #(pos? (:price %)) (named))))))
         {:keys [sse token]} (subscribed "")
         add (fn [tok slug] (sup/token-of (sup/input! (port) "" tok {:act "add" :arg slug})))
         t1 (add token (:key a))
@@ -123,27 +131,53 @@
   (let [[a] (named)
         shop (subscribed "")
         old-price (str "$" (quot (:price a) 100) "." (format "%02d" (rem (:price a) 100)))
-        grid (subscribed "/grid")]
-    (testing "the grid lists every item"
-      (is (= 249 (sup/count-matches #"<li class=\"[^\"]*\"><span class=\"nm\">" (sse-text grid)))))
-    (testing "select, then save a new price"
-      (let [t1 (sup/token-of (sup/input! (port) "/grid" (:token grid) {:act "select" :arg (:key a)}))
-            reply (sup/input! (port) "/grid" t1 {:act "save" :name (:name a) :price "4242" :desc "edited"})]
-        (is (some? t1))
+        grid (subscribed "/grid")
+        ;; every consumed input (a cell AND the interpreter's confirmation)
+        ;; advances the occurrence, so each post goes to the CURRENT token:
+        ;; wait until the stream's tok differs from the one already used,
+        ;; exactly as the browser's $tok signal does between actions
+        next-tok (fn [sse used]
+                   (sup/wait-for 8000 #(not= used (sup/token-of (sse-text sse))))
+                   (sup/token-of (sse-text sse)))
+        cell (fn [tok slug field val]
+               (sup/input! (port) "/grid" tok
+                           {:act "cell" :arg (str slug "|" field) :val val}))]
+    (testing "the spreadsheet lists every item"
+      (is (sup/wait-for 15000 #(= 249 (sup/count-matches #"<tr><td class=\"th-img\">" (sse-text grid)))) "all 249 rows streamed"))
+    (testing "a cell edit saves on change, then saved after the transact"
+      ;; the stream's tok patch can lag the driver's current occurrence by one
+      ;; projection; a post answered by a stale begin is retried on the fresh
+      ;; token — exactly what the browser's $tok does between projections
+      (let [reply (cell (:token grid) (:key a) "price" "4242")]
         (is (str/includes? reply "saving") "the program renders saving first")
         (is (sup/wait-for 8000 #(str/includes? (sse-text grid) "class=\"status saved\"")) "then saved, after the transact")
         (is (= 4242 (:price (store/item (:store *site*) (:key a)))))
-        (is (= "edited" (:description (store/item (:store *site*) (:key a)))))))
+        (let [r2 (cell (sup/token-of (sse-text grid)) (:key a) "description" "edited")]
+          (is (sup/wait-for 8000 #(str/includes? (sse-text grid) "edited")))
+          (is (= "edited" (:description (store/item (:store *site*) (:key a))))))))
     (testing "the shop's open view is stale until navigation"
       (is (not (str/includes? (sse-text shop) "$42.42")))
       (is (str/includes? (sse-text shop) old-price))
-      (let [r (sup/input! (port) "" (:token shop) {:act "nav" :arg "catalog"})]
-        (is (str/includes? r "$42.42") "the next navigation runs a fresh query")))
-    (testing "a rejected edit reports why and changes nothing"
-      (let [t (sup/token-of (sse-text grid))
-            _ (sup/input! (port) "/grid" t {:act "save" :name (:name a) :price "-5" :desc "x"})]
+      (let [r (sup/input! (port) "" (next-tok shop (:token shop)) {:act "nav" :arg "catalog"})]
+        (is (sup/wait-for 8000 #(str/includes? (sse-text shop) "$42.42"))
+            "the next navigation runs a fresh query")))
+    (testing "a rejected cell reports why and changes nothing"
+      (let [tok (next-tok grid (sup/token-of (sse-text grid)))
+            _ (cell tok (:key a) "price" "-5")]
         (is (sup/wait-for 8000 #(str/includes? (sse-text grid) "rejected: price must be a whole number")))
         (is (= 4242 (:price (store/item (:store *site*) (:key a)))))))
+    (testing "the tagories cell applies the whole set (add and remove)"
+      (let [tok (next-tok grid (sup/token-of (sse-text grid)))
+            _ (cell tok (:key a) "tagories" "Alpha Tag, Beta Tag")]
+        (is (sup/wait-for 8000 #(= ["Alpha Tag" "Beta Tag"]
+                                   (:tagories (store/item (:store *site*) (:key a))))))
+        (is (= ["Alpha Tag" "Beta Tag"] (:tagories (store/item (:store *site*) (:key a)))))))
+    (testing "the images cell rejects unknown paths and changes nothing"
+      (let [tok (next-tok grid (sup/token-of (sse-text grid)))
+            before (:images (store/item (:store *site*) (:key a)))
+            _ (cell tok (:key a) "images" "/images/36.png, /images/nope.png")]
+        (is (sup/wait-for 8000 #(str/includes? (sse-text grid) "rejected: image file does not exist")))
+        (is (= before (:images (store/item (:store *site*) (:key a)))))))
     (testing "the edit was written to the catalog file"
       (is (= 4242 (:item/price (first (filter #(= (:key a) (:item/slug %))
                                               (:items (store/read-catalog (:catalog-path *site*)))))))))

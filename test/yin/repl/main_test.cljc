@@ -215,10 +215,10 @@
   (let [state (repl/boot (repl/parse-args []))]
     (is (some? (:input state)))
     (is (some? (:input-cursor state)))
-    #?(:jolt (is (nil? (:host state)))
-       :default (is (host-common/adapter? (:host state))))
+    (is (host-common/adapter? (:host state)))
     (is (true? (:running? state)))
-    #?(:jolt (is (= [shell/host-text "python: not installed on this host until J5"]
+    #?(:jolt (is (= [shell/host-text
+                     "python: the native C++ ANTLR4 parser (native/jolt-parser), in process; no process crash isolation"]
                     (repl/banner (repl/parse-args []))))
        :default (is (empty? (repl/banner (repl/parse-args [])))))
     (testing "the composition is drivable without any host loop"
@@ -331,38 +331,37 @@
       out)))
 
 
-#?(:jolt nil ; J5 Python: capability unavailable in J3; cljd takes :default.
-   :default (deftest the-interactive-composition-holds-every-standard-language
-              (let [t (transcript ["(host)"
-                                   "(lang :yang/python)"
-                                   "1 + 2"
-                                   "[x * x for x in range(4)]"
-                                   "'a' + 'b'"
-                                   "(lang :python)"
-                                   "1 + 2"
-                                   "(lang :yang/php)"
-                                   "1 + 2;"
-                                   "(lang :yang/clojure)"
-                                   "1 + 2"
-                                   "(+ 1 2)"])]
-                (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
-                (is (= "Switched to :yang/python" (first (get-in t [1 1]))))
-                (is (= ["3"] (get-in t [2 1])))
-                (is (= ["[0, 1, 4, 9]"] (get-in t [3 1])))
-                (is (= ["'ab'"] (get-in t [4 1])))
-                (testing "a language keyword is not a selector: the refusal names what
+(deftest the-interactive-composition-holds-every-standard-language
+  (let [t (transcript ["(host)"
+                       "(lang :yang/python)"
+                       "1 + 2"
+                       "[x * x for x in range(4)]"
+                       "'a' + 'b'"
+                       "(lang :python)"
+                       "1 + 2"
+                       "(lang :yang/php)"
+                       "1 + 2;"
+                       "(lang :yang/clojure)"
+                       "1 + 2"
+                       "(+ 1 2)"])]
+    (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
+    (is (= "Switched to :yang/python" (first (get-in t [1 1]))))
+    (is (= ["3"] (get-in t [2 1])))
+    (is (= ["[0, 1, 4, 9]"] (get-in t [3 1])))
+    (is (= ["'ab'"] (get-in t [4 1])))
+    (testing "a language keyword is not a selector: the refusal names what
               is installed, and the session keeps its frontend"
-                  (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
-                               " is not in the frontend catalog; installed: :clojure :php"
-                               " :python (ids :yang/clojure :yang/php :yang/python)")]
-                         (get-in t [5 1])))
-                  (is (= ["3"] (get-in t [6 1]))))
-                (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
-                (is (= ["3"] (get-in t [8 1])))
-                (is (= "Switched to :yang/clojure" (first (get-in t [9 1]))))
-                (testing "Clojure reads `1 + 2` as three forms; the last value prints"
-                  (is (= ["2"] (get-in t [10 1]))))
-                (is (= ["3"] (get-in t [11 1]))))))
+      (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
+                   " is not in the frontend catalog; installed: :clojure :php"
+                   " :python (ids :yang/clojure :yang/php :yang/python)")]
+             (get-in t [5 1])))
+      (is (= ["3"] (get-in t [6 1]))))
+    (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
+    (is (= ["3"] (get-in t [8 1])))
+    (is (= "Switched to :yang/clojure" (first (get-in t [9 1]))))
+    (testing "Clojure reads `1 + 2` as three forms; the last value prints"
+      (is (= ["2"] (get-in t [10 1]))))
+    (is (= ["3"] (get-in t [11 1])))))
 
 
 ;; =============================================================================
@@ -1861,6 +1860,42 @@
         (is (zero? @(:attaches w))
             "no program step ran: nothing was ever attached, before or after
              the shell stopped"))
+      (finally
+        (compose-test/cleanup-world! w)))))
+
+
+(deftest a-drain-round-lasts-a-tick-however-often-a-sleep-returns-early-test
+  ;; R17: the owner's drain sleeps out each round's tick, so readiness that
+  ;; ends every sleep at once cannot spend the stop-ticks budget early.  A
+  ;; drain nothing can end (a release its full inbound holds back for good)
+  ;; runs through run-owner! with a clock that moves 5 ms per sleep! and a
+  ;; sleep! that returns at once.
+  (let [gate (atom false)
+        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+    (try
+      (let [_ (reset! gate true)
+            c (compose/restart (:c w) "h1")
+            state (custody-state c "(quit)")
+            clock (atom 0)
+            sleeps (atom 0)
+            exited (atom nil)
+            out (with-out-str
+                  (repl/run-owner! state nil true #(deref clock)
+                                   (fn [_ms] (swap! sleeps inc) (swap! clock + 5))
+                                   #(reset! exited %)))
+            attempts (release-attempts c)]
+        (is (some? @exited) "the owner reached its exit")
+        (is (= (+ repl/stop-ticks 2) (count attempts))
+            "exactly the stop-ticks budget of rounds: one control tick for the
+             stopping tick, one per drain round and the budget's last round,
+             as when every sleep lasted its tick")
+        (is (= (* (quot repl/tick-millis 5) repl/stop-ticks) @sleeps)
+            "every round slept out its whole tick: tick-millis / 5 early-waking
+             sleeps per round, for each of the stop-ticks rounds that sleep")
+        (is (= (* repl/tick-millis repl/stop-ticks) @clock)
+            "so the drain lasted tick-millis x stop-ticks of (fake) wall time")
+        (is (= 1 (count (re-seq #"did not report :stopped" out)))
+            "the budget ran out once and said so once"))
       (finally
         (compose-test/cleanup-world! w)))))
 

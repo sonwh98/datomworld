@@ -1,0 +1,621 @@
+(ns dao.stream.ws.jolt
+  "The jolt host edge for the DaoStream v2 WebSocket transport (J6e; J6
+   plan rulings A1-A6 and the J6e design rulings R1-R7): a dialer and a
+   listener over the owner-thread pump (`dao.stream.ws.pump`) and the
+   nonblocking TCP substrate (`dao.stream.ws.tcp`), the HTTP upgrade from
+   the pure `dao.stream.ws.upgrade` core, and frames from the pure
+   `dao.stream.ws.rfc6455` core with jolt's SHA-1 and masking entropy
+   (`dao.stream.ws.crypto`).
+
+   One instance per `create` call. Its pump registry, connection records
+   and listener records live in that instance and nowhere else; two
+   instances never share state. Nothing here waits, parks or polls: the
+   instance makes progress only while a driver polls `(host-pump instance)`
+   and hands it readiness (A1, A2).
+
+   Seams. `connect!` and a listener's `accept!` get the raw-socket seam
+   `{:send! :close! :queued-bytes}` (the server's also `:ws/subprotocol`).
+   `send!` frames a string as text and host bytes as binary and answers nil
+   or `{:dao.stream/outcome :dao.stream/closed}`, never false: the
+   transport decides `full` from `:queued-bytes`, which counts every wire
+   byte not yet accepted by the kernel. `close!` answers nil. Callbacks into
+   the composition use the `dao.stream.ws/adapter` key shape (`:opened!`
+   `:message!` `:binary!` `:closed!` `:too-large!`, plus `:ws/codec` and
+   `:ws/max-frame-bytes` on the dialer's map).
+
+   Terminals (R6). Each upgraded connection reports exactly one
+   `(:closed! code reason)`, from the pump's owed terminal, never inside
+   `send!` or `close!`; a parser failure over the message bound (1009)
+   calls `:too-large!` first. Before its upgrade completes a dialed
+   connection has no frames: every failure there (refused connect, a
+   refused or invalid 101, an unsolicited extension, an oversized head, the
+   upgrade deadline, end of stream) is one `:closed! 1006
+   \"dao.stream/connect-failed\"`, and a transport `close!` then discards
+   the socket and reports its own code. A pre-upgrade server socket has no
+   composition handle: a refused upgrade answers its HTTP status and
+   deposits one `:upgrade-failed`.
+
+   Policies (A4). Head 8 KiB (incremental), 64 pending upgrades per
+   listener with accept paused at the cap, a 10 s upgrade deadline and a
+   5 s close deadline (both overridable per instance and per listener),
+   the pump's 64 KiB read chunk and 16-pong control budget. The pong budget
+   can stall a peer that pings faster than its socket drains, by design and
+   bounded. A ping that arrives once a local close is queued gets no pong:
+   the pong would queue behind our close frame, RFC 6455 section 5.5.1
+   forbids only data frames after a close, and no Autobahn case exercises
+   it. This side sends no unsolicited pings and ignores pongs.
+
+   Addresses are IPv4 or IPv6 literals or `localhost` (A8): any other host
+   name, and a descriptor naming the `wss` scheme, makes `connect!` answer
+   nil, which the attacher reports as a transport error. Nothing resolves.
+
+   Shutdown (A6). `unbind!` closes the listener at once, discards the
+   sockets it owns that are still upgrading, closes 1001 any upgraded one
+   nobody has closed yet, and lowers every owned connection's close
+   deadline to within `unbind-grace-ms`; the listener's `:stopped` is
+   deposited once its last owned connection has ended. `close-host!` is
+   forced cleanup after the owner loop has ended: every descriptor closed,
+   every buffer released, no deposit and no callback.
+
+   Clocks (R7). Pump deadlines are monotonic (`jolt.io-poller/clock-ms`);
+   the `now` handed to `accept!` is wall-clock milliseconds, the domain the
+   endpoint's acceptance expiry compares against."
+  (:require
+    [dao.host.text :as text]
+    [dao.stream.codec :as codec]
+    [dao.stream.ws.crypto :as crypto]
+    [dao.stream.ws.pump :as pump]
+    [dao.stream.ws.rfc6455 :as rfc6455]
+    [dao.stream.ws.tcp :as tcp]
+    [dao.stream.ws.upgrade :as upgrade]
+    [jolt.io-poller :as poller]))
+
+
+(def unbind-grace-ms
+  "How long connections a stopped listener owns may drain (A6): strictly
+   below the remote channel's 2000 ms stop grace, so `:stopped` precedes
+   its unconfirmed verdict."
+  1500)
+
+
+(def ^:private ok {:dao.stream/outcome :dao.stream/ok})
+(def ^:private transport-error {:dao.stream/outcome :dao.stream/transport-error})
+
+
+(def ^:private connect-failed "dao.stream/connect-failed")
+
+
+;; =============================================================================
+;; Instance
+;; =============================================================================
+
+(defn create
+  "A fresh instance with an empty registry. `opts`: `:upgrade-timeout-ms`
+   and `:close-deadline-ms` override the pump defaults for every connection
+   this instance makes (a listener's own options take precedence)."
+  ([] (create nil))
+  ([opts]
+   {::pump (pump/create)
+    ::opts (select-keys opts [:upgrade-timeout-ms :close-deadline-ms])
+    ::state (atom {:closed? false
+                   :owed []           ; thunks for the start or end of a turn
+                   :conns #{}         ; connection records (atoms), live
+                   :listeners {}      ; listener id -> listener record (atom)
+                   :unbind-closed 0})}))
+
+
+(defn- st
+  [inst]
+  (::state inst))
+
+
+(defn- live?
+  [inst]
+  (not (:closed? @(st inst))))
+
+
+(defn- gated
+  "`f` as a pump callback that does nothing once the instance is closed:
+   `close-host!` flushes owed pump reports through it without reaching the
+   composition."
+  [inst f]
+  (fn [& args]
+    (when (live? inst) (apply f args))))
+
+
+(defn- owe!
+  "Queue thunk `f` for the start or end of the next turn, outside any entry
+   the composition is in."
+  [inst f]
+  (swap! (st inst) update :owed conj f)
+  nil)
+
+
+(defn- deliver-owed!
+  [inst]
+  (let [owed (:owed @(st inst))]
+    (swap! (st inst) assoc :owed [])
+    (doseq [f owed] (when (live? inst) (f)))
+    (boolean (seq owed))))
+
+
+(defn- forget!
+  [inst c]
+  (swap! (st inst) update :conns disj c)
+  nil)
+
+
+(defn host-pump
+  "The instance as the driver's `:pump` value (A2): the pump's interest and
+   deadline (now while this edge owes a report), and `pump!`."
+  [inst]
+  (let [p (::pump inst)]
+    {:interest #(pump/interest p)
+     :deadline #(if (seq (:owed @(st inst))) (poller/clock-ms) (pump/next-deadline p))
+     :pump! (fn [ready]
+              (let [before? (deliver-owed! inst)
+                    r (pump/pump! p ready)
+                    after? (deliver-owed! inst)]
+                {:progressed? (boolean (or before? (:progressed? r) after?))}))}))
+
+
+;; =============================================================================
+;; Frames
+;; =============================================================================
+
+(defn- protocol
+  "The pump's protocol map for `role` (:server or :client), whose parser
+   bounds a message at `max` bytes (nil is unbounded). Client frames are
+   masked with a fresh key each."
+  [role max]
+  (cond-> {:parser (rfc6455/parser {:role role, :max-message-bytes max})
+           :parse-frame rfc6455/parse-frame
+           :encode-frame rfc6455/encode-frame
+           :close-payload rfc6455/close-payload}
+    (= :client role) (assoc :mask-key crypto/mask-key)))
+
+
+(defn- data-frame
+  "The wire bytes of one message: a string as a text frame, host bytes as a
+   binary frame; masked for the client role."
+  [role payload]
+  (rfc6455/encode-frame
+    (cond-> (if (string? payload)
+              {:opcode :text, :payload (text/utf8-encode payload)}
+              {:opcode :binary, :payload payload})
+      (= :client role) (assoc :mask-key (crypto/mask-key)))))
+
+
+(defn- deliver-message!
+  [cb ev]
+  (when cb
+    (let [payload (:payload ev)]
+      (if (= :text (:opcode ev))
+        ((:message! cb) (text/utf8-decode payload 0 (alength payload)))
+        ((:binary! cb) payload)))))
+
+
+(defn- report-closed!
+  "The one terminal of an upgraded connection, from the pump's owed
+   `:on-closed`."
+  [cb {:keys [code reason cause]}]
+  (when cb
+    (when (and (= :fail cause) (= 1009 code))
+      ((:too-large! cb)))
+    ((:closed! cb) code reason)))
+
+
+(defn- seam
+  "The raw-socket seam over connection record `c`, whose role frames
+   outbound messages."
+  [p c role]
+  {:send! (fn [payload]
+            (let [{:keys [phase h]} @c]
+              (if (= :open phase)
+                (pump/send! p h (data-frame role payload))
+                pump/closed-outcome)))
+   :close! (fn [code reason]
+             (let [{:keys [phase h]} @c]
+               (when (= :open phase) (pump/close! p h code reason)))
+             nil)
+   :queued-bytes #(if-let [h (:h @c)] (pump/queued-bytes h) 0)})
+
+
+;; =============================================================================
+;; Dialer
+;; =============================================================================
+
+(defn- random-key
+  "A Sec-WebSocket-Key: sixteen CSPRNG bytes, four masking-key draws."
+  []
+  (let [out (byte-array 16)]
+    (dotimes [i 4]
+      (let [k (crypto/mask-key)]
+        (dotimes [j 4] (aset out (+ (* 4 i) j) (aget k j)))))
+    (upgrade/client-key out)))
+
+
+(defn- client-failed!
+  "End dialed connection `c` before its upgrade: socket released, one
+   `:closed!` (`code`, `reason`)."
+  [inst c code reason]
+  (let [{:keys [phase h cb]} @c]
+    (when-not (= :closed phase)
+      (swap! c assoc :phase :closed)
+      (when h (pump/discard! (::pump inst) h))
+      (forget! inst c)
+      ((:closed! cb) code reason))))
+
+
+(defn- client-request!
+  "Send the upgrade request on dialed connection `c` once it is connected.
+   A failed write is reported by the pump through `:on-error`."
+  [inst c]
+  (let [{:keys [h request]} @c]
+    (swap! c assoc :phase :upgrading)
+    (pump/send! (::pump inst) h (text/utf8-encode request))
+    nil))
+
+
+(defn- client-head!
+  "Response head bytes on dialed connection `c`."
+  [inst c chunk]
+  (when (= :upgrading (:phase @c))
+    (let [{:keys [head-parser key offered h cb]} @c
+          [hp result] (upgrade/head-feed head-parser chunk)]
+      (swap! c assoc :head-parser hp)
+      (cond
+        (nil? result) nil
+        (:refused result) (client-failed! inst c 1006 connect-failed)
+        :else
+        (let [verdict (upgrade/check-response (upgrade/parse-response (:head result))
+                                              {:key key, :offered offered, :sha1 crypto/sha1})]
+          (if (not= :ok (:outcome verdict))
+            (client-failed! inst c 1006 connect-failed)
+            (do (pump/upgraded! (::pump inst) h (protocol :client (:ws/max-frame-bytes cb))
+                                (:rest result))
+                (swap! c assoc :phase :open)
+                ((:opened! cb)))))))))
+
+
+(defn- secure?
+  [descriptor]
+  (= "wss" (:ws/scheme descriptor)))
+
+
+(defn connect!
+  "Start dialing `descriptor` (`:ws/host` a literal or localhost, `:ws/port`,
+   `:ws/path`) with composition callbacks `cb` (the `dao.stream.ws/adapter`
+   shape; `:ws/codec` names the one subprotocol offered, none without it).
+   Never waits. Answers the seam, or nil for an address this host does not
+   dial (a host name, the wss scheme) or a closed instance. The upgrade
+   request is built, and an invalid field refused (thrown), before any
+   socket exists. A connect that fails reports its one `:closed!` on a later
+   turn."
+  [inst descriptor cb]
+  (let [p (::pump inst)
+        addr (tcp/parse-address (:ws/host descriptor) (:ws/port descriptor))]
+    (when (and (live? inst) (not (secure? descriptor)) (not (:error addr)))
+      (let [offered (if-let [c (:ws/codec cb)] [(codec/codec-name c)] [])
+            key (random-key)
+            {:keys [head]} (upgrade/client-request {:host (:ws/host descriptor)
+                                                    :port (:ws/port descriptor)
+                                                    :path (:ws/path descriptor)
+                                                    :key key
+                                                    :subprotocols offered})
+            c (atom {:phase :connecting, :role :client, :cb cb, :offered offered
+                     :key key, :request head, :head-parser (upgrade/head-parser)})
+            r (tcp/connect! addr)]
+        (if (:error r)
+          (do (swap! c assoc :phase :closed)
+              (owe! inst #((:closed! cb) 1006 connect-failed)))
+          (let [opts (::opts inst)
+                fail #(client-failed! inst c 1006 connect-failed)
+                h (pump/connection!
+                    p (:fd r)
+                    (cond-> {:connecting? (= :connecting (:state r))
+                             :upgrading? true
+                             :on-connected (gated inst #(client-request! inst c))
+                             :on-data (gated inst #(client-head! inst c %))
+                             :on-eof (gated inst fail)
+                             :on-error (gated inst (fn [_] (fail)))
+                             :on-upgrade-expired (gated inst fail)
+                             :on-message (gated inst #(deliver-message! cb %))
+                             :on-closed (gated inst (fn [t]
+                                                      (swap! c assoc :phase :closed)
+                                                      (forget! inst c)
+                                                      (report-closed! cb t)))}
+                      (:upgrade-timeout-ms opts) (assoc :upgrade-timeout-ms (:upgrade-timeout-ms opts))
+                      (:close-deadline-ms opts) (assoc :close-deadline-ms (:close-deadline-ms opts))))]
+            (swap! c assoc :h h)
+            (swap! (st inst) update :conns conj c)
+            (when (= :connected (:state r))
+              (client-request! inst c))))
+        (assoc (seam p c :client)
+               :close! (fn [code reason]
+                         (let [{:keys [phase h]} @c]
+                           (case phase
+                             :open (pump/close! p h code reason)
+                             :closed nil
+                             ;; before the upgrade: no frame exists to close with
+                             (do (swap! c assoc :phase :closed)
+                                 (when h (pump/discard! p h))
+                                 (forget! inst c)
+                                 (owe! inst #((:closed! cb) code reason)))))
+                         nil))))))
+
+
+;; =============================================================================
+;; Listener
+;; =============================================================================
+
+(def ^:private failure-text
+  {:yin.repl.endpoint/subprotocol-required "the WebSocket upgrade offered no supported subprotocol"
+   :yin.repl.endpoint/websocket-required "the request was not a WebSocket upgrade"
+   :yin.repl.endpoint/bad-request "the WebSocket upgrade request was invalid"
+   :yin.repl.endpoint/head-too-large "the WebSocket upgrade head exceeded 8 KiB"
+   :yin.repl.endpoint/upgrade-expired "the WebSocket upgrade did not complete in time"
+   :yin.repl.endpoint/upgrade-threw "the host failed while accepting an upgrade"
+   :yin.repl.endpoint/socket-error "the socket failed before the upgrade completed"})
+
+
+(defn- upgrade-failed!
+  [lrec code]
+  ((:deposit! (:opts @lrec)) :upgrade-failed {:code code, :message (failure-text code)}))
+
+
+(defn- refusal-code
+  "The `:upgrade-failed` code of an upgrade refusal (`server-response`
+   reason or a `head-feed` refusal)."
+  [reason]
+  (case reason
+    :subprotocol :yin.repl.endpoint/subprotocol-required
+    (:connection :upgrade) :yin.repl.endpoint/websocket-required
+    :head-too-large :yin.repl.endpoint/head-too-large
+    :yin.repl.endpoint/bad-request))
+
+
+(defn- refusal-head
+  "The refusal response for `status`, with the dao.stream reason as a plain
+   text body where the JVM edge sends one."
+  [status code]
+  (let [body (case code
+               :yin.repl.endpoint/subprotocol-required "dao.stream/subprotocol-required"
+               :yin.repl.endpoint/websocket-required "dao.stream/websocket-required"
+               nil)]
+    (if body
+      (str "HTTP/1.1 " status " Bad Request\r\n"
+           "Connection: close\r\nContent-Type: text/plain\r\n"
+           "Content-Length: " (alength (text/utf8-encode body)) "\r\n\r\n" body)
+      (upgrade/refusal-response status))))
+
+
+(defn- refuse!
+  "Answer a refused upgrade on raw connection `c` with `status`, deposit one
+   `:upgrade-failed`, and release the socket once the response is written."
+  [inst lrec c status code]
+  (let [p (::pump inst)
+        h (:h @c)]
+    (swap! c assoc :phase :refusing)
+    (pump/set-reading! p h false)
+    (upgrade-failed! lrec code)
+    (pump/send! p h (text/utf8-encode (refusal-head status code)))
+    (when (and (pump/open? h) (zero? (pump/queued-bytes h)))
+      (swap! c assoc :phase :closed)
+      (pump/discard! p h)
+      (forget! inst c))))
+
+
+(defn- accept-upgrade!
+  "A complete, accepted upgrade on raw connection `c`: the 101 is queued, the
+   connection turns :ws, and the composition's `accept!` gets its seam."
+  [inst lrec c request response rest]
+  (let [p (::pump inst)
+        h (:h @c)
+        {:keys [accept! adapter-of max-frame]} @lrec
+        subprotocol (some-> (:subprotocol response) codec/codec-name)]
+    (if (pump/send! p h (text/utf8-encode (:response response)))
+      ;; the 101 could not be written: the pump reports :on-error
+      nil
+      (do (pump/upgraded! p h (protocol :server max-frame) rest)
+          (swap! c assoc :phase :open)
+          (let [target (or (upgrade/canonical-path (:target request)) (:target request))
+                result (try (accept! target (assoc (seam p c :server) :ws/subprotocol subprotocol)
+                                     (System/currentTimeMillis))
+                            (catch Throwable _ ::threw))]
+            (if (= ::threw result)
+              (do (upgrade-failed! lrec :yin.repl.endpoint/upgrade-threw)
+                  (pump/close! p h 1011 "dao.stream/upgrade-failed"))
+              (swap! c assoc :cb (adapter-of result))))))))
+
+
+(defn- server-head!
+  "Request head bytes on raw connection `c`."
+  [inst lrec c chunk]
+  (when (= :upgrading (:phase @c))
+    (let [[hp result] (upgrade/head-feed (:head-parser @c) chunk)]
+      (swap! c assoc :head-parser hp :seen? true)
+      (cond
+        (nil? result) nil
+        (= :head-too-large (:refused result)) (refuse! inst lrec c 431 :yin.repl.endpoint/head-too-large)
+        (:refused result) (refuse! inst lrec c 400 :yin.repl.endpoint/bad-request)
+        :else
+        (let [request (upgrade/parse-request (:head result))
+              response (upgrade/server-response request {:sha1 crypto/sha1
+                                                         :codecs (:codecs (:opts @lrec))})]
+          (if (= :refuse (:outcome response))
+            (let [code (refusal-code (:reason response))]
+              (refuse! inst lrec c (:status response) code))
+            (accept-upgrade! inst lrec c request response (:rest result))))))))
+
+
+(defn- server-pre-failed!
+  "A raw server socket ended before its upgrade completed: released, and
+   one `:upgrade-failed` with `code` unless nothing was ever received."
+  [inst lrec c code]
+  (let [{:keys [phase h seen?]} @c]
+    (when (#{:upgrading :refusing} phase)
+      (swap! c assoc :phase :closed)
+      (pump/discard! (::pump inst) h)
+      (forget! inst c)
+      (when (and (= :upgrading phase) (or seen? (= code :yin.repl.endpoint/upgrade-expired)))
+        (upgrade-failed! lrec code)))))
+
+
+(defn- accepted!
+  "Listener `lrec` accepted `{:fd :peer}`: register it upgrading."
+  [inst lrec {:keys [fd]}]
+  (let [p (::pump inst)
+        c (atom {:phase :upgrading, :role :server, :head-parser (upgrade/head-parser)
+                 :listener (:id (:lh @lrec))})
+        close-ms (or (:close-deadline-ms @lrec) (:close-deadline-ms (::opts inst)))
+        h (pump/connection!
+            p fd
+            (cond-> {:listener (:lh @lrec)
+                     :upgrading? true
+                     :on-data (gated inst #(server-head! inst lrec c %))
+                     :on-eof (gated inst #(server-pre-failed! inst lrec c :yin.repl.endpoint/socket-error))
+                     :on-error (gated inst (fn [_]
+                                             (server-pre-failed! inst lrec c
+                                                                 :yin.repl.endpoint/socket-error)))
+                     :on-upgrade-expired (gated inst #(server-pre-failed! inst lrec c
+                                                                          :yin.repl.endpoint/upgrade-expired))
+                     ;; a refusal's response written: release the socket
+                     :on-drained (gated inst #(when (= :refusing (:phase @c))
+                                                (swap! c assoc :phase :closed)
+                                                (pump/discard! p (:h @c))
+                                                (forget! inst c)))
+                     :on-message (gated inst #(deliver-message! (:cb @c) %))
+                     :on-closed (gated inst (fn [t]
+                                              (swap! c assoc :phase :closed)
+                                              (forget! inst c)
+                                              (report-closed! (:cb @c) t)))}
+              close-ms (assoc :close-deadline-ms close-ms)))]
+    (swap! c assoc :h h)
+    (swap! (st inst) update :conns conj c)
+    nil))
+
+
+(defn bind!
+  "Bind a listener (R1). `opts`: `:bind-host` (a literal or localhost),
+   `:bind-port` (0 asks the kernel), `:accept!` `(fn [path seam now])`,
+   `:deposit!`, `:codecs` (the endpoint's codec table; nil accepts any or
+   no subprotocol), `:ws/max-frame-bytes`, `:ws.jolt/adapter-of` (the
+   callback map for an `accept!` result; default its `:ws/adapter`),
+   `:ws.jolt/max-connections`, `:ws.jolt/upgrade-timeout-ms`,
+   `:ws.jolt/close-deadline-ms`. Deposits `:bind-succeeded` with the actual
+   port before answering `{:dao.stream/outcome :dao.stream/ok
+   :ws.jolt/listener lh :ws.jolt/instance inst}`; a bind or listen failure
+   answers a transport error and deposits nothing."
+  [inst {:keys [bind-host bind-port deposit!] :as opts}]
+  (let [addr (tcp/parse-address bind-host bind-port)
+        l (when-not (:error addr) (tcp/listen! addr))]
+    (if (or (not (live? inst)) (:error addr) (not (:fd l)))
+      transport-error
+      (let [p (::pump inst)
+            lrec (atom {:opts opts
+                        :accept! (:accept! opts)
+                        :adapter-of (or (:ws.jolt/adapter-of opts) :ws/adapter)
+                        :max-frame (:ws/max-frame-bytes opts)
+                        :close-deadline-ms (:ws.jolt/close-deadline-ms opts)
+                        :unbind-deposit! nil})
+            lh (pump/listener!
+                 p (:fd l)
+                 {:on-accept (gated inst #(accepted! inst lrec %))
+                  :on-accept-error (gated inst (fn [_]
+                                                 (deposit! :listener-error
+                                                           {:code :yin.repl.endpoint/listener-error
+                                                            :message "the host listener reported an error"})))
+                  :on-drained (gated inst #(when-let [d (:unbind-deposit! @lrec)]
+                                             (d :stopped {:code :yin.repl.endpoint/stopped
+                                                          :message "the host listener stopped"})))
+                  :max-pending-upgrades pump/max-pending-upgrades
+                  :upgrade-timeout-ms (or (:ws.jolt/upgrade-timeout-ms opts)
+                                          (:upgrade-timeout-ms (::opts inst))
+                                          pump/upgrade-timeout-ms)
+                  :max-connections (:ws.jolt/max-connections opts)})]
+        (swap! lrec assoc :lh lh)
+        (swap! (st inst) assoc-in [:listeners (:id lh)] lrec)
+        (deposit! :bind-succeeded {:host bind-host, :port (:port l)})
+        {:dao.stream/outcome :dao.stream/ok
+         :ws.jolt/listener lh
+         :ws.jolt/instance inst}))))
+
+
+(defn- owned-by
+  [inst lh]
+  (filter #(= (:id lh) (:listener @%)) (:conns @(st inst))))
+
+
+(defn unbind!
+  "Stop listener `bound` (what `bind!` answered) on the owner thread,
+   never waiting (R2): close the listener, discard its still-upgrading
+   sockets (no deposit), close 1001 each upgraded one nobody has closed,
+   lower every owned connection's close deadline to within
+   `unbind-grace-ms`, and record `deposit!` for the listener's `:stopped`.
+   Answers ok; again on the same listener, ok and nothing changes; an
+   unknown listener, a transport error."
+  [inst bound deposit!]
+  (let [p (::pump inst)
+        lh (:ws.jolt/listener bound)
+        lrec (when lh (get-in @(st inst) [:listeners (:id lh)]))]
+    (cond
+      (nil? lrec) transport-error
+      (:unbind-deposit! @lrec) ok
+      :else
+      (do (pump/close-listener! p lh)
+          (doseq [c (owned-by inst lh)]
+            (let [{:keys [phase h]} @c]
+              (cond
+                (#{:upgrading :refusing} phase)
+                (do (swap! c assoc :phase :closed)
+                    (pump/discard! p h)
+                    (forget! inst c))
+
+                (and (= :open phase)
+                     (let [{:keys [local peer]} (pump/close-record h)] (and (nil? local) (nil? peer))))
+                (do (pump/close! p h 1001 "dao.stream/endpoint-stopped")
+                    (swap! (st inst) update :unbind-closed inc))
+
+                :else nil)))
+          (let [at (+ (poller/clock-ms) unbind-grace-ms)]
+            (pump/lower-deadlines! p lh at))
+          (swap! lrec assoc :unbind-deposit! deposit!)
+          ok))))
+
+
+;; =============================================================================
+;; Forced cleanup and diagnostics
+;; =============================================================================
+
+(defn debug-state
+  "This instance's registry for diagnostics: the pump's `{:fds :buffers?
+   :notify}`, plus reports this edge owes (`:owed`) and how many upgraded
+   connections `unbind!` itself had to close (`:unbind-closed`)."
+  [inst]
+  (let [{:keys [owed unbind-closed]} @(st inst)]
+    (assoc (pump/debug-state (::pump inst)) :owed (count owed) :unbind-closed unbind-closed)))
+
+
+(defn close-host!
+  "Forced cleanup once the owner loop has ended (R5): every descriptor
+   closed (connections, then listeners), every buffer released, every owed
+   report and drain record dropped. Deposits nothing and calls no
+   composition callback. Idempotent. Throws if anything is left registered."
+  [inst]
+  (let [p (::pump inst)
+        s (st inst)]
+    (swap! s assoc :closed? true :owed [])
+    (doseq [c (:conns @s)]
+      (when-let [h (:h @c)] (pump/discard! p h))
+      (swap! c assoc :phase :closed))
+    (doseq [[_ lrec] (:listeners @s)]
+      (pump/discard! p (:lh @lrec)))
+    (swap! s assoc :conns #{} :listeners {})
+    ;; owed pump reports and drain records leave through one turn; every
+    ;; callback is gated on the closed instance, so none reaches anyone
+    (pump/pump! p [])
+    (let [left (pump/debug-state p)]
+      (when-not (= {:fds [], :buffers? false, :notify 0} left)
+        (throw (ex-info "dao.stream.ws.jolt/close-host! left the registry non-empty" left))))
+    nil))

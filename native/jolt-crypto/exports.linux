@@ -1,6 +1,15 @@
 {
   global:
-    jolt_crypto_*;
+    jolt_crypto_layout_version;
+    jolt_crypto_cleanse;
+    jolt_crypto_random;
+    jolt_crypto_blake3;
+    jolt_crypto_sha256;
+    jolt_crypto_sha1;
+    jolt_crypto_ed25519_public;
+    jolt_crypto_ed25519_sign;
+    jolt_crypto_ed25519_verify;
+    jolt_crypto_provenance;
   local:
     *;
 };

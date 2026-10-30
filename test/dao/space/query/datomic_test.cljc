@@ -419,9 +419,12 @@
     (testing "arity and parameter validation"
       (is (refused? :invalid-request #(dq/q '[:find (min 1 2 ?a) :where [?e :person/age ?a]] db)))
       (is (refused? :invalid-request #(dq/q '[:find (median 2 ?a) :where [?e :person/age ?a]] db)))
-      (is (refused? :invalid-request #(dq/q '[:find (min 0 ?a) :where [?e :person/age ?a]] db)))
-      (is (refused? :invalid-request #(dq/q '[:find (min -1 ?a) :where [?e :person/age ?a]] db)))
-      (is (refused? :invalid-request #(dq/q '[:find (min 1.5 ?a) :where [?e :person/age ?a]] db))))
+      (is (refused? :invalid-request #(dq/q '[:find (min 1.5 ?a) :where [?e :person/age ?a]] db)))
+      (is (refused? :invalid-request #(dq/q '[:find (max 1.5 ?a) :where [?e :person/age ?a]] db))))
+    (testing "a non-positive integer parameter is a result, not a refusal (E15)"
+      (doseq [agg '[min max] n [0 -1]]
+        (is (= #{[[]]} (set (dq/q [:find (list agg n '?a) :where '[?e :person/age ?a]] db)))
+            (str agg " " n))))
     (testing "a truly unknown aggregate is an invalid request"
       (is (refused? :invalid-request #(dq/q '[:find (frobnicate ?a) :where [?e :person/age ?a]] db))))
     (testing "a non-numeric operand is a refusal, not a coercion"

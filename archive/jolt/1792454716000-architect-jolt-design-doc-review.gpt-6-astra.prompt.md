@@ -1,0 +1,13 @@
+Created-GMT: 2026-10-20 00:05:16 GMT
+Created-Local: 2026-10-20 07:05:16 +07
+Coding-Agent: codex
+Session-ID: 01a14f30-ca56-7530-bb93-3a870eca7a7b
+# Task: independent architect sign-off of the jolt host-lane design document
+Role: Architect (review flavor)
+Implementers:
+- Model: gpt-6-astra | Assigned: 2026-10-20 07:05:16 +07 | Status: active | Rationale: the document was written by claude-opus-5-5 and its open points ruled by claude-fable-5-1, so sign-off must come from another family; you authored the plan it consolidates
+
+Review /Users/sto/workspace/datomworld/docs/design/yin.repl-jolt-implementation.md (1,735 lines; read all of it). It consolidates your r7 plan with owner decisions Q1-Q7, the CBOR-only WebSocket ruling, the shiva host, the confirmed defaults, licensing "local builds only" and ws-only, the J0b results, opus's r7 review (W1-W9) and Fable's four architect rulings (section 13.4: Transit kept off jolt via a shared predicate namespace plus an empty :jolt arm; WebSocket on jolt.socket.native + poller, never the shim; 1009 vs 1006 asserted per sender-declared wire behaviour; pin 96d7b866 kept at J0a). Compare against your r7 plan (collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md) and the opus r7 review (collab/1792427469000-architect-jolt-lane-plan-review-r7.claude-opus-5-5.findings.md).
+
+Check: (1) fidelity: nothing you or the owner decided was dropped, softened or invented; proposed defaults are still outside the settled list; (2) do Fable's four rulings hold? In particular the Transit ruling: moving the codec-independent portable-domain predicates out of dao.stream.transit into a shared namespace touches the three existing lanes (src/cljc/dao/stream/transit.cljc, cbor.cljc:20, jing/stream.cljc:26, data.cljc:11, ws.cljc:17): is it safe and minimal, or does it violate the doctrine ("implementations do not add contracts", dao.stream the one boundary, minimal change to shared code)? Is it reversible? (3) internal consistency after the edits (slice table, section 9, risks, appendix); (4) the J0a/J0c/J5/J6 gates remain falsifiable; (5) anything that is really an owner decision but was ruled by an architect; (6) your own earlier positions that this document contradicts (for example the sidecar) and whether the owner's ruling, not a drift, explains each.
+Output under 700 words: verdict (SIGNED OFF / SIGNED OFF WITH CHANGES / NOT SIGNED OFF), findings table (id, severity, file:line of the document or repo, evidence, correction), and what you could not verify. Write ONLY /Users/sto/workspace/datomworld/collab/1792454716000-architect-jolt-design-doc-review.gpt-6-astra.findings.md (same header fields). Do not edit the design document. No src edits.

@@ -18,12 +18,17 @@ explicit exceptions, and no test that regenerates its own expectations.
 
 ## What this corpus does and does not prove
 
-No case is `oracle-executed` yet. A green conformance run means the corpus is
-intact and the DaoSpace core behaves as recorded. It does **not** mean
-Datomic compatibility: agreement among DaoSpace implementations alone cannot
-establish it, and an unverified expectation never counts as a passing
-conformance assertion. Invented expected answers are not attributed to
-Datomic.
+Phase 5 executed the public Client API against Datomic Local 1.0.301 and
+recorded the outcome per case (`oracle`, below). A green conformance run means
+the corpus is intact and the DaoSpace core behaves as recorded; it does not
+re-run Datomic. Datomic compatibility is claimed only where a case's oracle
+outcome says so, and only inside the domain those outcomes cover:
+`inconclusive` and `pending` cases are outside it, `differs-documented` and
+`datomic-accepts` are recorded differences, not agreement. Agreement among
+DaoSpace implementations alone cannot establish compatibility, and an
+unverified expectation never counts as a passing conformance assertion.
+Invented expected answers are not attributed to Datomic. The observations are
+preserved in `datomic-q-v1.oracle-observations.edn`.
 
 ## Evidence classes
 
@@ -33,7 +38,7 @@ Evidence is separate from compatibility classification.
 |---|---|
 | `local-client-source` | Inspected source in the locally installed Client API 1.0.69 jar |
 | `local-dao-source` | Inspected DaoSpace implementation, existing tests, or recorded core behavior |
-| `oracle-executed` | Recorded execution through the public Client API against an identified backend (none yet) |
+| `oracle-executed` | A CONCLUSIVE recorded execution through the public Client API against an identified backend (Datomic Local 1.0.301). An inconclusive or unobserved case is not `oracle-executed` |
 | `unverified` | Not yet established by the necessary evidence |
 
 Classification (`classification`): `exact-target`, `refused`,
@@ -68,7 +73,9 @@ Each case is one JSON object (one line in the file):
 | `daospace-observed` | Optional regression pin, same shape as a value/refusal `expect` |
 | `comparison` | Rule below |
 | `hosts` | Hosts the case runs on: `clj`, `cljs`, `cljd` (declared intent; see errata E8) |
-| `oracle` | `pending` until promoted |
+| `oracle` | The oracle outcome (vocabulary): `pending` (not observed), `agrees` (Datomic equals the case's asserted DaoSpace value), `agrees-refusal` (both refuse, different message), `agrees-contract-expectation` (a pending case: Datomic matches the contract's expectation; no DaoSpace-side pin yet), `differs-documented` (Datomic differs, difference documented), `datomic-accepts` (Datomic accepts what DaoSpace deliberately refuses), `inconclusive` (observed, nothing established) |
+| `oracle-note` | Required for `differs-documented`, `datomic-accepts` and `inconclusive`: what Datomic did |
+| `entity-ids` | Optional runner annotation: `[{"source": fixtureId, "path": [...]}]`, the ENUMERATED positions (`"query"` or an input index, then indices) holding logical entity ids the oracle runner must rewrite; no other number is ever rewritten |
 | `limitation` | Optional errata id (`E1`..); the errata entry must exist |
 
 ### Comparison rules
@@ -124,10 +131,10 @@ object has exactly one tag key:
 ## Supported-domain inventory
 
 The `points` array mirrors the supported-domain table of the contract
-(28 points). The integrity test requires every point to have at least one
+(29 points). The integrity test requires every point to have at least one
 case, every case to cite a declared point, and all five web-app workload
-classes to appear. Phase 0 totals: 113 cases (56 executable, 9 difference, 19
-refusal, 29 pending), 12 fixtures. The digest and counts are in
+classes to appear. Totals after Phase 5: 120 cases (62 executable, 12
+difference, 18 refusal, 28 pending), 12 fixtures. The digest and counts are in
 `datomic-q-v1.provenance.edn`.
 
 ## Regeneration and promotion procedure

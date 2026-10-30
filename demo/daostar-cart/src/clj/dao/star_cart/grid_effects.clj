@@ -118,7 +118,44 @@
           (let [n (:remove-tagory changes)
                 t (when (catalog/tagory-linked? db slug n) (catalog/tagory-eid db n))]
             (when-not t (reject! "tagory is not on the item"))
-            [[:db/retract eid :item/tagories t retract-meta]]))))))
+            [[:db/retract eid :item/tagories t retract-meta]]))
+        ;; spreadsheet set-semantics: the cell carries the WHOLE desired set;
+        ;; the diff against the current links becomes adds and retracts
+        (println :SET-TAG-BRANCH (contains? changes :set-tagories) (pr-str (:set-tagories changes)))
+        (when (contains? changes :set-tagories)
+          (let [desired (vec (distinct (:set-tagories changes)))
+                _ (doseq [n desired] (check-tagory n))
+                cur-links (vec (:tagories current))
+                cur-set (set cur-links)
+                adds (remove #(cur-set %) desired)
+                drops (filter #(not (some #{%} desired)) cur-links)
+                add-tx (mapcat (fn [n]
+                                 (if-let [t (catalog/tagory-eid db n)]
+                                   [[:db/add eid :item/tagories t]]
+                                   [{:db/id (str "tid_tag_" (hash n)) :tagory/name n}
+                                    [:db/add eid :item/tagories (str "tid_tag_" (hash n))]]))
+                               adds)
+                drop-tx (mapcat (fn [n]
+                                  (let [t (catalog/tagory-eid db n)]
+                                    [[:db/retract eid :item/tagories t retract-meta]]))
+                                drops)]
+            (vec (concat add-tx drop-tx))))
+        (when (contains? changes :set-images)
+          (let [desired (vec (distinct (:set-images changes)))
+                _ (doseq [u desired] (check-image root u))
+                cur-links (vec (:images current))
+                cur-set (set cur-links)
+                adds (remove #(cur-set %) desired)
+                drops (filter #(not (some #{%} desired)) cur-links)
+                add-tx (mapcat (fn [u]
+                                 [{:db/id (str "tid_img_" (hash u)) :image/url u}
+                                  [:db/add eid :item/images (str "tid_img_" (hash u))]])
+                               adds)
+                drop-tx (mapcat (fn [u]
+                                  (let [i (or (catalog/image-eid db slug u) (reject! "image is not on the item"))]
+                                    [[:db/retract eid :item/images i retract-meta]]))
+                                drops)]
+            (vec (concat add-tx drop-tx))))))))
 
 
 (defn apply-edit!
@@ -138,6 +175,44 @@
       (catch Exception e
         {:rejected (str "edit failed: " (.getMessage e))}))))
 
+
+(def ^:private cell-fields
+  "The spreadsheet's editable columns."
+  #{"name" "price" "description" "tagories" "images"})
+
+
+(defn apply-cell!
+  "Validate and transact one spreadsheet cell: `{:cell-edit {:arg
+   \"<slug>|<field>\" :val v}}`.  Tagories and images are comma-separated
+   SETS — the diff against the item's current links becomes adds and
+   retracts.  Answers `{:saved slug}` or `{:rejected reason}`."
+  [store' asset-root {:keys [arg val]}]
+  (let [root (.toAbsolutePath (.normalize (Paths/get (str asset-root) (make-array String 0))))]
+    (try
+      (let [[slug field] ((juxt first second) (clojure.string/split (str arg) #"\|" 2))
+            _ (when-not (and (string? slug) (seq slug) (contains? cell-fields field))
+                (reject! "malformed cell"))
+            changes (cond
+                      (= field "tagories")
+                      {:set-tagories (remove str/blank?
+                                             (map str/trim (clojure.string/split (str (or val "")) #",")))}
+                      (= field "images")
+                      {:set-images (remove str/blank?
+                                           (map str/trim (clojure.string/split (str (or val "")) #",")))}
+                      (= field "name") {:name val}
+                      (= field "price") {:price val}
+                      (= field "description") {:description val}
+                      :else (reject! "unknown cell field"))]
+        (store/transact-edit! store' (fn [db] (edit-tx root db slug changes)))
+        {:saved slug})
+      (catch clojure.lang.ExceptionInfo e
+        (if-let [r (::rejected (ex-data e))]
+          {:rejected r}
+          {:rejected (str "edit failed: " (.getMessage e))}))
+      (catch Exception e
+        {:rejected (str "edit failed: " (.getMessage e))}))))
+
+
 (defn- slugify
   "A lowercase dash slug of `name`; empty names become \"item\".  A taken
    slug gets -2, -3, … appended (reviewed convention: uniqueness here, not in
@@ -151,6 +226,7 @@
     (loop [s base n 2]
       (if (catalog/item-eid db s) (recur (str base "-" n) (inc n)) s))))
 
+
 (defn apply-new!
   "Validate and transact a new item (`{:new {:name .. :price .. :description ..}}`).
    The slug is derived here — the VM program cannot do string work — and is
@@ -161,10 +237,14 @@
     (when-not (map? new) (reject! "malformed new item"))
     (let [n (check-name (:name new))
           p (parse-price (:price new))
-          d (let [d' (str (:description new))]
-              (when (> (count d') max-description)
-                (reject! (str "description must be at most " max-description " characters")))
-              d')
+          _ (when-not (<= 0 p max-price) (reject! "price out of range"))
+          d (let [raw (:description new)]
+              (when-not (or (nil? raw) (string? raw))
+                (reject! "description must be a string"))
+              (let [d' (str (or raw ""))]
+                (when (> (count d') max-description)
+                  (reject! (str "description must be at most " max-description " characters")))
+                d'))
           slug (volatile! nil)]
       (store/transact-edit!
         store'
@@ -218,5 +298,6 @@
           (let [effect (:edit model)]
             (cond
               (:new effect) (confirm! driver s (apply-new! store effect))
+              (:cell-edit effect) (confirm! driver s (apply-cell! store asset-root (:cell-edit effect)))
               (map? effect) (confirm! driver s (apply-edit! store asset-root effect)))))
         fx))))
