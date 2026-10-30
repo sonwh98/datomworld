@@ -38,13 +38,9 @@
 ;;              the registry empty before close-host!, drained/forced per
 ;;              connection, :unbind-closed 0, fewer rounds than stop-ticks
 ;;              and no timeout text; the same gate with a peer readable at
-<<<<<<< HEAD
 ;;              every poll (R17), which receives 4000 from the composition;
 ;;              the 1001 slot exists only when no upgraded connection remains;
 ;;              then a
-=======
-;;              every poll (R17), which also receives its 1001; then a
->>>>>>> 64d696c6 (feat(jolt): the websocket host adapter over the pump (J6e + R17))
 ;;              one-tick budget: forced, and close-host! leaves nothing;
 ;;   isolation  C8: two instances, each a listener and a dial, interleaved;
 ;;              no cross-talk; close-host! on one leaves the other serving;
