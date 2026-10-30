@@ -68,15 +68,15 @@
    the same keyword identities the upstream A leg runs."
   [ns-sym]
   (let [f (io/resource (str (str/replace (name ns-sym) "." "/") ".cljc"))
-        pr (rt/source-logging-push-back-reader (java.io.PushbackReader. (io/reader f)) 1 (str f))]
-    (let [ns-form (r/read {:read-cond :allow :features #{:clj} :eof ::eof} pr)
-          declared-name (second ns-form)
-          aliases (ns-declaration-aliases ns-form)]
-      (binding [r/*alias-map* aliases
-                *ns* (the-ns (create-ns declared-name))]
-        (loop [acc []]
-          (let [form (r/read {:read-cond :allow :features #{:clj} :eof ::eof} pr)]
-            (if (= form ::eof) acc (recur (conj acc form)))))))))
+        pr (rt/source-logging-push-back-reader (java.io.PushbackReader. (io/reader f)) 1 (str f))
+        ns-form (r/read {:read-cond :allow :features #{:clj} :eof ::eof} pr)
+        declared-name (second ns-form)
+        aliases (ns-declaration-aliases ns-form)]
+    (binding [r/*alias-map* aliases
+              *ns* (the-ns (create-ns declared-name))]
+      (loop [acc []]
+        (let [form (r/read {:read-cond :allow :features #{:clj} :eof ::eof} pr)]
+          (if (= form ::eof) acc (recur (conj acc form))))))))
 
 
 (def ^:private all-forms
@@ -120,7 +120,7 @@
 
 (defn- classify-form
   [form]
-  (let [[kind name & body-ops] form
+  (let [[kind _name & body-ops] form
         fs (atom (into #{} (walk-symbols form)))]
     (when (and (= 'defn kind) (seq body-ops))
       (let [second-op (first body-ops)]
@@ -1768,6 +1768,117 @@
           (is (= [:yin.k/ok expected] (:outcome (kernel-c compiled lane))) (str lane)))))))
 
 
+(def ^:private kernel-named-integrations
+  ;; Slice-9 acceptance admits the dependency closures of these named
+  ;; top-level integrations. This is not a runtime branch/arity trace.
+  #{:unparser-guest-closure :implicit-typed-closure :implicit-throwing-closure
+    :check-assume-have-discharge :parse-to-normalize-to-type})
+
+
+(def ^:private kernel-context-integration-names
+  ;; Integrations also enter existing explicit-context adapters directly,
+  ;; rather than their gate-* wrappers. Keep those identities explicit.
+  {'latte-kernel.defenv/local-definitions 'local-definitions
+   'latte-kernel.proof/is-opaque? 'is-opaque?
+   'latte-kernel.unparser/unregister-unparser! 'unregister-unparser
+   'latte-kernel.unparser/unparse 'unparse
+   'latte-kernel.unparser/register-unparser! 'register-unparser
+   'latte-kernel.unparser/unparse-term-once 'unparse-term-once
+   'latte-kernel.unparser/unparse-term-rec 'unparse-term-rec})
+
+
+(def ^:private kernel-unexercised-reasons
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/slice9_unexercised.edn"))))
+
+
+(defn- kernel-exercise-entries
+  [inventory fixtures results]
+  (vec
+    (for [{:keys [symbol arities disposition]} inventory
+          :when (= :admitted disposition)
+          n arities
+          :let [direct (vec (for [[fixture row] (map vector fixtures results)
+                                  :when (and (= :pass (:status row))
+                                             (= symbol (first (:call fixture)))
+                                             (= n (count (rest (:call fixture)))))]
+                              (:id fixture)))
+                integration (vec (for [row results
+                                       :when (and (= :pass (:status row))
+                                                  (contains? kernel-named-integrations (:id row))
+                                                  (some (set (remove nil? [(kernel-guest-name symbol)
+                                                                           (get kernel-context-integration-names symbol)]))
+                                                        (:included-functions row)))]
+                                   (:id row)))]]
+      {:function-arity [symbol n]
+       :exercise (cond (seq direct) :direct
+                       (seq integration) :named-integration
+                       :else :unexercised)
+       :direct-fixture-ids direct
+       :integration-fixture-ids integration
+       :missing-dependency (when (and (empty? direct) (empty? integration))
+                             (get kernel-unexercised-reasons [symbol n]))})))
+
+
+(defn- kernel-host-value-deviation
+  [id a b walker semantic]
+  ;; Disposition only: keep every original comparison and all four outcomes.
+  ;; A new failure outside this exact host-value boundary remains a mismatch.
+  (when (and (contains? #{:elab-after-qed :check-after-qed} id)
+             (= :completed (:status a) (:status b) (:status walker) (:status semantic))
+             (= (:outcome a) (:outcome b))
+             (= (get-in a [:outcome :thrown :data :meta])
+                {:nonportable-host-value (str (class clojure.core/meta))})
+             (= "Wrong proof script: proof steps after qed."
+                (get-in a [:outcome :thrown :message]))
+             (every? (fn [c]
+                       (and (= :yin.k/error (first (:outcome c)))
+                            (= (get-in a [:outcome :thrown :message])
+                               (get-in c [:outcome 1 :yin.k/message]))
+                            (= (dissoc (get-in a [:outcome :thrown :data]) :meta)
+                               (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta))
+                            (= (result-shape (dissoc (get-in a [:outcome :thrown :data]) :meta))
+                               (result-shape (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta)))
+                            (values/closure? (get-in c [:outcome 1 :yin.k/data :meta]))))
+                     [walker semantic]))
+    {:boundary :nonportable-host-value
+     :upstream-value 'clojure.core/meta
+     :evidence {:file "slice9_evidence.edn" :fixture-id id
+                :path [:a :outcome :thrown :data :meta]}
+     :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}))
+
+
+(deftest test-kernel-acceptance-counting
+  (let [inventory [{:symbol 'latte-kernel.syntax/subst :arities [2 3] :disposition :admitted}
+                   {:symbol 'latte-kernel.syntax/term? :arities [1] :disposition :admitted}]
+        fixture {:id :direct-subst :call '(latte-kernel.syntax/subst x y)}
+        rows [{:id :direct-subst :status :pass}
+              {:id :check-assume-have-discharge :status :pass :included-functions ['gate-syntax-subst]}]
+        entries (kernel-exercise-entries inventory [fixture] rows)]
+    (is (= [:direct :named-integration :unexercised] (mapv :exercise entries)))
+    (is (= [:check-assume-have-discharge] (:integration-fixture-ids (second entries))))
+    (is (= [:unexercised :unexercised :unexercised]
+           (mapv :exercise (kernel-exercise-entries inventory [fixture]
+                                                    (mapv #(assoc % :status :mismatch) rows)))))
+    (is (= [:direct :unexercised :unexercised]
+           (mapv :exercise (kernel-exercise-entries inventory [fixture]
+                                                    (assoc-in rows [1 :id] :unnamed-integration))))))
+  (let [a {:status :completed
+           :outcome {:thrown {:message "Wrong proof script: proof steps after qed."
+                              :data {:script [] :meta {:nonportable-host-value (str (class clojure.core/meta))}}}}}
+        c {:status :completed
+           :outcome [:yin.k/error {:yin.k/message "Wrong proof script: proof steps after qed."
+                                   :yin.k/data {:script [] :meta (values/closure nil {})}}]}]
+    (is (some? (kernel-host-value-deviation :elab-after-qed a a c c)))
+    (is (nil? (kernel-host-value-deviation :other a a c c)))
+    (is (nil? (kernel-host-value-deviation :elab-after-qed a a (assoc c :status :blocked) c)))
+    (is (nil? (kernel-host-value-deviation :elab-after-qed a a
+                                           (assoc-in c [:outcome 1 :yin.k/data :script] [:new-mismatch]) c)))
+    (is (nil? (kernel-host-value-deviation :elab-after-qed a a
+                                           (assoc-in c [:outcome 1 :yin.k/data :script] '()) c)))
+    (is (nil? (kernel-host-value-deviation :elab-after-qed a a
+                                           (assoc-in c [:outcome 1 :yin.k/data :meta] {:type :closure}) c)))))
+
+
 (defn- kernel-row
   [fixture]
   (let [a (kernel-a fixture)
@@ -1789,10 +1900,13 @@
                          (result-shape (second (:outcome walker))))
                       (= (result-shape (get-in a [:outcome :thrown :data]))
                          (result-shape (get-in walker [:outcome 1 :yin.k/data])))))
+        deviation (kernel-host-value-deviation (:id fixture) a b walker semantic)
         status (cond match? :pass
                      (some #(= :blocked (:status %)) [a b walker semantic]) :blocked
+                     deviation :recorded-deviation
                      :else :mismatch)]
     {:id (:id fixture) :negative? (boolean (:negative? fixture)) :status status
+     :recorded-deviation deviation
      :dependency-of (:dependency-of fixture)
      :call (or (:call fixture) (kernel-c-program fixture))
      :adapted-call (:guest-call fixture)
@@ -1810,27 +1924,21 @@
 (defn kernel-gate-evidence
   "Run every fixture in A and independently in both C lanes. Compilation or
    VM errors are blockers, never successful LaTTe rejections. Source closure
-   membership is recorded separately from conservative execution coverage."
+   membership satisfies the plan only through explicitly named integrations."
   []
   (let [results (mapv (fn [fixture]
                         (let [row (kernel-row fixture)]
                           (println "KERNEL-FIXTURE" (:id row) (:status row))
                           row)) (:fixtures kernel-gate-corpus))
         inventory (mapv #(select-keys % [:symbol :kind :arities :disposition :admission-reason]) kernel-entries)
-        ;; Direct calls are a lower bound, not a claim that every function in
-        ;; a dependency closure was executed. Unproven transitive arities stay
-        ;; unexercised and block closure of the gate.
-        direct (into #{}
-                     (for [[fixture row] (map vector (:fixtures kernel-gate-corpus) results)
-                           :when (= :pass (:status row))
-                           :let [call (:call fixture)]
-                           :when (and (seq? call) (namespace (first call)))]
-                       [(first call) (count (rest call))]))
+        exercise-entries (kernel-exercise-entries inventory (:fixtures kernel-gate-corpus) results)
+        direct (set (map :function-arity (filter #(= :direct (:exercise %)) exercise-entries)))
+        exercised (set (map :function-arity (remove #(= :unexercised (:exercise %)) exercise-entries)))
         all-arities (set (for [{:keys [symbol arities]} inventory n arities] [symbol n]))
         admitted-arities (set (for [{:keys [symbol arities disposition]} inventory
                                     :when (= :admitted disposition) n arities] [symbol n]))
-        unexercised (vec (sort-by pr-str (remove direct admitted-arities)))]
-    {:slice 9 :gate-status (if (and (every? #(= :pass (:status %)) results)
+        unexercised (vec (sort-by pr-str (remove exercised admitted-arities)))]
+    {:slice 9 :gate-status (if (and (every? #(contains? #{:pass :recorded-deviation} (:status %)) results)
                                     (empty? unexercised)) :pass :blocked)
      :baseline {:revision "7dc18478" :fixture-count 54 :counts {:pass 4 :mismatch 2 :blocked 48}}
      :generated-at (str (java.time.Instant/now))
@@ -1843,6 +1951,7 @@
      (apply str (map #(format "%02x" (bit-and 255 %))
                      (.digest (java.security.MessageDigest/getInstance "SHA-256")
                               (.getBytes (slurp "src/cljc/yang/clojure.cljc") "UTF-8"))))
+     :integration-context-identities kernel-context-integration-names
      :portability-refusals
      [{:source '(.getStackTrace exc) :disposition :excluded
        :reason "Host stack traces have no portable error-data representation; the compiler refuses the accessor."}]
@@ -1863,11 +1972,17 @@
      :excluded-function-arity-count (- (count all-arities) (count admitted-arities))
      :binding-dispositions (frequencies (map :disposition manifest))
      :admission-note "Manifest dispositions define the denominator independently of fixture success; excluded bindings retain explicit portability reasons."
-     :program-status :implementation-round-final-verification-pending
+     :program-status :gate-verification-complete
      :coverage {:proven-direct-function-arities (vec (sort-by pr-str direct))
-                :exercised-count (count direct) :unexercised unexercised
-                :transitive-execution-coverage :unproven
+                :exercised-count (count exercised) :unexercised unexercised
+                :entries exercise-entries
+                :named-integration-fixture-ids (vec (sort kernel-named-integrations))
+                :transitive-execution-coverage :named-integration-dependency-closures
+                :basis "Direct calls or admitted function/arities belonging to a passing named integration's source dependency closure, per slice-9 acceptance; not dynamic branch coverage."
                 :inventory inventory}
+     :recorded-portability-boundaries
+     (mapv #(select-keys % [:id :status :recorded-deviation])
+           (filter #(= :recorded-deviation (:status %)) results))
      :counts (frequencies (map :status results)) :fixture-count (count results)
      :negative-fixture-count (count (filter :negative? results))
      :dependency-graph
@@ -1908,9 +2023,27 @@
     (is (every? #(every? true? (vals (:agreement %)))
                 (filter #(= :pass (:status %)) (:fixtures evidence)))
         "Every passing fixture records independent A/B/C agreement")
-    (println "KERNEL-GATE" (pr-str (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates])))
+    (let [entries (get-in evidence [:coverage :entries])
+          unexercised (filter #(= :unexercised (:exercise %)) entries)
+          deviations (filter #(= :recorded-deviation (:status %)) (:fixtures evidence))]
+      (is (= (:admitted-function-arity-count evidence) (count entries)
+             (count (set (map :function-arity entries)))))
+      (is (= (set (get-in evidence [:coverage :unexercised]))
+             (set (map :function-arity unexercised))
+             (set (keys kernel-unexercised-reasons))))
+      (is (every? #(seq (:missing-dependency %)) unexercised))
+      (is (every? #(case (:exercise %)
+                     :direct (seq (:direct-fixture-ids %))
+                     :named-integration (seq (:integration-fixture-ids %))
+                     :unexercised (and (empty? (:direct-fixture-ids %))
+                                       (empty? (:integration-fixture-ids %)))) entries))
+      (is (= #{:elab-after-qed :check-after-qed} (set (map :id deviations))))
+      (is (every? #(and (:recorded-deviation %)
+                        (not (every? true? (vals (:agreement %))))) deviations)))
+    (println "KERNEL-GATE" (pr-str (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates
+                                                          :recorded-portability-boundaries])))
     (doseq [row (:fixtures evidence) :when (not= :pass (:status row))]
-      (println "KERNEL-BLOCKER"
+      (println (if (= :recorded-deviation (:status row)) "KERNEL-RECORDED-BOUNDARY" "KERNEL-BLOCKER")
                (pr-str {:id (:id row) :status (:status row)
                         :blocked-by (get-in row [:c-walker :blocked-by])
                         :a (get-in row [:a :status]) :b (get-in row [:b :status])

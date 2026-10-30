@@ -203,3 +203,110 @@ fix in this round. Source: [round-1 review](../../collab/1793296786225-reviewer-
 Additional closing condition, verbatim:
 
 > Conditions: findings 1's cross-host arity drift and the metadata-serialization obligation above should be tracked as explicit follow-ups before the owed Node/Dart lanes.
+
+
+## Gate-verification dispositions (2026-10-30)
+
+Append-only addition: 127 existing ledger rows, 22 new rows, 149 total.
+The previous rows and closure notes remain intact. Full arity-specific obligations
+are also machine-readable in `test/yang/latte_oracle/slice9_unexercised.edn`.
+
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| gap                                                                      | evidence                               | owner seat   | closing slice            | severity |
++==========================================================================+========================================+==============+==========================+==========+
+| elab-after-qed: recorded-deviation. Upstream embeds clojure.core/meta in | slice9_evidence.edn fixture            | yang.clojure | recorded portability     | P3       |
+| error data; the guest closure boundary is recorded, never agreement.     | :elab-after-qed; :recorded-deviation   |              | boundary                 |          |
+|                                                                          | :evidence                              |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| check-after-qed: recorded-deviation. Upstream embeds clojure.core/meta   | slice9_evidence.edn fixture            | yang.clojure | recorded portability     | P3       |
+| in error data; the guest closure boundary is recorded, never agreement.  | :check-after-qed; :recorded-deviation  |              | boundary                 |          |
+|                                                                          | :evidence                              |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.defenv/mkenv 1: unexercised. The fixtures start from        | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| empty-env or an explicit kernel context; no named closure calls mkenv.   | :entries; slice9_unexercised.edn       |              | program                  |          |
+| Needs an environment-construction fixture entering mkenv.                |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.norm/beta-red 1: unexercised. normalize enters              | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| beta-delta-normalize, not the standalone beta-red wrapper. Needs a named | :entries; slice9_unexercised.edn       |              | program                  |          |
+| normalization integration that calls beta-red.                           |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.norm/install-unfold-implicit! 1: unexercised. Implicit      | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| fixtures supply the extension in the immutable context; no named closure | :entries; slice9_unexercised.edn       |              | program                  |          |
+| invokes the upstream installer. Needs an explicit installation and       |                                        |              |                          |          |
+| subsequent normalization sequence.                                       |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.norm/delta-normalize 3: unexercised. normalize uses         | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| beta-delta-normalize and lower delta-step helpers, bypassing this public | :entries; slice9_unexercised.edn       |              | program                  |          |
+| delta-only wrapper. Needs a delta-only normalization fixture.            |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.norm/delta-normalize-local 3: unexercised. No named closure | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| enters the local-only delta wrapper. Needs a fixture that calls          | :entries; slice9_unexercised.edn       |              | program                  |          |
+| delta-normalize-local with local definitions and checks namespace        |                                        |              |                          |          |
+| isolation.                                                               |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.presyntax/exists-kw? 1: unexercised. The pinned parser      | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| dispatch does not reference exists-kw?; naming an existential term       | :entries; slice9_unexercised.edn       |              | program                  |          |
+| cannot add this absent edge. Needs a direct predicate fixture or an      |                                        |              |                          |          |
+| integration explicitly calling it.                                       |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.proof/show-deftype 1: unexercised. Only diagnostic display  | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| paths call show-deftype; named proof elaboration does not select those   | :entries; slice9_unexercised.edn       |              | program                  |          |
+| excluded display functions. Needs a portable display-result fixture and  |                                        |              |                          |          |
+| explicit diagnostic dependencies.                                        |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.proof/install-opacity-function 1: unexercised. Proof        | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| fixtures inject opacity-policy in the context and do not invoke its      | :entries; slice9_unexercised.edn       |              | program                  |          |
+| installer. Needs an installation and subsequent opaque/transparent proof |                                        |              |                          |          |
+| sequence.                                                                |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.syntax/appify 2: unexercised. Named parser and proof        | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| closures build applications without calling appify. Needs a              | :entries; slice9_unexercised.edn       |              | program                  |          |
+| syntax-construction integration entering appify.                         |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.syntax/term? 1: unexercised. The named closures use         | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| individual syntax predicates, not the public recursive term? validator.  | :entries; slice9_unexercised.edn       |              | program                  |          |
+| Needs a term-validation fixture entering term?.                          |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.syntax/bound-vars 1: unexercised. Substitution and proof    | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| closures use free-vars/vars and do not call bound-vars. Needs a          | :entries; slice9_unexercised.edn       |              | program                  |          |
+| binder-analysis integration entering bound-vars.                         |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.typing/proper-type? 1: unexercised. The proof chain calls   | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| type-of/type-check? directly, bypassing proper-type?. Needs a            | :entries; slice9_unexercised.edn       |              | program                  |          |
+| proper-type? fixture at the one-argument entry.                          |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.typing/proper-type? 2: unexercised. No named closure calls  | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| proper-type?; its context-default wrapper is not reached from type-of.   | :entries; slice9_unexercised.edn       |              | program                  |          |
+| Needs a proper-type? fixture with an explicit local context.             |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.typing/proper-type? 3: unexercised. No named closure calls  | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| proper-type?; its body calls type-of but the reverse dependency does not | :entries; slice9_unexercised.edn       |              | program                  |          |
+| exist. Needs a proper-type? fixture with explicit environment and        |                                        |              |                          |          |
+| context.                                                                 |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.unparser/prod-impl-unparser 1: unexercised. The unparser    | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| integration registers only its custom guest closure; the fundamental     | :entries; slice9_unexercised.edn       |              | program                  |          |
+| product unparser is not in that closure. Needs fundamental-unparser      |                                        |              |                          |          |
+| installation followed by product unparsing.                              |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.unparser/install-fundamental-unparsers! 0: unexercised. The | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| named unparser fixture uses an empty registry plus a custom              | :entries; slice9_unexercised.edn       |              | program                  |          |
+| registration; no fundamental installer is selected. Needs explicit       |                                        |              |                          |          |
+| fundamental-unparser installation and use.                               |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.utils/pair? 1: unexercised. No selected named closure       | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| references pair?. Needs a utility predicate fixture or a named consumer  | :entries; slice9_unexercised.edn       |              | program                  |          |
+| that explicitly calls pair?.                                             |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.utils/vectorn? 2: unexercised. No selected named closure    | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| references vectorn?. Needs a vector-size validation fixture or a named   | :entries; slice9_unexercised.edn       |              | program                  |          |
+| consumer that calls vectorn?.                                            |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.utils/safe-get 2: unexercised. Named closures use ordinary  | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| get/fetch adapters rather than safe-get. Needs a safe lookup fixture     | :entries; slice9_unexercised.edn       |              | program                  |          |
+| covering success and missing-key rejection.                              |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+| latte-kernel.utils/vremove 2: unexercised. The explicit unparser         | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
+| unregister adapter uses filter/remove directly and does not depend on    | :entries; slice9_unexercised.edn       |              | program                  |          |
+| upstream vremove. Needs a vector-removal fixture entering vremove.       |                                        |              |                          |          |
++--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
