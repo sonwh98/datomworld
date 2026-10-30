@@ -42,8 +42,7 @@
                    {:ns "yin.repl.main-test" :test "the-jvm-loop-drains-custody-without-an-endpoint-and-closes-its-journals-test"
                     :reason "JVM poll loop; its durable-journal half runs on jolt in the-exit-path-closes-the-custody-journals-before-the-host-exits-test (J4d)" :capability "JVM loop" :owner "J3"}]
  :host-expectations [{:ns "yin.repl-test" :test "host-command-names-the-runtime" :owner "J3"}
-                     {:ns "yin.repl.main-test" :test "booting-yields-one-shell-one-input-medium-and-one-cursor" :owner "J3/J6"}
-                     {:ns "yin.repl.driver-test" :test "the-default-host-is-ready-for-a-real-connection" :owner "J6"}]
+                     {:ns "yin.repl.main-test" :test "booting-yields-one-shell-one-input-medium-and-one-cursor" :owner "J3"}]
  :reader-failures {:owner "jolt-lang" :excluded false
                    :tests ["a-percent-reads-alike-in-every-symbol-position"
                            "tagged-literals-and-reader-conditionals-refuse-alike"]}}

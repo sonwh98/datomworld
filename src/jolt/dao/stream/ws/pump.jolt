@@ -58,9 +58,14 @@
    any state reports 1006. A parser `:fail` without `:close?` fails the
    connection (RFC 6455 section 7.1.7) and opens no handshake: the record
    gets `:failed? true`, the close frame takes the reserved slot, input is
-   read only to see end of stream and discarded, and once the frame is written the terminal is the local code with
-   cause `:fail`; the peer's reply is never parsed. 1005 and 1006 are never
-   put on the wire.
+   read only to see end of stream and discarded, and once the frame is
+   written the terminal is the local code with cause `:fail`; the peer's
+   reply is never parsed. A `:fail` after a local `close!` keeps that
+   request's frame and code and ends the same way. 1005 and 1006 are never
+   put on the wire. A ping that arrives once a local close is queued gets no
+   pong: the pong would queue behind our close frame, RFC 6455 section 5.5.1
+   forbids only data frames after a close, and no Autobahn case exercises
+   it.
 
    Listeners. Accepted sockets register with `:listener` and `:upgrading?`;
    at `max-pending-upgrades` upgrading sockets (or `:max-connections` owned
@@ -534,21 +539,32 @@
 
 (defn- fail-connection!
   "A parser :fail without :close? fails the connection (RFC 6455 section
-   7.1.7): the close frame takes the reserved slot, later input is discarded
-   unparsed (read only to see EOF or reset) and the unparsed rest is dropped. The peer's reply is never parsed: the terminal
-   is `:fail` with the local code once the frame is written."
+   7.1.7): the close frame takes the reserved slot, later input is
+   discarded unparsed (read only to see EOF or reset) and the unparsed rest
+   is dropped. The peer's reply is never parsed: the terminal is `:fail`
+   with the local code once the frame is written. After a local `close!`
+   the requested frame keeps the slot (no second frame) and its code: still
+   queued, the connection fails once it is written; already sent, it fails
+   now."
   [p h code reason]
   (let [{:keys [status mode close]} (cell h)]
-    (when (and (= :open status) (= :ws mode) (nil? (:local close)) (nil? (:peer close)))
-      (let [bs (close-frame h code reason)]
-        (cell! h #(-> %
-                      (assoc :remainder nil)
-                      (update :close (fn [c]
-                                       (-> (start-close c :local (:close-deadline-ms %))
-                                           (assoc :local :queued :code code :reason reason
-                                                  :failed? true))))))
-        (enqueue! p h bs :close)
-        (maybe-release! p))))
+    (when (and (= :open status) (= :ws mode) (nil? (:peer close)))
+      (case (:local close)
+        nil (let [bs (close-frame h code reason)]
+              (cell! h #(-> %
+                            (assoc :remainder nil)
+                            (update :close (fn [c]
+                                             (-> (start-close c :local (:close-deadline-ms %))
+                                                 (assoc :local :queued :code code :reason reason
+                                                        :failed? true))))))
+              (enqueue! p h bs :close)
+              (maybe-release! p))
+        :queued (cell! h #(-> %
+                              (assoc :remainder nil)
+                              (assoc-in [:close :failed?] true)))
+        :sent (do (cell! h assoc-in [:close :failed?] true)
+                  (terminate! p h :fail nil)
+                  (maybe-release! p)))))
   nil)
 
 

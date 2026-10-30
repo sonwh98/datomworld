@@ -163,18 +163,23 @@
 (defn sleep-fds!
   "One owner round's wait (plan v2 A1): poll the wake pipe, fd 0 (when
    `line!` is given) and `pump`'s interest descriptors (when `pump` is
-   given) until one is ready or `sleep-ms` passes; then drain the wake
-   pipe, run one `(:pump! pump)` turn over the observed `[[fd revents]
-   ...]` (every round; `[]` after a timeout), then deposit stdin lines
-   through `line!` (nil at end of input). Never evaluates. Answers truthy
-   when anything was woken, moved or deposited. Folding the pump's
-   `:deadline` into the poll deadline is the adapter slice's (J6e)."
+   given) until one is ready or the earlier of `sleep-ms` and the pump's
+   `:deadline` (`jolt.io-poller/clock-ms`; nil, or a pump without one, is
+   the cadence alone) passes; then drain the wake pipe, run one
+   `(:pump! pump)` turn over the observed `[[fd revents] ...]` (every
+   round; `[]` after a timeout), then deposit stdin lines through `line!`
+   (nil at end of input). A deadline already due still polls once, with a
+   zero timeout, so readiness seen then reaches the same `pump!` turn as
+   the expiry. Never evaluates. Answers truthy when anything was woken,
+   moved or deposited."
   [wake sleep-ms pump line!]
   (let [interest (if pump (vec ((:interest pump))) [])
         base (if line! 2 1)
         n (+ base (count interest))
         fds (native/alloc-pollfds n)
-        deadline (poller/deadline-ms sleep-ms)]
+        cadence (poller/deadline-ms sleep-ms)
+        due (when-let [f (:deadline pump)] (f))
+        deadline (if due (min due cadence) cadence)]
     (try
       (native/init-pollfd! fds 0 (:read wake) native/pollin)
       (when line! (native/init-pollfd! fds 1 0 native/pollin))
