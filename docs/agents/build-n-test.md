@@ -608,6 +608,60 @@ scanner row took about 11-19 minutes on the JVM and about 79 minutes on Node
 - Both hosts run other work (a QEMU guest and rustdesk on shiva); idle load is
   under 1, but timings are not a clean benchmark.
 
+### The nightly full suite and the branch-testing rule (2026-10-30 owner ruling)
+
+Owner, verbatim: "since the complete test can take a good 7-8hrs to run
+completely, it should be schedule to run once a day at 3am. while
+branch/worktree test should only run test that are targeting code
+changes."
+
+Two tiers, by purpose:
+
+- **The nightly full suite** (`~/ci/nightly-full.sh` on shiva, tmux
+  session `nightly`, scheduled 03:00 daily through the orchestrator's
+  automation): every lane, every host target, against origin/master —
+  the JVM full suite, the full Node suite, the full Dart suite. Its
+  results are a post-hoc integrity net, NOT a landing gate. Failures it
+  finds route to fix rounds the next morning.
+- **Branch/worktree testing**: only the namespaces that target the
+  changed code (the diff's own tests plus the surfaces the diff touches),
+  one JVM per namespace, plus one cheap portable lane (Node) when cljc
+  goldens or fixtures moved. Never the full tier on a branch: a branch
+  gate needs the changed code proven, not the whole tree re-proven.
+
+An orchestrator landing a slice cites the subset runs plus the gate
+sign-off; the nightly catches what the subset could not see, and a red
+nightly owns the follow-up.
+
+### The nightly full suite and the branch-testing rule (2026-10-30 owner ruling)
+
+Owner, verbatim: "since the complete test can take a good 7-8hrs to run
+completely, it should be schedule to run once a day at 3am. while
+branch/worktree test should only run test that are targeting code
+changes" — and, clarifying the nightly's target: "it should not be for
+only a worktree/branch. the nightly complete test should be for master."
+
+Two tiers, by target and purpose:
+
+- **The nightly full suite runs MASTER ONLY** (`~/ci/nightly-full.sh` on
+  shiva, tmux session `nightly`, scheduled 03:00 daily through the
+  orchestrator's automation; it fetches and checks out origin/master
+  before anything runs). Every lane, every host target: the JVM full
+  suite, the full Node suite, the full Dart suite. Its results are a
+  post-hoc integrity net for master, NOT a landing gate. Failures it
+  finds route to fix rounds the next morning.
+- **Branch/worktree testing runs only the namespaces that target the
+  changed code** (the diff's own tests plus the surfaces the diff
+  touches), one JVM per namespace, plus one cheap portable lane (Node)
+  when cljc goldens or fixtures moved. Never the full tier on a branch:
+  a branch gate needs the changed code proven, not the whole tree
+  re-proven. A branch is never promoted by its own testing — the merge
+  to master is what puts it under the nightly.
+
+An orchestrator landing a slice cites the subset runs plus the gate
+sign-off; the nightly catches what the subset could not see, and a red
+nightly owns the follow-up.
+
 ### Measured times (first runs, 2026-10-11, commit 84c7c9b7, all lanes concurrent)
 
 Shiva, Dart lane: 1054 s (17.5 min) cold, with the JVM and Node lanes running beside
