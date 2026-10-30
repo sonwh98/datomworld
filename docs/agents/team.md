@@ -55,7 +55,7 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude-api      | Inactive / Cancelled                   | Anthropic API access stopped by owner. Do not route tasks here.                                             |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Reserved strictly for Architectural Review roles. Do not assign implementation tasks.   |
+| codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Available for any role (architecture, implementation, review, QA).                      |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | deepseek        | Metered: Pay-by-token                  | Flash: $0.14/M in, $0.28/M out. Pro: $0.435/M in, $0.87/M out.                                              |
 |                 |                                        | Off-peak (10:00-01:00, 04:00-06:00 UTC & wknds) is 50% cheaper.                                             |
@@ -63,7 +63,7 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | glm             | Flat: Pro yearly plan ($672/yr)        | Peak hours: weekdays 14:00-18:00 UTC+8. Schedule large jobs off-peak (50% rate).                            |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| kimi            | Flat: Kimi membership (Plus+)          | Invoke only through the dedicated `kimi` CLI. Rolling 5-hour and monthly quotas apply.                        |
+| kimi            | Flat: Kimi membership (Plus+)          | Invoke only through the dedicated `kimi` CLI. Monthly quotas apply.                                          |
 |                 |                                        | Pro unlocks Highspeed and 1M context for K3.x.                                                               |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
@@ -119,9 +119,8 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | acceptance criteria. **Best for:** TDD loops, simple linting,      | Escalate multi-step refactors and disputed findings to Terra, Sol,  |
 |                             | extraction, and scoped text edits.                                 | or Astra.                                                           |
 | `gpt-6-astra`               | Most capable end-to-end model. **Best for:** Hardest architecture, | Highest cost. Reserve for the highest-risk or most difficult work   |
-|                             | security, research, coding, computer-use, and long-horizon tasks.  | under the subscription policy; that policy does not make Astra      |
-|                             | Capability includes implementation, but the current codex policy   | unsuitable for implementation.                                      |
-|                             | reserves OpenAI seats for Architectural Review.                    |                                                                     |
+|                             | security, research, coding, computer-use, and long-horizon tasks.  | under the subscription policy.                                      |
+|                             | Capability includes implementation across any role.                |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gpt-6-luna`                | Most affordable GPT-6 model; optimized for high-volume tasks and   | Low-cost does not mean suitable for unbounded design or the hardest |
 |                             | fast response times. Improved factuality and coding. **Best for:** | invariant reasoning. Escalate complex architecture/security.        |
