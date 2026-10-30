@@ -613,40 +613,6 @@ scanner row took about 11-19 minutes on the JVM and about 79 minutes on Node
 Owner, verbatim: "since the complete test can take a good 7-8hrs to run
 completely, it should be schedule to run once a day at 3am. while
 branch/worktree test should only run test that are targeting code
-changes."
-
-Two tiers, by purpose:
-
-- **The nightly full suite** (`~/ci/nightly-full.sh` on shiva, tmux
-  session `nightly`, scheduled 03:00 daily through the orchestrator's
-  automation): every lane, every host target, against origin/master —
-  the JVM full suite, the full Node suite, the full Dart suite. Its
-  results are a post-hoc integrity net, NOT a landing gate. Failures it
-  finds route to fix rounds the next morning.
-- **Branch/worktree testing**: only the namespaces that target the
-  changed code (the diff's own tests plus the surfaces the diff touches),
-  one JVM per namespace, plus one cheap portable lane (Node) when cljc
-  goldens or fixtures moved. Never the full tier on a branch: a branch
-  gate needs the changed code proven, not the whole tree re-proven.
-
-An orchestrator landing a slice cites the subset runs plus the gate
-sign-off; the nightly catches what the subset could not see, and a red
-nightly owns the follow-up.
-
-**The merge precondition (2026-10-30 owner ruling):** before any merge
-into master, the `dao.stream` tests must run and pass — dao.stream is
-what everything is built on. Concretely: `bb test:sub dao.stream` (the
-subsystem's tests, `--slow` when the slice touches slow-guarded
-surfaces) is part of every branch gate regardless of which subsystems
-the diff's own changes select, because a change can break the foundation
-without touching it. A red dao.stream blocks the merge until fixed or
-diagnosed as pre-existing by the owning seat.
-
-### The nightly full suite and the branch-testing rule (2026-10-30 owner ruling)
-
-Owner, verbatim: "since the complete test can take a good 7-8hrs to run
-completely, it should be schedule to run once a day at 3am. while
-branch/worktree test should only run test that are targeting code
 changes" — and, clarifying the nightly's target: "it should not be for
 only a worktree/branch. the nightly complete test should be for master."
 
