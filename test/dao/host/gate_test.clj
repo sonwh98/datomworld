@@ -983,12 +983,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after H4, the yang.core L2 regeneration and J6b's ws parser/upgrade: 155 / 153 / 154 files, 147 shared"
+  (testing "§3.1 after H4, the yang.core L2 regeneration, J6b's ws parser/upgrade and yang.core.call joining the closure: 156 / 154 / 155 files, 148 shared"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 155 (count (files :clj))))
-      (is (= 153 (count (files :cljs))))
-      (is (= 154 (count (files :cljd))))
-      (is (= 147 (count (apply set/intersection (vals files)))))
+      (is (= 156 (count (files :clj))))
+      (is (= 154 (count (files :cljs))))
+      (is (= 155 (count (files :cljd))))
+      (is (= 148 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
