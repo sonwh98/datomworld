@@ -209,10 +209,10 @@
            (diagnostic (program [:no_such_rule])))))
   (testing "an unsupported grammar rule names its construct and slice"
     (is (= {:yang.ts/diagnostic :yang.ts/unsupported,
-            :rule "enumDeclaration",
-            :construct "enum",
+            :rule "namespaceDeclaration",
+            :construct "namespace",
             :slice :T9}
-           (diagnostic (program [:enumDeclaration])))))
+           (diagnostic (program [:namespaceDeclaration])))))
   (testing "a type-only rule refuses as type syntax"
     (is (= {:yang.ts/diagnostic :yang.ts/unsupported,
             :rule "interfaceDeclaration",
@@ -312,10 +312,10 @@
            out)))
   (let [[_ [[port d]]] (lower/lower-transform
                          {}
-                         (program [:enumDeclaration]))]
+                         (program [:namespaceDeclaration]))]
     (is (= :diagnostics port))
     (is (= :yang.ts/unsupported (:yang.ts/diagnostic d)))
-    (is (= "enum" (:construct d))))
+    (is (= "namespace" (:construct d))))
   (let [[_ [[port d]]] (lower/lower-transform
                          {}
                          (program [:breakStatement ["Break" "break"]]))]

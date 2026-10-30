@@ -279,7 +279,6 @@
 (deftest out-of-slice-refusals-test
   (doseq [[src construct slice]
           [["var o = {*g() {}};" "generator function" :T5]
-           ["var a = [...b];" "spread element" :T4]
            ["for (const x of y) {}" "for-of" :T5]
            ["function* g() {}" "generator function" :T5]
            ["async function f() {}" "async function" :T6]
@@ -291,9 +290,6 @@
            ["var [a] = [1];" "destructuring" :T4]
            ["function f(a = 1) {}" "default parameter" :T4]
            ["function f(...a) {}" "rest parameter" :T4]
-           ["f(...a);" "spread argument" :T4]
-           ["a ?? b;" "nullish coalescing" :T4]
-           ["a?.b;" "optional chaining" :T4]
            ["tag`x`;" "tagged template" :T5]
            ["/ab/;" "regular expression literal" :never]]]
     (testing src
@@ -441,8 +437,7 @@
            ["class A { m(a = 1) {} }" "default parameter" :T4]
            ["class A { m(...a) {} }" "rest parameter" :T4]
            ["class A { @d m() {} }" "decorator" :never]
-           ["export class A {}" "module syntax" :T7]
-           ["class A { m() { return a?.b; } }" "optional chaining" :T4]]]
+           ["export class A {}" "module syntax" :T7]]]
     (testing src
       (let [d (diagnostic src)]
         (is (= :yang.ts/unsupported (:yang.ts/diagnostic d)) (pr-str d))
