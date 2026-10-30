@@ -67,6 +67,7 @@
 
    Host names the prelude depends on and does not define: `host-names`."
   (:require
+    #?(:cljd [clojure.edn :as edn])
     [clojure.string :as str]
     [clojure.walk :as walk]
     [yang.core.prelude :as core]

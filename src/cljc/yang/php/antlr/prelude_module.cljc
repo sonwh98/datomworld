@@ -12,6 +12,7 @@
      php.rt/path-map   a cell, map of normalized path to a delivery thunk
                        (the literal path map of the composition's `:paths`)"
   (:require
+    #?(:cljd [clojure.edn :as edn])
     [yang.php.antlr.quoted :refer [defquoted]]))
 
 
