@@ -154,7 +154,7 @@ not here.
 
 Every orchestrator session starts its own log at session start. Create it at
 the repository root as
-`orchestrator-logs/<unix-time-stamp>-<brief-orchestrator-descriptive-name>.md`,
+`orchestrator-logs/<unix-time-stamp>-<coding-agent>-<model>-<brief-description>.md`,
 using the actual Unix timestamp (`date +%s`) and a short lowercase,
 hyphen-separated description. Each orchestration is independent: never append
 to `docs/orchestrator-log.md` or to another session's file, even when the new
@@ -213,7 +213,7 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
 1. **Establish the seat.** The harness must be able to read and write the working
    tree, run every affected host's checks, and invoke delegate CLIs. Establish
    those capabilities before accepting work. At session start, create this
-   session's own `orchestrator-logs/<unix-time-stamp>-<brief-orchestrator-descriptive-name>.md`
+   session's own `orchestrator-logs/<unix-time-stamp>-<coding-agent>-<model>-<brief-description>.md`
    file under the repository root as specified in Work log. If a required
    capability is missing, report it and do not issue a blind sign-off.
 2. **Re-derive state and authority.** Read `git log`, `git status`, and the real
@@ -362,7 +362,7 @@ Log section requires of any successor.
 
 Required workflow:
 - Follow `docs/agents/roles/orchestrator.md#workflow` in order.
-- Create a new session log at `orchestrator-logs/<unix-time-stamp>-<brief-orchestrator-descriptive-name>.md`; never append to the prior session's log.
+- Create a new session log at `orchestrator-logs/<unix-time-stamp>-<coding-agent>-<model>-<brief-description>.md`; never append to the prior session's log.
 - Run <focused-test-command> and <lint-command> locally.
 
 Do not broaden scope; do not stage, commit, or merge without an Architect
