@@ -136,12 +136,6 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | engineering, integration work, network streams, VM runtimes,       | architecture decisions. Validate compiler-lowering and other        |
 |                             | moderate-complexity implementation, and subagent fallback.         | specialist work with focused tests and independent review.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `minimax/m3`                | 428B MoE native multimodal with 1M context. **Best for:** Coding,  | Heavy local footprint; can fall into thinking loops on difficult    |
-|                             | autonomous task decomposition, tool invocation, and subagents.     | unbounded tasks. **Avoid for:** One-shot mission critical coding.   |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `mimo-v2.5-pro`             | Xiaomi 1.02T MoE text-only agentic model. **Best for:** Long chains| Text-only; can suffer "lost in the middle" in massive contexts and  |
-|                             | of thought, tool-calling, high-volume automation, and IDEs.        | spoil stable code. **Avoid for:** Verification-poor environments.   |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `kimi-for-coding-highspeed` | K2.7 Code Highspeed; 5-6x faster output with 256K context.         | Uses about 3x quota; fixed thinking; Pro tier required. **Avoid     |
 |                             | **Best for:** Latency-sensitive routine coding and iteration.      | for:** 1M-context work or tasks needing adjustable reasoning.       |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
@@ -163,20 +157,6 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | REPL fixes, features, and small/medium refactors. **Best for:**    | compiler, VM, and invariant work; use K3.1 Pro for those instead.   |
 |                             | routine coding, code completion, Q&A, and small edits.             |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `inclusionai/ling-3.0-sante`| Lightweight MoE model capable of coding with health/medicine focus.| Narrower general knowledge base outside its tuning. **Avoid for:**  |
-|                             | **Best for:** Cost-effective, specialized workflows.               | Complex multi-step autonomous architecture building.                |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `meituan/longcat-2.0`       | 1T parameter agentic model with 1M token context. **Best for:**    | Context cache can be expensive. **Avoid for:** Extremely short      |
-|                             | Processing massive codebases, deep refactors, long-horizon tasks.  | latency-sensitive queries or tasks requiring strictly bounded logic.|
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `poolside/laguna-s-2.1`     | Built specifically for software engineering and coding benchmarks. | Can struggle with non-coding reasoning or creative tasks. **Avoid   |
-|                             | **Best for:** Fast, accurate code generation and test generation.  | for:** Pure analytical reasoning outside of standard SWE patterns.  |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `qwen/qwen3.8-max`          | 2.4T MoE foundation; strong multimodal and agentic benchmarks.     | High compute overhead; slower response times for short prompts;     |
-|                             | **Best for:** Compiler lowering, AST analysis, routine large-      | vendor-reported benchmarks. **Avoid for:** Low-latency bounded      |
-|                             | scale reviews.                                                     | searches or quick edits.                                            |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-
 ## Role Selection & Reviewer Independence
 
 The Orchestrator is completely responsible for selecting the implementer for a given role. It dynamically
@@ -188,7 +168,7 @@ cost align with the task.
 Every change must be reviewed by a model from a **different family** to ensure
 independent defect discovery. Never silently substitute a same-family reviewer.
 The families represented in the Model Strengths table are: **Claude**,
-**DeepSeek**, **Gemini**, **GLM**, **GPT**, **InclusionAI**, **Kimi**, **Laguna**, **LongCat**, **MiMo**, **MiniMax**, and **Qwen**.
+**DeepSeek**, **Gemini**, **GLM**, **GPT**, and **Kimi**.
 Any author from one family must be reviewed by a model from a different family.
 
 Routine review applies only when independent; architectural or security review
