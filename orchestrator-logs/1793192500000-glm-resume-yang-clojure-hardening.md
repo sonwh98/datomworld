@@ -269,3 +269,123 @@ Decisions: Renamed file committed into tracking as part of the rename (it had ne
 Verification: grep: no stale yin.cic-kernel references in docs/ outside the append-only log.
 Delegates: none
 Next: unchanged (slice-8 + feedback-contract codex rounds in flight; slice-6/7 merges queued on lanes; CIC Phase 1 proposed).
+
+## 2026-10-29 19:17:44 +07 — feedback-contract CLOSED (signed, merged 8294d5e1); ledger P2 marker repair; slice-8 in flight
+Completed-GMT: 2026-10-29 12:17:44 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@8294d5e1 pushed (feedback-contract merge); yang-slice8 in flight (codex); slice-7 lanes on shiva running at 1fe3eb07
+Done: Feedback-contract closures verified (self-tests 9/141; real routed runs incl. the :gate-complete? false scope record) -> glm review (session e1599324): closures genuine, row-by-row match to closing routes, self-tests cover the probes — with a P2 the review traced to MY slice-5 merge: two committed conflict markers in known-gaps.md (my union resolution removed the adjacent pair but left the separator pair when the HEAD side held rows), and the fc closure notes had appended inside the unterminated region. Repaired by union on the fc branch (ebe94375: exactly the two marker lines removed, all rows kept), glm otherwise clean, astra SIGN-OFF GRANTED (collab/1793280000000-*), merged to master 8294d5e1 (second ledger union: master's jolt ANTLR-reach row + fc's slice-6/7 rows and closure notes), verified, pushed. glm's P3 (the staged-then-worktree-fixed probe overstates "together" coverage) noted for the contract's next pass. glm P2 also surfaced a real hazard pattern: any one-side ledger conflict resolution silently deletes rows — the union discipline caught it this time because the review checked the merge history.
+Decisions: Ledger conflict resolutions are always union-of-rows; the repair landed on the branch that carries the closure notes.
+Verification: post-merge focused 90/1375 green; ledger 129 rows, 0 markers.
+Delegates: engineer/gpt-6.1-sol (fc closures), reviewer/glm (e1599324), architect/gpt-6-astra (sign-off).
+Next: slice-7 lanes -> merge slices 6+7 -> slice-8 collection -> slice 9 (end-to-end gate) -> close-out. CIC Phase 1 proposal still parked for owner.
+
+## 2026-10-29 21:10:21 +07 — slice 8: glm review APPROVE, glm architect SIGN-OFF (widened bench), lanes at f7250f03
+Completed-GMT: 2026-10-29 14:10:21 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master moved again (multi-tenant; 0afca661 seen by glm); branch yang-slice8 force-with-lease pushed at f7250f03 (rebased onto master); shiva lanes relaunched at f7250f03
+Done: Slice 8 (immutable latte kernel context threading) delivered by codex (440d5fd1 pre-rebase); rebased onto moved master as f7250f03; locally verified 137/2155 + kondo clean. glm adversarial review (session 17a1aad0): APPROVE — all six deliverables verified against pinned upstream, deviations plan-conformant, 4 P3 polish items none blocking (findings synced to main collab). Astra sign-off attempt hit its usage limit (resets 21:11); per the recorded widened-bench ruling, the architect sign-off taken from glm on its own review (session 17a1aad0 resumed): SIGN-OFF GRANTED for f7250f03, condition = shiva Node/Dart lanes green at the exact merged tree. Force-with-lease push (origin had the engineer's pre-rebase push at 440d5fd1 — pushed despite the brief; noted), shiva clones re-pointed, lanes relaunched.
+Decisions: Widened-bench architect sign-off (glm) used per the recorded jolt-seat ruling rather than waiting ~2h for astra.
+Verification: local 137/2155 + kondo clean; glm firsthand suite evidence; lanes in flight.
+Delegates: engineer/gpt-6.1-sol (slice 8), reviewer+architect/glm (17a1aad0), astra (quota-cut, resets 21:11).
+Next: lanes green at f7250f03 -> merge yang-slice8 -> slice 9 (end-to-end kernel differential gate per the plan) -> close-out report. CIC Phase 1 proposal parked for owner.
+
+## 2026-10-29 22:47:10 +07 — slice 8 MERGED to master (f74f2cec); slice 9 (the close-out gate) dispatched
+Completed-GMT: 2026-10-29 15:47:10 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@f74f2cec pushed (slice-8 merge; post-merge focused 137/2155 green); NEW worktree yang-slice9 (branch yang-slice9 off master)
+Done: Slice-8 shiva lanes finished: Node rc=0 (5539s), Dart rc=1 known-failure only — the glm sign-off's lane condition met; merged yang-slice8 (no-ff, gate evidence in the message); verified; pushed. Dispatched slice 9 to codex/gpt-6.1-sol in yang-slice9 (test-only): the end-to-end differential gate per the plan's slice-9 section — real parse/subst/norm/type/proof checking over the admitted dependency graph, both lanes vs upstream, minimum acceptance set (presyntax/parse, syntax/subst, nbe/norm+normalize+beta-eq?, typing/type-of-term+type-of+type-check?, proof/compile-proof+elab-proof+check-proof, unparser + implicit-extension fixtures with guest closures); every admitted fn/arity exercised or named; compiler gaps are BLOCKERS to report, not work around — the gate's honesty is the deliverable. CIC Phase 1 proposal remains parked for the owner.
+Decisions: Slice 9 is test-only; compiler gaps surface as reported blockers.
+Verification: post-merge 137/2155 green.
+Delegates: engineer/gpt-6.1-sol (slice 9).
+Next: collect slice 9 -> verify -> glm review -> sign-off (glm bench or astra post-reset) -> merge -> close-out report. CIC Phase 1 proposal parked for owner.
+
+## 2026-10-29 23:08:09 +07 — slice 9 gate DELIVERED: BLOCKED honestly (4 pass, 2 mismatches, 48 blocked; 2/175 arities proven)
+Completed-GMT: 2026-10-29 16:08:09 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@f74f2cec+; yang-slice9 worktree holds the uncommitted gate (test-only: latte_oracle_test.clj + kernel_gate.edn + slice9_evidence.edn + slice9_gate.md)
+Done: The close-out gate slice returned the honest answer the brief demanded: GATE BLOCKED. 54 fixtures assembled (every one with A/B/C-walker/C-semantic outcomes recorded); 4 pass (subst x3, unparser guest-closure integration); 2 mismatches (gensym freshness — the guest G__fresh repeats, so names are not fresh; free-vars local-capture — the inherited context adaptation passes a context map where upstream's (second def-env) reads local defs); 48 blocked with named dependencies (butlast/last/nth/var?/with-meta/string? missing from the admitted modules; the real unfold-implicit try/catch path; proof/+opacity-fn+ ambient-atom def initializer refused under the outcome convention; a def-without-definition upstream bug exposed as its own fixture). Coverage honesty: 155 bindings / 175 function-arity entries, only 2 arities proven (subst 2+3); the inherited manifest has no admission dispositions, recorded as :not-recorded-in-inherited-manifest. Suite red by an intentional assertion (the gate must stay red while blockers remain). Regressions green (151/2951 across the three separately-runnable sets). Lane availability on this seat: ANTLR fetch UnresolvedAddressException, no bb on the remote, Java 17 vs 21 for shadow, no flutter — recorded as unavailable, not green.
+Decisions: The gate's honesty IS the deliverable — no workaround, no manufactured zero-failure result. The close-out report will present the blocked gate as the program's true end state.
+Verification: engineer's counts (22/988 with 1 intentional failure; independent suites 151/2951 green); this seat's review pending.
+Delegates: engineer/gpt-6.1-sol (slice 9).
+Next: glm review of the gate implementation (does it measure honestly?) -> the close-out decision: this is a program-boundary report, not a sign-off-and-merge moment — the blockers define the NEXT program (manifest admissions, library additions, context-adaptation fixes, gensym). CIC Phase 1 proposal stays parked.
+
+## 2026-10-29 23:32:42 +07 — slice-9 gate committed on branch (7dc18478); close-out report follows in this entry
+Completed-GMT: 2026-10-29 16:32:42 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@f74f2cec+; branch yang-slice9 pushed: 7dc18478 (the gate: latte_oracle_test.clj + kernel_gate.edn + slice9_evidence.edn + slice9_gate.md)
+Done: The slice-9 gate committed on its branch (not merged — a blocked gate does not merge as a passing gate). CLOSE-OUT REPORT FOR THE YANG.CLOJURE HARDENING PROGRAM:
+
+PROGRAM: close yang.clojure's compiler gaps so latte-kernel compiles and runs on yin.vm, using upstream latte-kernel (pinned 86fca0d1) as a differential oracle. Designed by the architect (astra, 9-slice plan, collab/1793128583916); owner directive to burn claude's expiring window, then codex per the owner's post-expiry routing.
+
+LANDED (slices 1-8, every slice implemented -> verified -> glm-reviewed -> architect-signed -> remote lanes -> merged; 15+ dispatches, sessions recorded in the entries above):
+- Slice 1: latte-kernel pinned dep, 155-entry manifest, the differential harness (A upstream / B adapted / C compiled-and-run).
+- Slice 2: collection literal elements evaluate; if false-alternate fix; empty lists; quoted-collection semantics.
+- Slice 3 (+3b): sequential destructuring (first/rest/empty? — architect-ratified), defn headers, multi-arity via the argument-vector convention.
+- Slice 4: loop/recur via lexical self-application, recur-target tracking, dual-lane depth gates with a mandatory negative control, Z-combinator deletion.
+- Slice 5: explicit error outcomes ([yin.k/ok|error]), tail forwarding, primitive adapters, unfold-implicit adaptation, throw-site inventory, reserved-name pre-pass.
+- Slice 6: case + cond/when/if-let/when-let/if-some/when-some as compile-time lowerings, gensym closure, desugar retirement.
+- Slice 7: the guest collection/higher-order library (zero scaffolds), apply intrinsic, per-arm case fixtures, regeneration script, ledger closers.
+- Slice 8: immutable kernel context threading, record kinds -> tagged data, host-Var fallback removed.
+Side products: set literals in yang.clojure; the test-strategy sharded/routed runner (298s->177s measured) + feedback-contract closures; the gate-test allowance bookkeeping.
+
+NOT LANDED — the slice-9 end-to-end gate is BLOCKED, honestly: 4/54 fixtures pass (subst x3, unparser guest closure); 2 mismatches (gensym freshness; free-vars context adaptation); 48 blocked by named dependencies (missing stdlib: butlast/last/nth/var?/with-meta/string?; the real unfold-implicit try path; +opacity-fn+ ambient-atom initializer refused under outcomes; an upstream LaTTe def-without-definition exposed). Coverage: 2/175 function-arity entries proven; admission dispositions never recorded in the manifest. The suite stays red by an intentional assertion. Committed 7dc18478 on yang-slice9 (pushed; not merged — blocked gates do not merge as passing).
+
+WHAT THE NEXT PROGRAM IS (the blockers, in dependency order): (1) manifest admission dispositions (prerequisite for any coverage denominator); (2) missing stdlib additions (butlast/last/nth/with-meta/string?/var? admission decisions); (3) gensym freshness (explicit supply must thread); (4) free-vars context adaptation fix (upstream's (second def-env) shape); (5) unfold-implicit try path (the full typed-argument flow); (6) opacity atom -> context (the def-initializer refusal needs the architecture answer). Each is small; together they are roughly one more program the size of slices 5-7.
+
+ALSO DELIVERED ALONGSIDE: yin.cic.spec.md (the Gate S v1 specification) and yang.tao.md (the math-notation frontend design) committed; yin.cic-kernel.md renamed docs/design/yang.cic.md and first-tracked; test-strategy sharded runner merged; the CIC Phase 1 implementation proposed and parked for owner go.
+
+FINAL STATE: master@f74f2cec+ (multi-tenant; this track's merges all pushed). The oracle harness is a standing instrument: any future yang.clojure change re-runs the accumulated corpus automatically.
+Decisions: The blocked gate was committed and pushed as recorded rather than merged or softened; the close-out is a program-boundary report, not a sign-off moment.
+Verification: as recorded per slice; the gate suite is intentionally red (1 assertion).
+Delegates: across the program: sonnet (slices 3b/4/5/6 rounds), codex gpt-6.1-sol (test-strategy, slice 7 r1+r2, slices 8/9), reviewers glm (every slice), architects fable/astra/glm-bench (designs + sign-offs).
+Next: owner decision — authorize hardening-program-2 (the six blockers above) and/or CIC Phase 1; worktrees yang-s5..s9 kept until close-out acknowledged; the kimi/glm quirks are documented by other seats.
+
+## 2026-10-29 23:52:11 +07 — NEW TRACK ADOPTED per owner brief: section 8.10 common-call adoption for yang.clojure
+Completed-GMT: 2026-10-29 16:52:11 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@c203c6e6 verified to contain the spec commit eb8030e8 (yang.antlr.md §8.10); NEW worktree yang-common-call (branch yang-common-call, off c203c6e6)
+Done: Owner delivered an orchestrator brief (collab/1793292027721-orchestrator-clojure-common-call.prompt.md): adopt the approved shared calling convention (§8.10, Kimi-approved r1/r2) in yang.clojure as an explicit opt-in, in a three-owner division — TS/PHP orchestrator coordinates the shared runtime; the authoring chat owns Python; this seat owns Clojure adoption. Executed the "first return": (1) verified the spec commit is an ancestor of master and read §8.10 in full; (2) PUBLISHED the ownership map (collab/1793297800000-orchestrator-clojure-ownership-map.md): reserved files (yang/clojure.cljc + this track's tests + latte_oracle), consumed-from-coordinating-owner artifacts (the pinned shared runtime module + profile address + A/B vectors), base/worktree (yang-common-call @ c203c6e6), and the rule that slice-9's BLOCKED gate stays preserved on yang-slice9 and is not reclassified; (3) dispatched the Clojure-specific architect rulings to kimi (r3, collab/-architect-yang-call-kimi-r3-clojure.prompt.md): A1 entry publication (descriptor-at-boundary vs constructor-constructed), A2 call-site routing + fast-path obligations, A3 :yang.call/named for a no-named-args dialect, A4 the outcome-model <-> raise-exit two-regime mapping, A5 internal helpers NOT rewritten as descriptors. Flagged to the routing board mentally: kimi is doing architect work per the widened bench; codex engineering chat is the designated implementation lane for bounded assignments.
+Decisions: Adoption planned as opt-in per §8.10.10; no parallel Clojure-specific convention; slice-9's blocked gate preserved intact.
+Verification: spec-commit ancestry verified via merge-base; kimi r3 in flight (stream-json + --verbose per the recipe as corrected by the other seat's docs commit).
+Delegates: architect/kimi-k3.1-pro (r3 rulings).
+Next: kimi r3 -> architect rulings into the adoption plan -> coordinate with the TS/PHP orchestrator for the pinned runtime -> bounded engineering briefs -> cross-language cases after all frontends pinned. CONCURRENT ORCHESTRATION maintained: slice-9 gate committed on its branch; hardening-program-2 + CIC Phase 1 remain parked for owner; no file conflicts with the new track (different worktrees, disjoint paths).
+
+## 2026-10-29 23:57:26 +07 — kimi r3 rulings DELIVERED (A1-A5): descriptors for every source fn, universal routing, empty named vector, entry-boundary outcome conversion, private helpers stay
+Completed-GMT: 2026-10-29 16:57:26 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: unchanged (yang-common-call worktree ready, no code yet — rulings precede coding)
+Done: kimi r3 (session stream in collab/1793292667828-*; one CLI retry: --verbose is not a kimi flag, contrary to my earlier recipe note) ruled: A1 every admitted Clojure source function publishes an immutable descriptor {:yang.call/entry <new unary record-closure> :clj/type :function} — NOT the body closure, NOT deferred to export time, not a second direct-closure kind; A2 EVERY source application routes through the common projection (no descriptor-check fast path as conformance; fast paths optional optimizations only, conformance exercises the unoptimized path); A3 :yang.call/named [] always supplied (empty vector; nonempty named -> guest binding error before body); A4 the outcome-model <-> raise-exit conversion sits in EVERY generated entry/caller bridge (callee: ok->value, error->raise; caller: condition->outcome propagation; no tuple-as-value leak); A5 dsg__ temps/library privates/kernel context stay non-descriptors (source publication is the distinction). Additional obligations: data-with-the-key is not callable; anonymous/higher-order fns need the same convention; arity checked in the entry before body; macros acquire no entries; native closures admitted only explicitly; unsupported-surface refusals preserved; slice-9 gate unaffected.
+Decisions: Rulings accepted as binding (kimi is the section-8.10 approving architect). The adoption plan + bounded engineering briefs follow, pending the coordinating owner's pinned shared runtime (A2's "one common invocation" and the projection helper are runtime artifacts owned by TS/PHP orchestrator).
+Verification: kimi r3 exit 0, findings extracted (6.3KB) and synced.
+Delegates: architect/kimi-k3.1-pro (r3).
+Next: publish the adoption plan incorporating the rulings; request the pinned runtime from the coordinating owner; first bounded engineering brief waits on the pinned runtime. CONCURRENT: slice-9 gate committed; hardening-2 + CIC Phase 1 parked.
+
+## 2026-10-30 00:24:25 +07 — HARDENING-PROGRAM-2 AUTHORIZED (owner: "continue with hardening yang.clojure"); round 1 dispatched
+Completed-GMT: 2026-10-29 17:24:25 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@c203c6e6+ (multi-tenant); NEW worktree yang-h2 (branch yang-hardening2 off 7dc18478 = the slice-9 BLOCKED gate tip)
+Done: Owner authorized continuing the hardening ("ok continue with hardening yang.clojure then"). The six gate blockers (slice-9's named dependencies) are the program: (1) manifest admission dispositions; (2) missing stdlib admissions (butlast/last/nth/var?/with-meta/string? + whatever the evidence graph repeats); (3) gensym freshness (explicit supply with a counter); (4) free-vars context adaptation fix (upstream's (second def-env) shape); (5) the real unfold-implicit try path; (6) opacity atom -> context field. Round 1 (all six, dependency order) dispatched to codex/gpt-6.1-sol in yang-h2, based on 7dc18478. The gate stays red during this program; it goes green only in its own final verification slice. The common-call track remains parked on the coordinating owner's pinned runtime (independent worktree; no conflicts).
+Decisions: Base = the slice-9 gate tip so the blockers are the literal baseline; the gate's red assertion is the program's progress metric (pass count rises, remaining mismatches named).
+Verification: dispatch launched; local verification on delivery.
+Delegates: engineer/gpt-6.1-sol (hardening-2 round 1).
+Next: collect round 1 -> verify -> glm review -> sign-off (astra resets 21:11 ICT, or glm bench) -> the gate's green verification slice -> merge -> close-out-2.
+
+## 2026-10-30 01:26:36 +07 — hardening-2 round 1 verified: gate 4->50 passes REAL (glm substantiated, no P0-P2, 4 P3s); astra sign-off requested
+Completed-GMT: 2026-10-29 18:26:36 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: yang-h2 @2292a068 (round 1, committed by codex; not pushed)
+Done: Hardening-2 round 1 delivered and verified. Gate fixtures 4->50 passes on the unchanged 54-fixture baseline (expanded corpus 53/57, 2 genuine upstream failures + host-meta mismatches recorded not normalized); manifest admission inventory sound (155=146+9, 175=165+10 arities, 143 unexercised honestly listed); gensym supply threading verified against upstream rebuild-type; free-vars body verbatim; the real unfold-implicit try shape fits; opacity -> context landed. glm review (session 3ca9258a, two turns: plan-mode analysis then firsthand suites): verdict substantiated, no P0-P2, 4 P3s (stale manifest generator wipes the new schema if run; portable try catches non-Exception throws; callable-collections edge; kind-arities publishes var? unconditionally), the var?/with-meta host-seam departure JUDGED JUSTIFIED with two carried obligations. glm firsthand: 119/1209 + 23/997 (1 expected gate failure). This seat's own run matched (142/2206, 1 expected gate failure, kondo clean).
+Decisions: The kind/with-meta host-seam departure accepted per glm's justification (meta was already a host seam; a guest tagged representation would break symbol identity vs the A leg); obligations tracked as follow-ups per glm's condition.
+Verification: as above.
+Delegates: engineer/gpt-6.1-sol (note: CLI resolved the brief's gpt-6.1-sol to gpt-6-luna — model resolution gap to watch), reviewer/glm (3ca9258a).
+Next: astra sign-off request (reset window open) -> then the gate-green verification slice decision -> lanes -> merge.

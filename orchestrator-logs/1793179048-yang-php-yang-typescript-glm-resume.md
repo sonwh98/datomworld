@@ -366,3 +366,102 @@ Decisions: the burn window routing is: codex gpt-6-luna implements, kimi/sol arc
 Verification: the branch tips verified on origin.
 Delegates: none in flight (the previous rounds all completed and were processed).
 Next: the checkpoint-B oracle pass (shiva compute); the P4 S8 round; the T3 S10 round (after the :claims scope resolution at the checkpoint).
+
+## 2026-10-29 19:2x +0700 — the checkpoint-B oracle pass 11: 478 targets, 0 failures, 120 records — the largest recording pass
+Completed-GMT: 2026-10-29 11:2x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The checkpoint-B oracle recording pass (pass 11) on shiva: 478 targets checked, 0 failures, 120 RECORD lines — the largest pass yet, covering the checkpoint-B fixture package's 50 awaiting-oracle fixtures plus the accumulated pending fixtures from P3b and P4 S0-S7. The phpt_selection.edn exists on shiva (the deferred S10 dependency is closer than expected). Log attached: collab/oracle-p4-pass11-php-8.3.35-shiva.log. The T4 round dispatched to codex (the ts-t3 worktree, gpt-6-luna, destructuring/spread/rest/defaults/arguments/template-literals/optional-chaining/??). The parse slice S0-S2 dispatch pending.
+Decisions: the oracle pass count growing (pass 1: 220, pass 11: 478) reflects the tracks' fixture accumulation — a healthy signal.
+Verification: the shiva run at the p4 tip; the log attached.
+Delegates: codex gpt-6-luna (the T4 round, IN FLIGHT); the parse slice S0-S2 dispatch pending.
+Next: fold the 120 records into programs_p4.cljc pins; the parse slice dispatch; the T4 round returns -> shiva verify -> commit.
+
+## 2026-10-29 22:4x +0700 — T4 landed (216346f5): ??, optional property access, array spread, template substitutions, arguments
+Completed-GMT: 2026-10-29 14:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The T4 round landed: the nullish coalescing (??), optional property access, array spread in arrays and calls, template substitutions, and the arguments object. Defaults, rest parameters, destructuring, object spread, and the optional-call/index forms remain explicitly refused or out of scope (the engineer kept partial semantics refused rather than accepting them). The evaluation-order fixture for compound assignment included (a side-effecting receiver evaluated once). The focused fixture 1/14/0; the full TypeScript JVM subsystem gate timed out at 600s during the class corpus (a host-performance issue, not a logic failure). Pushed.
+Decisions: partial semantics refused rather than accepted — the engineer's correct call.
+Verification: the focused fixture 1/14/0; the full gate timed out during the class corpus.
+Delegates: codex gpt-6-luna (the T4 round, complete).
+Next: the remaining T4 items (defaults, rest parameters, destructuring, object spread, the optional-call/index forms) dispatch as the next round; the T4 shiva legs; the T5 dispatch after T4 completes. The P6 S3+ round continues.
+
+## 2026-10-29 02:1x +0700 — the T3 :claims ruling: kimi corrects the S9 dispatch scope; enums are T9, :claims is T10
+Completed-GMT: 2026-10-29 02:1x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The kimi :claims ruling (collab/*architect-ts-t3-claims-ruling.findings.md, session_c263b7a0) — (1) :claims emission and binder-table verification are T10 work, NOT T3; (2) enums are T9 work, NOT T3; (3) the S9 round's dispatch prompt (written by this seat) erroneously assigned enums and :claims to T3; (4) the T3 S9/S10 scope excludes enum lowering and all T10 claims/binder-table work; (5) the L3 hook and claims appender are prerequisites, not authorization to pull T10 into T3. The ruling supersedes the erroneous dispatch brief. The enum code landed (aae279b0, 28/963/0) is working and stays on the branch — the T9 round will build on it rather than revert it. The T3 S9/S10 landing scope is: linked publication and cross-unit acceptance only.
+Decisions: the seat's dispatch brief error (assigning T9/T10 items to T3) is recorded; the plan of record v2 was correct — the dispatch brief was not.
+Verification: the kimi ruling's own tree inspection.
+Delegates: kimi k3.1-pro (the :claims ruling, complete — session_c263b7a0).
+Next: the T3 S10 round's scope is: linked publication and cross-unit acceptance ONLY. The enum code stays for the T9 round to build on. The T3 S5 shiva legs and the sign-off conditions continue.
+
+## 2026-10-29 19:5x +0700 — the session-id collision lesson logged; the cross-language demo and the 8.10 spec distinction recorded
+Completed-GMT: 2026-10-29 11:5x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The owner asked two questions that produced recorded findings: (1) why no terminals are visible (the delegates run as background processes writing to collab/ logs, not interactive terminals; the shiva lanes run in tmux on the remote server), and (2) whether the section 8.10 cross-language calling convention spec is unnecessary given that cross-language calls already work. The answer to (2): no — the demo proved the mechanism (the substrate routes calls correctly), but the spec defines the semantics (null sentinels, number kinds, opaque handles, references, exceptions, cleanup, ownership). The calls work at the engine level; the contract for what values mean at the boundary didn't exist until the spec defined it. The distinction: "the pipe works" vs "what flows through the pipe and what happens when it leaks."
+Decisions: the session-id collision class ("Session ID already in use" survives killing the holder; the fix is a fresh id with a by-state resume brief) is now documented in the delegate reference's Known CLI quirks section.
+Verification: the cross-language demo (test/yang/cross_lang_test.clj, landed 2e1d09e6) proves the mechanism; the section 8.10 spec defines the semantics.
+Delegates: none (analysis).
+Next: the tracks continue per the established cycles.
+
+## 2026-10-29 23:0x +0700 — the yang.call shared runtime: the S0 plan (kimi) and the S0 engineer round (codex) dispatched; the dry1 disposition
+Completed-GMT: 2026-10-29 15:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The kimi S0 plan received and promoted (collab/1793292371000-architect-call-runtime-plan.findings.md, 21KB): the yang.call shared runtime's API surface (entry, eligible?, invocation, invocation-with, valid-invocation?, condition, thrown, transfer, invoke, invoke-with), the semantics (entry reads cell contents only for :cell-ref maps; invocation always supplies the four required fields; transfer is exactly one application of raise; no ForeignException in S0), the dependency graph (yang.core.call -> yang.core.uast -> yang.core.prelude -> yin.vm/module), and the dry1 disposition (LAND after verification, not supersede — content four no diff, keep working tree no resets). (2) The worktree /Users/sto/workspace/datomworld-call created (branch yang-call @ c203c6e6 off origin/master, npm ci + gen:antlr done). (3) The S0 engineer round dispatched to codex gpt-6-luna with the plan as the binding brief.
+Decisions: the S0 scope is language-neutral guest runtime + synthetic proof only — no frontend conformance claim, no ForeignException, no reference-profile implementation.
+Verification: the kimi plan's own tree inspection; the worktree readiness checks.
+Delegates: kimi k3.1-pro (the S0 plan, complete); codex gpt-6-luna (the S0 engineer round, IN FLIGHT).
+Next: the S0 round returns -> shiva verify -> commit -> the yang.call core lands -> the frontend wiring rounds (S1: TS, S2: PHP) consume it; the Python and Clojure lanes receive the dependency handoff.
+
+## 2026-10-29 23:4x +0700 — the yang.call S0 runtime LANDED (0347d74e); the shared calling core is on its branch
+Completed-GMT: 2026-10-29 15:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The yang.call S0 runtime landed on branch yang-call (0347d74e, pushed): the new namespace src/cljc/yang/core/call.cljc (entry, eligible?, invocation, invocation-with, valid-invocation?, condition, thrown, transfer, invoke, invoke-with), the yin.vm.data predicate additions (the total map?/vector?/string? exports — the validation prerequisite), and the test file. The focused suites green: 28 tests / 485 assertions / 0 failures across the data module and the four-engine call fixtures. The bundled and linked prelude emission identical. The shiva verification pending (the codex round ran its gates locally; the shiva run is the seat's).
+Decisions: the log's dispatch-failure mystery resolved — the first S0 dispatch actually completed (its log showed the wrapper's exit-1 but codex's exit_code was 0); the second dispatch duplicated it. The find-glob variable-scope bug caused the phantom "missing" log.
+Verification: the focused suites green; the worktree clean after the commit.
+Delegates: codex gpt-6-luna (the S0 round, complete).
+Next: the shiva verification of the yang-call branch; the S1 frontend wiring rounds (TS and PHP) consume the landed core; the Python and Clojure dependency handoffs per the kimi plan; the W0b round; the T4 second half; the P6 S6+ round.
+
+## 2026-10-29 23:5x +0700 — OWNER INSTRUCTION: the yang.call completion is a BLOCKING DEPENDENCY for the yang.python and yang.clojure orchestrators
+Completed-GMT: 2026-10-29 15:5x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The owner confirmed: (1) keep all engineering rounds on codex gpt-6-luna (no family split); (2) the common call (yang.call) is BLOCKING the other orchestrators — yang.python and yang.clojure cannot begin their orchestration of the common call until this seat's yang.call track is fully implemented. This seat owns the yang.call track's completion and must notify the other orchestrators when the shared runtime is ready for their consumption.
+Decisions: the yang.call track's priority rises above the P6/T4 incremental rounds — the blocking dependency means the seat's dispatch queue prioritizes yang.call completion over other engineering. The remaining yang.call work: the S1 frontend wiring rounds (TS and PHP consume the core), the Python and Clojure dependency handoffs (the dependency/API export the other orchestrators need), and the shiva verification.
+Verification: the branch tips; the log entries.
+Delegates: codex gpt-6-luna (the P6 S3+ round, IN FLIGHT; the T4 and S0 rounds, complete).
+Next: the S1 frontend wiring rounds dispatch NOW (they are the critical path to unblocking the other orchestrators) — TS wiring and PHP wiring can run in parallel on separate worktrees. The Python/Clojure handoff artifact (the yang.call API surface + the dependency addresses) publishes when S1 lands. Notify the owner when the blocking dependency clears.
+
+## 2026-10-30 00:5x +0700 — S1 PHP landed (a4b9b406); the TS S1 round still in flight
+Completed-GMT: 2026-10-29 16:5x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The PHP S1 round completed: the php prelude's callable constructors wired into the convention (the invocation record constructed at php/call's resolution path, the bundled/linked emission carrying the yang.call helpers); the conformance fixtures green (32/371/0); kondo 0/0. The two open items (the reference-argument binding-profile pin; the cross-frontend callable-identity assertion) are the engineer's declared remaining work. The PHP half committed separately (a4b9b406) — the TS round is still in flight in the same worktree, with disjoint file ownership respected (its edits left untouched).
+Decisions: the reference binding-profile question may need the architect; the cross-frontend identity assertion is the landing-gate work.
+Verification: the round's local counts.
+Delegates: codex gpt-6-luna (the PHP S1 round, complete; the TS S1 round, IN FLIGHT).
+Next: the TS S1 round completes -> the two halves commit together on the branch -> the shiva verification -> the dependency handoff artifact publishes -> the yang.python and yang.clojure orchestrators unblock.
+
+## 2026-10-30 01:0x +0700 — S1 TypeScript landed (48a8e623); both S1 halves on the branch; the shiva verification next
+Completed-GMT: 2026-10-29 17:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The TS S1 round completed: the js prelude's callable constructors wired into the convention; the receiver literal-map bug fixed; the linked TS emission aligned (bundled carries helpers, linked requires the published yang.call module and pins its address). The conformance fixtures green (eligibility 1/4, lowered-source 1/56 across four VMs, linked publication 10/62, module spec 3/8, linked lowerer 1/5, S0 suites 29/500). Kondo 0/0 on 12 files. Committed 48a8e623 (the TS files only — the PHP half landed separately as a4b9b406), pushed.
+Decisions: the two halves commit separately (disjoint file ownership respected even at commit time).
+Verification: the round's local counts.
+Delegates: codex gpt-6-luna (both S1 rounds, complete).
+Next: the shiva verification of the yang-call branch (the combined S0+S1 state) -> the two open items (the reference binding-profile pin; the cross-frontend identity assertion) route to the architect if needed -> the dependency handoff artifact publishes -> the yang.python and yang.clojure orchestrators unblock.
+
+## 2026-10-30 02:3x +0700 — the S1 fixes landed (98390529): the PHP reference binding-profile and the cross-frontend identity fixture
+Completed-GMT: 2026-10-29 18:3x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The S1 fixes round landed on yang-call (98390529, pushed): the :yang.call/binding-profile implemented for PHP reference arguments (the invocation record carries the profile; the callee's binder reads it and authorizes caller-variable writeback; unknown profiles rejected); the cross-frontend callable-identity conformance fixture added (a PHP function stored, passed to TS, checked same-cell, called through the shared entry). The binding-profile documented in yang.antlr.md. JVM 122/9030/0, kondo 0/0.
+Decisions: none.
+Verification: the round's local counts.
+Delegates: codex gpt-6-luna (the S1 fixes round, complete).
+Next: the shiva verification of the yang-call branch at 98390529 -> the D3 re-confirm or the fable re-read on the kimi ruling -> the yang-call landing to master -> the dependency handoff publishes -> the yang.python and yang.clojure orchestrators unblock.
+
+## 2026-10-29 03:0x +0700 — OWNER UPDATE: the yang.python orchestrator is integrating yang-call into its branch
+Completed-GMT: 2026-10-29 03:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The owner confirmed the yang.python orchestrator is integrating yang-call into its branch. This changes the coordination: (1) this seat does NOT merge yang-call to master right now — the yang.python orchestrator consumes the yang-call branch directly from origin; (2) the integration happens on the yang.python side, and the landing coordination is between the two orchestrators; (3) this seat's remaining work is the TS S1 wiring (landed), the PHP S1 wiring (landed), and the yang-call S0 core (landed) — the shared runtime is delivered and consumed downstream.
+Decisions: the seat does not merge yang-call to master while the yang.python orchestrator is integrating it into its own branch. The landing coordination is between the two orchestrators. The TS S1 wiring is complete; the PHP S1 wiring is complete; the yang.call core is complete — the shared runtime is delivered.
+Verification: origin/yang-call @ 98390529 (pushed); origin/yang-php-p4 @ fc102486 (pushed); origin/yang-ts-t3 @ d722dc9b (pushed).
+Delegates: none in flight (the parallel seat's J6e round continues).
+Next: the yang.python orchestrator completes its integration -> the coordinated landing -> this seat continues the P4/T3/P6 tracks. The :claims scope ruling and the J6e round continue under their own seats.

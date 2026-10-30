@@ -358,3 +358,10 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   one simple command per step — never `--dangerously-skip-permissions` —
   treating a denial as a signal to simplify, not a capability gap to route
   around.
+
+**Codex session writer-lock (observed 2026-10-30):** `codex exec resume <id>` fails with
+"thread already has an active writer" when the resumed thread is mid-turn in another
+chat — the shared Codex engineering chat referenced by multi-owner briefs is
+single-writer. Do not wait on it; dispatch the work to a fresh session with a
+self-contained brief (prompt-file paths, exact revisions), and record the original
+thread id for provenance.
