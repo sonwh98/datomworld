@@ -177,3 +177,39 @@ files. Linting an archived `1fe3eb07` baseline produced identical findings;
 those pre-existing Jolt/probe findings are outside this contract's file scope.
 | yang.typescript/yang.php: the JS and Dart ANTLR parser targets are deliberately not built — parsing is JVM-only, and the checked-in CST packets are the portability boundary (Node/Dart execute parserless). The cross-host parse plan (collab/1793127916000-reviewer-crosshost-parse-plan.gpt-6-luna.findings.md and the astra reconciliation 1793128437000) is retired as a declined capability: no JS/Dart parser for either frontend exists today (the manifests declare `:java` only), so nothing was built against the granted helper-port licensing. Python keeps its multi-target parsers (`:java`/`:javascript`/`:dart`/`:cpp`, the J2b zero-pin record) as its own lane's capability, which creates no obligation for the other two | owner ruling 2026-10-30 ("don't build the JS/Dart parser except on the JVM"); `antlr/typescript/manifest.edn` and `antlr/php/manifest.edn` declare `:java` only; `build/antlr/{typescript,php}/` contain no js/dart output; `antlr/python3/manifest.edn` declares all four targets and J2b closed at zero pins | yang.typescript/yang.php (this seat) | none scheduled — a live browser REPL parsing user-typed source would be the only reopening case, and the demo runs samples parserless from packets | P3 |
 | jolt ws: a ping after a local close is queued gets no pong (A4 "every ping produces one pong" holds until a local close exists) | pump.jolt:597 (handle-event! :ping guard); wave-1 Architect sign-off P3 | jolt (J6) | documented behaviour, closed by J6e's docstring sentences; J6h cites the archived sign-off | P3 |
+
+
+## Clojure common-call arbitration dispositions (2026-10-30)
+
+Append-only disposition of Kimi r4. The two recorded deviations stand;
+this entry does not alter or retire existing ledger rows.
+
++-------------------------------+---------------------------------------------------+--------------------------------------------------------------------------------+
+| Disposition                   | Evidence                                          | Construction / resolution                                                      |
++===============================+===================================================+================================================================================+
+| (a) source forgery: closed    | Kimi r4 arbitration, 1793309600000; test-common-  | A private factory creates a closure over the canonical descriptor and a        |
+|                               | call-source-admission and explicit UAST/profile   | lexical token. Admission reconstructs and compares the opaque closure; it      |
+|                               | fixture                                           | never calls a candidate hook. Copying the entry or changing descriptor fields  |
+|                               |                                                   | fails. No VM type, descriptor seal, or provenance registry. Equal immutable    |
+|                               |                                                   | reconstructions retain the same value.                                         |
++-------------------------------+---------------------------------------------------+--------------------------------------------------------------------------------+
+| (d) constant stack: restored  | test-outcome-common-call-depth: named and mutual  | Every source callee is admitted before common invocation. Constructor entries  |
+|                               | calls, walker and semantic lanes, 100/1000        | accept a private outcome option and tail-apply their private body, forwarding  |
+|                               | iterations                                        | its outcome without pending conversion frames. Public/profile entries retain   |
+|                               |                                                   | value/raise conversion. The non-tail negative control still grows.             |
++-------------------------------+---------------------------------------------------+--------------------------------------------------------------------------------+
+
+The same fix uses portable guest closures for the private get, equality,
+assoc and empty aliases, refuses unadmitted source callees with the qualified
+not-callable condition, and rejects invalid continuation captures explicitly.
+A raise resumes only through the compiler's private transfer packet.
+Nonempty named arguments still raise yang.call/thrown with the original
+binding error payload, as required by arbitration (e).
+
+Verification: the four requested JVM namespaces plus the full accumulated
+LaTTe oracle corpus pass together: 147 tests, 2,238 assertions, zero failures
+or errors. This includes both 100/1,000 iteration depth lanes, their non-tail
+negative control, the new rejection fixtures, and UCF reconstruction under
+the existing validation and instruction budgets. Kondo reports zero errors
+and the same two existing oracle-test warnings; formatting and whitespace
+checks pass.
