@@ -123,7 +123,7 @@
       dao.jing.cbor
       yin.vm.debruijn yin.vm.debruijn-code yin.vm.data yin.vm.values
       dao.stream.chunks dao.stream.base64 dao.jing.dht yin.vm.linker
-      dao.stream.datagram dao.data.arrays]]
+      dao.stream.datagram dao.data.arrays yang.core.call]]
    [:profile-hash-sign "H3" '[dao.jing yin.vm.linker.sign]]
    [:consumer "H2 (require change only)"
     '[yin.vm yin.vm.engine yin.vm.values yin.vm.data yin.vm.integer]]

@@ -4,11 +4,13 @@
    loop are `yang.core.publication`'s; this namespace supplies the Python
    hooks: the imports `lower/imported-module-names` hoists, the
    `lower/module-spec` and `lower/scc-module-specs` emitters, the I7 site
-   set, and no binder table.
+   set, and no binder table. Source modules that read `yang.call` pin the
+   address from the published `py` module's requirements.
    Name assertions stay the linker's (`yin.vm.linker.publish/assertion`
    and `name-envelopes`): this namespace publishes content, it signs
    nothing."
-  (:require [yang.core.publication :as core]
+  (:require [dao.jing :as jing]
+            [yang.core.publication :as core]
             [yang.python.antlr.lower :as lower]
             [yang.python.antlr.siteset :as siteset]
             [yin.vm.linker.publish :as publish]))
@@ -22,13 +24,15 @@
 
 
 (defn- config
-  [publish-fn]
+  [publish-fn call-address]
   {:imported-names unit-imports,
    :module-spec (fn [registry {:keys [name package? packet]} py-address deps]
                   (lower/module-spec registry packet
                                      {:name name, :package? package?,
-                                      :py-address py-address, :deps deps})),
-   :scc-module-specs lower/scc-module-specs,
+                                      :py-address py-address, :call-address call-address,
+                                      :deps deps})),
+   :scc-module-specs (fn [registry units py-address deps]
+                       (lower/scc-module-specs registry units py-address call-address deps)),
    :site-set siteset/publish!,
    :binder-table nil,
    :refusal-ns "yang.python.antlr",
@@ -40,7 +44,7 @@
    Cyclic components appear as sorted member vectors in :order, one
    publication step per SCC. External imports must be in `published`."
   [units published]
-  (core/publication-order (config publish/publish-module!) units published))
+  (core/publication-order (config publish/publish-module! nil) units published))
 
 
 (defn publish-units!
@@ -68,4 +72,8 @@
   ([handle registry py-address units published]
    (publish-units! handle registry py-address units published publish/publish-module!))
   ([handle registry py-address units published publish-fn]
-   (core/publish-units! (config publish-fn) handle registry py-address units published)))
+   (let [py-manifest (when (and handle py-address)
+                       (jing/get handle py-address nil))
+         call-address (get-in py-manifest [:yin.module/requires 'yang.call])]
+     (core/publish-units! (config publish-fn call-address)
+                          handle registry py-address units published))))

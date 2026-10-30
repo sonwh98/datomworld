@@ -222,7 +222,7 @@
   (link/composition
     {:content-store store,
      :derivation :trusted,
-     :name-env (merge {'py py} (:bundles result)
+     :name-env (merge {'py py, 'yang.call (:call-address @h/published)} (:bundles result)
                       (into {} (map (fn [[n a]] [(lower/module-symbol n) a])) (:addresses result)))}))
 
 
