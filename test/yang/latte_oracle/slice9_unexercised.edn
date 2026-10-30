@@ -1,23 +1,3 @@
-;; Residual obligations after the slice-9 named-integration acceptance count.
-{
- [latte-kernel.defenv/mkenv 1] "The fixtures start from empty-env or an explicit kernel context; no named closure calls mkenv. Needs an environment-construction fixture entering mkenv."
- [latte-kernel.norm/beta-red 1] "normalize enters beta-delta-normalize, not the standalone beta-red wrapper. Needs a named normalization integration that calls beta-red."
- [latte-kernel.norm/install-unfold-implicit! 1] "Implicit fixtures supply the extension in the immutable context; no named closure invokes the upstream installer. Needs an explicit installation and subsequent normalization sequence."
- [latte-kernel.norm/delta-normalize 3] "normalize uses beta-delta-normalize and lower delta-step helpers, bypassing this public delta-only wrapper. Needs a delta-only normalization fixture."
- [latte-kernel.norm/delta-normalize-local 3] "No named closure enters the local-only delta wrapper. Needs a fixture that calls delta-normalize-local with local definitions and checks namespace isolation."
- [latte-kernel.presyntax/exists-kw? 1] "The pinned parser dispatch does not reference exists-kw?; naming an existential term cannot add this absent edge. Needs a direct predicate fixture or an integration explicitly calling it."
- [latte-kernel.proof/show-deftype 1] "Only diagnostic display paths call show-deftype; named proof elaboration does not select those excluded display functions. Needs a portable display-result fixture and explicit diagnostic dependencies."
- [latte-kernel.proof/install-opacity-function 1] "Proof fixtures inject opacity-policy in the context and do not invoke its installer. Needs an installation and subsequent opaque/transparent proof sequence."
- [latte-kernel.syntax/appify 2] "Named parser and proof closures build applications without calling appify. Needs a syntax-construction integration entering appify."
- [latte-kernel.syntax/term? 1] "The named closures use individual syntax predicates, not the public recursive term? validator. Needs a term-validation fixture entering term?."
- [latte-kernel.syntax/bound-vars 1] "Substitution and proof closures use free-vars/vars and do not call bound-vars. Needs a binder-analysis integration entering bound-vars."
- [latte-kernel.typing/proper-type? 1] "The proof chain calls type-of/type-check? directly, bypassing proper-type?. Needs a proper-type? fixture at the one-argument entry."
- [latte-kernel.typing/proper-type? 2] "No named closure calls proper-type?; its context-default wrapper is not reached from type-of. Needs a proper-type? fixture with an explicit local context."
- [latte-kernel.typing/proper-type? 3] "No named closure calls proper-type?; its body calls type-of but the reverse dependency does not exist. Needs a proper-type? fixture with explicit environment and context."
- [latte-kernel.unparser/prod-impl-unparser 1] "The unparser integration registers only its custom guest closure; the fundamental product unparser is not in that closure. Needs fundamental-unparser installation followed by product unparsing."
- [latte-kernel.unparser/install-fundamental-unparsers! 0] "The named unparser fixture uses an empty registry plus a custom registration; no fundamental installer is selected. Needs explicit fundamental-unparser installation and use."
- [latte-kernel.utils/pair? 1] "No selected named closure references pair?. Needs a utility predicate fixture or a named consumer that explicitly calls pair?."
- [latte-kernel.utils/vectorn? 2] "No selected named closure references vectorn?. Needs a vector-size validation fixture or a named consumer that calls vectorn?."
- [latte-kernel.utils/safe-get 2] "Named closures use ordinary get/fetch adapters rather than safe-get. Needs a safe lookup fixture covering success and missing-key rejection."
- [latte-kernel.utils/vremove 2] "The explicit unparser unregister adapter uses filter/remove directly and does not depend on upstream vremove. Needs a vector-removal fixture entering vremove."
-}
+;; All final residual paths are closed by fixture_closure.edn.
+;; No admitted arity may remain without direct or named-integration evidence.
+{}

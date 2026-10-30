@@ -1,19 +1,27 @@
-{:verification :slice-9-close-out
- :recorded-at "2026-10-30T04:03:44.871920+00:00"
+{:verification :slice-9-final-fixture-closure
+ :recorded-at "2026-10-30T04:17:37.754055+00:00"
  :branch "yang-hardening2"
- :base-revision "daef60da2f7ebba73b6bd301b1768071d110d237"
- :gate-status :blocked
- :fixture-count 57
- :counts {:pass 53 :mismatch 0 :recorded-deviation 2 :blocked 2}
+ :base-revision "c644363ee9a6483046b6207199f03cce8d1e9d05"
+ :gate-status :pass
+ :gate-assertion {:form (= :pass (:gate-status evidence)) :passed true}
+ :fixture-count 106
+ :new-fixtures 49
+ :primary-residual-consumers 20
+ :negative-fixture-count 38
+ :counts {:pass 102 :recorded-deviation 2 :recorded-upstream-failure 2 :mismatch 0 :blocked 0}
  :admitted-arities 165
- :exercise-counts {:direct 22 :named-integration 123 :unexercised 20}
- :ledger {:previous-rows 127 :appended-rows 22 :total-rows 149 :append-only true}
+ :excluded-arities 10
+ :exercise-counts {:direct 39 :named-integration 126 :unexercised 0}
+ :recorded-portability-boundaries [:elab-after-qed :check-after-qed]
+ :recorded-upstream-failures [:typing-ascription :compile-malformed]
+ :manifest-dispositions-changed false
  :production-source-changes false
+ :upstream-source-changes false
  :checks {
-  :oracle-test {:command "clj -M:test -n yang.latte-oracle-test" :exit 1 :output "slice9_oracle_test.txt" :tests 25 :assertions 1037 :failures 1 :errors 0 :only-failure :terminal-pass-check}
+  :oracle-test {:command "clj -M:test -n yang.latte-oracle-test" :exit 0 :output "slice9_oracle_test.txt" :tests 25 :assertions 1147 :failures 0 :errors 0}
   :regression-test {:command "clj -M:test -n yang.clojure-test -n yin.vm.macro-test -n yang.clojure.stream-eval-test -n yin.vm.store-write-audit-test" :exit 0 :output "slice9_regression_test.txt" :tests 122 :assertions 1338 :failures 0 :errors 0}
-  :kondo {:command "clj -M:kondo --lint test/yang/latte_oracle_test.clj" :exit 0 :output "slice9_kondo.txt" :errors 0 :warnings 0}
-  :evidence-refresh {:command "clj -Sdeps '{:aliases {:gate-refresh {:main-opts [\"-e\" \"(require (quote yang.latte-oracle-test)) (prn (dissoc (yang.latte-oracle-test/write-kernel-gate-evidence!) :coverage))\"]}}}' -M:test:gate-refresh" :exit 0 :output "slice9_evidence_refresh.txt"}
-  :cljstyle {:command "cljstyle check test/yang/latte_oracle_test.clj" :exit 0}
+  :kondo {:command "clj -M:kondo --lint test/yang/latte_oracle_test.clj src/dev/latte_oracle_tables.clj" :exit 0 :output "slice9_kondo.txt" :errors 0 :warnings 0}
+  :evidence-refresh {:command "clj -Sdeps '{:aliases {:gate-refresh {:main-opts [\"-e\" \"(require (quote yang.latte-oracle-test)) (let [evidence (yang.latte-oracle-test/write-kernel-gate-evidence!)] (assert (= :pass (:gate-status evidence))) (prn (assoc (dissoc evidence :coverage) :exercise-counts (frequencies (map :exercise (get-in evidence [:coverage :entries]))) :unexercised (get-in evidence [:coverage :unexercised])))) (shutdown-agents)\"]}}}' -M:test:gate-refresh" :exit 0 :output "slice9_evidence_refresh.txt"}
+  :cljstyle {:command "/Users/sto/.local/share/mise/installs/cljstyle/0.17.642/cljstyle check test/yang/latte_oracle_test.clj" :exit 0}
   :whitespace {:command "git diff --check" :exit 0}}
  :scope "Both C evaluators on the JVM; no new Node/Dart host verification."}

@@ -1,5 +1,5 @@
 Command: clj -M:test -n yang.latte-oracle-test
-Exit: 1
+Exit: 0
 
 Loading initial Timbre config from: :default
 
@@ -38,7 +38,7 @@ KERNEL-FIXTURE :typing-type :pass
 KERNEL-FIXTURE :typing-lambda :pass
 KERNEL-FIXTURE :typing-unknown :pass
 KERNEL-FIXTURE :typing-kind :pass
-KERNEL-FIXTURE :typing-ascription :blocked
+KERNEL-FIXTURE :typing-ascription :recorded-upstream-failure
 KERNEL-FIXTURE :type-of-valid :pass
 KERNEL-FIXTURE :type-of-context :pass
 KERNEL-FIXTURE :type-of-invalid :pass
@@ -47,7 +47,7 @@ KERNEL-FIXTURE :type-check-wrong :pass
 KERNEL-FIXTURE :type-check-unbound :pass
 KERNEL-FIXTURE :compile-proof :pass
 KERNEL-FIXTURE :compile-assume :pass
-KERNEL-FIXTURE :compile-malformed :blocked
+KERNEL-FIXTURE :compile-malformed :recorded-upstream-failure
 KERNEL-FIXTURE :compile-unknown :pass
 KERNEL-FIXTURE :opacity-context-proof :pass
 KERNEL-FIXTURE :opacity-context-refusal :pass
@@ -64,18 +64,62 @@ KERNEL-FIXTURE :implicit-typed-closure :pass
 KERNEL-FIXTURE :implicit-throwing-closure :pass
 KERNEL-FIXTURE :parse-to-normalize-to-type :pass
 KERNEL-FIXTURE :unparser-guest-closure :pass
-KERNEL-GATE {:gate-status :blocked, :counts {:pass 53, :blocked 2, :recorded-deviation 2}, :fixture-count 57, :manifest-bindings 155, :function-arity-candidates 175, :recorded-portability-boundaries [{:id :elab-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :elab-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}} {:id :check-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :check-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}}]}
-KERNEL-BLOCKER {:id :typing-ascription, :status :blocked, :blocked-by nil, :a :blocked, :b :completed, :c-walker :completed, :c-semantic :completed}
-KERNEL-BLOCKER {:id :compile-malformed, :status :blocked, :blocked-by nil, :a :blocked, :b :blocked, :c-walker :completed, :c-semantic :completed}
+KERNEL-FIXTURE :constructor-mkenv :pass
+KERNEL-FIXTURE :constructor-mkenv-empty :pass
+KERNEL-FIXTURE :entry-beta-red :pass
+KERNEL-FIXTURE :entry-beta-red-refusal :pass
+KERNEL-FIXTURE :entry-delta-normalize :pass
+KERNEL-FIXTURE :entry-delta-normalize-refusal :pass
+KERNEL-FIXTURE :entry-delta-local :pass
+KERNEL-FIXTURE :entry-delta-local-global :pass
+KERNEL-FIXTURE :entry-delta-local-missing :pass
+KERNEL-FIXTURE :entry-delta-local-namespace-shadow :pass
+KERNEL-FIXTURE :predicate-exists :pass
+KERNEL-FIXTURE :predicate-exists-ascii :pass
+KERNEL-FIXTURE :predicate-exists-refusal :pass
+KERNEL-FIXTURE :display-deftype :pass
+KERNEL-FIXTURE :display-deftype-axiom :pass
+KERNEL-FIXTURE :display-deftype-theorem :pass
+KERNEL-FIXTURE :display-deftype-implicit :pass
+KERNEL-FIXTURE :display-deftype-unknown :pass
+KERNEL-FIXTURE :syntax-appify :pass
+KERNEL-FIXTURE :syntax-appify-empty :pass
+KERNEL-FIXTURE :syntax-term :pass
+KERNEL-FIXTURE :syntax-term-refusal :pass
+KERNEL-FIXTURE :syntax-bound-vars :pass
+KERNEL-FIXTURE :syntax-bound-vars-free :pass
+KERNEL-FIXTURE :proper-type-one :pass
+KERNEL-FIXTURE :proper-type-one-refusal :pass
+KERNEL-FIXTURE :proper-type-two :pass
+KERNEL-FIXTURE :proper-type-two-refusal :pass
+KERNEL-FIXTURE :proper-type-three :pass
+KERNEL-FIXTURE :proper-type-three-refusal :pass
+KERNEL-FIXTURE :product-unparser :pass
+KERNEL-FIXTURE :product-unparser-dependent :pass
+KERNEL-FIXTURE :product-unparser-nonproduct :pass
+KERNEL-FIXTURE :fundamental-install-use :pass
+KERNEL-FIXTURE :predicate-pair :pass
+KERNEL-FIXTURE :predicate-pair-refusal :pass
+KERNEL-FIXTURE :predicate-vectorn :pass
+KERNEL-FIXTURE :predicate-vectorn-refusal :pass
+KERNEL-FIXTURE :lookup-safe-get :pass
+KERNEL-FIXTURE :lookup-safe-get-missing :pass
+KERNEL-FIXTURE :lookup-safe-get-false :pass
+KERNEL-FIXTURE :lookup-safe-get-nil :pass
+KERNEL-FIXTURE :removal-vremove :pass
+KERNEL-FIXTURE :removal-vremove-none :pass
+KERNEL-FIXTURE :removal-vremove-refusal :pass
+KERNEL-FIXTURE :unfold-install-use :pass
+KERNEL-FIXTURE :unfold-install-refusal :pass
+KERNEL-FIXTURE :opacity-install-use :pass
+KERNEL-FIXTURE :opacity-install-refusal :pass
+KERNEL-GATE {:gate-status :pass, :counts {:pass 102, :recorded-upstream-failure 2, :recorded-deviation 2}, :fixture-count 106, :manifest-bindings 155, :function-arity-candidates 175, :recorded-portability-boundaries [{:id :elab-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :elab-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}} {:id :check-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :check-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}}], :recorded-upstream-failures [{:id :typing-ascription, :status :recorded-upstream-failure, :recorded-upstream-failure {:boundary :upstream-unbound-definition, :reason "Pinned upstream declares type-of-ascribe without a definition; B/C explicitly refuse that branch.", :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279", :evidence {:file "slice9_evidence.edn", :fixture-id :typing-ascription, :paths [[:a] [:b] [:c-walker] [:c-semantic]]}}} {:id :compile-malformed, :status :recorded-upstream-failure, :recorded-upstream-failure {:boundary :upstream-malformed-proof-sequence, :reason "Scalar proof step raises a native sequence exception upstream and a portable sequence refusal in C; no agreement is claimed.", :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279", :evidence {:file "slice9_evidence.edn", :fixture-id :compile-malformed, :paths [[:a] [:b] [:c-walker] [:c-semantic]]}}}]}
+KERNEL-RECORDED-UPSTREAM-FAILURE {:id :typing-ascription, :status :recorded-upstream-failure, :blocked-by nil, :a :blocked, :b :completed, :c-walker :completed, :c-semantic :completed}
+KERNEL-RECORDED-UPSTREAM-FAILURE {:id :compile-malformed, :status :recorded-upstream-failure, :blocked-by nil, :a :blocked, :b :blocked, :c-walker :completed, :c-semantic :completed}
 KERNEL-RECORDED-BOUNDARY {:id :elab-after-qed, :status :recorded-deviation, :blocked-by nil, :a :completed, :b :completed, :c-walker :completed, :c-semantic :completed}
 KERNEL-RECORDED-BOUNDARY {:id :check-after-qed, :status :recorded-deviation, :blocked-by nil, :a :completed, :b :completed, :c-walker :completed, :c-semantic :completed}
-
-FAIL in (test-kernel-differential-gate) (latte_oracle_test.clj:2052)
-Kernel gate remains blocked: {:pass 53, :blocked 2, :recorded-deviation 2}; admitted/candidate but unexercised function/arities=20. See slice9_evidence.edn; blocked fixtures are not accepted negatives.
-expected: (= :pass (:gate-status evidence))
-  actual: (not (= :pass :blocked))
 ORACLE latte-kernel.defenv/mkenv A= [[] {}] C= {:status :ok, :value [[] {}]}
 ORACLE latte-kernel.utils/vectorn? A= true C= {:status :ok, :value true}
 
-Ran 25 tests containing 1037 assertions.
-1 failures, 0 errors.
+Ran 25 tests containing 1147 assertions.
+0 failures, 0 errors.
