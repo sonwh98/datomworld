@@ -4,6 +4,7 @@
             [dao.stream :as stream]
             [dao.stream.observer :as observer]
             [yang.clojure :as yang]
+            [yang.core.uast :as u]
             [yang.io :as yang-io]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
@@ -1164,6 +1165,137 @@
                           (f false)])))))
 
 
+(deftest test-common-call-descriptor-publication
+  (is (= [:yin.k/ok [:function true 2 3]]
+         (run-outcome '[(defn f
+                          [x]
+                          (+ x 1))
+                        [(get f :clj/type)
+                         (data/callable? (yang.call/entry f))
+                         (f 1)
+                         (let [plain +] (plain 1 2))]])))
+  (testing "condition-shaped return data is still a successful value"
+    (let [value {:yang.call/reason :yang.call/thrown
+                 :yang.call/value :ordinary-data}]
+      (is (= [:yin.k/ok value]
+             (run-outcome [(list 'defn 'f [] value) '(f)]))))))
+
+
+(deftest test-common-call-hand-constructed-descriptor
+  (testing "explicit UAST/profile construction admits a foreign body"
+    ;; The constructor runs inside the compiled profile's private bindings.
+    ;; No Clojure source map receives admission from its entry spelling.
+    (let [descriptor (#'yang/admit-call-descriptor
+                      (u/sexp->uast
+                        '(assoc {} :foreign/type :function
+                                :yang.call/entry
+                                (fn [record] (get record :yang.call/positional))))
+                      false)]
+      (doseq [[form expected] [['(profile-function 40 2) [:yin.k/ok [40 2]]]
+                               ['[(profile-function 40 2)] [:yin.k/ok [[40 2]]]]]
+              run [walker-run semantic-run]]
+        (let [ast (walk/postwalk
+                    (fn [node]
+                      (if (= node (u/v 'profile-function)) descriptor node))
+                    (outcome-ast [form]))]
+          (is (= expected (first (run ast)))))))))
+
+
+(deftest test-common-call-shadowed-helpers
+  (doseq [binding '[get = assoc empty?]]
+    (testing (str "construction and invocation with a local " binding)
+      (is (= [:yin.k/ok 21]
+             (run-outcome [(list 'let [binding 5]
+                                 '(let [f (fn [x] x)] (f 21)))]))))
+    (testing (str "a later source definition of " binding)
+      (is (= [:yin.k/ok 21]
+             (run-outcome [(list 'def binding 5) '(defn f
+                                                    [x]
+                                                    x) '(f 21)]))))
+    (testing (str "raise through a parameter named " binding)
+      (is (= [:yin.k/error {:yin.k/message "boom", :yin.k/data {:x 21}}]
+             (run-outcome
+               ['(defn g
+                   []
+                   (throw (ex-info "boom" {:x 21})))
+                (list 'defn 'f [binding] '(g))
+                '(+ 1 (f 5))])))))
+  (is (= [:yin.k/ok 1]
+         (run-outcome '[(def f (let [get 5] (fn [x] x))) (f 1)]))))
+
+
+(deftest test-common-call-source-admission
+  (doseq [form '[(let [x 5] (x 1))
+                 (let [x {:ordinary :map}] (x 1))
+                 (let [x {:yang.call/entry 5}] (x 1))
+                 (let [x {:py/type :function :code :legacy}] (x 1))
+                 (let [x {:yang.call/entry (yang.call/entry f)}] (x 1))
+                 (let [x (assoc {} :yang.call/entry (get f :yang.call/entry))] (x 1))
+                 (let [x (assoc f :extra :forged)] (x 1))
+                 (let [x (assoc f :yang.call/entry (yang.call/entry g))] (x 1))
+                 (let [x (assoc {} :yang.call/entry (yang.call/entry f)
+                                :clj/admission (get f :clj/admission))] (x 1))
+                 (let [x {:yang.call/entry (yang.call/entry f)
+                          :clj/admission (fn [x] true)}] (x 1))]]
+    (doseq [wrap [identity #(list '+ 1 %)]]
+      (let [result (run-outcome ['(defn f
+                                    [x]
+                                    x)
+                                 '(defn g
+                                    [x]
+                                    (+ x 1)) (wrap form)])]
+        (is (= :yin.k/error (first result)) (pr-str form))
+        (is (= :yang.call/not-callable (:yang.call/reason (second result)))
+            (pr-str form)))))
+  (is (= [:yin.k/ok [false false true 21]]
+         (run-outcome '[(defn f
+                          [x]
+                          x)
+                        [(yang.call/eligible? {:yang.call/entry (yang.call/entry f)})
+                         (yang.call/eligible? (assoc f :extra :forged))
+                         (yang.call/eligible? f)
+                         (f 21)]]))))
+
+
+(deftest test-common-call-invalid-continuation-refuses
+  (let [ast (walk/postwalk
+              (fn [node]
+                (if (= node u/capture) (u/lit :invalid-continuation) node))
+              (outcome-ast '[(defn f
+                               []
+                               1) (+ 1 (f))]))]
+    (doseq [run [walker-run semantic-run]]
+      (let [result (first (run ast))]
+        (is (= :yin.k/error (first result)))
+        (is (= {:yang.call/reason :yang.call/invalid-invocation
+                :yang.call/data {:yang.call/reason :missing-raise-exit}}
+               (second result)))))))
+
+
+(deftest test-common-call-rejects-named-arguments
+  (let [forms '[(defn f
+                  [x]
+                  x)
+                (let [condition (yang.call/invoke f [] [["x" 1]] profile-raise)
+                      value (get condition :yang.call/value)]
+                  [(get condition :yang.call/reason)
+                   (get value :yin.k/message)
+                   (get (get value :yin.k/data) :yang.call/named)])]
+        raw-raise (fn [node]
+                    (if (= node (u/v 'profile-raise)) (u/v 'probe/note) node))
+        ast (walk/postwalk raw-raise (outcome-ast forms))
+        result (-> (tu/make-observer-session (tu/create-vm {:modules outcome-modules}))
+                   (tu/queue-ast! ast)
+                   tu/run-session
+                   :consumer
+                   vm/value)]
+    (is (= [:yin.k/ok
+            [:yang.call/thrown
+             "Clojure functions do not accept named arguments"
+             [["x" 1]]]]
+           result))))
+
+
 (deftest test-outcome-safe-get
   (let [forms '[(defn safe-get
                   [coll key]
@@ -1295,7 +1427,7 @@
     (is (some #(= :yin.k/ok %) (ast-nodes (yang/compile-program forms true outcome-opts))))))
 
 
-(deftest test-outcome-tail-forwarding-depth
+(deftest test-outcome-common-call-depth
   (let [prog (fn [defs n] (yang/compile-program (conj defs (list 'cnt n)) true outcome-opts))
         three '[(defn c
                   [n]
@@ -1322,10 +1454,11 @@
             [v1000 d1000] (run-lane (prog defs 1000))
             tag (str lane " " label)]
         (is (= [:yin.k/ok :done] v0 v100 v1000) tag)
-        (is (= d100 d1000) (str tag ": depth constant in the iteration count"))
-        (when (= lane :semantic)
-          (is (<= d1000 (+ d0 2)) (str tag ": constant over the base depth")))))
-    (testing "negative control: a non-tail unwrap grows with the iteration count"
+        (is (= d100 d1000)
+            (str tag ": depth is constant in the iteration count"))
+        (is (<= d1000 (+ d0 2))
+            (str tag ": at most two frames above the initial call"))))
+    (testing "a non-tail unwrap also grows with the iteration count"
       (let [[_ d10] (semantic-run (prog wrapped 10))
             [_ d100] (semantic-run (prog wrapped 100))]
         (is (> d100 (+ d10 50)))))))
