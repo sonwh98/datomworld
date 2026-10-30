@@ -56,6 +56,8 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 | claude-api      | Inactive / Cancelled                   | Anthropic API access stopped by owner. Do not route tasks here.                                             |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Available for any role (architecture, implementation, review, QA).                      |
+|                 |                                        | All codex models (astra, sol, terra, luna) draw ONE shared pool: a cut darkens every seat at once, so       |
+|                 |                                        | sequence codex dispatches rather than fanning them out. Independent parallel capacity is codex | kimi | glm.|
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | deepseek        | Metered: Pay-by-token                  | Flash: $0.14/M in, $0.28/M out. Pro: $0.435/M in, $0.87/M out.                                              |
 |                 |                                        | Off-peak (10:00-01:00, 04:00-06:00 UTC & wknds) is 50% cheaper.                                             |
