@@ -228,7 +228,7 @@
             source)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "ff9b9c08d1fde82f9fb97e9521b6eaaf"
+                  "a1b65915bff97c189e4a6d67ef5d78d94"
                   "a579383e95ccafbaece0069836018c91"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-fda451811f1d578884c70ec1a6992e508dd301f7fc49cccbe547eb128683a62e
@@ -255,24 +255,24 @@
               source packet); the s3 slice did not move them)"
       (is (= (keyword
                (str "segment/blake3-"
-                    "66fcac5f202b438999ca40fb293a7cb0"
+                    "dfd03d078772c8c9bf52048d14efd0c1"
                     "eab06d81858cb7fb40011d514e084a2c"))
              (:root a)))
       (is (= (keyword
                (str "segment/blake3-"
-                    "f99d5e41de375b028fe2bd1840b1925f"
+                    "5d8313eb3d25d48eac975373d52a13c8"
                     "6fa2d0cff547f94b7dda037be01f0a10"))
              (:root a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "e2db3e586820b7134e79a21540185b6e"
+                    "051d081d36f1dacc3d528f327f0ef373"
                     "eafb790752731f2f47e1311f9f8703b2"))
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "ea29e3058583aa14d1ee13ae95ff79ad"
+                    "c26c57dbe6ed0cc7a3a7d930eb254106"
                     "676009cc5638ff27b994fee6608afd4c"))
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
