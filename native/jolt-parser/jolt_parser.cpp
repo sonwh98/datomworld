@@ -78,7 +78,12 @@
 //              prediction, so flat input pays nothing. A prediction whose
 //              context graph exceeds 4x the bound in distinct nodes also
 //              refuses (a cap, not an undercount; not reached on the oracle
-//              corpus).
+//              corpus). A full-LL refusal throws out of the reach
+//              computation, whose caller (execATNWithFullContext) holds its
+//              previous reach set as a raw pointer freed on the normal and
+//              no-viable-alt exits only; BoundedSimulator's reach-computation
+//              override frees it on the exception exit too (J5c, the
+//              known-gaps reach-set leak row).
 //
 // The refusal (NestingRefused) derives from no exception class: the generated
 // rule bodies catch only RecognitionException (Python3Parser.cpp:762), so it
@@ -448,6 +453,7 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
       ~Clear() {
         s->memo_.clear();
         s->full_base_ = 0;
+        s->full_s0_ = nullptr;
       }
     } clear{this};
     return ParserATNSimulator::adaptivePredict(input, decision, outer);
@@ -464,8 +470,11 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
         ++n;
       full_base_ = n;
       ++stats_.full_predictions;
+      auto s0 = ParserATNSimulator::computeStartState(p, ctx, true);
+      full_s0_ = s0.get();
+      return s0;
     }
-    return ParserATNSimulator::computeStartState(p, ctx, fullCtx);
+    return ParserATNSimulator::computeStartState(p, ctx, false);
   }
 
   Ref<antlr4::atn::ATNConfig> getEpsilonTarget(
@@ -477,6 +486,27 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
     return ParserATNSimulator::getEpsilonTarget(config, t, collectPredicates,
                                                 inContext, fullCtx,
                                                 treatEofAsEpsilon);
+  }
+
+  // The full-context loop (execATNWithFullContext) holds its previous reach
+  // set as a raw pointer released from a unique_ptr and frees it on its
+  // normal and no-viable-alt exits only (delete previous; the exception's
+  // conditional delete); an exception thrown out of the reach computation —
+  // where the lookahead guard throws — is the one exit that does not, leaking
+  // one prediction set per refusal. Free the caller's set on that exit: not
+  // the start set (the caller's own unique_ptr frees it, which is why
+  // computeStartState records it), and never the SLL caller's set, which
+  // belongs to its DFAState.
+  std::unique_ptr<antlr4::atn::ATNConfigSet> computeReachSet(
+      antlr4::atn::ATNConfigSet* closure, size_t t, bool fullCtx) override {
+    if (!fullCtx)
+      return ParserATNSimulator::computeReachSet(closure, t, false);
+    try {
+      return ParserATNSimulator::computeReachSet(closure, t, true);
+    } catch (...) {
+      if (closure != full_s0_) delete closure;
+      throw;
+    }
   }
 
  private:
@@ -544,6 +574,8 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
 
   Stats& stats_;
   uint64_t full_base_ = 0;
+  // this prediction's full-LL start set, the one reach input the caller frees
+  const antlr4::atn::ATNConfigSet* full_s0_ = nullptr;
   std::unordered_map<const Ctx*, std::pair<Ref<const Ctx>, uint64_t>> memo_;
 };
 
