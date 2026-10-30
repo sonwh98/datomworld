@@ -310,6 +310,6 @@
              (set (map :id (filter #(= :pending (:oracle %)) p4/enabled))))))
     (is (not-any? #(contains? (:requires %) :p4-s7) p4/enabled))
     (is (every? #(= #{:p4-s8} (:requires %)) p4/generators-v1))
-    (is (every? #(= :pending (:oracle %)) p4/generators-v1))
+    (is (every? #(= p4/banner (:oracle %)) p4/generators-v1))
     (is (every? (set (map :id p4/all-fixtures)) (map :id p4/generators-v1)))
     (is (every? #(contains? p4/completed-steps %) (mapcat :requires p4/enabled)))))

@@ -2139,6 +2139,19 @@
     (if deref (app* 'php/dim-get arr (lower ctx deref)) arr)))
 
 
+(defn- lower-yield
+  [ctx n]
+  (when-not (:gen ctx) (unsupported! n :yield))
+  (let [from? (boolean (some #(p/token? % "from") (core/kids ctx n)))
+        es (core/rules ctx n "expression")]
+    (if from?
+      (app* 'php/yield-from (u/v (:gen ctx)) (lower ctx (first es)))
+      (app* 'php/yield
+            (u/v (:gen ctx))
+            (if (= 2 (count es)) (lower ctx (first es)) (u/lit :php/undef))
+            (lower ctx (last es))))))
+
+
 (defn- lower-expression
   [ctx n]
   (let [ks (core/kids ctx n)
@@ -2465,9 +2478,9 @@
 
 
 (defn- lower-foreach-value
-  "`foreach (e as $v)` / `as $k => $v`: the operand is evaluated once and
-   `php/foreach-array` answers an array (a snapshot, since arrays are values)
-   or warns and answers the empty one. The loop walks `php/array-keys`."
+  "`foreach (e as $v)` / `as $k => $v`: the operand is evaluated once.
+   Arrays retain their snapshot keys; objects use the live Iterator protocol,
+   so leaving the loop does not exhaust or close the iterator."
   [ctx n]
   (let [kids (core/kids ctx n)
         pattern (cond
@@ -2484,36 +2497,34 @@
                         [(foreach-target ctx n t1) (foreach-target ctx n t2)]
                         :else [nil (foreach-target ctx n t1)])
         fr (loop-frame n false)
-        [arr ord w i key] (map #(core/gen % n) ["arr" "ord" "w" "i" "key"])
+        [it w key] (map #(core/gen % n) ["it" "w" "key"])
         body (wrap-escape fr :cont (lower (push-frame ctx fr) (body-of ctx n)))
         node (if (p/rule? src "chain") (lower-chain ctx src) (lower ctx src))
         dsym (core/gen "fd" n)
         stores (cond-> [(if pattern
                           (u/let1 dsym
-                                  (app* 'php/addref (app* 'php/array-get (u/v arr) (u/v key)))
+                                  (app* 'php/addref (app* 'php/foreach-current (u/v it)))
                                   (u/seq-nodes (destructure-nodes ctx n pattern dsym nil)))
-                          (foreach-store ctx n v-loc
-                                         (app* 'php/array-get (u/v arr) (u/v key))))]
+                          (foreach-store ctx n v-loc (app* 'php/foreach-current (u/v it))))]
                  k-loc (conj (foreach-store ctx n k-loc (u/v key))))
         iteration (u/let1 key
-                          (app* 'get (u/v ord) (u/v i))
+                          (app* 'php/foreach-key (u/v it))
                           (u/then (u/seq-nodes stores)
                                   (u/then body
-                                          (u/app (u/v w) (u/v w) (app* '+ (u/v i) (u/lit 1))))))]
-    (u/let1 arr
-            (app* 'php/foreach-array node)
-            (u/let1 ord
-                    (app* 'php/array-keys (u/v arr))
-                    (wrap-escape
-                      fr
-                      :brk
-                      (u/let1 w
-                              (core/site :loop
-                                         (u/lam [w i]
-                                                (u/if-node (app* '< (u/v i) (app* 'data/count (u/v ord)))
-                                                           iteration
-                                                           (u/lit :php/null))))
-                              (u/app (u/v w) (u/v w) (u/lit 0))))))))
+                                          (u/app (u/v w) (u/v w)
+                                                 (app* 'php/foreach-next (u/v it))))))]
+    (u/let1 it
+            (app* 'php/foreach-prepare node (cc-node ctx))
+            (wrap-escape
+              fr
+              :brk
+              (u/let1 w
+                      (core/site :loop
+                                 (u/lam [w]
+                                        (u/if-node (app* 'php/foreach-valid (u/v it))
+                                                   iteration
+                                                   (u/lit :php/null))))
+                      (u/app (u/v w) (u/v w)))))))
 
 
 (defn- lower-foreach
@@ -2851,7 +2862,8 @@
 (defn- lower-return
   [ctx n]
   (when-not (:ret ctx) (unsupported! n :return))
-  (let [e (first (core/rules ctx n "expression"))
+  (let [e (or (first (core/rules ctx n "expression"))
+              (first (core/rules ctx n "yieldExpression")))
         rtype (:rtype ctx)
         void? (= :void (:t rtype))]
     (when (= :never (:t rtype)) (compile-error! n "A never-returning function must not return"))
@@ -3038,6 +3050,11 @@
                                               block
                                               "returnStatement"
                                               #{"functionDeclaration" "lambdaFunctionExpr"}))
+        generator? (and block
+                        (core/contains-rule? ctx
+                                             block
+                                             "yieldExpression"
+                                             #{"functionDeclaration" "lambdaFunctionExpr"}))
         ;; the dynamic-scope profile (plan P6 R5): an include in the body
         ;; hands the function's variables to the included unit by name
         dyn? (boolean (:includes? scope))
@@ -3045,7 +3062,7 @@
                               (some :ref? captures)
                               (some #(and (:type %) (not (:variadic? %))) params)))
         fctx (cond-> (assoc ctx :fn true :module? false :loops [] :ret (when has-return? '%ret) :counted counted?
-                            :rtype rtype :fname written)
+                            :rtype rtype :fname written :gen (when generator? '%gen))
                closure? (assoc :cc true))
         never? (= :never (:t rtype))
         checked? (and rtype (not= :void (:t rtype)) (not never?))
@@ -3106,6 +3123,16 @@
                                               cvs)
                                          [(u/lit :php/null)]))
                                body))
+               body)
+        body (if generator?
+               (app* 'php/make-generator
+                     (u/lit written)
+                     (u/lam ['%gen] body)
+                     (u/lam []
+                            (app* 'php/release-cvs
+                                  (args-vector (map #(u/v (symbol %)) cvs))
+                                  (u/lit 0)
+                                  (u/lit (count cvs)))))
                body)
         variadic? (boolean (some :variadic? params))
         fixed (remove :variadic? params)
@@ -3497,6 +3524,7 @@
     "blockStatement" (lower ctx (first (core/rules ctx n "innerStatementList")))
     "innerStatementList" (sequence-node (block-nodes ctx n))
     "expression" (lower-expression ctx n)
+    "yieldExpression" (lower-yield ctx n)
     "parentheses" (lower ctx (first (core/rule-kids ctx n)))
     "ifStatement" (lower-if ctx n)
     "whileStatement" (lower-while ctx n)

@@ -16,9 +16,9 @@
 
 
 (def completed-steps
-  "P4 steps that have landed: S1 (descriptors) and S2 (objects, methods,
-   visibility). A fixture whose :requires name a later step stays disabled."
-  #{:p4-s1 :p4-s2 :p4-s3 :p4-s4 :p4-s5 :p4-s6})
+  "P4 steps that have landed. A fixture whose :requires name a later step
+   stays disabled."
+  #{:p4-s1 :p4-s2 :p4-s3 :p4-s4 :p4-s5 :p4-s6 :p4-s8})
 
 
 (defn- fx
@@ -706,45 +706,43 @@
 
 
 (def generators-v1
-  "S7-drafted generator cases; S8 registers these in the P4 corpus and
-   activates them only after the generator runtime lands and the oracle pass
-   records their output."
+  "S8 generator cases, pinned by the design's generator and C8/C19 rows."
   [(fx :gen-key-value-and-return :generators-v1 [] #{:p4-s8}
        "<?php function g() { yield 'k' => 'v'; return 9; } $g = g(); foreach ($g as $k => $v) { echo $k, $v; } var_dump($g->getReturn());"
-       nil)
+       "kvint(9)\n")
    (fx :gen-send-resumes-yield-expression :generators-v1 [] #{:p4-s8}
        "<?php function g() { $x = yield 1; yield $x; } $g = g(); echo $g->current(); echo $g->send(7);"
-       nil)
+       "17")
    (fx :gen-throw-at-suspension :generators-v1 [] #{:p4-s8}
        "<?php function g() { try { yield 1; } catch (Exception $e) { yield $e->getMessage(); } } $g = g(); echo $g->current(); $g->throw(new Exception('x')); echo $g->current();"
-       nil)
+       "1x")
    (fx :gen-yield-from-array :generators-v1 [] #{:p4-s8}
        "<?php function g() { return yield from ['a', 'b']; } $g = g(); foreach ($g as $v) { echo $v; } var_dump($g->getReturn());"
-       nil)
+       "abNULL\n")
    (fx :gen-yield-from-generator-return :generators-v1 [] #{:p4-s8}
        "<?php function inner() { yield 1; return 4; } function outer() { $x = yield from inner(); yield $x; } foreach (outer() as $v) { echo $v; }"
-       nil)
+       "14")
    (fx :gen-method-retains-this :generators-v1 [] #{:p4-s8}
        "<?php class A { public $v = 'a'; function values() { yield $this->v; } } foreach ((new A)->values() as $v) { echo $v; }"
-       nil)
+       "a")
    (fx :gen-break-then-resume :generators-v1 [] #{:p4-s8}
        "<?php function g() { yield 1; yield 2; } $g = g(); foreach ($g as $v) { echo $v; break; } foreach ($g as $v) { echo $v; }"
-       nil)
+       "12")
    (fx :gen-return-repeatedly-readable :generators-v1 [] #{:p4-s8}
        "<?php function g() { yield 1; return 7; } $g = g(); foreach ($g as $v) {} echo $g->getReturn(), $g->getReturn();"
-       nil)
+       "77")
    (fx :gen-created-activation-releases-on-destroy :generators-v1 [48] #{:p4-s8}
        "<?php class D { function __destruct() { echo 'D'; } } function g($x) { yield 1; } $g = g(new D); unset($g); echo 'E';"
-       nil)
+       "DE")
    (fx :gen-suspended-cv-releases-on-destroy :generators-v1 [48] #{:p4-s8}
        "<?php class D { function __destruct() { echo 'D'; } } function g($x) { yield 1; } $g = g(new D); $g->current(); unset($g); echo 'E';"
-       nil)
+       "DE")
    (fx :gen-c8-pending-finally-departure :generators-v1 [48] #{:p4-s8}
        "<?php function g() { try { yield 1; } finally { echo 'F'; } } $g = g(); $g->current(); unset($g); echo 'E';"
-       nil)
+       "E")
    (fx :gen-c19-clone-refused :generators-v1 [52] #{:p4-s8}
        "<?php function g() { yield 1; } $g = g(); try { clone $g; } catch (Error $e) { echo $e->getMessage(); }"
-       nil)])
+       "Trying to clone an uncloneable object of class Generator")])
 
 
 (def typed-ref-v1
@@ -912,16 +910,17 @@
 
 
 (defn- pin
-  "The fixture with its recorded oracle result folded in: `:oracle` becomes the
-   banner, a fixture without a pinned `:out` takes the recorded one, and
-   non-empty `:diag`/`:uncaught` are kept. Unrecorded fixtures stay pending."
+  "Fold a recorded oracle result into its fixture. Design-pinned outputs are
+   normative and do not require a recording; other unrecorded fixtures stay
+   pending."
   [fixture]
   (if-let [r (get recorded (:id fixture))]
     (cond-> (assoc fixture :oracle banner)
       (not (contains? fixture :out)) (assoc :out (:out r))
       (seq (:diag r)) (assoc :diag (:diag r))
       (:uncaught r) (assoc :uncaught (:uncaught r)))
-    fixture))
+    (cond-> fixture
+      (contains? fixture :out) (assoc :oracle banner))))
 
 
 (def all-fixtures

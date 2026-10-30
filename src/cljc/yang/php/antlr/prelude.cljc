@@ -1345,6 +1345,7 @@
          (if (get st :released?)
            :php/null
            (do (cell/set! c (assoc (assoc st :destructed? true) :released? true))
+               (php/gen-release! x)
                (php/drop-sources props (get st :id) 0 (php/array-count props))
                (php/release-slots props :all 0 (php/array-count props))))))]
     [php/drop-sources
@@ -1727,7 +1728,9 @@
              (if (= kind :string)
                (php/string-dim-get c k)
                (if (= kind :obj)
-                 (php/throw-error "Error" "Cannot use object as array")
+                 (if (php/instance-of c "arrayaccess")
+                   (php/method-call c "offsetGet" (php/vconj [] k) :php/null)
+                   (php/throw-error "Error" "Cannot use object as array"))
                  (do (php/warn 2 (data/str-concat
                                    "Trying to access array offset on "
                                    (if (= kind :bool)
@@ -3714,25 +3717,27 @@
        (if (= (php/kind o) :obj)
          (if (nil? (get o :php/obj))
            (php/throw-error "Error" "Trying to clone an uncloneable object")
-           (let [c (php/obj-class o)
-                 m (php/class-method c "__clone")]
-             (if (if (nil? m) false (not (php/visible? (get m :vis) (get m :declaring) ctx)))
-               (php/throw-error "Error"
-                                (data/str-concat "Call to " (php/vis-word (get m :vis)) " " (get c :name)
-                                                 "::__clone() from " (php/scope-text ctx)))
-               (let [n (php/register-final! (php/new-obj (get c :name)
-                                                         (php/clone-members (get (php/obj-state o) :props)))
-                                            c)]
-                 (do (if (nil? m)
-                       :php/null
-                       (php/try-finally
-                         (fn []
-                           (do (cell/set! (get n :php/obj)
-                                          (assoc (php/obj-state n) :reinit
-                                                 (php/readonly-ids (get c :props-decl) 0 [])))
-                               (php/invoke m n (get c :name) [])))
-                         (fn [x] (cell/set! (get n :php/obj) (assoc (php/obj-state n) :reinit [])))))
-                     (php/tmp! n))))))
+           (if (not (nil? (get (php/obj-state o) :gen)))
+             (php/throw-error "Error" "Trying to clone an uncloneable object of class Generator")
+             (let [c (php/obj-class o)
+                   m (php/class-method c "__clone")]
+               (if (if (nil? m) false (not (php/visible? (get m :vis) (get m :declaring) ctx)))
+                 (php/throw-error "Error"
+                                  (data/str-concat "Call to " (php/vis-word (get m :vis)) " " (get c :name)
+                                                   "::__clone() from " (php/scope-text ctx)))
+                 (let [n (php/register-final! (php/new-obj (get c :name)
+                                                           (php/clone-members (get (php/obj-state o) :props)))
+                                              c)]
+                   (do (if (nil? m)
+                         :php/null
+                         (php/try-finally
+                           (fn []
+                             (do (cell/set! (get n :php/obj)
+                                            (assoc (php/obj-state n) :reinit
+                                                   (php/readonly-ids (get c :props-decl) 0 [])))
+                                 (php/invoke m n (get c :name) [])))
+                           (fn [x] (cell/set! (get n :php/obj) (assoc (php/obj-state n) :reinit [])))))
+                       (php/tmp! n)))))))
          (php/throw-error "Error" "__clone method called on non-object")))]
     [php/reinit?
      (fn [st id] (php/vhas (php/or-default (get st :reinit) []) id 0))]
@@ -3984,7 +3989,9 @@
                (php/throw-error "Error"
                                 (data/str-concat "Call to a member function " name "() on "
                                                  (php/type-name (php/kind o))))))
-           (php/call-obj-method o name args ctx))))]
+           (if (nil? (get (php/obj-state o) :gen))
+             (php/call-obj-method o name args ctx)
+             (php/gen-method o lc name args)))))]
     [php/closure-static
      ;; `Closure::bind($f, $newThis, $scope)` and `Closure::fromCallable($c)`
      (fn [lc name args ctx]
@@ -4264,6 +4271,259 @@
                            (php/type-name (php/kind v)) " given"))
              (php/empty-array))))]
 
+    ;; ---------------------------------------------------------------- generators
+    [php/gen-state (fn [g] (get (php/obj-state g) :gen))]
+    [php/gen-put!
+     (fn [g s]
+       (do (cell/set! (get g :php/obj) (assoc (php/obj-state g) :gen s)) s))]
+    [php/gen-outcome (fn [tag v] (php/pair tag v))]
+    [php/make-generator
+     (fn [name body cleanup]
+       (let [g (php/new-obj "Generator" (php/empty-array))]
+         (do (php/gen-put! g (assoc (assoc (assoc (assoc {} :state :created) :name name)
+                                           :body body)
+                                    :cleanup cleanup))
+             g)))]
+    [php/gen-switch
+     (fn [g msg]
+       (let [s (php/gen-state g)
+             st (get s :state)]
+         (if (= st :running)
+           (php/throw-error "Error" "Cannot resume an already running generator")
+           (if (= st :closed)
+             (if (= (get msg 0) :throw)
+               (php/gen-outcome :raise (get msg 1))
+               (php/gen-outcome :return (get s :return-value)))
+             (if (if (= st :created) (= (get msg 0) :throw) false)
+               (do ((get s :cleanup))
+                   (php/gen-put! g (assoc {} :state :closed :return-value :php/null))
+                   (php/gen-outcome :raise (get msg 1)))
+               (php/gen-enter g s st msg))))))]
+    [php/gen-enter
+     (fn [g s st msg]
+       (let [flag (cell/new :first)]
+         ((fn [r]
+            (if (= (cell/get flag) :first)
+              (do (cell/set! flag :re-entered)
+                  (php/gen-put! g (assoc (assoc s :state :running) :return r
+                                         :caller-ctx (cell/get php.rt/ctx)))
+                  (if (= st :created)
+                    (php/gen-start g (get s :body))
+                    (do (cell/set! php.rt/ctx (get s :ctx))
+                        ((get s :resume) msg))))
+              r))
+          (%capture))))]
+    [php/gen-start
+     (fn [g body]
+       (do (cell/set! php.rt/ctx (php/ctx nil 0 0 nil))
+           (php/set-handlers! (php/frame :generator (fn [e] (php/gen-fail g e)) nil))
+           (php/gen-exit g (php/gen-outcome :return (body g)))))]
+    [php/gen-exit
+     (fn [g outcome]
+       (let [s (php/gen-state g)]
+         (do (php/gen-put! g (assoc {} :state :closed :return-value (get outcome 1)
+                                    :current (get s :current) :key (get s :key)))
+             (cell/set! php.rt/ctx (get s :caller-ctx))
+             ((get s :return) outcome))))]
+    [php/gen-fail (fn [g e] (php/gen-exit g (php/gen-outcome :raise e)))]
+    [php/yield-raw
+     (fn [g v]
+       (let [flag (cell/new :first)]
+         ((fn [r]
+            (if (= (cell/get flag) :first)
+              (let [s (php/gen-state g)]
+                (do (cell/set! flag :re-entered)
+                    (php/gen-put! g (assoc (assoc s :state :suspended) :resume r
+                                           :ctx (cell/get php.rt/ctx)))
+                    (cell/set! php.rt/ctx (get s :caller-ctx))
+                    ((get s :return) (php/gen-outcome :yield v))))
+              r))
+          (%capture))))]
+    [php/gen-next-key!
+     (fn [g s supplied]
+       (if (= supplied :php/undef)
+         (let [k (php/or-default (get s :next-key) 0)]
+           (do (php/gen-put! g (assoc s :next-key (+ k 1))) k))
+         supplied))]
+    [php/yield
+     (fn [g supplied v]
+       (let [s (php/gen-state g)
+             k (php/gen-next-key! g s supplied)]
+         (do (php/gen-put! g (assoc (php/gen-state g) :key k :current v))
+             (let [msg (php/yield-raw g v)]
+               (if (= (get msg 0) :throw) (php/raise (get msg 1)) (get msg 1))))))]
+    [php/gen-result
+     (fn [outcome]
+       (let [tag (get outcome 0)]
+         (if (= tag :raise) (php/raise (get outcome 1)) (get outcome 1))))]
+    [php/gen-start!
+     (fn [g]
+       (if (= (get (php/gen-state g) :state) :created)
+         (php/gen-result (php/gen-switch g (php/gen-outcome :send :php/null)))
+         :php/null))]
+    [php/gen-current
+     (fn [g]
+       (do (php/gen-start! g)
+           (if (= (get (php/gen-state g) :state) :suspended)
+             (get (php/gen-state g) :current)
+             :php/null)))]
+    [php/gen-key
+     (fn [g]
+       (do (php/gen-start! g)
+           (if (= (get (php/gen-state g) :state) :suspended)
+             (get (php/gen-state g) :key)
+             :php/null)))]
+    [php/gen-valid
+     (fn [g]
+       (do (php/gen-start! g) (= (get (php/gen-state g) :state) :suspended)))]
+    [php/gen-next
+     (fn [g]
+       (do (php/gen-result (php/gen-switch g (php/gen-outcome :send :php/null))) :php/null))]
+    [php/gen-send
+     (fn [g v] (php/gen-result (php/gen-switch g (php/gen-outcome :send v))))]
+    [php/gen-throw
+     (fn [g e] (php/gen-result (php/gen-switch g (php/gen-outcome :throw (php/addref e)))))]
+    [php/gen-return
+     (fn [g]
+       (let [s (php/gen-state g)]
+         (if (= (get s :state) :closed)
+           (get s :return-value)
+           (php/throw-error "Exception" "Cannot get return value of a generator that hasn't returned"))))]
+    [php/gen-method
+     (fn [g lc name args]
+       (if (= lc "current") (php/gen-current g)
+           (if (= lc "key") (php/gen-key g)
+               (if (= lc "next") (php/gen-next g)
+                   (if (= lc "valid") (php/gen-valid g)
+                       (if (= lc "rewind") (php/gen-start! g)
+                           (if (= lc "send") (php/gen-send g (php/arg-or args 0 :php/null))
+                               (if (= lc "throw") (php/gen-throw g (get args 0))
+                                   (if (= lc "getreturn") (php/gen-return g)
+                                       (php/throw-error
+                                         "Error"
+                                         (data/str-concat "Call to undefined method Generator::" name "()")))))))))))]
+    [php/gen-release!
+     (fn [g]
+       (let [s (get (php/obj-state g) :gen)]
+         (if (nil? s)
+           :php/null
+           (let [st (get s :state)]
+             (do (php/gen-put! g (assoc {} :state :closed :return-value :php/null))
+                 (if (if (= st :created) false (not (= st :suspended)))
+                   :php/null
+                   ((get s :cleanup)))
+                 (php/delref (php/or-default (get s :current) :php/null))
+                 (if (= st :closed) (php/delref (get s :return-value)) :php/null))))))]
+    [php/yield-array-from
+     (fn [g arr i]
+       (if (< i (php/array-count arr))
+         (let [k (get (php/array-order arr) i)
+               msg (php/yield g k (php/array-get arr k))]
+           (do (if (= msg :php/null) :php/null :php/null)
+               (php/yield-array-from g arr (+ i 1))))
+         :php/null))]
+    [php/yield-generator-from
+     (fn [g d msg]
+       (let [outcome (php/gen-switch d msg)
+             tag (get outcome 0)]
+         (if (= tag :yield)
+           (let [next-msg (php/yield g (get (php/gen-state d) :key) (get outcome 1))]
+             (php/yield-generator-from g d (php/gen-outcome :send next-msg)))
+           (if (= tag :return) (get outcome 1) (php/raise (get outcome 1))))))]
+    [php/yield-iterator-from
+     (fn [g it]
+       (do (php/method-call it "rewind" [] :php/null)
+           (php/yield-iterator-loop g it)))]
+    [php/yield-iterator-loop
+     (fn [g it]
+       (if (php/to-bool (php/method-call it "valid" [] :php/null))
+         (do (php/yield g
+                        (php/method-call it "key" [] :php/null)
+                        (php/method-call it "current" [] :php/null))
+             (php/method-call it "next" [] :php/null)
+             (php/yield-iterator-loop g it))
+         :php/null))]
+    [php/yield-from
+     (fn [g v]
+       (if (= (php/kind v) :array)
+         (php/yield-array-from g v 0)
+         (if (if (= (php/kind v) :obj) (not (nil? (get (php/obj-state v) :gen))) false)
+           (php/yield-generator-from g v (php/gen-outcome :send :php/null))
+           (if (php/instance-of v "iterator")
+             (php/yield-iterator-from g v)
+             (if (php/instance-of v "iteratoraggregate")
+               (php/yield-iterator-from g (php/method-call v "getIterator" [] :php/null))
+               (php/throw-error
+                 "Error"
+                 (data/str-concat "Can only traverse an array or Traversable, "
+                                  (php/type-name (php/kind v)) " given")))))))]
+
+    ;; ---------------------------------------------------------------- foreach driver
+    [php/visible-props
+     (fn [o ctx]
+       (let [st (php/obj-state o)
+             props (get st :props)
+             decls (get (php/class-lookup (get st :class)) :props-decl)]
+         (php/visible-props-loop props decls ctx 0 (php/empty-array))))]
+    [php/visible-props-loop
+     (fn [props decls ctx i acc]
+       (if (< i (php/array-count props))
+         (let [id (get (php/array-order props) i)
+               e (php/vfind decls :id id 0)
+               visible (if (nil? e) true (php/visible? (get e :vis) (get e :declaring) ctx))]
+           (php/visible-props-loop
+             props decls ctx (+ i 1)
+             (if visible
+               (php/array-put acc (if (nil? e) id (get e :name)) (php/array-get props id))
+               acc)))
+         acc))]
+    [php/foreach-iterator
+     (fn [v]
+       (if (php/instance-of v "iteratoraggregate")
+         (php/method-call v "getIterator" [] :php/null)
+         v))]
+    [php/foreach-prepare
+     (fn [v ctx]
+       (if (= (php/kind v) :array)
+         (cell/new (assoc (assoc (assoc {} :kind :array) :value v) :keys (php/array-order v) :i 0))
+         (if (= (php/kind v) :obj)
+           (if (php/instance-of v "traversable")
+             (let [it (php/foreach-iterator v)]
+               (do (if (nil? (get (php/obj-state it) :gen))
+                     (php/method-call it "rewind" [] :php/null)
+                     (if (= (get (php/gen-state it) :state) :created)
+                       (php/gen-start! it)
+                       (php/gen-next it)))
+                   (cell/new (assoc (assoc {} :kind :iterator) :value it))))
+             (cell/new (assoc (assoc (assoc {} :kind :array) :value (php/visible-props v ctx))
+                              :keys (php/array-order (php/visible-props v ctx)) :i 0)))
+           (cell/new (assoc (assoc (assoc {} :kind :array) :value (php/foreach-array v))
+                            :keys [] :i 0)))))]
+    [php/foreach-valid
+     (fn [it]
+       (let [s (cell/get it)]
+         (if (= (get s :kind) :array)
+           (< (get s :i) (data/count (get s :keys)))
+           (php/to-bool (php/method-call (get s :value) "valid" [] :php/null)))))]
+    [php/foreach-key
+     (fn [it]
+       (let [s (cell/get it)]
+         (if (= (get s :kind) :array)
+           (get (get s :keys) (get s :i))
+           (php/method-call (get s :value) "key" [] :php/null))))]
+    [php/foreach-current
+     (fn [it]
+       (let [s (cell/get it)]
+         (if (= (get s :kind) :array)
+           (php/array-get (get s :value) (get (get s :keys) (get s :i)))
+           (php/method-call (get s :value) "current" [] :php/null))))]
+    [php/foreach-next
+     (fn [it]
+       (let [s (cell/get it)]
+         (if (= (get s :kind) :array)
+           (cell/set! it (assoc s :i (+ (get s :i) 1)))
+           (php/method-call (get s :value) "next" [] :php/null))))]
+
     ;; ---------------------------------------------------------------- array builtins
     ;; A by-reference builtin answers [ret outs]: `outs` holds the new value of
     ;; each by-reference position in ascending order; the call site writes them back.
@@ -4304,11 +4564,13 @@
                    (php/count-deep v 0 (php/array-count v) (php/array-count v))
                    (php/array-count v))
                  (php/array-count v))
-               (php/throw-error
-                 "TypeError"
-                 (data/str-concat
-                   "count(): Argument #1 ($value) must be of type Countable|array, "
-                   (php/type-name (php/kind v)) " given"))))))]
+               (if (php/instance-of v "countable")
+                 (php/method-call v "count" [] :php/null)
+                 (php/throw-error
+                   "TypeError"
+                   (data/str-concat
+                     "count(): Argument #1 ($value) must be of type Countable|array, "
+                     (php/type-name (php/kind v)) " given")))))))]
     [php/keys-search
      (fn [arr search strict i n acc]
        (if (< i n)
