@@ -81,6 +81,20 @@
            (println "probe:jolt-tcp exits" (pr-str results))
            (System/exit (if (every? (comp zero? second) results) 0 1)))}
 
+  probe:jolt-ws
+  {:doc "J6e: the jolt WebSocket host adapter (dao.stream.ws.jolt, the yin.repl.host shadow, the jolt -main wiring), one child jolt process per section: closure (C1), handshake (C2), bind (C3), address (C4), io (C5), close (C6), shutdown (C7, the real owner loop), isolation (C8), driver (C9, deadline folding, a --headless --port child), fairness (C10); native memory and registries empty after close. Arguments select sections (needs bb bootstrap:jolt and bb build:jolt-native)"
+   :task (let [sections (or (seq *command-line-args*)
+                            ["closure" "handshake" "bind" "address" "io" "close" "shutdown"
+                             "isolation" "driver" "fairness"])
+               results (mapv (fn [s]
+                               (println "== probe:jolt-ws section" s)
+                               [s (:exit (shell {:continue true} "sh" "-c"
+                                                ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_ws_probe.clj \"$1\""
+                                                "jolt" s))])
+                             sections)]
+           (println "probe:jolt-ws exits" (pr-str results))
+           (System/exit (if (every? (comp zero? second) results) 0 1)))}
+
   build:jolt-native
   {:doc "Fetch (by pinned SHA-256, only when absent) and build the jolt-toolchain.edn :native sources with the mise-pinned CMake into build/native/<platform>/"
    :task (System/exit
