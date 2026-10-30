@@ -4,13 +4,52 @@
    nested form, and a parserless run of a packet on the AST walker."
   (:require
     [dao.stream :as stream]
+    [dao.stream.memory-log :as memory-log]
+    [dao.stream.ringbuffer :as ringbuffer]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.prelude :as prelude]
     [yin.vm :as vm]
+    [yin.vm.ast-walker :as ast-walker]
     [yin.vm.data :as data]
     [yin.vm.integer :as integer]
-    [yin.vm.module :as module]
-    [yin.vm.test-utils :as tu]))
+    [yin.vm.module :as module]))
+
+
+(def ^:private capability-secret "yin.vm.test-utils/capability-secret")
+
+
+(defn create-vm
+  "An AST walker composed with the harness's deterministic ring-buffer stream."
+  ([] (create-vm {}))
+  ([opts]
+   (ast-walker/create-vm
+     (merge {:make-stream
+             (fn [capacity]
+               (ringbuffer/create!
+                 {:dao.stream/type ringbuffer/transport-type,
+                  ringbuffer/capacity-key (or capacity vm/default-stream-capacity)}))
+             :capability-secret capability-secret}
+            opts))))
+
+
+(defn- new-memory-log
+  []
+  (let [result (memory-log/create! {:dao.stream/type memory-log/transport-type})]
+    (if (= :dao.stream/ok (:dao.stream/outcome result))
+      (:dao.stream/handle result)
+      (throw (ex-info "PHP harness memory-log creation failed" {:result result})))))
+
+
+(defn- drain
+  [handle]
+  (let [start (get-in (stream/cursor handle stream/anchor-oldest)
+                      [:dao.stream/cursor])]
+    (loop [cursor start, acc []]
+      (let [result (stream/next handle cursor)]
+        (if (= :dao.stream/ok (:dao.stream/outcome result))
+          (recur (:dao.stream/cursor result)
+                 (conj acc (:dao.stream/value result)))
+          acc)))))
 
 
 (def integer-limits
@@ -85,17 +124,17 @@
   "`{:ast a :warnings w}` or `{:diagnostics d}` for `pk` through the lowering
    stage. Warning-severity diagnostics do not stop the program."
   [pk]
-  (let [cst-log (tu/new-memory-log)
-        program (tu/new-memory-log)
-        diagnostics (tu/new-memory-log)]
+  (let [cst-log (new-memory-log)
+        program (new-memory-log)
+        diagnostics (new-memory-log)]
     (stream/append! cst-log pk)
     (lower/step-stage (lower/open-stage cst-log program diagnostics
                                         {:medium lower/program-medium}))
     (let [{warnings true, problems false}
-          (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
+          (group-by #(= :warning (:severity %)) (drain diagnostics))]
       (if (seq problems)
         {:diagnostics problems}
-        (let [{:yin/keys [batch root]} (first (tu/drain program))]
+        (let [{:yin/keys [batch root]} (first (drain program))]
           {:ast (nth batch root), :warnings (vec warnings)})))))
 
 
@@ -106,7 +145,7 @@
   (let [{:keys [ast diagnostics]} (lower-through-stage pk)]
     (if diagnostics
       {:diagnostics diagnostics}
-      (vm/value (vm/eval (tu/create-vm {:modules (host-registry)}) ast)))))
+      (vm/value (vm/eval (create-vm {:modules (host-registry)}) ast)))))
 
 
 (defn run-packet

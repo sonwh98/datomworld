@@ -13,8 +13,7 @@
     [yang.php.antlr.packets :as packets]
     [yang.php.antlr.portable-harness :as h]
     [yang.php.antlr.prelude :as prelude]
-    [yin.vm :as vm]
-    [yin.vm.test-utils :as tu]))
+    [yin.vm :as vm]))
 
 
 (def ^:private closed-names
@@ -75,7 +74,7 @@
                   (do (php/call f []) (php/call f []) (php/call f []) (php/call f [0]))))
         program (u/mark-tails (u/then prelude/uast (u/app (u/v 'php/run-main) (u/lam [] body))))]
     (is (= "enter;init;6enter;7enter;8enter;9enter;10"
-           (h/render (vm/value (vm/eval (tu/create-vm {:modules (h/host-registry)}) program)))))))
+           (h/render (vm/value (vm/eval (h/create-vm {:modules (h/host-registry)}) program)))))))
 
 
 ;; -----------------------------------------------------------------------------
@@ -88,7 +87,7 @@
   (let [program (u/mark-tails
                   (u/then prelude/uast
                           (u/app (u/v 'php/run-main) (u/lam [] (u/sexp->uast form)))))]
-    (vm/value (vm/eval (tu/create-vm {:modules (h/host-registry)}) program))))
+    (vm/value (vm/eval (h/create-vm {:modules (h/host-registry)}) program))))
 
 
 (defn- run
