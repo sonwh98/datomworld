@@ -1264,6 +1264,33 @@
               (yang.call/invoke-with f [21] [] profile-raise {})]]))))
 
 
+(deftest test-common-call-invocation-operand-order
+  (with-redefs [av-modules outcome-modules]
+    (doseq [run [walker-run semantic-run]
+            [operator options expected] '[[yang.call/invoke nil [[21] []]]
+                                          [yang.call/invoke-with {} [[21] [] {}]]]]
+      (doseq [admitted? [false true]]
+        (let [callee (if admitted? 'f 5)
+              invoke (if options
+                       (list operator callee '(probe/note [21]) '(probe/note [])
+                             'profile-raise (list 'probe/note options))
+                       (list operator callee '(probe/note [21]) '(probe/note [])
+                             'profile-raise))
+              ast (walk/postwalk
+                    (fn [node]
+                      (if (= node (u/v 'profile-raise))
+                        (u/lam ['condition] (u/lit :refused))
+                        node))
+                    (outcome-ast (if admitted?
+                                   ['(defn f [x] (+ x 21)) invoke]
+                                   [invoke])))
+              _ (reset! effect-log [])
+              [result] (run ast)]
+          (is (= expected @effect-log) (str operator " admitted=" admitted?))
+          (when admitted?
+            (is (= [:yin.k/ok 42] result) (str operator))))))))
+
+
 (deftest test-common-call-shadowed-helpers
   (doseq [binding '[get = assoc empty?]]
     (testing (str "construction and invocation with a local " binding)

@@ -1298,23 +1298,24 @@
     (and (outcomes? env)
          (#{'yang.call/invoke 'yang.call/invoke-with} operator)
          (<= 4 (count operands)))
-    (let [candidate 'dsg__invocation_candidate
+    (let [bindings (into ['dsg__invocation_candidate]
+                         (map #(symbol (str "dsg__invocation_operand_" %)))
+                         (range (dec (count operands))))
           compile-operand #(compile-form % false env macro-env)]
       (cond-> (u/mark-tails
-                (u/app
-                  (u/lam [candidate]
-                         (u/if-node
-                           (u/app (u/v 'dsg__admitted?) (u/v candidate))
-                           (apply u/app (u/v operator) (u/v candidate)
-                                  (map compile-operand (rest operands)))
-                           (u/app (u/v 'yang.call/transfer)
-                                  (compile-operand (nth operands 3))
-                                  (u/app (u/v 'yang.call/condition)
-                                         (u/lit :yang.call/not-callable)
-                                         (u/app (u/v 'dsg__assoc) (u/lit {})
-                                                (u/lit :yang.call/callee)
-                                                (u/v candidate))))))
-                  (compile-operand (first operands))))
+                (apply u/app
+                       (u/lam bindings
+                              (u/if-node
+                                (u/app (u/v 'dsg__admitted?) (u/v (first bindings)))
+                                (apply u/app (u/v operator) (map u/v bindings))
+                                (u/app (u/v 'yang.call/transfer)
+                                       (u/v (nth bindings 3))
+                                       (u/app (u/v 'yang.call/condition)
+                                              (u/lit :yang.call/not-callable)
+                                              (u/app (u/v 'dsg__assoc) (u/lit {})
+                                                     (u/lit :yang.call/callee)
+                                                     (u/v (first bindings)))))))
+                       (map compile-operand operands)))
         tail? (assoc :tail? true)))
 
     ;; a statically native name: call it directly
