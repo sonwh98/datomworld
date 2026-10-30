@@ -1145,6 +1145,20 @@
       vm/value))
 
 
+(defn- run-profile-outcome
+  [forms]
+  (reset! effect-log [])
+  (let [ast (walk/postwalk
+              (fn [node]
+                (if (= node (u/v 'profile-raise)) (u/v 'probe/note) node))
+              (outcome-ast forms))]
+    (-> (tu/make-observer-session (tu/create-vm {:modules outcome-modules}))
+        (tu/queue-ast! ast)
+        tu/run-session
+        :consumer
+        vm/value)))
+
+
 (deftest test-outcome-success-and-throw
   (is (= [:yin.k/ok 2] (run-outcome '[(defn f
                                         [x]
@@ -1212,13 +1226,42 @@
           profile-ast (fn [form]
                         (walk/postwalk
                           (fn [node]
-                            (if (= node (u/v 'profile-function)) descriptor node))
+                            (cond (= node (u/v 'profile-function)) descriptor
+                                  (= node (u/v 'profile-raise)) (u/lam ['condition]
+                                                                      (u/v 'condition))
+                                  :else node))
                           (outcome-ast [form])))]
       (is (= [:yin.k/ok eligible?]
              (first (run (profile-ast '(yang.call/eligible? profile-function))))))
-      (when-not eligible?
-        (let [result (first (run (profile-ast '(profile-function))))]
-          (is (= :yang.call/not-callable (:yang.call/reason (second result)))))))))
+      (doseq [form '[(profile-function)
+                     (yang.call/invoke profile-function [] [] profile-raise)
+                     (yang.call/invoke-with profile-function [] [] profile-raise {})]]
+        (let [result (first (run (profile-ast form)))]
+          (if eligible?
+            (is (= [:yin.k/ok :called] result))
+            (is (= :yang.call/not-callable (:yang.call/reason (second result))))))))))
+
+
+(deftest test-common-call-invocation-source-admission
+  (doseq [invoke-form '[(yang.call/invoke h [21] [] profile-raise)
+                        (yang.call/invoke-with h [21] [] profile-raise {})]
+          entry-form '[(get f :yang.call/entry) 5 (fn [invocation] :forged)]]
+    (let [forged (list 'assoc {} :yang.call/entry entry-form)
+          result (run-profile-outcome
+                   ['(defn f
+                       [x]
+                       (+ x 21))
+                    (list 'let ['h forged]
+                          (list 'get invoke-form :yang.call/reason))])]
+      (is (= [:yin.k/ok :yang.call/not-callable] result)
+          (pr-str invoke-form))))
+  (is (= [:yin.k/ok [42 42]]
+         (run-profile-outcome
+           '[(defn f
+               [x]
+               (+ x 21))
+             [(yang.call/invoke f [21] [] profile-raise)
+              (yang.call/invoke-with f [21] [] profile-raise {})]]))))
 
 
 (deftest test-common-call-shadowed-helpers
@@ -1249,6 +1292,7 @@
                  (let [x {:ordinary :map}] (x 1))
                  (let [x {:yang.call/entry 5}] (x 1))
                  (let [x {:py/type :function :code :legacy}] (x 1))
+                 (let [x {:yang.call/entry 5}] ((if true x x) 1))
                  (let [x {:yang.call/entry (yang.call/entry f)}] (x 1))
                  (let [x (assoc {} :yang.call/entry (get f :yang.call/entry))] (x 1))
                  (let [x (assoc f :extra :forged)] (x 1))
