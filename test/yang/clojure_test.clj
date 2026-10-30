@@ -1709,9 +1709,9 @@
    :native vm/primitive-profiles})
 
 
-(defn run-guest-ast
+(defn run-guest-machine
   "Run an AST through either observer composition with a finite instruction
-   budget. Shared by the library and upstream LaTTe acceptance fixtures."
+   budget. Return the terminal machine so fixtures can observe its streams."
   [ast modules lane step-limit]
   (let [run-bounded (fn [machine]
                       (loop [v machine, n 0]
@@ -1736,7 +1736,13 @@
     (-> (observer/run-on-stream queued engine/ready-for-ingress?
                                 (vm/fresh-code-loader load-program vm/ast-contract)
                                 run-bounded)
-        :consumer vm/value)))
+        :consumer)))
+
+
+(defn run-guest-ast
+  "The value from run-guest-machine; shared by library and oracle fixtures."
+  [ast modules lane step-limit]
+  (vm/value (run-guest-machine ast modules lane step-limit)))
 
 
 (defn- run-library

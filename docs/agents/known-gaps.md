@@ -310,3 +310,20 @@ are also machine-readable in `test/yang/latte_oracle/slice9_unexercised.edn`.
 | unregister adapter uses filter/remove directly and does not depend on    | :entries; slice9_unexercised.edn       |              | program                  |          |
 | upstream vremove. Needs a vector-removal fixture entering vremove.       |                                        |              |                          |          |
 +--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
+
+
+## Hardening2 portable try ledger correction (2026-10-30)
+
+Append-only correction to round-1 P3 item 2 above, confirmed by the glm
+reviewer and architect: `(throw "boom")`, a throw of a non-ex-info string
+payload, raises a `ClassCastException` in host Clojure. `catch Exception`
+catches that exception; `catch clojure.lang.ExceptionInfo` does not. The earlier statement
+that a thrown string simply propagates past `catch Exception` is incorrect.
+
+The guest portable `try` catches the error outcome and binds its original
+payload without equivalent runtime class discrimination. Its payload and
+catch-class handling therefore differ from host Clojure for non-ex-info
+throws. This remains a declared guest/host behavior gap owned by
+`yang.clojure`; kernel fixtures throwing only ex-info do not close it.
+The four narrowly recorded slice-9 exception dispositions remain declared
+departures, not agreements.

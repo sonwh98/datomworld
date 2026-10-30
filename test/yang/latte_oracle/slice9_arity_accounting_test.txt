@@ -1,0 +1,104 @@
+Command: clj -M:test -v yang.latte-oracle-test/test-kernel-acceptance-counting
+Exit: 1 (expected red control against the old static-closure counter)
+
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.latte-oracle-test
+
+FAIL in (test-kernel-acceptance-counting) (latte_oracle_test.clj:1933)
+An admitted but uncalled arity stays uncredited despite static membership
+expected: (= [:direct :unexercised :unexercised] (mapv :exercise entries))
+  actual: (not (= [:direct :unexercised :unexercised] [:direct :named-integration :unexercised]))
+
+FAIL in (test-kernel-acceptance-counting) (latte_oracle_test.clj:1935)
+expected: (empty? (:integration-fixture-ids (second entries)))
+  actual: (not (empty? [:check-assume-have-discharge]))
+
+FAIL in (test-kernel-acceptance-counting) (latte_oracle_test.clj:1945)
+Both C lanes must demonstrate the exact arity
+expected: (= [:unexercised :unexercised :unexercised] (mapv :exercise (kernel-exercise-entries inventory [fixture] (mapv (fn* [p1__102072#] (dissoc p1__102072# lane)) rows))))
+  actual: (not (= [:unexercised :unexercised :unexercised] [:direct :named-integration :unexercised]))
+
+FAIL in (test-kernel-acceptance-counting) (latte_oracle_test.clj:1945)
+Both C lanes must demonstrate the exact arity
+expected: (= [:unexercised :unexercised :unexercised] (mapv :exercise (kernel-exercise-entries inventory [fixture] (mapv (fn* [p1__102072#] (dissoc p1__102072# lane)) rows))))
+  actual: (not (= [:unexercised :unexercised :unexercised] [:direct :named-integration :unexercised]))
+
+Ran 1 tests containing 13 assertions.
+4 failures, 0 errors.
+
+Final green control and independent raw-record audit:
+Prepare the previous evidence: git show 91f276de0e1ddd4b9ffbbb7f7d3f448a3b29b5f0:test/yang/latte_oracle/slice9_evidence.edn > /tmp/latte-previous-evidence.edn
+Script /tmp/latte-verify-records.clj (recreate this file to repeat the command):
+(require '[clojure.edn :as edn]
+         '[clojure.string :as str]
+         '[clojure.test :as t]
+         '[yang.latte-oracle-test])
+(binding [t/*report-counters* (ref t/*initial-report-counters*)]
+  (t/test-vars (map #(ns-resolve 'yang.latte-oracle-test %)
+                    '[test-kernel-acceptance-counting test-kernel-unused-arity-execution]))
+  (let [result @t/*report-counters*]
+    (t/do-report (assoc result :type :summary))
+    (assert (zero? (+ (:fail result) (:error result))))))
+(let [previous (edn/read-string (slurp "/tmp/latte-previous-evidence.edn"))
+      evidence (edn/read-string (slurp "test/yang/latte_oracle/slice9_evidence.edn"))
+      rows (into {} (map (juxt :id identity)) (:fixtures evidence))
+      entries (get-in evidence [:coverage :entries])
+      credited (remove #(= :unexercised (:exercise %)) entries)
+      aliases (:integration-context-identities evidence)
+      extra (get-in evidence [:coverage :context-extra-arguments])
+      paths (for [{[s n] :function-arity :keys [direct-fixture-ids integration-fixture-ids]} credited
+                  id (concat direct-fixture-ids integration-fixture-ids)]
+              (let [guest (symbol (str "gate-" (last (str/split (namespace s) #"\.")) "-" (name s)))
+                    candidates (set (for [f (remove nil? [guest (get aliases s)])]
+                                      [f (+ n (get extra f 0))]))
+                    row (get rows id)]
+                (assert (= :pass (:status row)))
+                (doseq [lane [:c-walker :c-semantic]]
+                  (assert (some candidates (get-in row [lane :executed-calls]))
+                          (pr-str [s n id lane])))
+                [s n id]))
+      previous-credited (set (map :function-arity (remove #(= :unexercised (:exercise %))
+                                                          (get-in previous [:coverage :entries]))))
+      rederived (set (map :function-arity credited))]
+  (prn :credited-paths-verified (count paths)
+       :previously-credited (count previous-credited)
+       :rederived-from-both-lanes (count rederived)
+       :withdrawn (count (remove rederived previous-credited)))
+  (doseq [lane [:c-walker :c-semantic]
+          :let [calls (frequencies (mapcat #(get-in % [lane :executed-calls]) (:fixtures evidence)))]]
+    (assert (zero? (get calls ['gate-presyntax-parse 1] 0)))
+    (assert (pos? (get calls ['gate-presyntax-parse 2] 0)))
+    (prn lane :parse-call-counts (select-keys calls '[[gate-presyntax-parse 1] [gate-presyntax-parse 2]])))
+  (doseq [old (:fixtures previous)
+          :when (contains? #{:recorded-deviation :recorded-upstream-failure} (:status old))
+          :let [row (get rows (:id old))]]
+    (assert (= (select-keys old [:status :agreement :recorded-deviation :recorded-upstream-failure])
+               (select-keys row [:status :agreement :recorded-deviation :recorded-upstream-failure])))
+    (doseq [lane [:a :b :c-walker :c-semantic]]
+      (assert (= (get-in old [lane :outcome]) (get-in row [lane :outcome])))))
+  (prn :four-departures-unchanged true :gate-status (:gate-status evidence)))
+(prn :host-string-throw-caught-by-Exception
+     (try (throw "boom") (catch Exception e (class e))))
+(prn :host-string-throw-not-caught-by-ExceptionInfo
+     (try (try (throw "boom") (catch clojure.lang.ExceptionInfo _ :caught))
+          (catch ClassCastException _ :class-cast-propagated)))
+(shutdown-agents)
+
+Command: clj -Sdeps '{:aliases {:arity-verify {:main-opts ["/tmp/latte-verify-records.clj"]}}}' -M:test:arity-verify
+Exit: 0
+
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Ran 2 tests containing 22 assertions.
+0 failures, 0 errors.
+:credited-paths-verified 360 :previously-credited 165 :rederived-from-both-lanes 145 :withdrawn 20
+:c-walker :parse-call-counts {[gate-presyntax-parse 2] 8}
+:c-semantic :parse-call-counts {[gate-presyntax-parse 2] 8}
+:four-departures-unchanged true :gate-status :blocked
+:host-string-throw-caught-by-Exception java.lang.ClassCastException
+:host-string-throw-not-caught-by-ExceptionInfo :class-cast-propagated

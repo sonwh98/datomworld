@@ -1,27 +1,39 @@
-{:verification :slice-9-final-fixture-closure
- :recorded-at "2026-10-30T04:17:37.754055+00:00"
+{:verification :slice-9-execution-arity-correction
+ :recorded-at "2026-10-30T05:14:31.739075+00:00"
  :branch "yang-hardening2"
- :base-revision "c644363ee9a6483046b6207199f03cce8d1e9d05"
- :gate-status :pass
- :gate-assertion {:form (= :pass (:gate-status evidence)) :passed true}
+ :base-revision "91f276de0e1ddd4b9ffbbb7f7d3f448a3b29b5f0"
+ :gate-status :blocked
+ :program-status :execution-evidence-incomplete
+ :gate-assertion {:form (= :pass (:gate-status evidence)) :passed false
+                  :reason :admitted-arities-without-execution-evidence}
  :fixture-count 106
- :new-fixtures 49
+ :new-fixtures 0
  :primary-residual-consumers 20
  :negative-fixture-count 38
  :counts {:pass 102 :recorded-deviation 2 :recorded-upstream-failure 2 :mismatch 0 :blocked 0}
  :admitted-arities 165
  :excluded-arities 10
- :exercise-counts {:direct 39 :named-integration 126 :unexercised 0}
+ :exercise-counts {:direct 39 :named-integration 106 :unexercised 20}
+ :previously-credited-arities 165
+ :rederived-from-both-C-lanes 145
+ :withdrawn-unsupported-credits 20
+ :credited-paths-verified 360
+ :parse-call-counts {:c-walker {1 0 2 8} :c-semantic {1 0 2 8}}
+ :instruction-budget-per-lane 2000000
+ :instruction-budget-note "The prior uninstrumented budget was 1,000,000; body-entry diagnostic writes require an explicit 2,000,000 bound. The harness reads the trace only after halt."
  :recorded-portability-boundaries [:elab-after-qed :check-after-qed]
  :recorded-upstream-failures [:typing-ascription :compile-malformed]
+ :four-exception-dispositions-unchanged true
+ :known-gaps-correction-append-only true
  :manifest-dispositions-changed false
  :production-source-changes false
  :upstream-source-changes false
  :checks {
-  :oracle-test {:command "clj -M:test -n yang.latte-oracle-test" :exit 0 :output "slice9_oracle_test.txt" :tests 25 :assertions 1147 :failures 0 :errors 0}
+  :arity-accounting {:command "clj -Sdeps '{:aliases {:arity-verify {:main-opts [\"/tmp/latte-verify-records.clj\"]}}}' -M:test:arity-verify" :exit 0 :output "slice9_arity_accounting_test.txt" :tests 2 :assertions 22 :failures 0 :errors 0 :old-counter-red-control-failures 4}
+  :oracle-test {:command "clj -M:test -n yang.latte-oracle-test" :exit 1 :output "slice9_oracle_test.txt" :tests 26 :assertions 1879 :failures 1 :errors 0 :sole-failure :open-gate-pass-assertion}
   :regression-test {:command "clj -M:test -n yang.clojure-test -n yin.vm.macro-test -n yang.clojure.stream-eval-test -n yin.vm.store-write-audit-test" :exit 0 :output "slice9_regression_test.txt" :tests 122 :assertions 1338 :failures 0 :errors 0}
-  :kondo {:command "clj -M:kondo --lint test/yang/latte_oracle_test.clj src/dev/latte_oracle_tables.clj" :exit 0 :output "slice9_kondo.txt" :errors 0 :warnings 0}
-  :evidence-refresh {:command "clj -Sdeps '{:aliases {:gate-refresh {:main-opts [\"-e\" \"(require (quote yang.latte-oracle-test)) (let [evidence (yang.latte-oracle-test/write-kernel-gate-evidence!)] (assert (= :pass (:gate-status evidence))) (prn (assoc (dissoc evidence :coverage) :exercise-counts (frequencies (map :exercise (get-in evidence [:coverage :entries]))) :unexercised (get-in evidence [:coverage :unexercised])))) (shutdown-agents)\"]}}}' -M:test:gate-refresh" :exit 0 :output "slice9_evidence_refresh.txt"}
-  :cljstyle {:command "/Users/sto/.local/share/mise/installs/cljstyle/0.17.642/cljstyle check test/yang/latte_oracle_test.clj" :exit 0}
+  :kondo {:command "clj -M:kondo --lint test/yang/latte_oracle_test.clj test/yang/clojure_test.clj src/dev/latte_oracle_tables.clj" :exit 0 :output "slice9_kondo.txt" :errors 0 :warnings 0}
+  :evidence-refresh {:command "clj -Sdeps '{:aliases {:arity-refresh {:main-opts [\"/tmp/latte-refresh.clj\"]}}}' -M:test:arity-refresh" :exit 0 :output "slice9_evidence_refresh.txt" :asserted-gate-status :blocked}
+  :cljstyle {:command "/Users/sto/.local/share/mise/installs/cljstyle/0.17.642/cljstyle check test/yang/latte_oracle_test.clj test/yang/clojure_test.clj" :exit 0}
   :whitespace {:command "git diff --check" :exit 0}}
- :scope "Both C evaluators on the JVM; no new Node/Dart host verification."}
+ :scope "Both C evaluators on the JVM; no new Node/Dart host verification. Gate closure remains denied."}

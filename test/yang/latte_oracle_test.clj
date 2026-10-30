@@ -18,6 +18,7 @@
             [yang.clojure :as yang]
             [yang.clojure-test :as compiler-test]
             [yin.vm :as vm]
+            [yin.vm.test-utils :as tu]
             [yin.vm.data :as data]
             [yin.vm.module :as module]
             [yin.vm.encoder :as encoder]
@@ -202,6 +203,7 @@
                                 (second form))
                               (for [[module exports] {'kind yang/kind-module
                                                       'data data/data-module
+                                                      'stream module/stream-module
                                                       'portable (into {} (map (fn [[_ v]] [(symbol (name v)) nil]))
                                                                       yang/library-adapters)}
                                     export (keys exports)]
@@ -1711,13 +1713,70 @@
          (finally (remove-ns (ns-name sandbox)))))))
 
 
+(def ^:private kernel-context-integration-names
+  ;; Integrations also enter existing explicit-context adapters directly,
+  ;; rather than their gate-* wrappers. Keep those identities explicit.
+  {'latte-kernel.defenv/local-definitions 'local-definitions
+   'latte-kernel.defenv/register-definition 'register-definition
+   'latte-kernel.proof/is-opaque? 'is-opaque?
+   'latte-kernel.unparser/unregister-unparser! 'unregister-unparser
+   'latte-kernel.unparser/unparse 'unparse
+   'latte-kernel.unparser/register-unparser! 'register-unparser
+   'latte-kernel.unparser/unparse-term-once 'unparse-term-once
+   'latte-kernel.unparser/unparse-term-rec 'unparse-term-rec
+   'latte-kernel.norm/install-unfold-implicit! 'install-unfold-implicit
+   'latte-kernel.unparser/install-fundamental-unparsers! 'install-fundamental-unparsers
+   'latte-kernel.unparser/prod-impl-unparser 'prod-impl-unparser})
+
+
+(def ^:private kernel-context-extra-arguments
+  ;; Immutable-context APIs take one explicit context where upstream reads
+  ;; or writes an ambient binding. Raw guest arities remain in the trace.
+  {'unregister-unparser 1 'unparse 1 'register-unparser 1
+   'install-unfold-implicit 1 'install-fundamental-unparsers 1
+   'gate-proof-install-opacity-function 1})
+
+
+(defn- kernel-trace-form
+  "Append the selected function/arity at body entry, including indirect calls.
+   Only C is instrumented; A/B still run their original fixture paths."
+  [form]
+  (if (#{'defn 'defn-} (first form))
+    (let [[op fname & header] form
+          header (drop-while #(not (or (vector? %) (seq? %))) header)
+          trace-arity (fn [[params & body]]
+                        (let [n (if (some #{'&} params)
+                                  [:variadic (.indexOf params '&)] (count params))]
+                          (list* params
+                                 (list 'stream/put! 'gate-execution-trace (list 'quote [fname n]))
+                                 body)))]
+      (list* op fname (if (vector? (first header))
+                        (trace-arity header) (map trace-arity header))))
+    form))
+
+
+(defn- kernel-executed-arity?
+  [row symbol n]
+  (let [names (remove nil? [(kernel-guest-name symbol)
+                            (get kernel-context-integration-names symbol)])
+        paths (set (for [fname names]
+                     [fname (if (number? n)
+                              (+ n (get kernel-context-extra-arguments fname 0)) n)]))]
+    (every? (fn [lane] (some paths (get-in row [lane :executed-calls])))
+            [:c-walker :c-semantic])))
+
+
 (defn- kernel-compile
   [fixture]
   (let [call (kernel-c-program fixture)
         forms (kernel-closure call)
-        program (conj forms call)
+        program (into ['(def gate-execution-trace (stream/make 1000000))]
+                      (concat (map kernel-trace-form forms) [call]))
         program (into (yang/library-for program) program)
-        ast (yang/compile-program program true arg-vector-opts)
+        opts (update arg-vector-opts :native into
+                     (map (fn [[op profile]] [(clojure.core/symbol "stream" (name op)) profile])
+                          module/stream-profiles))
+        ast (yang/compile-program program true opts)
         missing (unbound-ast-symbols ast program)]
     (if (seq missing)
       {:status :blocked :phase :admission :blocked-by (vec (sort missing))
@@ -1730,8 +1789,15 @@
   [compiled lane]
   (if (= :compiled (:status compiled))
     (assoc (kernel-attempt
-             #(let [v (compiler-test/run-guest-ast (:ast compiled) (oracle-registry yang/kind-module) lane 1000000)]
-                {:status :completed :outcome (evidence-data v) :shape (result-shape (evidence-data v))}))
+             #(let [machine (compiler-test/run-guest-machine
+                              (:ast compiled) (oracle-registry yang/kind-module) lane 2000000)
+                    v (vm/value machine)
+                    ref (get-in machine [:store 'gate-execution-trace])
+                    handle (get-in machine [:resources (:id ref)])]
+                (when-not (and (vm/halted? machine) handle)
+                  (throw (ex-info "Execution trace did not complete" {:lane lane})))
+                {:status :completed :outcome (evidence-data v) :shape (result-shape (evidence-data v))
+                 :executed-calls (tu/drain handle)}))
            :lane lane)
     (assoc compiled :lane lane)))
 
@@ -1796,26 +1862,11 @@
 
 
 (def ^:private kernel-named-integrations
-  ;; Slice-9 acceptance admits the dependency closures of these named
-  ;; top-level integrations. This is not a runtime branch/arity trace.
+  ;; Only these named integrations may contribute observed transitive calls.
+  ;; Static dependencies never establish execution of any arity.
   #{:unparser-guest-closure :implicit-typed-closure :implicit-throwing-closure
     :check-assume-have-discharge :parse-to-normalize-to-type
     :fundamental-install-use :unfold-install-use :opacity-install-use})
-
-
-(def ^:private kernel-context-integration-names
-  ;; Integrations also enter existing explicit-context adapters directly,
-  ;; rather than their gate-* wrappers. Keep those identities explicit.
-  {'latte-kernel.defenv/local-definitions 'local-definitions
-   'latte-kernel.proof/is-opaque? 'is-opaque?
-   'latte-kernel.unparser/unregister-unparser! 'unregister-unparser
-   'latte-kernel.unparser/unparse 'unparse
-   'latte-kernel.unparser/register-unparser! 'register-unparser
-   'latte-kernel.unparser/unparse-term-once 'unparse-term-once
-   'latte-kernel.unparser/unparse-term-rec 'unparse-term-rec
-   'latte-kernel.norm/install-unfold-implicit! 'install-unfold-implicit
-   'latte-kernel.unparser/install-fundamental-unparsers! 'install-fundamental-unparsers
-   'latte-kernel.unparser/prod-impl-unparser 'prod-impl-unparser})
 
 
 (def ^:private kernel-unexercised-reasons
@@ -1830,15 +1881,14 @@
           n arities
           :let [direct (vec (for [[fixture row] (map vector fixtures results)
                                   :when (and (= :pass (:status row))
+                                             (kernel-executed-arity? row symbol n)
                                              (= symbol (first (:call fixture)))
                                              (= n (count (rest (:call fixture)))))]
                               (:id fixture)))
                 integration (vec (for [row results
                                        :when (and (= :pass (:status row))
                                                   (contains? kernel-named-integrations (:id row))
-                                                  (some (set (remove nil? [(kernel-guest-name symbol)
-                                                                           (get kernel-context-integration-names symbol)]))
-                                                        (:included-functions row)))]
+                                                  (kernel-executed-arity? row symbol n))]
                                    (:id row)))]]
       {:function-arity [symbol n]
        :exercise (cond (seq direct) :direct
@@ -1847,7 +1897,8 @@
        :direct-fixture-ids direct
        :integration-fixture-ids integration
        :missing-dependency (when (and (empty? direct) (empty? integration))
-                             (get kernel-unexercised-reasons [symbol n]))})))
+                             (get kernel-unexercised-reasons [symbol n]
+                                  "No passing direct fixture or named integration records this exact arity in both C lanes."))})))
 
 
 (defn- kernel-host-value-deviation
@@ -1923,17 +1974,35 @@
   (let [inventory [{:symbol 'latte-kernel.syntax/subst :arities [2 3] :disposition :admitted}
                    {:symbol 'latte-kernel.syntax/term? :arities [1] :disposition :admitted}]
         fixture {:id :direct-subst :call '(latte-kernel.syntax/subst x y)}
-        rows [{:id :direct-subst :status :pass}
-              {:id :check-assume-have-discharge :status :pass :included-functions ['gate-syntax-subst]}]
+        calls '[[gate-syntax-subst 2]]
+        rows [{:id :direct-subst :status :pass
+               :c-walker {:executed-calls calls} :c-semantic {:executed-calls calls}}
+              {:id :check-assume-have-discharge :status :pass
+               :included-functions ['gate-syntax-subst]
+               :c-walker {:executed-calls calls} :c-semantic {:executed-calls calls}}]
         entries (kernel-exercise-entries inventory [fixture] rows)]
-    (is (= [:direct :named-integration :unexercised] (mapv :exercise entries)))
-    (is (= [:check-assume-have-discharge] (:integration-fixture-ids (second entries))))
+    (is (= [:direct :unexercised :unexercised] (mapv :exercise entries))
+        "An admitted but uncalled arity stays uncredited despite static membership")
+    (is (empty? (:integration-fixture-ids (second entries))))
     (is (= [:unexercised :unexercised :unexercised]
            (mapv :exercise (kernel-exercise-entries inventory [fixture]
                                                     (mapv #(assoc % :status :mismatch) rows)))))
-    (is (= [:direct :unexercised :unexercised]
-           (mapv :exercise (kernel-exercise-entries inventory [fixture]
-                                                    (assoc-in rows [1 :id] :unnamed-integration))))))
+    (let [observed (mapv #(-> %
+                              (assoc-in [:c-walker :executed-calls] '[[gate-syntax-subst 2] [gate-syntax-subst 3]])
+                              (assoc-in [:c-semantic :executed-calls] '[[gate-syntax-subst 2] [gate-syntax-subst 3]])) rows)]
+      (is (= [:direct :named-integration :unexercised]
+             (mapv :exercise (kernel-exercise-entries inventory [fixture] observed))))
+      (is (= [:direct :named-integration :unexercised]
+             (mapv :exercise (kernel-exercise-entries inventory [fixture]
+                                                      (mapv #(dissoc % :included-functions) observed)))))
+      (is (= [:direct :unexercised :unexercised]
+             (mapv :exercise (kernel-exercise-entries inventory [fixture]
+                                                      (assoc-in observed [1 :id] :unnamed-integration))))))
+    (doseq [lane [:c-walker :c-semantic]]
+      (is (= [:unexercised :unexercised :unexercised]
+             (mapv :exercise (kernel-exercise-entries inventory [fixture]
+                                                      (mapv #(dissoc % lane) rows))))
+          "Both C lanes must demonstrate the exact arity")))
   (let [a {:status :completed
            :outcome {:thrown {:message "Wrong proof script: proof steps after qed."
                               :data {:script [] :meta {:nonportable-host-value (str (class clojure.core/meta))}}}}}
@@ -1996,10 +2065,33 @@
      :included-functions (mapv second (kernel-closure (kernel-c-program fixture)))}))
 
 
+(deftest test-kernel-unused-arity-execution
+  (let [fixture (first (filter #(= :parse-to-normalize-to-type (:id %)) (:fixtures kernel-gate-corpus)))
+        fname 'gate-presyntax-parse
+        source (get kernel-sources fname)
+        ;; Preserve parse/2; poison the uncalled parse/1 body in memory.
+        poisoned (list* 'defn fname
+                        (map (fn [arity]
+                               (if (= 1 (count (first arity)))
+                                 (list (first arity) '(throw (ex-info "Uncalled parse/1 entered" {})))
+                                 arity)) (drop 2 source)))
+        row (with-redefs [kernel-sources (assoc kernel-sources fname poisoned)]
+              (kernel-row fixture))
+        inventory [{:symbol 'latte-kernel.presyntax/parse :arities [1 2] :disposition :admitted}]
+        entries (kernel-exercise-entries inventory [fixture] [row])]
+    (is (= :pass (:status row)))
+    (is (some #{fname} (:included-functions row)) "Both arities remain in the static closure")
+    (doseq [lane [:c-walker :c-semantic]]
+      (is (some #{[fname 2]} (get-in row [lane :executed-calls])))
+      (is (not-any? #{[fname 1]} (get-in row [lane :executed-calls]))))
+    (is (= [:unexercised :named-integration] (mapv :exercise entries)))
+    (is (empty? (:integration-fixture-ids (first entries))))))
+
+
 (defn kernel-gate-evidence
   "Run every fixture in A and independently in both C lanes. Compilation or
-   VM errors are blockers, never successful LaTTe rejections. Source closure
-   membership satisfies the plan only through explicitly named integrations."
+   VM errors are blockers, never successful LaTTe rejections. Exact arities
+   require recorded body entry in both C lanes of a passing fixture."
   []
   (let [results (mapv (fn [fixture]
                         (let [row (kernel-row fixture)]
@@ -2017,7 +2109,7 @@
                                     (empty? unexercised)) :pass :blocked)
      :baseline {:revision "7dc18478" :fixture-count 54 :counts {:pass 4 :mismatch 2 :blocked 48}}
      :generated-at (str (java.time.Instant/now))
-     :adaptation-version {:context 2 :kernel-assembly 3}
+     :adaptation-version {:context 2 :kernel-assembly 4}
      :executions {:a :original-upstream-clojure :b :context-source-clojure
                   :c [:walker :semantic]}
      :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279"
@@ -2040,21 +2132,26 @@
       :rebuild-type-result '[original-result next-context]
       :ambient-prefix-only :refused}
      :runtime {:clojure (clojure-version) :java (System/getProperty "java.version")}
-     :instruction-budget-per-lane 1000000
+     :instruction-budget-per-lane 2000000
+     :instruction-budget-note "The original uninstrumented fixtures used 1,000,000 instructions. Body-entry stream writes add guest instructions; traced fixtures have a 2,000,000 instruction bound. The harness drains only after halt."
      :manifest-bindings (count manifest) :function-arity-candidates (count all-arities)
      :manifest-functions (count (filter :arities kernel-entries))
      :admitted-function-arity-count (count admitted-arities)
      :excluded-function-arity-count (- (count all-arities) (count admitted-arities))
      :binding-dispositions (frequencies (map :disposition manifest))
      :admission-note "Manifest dispositions define the denominator independently of fixture success; excluded bindings retain explicit portability reasons."
-     :program-status :fixture-closure-complete
+     :program-status (if (empty? unexercised) :fixture-closure-complete :execution-evidence-incomplete)
      :residual-closure kernel-fixture-closure
      :coverage {:proven-direct-function-arities (vec (sort-by pr-str direct))
                 :exercised-count (count exercised) :unexercised unexercised
                 :entries exercise-entries
                 :named-integration-fixture-ids (vec (sort kernel-named-integrations))
-                :transitive-execution-coverage :named-integration-dependency-closures
-                :basis "Direct calls or admitted function/arities belonging to a passing named integration's source dependency closure, per slice-9 acceptance; not dynamic branch coverage."
+                :transitive-execution-coverage :recorded-function-arity-body-entry
+                :context-extra-arguments kernel-context-extra-arguments
+                :trace {:record-shape '[guest-function arity]
+                        :transport :explicit-guest-stream :lanes [:c-walker :c-semantic]
+                        :point :selected-arity-body-entry}
+                :basis "Passing direct calls or named integrations must record the exact function/arity executing in both C lanes. Static closure membership never counts; full branch coverage is not required."
                 :inventory inventory}
      :recorded-portability-boundaries
      (mapv #(select-keys % [:id :status :recorded-deviation])
@@ -2072,9 +2169,15 @@
 
 
 (defn write-kernel-gate-evidence!
-  "Explicit evidence refresh; normal test runs never update the checked-in oracle."
+  "Explicit evidence/coverage refresh; normal tests never update these files."
   []
   (let [evidence (kernel-gate-evidence)]
+    (spit "test/yang/latte_oracle/slice9_unexercised.edn"
+          (str ";; GENERATED from exact execution evidence in both C lanes.\n"
+               (pr-str (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))
+                             (for [entry (get-in evidence [:coverage :entries])
+                                   :when (= :unexercised (:exercise entry))]
+                               [(:function-arity entry) (:missing-dependency entry)]))) "\n"))
     (with-open [w (io/writer "test/yang/latte_oracle/slice9_evidence.edn")]
       ;; prn keeps (quote ...) in valid EDN rather than pprint's reader
       ;; shorthand. One fixture per line keeps refreshes independently diffable.
@@ -2118,10 +2221,16 @@
                      :named-integration (seq (:integration-fixture-ids %))
                      :unexercised (and (empty? (:direct-fixture-ids %))
                                        (empty? (:integration-fixture-ids %)))) entries))
+      (doseq [{[symbol n] :function-arity :keys [direct-fixture-ids integration-fixture-ids]} entries
+              id (concat direct-fixture-ids integration-fixture-ids)
+              :let [row (first (filter #(= id (:id %)) (:fixtures evidence)))]]
+        (is (= :pass (:status row)))
+        (is (kernel-executed-arity? row symbol n)
+            (str "Every credited path re-derives from both execution traces: " [symbol n id])))
       (is (= #{:elab-after-qed :check-after-qed} (set (map :id deviations))))
       (is (every? #(and (:recorded-deviation %)
                         (not (every? true? (vals (:agreement %))))) deviations)))
-    (testing "Every final residual has a passing consumer and a concrete expected result"
+    (testing "Previously declared residual consumers must still prove their exact arities"
       (is (= 20 (count kernel-fixture-closure)))
       (doseq [[arity {:keys [fixture expected] :as closure}] kernel-fixture-closure
               :let [row (first (filter #(= fixture (:id %)) (:fixtures evidence)))

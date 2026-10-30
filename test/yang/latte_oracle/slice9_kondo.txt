@@ -1,5 +1,5 @@
-Command: clj -M:kondo --lint test/yang/latte_oracle_test.clj src/dev/latte_oracle_tables.clj
+Command: clj -M:kondo --lint test/yang/latte_oracle_test.clj test/yang/clojure_test.clj src/dev/latte_oracle_tables.clj
 Exit: 0
 
 Loading initial Timbre config from: :default
-linting took 632ms, errors: 0, warnings: 0
+linting took 1024ms, errors: 0, warnings: 0

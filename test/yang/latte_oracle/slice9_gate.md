@@ -1,22 +1,27 @@
-# Slice 9 kernel differential gate: final fixture closure
+# Slice 9 kernel differential gate: execution evidence correction
 
-The final gate on `yang-hardening2` closes all 20 residual arities through the
-primary consumers in [`fixture_closure.edn`](fixture_closure.edn). Each primary
-consumer must pass independently on upstream A, adapted Clojure B, C-walker,
-and C-semantic, have a concrete expected result, and contribute a direct or
-named-integration path to its exact admitted arity. The gate still ends with
-the assertion `(= :pass (:gate-status evidence))`.
+The gate on `yang-hardening2` is **blocked**. The architect denied the prior
+165/165 closure claim because membership in a static dependency closure did
+not prove execution of every arity. That claim is withdrawn. The gate retains
+its final assertion `(= :pass (:gate-status evidence))`; missing execution
+evidence must fail that assertion.
 
-The 106-fixture corpus reports 102 passing agreements, two recorded deviations,
-and two recorded upstream failures, with no mismatches or unrecorded blockers.
-It adds 49 fixtures, including entry calls, installation followed by
-use, validation/refusal cases, display labels, empty-input cases, and
-lookup/removal behavior. No upstream or `src/cljc/` source changes are made.
-No new exclusion is needed: the admission denominator remains 155 bindings
-(146 admitted, 9 excluded), and 175 candidate function/arities (165 admitted,
-10 excluded). All 165 admitted arities are exercised: 39 directly and 126
-through named integrations, with zero unexercised entries. The manifest
-dispositions are unchanged.
+The 106-fixture corpus still has 102 passing agreements, two recorded
+deviations, and two recorded upstream failures. The four narrowly recorded
+exception dispositions remain declared departures, not agreements. No
+upstream or `src/cljc/` source changes are made. Admission is unchanged:
+155 bindings (146 admitted, 9 excluded) and 175 candidate function/arities
+(165 admitted, 10 excluded).
+
+Recorded executions now establish **145/165** admitted arities: 39 directly
+and 106 through named integrations. The other 20, including `parse/1`, remain
+uncredited. All 20 unsupported credits from the prior 165/165 claim are
+withdrawn. Both C lanes record eight `parse/2` calls and zero `parse/1` calls.
+The corrected counts and remaining arities are recorded in
+[`slice9_evidence.edn`](slice9_evidence.edn) and
+[`slice9_unexercised.edn`](slice9_unexercised.edn). The 20 earlier residual
+consumers in [`fixture_closure.edn`](fixture_closure.edn) retain their concrete
+expected outcomes; they do not establish closure of the full inventory.
 
 ## Consumer evidence
 
@@ -67,19 +72,41 @@ agreement for ambient-only resolution.
 
 ## Acceptance counting
 
-Passing direct calls contribute only their original function and argument
-count. Passing named integrations contribute their declared source dependency
-closures under the existing acceptance rule; this is not dynamic branch or
-arity tracing. (Provenance: this named-integration coverage basis is computed
-by this round's counting change — it is not a pre-existing measure.) The three new named integrations are `:unfold-install-use`,
-`:opacity-install-use`, and `:fundamental-install-use`. Their context adapter
-identities are recorded explicitly alongside the existing five integrations.
-All final residuals have an individually asserted primary path.
+Every selected guest function body appends `[guest-function arity]` to an
+explicit diagnostic stream at entry. Instrumentation covers all arities of
+the functions supplied to each fixture, including higher-order calls through
+registries and extension closures. Each C lane creates its own stream.
+After the VM halts, the harness reads that stream through its own
+cursor, preserving the fixture's original outcome and exception payload.
+A/B remain uninstrumented. Raw ordered call records are retained under
+`:c-walker :executed-calls` and `:c-semantic :executed-calls` for every completed
+fixture. The original uninstrumented fixtures used 1,000,000 instructions per
+lane. The instrumented fixtures have a 2,000,000 instruction bound because
+body-entry stream writes add guest instructions. Reading the completed
+diagnostic stream is harness work after halt. This is an instrumentation
+budget change, not a new performance acceptance claim.
 
-Only `:pass` fixture rows contribute exercise evidence. Neither recorded
-upstream failures nor recorded deviations contribute. `slice9_unexercised.edn`
-is empty, and any future admitted arity without a passing direct or named
-integration path blocks the gate.
+Passing direct fixtures contribute only their original function/argument
+count, and only with matching body-entry records in both C lanes. Passing
+named integrations contribute only exact arities recorded in both C lanes.
+Static dependency membership contributes no credit. Full branch coverage is
+not required. Context adapter identities and explicit extra context arguments
+are recorded in the evidence; each observed guest arity is checked against
+that mapping individually, never against all arities of its function.
+
+Only `:pass` fixture rows contribute exercise evidence. Recorded upstream
+failures and deviations do not contribute. Any admitted arity without a
+passing direct or named integration execution path blocks the gate.
+
+The accounting regression first failed against the old implementation: it
+credited the deliberately uncalled arity and accepted missing C-lane traces.
+It now requires both traces and leaves unused arities uncredited. A second
+regression replaces the adapted `parse/1` body in memory with an unconditional
+error, then runs `:parse-to-normalize-to-type`. A/B and both C lanes still
+pass; both C traces record `parse/2` and no `parse/1`, and the counter leaves
+`parse/1` uncredited. Every credited path is also checked against the recorded
+executions of its named fixture. See
+[`slice9_arity_accounting_test.txt`](slice9_arity_accounting_test.txt).
 
 ## Recorded portability boundaries
 
@@ -109,16 +136,29 @@ accepted-negative claim, or equality projection is introduced for these rows.
 
 ## Verification
 
-The oracle suite passes 25 tests and 1,147 assertions with zero failures or
-errors. The four regression suites pass 122 tests and 1,338 assertions with
-zero failures or errors. Kondo reports zero errors and warnings; cljstyle and
-`git diff --check` pass. The checked-in command outputs and `slice9_verification.edn` record the final
-oracle, four regression suites, kondo, formatting, and whitespace results.
-`slice9_evidence.edn` is explicitly regenerated by
-`yang.latte-oracle-test/write-kernel-gate-evidence!`; normal tests do not write
-it. It retains the pinned upstream revision, compiler digest, runtime,
-instruction budget, per-fixture outcomes, dependency graph, admission
-inventory, exercise paths, recorded boundaries, and recorded upstream failures.
+The accounting tests pass 2 tests and 22 assertions. An independent audit
+re-derives all 145 retained arities and all 360 credited fixture paths from
+the two raw C traces. The four regression suites pass 122 tests and 1,338
+assertions. Kondo reports zero errors and warnings; cljstyle and
+`git diff --check` pass. The full oracle runs 26 tests and 1,879 assertions
+with exactly one failure and no errors: its retained
+`(= :pass (:gate-status evidence))` closure assertion. The missing 20 arities
+therefore continue to block acceptance. Verification results are recorded in
+[`slice9_verification.edn`](slice9_verification.edn), with command outputs
+beside it.
+`yang.latte-oracle-test/write-kernel-gate-evidence!` explicitly regenerates
+both execution evidence and the remaining-arity inventory; normal tests do
+not write them. Evidence retains the pinned upstream revision, compiler
+digest, runtime, instruction budget, per-fixture outcomes, diagnostic traces,
+dependency graph, admission inventory, credited paths, and all four recorded
+exception dispositions.
 
-Execution scope is both C evaluators on the JVM with 1,000,000 instructions
-per lane. This fixture-only round does not add Node/Dart host verification.
+The append-only correction in [`known-gaps.md`](../../../docs/agents/known-gaps.md)
+records that host Clojure turns a thrown string into `ClassCastException`,
+caught by `catch Exception` but not `catch ExceptionInfo`. Portable `try` binds
+the error payload without equivalent runtime class handling; this guest/host
+gap remains declared.
+
+Execution scope is both C evaluators on the JVM. This correction does not
+claim renewed architect sign-off or Node/Dart verification, and the blocked
+gate does not authorize program closure or merge.

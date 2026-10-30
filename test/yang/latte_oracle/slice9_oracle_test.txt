@@ -1,5 +1,5 @@
 Command: clj -M:test -n yang.latte-oracle-test
-Exit: 0
+Exit: 1
 
 Loading initial Timbre config from: :default
 
@@ -113,13 +113,18 @@ KERNEL-FIXTURE :unfold-install-use :pass
 KERNEL-FIXTURE :unfold-install-refusal :pass
 KERNEL-FIXTURE :opacity-install-use :pass
 KERNEL-FIXTURE :opacity-install-refusal :pass
-KERNEL-GATE {:gate-status :pass, :counts {:pass 102, :recorded-upstream-failure 2, :recorded-deviation 2}, :fixture-count 106, :manifest-bindings 155, :function-arity-candidates 175, :recorded-portability-boundaries [{:id :elab-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :elab-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}} {:id :check-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :check-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}}], :recorded-upstream-failures [{:id :typing-ascription, :status :recorded-upstream-failure, :recorded-upstream-failure {:boundary :upstream-unbound-definition, :reason "Pinned upstream declares type-of-ascribe without a definition; B/C explicitly refuse that branch.", :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279", :evidence {:file "slice9_evidence.edn", :fixture-id :typing-ascription, :paths [[:a] [:b] [:c-walker] [:c-semantic]]}}} {:id :compile-malformed, :status :recorded-upstream-failure, :recorded-upstream-failure {:boundary :upstream-malformed-proof-sequence, :reason "Scalar proof step raises a native sequence exception upstream and a portable sequence refusal in C; no agreement is claimed.", :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279", :evidence {:file "slice9_evidence.edn", :fixture-id :compile-malformed, :paths [[:a] [:b] [:c-walker] [:c-semantic]]}}}]}
+KERNEL-GATE {:gate-status :blocked, :counts {:pass 102, :recorded-upstream-failure 2, :recorded-deviation 2}, :fixture-count 106, :manifest-bindings 155, :function-arity-candidates 175, :recorded-portability-boundaries [{:id :elab-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :elab-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}} {:id :check-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :check-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}}], :recorded-upstream-failures [{:id :typing-ascription, :status :recorded-upstream-failure, :recorded-upstream-failure {:boundary :upstream-unbound-definition, :reason "Pinned upstream declares type-of-ascribe without a definition; B/C explicitly refuse that branch.", :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279", :evidence {:file "slice9_evidence.edn", :fixture-id :typing-ascription, :paths [[:a] [:b] [:c-walker] [:c-semantic]]}}} {:id :compile-malformed, :status :recorded-upstream-failure, :recorded-upstream-failure {:boundary :upstream-malformed-proof-sequence, :reason "Scalar proof step raises a native sequence exception upstream and a portable sequence refusal in C; no agreement is claimed.", :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279", :evidence {:file "slice9_evidence.edn", :fixture-id :compile-malformed, :paths [[:a] [:b] [:c-walker] [:c-semantic]]}}}]}
 KERNEL-RECORDED-UPSTREAM-FAILURE {:id :typing-ascription, :status :recorded-upstream-failure, :blocked-by nil, :a :blocked, :b :completed, :c-walker :completed, :c-semantic :completed}
 KERNEL-RECORDED-UPSTREAM-FAILURE {:id :compile-malformed, :status :recorded-upstream-failure, :blocked-by nil, :a :blocked, :b :blocked, :c-walker :completed, :c-semantic :completed}
 KERNEL-RECORDED-BOUNDARY {:id :elab-after-qed, :status :recorded-deviation, :blocked-by nil, :a :completed, :b :completed, :c-walker :completed, :c-semantic :completed}
 KERNEL-RECORDED-BOUNDARY {:id :check-after-qed, :status :recorded-deviation, :blocked-by nil, :a :completed, :b :completed, :c-walker :completed, :c-semantic :completed}
+
+FAIL in (test-kernel-differential-gate) (latte_oracle_test.clj:2269)
+Kernel gate remains blocked: {:pass 102, :recorded-upstream-failure 2, :recorded-deviation 2}; admitted/candidate but unexercised function/arities=20. See slice9_evidence.edn; blocked fixtures are not accepted negatives.
+expected: (= :pass (:gate-status evidence))
+  actual: (not (= :pass :blocked))
 ORACLE latte-kernel.defenv/mkenv A= [[] {}] C= {:status :ok, :value [[] {}]}
 ORACLE latte-kernel.utils/vectorn? A= true C= {:status :ok, :value true}
 
-Ran 25 tests containing 1147 assertions.
-0 failures, 0 errors.
+Ran 26 tests containing 1879 assertions.
+1 failures, 0 errors.
