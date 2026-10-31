@@ -50,6 +50,7 @@
   (let [{:keys [out]} (psh {:dir clone :out :string :continue true}
                            "bb" "test:sub:list" s)
         section (->> (str/split-lines out)
+                     (drop-while #(not (str/starts-with? % "cljd:")))
                      (rest)
                      (take-while #(re-matches #"^\s+\S.*$" %))
                      (map str/trim)
