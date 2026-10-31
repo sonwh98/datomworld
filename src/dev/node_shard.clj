@@ -62,8 +62,8 @@
   (let [{:keys [out]} (psh {:dir clone :out :string :continue true}
                            "bb" "test:sub:list" s)
         section (->> (str/split-lines out)
-                     (drop-while #(not (str/starts-with? % "cljs:")))
-                     (take-while #(not (re-matches #"^[A-Za-z].*" %)))
+                     (rest) ; header "cljs: N namespaces" — skip it and keep the indented block
+                     (take-while #(re-matches #"^\s+\S.*$" %))
                      (map str/trim)
                      (remove str/blank?))]
     (vec section)))
