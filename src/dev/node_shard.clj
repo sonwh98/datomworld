@@ -179,8 +179,8 @@
                       (let [t0 (System/currentTimeMillis)
                             {:keys [exit]}
                             (psh {:dir clone
-                                  :out (str out "/" s ".log")
-                                  :err :append
+                                  :out (io/writer (str out "/" s ".log") :append true)
+                                  :err (io/writer (str out "/" s ".err.log") :append true)
                                   :extra-env {"DATOM_SLOW_TESTS" "1"}
                                   :continue true}
                                  "node" "target/node-tests.js"
