@@ -316,9 +316,29 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
     not an archive. Do not leave archived files untracked, and do not invent
     intermediate locations. Do not dump them flat into the `collab/` root
     (that space is for in-flight artifacts, kept untracked and chronologically
-    sorted in the user's Magit untracked view), and organize archived files by
-    design subsystem rather than generic slice codes or temporary folder
-    names. Never delete, truncate, rename, or overwrite an artifact;
+    sorted in the user's Magit untracked view). Organize archived files by
+    design subsystem, not by generic slice codes or temporary folder names:
+
+    - **The subsystem is defined by the code, not by the seat.** When the work
+      belongs to a subsystem in [`src/dev/subsystems.edn`](../../../src/dev/subsystems.edn)
+      (the same registry `bb test:sub` uses), the destination folder is that
+      subsystem's name with dots replaced by dashes (`yang.python` ->
+      `collab/yang-python/`, `yin.vm` -> `collab/yin-vm/`). Do not invent a
+      variant spelling of a subsystem that exists.
+    - **Check before creating.** Before creating any new destination folder,
+      list `collab/`'s existing subfolders and reuse one when the work belongs
+      there — including cross-cutting categories that predate the subsystem
+      registry (`collab/orchestration/`, `collab/general/`, and track
+      categories like `collab/dao-star/`, `collab/jolt/`). A new folder is
+      created only when no existing subfolder fits; name it after the
+      subsystem when there is one, otherwise after the durable track or topic
+      (never a date, a slice code, or a seat name).
+    - **One artifact, one destination.** Same-named collisions resolve by
+      content comparison, never by size or ending heuristics: identical bytes
+      drop the duplicate; differing same-name artifacts are kept as suffixed
+      variants (the `-b`, `-r2` convention) — neither copy dies.
+
+    Never delete, truncate, rename, or overwrite an artifact;
     use `mv -n` and leave collisions in the flat in-flight space until the
     reused task name is resolved. Archive only committed work and only when
     no uncommitted tracked changes could make task ownership ambiguous.
