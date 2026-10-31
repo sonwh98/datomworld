@@ -84,9 +84,10 @@
                 (spit summary (str "FAIL: " msg "\n") :append true))
         log   (fn [msg] (println msg) (spit summary (str msg "\n") :append true))
         sh    (fn [out-file cmd]
-                (:exit (apply psh {:dir clone, :out (io/writer out-file :append true), :err (io/writer out-file :append true),
-                                   :continue true}
-                              cmd)))]
+                (let [{:keys [exit]} (apply psh {:dir clone, :out (io/writer out-file :append true), :err (io/writer out-file :append true),
+                                                 :continue true}
+                                            cmd)]
+                  exit))]
     (fs/create-dirs out)
     (fs/delete-if-exists (str clone "/target-ci/node-shards-latest"))
     (fs/create-sym-link (str clone "/target-ci/node-shards-latest")

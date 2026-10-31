@@ -41,7 +41,7 @@
 (defn- psh
   "p/shell with the mise-shims PATH forced into the child environment."
   [opts & cmd]
-  (apply p/shell (assoc opts :env {"PATH" child-path}) cmd))
+  (apply p/shell (assoc opts :extra-env {"PATH" child-path}) cmd))
 
 
 (defn cljd-namespaces
