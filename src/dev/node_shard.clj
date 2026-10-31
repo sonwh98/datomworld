@@ -76,8 +76,14 @@
                         (str "node-shards-" stamp))
     (log (str "start " stamp " par=" par))
     ;; prerequisites — fatal on failure
-    (doseq [[nm cmd] [["npm-ci" ["npm" "ci" "--silent"]]
-                      ["build-yin-repl-node" ["bb" "build:yin-repl-node"]]
+    ;; npm ci only when npm exists (shiva ships a bare node install and a
+    ;; persistent node_modules; the compile fails loudly if that is stale)
+    (let [npm (fs/which "npm")]
+      (when npm
+        (let [exit (sh (str out "/npm-ci.log") [(str npm) "ci" "--silent"])]
+          (log (str "npm-ci rc=" exit))
+          (when-not (zero? exit) (fail! "npm ci failed")))))
+    (doseq [[nm cmd] [["build-yin-repl-node" ["bb" "build:yin-repl-node"]]
                       ["build-yin-repl-peer" ["bb" "build:yin-repl-peer"]]
                       ["gen-antlr" ["bb" "gen:antlr"]]]]
       (let [exit (sh (str out "/" nm ".log") cmd)]
