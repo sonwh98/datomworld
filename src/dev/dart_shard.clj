@@ -87,11 +87,12 @@
       (when-not (zero? exit) (fail! "build:yin-repl-peer failed")))
     ;; per-subsystem cljd namespaces; the per-run files are the evidence
     (let [lists (into {} (map (fn [s] [s (cljd-namespaces clone s)]) subs))
-          all (->> (file-seq (fs/file (str clone "/test")))
+          test-root (str (fs/canonicalize (str clone "/test")))
+          all (->> (file-seq (fs/file test-root))
                    (filter #(re-find #"_test\.clj[cd]$" (str %)))
                    (map (fn [path]
                           (-> (str path)
-                              (str/replace #"^test/" "")
+                              (str/replace (str test-root "/") "")
                               (str/replace #"\.clj[cd]$" "")
                               (str/replace "/" ".")
                               (str/replace "_" "-"))))

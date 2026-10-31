@@ -110,9 +110,13 @@
         (when-not (zero? exit) (fail! (str nm " failed")))))
     ;; per-subsystem cljs namespaces; the per-run files are the evidence
     (let [lists (into {} (map (fn [s] [s (cljs-namespaces clone s)]) subs))
-          all (->> (file-seq (fs/file (str clone "/test")))
+          test-root (str (fs/canonicalize (str clone "/test")))
+          all (->> (file-seq (fs/file test-root))
                    (filter #(re-find #"_test\.clj[cs]$" (str %)))
-                   (map (comp ns->test-ns str))
+                   (map (fn [path]
+                          (-> (str path)
+                              (str/replace (str test-root "/") "")
+                              ns->test-ns)))
                    set)
           covered (apply set/union (map set (vals lists)))
           uncovered (set/difference all covered)
