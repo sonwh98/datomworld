@@ -76,13 +76,13 @@
                         (str "node-shards-" stamp))
     (log (str "start " stamp " par=" par))
     ;; prerequisites — fatal on failure
-    ;; npm ci only when npm exists (shiva ships a bare node install and a
-    ;; persistent node_modules; the compile fails loudly if that is stale)
-    (let [npm (fs/which "npm")]
-      (when npm
-        (let [exit (sh (str out "/npm-ci.log") [(str npm) "ci" "--silent"])]
-          (log (str "npm-ci rc=" exit))
-          (when-not (zero? exit) (fail! "npm ci failed")))))
+    ;; npm always through mise exec: mise's npm wrapper execs `node` by bare
+    ;; name, which fails under any caller PATH that lacks the mise node bin
+    ;; (mise exec supplies it). The repo's mise.toml pins the node version.
+    (let [exit (sh (str out "/npm-ci.log")
+                   ["mise" "exec" "--" "npm" "ci" "--silent"])]
+      (log (str "npm-ci rc=" exit))
+      (when-not (zero? exit) (fail! "npm ci failed")))
     (doseq [[nm cmd] [["build-yin-repl-node" ["bb" "build:yin-repl-node"]]
                       ["build-yin-repl-peer" ["bb" "build:yin-repl-peer"]]
                       ["gen-antlr" ["bb" "gen:antlr"]]]]
