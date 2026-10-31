@@ -125,8 +125,9 @@
 
 
 (defn- shard-source
-  "Dart source of an aggregator importing `files` and calling each main."
-  [files]
+  "Dart source of an aggregator importing `files` and calling each main.
+   Imports are relative to `shard-dir`."
+  [files shard-dir]
   (let [rel (fn [f]
               (str (fs/relativize (fs/absolutize shard-dir)
                                   (fs/absolutize f))))]
@@ -142,18 +143,22 @@
 
 
 (defn write-shards!
-  [files]
-  (fs/delete-tree shard-dir)
-  (fs/create-dirs shard-dir)
-  (let [n (min max-shards
-               (.availableProcessors (Runtime/getRuntime))
-               (count files))]
-    (vec (map-indexed
-           (fn [i group]
-             (let [path (format "%s/shard_%d_test.dart" shard-dir i)]
-               (spit path (shard-source group))
-               path))
-           (shard files n)))))
+  "Emit the aggregator files under `shard-dir` (build/cljd-agg by default;
+   --shard-dir overrides, which lets dart-shard.sh run one directory per
+   subsystem as parallel flutter processes). Returns the shard paths."
+  ([files] (write-shards! files shard-dir))
+  ([files shard-dir]
+   (fs/delete-tree shard-dir)
+   (fs/create-dirs shard-dir)
+   (let [n (min max-shards
+                (.availableProcessors (Runtime/getRuntime))
+                (count files))]
+     (vec (map-indexed
+            (fn [i group]
+              (let [path (format "%s/shard_%d_test.dart" shard-dir i)]
+                (spit path (shard-source group shard-dir))
+                path))
+            (shard files n))))))
 
 
 (defn -main
@@ -170,13 +175,19 @@
         only       (when (some #{"--only"} args)
                      (let [v (second (drop-while #(not= "--only" %) args))]
                        (vec (remove str/blank? (str/split (str v) #",")))))
+        shard-dir  (or (when (some #{"--shard-dir"} args)
+                         (second (drop-while #(not= "--shard-dir" %) args)))
+                       shard-dir)
+        no-compile? (some #{"--no-compile"} args)
+        no-run?    (some #{"--no-run"} args)
         wanted     (cond only only
                          slow-only? (slow-namespaces)
                          :else (test-namespaces))]
     (when (empty? wanted)
       (println "No test namespaces selected.")
       (System/exit 1))
-    (compile-tests (or only (test-namespaces)))
+    (when-not no-compile?
+      (compile-tests (or only (test-namespaces))))
     (let [files (filter fs/exists? (map dart-file wanted))
           missing (remove (comp fs/exists? dart-file) wanted)]
       (when (seq missing)
@@ -194,14 +205,18 @@
       (when (empty? files)
         (println "No generated test files found.")
         (System/exit 1))
-      (let [shards (write-shards! files)
-            _ (println (format "Running %d test files in %d shards"
+      (let [shards (write-shards! files shard-dir)]
+        (if no-run?
+          (do (println (format "Emitted %d test files in %d shards under %s"
+                               (count files) (count shards) shard-dir))
+              (System/exit 0))
+          (do (println (format "Running %d test files in %d shards"
                                (count files) (count shards)))
-            exit (try (apply run!* "flutter" "test"
-                             "--concurrency" (str (count shards))
-                             shards)
-                      (finally (fs/delete-tree shard-dir)))]
-        (System/exit exit)))))
+              (let [exit (try (apply run!* "flutter" "test"
+                                     "--concurrency" (str (count shards))
+                                     shards)
+                              (finally (fs/delete-tree shard-dir)))]
+                (System/exit exit))))))))
 
 
 (when (= *file* (System/getProperty "babashka.file"))
