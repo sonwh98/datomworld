@@ -131,9 +131,9 @@
                 " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
       (when-not (zero? exit) (fail! "compile failed")))
     ;; R1: the bundle's own inventory is the authority on what can run
-    (let [{:keys [out]} (psh {:dir clone :out :string :continue true}
-                             "node" "target/node-tests.js" "--list")
-          bundle (->> (str/split-lines out)
+    (let [{listing :out} (psh {:dir clone :out :string :continue true}
+                              "node" "target/node-tests.js" "--list")
+          bundle (->> (str/split-lines listing)
                       (keep #(re-find #"^Namespace: (\S+)" %))
                       (map second)
                       set)
