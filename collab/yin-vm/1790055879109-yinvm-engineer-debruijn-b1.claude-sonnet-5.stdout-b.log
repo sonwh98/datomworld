@@ -1,0 +1,11 @@
+Task B1 complete: created `src/cljc/yin/vm/debruijn_code.cljc` and `test/yin/vm/debruijn_code_test.cljc` — the only files touched, nothing staged/committed per instructions.
+
+Summary:
+- **Opcode table** derived programmatically from `yin.vm.code/vector-operand-table`, renamespacing 18 carried mnemonics and hand-declaring only the 3 that genuinely change shape (`:load-bound`, `:load-free`, `:closure`).
+- **Scalar encoder** is a new, distinct 14-class domain (adds `:ratio`/`:bigint`, drops NFC and int/double folding), with framing helpers copied from `yin.vm.debruijn` as instructed and the UTF-16 guard independently reimplemented.
+- **Validator** (`image-defect`) does generic structural checks plus a new scope pass that walks each body's enclosing arity chain, correctly rejecting the design's `[5 0]` out-of-range-bound-operand case.
+- **`image-hash`** is the sole identity function, `jing/sha256` over descriptor-hash + canonical instruction bytes.
+
+Testing: 11 deftests / 125 assertions on JVM, full suite 1722 tests / 172666 assertions clean. Ran the CLJS lane too (not just JVM) — caught and fixed two real cross-host bugs in the process (an undeclared-var warning on CLJS's dead `:ratio` branch, and a wrongly-unguarded 1-vs-1.0 assertion that CLJS genuinely can't satisfy). Verified the golden fixtures actually catch a layout change (reordered `scalar-classes`, watched it break every golden test, reverted). kondo, cljstyle, and the CLJD lane were all denied by the permission system and not retried.
+
+Full details — every host-specific decision (chars, ratios, bigints) with reasoning, what's unverified (CLJD specifics), and the explicit deviation notes — are in `collab/1790055879109-yinvm-engineer-debruijn-b1.claude-sonnet-5.stdout.log`.
