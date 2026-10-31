@@ -161,3 +161,50 @@ Next: WATCH yang-call's master publication (the TS/PHP orchestrator's landing); 
   resume S3 (rebase, reconcile, the lanes, the kimi gate, land). Meanwhile the seat holds: the
   dependency request is moot (the runtime exists, pending publication); the queued coordination
   items (dry1 reconciliation, the c3-gate baseline) remain available without the dependency.
+
+## 2026-10-31 02:5x +07 — S3 LANDED to master (efc99cc4): Python source calls cross language boundaries
+The integration the owner resumed the track for is complete end to end: the :call lowering routes
+  admitted callables through the shared convention (eligible -> entry -> invoke), both emitters
+  carry the yang.call runtime, the linked path requires it before py (the wrapper + the py
+  module-tree require — the root cause the fix round found: py's manifest pinned yang.call but its
+  module AST never issued the require), ordinary and SCC source modules require and pin it, the
+  closure ledgers/totals include the shared runtime, the Python + TS pins re-minted. Kimi gate:
+  READY (session_664f487a) — "implements 8.10.4 without introducing language-pair dispatch", the
+  marks rule holds, the shared surfaces ruled sound, the jolt seat's review commitment honored
+  through this gate. Evidence at 13ba4a2f on shiva: main-test 49/412/0 (the J6e adapter composed),
+  import-test 50/436/0 UNFILTERED (the slow-body lesson paying off), float-address both suites,
+  call-entry/call/publication/gate-test all green, the generator byte-identical. The dao.stream
+  precondition: clj+cljs green; the lone cljd red (datagram refusals) PROVEN pre-existing on clean
+  master and routed to the jolt/dao.stream seat. The branch and its remote ref are deleted;
+  the incident archive holds the S3 rounds.
+What master now delivers: a function defined in Python, PHP, TypeScript, or Clojure is invocable
+  from any conforming frontend's source through one mechanism — the 8.10 promise, integrated.
+Next: the 8.10.11 conformance evidence (bidirectional/higher-order cross-language fixtures,
+  bundled/linked equivalence — the entry fixture is the base); the nightly verifies master tonight;
+  the debt rows (worker isolation, the conformance matrix) stay named.
+
+## 2026-10-31 03:2x +07 — the retake session's final handoff; the collab archive; the S3 landing closed
+The session's units, all complete: the seat establishment + the amended-rule adoption; the official
+  8.10 handoff adopted; the ownership map + the dependency request; the conflict analysis and the
+  consolidation assessment (the owner's call, declined); the inventory; the kimi Architect plan
+  (PLAN READY); S1 built, gated, LANDED (10a24952); the incident with the jolt seat (owned, the
+  collateral-kill correction, the standing rule adopted by both seats); the policy docs landed to
+  master (the two-tier testing, the dao.stream precondition) and the subsystems split (yang.php its
+  own; yang.core under yang.base); the yang-call discovery and the S3 wiring → pause → resume → the
+  rebase → the gate's P1s → the fixtures → the evidence gap → the J6e attribution → the linked-path
+  root cause found by running slow bodies (the session's process lesson) → the fix → the kimi gate
+  (READY, session_664f487a) → S3 LANDED (efc99cc4). The 8.10 integration is COMPLETE on master.
+Archive: 15 artifacts moved to archive/yang-python/810-common-call/ (the plan + agent file, the
+  attribution + merge-landed notes with the jolt seat, the linked-fix round, the S3 gate, the
+  adopt-series and ts-t3 files of the sibling seats that shared collab/, the S3 resume brief from
+  the worktree). NOTE: the S1-era briefs and findings (1793294…-1793340…: the ownership map, the
+  inventory findings, the S1/S3 briefs, the pins/resume/expectations rounds, the S1 gate) were
+  absent from collab/ at archive time — likely swept by an interim bulk pass; their substance lives
+  in this log, the landed commits, and the gate artifacts that survived. collab/ is now empty.
+The final handoff: the yang.python seat's 8.10 integration is DONE; the next seat (or this one, on
+  return) owns the 8.10.11 conformance evidence (bidirectional/higher-order cross-language fixtures,
+  bundled/linked equivalence — the entry fixture is the base), the worker-isolation debt row, and
+  monitoring the nightly. The standing rules: the two-tier testing policy, the dao.stream merge
+  precondition, the laptop-unload rule, the shared-checkout staging rule (nobody's staging area),
+  the slow-bodies rule for slow-guarded surfaces. Prior session log: docs/orchestrator-log.md (the
+  pre-handoff era) + this file. The tree: origin/master at efc99cc4.
