@@ -43,7 +43,7 @@
   "p/shell with the mise-shims PATH forced into the child environment,
    merged over any caller-supplied :env."
   [opts & cmd]
-  (apply p/shell (update opts :env #(merge {"PATH" child-path} %)) cmd))
+  (apply p/shell (update opts :extra-env #(merge {"PATH" child-path} %)) cmd))
 
 
 (defn ns->test-ns
