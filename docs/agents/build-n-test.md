@@ -746,3 +746,14 @@ A single missing bracket can silently break an entire file. The compiler may sti
    - Both can coexist while total bracket count is zero-sum.
 
 4. **After brackets balance**, rerun `clj-kondo`, then rebuild with `clj -M:cljs -m shadow.cljs.devtools.cli compile <build>`.
+
+**The merge precondition (2026-10-30 owner ruling, restored 2026-10-31 —
+a dedup pass dropped this section along with a stale duplicate of the
+two-tier policy above; both stand):** before any merge into master, the
+`dao.stream` tests must run and pass — dao.stream is what everything is
+built on. Concretely: `bb test:sub dao.stream` (the subsystem's tests,
+`--slow` when the slice touches slow-guarded surfaces) is part of every
+branch gate regardless of which subsystems the diff's own changes
+select, because a change can break the foundation without touching it.
+A red dao.stream blocks the merge until fixed or diagnosed as
+pre-existing by the owning seat.
