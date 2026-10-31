@@ -93,6 +93,7 @@
 (deftest module-uast-is-one-wide-application-test
   (let [ast prelude/module-uast
         operands (:operands ast)
+        definitions (drop-last operands)
         op (:operator ast)]
     (testing "one application of a lambda returning nil to every definition"
       (is (= :application (:type ast)))
@@ -100,17 +101,20 @@
       (is (= (count operands) (count (:params op))))
       (is (= :literal (get-in op [:body :type])))
       (is (nil? (get-in op [:body :value])))
-      (is (every? some? (map def-key operands))))
+      (is (every? some? (map def-key definitions))))
     (testing "the placeholders come first, sorted, each the literal :py/uninit"
       (let [n (count prelude/runtime-keys)
-            placeholders (take n operands)]
+            placeholders (take n definitions)]
         (is (= prelude/runtime-keys (mapv def-key placeholders)))
         (is (every? #(= {:type :literal, :value :py/uninit}
                         (dissoc (get-in % [:operands 1]) :tail?))
                     placeholders))))
     (testing "then every definition, stripped, in definition order"
       (is (= (mapv (comp prelude/strip first) prelude/definitions)
-             (mapv def-key (drop (count prelude/runtime-keys) operands)))))
+             (mapv def-key (drop (count prelude/runtime-keys) definitions)))))
+    (testing "the last operand requires yang.call"
+      (is (= {:type :variable, :name 'require} (:operator (last operands))))
+      (is (= 'yang.call (get-in (last operands) [:operands 0 :value]))))
     (testing "no symbol of the module's own namespace survives stripping"
       (is (not-any? (fn [x]
                       (and (symbol? x) (= "py" (namespace x))))
