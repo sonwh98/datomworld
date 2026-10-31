@@ -113,7 +113,15 @@ are in flight, and must never be added to `.gitignore` or
 `.git/info/exclude` so its files stay visible and chronologically sorted in the user's Magit untracked
 view. In-flight artifacts stay untracked; they leave the flat in-flight
 space only through the archive step (Workflow step 11), which files them
-into `collab/`'s git-tracked topic subfolders. Promote final responses to
+into `collab/`'s git-tracked topic subfolders. The two states live in
+different worlds: the committed topic subfolders are on the master
+branch (pushed to origin — master's collab/ subfolders are the durable,
+durable-per-seat-readable record), while an in-flight artifact exists
+only as an untracked file in the checkout that created it — invisible
+from other checkouts and from every branch until it is committed. This
+visibility split is why a merged worktree's collab files must be
+committed before that worktree is deleted (the worktree-deletion rule
+above). Promote final responses to
 `.findings.md`; `.stdout.log` is only
 an intermediate capture.
 
