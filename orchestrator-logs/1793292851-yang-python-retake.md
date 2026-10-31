@@ -230,3 +230,40 @@ Owner, verbatim: "it doesn't look like the tests are utilizing multiple cores" �
   and cljd lanes stay serial for now (the JVM lane dominated the runtime); the shadow-cljs compile
   itself parallelizes (526% CPU observed). The nightly script's NOW=1 bypass enables on-demand
   full runs outside the 3am window (the owner's "run the full test now").
+
+## 2026-10-31 09:4x +07 — the nightly-red round routed to muse (the owner's pick); the invocation quirks
+The peer brief adopted (collab/1793456746000-orchestrator-yangpython-nightly-red.prompt.md): the
+  nightly's yang.python shard red on BOTH hosts — 3 failures, same on each. MY adjudication: the
+  dao.jing guard is ancient correct behavior (H1, 0aa710e7, Sept 23 — not a regression); the
+  defects are yang.python's stale fixtures/expectations vs the S3 emission changes: (1) the
+  dht_import fixture's :test/address placeholder now gets READ by the publication path (the
+  call-address derivation), (2) linked_prelude's module-uast expectations predate the yang.call
+  emission growing the module shape. Fix routed to muse (the owner's pick) in the nightr worktree
+  (detached at master, provisioned). MUSE INVOCATION QUIRKS (four failed attempts; for the
+  delegate-invocation-reference): no -p flag (use --prompt-file or an inline PROMPT, never both);
+  --worktree-existing must differ from --workspace (pass --workspace alone when working in place);
+  --trust-workspace required for a fresh worktree (else the run exits after warnings);
+  muse exec is the headless form; sessions log under ~/.local/share/muse/sessions/YYYY/MM/DD/.
+The round's brief: collab/1793465000000-engineer-nightly-red-fix.prompt.md (the G0→G1→tri-host
+  cycle, the shiva handoff for the heavy lanes, the branch nightly-red-fix).
+Next: muse's report → my verification (the shiva lanes for the legs it cannot reach) → the
+  independent review (a different family than muse — codex or kimi per routing) → the landing →
+  the findings file + the nightly hygiene line (shiva keeps per-shard stdout) back to the owner.
+
+## 2026-10-31 10:5x +07 — the nightly-red round LANDED (af506f77); the peer brief's deliverables
+The chain: the peer brief adopted → the adjudication (dao.jing correct; the fixtures stale) → the
+  fix routed to muse per the owner (quota-walled, recorded in routing-status; the re-verify after
+  19:35:42Z) → codex gpt-6-luna per the fallback (committed 78c3bf29) → the nightly-identical
+  fast-tier verification on shiva (dht-import 4/31/0, linked-prelude 6/42/0 — the nightly's 3
+  failures fixed) → the kimi gate READY (session_6b7c7d5c) → the merge af506f77 pushed. The slow
+  DHT cluster (81 unfiltered) is tonight's nightly's + a diagnosis slice's per the owner's
+  correction (no ad-hoc multi-hour runs; the designated slow infrastructure owns them).
+Deliverables to the peer seat: the findings file (this entry + the gate artifact
+  archive/yang-python/810-common-call/ + collab/1793480000000-reviewer-nightly-red-gate.*) and the
+  nightly hygiene line: SHIVA'S NIGHTLY MUST KEEP PER-SHARD STDOUT — the diagnosis was only possible
+  from jupiter's copy; shiva's nightly-full.sh discarded per-shard logs (only summary lines kept).
+  The fix belongs to nightly-full.sh's shard phase (the per-shard .log files to $OUT).
+The muse quirks also recorded (four dispatch attempts; --prompt-file positional rules,
+  --trust-workspace, the worktree/workspace distinction).
+Next: tonight's nightly verifies the fix + the slow cluster at scale; the muse re-verify after
+  19:35:42Z; the 8.10.11 conformance slice remains the track's next product work.
