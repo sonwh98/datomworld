@@ -136,16 +136,18 @@ explicit disjoint ownership. Only one process owns the CLJD lane because
 `collab/`, so briefs use absolute paths, and delegates there often stage
 their own reference copies of prompts/findings in a local `collab/`. Before
 removing a worktree, diff its `collab/` against the main tree's and copy
-over anything unique — a worktree merge moves only committed content, so
-untracked `collab/` files are otherwise lost with the worktree. Merging
-follows the commit authority in the coordination contract. A worktree or
-branch may be deleted once its work has landed on master under that
-authority, or on user instruction, and only after copying out unique
-`collab/` files and confirming that every other uncommitted file in it is
-either landed or deliberately discarded. Never run `git checkout --` or
-`git clean` on a worktree just to make it removable: that destroys
-in-flight work (observed 2026-10-26, when P3 oracle fixtures were lost this
-way).
+over anything unique — a worktree merge moves only committed content.
+Under the one-record `collab/` regime this is not a copy-out burden:
+collab files generated in a worktree are added to git there (step 11's
+`docs(collab):` commit) and reach master through the merge. A worktree
+is deleted only after its work has been successfully merged to master
+under that authority — or on user instruction, which is a deliberate
+discard. Because deletion follows the merge, the merged content is
+already canonical; confirm only that no other uncommitted file in the
+worktree is being lost (a closed round has none: its artifacts were
+committed at round-close). Never run `git checkout --` or `git clean`
+on a worktree just to make it removable: that destroys in-flight work
+(observed 2026-10-26, when P3 oracle fixtures were lost this way).
 
 Batch complete briefs, reuse sessions for related follow-ups, start new sessions for unrelated work, and never rely on CLI `--last` flags. Session-ID generation, capture, and resume rules for
 every delegate CLI live in
