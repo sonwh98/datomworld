@@ -29,11 +29,26 @@
    "dao.postgraphics" "yang.base" "dao.base"])
 
 
+(def ^:private child-path
+  "PATH for every child process: mise shims first (npm/node/flutter/bb/clj all
+   resolve through mise regardless of the caller's ambient PATH), then the
+   inherited PATH, then the system dirs for env/bash."
+  (str (System/getProperty "user.home") "/.local/share/mise/shims"
+       ":/usr/local/bin:/usr/bin:/bin:"
+       (System/getenv "PATH")))
+
+
+(defn- psh
+  "p/shell with the mise-shims PATH forced into the child environment."
+  [opts & cmd]
+  (apply p/shell (assoc opts :env {"PATH" child-path}) cmd))
+
+
 (defn cljd-namespaces
   "The cljd test namespaces `bb test:sub:list <s>` reports for subsystem s."
   [clone s]
-  (let [{:keys [out]} (p/shell {:dir clone :out :string :continue true}
-                               "bb" "test:sub:list" s)
+  (let [{:keys [out]} (psh {:dir clone :out :string :continue true}
+                           "bb" "test:sub:list" s)
         section (->> (str/split-lines out)
                      (drop-while #(not (str/starts-with? % "cljd:")))
                      (take-while #(not (re-matches #"^[A-Za-z].*" %)))
@@ -62,11 +77,11 @@
                         (str "dart-shards-" stamp))
     (log (str "start " stamp " conc=" conc))
     ;; the Dart peer; its absence makes peer tests skip
-    (let [{:keys [exit]} (p/shell {:dir clone
-                                   :out (str out "/build-peer.log")
-                                   :err :append
-                                   :continue true}
-                                  "bb" "build:yin-repl-peer")]
+    (let [{:keys [exit]} (psh {:dir clone
+                               :out (io/writer (str out "/build-peer.log") :append true)
+                               :err (io/writer (str out "/build-peer.log") :append true)
+                               :continue true}
+                              "bb" "build:yin-repl-peer")]
       (log (str "build-yin-repl-peer rc=" exit))
       (when-not (zero? exit) (fail! "build:yin-repl-peer failed")))
     ;; per-subsystem cljd namespaces; the per-run files are the evidence
@@ -103,10 +118,10 @@
                      distinct
                      vec)
           {:keys [exit]}
-          (apply p/shell {:dir clone
-                          :out (str out "/compile.log")
-                          :err :append
-                          :continue true}
+          (apply psh {:dir clone
+                      :out (io/writer (str out "/compile.log") :append true)
+                      :err (io/writer (str out "/compile.log") :append true)
+                      :continue true}
                  "clojure" "-M:clojuredart:cljd" "compile" allns)]
       (log (str "compile-all rc=" exit
                 " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
@@ -120,12 +135,12 @@
             (let [nss (str/join "," (remove str/blank? (str/split-lines (slurp f))))
                   d (str clone "/build/cljd-agg-" stamp "-" s)
                   {:keys [exit]}
-                  (p/shell {:dir clone
-                            :out (str out "/" s ".emit.log")
-                            :err :append
-                            :continue true}
-                           "bb" "src/dev/cljd_agg.clj" "--only" nss
-                           "--shard-dir" d "--no-compile" "--no-run")]
+                  (psh {:dir clone
+                        :out (str out "/" s ".emit.log")
+                        :err :append
+                        :continue true}
+                       "bb" "src/dev/cljd_agg.clj" "--only" nss
+                       "--shard-dir" d "--no-compile" "--no-run")]
               (if (zero? exit)
                 (swap! dirs conj d)
                 (fail! (str "shard " s " emission failed (rc=" exit ")")))))))
@@ -135,11 +150,11 @@
         ;; project-wide build/test_cache kernel is touched by one process.
         (let [t0 (System/currentTimeMillis)
               {:keys [exit]}
-              (apply p/shell {:dir clone
-                              :out (str out "/all.log")
-                              :err :append
-                              :extra-env {"DATOM_SLOW_TESTS" "1"}
-                              :continue true}
+              (apply psh {:dir clone
+                          :out (str out "/all.log")
+                          :err :append
+                          :extra-env {"DATOM_SLOW_TESTS" "1"}
+                          :continue true}
                      "flutter" "test" "--concurrency" (str conc) @dirs)
               wall (quot (- (System/currentTimeMillis) t0) 1000)
               verdict (some->> (slurp (str out "/all.log"))

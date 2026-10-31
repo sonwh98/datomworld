@@ -19,6 +19,7 @@
    Exit: 0 all green; 1 any failure (infra, missing, or red)."
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
+            [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]))
 
@@ -27,6 +28,22 @@
   ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
    "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
    "dao.postgraphics" "yang.base" "dao.base"])
+
+
+(def ^:private child-path
+  "PATH for every child process: mise shims first (npm/node/flutter/bb/clj all
+   resolve through mise regardless of the caller's ambient PATH), then the
+   inherited PATH, then the system dirs for env/bash."
+  (str (System/getProperty "user.home") "/.local/share/mise/shims"
+       ":/usr/local/bin:/usr/bin:/bin:"
+       (System/getenv "PATH")))
+
+
+(defn- psh
+  "p/shell with the mise-shims PATH forced into the child environment,
+   merged over any caller-supplied :env."
+  [opts & cmd]
+  (apply p/shell (update opts :env #(merge {"PATH" child-path} %)) cmd))
 
 
 (defn ns->test-ns
@@ -42,8 +59,8 @@
 (defn cljs-namespaces
   "The cljs test namespaces `bb test:sub:list <s>` reports for subsystem s."
   [clone s]
-  (let [{:keys [out]} (p/shell {:dir clone :out :string :continue true}
-                               "bb" "test:sub:list" s)
+  (let [{:keys [out]} (psh {:dir clone :out :string :continue true}
+                           "bb" "test:sub:list" s)
         section (->> (str/split-lines out)
                      (drop-while #(not (str/starts-with? % "cljs:")))
                      (take-while #(not (re-matches #"^[A-Za-z].*" %)))
@@ -67,8 +84,8 @@
                 (spit summary (str "FAIL: " msg "\n") :append true))
         log   (fn [msg] (println msg) (spit summary (str msg "\n") :append true))
         sh    (fn [out-file cmd]
-                (:exit (apply p/shell {:dir clone, :out out-file, :err :append,
-                                       :continue true}
+                (:exit (apply psh {:dir clone, :out (io/writer out-file :append true), :err (io/writer out-file :append true),
+                                   :continue true}
                               cmd)))]
     (fs/create-dirs out)
     (fs/delete-if-exists (str clone "/target-ci/node-shards-latest"))
@@ -112,8 +129,8 @@
                 " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
       (when-not (zero? exit) (fail! "compile failed")))
     ;; R1: the bundle's own inventory is the authority on what can run
-    (let [{:keys [out]} (p/shell {:dir clone :out :string :continue true}
-                                 "node" "target/node-tests.js" "--list")
+    (let [{:keys [out]} (psh {:dir clone :out :string :continue true}
+                             "node" "target/node-tests.js" "--list")
           bundle (->> (str/split-lines out)
                       (keep #(re-find #"^Namespace: (\S+)" %))
                       (map second)
@@ -150,13 +167,13 @@
             run-one (fn [s]
                       (let [t0 (System/currentTimeMillis)
                             {:keys [exit]}
-                            (p/shell {:dir clone
-                                      :out (str out "/" s ".log")
-                                      :err :append
-                                      :extra-env {"DATOM_SLOW_TESTS" "1"}
-                                      :continue true}
-                                     "node" "target/node-tests.js"
-                                     "--test" (str/join "," (sel s)))
+                            (psh {:dir clone
+                                  :out (str out "/" s ".log")
+                                  :err :append
+                                  :extra-env {"DATOM_SLOW_TESTS" "1"}
+                                  :continue true}
+                                 "node" "target/node-tests.js"
+                                 "--test" (str/join "," (sel s)))
                             secs (quot (- (System/currentTimeMillis) t0) 1000)]
                         (swap! runs assoc s {:rc exit :secs secs})
                         (spit (str out "/runs.txt")
