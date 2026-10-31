@@ -267,3 +267,21 @@ The muse quirks also recorded (four dispatch attempts; --prompt-file positional 
   --trust-workspace, the worktree/workspace distinction).
 Next: tonight's nightly verifies the fix + the slow cluster at scale; the muse re-verify after
   19:35:42Z; the 8.10.11 conformance slice remains the track's next product work.
+
+## 2026-10-31 03:4x +07 — the collab one-record ruling adopted; the 810 batch migrated; the worktrees deleted
+Owner: "collab is now under version control. did you read the updated orchestrator.md" — no, I was
+  working from the pre-update rules (the 2026-10-17 separate-archive ruling, which the 2026-10-31
+  ruling supersedes). The amended step 11: collab/ IS the version-controlled collaboration record —
+  the flat root is the untracked in-flight workspace, the topic subfolders (collab/yang-python/,
+  collab/jolt/, collab/orchestration/...) are the archive, subsystem-named from
+  src/dev/subsystems.edn (dots to dashes), collisions resolved by content comparison, every batch
+  committed as docs(collab):/docs(archive):. Fixed: my 9e78c042 batch (the 8.10 common-call
+  artifacts in archive/yang-python/810-common-call — the superseded destination) moved to
+  collab/yang-python/ (2bb74a0e, via the isolated worktree — the shared checkout stays contested);
+  the two stray collab-s3 working notes folded in; archive/yang-python/810-common-call removed.
+  The older-era batches (value-display, scangold-regen, etc.) were already migrated by 4c8d87eb.
+Worktrees: both of my seat's merged worktrees deleted (nightr with its nightly-red-fix branch, and
+  the yang-common-call codex lane — merged efc99cc4; unique collab files copied out first). The
+  remaining worktrees belong to other seats.
+Going forward from this seat: in-flight artifacts flat in collab/, round-close filing into
+  collab/yang-python/, every batch committed and pushed as docs(collab):.
