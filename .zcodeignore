@@ -52,7 +52,6 @@ env.sh
 .agents/
 .antigravitycli/
 .commandcode/
-archive/
 docs/agents/routing-status.md
 
 # ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====

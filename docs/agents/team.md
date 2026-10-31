@@ -68,6 +68,7 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 | kimi            | Flat: Kimi membership (Plus+)          | Invoke only through the dedicated `kimi` CLI. Monthly quotas apply.                                          |
 |                 |                                        | Pro unlocks Highspeed and 1M context for K3.x.                                                               |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| mistral         | Flat: Mistral Pro ($20/mo)             | Invoke via `vibe` CLI. Model aliases: mistral-large, mistral-medium-3.5, mistral-4.0, devstral, codestral.   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 
 ## Model Strengths and Selection Guide
@@ -159,6 +160,15 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | REPL fixes, features, and small/medium refactors. **Best for:**    | compiler, VM, and invariant work; use K3.1 Pro for those instead.   |
 |                             | routine coding, code completion, Q&A, and small edits.             |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `mistral-large`             | Strong reasoning and code generation; 128K context.                | **Avoid for:** Deep invariant proofs; use Fable 5.1/Opus 5.5 for   |
+|                             | **Best for:** General implementation, refactors, code review.     | highest-stakes cryptographic boundaries.                           |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `mistral-small`             | Fast, cost-efficient; 32K context.                                   | Lower reasoning depth. **Avoid for:** Complex architecture,         |
+|                             | **Best for:** Routine coding, QA, small edits, and extraction.      | multi-file refactors, or deep invariant reasoning.                  |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `mixtral-8x7b`              | Sparse Mixture of Experts; strong coding at lower cost.            | **Avoid for:** Tasks requiring dense attention across very long     |
+|                             | **Best for:** Implementation, debugging, and moderate complexity.   | contexts or fine-grained invariant verification.                   |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 ## Role Selection & Reviewer Independence
 
 The Orchestrator is completely responsible for selecting the implementer for a given role. It dynamically
@@ -170,7 +180,7 @@ cost align with the task.
 Every change must be reviewed by a model from a **different family** to ensure
 independent defect discovery. Never silently substitute a same-family reviewer.
 The families represented in the Model Strengths table are: **Claude**,
-**DeepSeek**, **Gemini**, **GLM**, **GPT**, and **Kimi**.
+**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, and **Mistral**.
 Any author from one family must be reviewed by a model from a different family.
 
 Routine review applies only when independent; architectural or security review

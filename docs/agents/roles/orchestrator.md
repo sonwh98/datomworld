@@ -111,8 +111,10 @@ Every report starts with the same header fields. Use actual timestamps; never fa
 `collab/` is append-only and never staged or committed while its artifacts
 are in flight, and must never be added to `.gitignore` or
 `.git/info/exclude` so its files stay visible and chronologically sorted in the user's Magit untracked
-view. Artifacts leave `collab/` only through the archive step (Workflow
-step 11). Promote final responses to `.findings.md`; `.stdout.log` is only
+view. In-flight artifacts stay untracked; they leave the flat in-flight
+space only through the archive step (Workflow step 11), which files them
+into `collab/`'s git-tracked topic subfolders. Promote final responses to
+`.findings.md`; `.stdout.log` is only
 an intermediate capture.
 
 On reassignment, append history inside `Implementers:`; never rewrite an earlier `Status:` line:
@@ -298,26 +300,28 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
     rule before pushing.
 11. **Archive completed-task artifacts.** When collaboration artifacts are no
     longer needed for active collaboration (their task is committed or its
-    track is otherwise closed), move prompts, findings, and logs from
-    `collab/` into git-tracked, subsystem-organized subfolders under the
-    top-level `archive/` (e.g. `archive/yang-python/`, `archive/dao-stream/`,
-    `archive/yin-ucf/`, `archive/yin-linker/`) under their exact filenames.
-    Top-level `archive/` is the only archive destination, and it is under
-    version control deliberately: the git history is the historical record of
-    the collaboration, so every archive batch is committed (and pushed) as
-    `docs(archive):` — an archive that is not committed is not an archive.
-    Do not park retired artifacts in untracked intermediate locations such as
-    a `collab/archive/` folder, and do not leave archived files untracked
-    (2026-10-17 owner ruling, closing the recorded tension between this step
-    and the never-commit-collab rule: moving a retired artifact out of
-    `collab/` into `archive/` and committing it is exactly how an artifact
-    leaves that rule's scope — the rule governs the in-flight workspace, not
-    the archive). Do not dump them flat into root `archive/`, and organize
-    them by design subsystem rather than generic slice codes or temporary
-    folder names. Never delete, truncate, rename, or overwrite an artifact;
-    use `mv -n` and leave collisions in `collab/` until the reused task name
-    is resolved. Archive only committed work and only when no uncommitted
-    tracked changes could make task ownership ambiguous.
+    track is otherwise closed), move prompts, findings, and logs from the
+    flat in-flight space of `collab/` into git-tracked, subsystem-organized
+    subfolders of the same directory (e.g. `collab/yang-python/`,
+    `collab/dao-stream/`, `collab/yin-ucf/`, `collab/yin-linker/`) under
+    their exact filenames. There is no separate archive root: `collab/` IS
+    the collaboration record, flat untracked files at its root are the
+    in-flight workspace, and its topic subfolders are the archive
+    (2026-10-31 owner ruling, superseding the 2026-10-17 separate-top-level-
+    archive ruling: the archive and the collaboration directory are one
+    version-controlled location). The archived subfolders are under version
+    control deliberately — the git history is the historical record of the
+    collaboration — so every archive batch is committed (and pushed) as
+    `docs(archive):` or `docs(collab):`; an archive that is not committed is
+    not an archive. Do not leave archived files untracked, and do not invent
+    intermediate locations. Do not dump them flat into the `collab/` root
+    (that space is for in-flight artifacts, kept untracked and chronologically
+    sorted in the user's Magit untracked view), and organize archived files by
+    design subsystem rather than generic slice codes or temporary folder
+    names. Never delete, truncate, rename, or overwrite an artifact;
+    use `mv -n` and leave collisions in the flat in-flight space until the
+    reused task name is resolved. Archive only committed work and only when
+    no uncommitted tracked changes could make task ownership ambiguous.
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
 readable and record incomplete work in the findings rather than leaving a

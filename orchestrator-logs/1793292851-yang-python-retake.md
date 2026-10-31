@@ -23,7 +23,7 @@ Done: read docs/agents/roles/orchestrator.md (the 2026-10-26-amended edition). R
   (5) inspect the post-commit --stat against intent (the pre-commit hook sweeps files);
   (6) relay owner instructions as verbatim quotes kept separate from paraphrase;
   (7) collab/ never committed while in flight; archive only through workflow step 11 into
-  subsystem folders under top-level archive/, committed as docs(archive):.
+  subsystem folders under top-level collab/, committed as docs(archive):.
 Decisions: adopting all of the above immediately; this entry starts the new-log practice.
 Next: re-derive tree state (git log/status/diff), read routing-status.md, catch up on agy's era
   from its session logs (the handoff queue + what landed since), identify the open yang.python/C4
@@ -161,3 +161,26 @@ Next: WATCH yang-call's master publication (the TS/PHP orchestrator's landing); 
   resume S3 (rebase, reconcile, the lanes, the kimi gate, land). Meanwhile the seat holds: the
   dependency request is moot (the runtime exists, pending publication); the queued coordination
   items (dry1 reconciliation, the c3-gate baseline) remain available without the dependency.
+
+## 2026-10-31 12:5x +07 — the nightly rescheduled to 3am VIETNAM time (the owner: shiva is in Philadelphia)
+The owner's correction: shiva sits in Philadelphia (EDT), so the 3am crontab fired at shiva's local
+  3am — the wrong window (it would also drift an hour when US DST ends). Reinstalled: the crontab
+  now fires HOURLY and ~/ci/nightly-full.sh carries a guard that runs the suite only when
+  TZ=Asia/Ho_Chi_Minh date +%H == 03 — the run always lands in the Vietnam 3am hour, immune to US
+  DST shifts forever. The first run: tonight at 03:00 ICT (in ~14 hours from this entry; the
+  previous 3am-EDT window had not fired yet, so no nightly has run at all — debut tonight). The
+  cron log: ~/ci/nightly-cron.log; per-stamp summaries: ~/ci/nightly-results/. Cost of the
+  DST-proof form: the script is invoked 24x/day and exits in ~1s for 23 of them.
+
+## 2026-10-31 03:3x +07 — the nightly is now MULTI-CORE (the owner caught the single-core problem)
+Owner, verbatim: "it doesn't look like the tests are utilizing multiple cores" — confirmed: both
+  hosts ran the monolithic clojure -M:test at ~114% CPU (one core; load ~1.8 on 24/48 cores, the
+  machines 88-97% idle). Fix: the nightly's JVM lane now uses the jolt seat's proven
+  ~/ci/shard-jvm.sh (subsystem shards + an uncovered catch-all, verified coverage 276/316 + 40
+  caught) — 8 parallel on shiva, 12 on jupiter. Live result on shiva: 6 shards done in ~90 seconds
+  (dao.data 159,000 assertions in 26s), load 19.34. Both hosts' full runs restarted sharded for the
+  owner's shiva-vs-jupiter comparison (the jupiter copy needed shard-jvm.sh copied over — my
+  nightly patch had referenced a script that only existed on jupiter; owned and fixed). The cljs
+  and cljd lanes stay serial for now (the JVM lane dominated the runtime); the shadow-cljs compile
+  itself parallelizes (526% CPU observed). The nightly script's NOW=1 bypass enables on-demand
+  full runs outside the 3am window (the owner's "run the full test now").

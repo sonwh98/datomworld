@@ -17,48 +17,48 @@ r8**, 2026-10-21, by the Architect (claude-fable-5-1). Chronology: r1-r3
 NOT SIGNED OFF (gpt-6-astra); r4 SIGNED OFF WITH CHANGES for §2 plus H0-H4;
 r5 applied M1-M4; r6 applied cmd's D1-D3; r7 reconciled the design with
 H0's measurements (F1-F4); the r7 review (gpt-6-astra,
-`archive/host-boundary/1792523793000-architect-host-boundary-review-r7.gpt-6-astra.findings.md`)
+`collab/host-boundary/1792523793000-architect-host-boundary-review-r7.gpt-6-astra.findings.md`)
 returned "reconciliation CONFIRMED WITH DEFECTS, architecture SIGNED OFF
 WITH CHANGES" with R7-1 to R7-5; **r8 applies R7-1 to R7-5** (rationale
-`archive/host-boundary/1792523949000-architect-host-boundary-r8.claude-fable-5-1.findings.md`)
+`collab/host-boundary/1792523949000-architect-host-boundary-r8.claude-fable-5-1.findings.md`)
 and adds OQ11; the r8 review (gpt-6-astra,
-`archive/host-boundary/1792524256000-architect-host-boundary-review-r8.gpt-6-astra.findings.md`)
+`collab/host-boundary/1792524256000-architect-host-boundary-review-r8.gpt-6-astra.findings.md`)
 returned NOT CONFIRMED on one dependency defect; **r9** (2026-10-21,
-rationale `archive/host-boundary/1792524426000-architect-host-boundary-r9.claude-fable-5-1.findings.md`)
+rationale `collab/host-boundary/1792524426000-architect-host-boundary-r9.claude-fable-5-1.findings.md`)
 extracts the float-text kernel into the profile instead of calling a
 private VM function across the layering, exempts `yin/vm.cljc` from H2's
 removal pending OQ11, and states the category-to-class mapping the gate
 enforces; **a non-Claude reviewer must confirm r9 before H1 is
 dispatched.** **Review status: SIGNED OFF WITH CHANGES
 by a non-Claude architect (gpt-6-astra, 2026-10-20,
-`archive/host-boundary/1792508286000-architect-host-boundary-review-r4.gpt-6-astra.findings.md`)
+`collab/host-boundary/1792508286000-architect-host-boundary-review-r4.gpt-6-astra.findings.md`)
 for the narrowed scope only, §2 plus H0-H4; H5-H8 (§9) are not signed off
 and remain deferred.** The four mechanical corrections M1-M4 that sign-off
 required were applied in r5 (rationale
-`archive/host-boundary/1792508512000-architect-host-boundary-r5.claude-fable-5-1.findings.md`)
+`collab/host-boundary/1792508512000-architect-host-boundary-r5.claude-fable-5-1.findings.md`)
 and should be confirmed by a non-Claude reviewer before H0 is dispatched.
 r7 (2026-10-21): reconciled with what slice H0 measured (F1-F4: the 16
 unlisted host arms categorised, the closure-based effect counts, the §3.1
 rows, the print and M-entry facts); rationale
-`archive/host-boundary/1792522578000-architect-host-boundary-r7.claude-fable-5-1.findings.md`;
+`collab/host-boundary/1792522578000-architect-host-boundary-r7.claude-fable-5-1.findings.md`;
 **a non-Claude reviewer must confirm this r7 before H1 is dispatched.**
 r6: D1-D3 applied (a non-Claude reviewer's confirmation check,
-`archive/host-boundary/1792517656000-reviewer-host-boundary-r5.qwen3.8-max.findings.md`,
+`collab/host-boundary/1792517656000-reviewer-host-boundary-r5.qwen3.8-max.findings.md`,
 found M1-M4 applied and three low defects; rationale
-`archive/host-boundary/1792518203000-architect-host-boundary-r6.claude-fable-5-1.findings.md`).
+`collab/host-boundary/1792518203000-architect-host-boundary-r6.claude-fable-5-1.findings.md`).
 Lineage: r1 rationale
-`archive/host-boundary/1792495909000-architect-host-boundary.claude-fable-5-1.findings.md`;
+`collab/host-boundary/1792495909000-architect-host-boundary.claude-fable-5-1.findings.md`;
 r1 review NOT SIGNED OFF
-(`archive/host-boundary/1792498045000-architect-host-boundary-review.gpt-6-astra.findings.md`,
+(`collab/host-boundary/1792498045000-architect-host-boundary-review.gpt-6-astra.findings.md`,
 A1-A8); r2 rationale `collab/1792502807000-...-r2.claude-fable-5-1.findings.md`;
 r2 review NOT SIGNED OFF
-(`archive/host-boundary/1792503557000-architect-host-boundary-review-r2.gpt-6-astra.findings.md`,
+(`collab/host-boundary/1792503557000-architect-host-boundary-review-r2.gpt-6-astra.findings.md`,
 R1-R6); r3 rationale and disposition
-`archive/host-boundary/1792506992000-architect-host-boundary-r3.claude-fable-5-1.findings.md`;
+`collab/host-boundary/1792506992000-architect-host-boundary-r3.claude-fable-5-1.findings.md`;
 r3 scoped review NOT SIGNED OFF
-(`archive/host-boundary/1792507576000-architect-host-boundary-review-r3.gpt-6-astra.findings.md`,
+(`collab/host-boundary/1792507576000-architect-host-boundary-review-r3.gpt-6-astra.findings.md`,
 N1-N6); **r4** answers N1-N6 within the unchanged scope (rationale
-`archive/host-boundary/1792507856000-architect-host-boundary-r4.claude-fable-5-1.findings.md`).
+`collab/host-boundary/1792507856000-architect-host-boundary-r4.claude-fable-5-1.findings.md`).
 Owner decision for r3 (verbatim): "yes, proceed with the split". No code was
 changed; every claim about the tree is labelled. **Because this document was
 written by a Claude model, a non-Claude architect must sign off this final

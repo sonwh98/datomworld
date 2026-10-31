@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, codex, agy, kimi)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, codex, agy, kimi, vibe)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -95,6 +95,7 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
+| vibe         | `~/.vibe`                   | no caller ID; capture from the session journal (`--output-dir` export.json) | `--resume <id>` (or `-c`) |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
@@ -164,6 +165,12 @@ listed CLIs.
 | `kimi`         | Moonshot AI; native Kimi   | `-m <model-alias>`         | `--agent <agent>` or | `-p` (auto permissions)    | no caller ID;        | `--session <id>`   |
 |                | K3.1 Pro / K3 families     |                            | `--agent-file        |                            | capture session ID   |                    |
 |                |                            |                            | <path>` (read-only)  |                            | from session index   |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `vibe`         | Mistral AI; aliases:       | `--model <model>`          | `--agent ask`         | `--agent accept-edits`     | no caller ID;       | `--resume <id>`    |
+|                | `mistral-large`,           |                            | (read-only)          | (edit)                     | capture from         | (or `-c`)          |
+|                | `mistral-medium-3.5`,      |                            |                      |                            | session journal      |                    |
+|                | `mistral-4.0`, `devstral`,  |                            |                      |                            |                     |                    |
+|                | `codestral`                |                            |                      |                            |                     |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 | `agy`          | Gemini, flat-rate;         | `--model <model> --effort  | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
 |                | `gemini-3.1-ultra`,        | <effort>`                  | --sandbox`           | --sandbox`                 | capture              | <id>`              |
@@ -253,6 +260,16 @@ kimi -m kimi-code/k3.1-pro -p "Read <prompt> and complete it now." \
 kimi --session <session-id> -m kimi-code/k3.1-pro \
   -p "Read <follow-up-prompt> and complete it now." --output-format stream-json \
   < /dev/null > collab/<timestamp>-<role>-<task>-r2.kimi-k3.1-pro.stdout.log 2>&1
+
+# Vibe — Mistral AI CLI (model takes aliases: mistral-large, mistral-medium-3.5, mistral-4.0, devstral, codestral)
+vibe --agent ask --model mistral-large \
+  -p "Read <prompt> and complete it now." < /dev/null \
+  > collab/<timestamp>-<role>-<task>.vibe-<model>.stdout.log 2>&1
+
+# Vibe follow-up: resume the same session, new prompt and artifact.
+vibe --resume <session-id> --model mistral-large \
+  -p "Read <follow-up-prompt> and complete it now." < /dev/null \
+  > collab/<timestamp>-<role>-<task>-r2.vibe-<model>.stdout.log 2>&1
 
 # Gemini / AGY
 # No --print-timeout: it is optional and defaults to 0 (wait until the turn

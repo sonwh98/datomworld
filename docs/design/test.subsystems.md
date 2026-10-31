@@ -1,6 +1,6 @@
 > **Status (2026-10-09):** proposed. Architect design and migration plan, no
 > implementation yet. Ruling and evidence in
-> `archive/general/scratch-2026-10/1791497000000-architect-subsystem-test-spec.claude-fable-5-1.findings.md`.
+> `collab/general/scratch-2026-10/1791497000000-architect-subsystem-test-spec.claude-fable-5-1.findings.md`.
 
 # Subsystem-First Tri-Host Test Architecture
 

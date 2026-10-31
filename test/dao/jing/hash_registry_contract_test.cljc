@@ -2,7 +2,7 @@
   "Phase H0 ('contract and evidence') of the DaoJing multihash
    content-addressing rollout (docs/design/dao.jing.hash-registry.md,
    architect signed off:
-   archive/1790147499393-architect-hash-registry-signoff
+   collab/1790147499393-architect-hash-registry-signoff
    .gpt-5.6-sol.findings.md).
 
    H0 freezes the address grammar, the total-predicate contract for

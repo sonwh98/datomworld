@@ -12,9 +12,9 @@ execution backends. Its remaining load-bearing content was merged
 into this document and the predecessor file was deleted (2026-10-01),
 on the completion audit's confirmation that all five milestones of
 section 9 landed:
-archive/yin-linker/1790871424000-qa-yin-vm-linker-spec-completion-audit.md
+collab/yin-linker/1790871424000-qa-yin-vm-linker-spec-completion-audit.md
 Revision r2 reconciled the adversarial review
-`archive/yin-linker/1790250614225-reviewer-universal-linker-spec.gpt-5.6-sol.findings.md`;
+`collab/yin-linker/1790250614225-reviewer-universal-linker-spec.gpt-5.6-sol.findings.md`;
 revisions r3 to r11 reconcile the round-2 to round-10 consensus
 reviews by `gpt-6-sol` (thread
 `01a0d340-f8e7-7e30-9b74-c0a0e6b636fb`). Section
@@ -2211,7 +2211,7 @@ namespace (`yin.vm.debruijn.stack.md`, `yin.vm.debruijn.register.md`,
 the orchestrator log. The predecessor document
 `yin.vm.debruijn.linker.md` was first marked superseded by this
 document in its status line (2026-09-25); when the completion audit
-(archive/yin-linker/1790871424000-qa-yin-vm-linker-spec-completion-audit.md)
+(collab/yin-linker/1790871424000-qa-yin-vm-linker-spec-completion-audit.md)
 confirmed all five milestones landed, its remaining load-bearing
 content was merged into this document and the file was deleted
 (2026-10-01). No behavior changes. The B6 test suite passes unchanged

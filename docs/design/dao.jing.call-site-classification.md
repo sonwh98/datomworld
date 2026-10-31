@@ -4,7 +4,7 @@ Status: H0 contract artifact. Maintained design document, not a snapshot.
 
 Governing design: [`dao.jing.hash-registry.md`](dao.jing.hash-registry.md)
 ("Call-site audit and required dispositions"), architect signed off
-(`archive/1790147499393-architect-hash-registry-signoff.gpt-5.6-sol.findings.md`).
+(`collab/1790147499393-architect-hash-registry-signoff.gpt-5.6-sol.findings.md`).
 
 This document inventories every Jing hash and address operation across
 `src/` as of commit `ba88f769`, and assigns each to exactly one of the four

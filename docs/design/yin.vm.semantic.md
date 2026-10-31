@@ -2,7 +2,7 @@
 
 Status: **Frozen and implemented.** Written 2026-10-10 from three owner
 rulings of that date and the codex Architect review
-`archive/yin-vm/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`
+`collab/yin-vm/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`
 (PROCEED_WITH_CHANGES; its six required changes are the spine of §§3-8).
 Subordinate to [`datom.world.md`](./datom.world.md). Implemented as
 `yin.vm.semantic` (phases 3-7, 2026-10-10 to 2026-10-14; §10 records the

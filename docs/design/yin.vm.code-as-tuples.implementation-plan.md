@@ -569,7 +569,7 @@ classifies each tree's occurrence against its own binder; a fixture using
 `:if`, `:vm/resume`, and the `:stream/*` tags. Size: two to three days.
 *Historical:* the `p-up`/`occ-anc` rule set described here was superseded
 by the 2026-09-30 fable ruling
-(`archive/yin-repl/1790764371000-architect-repl-free-variable-rules.claude-fable-5-1.findings.md`):
+(`collab/yin-repl/1790764371000-architect-repl-free-variable-rules.claude-fable-5-1.findings.md`):
 `yin.vm/occurrence-rules` is now one non-recursive, root-scoped prefix rule
 over `$ast`/`$occ` using builtins only (code-as-tuples §4.5).
 

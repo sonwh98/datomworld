@@ -8,7 +8,7 @@ the engine's reality differs from its text, §6 records a finding with a
 proposed amendment. Subordinate to [`datom.world.md`](./datom.world.md)
 and to [`yin.vm.semantic.md`](./yin.vm.semantic.md)
 ("the frozen design" below). Revision 2 (2026-10-10) applies the
-independent review `archive/yin-vm/1791540000000-architect-srvm-phase4-design-review.gpt-6.1-sol.findings.md`
+independent review `collab/yin-vm/1791540000000-architect-srvm-phase4-design-review.gpt-6.1-sol.findings.md`
 (CHANGES_REQUESTED): the trace oracle is defined by production versus
 relocation and extracts destinations explicitly (§4), the slices share
 one eligibility predicate and corrected counts (§5), the FFI-throw and
@@ -1281,11 +1281,11 @@ command.
 ### 5.3 Carried into slice 4b from the slice-4a review (2026-10-10)
 
 The adversarial review of slice 4a (claude-fable-5-1, commit `9a8e7915`;
-`archive/yin-vm/1791560000000-reviewer-srvm-phase4a.claude-fable-5-1.findings.md`)
+`collab/yin-vm/1791560000000-reviewer-srvm-phase4a.claude-fable-5-1.findings.md`)
 found no defect in `semantic_register.cljc` and 14 of 19 mutants caught
 (five survived: one equivalent, M1; four closed in the 4a fix round, M6,
 M7, M16 and M17). Its round-2 confirmation
-(`archive/yin-vm/1791600000000-reviewer-srvm-phase4a-r2.claude-fable-5-1.findings.md`,
+(`collab/yin-vm/1791600000000-reviewer-srvm-phase4a-r2.claude-fable-5-1.findings.md`,
 READY_TO_MERGE) found three further low-risk survivors, items 7 to 9
 below. These carry into 4b, and the 4b brief must list each:
 
@@ -1553,7 +1553,7 @@ None. Every decision above follows from the frozen design, the owner's
 three rulings quoted there, or code that exists.
 
 **Reviewer approvals recorded** (codex gpt-6.1-sol, 2026-10-10 review,
-`archive/yin-vm/1791540000000-architect-srvm-phase4-design-review.gpt-6.1-sol.findings.md`):
+`collab/yin-vm/1791540000000-architect-srvm-phase4-design-review.gpt-6.1-sol.findings.md`):
 
 1. The interim link format is spelled `:yin.semantic-register/code`,
    contract `"v4"`, during coexistence; phase 5 supplies its production

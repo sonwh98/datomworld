@@ -4,7 +4,7 @@ Status: **Draft, proposed, not landed.** Written 2026-10-10 from the owner
 discussion recorded in
 `public/chp/blog/hygienic-parallel-transport-universal-continuation-format.blog`
 Part Three; revised the same day after the codex Architect review
-`archive/yin-ucf/1791500000000-architect-ucf-transport-tuples-review.gpt-6.1-sol.findings.md`
+`collab/yin-ucf/1791500000000-architect-ucf-transport-tuples-review.gpt-6.1-sol.findings.md`
 (round 1: thirteen findings; round 2: eight; round 3: seven; all
 addressed below, and nine answers adopted in §10). §10 also lists which
 parts of this document are design proposals rather than consequences of

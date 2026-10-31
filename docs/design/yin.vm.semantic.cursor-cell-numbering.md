@@ -417,7 +417,7 @@ and `:search`.
   occurrence counts; then the root walk of §1.2 with its queue, the tie
   test, the refusal and the totality assertion, as in the prototype's
   sections "budgets", "cell scans", "runs", "spelling" and "procedure"
-  (`archive/yin-vm/numbering-probe/src/probe/discovery.clj:106-543`), charging as
+  (`collab/yin-vm/numbering-probe/src/probe/discovery.clj:106-543`), charging as
   §1.5 says. The depth scan and the estimator are the only traversals
   that may meet unbounded nesting; both use an explicit stack of lazy
   element sequences, never the host stack, and charge each position
@@ -676,7 +676,7 @@ host enumeration order". (iii) "never derived from traversal order" →
 
 ## A. Prototype and measurements (round 4)
 
-`archive/yin-vm/numbering-probe/src/probe/discovery.clj` (scratch project,
+`collab/yin-vm/numbering-probe/src/probe/discovery.clj` (scratch project,
 archived with this design) implements §1 exactly: one walk procedure
 used for the root walk and for key walks, memoized on (member, numbering
 restricted to the member's cells, local counter); the gates and the
@@ -817,7 +817,7 @@ planning estimate, not a diff, and not a smaller implementation than 6a.
 
 ## B. Round 3's variants: components (D4), conflicts (D5) and the residue search (D6). Optional extension, not adopted
 
-Round 3 (`archive/yin-vm/1792220000000-numbering-note.partial-round4.md`, 980
+Round 3 (`collab/yin-vm/1792220000000-numbering-note.partial-round4.md`, 980
 lines, and `probe/discovery_r3.clj`) resolved surviving ties differently:
 link tied members that share an unnumbered cell into **components**;
 encode each component by a local run over a synthetic
