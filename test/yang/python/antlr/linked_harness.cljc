@@ -16,6 +16,7 @@
   (:require [yin.vm.semantic.linearize :as sr-linearize]
             [yin.vm.semantic.derive :as derive]
             [dao.jing.mem :as mem]
+            [yang.core.call :as call]
             [yang.python.antlr.prelude :as prelude]
             [yang.python.antlr.safepoint :as safepoint]
             [yin.vm :as vm]
@@ -52,13 +53,15 @@
 
 
 (def published
-  "`py` published once into its own content store:
-   `{:store s :result r :address a}`, `r` `publish-module!`'s answer."
+  "`yang.call` and `py` published once into their own content store."
   (delay
     (let [store (mem/create-content-mem)
+          call-result (publish/publish-module! store (call/module-spec (registry)))
           result (publish/publish-module! store
-                                          (prelude/module-spec (registry)))]
-      {:store store, :result result, :address (:address result)})))
+                                          (prelude/module-spec (registry)
+                                                               (:address call-result)))]
+      {:store store, :result result, :address (:address result),
+       :call-result call-result, :call-address (:address call-result)})))
 
 
 (def published-pysp
@@ -73,10 +76,11 @@
 
 (defn source
   "The serving composition over the published store: `name-env` defaults
-   to `{py <address>}`, derivation `:trusted`, the test being the
+   to `{py <address> yang.call <address>}`, derivation `:trusted`, the test being the
    publisher. `pysp`-serving sources pass their own `name-env`, the
    safepointed runs' `{'py a :pysp b}` both."
-  ([] (source {'py (:address @published)}))
+  ([] (source {'py (:address @published),
+               'yang.call (:call-address @published)}))
   ([name-env]
    (link/composition {:content-store (:store @published),
                       :name-env name-env,
@@ -84,10 +88,11 @@
 
 
 (defn safepoint-source
-  "The serving composition over both published modules: `pysp` requires
-   `py`, so a safepointed linked run resolves both names."
+  "The serving composition for `pysp`, `py`, and the `yang.call` module
+   required by `py`."
   []
-  (source {'py (:address @published), 'pysp (:address @published-pysp)}))
+  (source {'py (:address @published), 'pysp (:address @published-pysp),
+           'yang.call (:call-address @published)}))
 
 
 (defn publish-guest-module!

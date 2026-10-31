@@ -600,6 +600,7 @@
         py.b/RuntimeError
         integer/from-float
         py.rt/modules
+        yang.call/eligible?
         bind
         iter-at
         py.b/set-add
@@ -657,6 +658,7 @@
         user-delegate-step
         integer/format
         str-escape
+        yang.call/invoke
         zero-digits?
         frame
         contains
@@ -743,6 +745,7 @@
         zero?
         abs-depth
         round-float
+        require
         char-escape
         reindex
         float-to-int
@@ -907,7 +910,8 @@
         slice-walk
         check-print},
       :occurrences
-      [[= true]
+      [[require false]
+       [= true]
        [get true]
        [not true]
        [nil? true]
@@ -1219,7 +1223,15 @@
        [data/into true]
        [vconj true]
        [get true]
+       [= true]
        [content-type true]
+       [instantiate true]
+       [yang.call/eligible? true]
+       [yang.call/invoke true]
+       [= true]
+       [content-type true]
+       [cell/get true]
+       [type-error true]
        [make-instance true]
        [data/into true]
        [to-vector true]
@@ -2240,10 +2252,12 @@
        [data/count true]
        [get true]
        [= true]
-       [cell/get true]
-       [= true]
-       [instantiate true]
+       [get true]
+       [raise true]
+       [get true]
        [type-error true]
+       [get true]
+       [bind-args true]
        [class-lookup true]
        [= true]
        [str? true]
@@ -3056,8 +3070,6 @@
        [assoc true]
        [+ true]
        [data/count true]
-       [get true]
-       [bind-args true]
        [= true]
        [subclass? true]
        [py.b/BaseException true]
@@ -4985,7 +4997,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 4010,
+      :application-count 4018,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5386,7 +5398,8 @@
       :join
       {:status :ok,
        :obligations
-       [[= true]
+       [[require false]
+        [= true]
         [get true]
         [not true]
         [nil? true]
@@ -5554,6 +5567,11 @@
         [get true]
         [data/into true]
         [get true]
+        [= true]
+        [yang.call/eligible? true]
+        [yang.call/invoke true]
+        [= true]
+        [cell/get true]
         [data/into true]
         [= true]
         [get true]
@@ -6054,8 +6072,9 @@
         [data/count true]
         [get true]
         [= true]
-        [cell/get true]
-        [= true]
+        [get true]
+        [get true]
+        [get true]
         [= true]
         [conj true]
         [conj true]
@@ -6557,7 +6576,6 @@
         [assoc true]
         [+ true]
         [data/count true]
-        [get true]
         [= true]
         [< true]
         [data/count true]

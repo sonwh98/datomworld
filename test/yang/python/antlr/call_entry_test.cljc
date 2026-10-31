@@ -1,7 +1,7 @@
 (ns yang.python.antlr.call-entry-test
-  "Synthetic constructor and binder fixtures for the Python-local S1 entry.
-   These fixtures prove the record/constructor contract only; they are not
-   conformance evidence under docs/design/yang.antlr.md §8.10.11."
+  "Python function binder fixtures and source-call helper coverage for the
+   shared call runtime. The binder fixtures prove the record/constructor
+   contract only; they are not conformance evidence under docs/design/yang.antlr.md §8.10.11."
   (:require [clojure.test :refer [deftest is]]
             [yang.python.antlr.int-ops-test :as ops]
             [yang.python.antlr.prelude :as prelude]))
@@ -35,8 +35,7 @@
     caught (fn [thunk]
              (py/try thunk
                      (fn [e] (get (cell/get (get (cell/get e) :class)) :name))
-                     (fn [] :py/None)))
-    source-data {:yang.call/entry (fn [invocation] :wrong)}])
+                     (fn [] :py/None)))])
 
 
 (def ^:private result-expressions
@@ -64,8 +63,7 @@
      (assoc (record receiver-fn [12] []) :yang.call/receiver :py/None))
     (get ((get (cell/get profile-fn) :yang.call/entry)
           (assoc (record profile-fn [3] []) :yang.call/binding-profile :py/None))
-         :yang.call/reason)
-    (caught (fn [] (py/call-kw source-data [] [])))])
+         :yang.call/reason)])
 
 
 (def ^:private fixtures
@@ -80,6 +78,42 @@
                   4 9 7 :py/None [2 3]
                   [:yang.call/thrown "TypeError"]
                   :yang.call/invalid-invocation
-                  11 12 :yang.call/unsupported-binding "TypeError"]]
+                  11 12 :yang.call/unsupported-binding]]
     (doseq [[backend result] (ops/run-with-prelude prelude/uast fixtures)]
       (is (= expected result) (str backend)))))
+
+
+(def ^:private fixture
+  '(let [python-fn (py/make-function "python" {:params ["x" "y"]} [7] []
+                                     (fn [args] (get args 1)))
+         foreign-fn (assoc {}
+                           :yang.call/entry
+                           (fn [invocation]
+                             (get (get invocation :yang.call/positional) 0)))
+         call-python (py/call-kw python-fn [1] [])
+         call-named (py/call-kw python-fn [1] [["y" 9]])
+         call-foreign (py/call foreign-fn [42])
+         not-callable (py/try (fn [] (py/call-kw {} [] []))
+                              (fn [e] (get (cell/get (get (cell/get e) :class)) :name))
+                              (fn [] :py/None))]
+     (py/vconj (py/vconj (py/vconj [] call-python) call-named)
+               (py/vconj (py/vconj [] call-foreign) not-callable))))
+
+
+(deftest python-source-calls-use-shared-entry-test
+  (doseq [[backend result] (ops/run-with-prelude prelude/uast fixture)]
+    (is (= [7 9 [42 "TypeError"]] result) (str backend))))
+
+
+(deftest python-cross-frontend-callable-identity-test
+  (let [fixture
+        '(let [php-function
+               (cell/new
+                 (assoc {:php/type :function}
+                        :yang.call/entry
+                        (fn [invocation]
+                          (get invocation :yang.call/callee))))
+               returned (py/call-kw php-function [] [])]
+           (if (= php-function returned) :same :different))]
+    (doseq [[backend result] (ops/run-with-prelude prelude/uast fixture)]
+      (is (= :same result) (str backend)))))

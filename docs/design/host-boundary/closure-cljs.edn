@@ -3,8 +3,8 @@
 {:lane :cljs,
  :root yin.repl.main,
  :features #{:cljs},
- :total 153,
- :shared 147,
+ :total 154,
+ :shared 148,
  :lane-specific 6,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
@@ -269,6 +269,10 @@
    :ns yang.clojure,
    :shared true,
    :classes #{:deferred-gensym :dialect-arm}}
+  {:file "src/cljc/yang/core/call.cljc",
+   :ns yang.core.call,
+   :shared true,
+   :classes #{:profile-internal-pure}}
   {:file "src/cljc/yang/core/lower.cljc",
    :ns yang.core.lower,
    :shared true,

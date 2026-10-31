@@ -384,15 +384,17 @@
 
 
 (defn linked-program
-  "The linked safepointed run's tree: `py` required and initialized, `pysp`
-   required, the signal stream the composition bound under `signals-key`
-   attached, then the derived linked program `a'`, whose own require and
-   init are idempotent re-entries. The load order is the linked one, the
-   inverse of the bundled hook-prelude-first order."
+  "The linked safepointed run's tree: `yang.call`, `py`, and `pysp`
+   required in dependency order; then `py` initialized, the signal stream
+   the composition bound under `signals-key` attached, and the derived
+   linked program `a'` run. Its own require and init are idempotent
+   re-entries. The shared call definitions must precede every Python call,
+   just as in the bundled prelude."
   [a']
   (u/mark-tails
     (u/seq-nodes
-      [(u/sexp->uast (list 'require (list 'quote prelude/module-name)))
+      [(u/sexp->uast '(require (quote yang.call)))
+       (u/sexp->uast (list 'require (list 'quote prelude/module-name)))
        (u/sexp->uast (list 'require (list 'quote module-name)))
        (u/sexp->uast '(py/init!))
        (u/app (u/v (symbol (name module-name) "attach!")) (u/v signals-key))

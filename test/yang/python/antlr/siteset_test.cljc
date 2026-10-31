@@ -386,6 +386,7 @@
    source is configured with."
   [result]
   (into {'py (:address @h/published),
+         'yang.call (:call-address @h/published),
          'pysp (:address @h/published-pysp)}
         (map (fn [[n a]] [(lower/module-symbol n) a]))
         (:addresses result)))

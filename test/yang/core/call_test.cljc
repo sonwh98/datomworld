@@ -186,6 +186,9 @@
              [])))
     (is (= call/module-exports
            (:exports (call/module-spec registry))))
+    (is (= call/host-names
+           (set (filter namespace
+                        (keys (:primitives (call/module-spec registry)))))))
     (is (every? true?
                 (vals (run-everywhere
                         call/module-uast
@@ -222,5 +225,42 @@
                              (fn [condition] condition)
                              (assoc {} :yang.call/receiver original))]
                        (if (= original returned) :same :different)))]
+      (is (every? #{:same} (vals results))
+          (pr-str results))))
+  (testing "Python calls a TS entry, receives a callback, then calls the PHP entry"
+    (let [results
+          (run-everywhere
+            call/uast
+            '(let [php-function
+                   (cell/new
+                     (assoc {:php/type :function}
+                            :yang.call/entry
+                            (fn [invocation]
+                              (get invocation :yang.call/callee))))
+                   python-function (cell/new {:py/type :function})
+                   typescript-function
+                   (assoc {:js/type :function}
+                          :yang.call/entry
+                          (fn [invocation]
+                            (yang.call/invoke
+                              python-function [php-function] []
+                              (get invocation :yang.call/raise))))
+                   _ (cell/set!
+                       python-function
+                       (assoc (cell/get python-function)
+                              :yang.call/entry
+                              (fn [invocation]
+                                (if (= 0 (data/count
+                                           (get invocation :yang.call/positional)))
+                                  (yang.call/invoke
+                                    typescript-function [] []
+                                    (get invocation :yang.call/raise))
+                                  (yang.call/invoke
+                                    php-function [] []
+                                    (get invocation :yang.call/raise))))))
+                   returned
+                   (yang.call/invoke
+                     python-function [] [] (fn [condition] condition))]
+               (if (= php-function returned) :same :different)))]
       (is (every? #{:same} (vals results))
           (pr-str results)))))
