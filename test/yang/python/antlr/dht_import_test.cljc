@@ -68,9 +68,8 @@
 ;; The fast tests: publication order, cycles, admission
 ;; =============================================================================
 
-(def ^:private stand-in-address
-  "A stand-in `py` address: a refused publication never reads it."
-  :test/address)
+(def ^:private stand-in-manifest
+  {:yin.module/requires {'yang.call :test/call-address}})
 
 
 (defn- unit
@@ -99,14 +98,17 @@
 
 
 (deftest an-unsupplied-import-is-refused-at-publication-test
-  (let [store (mem/create-content-mem)]
+  (let [store (mem/create-content-mem)
+        py-address (jing/materialize! store stand-in-manifest)
+        before-addresses (set (keys ((:entries-fn store))))]
     (is (= {:status :refused,
             :reason :yang.python.antlr/unpublished-import,
             :module "k",
             :imported-by "t"}
-           (publication/publish-units! store (h/registry) stand-in-address
+           (publication/publish-units! store (h/registry) py-address
                                        [(unit "t" programs/t-packet)])))
-    (is (empty? ((:entries-fn store))))))
+    (is (= before-addresses
+           (set (keys ((:entries-fn store))))))))
 
 
 ;; the artifact's modules as [name manifest]: the units, then k's republication
