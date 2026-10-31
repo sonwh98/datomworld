@@ -70,6 +70,10 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | mistral         | Flat: Mistral Pro ($20/mo)             | Invoke via `vibe` CLI. Model aliases: mistral-large, mistral-medium-3.5, mistral-4.0, devstral, codestral.   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| muse            | Meta login / `META_API_KEY`            | Invoke via `muse` CLI; headless form is `muse exec`. Models:                                                |
+|                 |                                        | `muse-wonder-1.0` (flagship) and `muse-spark-1.3` (fast lane).                                              |
+|                 |                                        | Check [`routing-status.md`](./routing-status.md) before dispatch (geo-restricted at last relay).            |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 
 ## Model Strengths and Selection Guide
 
@@ -169,6 +173,15 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `mixtral-8x7b`              | Sparse Mixture of Experts; strong coding at lower cost.            | **Avoid for:** Tasks requiring dense attention across very long     |
 |                             | **Best for:** Implementation, debugging, and moderate complexity.   | contexts or fine-grained invariant verification.                   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `muse-wonder-1.0`           | Flagship Muse (Meta) model; the model behind the Muse              | Heavier and slower than Spark. **Avoid for:** High-volume trivial   |
+|                             | orchestrator seat in this repo: long-horizon agentic coding,       | edits, extraction, or latency-sensitive loops; use                  |
+|                             | multi-file implementation, and deep cross-checking.                | `muse-spark-1.3` instead.                                           |
+|                             | **Best for:** Orchestration, complex implementation, deep review.  |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `muse-spark-1.3`            | Fast Muse lane; the auxiliary/helper model inside Muse             | Lighter reasoning than Wonder. **Avoid for:** Hardest architecture, |
+|                             | sessions. **Best for:** Scoped subagent work, bounded searches,    | security sign-offs, or subtle invariant proofs; escalate to         |
+|                             | routine QA, extraction, and fast iteration.                        | `muse-wonder-1.0`.                                                  |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 ## Role Selection & Reviewer Independence
 
 The Orchestrator is completely responsible for selecting the implementer for a given role. It dynamically
@@ -180,7 +193,8 @@ cost align with the task.
 Every change must be reviewed by a model from a **different family** to ensure
 independent defect discovery. Never silently substitute a same-family reviewer.
 The families represented in the Model Strengths table are: **Claude**,
-**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, and **Mistral**.
+**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, **Mistral**, and
+**Muse** (Meta).
 Any author from one family must be reviewed by a model from a different family.
 
 Routine review applies only when independent; architectural or security review

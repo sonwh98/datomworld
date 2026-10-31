@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, codex, agy, kimi, vibe)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -26,6 +26,15 @@ Write that value into the prompt's `Session-ID:` field, then invoke with
 `--session-id "$TASK_SESSION_ID"`. For every correction, clarification, or
 verification by the same agent, use `--resume "$TASK_SESSION_ID"`; never
 start a new named session or combine `--session-id` with `--resume`.
+
+Muse (`muse`, Meta) follows the same caller-UUID discipline through its
+headless form: generate and record the UUID first, then start the run with
+`muse exec --session-id "$TASK_SESSION_ID"`. Its interactive follow-up is
+`muse resume <uuid>` (an exact UUID or session name — never
+`muse resume --last`). Session logs live under
+`${XDG_DATA_HOME:-~/.local/share}/muse/sessions/YYYY/MM/DD/<session-id>/session.jsonl`;
+credentials live under `~/.config/muse/` (`muse login`; `META_API_KEY`
+takes priority over the account login).
 
 Claude Code session persistence is enabled by default. Never pass
 `--no-session-persistence` when work may need review, correction, or
@@ -86,7 +95,6 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | claude-cloud | `~/.claude`                 | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-+--------------+-----------------------------+----------------------------------+------------------------------------------+
 | codex        | `~/.codex`                  | JSONL `thread.started.thread_id` | `codex exec resume <id> --json -`        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | deepseek     | `~/.claude-deepseek`        | caller UUID via `--session-id`   | `--resume <uuid>`                        |
@@ -96,6 +104,8 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 | kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | vibe         | `~/.vibe`                   | no caller ID; capture from the session journal (`--output-dir` export.json) | `--resume <id>` (or `-c`) |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
@@ -177,6 +187,10 @@ listed CLIs.
 |                | `gemini-3.1-pro-high`,     |                            |                      |                            | `conversation_id`    |                    |
 |                | `gemini-3.8-flash`         |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `muse`         | Meta (Muse Code);          | `--model <model>`          | `--disable-write`    | default approval +         | `exec --session-id   | `muse resume       |
+|                | **muse-wonder-1.0**,       | `--reasoning-effort        |                      | sandbox (on)               | <uuid>`              | <uuid>`            |
+|                | `muse-spark-1.3`           | <effort>`                  |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 
 Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`) configure provider endpoints and credentials, then execute
 `claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek` share one CLI base: none needs a PTY, all
@@ -185,6 +199,24 @@ accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and th
 `ANTHROPIC_AUTH_TOKEN`) and injects the official Anthropic API key to draw directly from metered cloud credits without
 interfering with `glm` or `deepseek`. Never convert a review command into an editing command unless the user explicitly
 authorized edits.
+
+**Muse routing:** `muse` is Meta's native Muse CLI — it is *not* a
+Claude Code wrapper and shares no flags with the `claude` family beyond
+`--model` / `--session-id`. Invoke it directly (as with `kimi`), with its own
+flags, never through the Claude Code wrapper conventions (`MODEL=<model> muse`,
+`--permission-mode`, `--name`, `-p`). Auth is `muse login` (Meta account;
+`META_API_KEY` takes priority); allowance is shown by `muse usage`.
+Headless dispatch is `muse exec`; the interactive form is `muse [PROMPT]`
+and follow-up is `muse resume <uuid>`. Reasoning effort is
+`--reasoning-effort <none|minimal|low|medium|high|xhigh|max|ultra>`
+(default `high`). Approval and the shell sandbox are on by default
+(`--approval-mode on-request`); a read-only review adds `--disable-write`
+(workspace file tools cannot write — keep the default approval/sandbox so
+shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
+`--disable-sandbox` for a delegate dispatch. Check
+[`routing-status.md`](routing-status.md) before dispatching: the last owner
+relay recorded `muse` as geo-restricted/unusable, and this section documents
+the invocation contract, not current availability.
 
 **Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
 The managed 3.x aliases are `kimi-code/k3.1-pro`,
@@ -245,6 +277,14 @@ CLAUDE_BIN="claude-cloud"   # or: claude | MODEL=<model> glm | MODEL=<model> dee
 $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
   --output-format text -p "Read <prompt> and complete it now." < /dev/null \
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
+
+# Muse (Meta) — native CLI; --disable-write is the read-only review form, omit it for implementation
+muse exec --model muse-wonder-1.0 --session-id <uuid> --disable-write \
+  "Read <prompt> and complete it now." \
+  > collab/<timestamp>-<role>-<task>.muse-wonder-1.0.stdout.log 2>&1
+
+# Muse follow-up: resume the exact recorded UUID interactively (never `muse resume --last`).
+muse resume <uuid>
 
 # Codex
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
@@ -332,6 +372,20 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   against that cwd; the resumed turn keeps the original thread's sandbox.
 - **GLM `claude-code:unrecognized_model` startup warnings** are expected
   for their wrappers; verify the resulting artifact before declaring failure.
+- **`dispatch.sh`'s `muse` case is stale against the native Muse
+  CLI.** It dispatches `muse` with Claude Code wrapper conventions
+  (`MODEL=<model> muse`, `--session-id`, `--name`, `--permission-mode`,
+  `--output-format text -p …`) inherited from when `muse` was a Claude Code
+  wrapper; the native `muse exec` accepts `--session-id` and `--model` but
+  not `--permission-mode` / `--name` / `-p`. Invoke `muse exec` directly per
+  the canonical recipe above, mirroring the review/implementation split
+  yourself (`--disable-write` for review, omitted for implementation).
+- **Muse `not logged in` / geo-restriction is a routing state, not a flag
+  problem.** Auth is `muse login` (Meta account) or `META_API_KEY`; check
+  allowance with `muse usage` and availability in
+  [`routing-status.md`](routing-status.md) before dispatching. Do not work
+  around a geo-restriction or login failure by adding `--yolo`,
+  `--disable-approval`, or `--disable-sandbox`.
 - **The same benign startup warning can precede a real outage, not just a
   successful fallback.** The warning alone never distinguishes them — only
   what follows it does. If it's followed by a completed response (even after
