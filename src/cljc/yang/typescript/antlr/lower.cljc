@@ -2266,6 +2266,40 @@
   (module-body (context packet)))
 
 
+(defn lower-unit
+  "One separately scoped module body as a function of its shared global
+   receiver. Keeping this seam lets a host compose independently parsed
+   units without concatenating source or reinitializing the runtime."
+  [packet]
+  (let [ctx (context packet)]
+    (u/lam [(:this ctx)] (module-body ctx))))
+
+
+(defn lower-units
+  "A complete program for multiple separately parsed units. The runtime is
+   installed and initialized once; each unit receives its own lexical body
+   while sharing the same global object and output stream."
+  ([packets] (lower-units packets {}))
+  ([packets {:keys [prelude], :or {prelude :bundled}}]
+   (let [units (mapv lower-unit packets)
+         main (names/canonicalize
+                (app* 'js/run-main
+                      (u/lam ['this]
+                             (if (seq units)
+                               (u/seq-nodes
+                                 (mapv (fn [unit] (u/app unit (u/v 'this))) units))
+                               (u/lit :js/undefined)))))]
+     (u/mark-tails
+       (case prelude
+         :bundled (u/then prelude/uast main)
+         :linked (u/seq-nodes [(u/sexp->uast (list 'require
+                                                   (list 'quote 'yang.call)))
+                               (u/sexp->uast (list 'require
+                                                   (list 'quote prelude/module-name)))
+                               (app* 'js/init!)
+                               main]))))))
+
+
 (defn lower-packet
   "The complete program for one ok packet: the module body run by
    `js/run-main`, generated names canonicalized, tail calls marked. Its
@@ -2277,9 +2311,7 @@
    the task's runtime state with `(js/init!)`."
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
-   (let [ctx (context packet)
-         main (names/canonicalize
-                (app* 'js/run-main (u/lam [(:this ctx)] (module-body ctx))))]
+   (let [main (names/canonicalize (app* 'js/run-main (lower-unit packet)))]
      (u/mark-tails
        (case prelude
          :bundled (u/then prelude/uast main)
