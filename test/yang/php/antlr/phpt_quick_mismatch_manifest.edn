@@ -1,0 +1,343 @@
+{:selection :quick,
+ :slow-known-gaps
+ [{:id "Zend/tests/gc_013.phpt",
+   :feature :gc-cycle-collection,
+   :oracle-expect "bool(true)\nok",
+   :engine-result {:out "",
+                   :diag [],
+                   :uncaught {:class "Error",
+                              :message "Call to undefined function gc_collect_cycles()"}},
+   :engine-work-item "Implement PHP cyclic garbage collection and roots/threshold behavior."}],
+ :counts
+ {:foreach-semantics 11,
+  :named-parameter-binding 3,
+  :zend-regression 70,
+  :array-pointer 1,
+  :total 105,
+  :unset-cv 4,
+  :unsupported 58,
+  :pass-by-reference 5,
+  :array-reference 1,
+  :gc-cycle-collection 10},
+ :known-gaps
+ [{:feature :zend-regression,
+   :entries
+   ["Zend/tests/bug24773.phpt"
+    "Zend/tests/bug29883.phpt"
+    "Zend/tests/bug30998.phpt"
+    "Zend/tests/bug33318.phpt"
+    "Zend/tests/bug34518.phpt"
+    "Zend/tests/bug34879.phpt"
+    "Zend/tests/bug36568.phpt"
+    "Zend/tests/bug38808.phpt"
+    "Zend/tests/bug39018.phpt"
+    "Zend/tests/bug39304.phpt"
+    "Zend/tests/bug42143.phpt"
+    "Zend/tests/bug43426.phpt"
+    "Zend/tests/bug44913.phpt"
+    "Zend/tests/bug45147.phpt"
+    "Zend/tests/bug45877.phpt"
+    "Zend/tests/bug46304.phpt"
+    "Zend/tests/bug46811.phpt"
+    "Zend/tests/bug49866.phpt"
+    "Zend/tests/bug51827.phpt"
+    "Zend/tests/bug52060.phpt"
+    "Zend/tests/bug52939.phpt"
+    "Zend/tests/bug52940.phpt"
+    "Zend/tests/bug55135.phpt"
+    "Zend/tests/bug55705.phpt"
+    "Zend/tests/bug60350.phpt"
+    "Zend/tests/bug60738.phpt"
+    "Zend/tests/bug61681.phpt"
+    "Zend/tests/bug63173.phpt"
+    "Zend/tests/bug63206_1.phpt"
+    "Zend/tests/bug63882_2.phpt"
+    "Zend/tests/bug64515.phpt"
+    "Zend/tests/bug64578.phpt"
+    "Zend/tests/bug67169.phpt"
+    "Zend/tests/bug67314.phpt"
+    "Zend/tests/bug67856.phpt"
+    "Zend/tests/bug67874.phpt"
+    "Zend/tests/bug68215.phpt"
+    "Zend/tests/bug68797.phpt"
+    "Zend/tests/bug69167.phpt"
+    "Zend/tests/bug69376_2.phpt"
+    "Zend/tests/bug69756.phpt"
+    "Zend/tests/bug70121.phpt"
+    "Zend/tests/bug70187_2.phpt"
+    "Zend/tests/bug70253.phpt"
+    "Zend/tests/bug70293.phpt"
+    "Zend/tests/bug70662.phpt"
+    "Zend/tests/bug70804.phpt"
+    "Zend/tests/bug71470.phpt"
+    "Zend/tests/bug72347.phpt"
+    "Zend/tests/bug72441.phpt"
+    "Zend/tests/bug72943.phpt"
+    "Zend/tests/bug73663.phpt"
+    "Zend/tests/bug73663_2.phpt"
+    "Zend/tests/bug73954.phpt"
+    "Zend/tests/bug74810.phpt"
+    "Zend/tests/bug74836.phpt"
+    "Zend/tests/bug76383.phpt"
+    "Zend/tests/bug78502.phpt"
+    "Zend/tests/bug78598.phpt"
+    "Zend/tests/bug79783.phpt"
+    "Zend/tests/bug79784.phpt"
+    "Zend/tests/bug79792.phpt"
+    "Zend/tests/bug79828.phpt"
+    "Zend/tests/bug79836.phpt"
+    "Zend/tests/bug79836_1.phpt"
+    "Zend/tests/bug79948.phpt"
+    "Zend/tests/bug80096.phpt"
+    "Zend/tests/bug80184.phpt"
+    "Zend/tests/bug81076.phpt"
+    "Zend/tests/bug81705.phpt"]}
+  {:feature :gc-cycle-collection,
+   :engine-work-item
+   "Implement PHP cyclic garbage collection and roots/threshold behavior.",
+   :entries
+   ["Zend/tests/gc_004.phpt"
+    "Zend/tests/gc_007.phpt"
+    "Zend/tests/gc_018.phpt"
+    "Zend/tests/gc_019.phpt"
+    "Zend/tests/gc_020.phpt"
+    "Zend/tests/gc_021.phpt"
+    "Zend/tests/gc_022.phpt"
+    "Zend/tests/gc_031.phpt"
+    "Zend/tests/gc_034.phpt"
+    "Zend/tests/gc_047.phpt"]}
+  {:feature :foreach-semantics,
+   :engine-work-item
+   "Complete foreach cursor/reference behavior under mutation and invalid iterables.",
+   :entries
+   ["Zend/tests/foreach_012.phpt"
+    "Zend/tests/foreach_014.phpt"
+    "Zend/tests/foreach_015.phpt"
+    "Zend/tests/foreach_017.phpt"
+    "Zend/tests/foreach_by_ref_repacking_insert.phpt"
+    "Zend/tests/foreach_over_null.phpt"
+    "Zend/tests/foreach_reference.phpt"
+    "Zend/tests/foreach_undefined.phpt"
+    "tests/lang/foreachLoop.001.phpt"
+    "tests/lang/foreachLoop.003.phpt"
+    "tests/lang/foreachLoop.006.phpt"]}
+  {:feature :named-parameter-binding,
+   :entries
+   ["Zend/tests/named_params/call_user_func_array_variadic.phpt"
+    "Zend/tests/named_params/func_get_args.phpt"
+    "Zend/tests/named_params/undef_var.phpt"]}
+  {:feature :unset-cv,
+   :entries
+   ["Zend/tests/unset_cv01.phpt"
+    "Zend/tests/unset_cv02.phpt"
+    "Zend/tests/unset_cv08.phpt"
+    "Zend/tests/unset_cv12.phpt"]}
+  {:feature :array-reference,
+   :entries ["Zend/tests/list/list_reference_008.phpt"]}
+  {:feature :pass-by-reference,
+   :entries
+   ["tests/lang/passByReference_002.phpt"
+    "tests/lang/passByReference_003.phpt"
+    "tests/lang/passByReference_004.phpt"
+    "tests/lang/passByReference_008.phpt"
+    "tests/lang/passByReference_012.phpt"]}
+  {:feature :array-pointer,
+   :entries ["ext/standard/tests/array/current_variation6.phpt"]}],
+ :descriptions
+ {"Zend/tests/bug73663.phpt"
+  "Bug #73663 (\"Invalid opcode 65/16/8\" occurs with a variable created with list())",
+  "Zend/tests/bug61681.phpt" "Bug #61681: Malformed grammar",
+  "Zend/tests/unset_cv08.phpt"
+  "unset() CV 8 (unset() of global variable in array_unique($GLOBALS))",
+  "Zend/tests/gc_021.phpt"
+  "GC 021: GC detach reference with assign by reference",
+  "Zend/tests/bug67856.phpt"
+  "Bug #67856 (Leak when using array_reduce with by-ref function)",
+  "Zend/tests/bug39304.phpt"
+  "Bug #39304 (Segmentation fault with list unpacking of string offset)",
+  "Zend/tests/bug70804.phpt"
+  "Bug #70804 (Unary add on negative zero produces positive zero)",
+  "Zend/tests/gc_007.phpt" "GC 007: Unreferenced array cycle",
+  "Zend/tests/gc_047.phpt"
+  "GC 047: Leak after GC inside a foreach loop",
+  "Zend/tests/bug74810.phpt"
+  "Bug #74810: Something odd about ordering of func_get_args() result in 7.2",
+  "Zend/tests/bug63882_2.phpt"
+  "Bug #63882_2 (arsort crash on recursion)",
+  "Zend/tests/bug45147.phpt" "Bug #45147 (unexpected T_ENDFOR)",
+  "Zend/tests/bug81076.phpt"
+  "Bug #81076 Invalid implicit binds cause incorrect static var count in closure debug info",
+  "Zend/tests/bug79836.phpt"
+  "Bug #79836 (Segfault in concat_function)",
+  "Zend/tests/foreach_undefined.phpt" "foreach() & undefined var",
+  "Zend/tests/bug42143.phpt"
+  "bug #42143 (The constant NAN is reported as 0 on Windows build)",
+  "Zend/tests/bug64578.phpt"
+  "Bug #64578 (debug_backtrace in set_error_handler corrupts zend heap: segfault)",
+  "Zend/tests/gc_022.phpt"
+  "GC 022: GC detach reference in executor's PZVAL_UNLOCK()",
+  "Zend/tests/bug55135.phpt"
+  "Bug #55135 (Array keys are no longer type casted in unset())",
+  "Zend/tests/bug72943.phpt"
+  "Bug #72943 (assign_dim on string doesn't reset hval)",
+  "Zend/tests/bug46811.phpt" "ini_set() function",
+  "Zend/tests/bug80184.phpt"
+  "Bug #80184: Complex expression in while / if statements resolves to false incorrectly",
+  "Zend/tests/bug72347.phpt"
+  "Bug #72347 (VERIFY_RETURN type casts visible in finally)",
+  "Zend/tests/bug79783.phpt"
+  "Bug #79783: Segfault in php_str_replace_common",
+  "Zend/tests/foreach_015.phpt"
+  "array_shift() function precerve foreach by reference iterator pointer",
+  "Zend/tests/bug46304.phpt"
+  "Bug #46304 (defining namespaced constant using define())",
+  "tests/lang/passByReference_004.phpt"
+  "passing the return value from a function by reference",
+  "Zend/tests/bug69756.phpt"
+  "Fixed bug #69756 (Fatal error: Nesting level too deep - recursive dependency? with ===).",
+  "Zend/tests/bug52939.phpt"
+  "Bug #52939 (zend_call_function_array does not respect ZEND_SEND_PREFER_REF)",
+  "Zend/tests/bug79828.phpt"
+  "Bug #79828: Segfault when trying to access non-existing variable",
+  "Zend/tests/foreach_reference.phpt" "foreach with reference",
+  "Zend/tests/unset_cv12.phpt"
+  "unset() CV 12 (unset() in indirect called function)",
+  "Zend/tests/bug76383.phpt"
+  "Bug #76383: array_map on $GLOBALS returns IS_INDIRECT",
+  "Zend/tests/bug79792.phpt"
+  "Bug #79792: HT iterators not removed if empty array is destroyed",
+  "Zend/tests/bug49866.phpt"
+  "Bug #49866 (Making reference on string offsets crashes PHP)",
+  "Zend/tests/bug34879.phpt"
+  "Bug #34879 (str_replace, array_map corrupt negative array indexes on 64-bit platforms)",
+  "tests/lang/passByReference_012.phpt"
+  "Test pass by reference semantics",
+  "Zend/tests/bug70662.phpt"
+  "Bug #70662: Duplicate array key via undefined index error handler",
+  "ext/standard/tests/array/current_variation6.phpt"
+  "Test current() function : internal pointer maintenance at the end of array",
+  "Zend/tests/bug73954.phpt"
+  "Bug #73954 (NAN check fails on Alpine Linux with musl)",
+  "Zend/tests/bug52940.phpt"
+  "Bug #52940 (call_user_func_array still allows call-time pass-by-reference)",
+  "Zend/tests/named_params/call_user_func_array_variadic.phpt"
+  "call_user_func_array() with extra named parameters",
+  "Zend/tests/bug52060.phpt"
+  "Bug #52060 (Memory leak when passing a closure to method_exists())",
+  "Zend/tests/bug30998.phpt"
+  "Bug #30998 (Crash when user error handler returns false)",
+  "tests/lang/passByReference_002.phpt"
+  "Attempt to pass a constant by reference",
+  "Zend/tests/bug72441.phpt"
+  "Bug #72441 (Segmentation fault: RFC list_keys)",
+  "Zend/tests/bug71470.phpt"
+  "Bug #71470: Leaked 1 hashtable iterators",
+  "Zend/tests/bug39018.phpt"
+  "Bug #39018 (Error control operator '@' fails to suppress \"Uninitialized string offset\")",
+  "Zend/tests/bug70293.phpt"
+  "Crash with specific assertions and zend.assertions=-1",
+  "Zend/tests/bug74836.phpt"
+  "Bug #74836 (isset on zero-prefixed numeric indexes in array broken)",
+  "Zend/tests/bug64515.phpt"
+  "Bug #64515 (Memoryleak when using the same variablename 2times in function declaration) (PHP7)",
+  "Zend/tests/foreach_012.phpt"
+  "array_walk() function precerve foreach by reference iterator pointer",
+  "tests/lang/passByReference_003.phpt"
+  "Implicit initialisation when passing by reference",
+  "Zend/tests/unset_cv01.phpt"
+  "unset() CV 1 (unset() global variable)",
+  "Zend/tests/bug67314.phpt"
+  "Bug #67314 (Segmentation fault in gc_remove_zval_from_buffer)",
+  "Zend/tests/bug79948.phpt"
+  "Bug #79948: Exit in auto-prepended file does not abort PHP execution",
+  "Zend/tests/bug24773.phpt"
+  "Bug #24773 (unset() of integers treated as arrays causes a crash)",
+  "Zend/tests/bug33318.phpt"
+  "Bug #33318 (throw 1; results in Invalid opcode 108/1/8)",
+  "Zend/tests/bug68797.phpt"
+  "Bug #68797 Number 2.2250738585072012e-308 converted incorrectly",
+  "Zend/tests/gc_034.phpt"
+  "GC 034: GC in request shutdown and resource list destroy",
+  "tests/lang/foreachLoop.006.phpt"
+  "Foreach loop tests - error case: key is a reference.",
+  "Zend/tests/bug70253.phpt"
+  "Bug #70253 (segfault at _efree () in zend_alloc.c:1389)",
+  "Zend/tests/bug51827.phpt"
+  "Bug #51827 (Bad warning when register_shutdown_function called with wrong num of parameters)",
+  "Zend/tests/bug55705.phpt"
+  "Bug #55705 (Omitting a callable typehinted argument causes a segfault)",
+  "Zend/tests/bug69167.phpt"
+  "Bug #69167 (call_user_func does not support references anymore)",
+  "Zend/tests/foreach_over_null.phpt" "foreach over null",
+  "Zend/tests/bug81705.phpt"
+  "Bug #81705 (type confusion/UAF on set_error_handler with concat operation)",
+  "Zend/tests/bug67874.phpt" "Bug #67874 Crash in array_map()",
+  "Zend/tests/bug63206_1.phpt"
+  "Bug #63206 Fully support error_handler stacking, even with null",
+  "Zend/tests/bug69376_2.phpt" "Bug #69376 (Wrong ref counting)",
+  "Zend/tests/bug63173.phpt"
+  "Bug #63173: Crash when invoking invalid array callback",
+  "Zend/tests/bug44913.phpt"
+  "Bug #44913 (Segfault when using return in combination with nested loops and continue 2)",
+  "Zend/tests/bug34518.phpt"
+  "Bug #34518 (Unset doesn't separate container in CV)",
+  "tests/lang/foreachLoop.003.phpt"
+  "Foreach loop tests - error case: not an array.",
+  "Zend/tests/bug80096.phpt"
+  "Bug #80096: Segmentation fault with named arguments in nested call",
+  "Zend/tests/unset_cv02.phpt"
+  "unset() CV 2 (unset() global variable in $GLOBALS)",
+  "Zend/tests/bug70187_2.phpt"
+  "Bug #70187 (Notice: unserialize(): Unexpected end of serialized data)",
+  "Zend/tests/list/list_reference_008.phpt"
+  "\"Reference Unpacking - Oddities\" list()",
+  "Zend/tests/foreach_by_ref_repacking_insert.phpt"
+  "Perform a packed to hash insert when the iterator is at the end of the array",
+  "Zend/tests/bug70121.phpt"
+  "Bug #70121 (unserialize() could lead to unexpected methods execution / NULL pointer deref)",
+  "Zend/tests/bug60350.phpt"
+  "Bug #60350 No string escape code for ESC (ascii 27), normally \\e",
+  "Zend/tests/named_params/func_get_args.phpt"
+  "Behavior of func_get_args() and friends with named parameters",
+  "Zend/tests/gc_018.phpt" "GC 018: GC detach with assign",
+  "Zend/tests/bug78598.phpt"
+  "Bug #78598: Changing array during undef index RW error segfaults",
+  "Zend/tests/bug36568.phpt" "Bug #36568 (memory_limit has no effect)",
+  "Zend/tests/bug45877.phpt"
+  "Bug #45877 (Array key '2147483647' left as string)",
+  "Zend/tests/bug67169.phpt"
+  "Bug #67169: array_splice all elements, then []= gives wrong index",
+  "Zend/tests/named_params/undef_var.phpt"
+  "Passing undefined variable to named arg",
+  "tests/lang/passByReference_008.phpt"
+  "Pass same variable by ref and by value.",
+  "Zend/tests/bug79784.phpt"
+  "Bug #79784: Use after free if changing array during undef var during array write fetch",
+  "Zend/tests/bug38808.phpt"
+  "Bug #38808 (\"maybe ref\" issue for current() and others)",
+  "tests/lang/foreachLoop.001.phpt"
+  "Foreach loop tests - basic loop with just value and key => value.",
+  "Zend/tests/foreach_017.phpt"
+  "array_splice() function precerve foreach by reference iterator pointer",
+  "Zend/tests/gc_019.phpt"
+  "GC 019: GC detach with assign by reference",
+  "Zend/tests/bug73663_2.phpt"
+  "Bug #73663.2 (\"Invalid opcode 65/16/8\" occurs with a variable created with list())",
+  "Zend/tests/bug43426.phpt"
+  "Bug #43426 (crash on nested call_user_func calls)",
+  "Zend/tests/gc_020.phpt" "GC 020: GC detach reference with assign",
+  "Zend/tests/gc_004.phpt" "GC 004: Simple array cycle",
+  "Zend/tests/bug68215.phpt"
+  "Bug #68215 (Behavior of foreach has changed)",
+  "Zend/tests/gc_031.phpt"
+  "GC 031: gc_collect_roots() with GC turned off.",
+  "Zend/tests/bug60738.phpt"
+  "Bug #60738 Allow 'set_error_handler' to handle NULL",
+  "Zend/tests/bug29883.phpt"
+  "Bug #29883 (isset gives invalid values on strings)",
+  "Zend/tests/bug79836_1.phpt"
+  "Bug #79836 (Segfault in concat_function)",
+  "Zend/tests/foreach_014.phpt"
+  "array_pop() function precerve foreach by reference iterator pointer",
+  "Zend/tests/bug78502.phpt"
+  "Bug #78502: Incorrect stack size calculation for indirectly recursive function call"}}

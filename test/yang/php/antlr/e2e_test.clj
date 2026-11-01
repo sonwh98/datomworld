@@ -470,12 +470,12 @@
 
 
 (defn- run-phpt-selection
-  [label entries]
+  [label entries manifest]
   (let [results (for [{:keys [id source expect expectf]} entries
                       :let [r (engine-result source)]]
                   (cond
                     (:refused r) [:unsupported id]
-                    (:threw r) [:fail id]
+                    (:threw r) [:fail id r]
                     (phpt/matches-expect?
                       (cond-> {} expect (assoc "EXPECT" expect) expectf (assoc "EXPECTF" expectf))
                       (str (:out r)
@@ -483,18 +483,38 @@
                              (str "Fatal error: Uncaught " (:class (:uncaught r)) ": "
                                   (:message (:uncaught r))))))
                     [:pass id]
-                    :else [:fail id]))
+                    :else [:fail id r]))
         by (group-by first results)]
     (println label (count entries) "entries;"
              "pass" (count (:pass by)) "unsupported" (count (:unsupported by))
              "fail" (count (:fail by)))
-    (is (empty? (:fail by)) (pr-str (take 5 (:fail by))))))
+    (if manifest
+      (let [expected (set (mapcat :entries (:known-gaps manifest)))
+            actual (set (map second (:fail by)))
+            feature-counts (frequencies (mapcat (fn [{:keys [feature entries]}]
+                                                  (repeat (count entries) feature))
+                                                (:known-gaps manifest)))]
+        (is (= (:total (:counts manifest)) (count expected)) "manifest total is recorded")
+        (is (= expected (set (keys (:descriptions manifest))))
+            "every known mismatch has its PHPT feature description")
+        (is (= (dissoc (:counts manifest) :total :unsupported)
+               feature-counts)
+            "manifest per-feature counts match its entries")
+        (is (= expected actual)
+            (str "PHPT mismatch IDs changed; expected "
+                 (pr-str (sort expected)) " but got " (pr-str (sort actual))))
+        (is (= (:unsupported (:counts manifest)) (count (:unsupported by)))
+            "the recorded quick-tier refusal count is stable"))
+      (is (empty? (:fail by)) (pr-str (take 5 (:fail by)))))))
 
 
 (deftest phpt-selection-runs-test
   (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
-    (let [entries (remove #(or (:needs %) (:slow %)) (:entries sel))]
-      (run-phpt-selection "php-src quick selection:" entries))
+    (let [entries (remove #(or (:needs %) (:slow %)) (:entries sel))
+          manifest (read-edn-file "test/yang/php/antlr/phpt_quick_mismatch_manifest.edn")]
+      (if manifest
+        (run-phpt-selection "php-src quick selection:" entries manifest)
+        (is false "missing PHPT quick mismatch manifest")))
     (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
 
 
@@ -502,9 +522,17 @@
   [id]
   (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
     (if-let [entry (first (filter #(= id (:id %)) (:entries sel)))]
-      (do
+      (let [manifest (read-edn-file "test/yang/php/antlr/phpt_quick_mismatch_manifest.edn")
+            gap (first (filter #(= id (:id %)) (:slow-known-gaps manifest)))]
         (is (:slow entry) (str id " must stay in the slow tier"))
-        (run-phpt-selection (str "php-src slow stress " id ":") [entry]))
+        (if gap
+          (let [actual (engine-result (:source entry))]
+            (println "php-src recorded engine gap" id actual)
+            (is (= (:expect entry) (:oracle-expect gap))
+                (str id " pinned oracle expectation changed"))
+            (is (= (:engine-result gap) (select-keys actual [:out :diag :uncaught]))
+                (str id " engine gap result changed")))
+          (run-phpt-selection (str "php-src slow stress " id ":") [entry] nil)))
       (is false (str "missing PHPT stress case " id)))
     (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
 
