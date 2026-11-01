@@ -465,3 +465,29 @@ Decisions: the seat does not merge yang-call to master while the yang.python orc
 Verification: origin/yang-call @ 98390529 (pushed); origin/yang-php-p4 @ fc102486 (pushed); origin/yang-ts-t3 @ d722dc9b (pushed).
 Delegates: none in flight (the parallel seat's J6e round continues).
 Next: the yang.python orchestrator completes its integration -> the coordinated landing -> this seat continues the P4/T3/P6 tracks. The :claims scope ruling and the J6e round continue under their own seats.
+
+## 2026-10-30 22:3x +0700 — the P6 S3+ shiva verification landed; the T4 round landed; the checkpoint-B oracle pass 12 landed (478/0/120); the T3 S10 round dispatched
+Completed-GMT: 2026-10-30 14:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The P6 S3+ shiva verification landed: cljstyle rc=0, kondo 0/0, the nine-namespace suite green (the include-test 5/26 green, the e2e failures triaged as the stale refusal pair + the known phpt StackOverflow). (2) The T4 round landed (216346f5): ??, optional property access, array spread, template substitutions, arguments. (3) The checkpoint-B oracle pass 11 ran on shiva: 478 targets, 0 failures, 120 records — the largest pass yet. (4) The T3 S10 round dispatched to codex (the ts-t3 worktree): the portability checkpoint per the plan of record v2, with the :claims scope ruling honored (the :claims emission and binder-table verification are T10 work, NOT T3).
+Decisions: the :claims scope ruling (kimi) is authoritative — the T3 S9/S10 scope excludes enum lowering and all T10 claims work.
+Verification: the shiva runs; the log entries.
+Delegates: codex gpt-6-luna (the T4 round, complete; the T3 S10 round, IN FLIGHT); kimi (the P6 v2 confirm, APPROVED); fable (the W0a/W0b recon, IN FLIGHT).
+Next: the P6 S3+ round -> shiva verify -> commit; the P6 S6+ round; the W0a/W0b plan lands -> the W0a/W0b execution; the T3 S10 round -> shiva verify -> commit; the T3 S5 shiva legs; the checkpoint-B oracle pass.
+
+## 2026-10-30 21:5x +0700 — the handoff artifact: the yang.call S0+S1 landed on master; the yang.python and yang.clojure orchestrators unblocked
+Completed-GMT: 2026-10-29 17:5x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The yang.call shared runtime is landed on master (64f2885a): the S0 core (entry discovery, eligibility, invocation construction/validation, condition transfer, invoke/invoke-with), the TS S1 wiring, the PHP S1 wiring, the PHP reference binding-profile, and the cross-frontend identity fixture. The yang.python and yang.clojure orchestrators can begin their integration of the common call for their languages.
+Decisions: the handoff artifact is this log entry — the yang.call API surface (entry, eligible?, invocation, invocation-with, valid-invocation?, condition, thrown, transfer, invoke, invoke-with), the dependency addresses (yang.core.call, yang.core.uast, yang.core.prelude, yin.vm, yin.vm.module), and the convention spec (yang.antlr.md section 8.10, committed eb8030e8, kimi-approved).
+Verification: the merge landed on master (64f2885a); the ledger union row-wise (127 unique rows at merge time).
+Delegates: none new (the shiva compute lanes for the checkpoint-B oracle pass continue).
+Next: the yang.python and yang.clojure orchestrators dispatch their S1 wiring rounds; this seat continues the P4/T3/P6 rounds on codex luna/sol.
+## 2026-11-01 20:3x +0700 — resume: both track branches queued for shiva verification; the checkpoint-B fold round dispatched to codex
+Completed-GMT: 2026-11-01 13:3x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The board was idle (no delegate rounds, no shiva lanes). (1) The shiva verification lanes launched for both track tips: yang-php-p4 @ ebdf2a6d and yang-ts-t3 @ bce0e454, each in its own scratch clone (~/ci/datomworld-p4, ~/ci/datomworld-ts3), tmux sessions verify-p4 / verify-ts3, each running cljstyle + kondo + the subsystem JVM gate (yang.php / yang.typescript). (2) The checkpoint-B state re-derived: the pass-12 fold already landed (0911edd0 — the pin folds :out/:diag/:uncaught, the records folded); the open defect is the class_model_test recorded/pending/generator assertions not matching the folded state. (3) The checkpoint-B fold-reconciliation round dispatched to codex gpt-6-luna in the php-p4 worktree (brief /tmp/orch/p4-checkpointB-fold.md, findings to collab/1793496000000-engineer-p4-checkpointB-fold.gpt-6-luna.findings.md; the engineer commits but does not push — the seat pushes after shiva verification).
+Decisions: the fold round routes to codex (engineer routing); the oracle pins themselves are untouchable (oracle wins); no push until the shiva lanes return green.
+Verification: the tmux sessions live (both lanes in the kondo phase, load 13/24 on shiva).
+Delegates: codex gpt-6-luna (the checkpoint-B fold round, IN FLIGHT); two shiva lanes (verify-p4, verify-ts3, IN FLIGHT).
+Next: the shiva lanes return -> the track-branch verification verdicts; the fold round returns -> the focused-gate counts -> the shiva verify of the fold commit -> push; then the checkpoint-B re-audit (kimi/sol per routing) and the P4 landing sequence; the T3 S5 slow-tier legs after the verify lanes clear (the one-lane-set discipline).
