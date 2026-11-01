@@ -299,3 +299,35 @@ The state at the stop: the 8.10 integration complete on master; the nightly's in
   green; the Dart leg and the slow-cluster confirmation go to the next 3am crontab fire, which runs
   unattended. The seat holds: no dispatches, no verification runs, no new rounds until further
   notice.
+
+## 2026-11-01 18:5x +07 — the link-reds round: 7/7 green; the store-interface ruling PERMITTED AS IS
+The seven slow-tier yang.python reds (84/9/4/2/2/1/1 at jupiter's 20261101-0148) are fixed by
+  codex round 6d6b7e71 on branch yangpython-link-reds. Two product hunks, both predicted:
+  (1) lower.cljc — `calls-yang-call?` deleted; every linked Python module and SCC bundle now requires
+      `yang.call` unconditionally, because `py/call-kw`'s runtime dispatch reaches it whether or not
+      the source names it; the manifest pins the same dependency (lower.cljc:2096-2161);
+  (2) siteset.cljc — the default runtime pass-through set becomes `#{py pysp yang.call}`, so the
+      shared dispatcher is no longer treated as instrumentable guest Python (the
+      `missing-site-set` refusal was correct behavior against a wrong categorization).
+  Engineer's local slow-tier counts: siteset 5/71, safepoint 19/144, derive 1/54, dht-import 1/127,
+  linked-prelude 8/82, linked-safepoint 10/53, e2e 42/714 — all 0 failures; bb test:sub:clj
+  yang.python 28 namespaces / 265 tests / 0; kondo 0/0. The DHT fixture was regenerated through its
+  CHECKED-IN generator (dht-import-v1.generate.clj, verified in the log), and both named e2e reds
+  passed with no separate defect.
+Correction owned: my first brief's signature table said `:reason :absent` for the link refusals; the
+  verified logs show `:yang.python.antlr/missing-site-set` under `:py/hooks` on `yang.call`. I wrote
+  the correction artifact before the round ended; the engineer had already independently reached the
+  same root from its own reproduction, so no redispatch was needed.
+OWNER QUESTION, ruled by kimi k3.1-pro (collab/1793540000000-...-ruling, session_d991895e):
+  "the interface from yang.python with the dht is indirect, right? it should be via dao.stream"
+  → Ruling: PERMITTED AS IS. The handle is a plain-data byte-store capability
+  ({:put-bytes-fn :get-bytes-fn :close-fn :entries-fn}, dao/jing.cljc:5), deliberately stream-agnostic
+  ("embeds no intake stream and identifies no source", mem.cljc). dao.jing.content is the request/
+  response service OVER remote streams whose serving half consumes a local handle and validates
+  ingress (content.cljc:18-24,75-113); dao.jing.stream is a canonical-byte codec adapter, not a
+  publisher (stream.cljc:1-23,56-101). Calling either FROM publication.cljc would be the layering
+  violation. One logical publication path; local and DHT-backed handles are compositions of it.
+  Site sets: unchanged (same handle, core/publication.cljc:124-139). No prerequisite, no follow-up
+  slice — the yang.call addition changes published content, not the store boundary.
+Next: orchestrator verification of the seven namespaces on shiva (running), then the independent
+  gate (a different family from codex — kimi), then landing on the sign-off.
