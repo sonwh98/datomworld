@@ -67,9 +67,14 @@ RUN chmod +x /usr/local/bin/nightly-entrypoint.sh
 # Run as a non-root user matching the host account (uid/gid 1000 = `sto` on
 # both hosts) so bind-mounted results and named-volume caches carry host
 # ownership instead of root. Flutter's SDK cache is chowned so the runtime
-# user can stamp it.
+# user can stamp it. The clone dir and the user-level dep caches are
+# pre-created and chowned at build time so the nightly user can write them.
 RUN groupadd -g 1000 nightly && useradd -m -u 1000 -g nightly nightly \
- && chown -R nightly:nightly /opt/flutter
+ && mkdir -p /opt/flutter /repo /repo-src \
+      /repo-src/node_modules /repo-src/.shadow-cljs \
+      /repo-src/build /repo-src/lib/cljd-out \
+      /home/nightly/.m2 /home/nightly/.gitlibs \
+ && chown -R nightly:nightly /opt/flutter /repo /repo-src /home/nightly
 ENV HOME=/home/nightly
 USER nightly
 WORKDIR /repo
