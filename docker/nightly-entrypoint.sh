@@ -20,7 +20,7 @@ LANES="${LANES:?LANES env required}"
 PAR="${PAR:-12}"
 RESULTS="${NIGHTLY_RESULTS:-/results}"
 ROLE="${ROLE:-publish}"
-CLONE=/repo
+CLONE=/repo-src
 
 export GIT_SSH_COMMAND="ssh -i $(find /run/ssh -type f ! -name '*.pub' | head -1) -o StrictHostKeyChecking=accept-new"
 
@@ -32,6 +32,7 @@ git -C "$CLONE" checkout --quiet --detach "$SHA"
 # every tool writes through to the persistent cache (the checkout stays
 # otherwise pristine).
 mkdir -p /cache/npm /cache/shadow /cache/build /cache/cljd-out /cache/m2 /cache/gitlibs
+mkdir -p "$CLONE/lib"
 ln -sfn /cache/npm        "$CLONE/node_modules"
 ln -sfn /cache/shadow     "$CLONE/.shadow-cljs"
 ln -sfn /cache/build      "$CLONE/build"
