@@ -73,7 +73,7 @@
 (defn -main
   [& args]
   (let [clone (or (first args) (System/getProperty "user.dir"))
-        par   (or (some->> (second args) parse-long) 6)
+        par   (or (some->> (second args) parse-long) 8)
         stamp (.format (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmm")
                        (java.time.LocalDateTime/now))
         out   (str clone "/target-ci/node-shards-" stamp)
@@ -200,9 +200,26 @@
                         (spit (str out "/runs.txt")
                               (str s " rc=" exit " secs=" secs "\n")
                               :append true)))]
-        (doseq [batch (partition-all par shards)]
-          (->> batch
-               (mapv (fn [s] (future (run-one s))))
+        ;; WORK-STEALING pool, not waves: a wave scheduler parks the next
+        ;; shard until every shard in the current batch finishes, so four
+        ;; 20-second shards leave four slots idle while one heavy shard runs
+        ;; (observed 2026-11-01: load 3.6 on a 24-thread host). Each worker
+        ;; pulls the next shard as soon as it finishes, so all PAR slots stay
+        ;; busy until the queue drains and the wall is the heaviest shard.
+        (let [queue (atom shards)
+              take-one (fn []
+                         (locking queue
+                           (let [cur @queue]
+                             (when (seq cur)
+                               (reset! queue (subvec cur 1))
+                               (first cur)))))]
+          (->> (range (min par (count shards)))
+               (mapv (fn [i]
+                       (future
+                         (loop []
+                           (if-let [s (take-one)]
+                             (do (run-one s) (recur))
+                             i)))))
                (mapv deref)))
         (let [expected (count shards)
               done (count @runs)
