@@ -63,5 +63,14 @@ RUN flutter config --no-analytics >/dev/null 2>&1 || true
 ENV GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"
 COPY nightly-entrypoint.sh /usr/local/bin/nightly-entrypoint.sh
 RUN chmod +x /usr/local/bin/nightly-entrypoint.sh
+
+# Run as a non-root user matching the host account (uid/gid 1000 = `sto` on
+# both hosts) so bind-mounted results and named-volume caches carry host
+# ownership instead of root. Flutter's SDK cache is chowned so the runtime
+# user can stamp it.
+RUN groupadd -g 1000 nightly && useradd -m -u 1000 -g nightly nightly \
+ && chown -R nightly:nightly /opt/flutter
+ENV HOME=/home/nightly
+USER nightly
 WORKDIR /repo
 CMD ["/usr/local/bin/nightly-entrypoint.sh"]
