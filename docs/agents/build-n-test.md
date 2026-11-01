@@ -48,7 +48,8 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # or `clojure -M:test -n <ns>`. Do not run the full `bb test` while iterating.
 # At slice checkpoints, run G1 (`bb test:sub <own>`). Before landing a slice, run
 # G2 (`bb test:changed` in the worktree across all three lanes).
-# Full repo-wide `bb test` (G3) is the mandatory landing gate on master after merge.
+# Full repo-wide `bb test` runs twice daily on the remote hosts (03:00/17:00 VN);
+# a MERGE needs only the affected tests (bb test:changed) -- owner ruling 2026-11-01.
 # Cross-host bugs show only on Node or Dart, so tri-host verification is mandatory
 # for every gate from G1 upward. Run one lane set at a time per machine to avoid
 # contention (a laptop has 8 cores; the 24- and 48-core remote hosts have room to
@@ -256,8 +257,16 @@ selected namespaces and run automatically when needed.
 1. **G0 Iterate**: Run only the subsystem's JVM lane (`bb test:sub:clj <own>` or `clojure -M:test -n <ns>`).
 2. **G1 Checkpoint**: Run the three-lane subsystem test (`bb test:sub <own>`). Proves the home suite across all three hosts before reporting ready.
 3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change (for foundation subsystems like `dao.stream` or `dao.jing`, this correctly runs nearly the full suite).
-4. **G3 Master**: The mandatory landing gate on master after merge, and for any wide change (`bb test`).
-5. **G4 Release**: Full or slow test run before a big release or cross-cutting merge (`bb test:slow` or `bb test:all`), and at each phase boundary of a multi-phase track (owner decision 2026-10-12; see "Test tiers: quick and slow" below). G0 to G3 run the quick tier; G4 runs the slow tier.
+4. **G3 Master (merged in place by the 2026-11-01 owner ruling)**: The landing gate
+   for a change is the **tests that cover the feature being built** — `bb test:changed`
+   (G2) already includes the reverse-require closure of the changed files, and a wide
+   change still routes to the full quick lane. The complete suite is no longer a
+   per-merge gate: it runs twice a day on the remote hosts (see "Cadence" below), so a
+   break is caught within hours without charging every merge ~400 minutes of slow tier.
+5. **G4 Release**: Full or slow test run before a big release or cross-cutting merge
+   (`bb test:slow` or `bb test:all`), at each phase boundary of a multi-phase track
+   (owner decision 2026-10-12), and implicitly twice daily by the scheduled run below.
+   G0 to G3 run the quick tier; G4 runs the slow tier.
 
 
 The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
@@ -330,9 +339,16 @@ The suite has two tiers so that slow tests run less often than quick ones
   `:clj` reader-conditional branches). Those 22 namespaces now hold **168 slow tests**
   in all (some were already tagged). Per-test times are not in the repo: measure again
   with the method below before changing the cut.
-- **Cadence:** the quick tier at every checkpoint (G1) and landing (G2, G3); the slow
-  tier before merging a big change and at each phase boundary of a multi-phase track
-  (the existing G4). There is no nightly run.
+- **Cadence (owner ruling 2026-11-01):** a merge needs only the tests that cover the
+  feature being built — the affected/dependent set from `bb test:changed` (or
+  `bb test:sub <own> --slow` when the change touches slow-tagged code). The FULL suite,
+  including the slow tier, runs **twice a day: 03:00 and 17:00 Asia/Ho_Chi_Minh** on the
+  remote hosts (`src/dev/nightly.clj`; 03:00 catches the day's work before the owner
+  stops coding, 17:00 gives a result they can act on before sleeping). The measured long
+  set is ~400 minutes of serial slow-tier work, so it cannot be a per-merge cost; a
+  break is instead caught by the next scheduled run, at most ~12 hours later.
+  The schedule is expressed as an hourly cron plus a Vietnam-time guard inside the
+  driver, so it is immune to the DST shifts of either host's local timezone.
 
 Measured (2026-10-12, origin master plus the tags, Linux servers; see "Remote test
 servers" for how to run them):
