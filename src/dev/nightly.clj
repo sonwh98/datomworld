@@ -14,7 +14,7 @@
 
      lanes       comma-separated subset of: jvm,node,dart
      parallel    per-lane parallelism (default: 12)
-     --now       ignore the 03:00 Vietnam window (cron fires hourly)
+     --now       ignore the 03:00/17:00 Vietnam windows (cron fires hourly)
      --pin-publish   resolve origin/master, publish {run-id, sha, ts} for the
                      other host (the pin authority; shiva)
      --pin-read      check out the pinned SHA, refusing a pin whose Vietnam
@@ -173,8 +173,12 @@
         summary (str out "/summary.txt")
         rc (atom 0)
         log (fn [s] (println s) (spit summary (str s "\n") :append true))]
-    (when-not (or now? (= "03" (vn-hour)))
-      (println "outside the 03:00 Vietnam window; pass --now to force")
+    ;; Owner ruling 2026-11-01: the full suite runs exactly twice a day,
+    ;; 03:00 and 17:00 Vietnam time — 03:00 catches the day's work before the
+    ;; owner stops coding, 17:00 gives a result they can act on before sleep.
+    ;; Everything else (the pre-merge gate) runs the affected tests only.
+    (when-not (or now? (contains? #{"03" "17"} (vn-hour)))
+      (println "outside the 03:00/17:00 Vietnam windows; pass --now to force")
       (System/exit 0))
     (fs/create-dirs out)
     (when-not (= 0 (:exit (psh {:dir clone :continue true} "mise" "trust")))
