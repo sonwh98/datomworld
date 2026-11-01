@@ -24,10 +24,29 @@
             [clojure.string :as str]))
 
 
-(def subs
+(def all-subs
   ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
    "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
    "dao.postgraphics" "yang.base" "dao.base"])
+
+
+(def subs
+  "The subsystems THIS host runs. Override with NIGHTLY_SUBSYSTEMS (comma
+   list) for a disjoint two-host split; the uncovered residual shard still
+   enumerates against the FULL registry, so no namespace can silently drop
+   when two hosts split the registry between them."
+  (or (some->> (str/split (System/getenv "NIGHTLY_SUBSYSTEMS") #",")
+               (map str/trim)
+               (remove str/blank?)
+               seq)
+      all-subs))
+
+
+(def run-uncovered?
+  "The uncovered residual shard runs only on the designated host
+   (NIGHTLY_UNCOVERED=1), so the residual is executed exactly once across a
+   two-host split."
+  (not= "1" (System/getenv "NIGHTLY_SKIP_UNCOVERED")))
 
 
 (def ^:private child-path
