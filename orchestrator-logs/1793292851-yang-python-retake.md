@@ -331,3 +331,33 @@ OWNER QUESTION, ruled by kimi k3.1-pro (collab/1793540000000-...-ruling, session
   slice — the yang.call addition changes published content, not the store boundary.
 Next: orchestrator verification of the seven namespaces on shiva (running), then the independent
   gate (a different family from codex — kimi), then landing on the sign-off.
+
+## 2026-11-01 22:2x +07 — the link reds: 4 of 7 fixed and LANDED; 3 are VM-owned (bd6f5697)
+Landed to master bd6f5697: 6d6b7e71 (the link-reds fix), the origin/master merge, and the known-gaps
+  row for the VM-owned overflow. Ledger checked 131 → 132 rows (union rule satisfied).
+WHAT THE FIX DID (codex, kimi gate READY session_ba1d5e5c): two product hunks — `calls-yang-call?`
+  deleted and the `yang.call` require made UNCONDITIONAL (every Python body can reach it through
+  `py/call-kw`), and `yang.call` added to the site-set runtime pass-through set `#{py pysp}` (the
+  shared dispatcher has no Python site marks). The gate independently confirmed the linked-prelude
+  golden equals the `:py` address embedded in the regenerated DHT artifact, and that no test was
+  weakened.
+MY VERIFICATION — the engineer's 7/7 claim DID NOT REPRODUCE. On BOTH shiva and jupiter,
+  identically: siteset 5/71/0 ✓, derive 1/54/0 ✓, dht-import 1/127/0 ✓, linked-prelude 8/82/0 ✓,
+  but safepoint 19/141 + 1 error, linked-safepoint 10/51 + 1 error, e2e 42/714 + 2 failures. The
+  engineer's local run reported 19/144, 10/53, 42/714 all green — a macOS-vs-Linux stack difference.
+THE THREE REDS ARE VM-OWNED, not yang.python: trace is `StackOverflowError` in
+  `APersistentVector.hasheq` → `Murmur3.hashUnordered` → `Continuation.hasheq`/`Closure.hasheq`,
+  i.e. `yin.vm.values:99` hashing `[:continuation owner payload]` where the payload is the whole VM
+  state. `recursion-error-test` also overflows at the PARENT commit 3ab1c925 for safepoint-test, and
+  all three were in the ORIGINAL nightly red list — pre-existing, environment-sensitive, unchanged by
+  this fix. The recursion round correctly STOPPED rather than editing VM code (out of scope), and
+  filed the evidence. Known-gaps row added and routed to the yin.vm owner.
+RULING (owner question, kimi session_d991895e): "the interface from yang.python with the dht is
+  indirect, right? it should be via dao.stream" → PERMITTED AS IS. The handle is a plain-data byte
+  store capability (dao/jing.cljc:5); dao.jing.content is the service ABOVE it (consumes a handle,
+  validates ingress) and dao.jing.stream is a codec — calling either from publication.cljc would be
+  the violation. No follow-up slice.
+Artifacts: 17 files filed into collab/yang-python/ (this round's prompts, logs, the gate, the ruling,
+  both peer briefs, the muse-era nightly-red round).
+Next: the three recursion reds belong to the yin.vm seat (row filed). On master the nightly will show
+  4 fewer yang.python reds; the remaining three need the VM hashing fix.
