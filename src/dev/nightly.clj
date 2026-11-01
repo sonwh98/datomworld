@@ -300,7 +300,8 @@
                       (quot (- (System/currentTimeMillis) t0) 1000)))
             (catch Exception e
               (reset! rc 1)
-              (log (str "FAIL " lane ": " (ex-message e)
+              (log (str "FAIL " lane ": [" (some-> e class .getSimpleName) "] "
+                        (ex-message e)
                         " secs=" (quot (- (System/currentTimeMillis) t0) 1000))))))))
     (log (str "done rc=" @rc))
     (System/exit @rc)))
