@@ -21,7 +21,7 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 | native binder refusal collapsed to the projection's `:slot-kind` rule (reduced defence-in-depth coverage) | 8e review P2-3 | yin.vm.semantic (the register-VM track) | closed in follow-up-1, not applicable: native images carry no binders (closure = arity + body pc, derived from A; pins: opcode tables under contract 2/r2, `derive_test:179`, `debruijn_code_test:566`); the one binder validator is the projection's `:slot-kind` rule (`host_typed_values_test:242-247`); the native-side defence is the existing `:closure-arity` rule. | P2 |
 | 8d partial mappings (park beside a live reader wait; noise before the correlated FFI response) rest on bare-rows law-1 equality, not named successor tests | phase 8 final review P3-2 | yin.vm.semantic (the register-VM track) | closed in follow-up-1: `park-beside-a-live-reader-wait` and `noise-before-the-correlated-ffi-response` assert independent wake/resume after row handoff | P3 |
 | the slow-tier record "22 of 22" counts namespaces run by `~/ci/slow-tier.sh` (one JVM per namespace), not deftests; the tree has 231 `^:slow` deftests | phase 8 final review P3-4 | yin.vm.semantic (the register-VM track) | recorded; Node slow C4 line on jupiter filed when it finishes | P3 |
-| `semantic/frame.cljc` (formerly :141; now ~:159) compares a captured frame's free-environment bindings with the task's free-env by host `=`; not NaN-reflexive on JS/Dart (a NaN-valued free binding in a captured/parked/waiting frame would be `:free-env-mismatch` there; same class as the 8f-3 NaN fix) | 8f-3 NaN ruling §5 | yin.vm.semantic (the register-VM track) | closed on branch `srvm-frame-nan` (Architect signed off; the commit is the one adding `bindings=` to frame.cljc): guarded slotwise content equality; JVM focused 116 tests / 1380 assertions and quick tier 4007 tests / 249662 assertions green, host-equality mutant 9 failures; [evidence](../collab/yin-vm/1792082835156-engineer-frame-nan.report.md) (Node/Dart lanes assigned to orchestrator) | P3 |
+| `semantic/frame.cljc` (formerly :141; now ~:159) compares a captured frame's free-environment bindings with the task's free-env by host `=`; not NaN-reflexive on JS/Dart (a NaN-valued free binding in a captured/parked/waiting frame would be `:free-env-mismatch` there; same class as the 8f-3 NaN fix) | 8f-3 NaN ruling §5 | yin.vm.semantic (the register-VM track) | closed on branch `srvm-frame-nan` (Architect signed off; the commit is the one adding `bindings=` to frame.cljc): guarded slotwise content equality; JVM focused 116 tests / 1380 assertions and quick tier 4007 tests / 249662 assertions green, host-equality mutant 9 failures; [evidence](../../archive/yin-vm/1792082835156-engineer-frame-nan.report.md) (Node/Dart lanes assigned to orchestrator) | P3 |
 | `ucf/rows.cljc` `decode*` (~:931-935) host-`distinct` clause on map/set keys: emit/decode asymmetry for 0.0/-0.0 keys on every host and a Dart-only refusal for 1/1.0 keys | frame-nan Architect review P2-1 | yin.vm.semantic (the register-VM track) | closed in follow-up-1 (round 2): map/set row keys refuse `:equality-collapse` under `cbor/equiv` on every host (emit, decode, abstract check); lower refuses `:host-collapse` when the host collection merged members; JVM verified, Node/Dart assigned to orchestrator | P2 |
 | dead fixture: `yin.vm.malformed-rows/malformed-vectors` (the v3 §7.5 vector rules) has no reader since the old vector validator died | 8g sweep | yin.vm.semantic (the register-VM track) | closed in follow-up-1: deleted after source/test reader search | P3 |
 | what died at phase 8, for the record: `yin.vm.completion` (its agreement facts survive in `semantic/scan_test`), and `yin.vm.ucf`'s v3 canonicalizer and stack-shaped safepoint halves (un-ported: completion in 8f-1, UCF halves in 8f-3; R2/R3; `yin.vm.ucf` is now only `code-address`) | 8f-1 ruling | yin.vm.semantic (the register-VM track) | recorded in 8g (`yin.vm.ucf-revisions.md` I-6, the dependency-completion banner, linker §5.2 note) | P3 |
@@ -39,8 +39,6 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 | publication-time-unavailable optional imports cannot be represented without concrete segment pins | mob consensus I4 Q1 | yang.python / linker | open | P3 |
 | C4 scanner pins `[:c4 :py]` / `[:c4 :t]` in `test/yin/vm/semantic/scanner_goldens.cljc` stale since I4-a; slow `scan-test` bodies fail on master until regenerated | follow-up-1 / owner scheduling | yang.python seat / muse | closed 2026-10-17: regenerated via the checked-in generator (`scanner-golden-c4.generate.clj`, abort-gated on all untouched groups, byte-identical double-run); Fable review (claude-api lane) READY. Recurred after C4 I1 (aad451c5e moved `:pysp`): re-closed same day at 37db44da with her corrected provenance; standing rule added to the generator header — any slice touching the prelude, safepoint, lowering or import programs runs the generator in the same slice | P2 |
 | `render/string-repr` emits raw C1 control characters (e.g. `chr(0x80)` at the prompt renders the raw byte; CPython shows `'\x80'`) — pre-existing, load-bearing since the value-display landing (06065e42) makes every submitted string display-bearing | candidate slice: widen the escaping in `render.cljc` | yang.python seat | recorded by the deepseek v4 gate, confirmed against CPython 3.9.6 | P3 |
-| `yin.vm.values` hashes a `Continuation`/`Closure` payload recursively (`values.cljc:99`, `(:continuation owner payload)`), so hashing a deep VM state overflows the JVM stack: `StackOverflowError` in `APersistentVector.hasheq`/`Murmur3.hashUnordered`, reaching `Continuation.hasheq` and `Closure.hasheq`. Surfaces as `yang.python.antlr.safepoint-test/recursion-error-test`, `linked-safepoint-test/linked-recursion-error-test` and two `e2e-test` recursion tests. Verified identical on shiva AND jupiter at 6d6b7e71 (19/141 + 1 error; 10/51 + 1 error; 42/714 + 2 failures), and present at the PARENT commit 3ab1c925 for safepoint-test; environment-sensitive (the same tests are green on the macOS dev machine at 19/144, 10/53, 42/714) `| bound the hash depth or hash a stable identity instead of the payload; needs a stack-size boundary decision `| yin.vm (value hashing) — NOT yang.python; the Python frontend only surfaces it `| found while closing the yang.python link reds (6d6b7e71); the four link-refusal namespaces were fixed, these three were not and are out of the Python seat's scope | P2 |
-| Refinement of the row above, with the decisive assertion text: the Python recursion guard does not fire before the JVM stack gives out. `yang.python.antlr.e2e-test/recursion-under-real-hooks-test` (e2e_test.clj:819) expects `#:py{:exception {:type "RecursionError", :args ["maximum recursion depth exceeded"]}}` and gets `[:thrown "java.lang.StackOverflowError"]`. Reproduced on jupiter (independent host, no other lane) and shiva at 6d6b7e71; green on the macOS dev machine. The safepoint/linked-safepoint variants surface the same exhaustion inside `Continuation.hasheq` while hashing the state. So the three remaining yang.python slow reds are ONE root: the guest recursion depth the limit allows exceeds what a default JVM thread stack sustains on Linux `| MEASURED FIX: the JVM default `ThreadStackSize` is 2048 KB on macOS and 1024 KB on Linux, and the guest code runs on a CREATED thread (raising `ulimit -s` to 64 MB does not help; `-J-Xss32m` makes the failing test pass 1/5/0 on jupiter). Run the affected JVM test lanes with an explicit `-Xss` of at least 2 MB, or make the guard measure remaining stack instead of a fixed depth; re-run the three namespaces on both hosts afterwards `| yin.vm (recursion guard / thread stack) with the yang.python e2e evidence `| refinement found while verifying the link-reds landing (the engineer's macOS-green counts do not reproduce on Linux) | P2 |
 | `dht-import-test` fails on Node and Dart: the test's own publication differs from the JVM artifact in the `:importers` key — the C4 publication area, JVM passes (surfaced by the C3 completion run, not a C3 detector) | diagnosis slice | yang.python seat | found at the C3 completion gate (fable: real red lane, outside C3) | P2 |
 | `vm-rebuild-is-a-new-process-test` (yin.repl.python-antlr-test) fails on Node and Dart — expected `:register`, got `:semantic` (the VM-type default); JVM passes (surfaced by the C3 completion run, not a C3 detector) | diagnosis slice | yang.python seat | found at the C3 completion gate (fable: real red lane, outside C3) | P2 |
 | `(compile ...)` under `:yang.python/antlr` returned an EMPTY string on Node/Dart and dumped the whole prelude (24.8M chars, ~15 s) on the JVM — pre-existing (existed under `(lang :yang.python/antlr)`), made reachable via `(lang :python)` by the legacy retirement (5308e7cf) | closed 2026-10-18 at compile-investigation (b8dbeabf + dbe1d14b + fbfb82b6): the JVM dump was the preview lowering against a nil frontend-session (the whole prelude embedded, rendered four times — now lowered :primed); the Node/Dart empty string was the filled-to-EOF token buffer read as the failure point, classifying every no-viable-alternative error :end and parking the line — the listener's offending token now decides (the JVM keeps its lazy-fill branch, its docstring corrected). Evidence: JVM 21 tests/194 assertions/0 failures, Node 21/70/0 (was 3 failures), Dart 4039 all passed (was 2 failures); deepseek gate READY. Follow-up candidate: the contract test is a proxy — add a submitted-content assertion and a host-neutral :incomplete probe test | closed | yang.python seat | found by the M3 round, deliberately not masked | P2 |
@@ -49,7 +47,7 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 | R4: carried install child bypasses receiver admission and carries sender evidence | fetch threat model §4.4 | VM Runtime | landed as module-pins commit 1 (origin/master ce76c846): explicit `:yin.k/admitted-modules` name/address gate before attach; lift never carries sender admission fields; a carried admission field refuses `:yin.k/undecodable :install-response`; the pin carrier is module-pins commit 2 | P1 |
 | Composition fetch loop per-run lease and budget absent | fetch threat model §4.3; reserved `:lease` policy | composition | outside module-pins slice; no fetch loop added | P2 |
 | Closed 2026-10-16: holder driver forwards admitted-modules | Architect module-pins review P2-1 | VM Runtime | config forwarded to lowering and fenced recovery; parked-installer regression covers absent and admitted config | P2 |
-| Closed 2026-10-17: the lift refuses a machine between instructions (`rows.cljc` / `lift-task*`) and a queued completed wake, the holder runs to a park (`driver.cljc` / `run-cycle`) and loses a computed boundary on tenure loss (`step-active`), the custody kind tables list three kinds, and the stack layout is undefined at jump pcs (`layout.cljc` / `stack-layouts`): the carrier cannot express, and the holder cannot pause at, an arbitrary pc | owner invariant 2026-10-17; Architect plan v2.1 `collab/yin-vm/1792145566000-architect-6d-plan-v21.report.md` | yin.vm.semantic (the register-VM track) | any-pc epic (6d-a, 6d-b, 6e) fully landed and closed at commit `3552a224` (orchestrator-log.md:11855, :11864) | closed |
+| Closed 2026-10-17: the lift refuses a machine between instructions (`rows.cljc` / `lift-task*`) and a queued completed wake, the holder runs to a park (`driver.cljc` / `run-cycle`) and loses a computed boundary on tenure loss (`step-active`), the custody kind tables list three kinds, and the stack layout is undefined at jump pcs (`layout.cljc` / `stack-layouts`): the carrier cannot express, and the holder cannot pause at, an arbitrary pc | owner invariant 2026-10-17; Architect plan v2.1 `archive/yin-vm/1792145566000-architect-6d-plan-v21.report.md` | yin.vm.semantic (the register-VM track) | any-pc epic (6d-a, 6d-b, 6e) fully landed and closed at commit `3552a224` (orchestrator-log.md:11855, :11864) | closed |
 | A module-exported host function held in a window mid-application refuses lift unless the composition registers it in `:primitives`: an honest refusal and an any-pc hole | Fable 6d-a sign-off, d5987015 | yin.vm.semantic | 6e or a later slice: lift module exports by module coordinate via host-export profiles | P3 |
 | Observe entries, held observations, unminted cursors and link requests without installed cursors need authority acknowledgement; a full input append preserves an exact held machine for repeated cycles. No one-cycle hold-resolution guarantee | 6d-b `holder.reader-test/hold-resolution-needs-acknowledgement-and-backpressure-can-persist-test` | holder composition | explicit refusal; external acknowledgement/backpressure relief required; bare declared pending-close fixture resolves in one emit | P3 |
 | The boundary harness’s `:store-keys` accounting re-lists discharge’s answer set and may drift if discharge gains an obligation source | cmd 6d-a review caveat, acknowledged by Fable | semantic test harness | derive the answer set from discharge in a later harness slice | P3 |
@@ -135,7 +133,7 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 | yang.clojure: anonymous fn under the convention reports a nil name in its wrong-arity error data (lossy diagnostics only); closing route: carry a :yin.k/kind :anonymous marker plus the fn form's source metadata in the error data | slice 5 review (glm session in collab/1793242637826), architect disposition fable 8c1f0b7e | yang.clojure | slice 7 (first-class fns become common) | P3 |
 | yang.clojure: the and/or if-chain expansions bind host gensym names (and__/or__) outside the dsg__ reserved-prefix regime that slice 5 hardens; a colliding user-typed and__<n> would shadow inside the expansion; closing route: reserved-prefix names bound through the internal let | slice 5 review (glm session in collab/1793242637826; pre-existing at a34a2251) | yang.clojure | slice 6 (same expansion family) | P3 |
 | test-strategy: the throw-site table regeneration pokes a private test-ns function (throw-site-rows); only the failure message documents the procedure; closing route: a dev script beside src/dev/latte_oracle_manifest.clj that writes the table | slice 5 review (glm session in collab/1793242637826) | yang.clojure | slice 7 (next table-regenerating slice) | P3 |
-| the ANTLR4 full-context prediction reach set leaks once per parser-budget refusal: the guard throws inside `ParserATNSimulator::closure`'s exception path, and the set is freed on the normal and no-viable-alt exits only; observed as a constant 181,088 bytes / 3,312 allocations on shiva at 0, 5, 50 and 100 sanitize cycles (cycle-independent); benign at the observed scale | wave-1 J5b closure sign-off | jolt seat | closed: J5c's `BoundedSimulator::computeReachSet` override frees the caller's previous full-context reach set on the exception exit, the one exit the runtime leaks | P3 |
+| the ANTLR4 full-context prediction reach set leaks once per parser-budget refusal: the guard throws inside `ParserATNSimulator::closure`'s exception path, and the set is freed on the normal and no-viable-alt exits only; observed as a constant 181,088 bytes / 3,312 allocations on shiva at 0, 5, 50 and 100 sanitize cycles (cycle-independent); benign at the observed scale | wave-1 J5b closure sign-off | jolt seat | open: the fix (a ten-line reach-computation override in the bounded simulator) rides with J5c | P3 |
 | yang.clojure: slice-6 case-arm fixtures are by constant KIND, not per corpus site — the plan's acceptance line asked for a minimal dispatch fixture for every arm of all six case sites (norm/proof keywords, mk-fresh numbers 0-3, typing symbols λ/Π); kinds are covered and mk-fresh runs end to end; closing route: derive fixtures from the corpus by walking the six sites, extracting each clause's constants, running a synthetic dispatch per arm+default (test-only addition) | slice 6 review (glm session 39b94aba), architect sign-off fable 8c1f0b7e | yang.clojure | slice 7 (test-only) | P3 |
 | yang.clojure: no cljs/cljd lane evidence exists for the slice-6 commits yet (JVM + kondo only at sign-off time); the outcome-adapter reader-conditional catch remains the one host-sensitive line on the branch | slice 6 review (glm session 39b94aba, fifth item); architect condition: lanes green at 7677c12b before merge | yang.clojure | slice-6 landing gate (this merge) | P3 |
 | yang.clojure: library `reduced?` matches any map holding :yin.k/reduced true (untyped tagged map, documented compromise in the library notes); closing route: a typed carrier if the VM gains one | slice 7 review (glm), fix round | yang.clojure | open | P3 |
@@ -178,189 +176,3 @@ reported zero errors/warnings; `cljstyle check` passed. The requested
 files. Linting an archived `1fe3eb07` baseline produced identical findings;
 those pre-existing Jolt/probe findings are outside this contract's file scope.
 | yang.typescript/yang.php: the JS and Dart ANTLR parser targets are deliberately not built — parsing is JVM-only, and the checked-in CST packets are the portability boundary (Node/Dart execute parserless). The cross-host parse plan (collab/1793127916000-reviewer-crosshost-parse-plan.gpt-6-luna.findings.md and the astra reconciliation 1793128437000) is retired as a declined capability: no JS/Dart parser for either frontend exists today (the manifests declare `:java` only), so nothing was built against the granted helper-port licensing. Python keeps its multi-target parsers (`:java`/`:javascript`/`:dart`/`:cpp`, the J2b zero-pin record) as its own lane's capability, which creates no obligation for the other two | owner ruling 2026-10-30 ("don't build the JS/Dart parser except on the JVM"); `antlr/typescript/manifest.edn` and `antlr/php/manifest.edn` declare `:java` only; `build/antlr/{typescript,php}/` contain no js/dart output; `antlr/python3/manifest.edn` declares all four targets and J2b closed at zero pins | yang.typescript/yang.php (this seat) | none scheduled — a live browser REPL parsing user-typed source would be the only reopening case, and the demo runs samples parserless from packets | P3 |
-| jolt ws: a ping after a local close is queued gets no pong (A4 "every ping produces one pong" holds until a local close exists) | pump.jolt:597 (handle-event! :ping guard); wave-1 Architect sign-off P3 | jolt (J6) | documented behaviour, closed by J6e's docstring sentences; J6h cites the archived sign-off | P3 |
-
-
-## Clojure common-call arbitration dispositions (2026-10-30)
-
-Append-only disposition of Kimi r4. The two recorded deviations stand;
-this entry does not alter or retire existing ledger rows.
-
-+-------------------------------+---------------------------------------------------+--------------------------------------------------------------------------------+
-| Disposition                   | Evidence                                          | Construction / resolution                                                      |
-+===============================+===================================================+================================================================================+
-| (a) source forgery: closed    | Kimi r4 arbitration, 1793309600000; test-common-  | A private factory creates a closure over the canonical descriptor and a        |
-|                               | call-source-admission and explicit UAST/profile   | lexical token. Admission reconstructs and compares the opaque closure; it      |
-|                               | fixture                                           | never calls a candidate hook. Copying the entry or changing descriptor fields  |
-|                               |                                                   | fails. No VM type, descriptor seal, or provenance registry. Equal immutable    |
-|                               |                                                   | reconstructions retain the same value.                                         |
-+-------------------------------+---------------------------------------------------+--------------------------------------------------------------------------------+
-| (d) constant stack: restored  | test-outcome-common-call-depth: named and mutual  | Every source callee is admitted before common invocation. Constructor entries  |
-|                               | calls, walker and semantic lanes, 100/1000        | accept a private outcome option and tail-apply their private body, forwarding  |
-|                               | iterations                                        | its outcome without pending conversion frames. Public/profile entries retain   |
-|                               |                                                   | value/raise conversion. The non-tail negative control still grows.             |
-+-------------------------------+---------------------------------------------------+--------------------------------------------------------------------------------+
-
-The same fix uses portable guest closures for the private get, equality,
-assoc and empty aliases, refuses unadmitted source callees with the qualified
-not-callable condition, and rejects invalid continuation captures explicitly.
-A raise resumes only through the compiler's private transfer packet.
-Nonempty named arguments still raise yang.call/thrown with the original
-binding error payload, as required by arbitration (e).
-
-Verification: the four requested JVM namespaces plus the full accumulated
-LaTTe oracle corpus pass together: 147 tests, 2,238 assertions, zero failures
-or errors. This includes both 100/1,000 iteration depth lanes, their non-tail
-negative control, the new rejection fixtures, and UCF reconstruction under
-the existing validation and instruction budgets. Kondo reports zero errors
-and the same two existing oracle-test warnings; formatting and whitespace
-checks pass.
-## Hardening2 round-1 P3 dispositions (2026-10-30)
-
-These four P3 items are deferred this round; closing obligations retained below
-verbatim from the round-1 review. P2 fresh-supply propagation is the sole code
-fix in this round. Source: [round-1 review](../../collab/1793296786225-reviewer-hardening2.glm-5.3.findings.md).
-
-1. Deferred; owner seat: yang.clojure. Finding and closing obligation:
-
-> **P3 | src/dev/latte_oracle_manifest.clj:50-57** | The stale manifest generator still rewrites `test/yang/latte_oracle/manifest.edn` in the old schema (no `:disposition`/`:admission-reason`), while `latte-oracle-tables/-main` (src/dev/latte_oracle_tables.clj:48-51) is now the writer of record. Running the old tool per its own docstring (`clj -M -m latte-oracle-manifest`) wipes the admission inventory from the working tree; the schema assertion in `test-oracle-classification` (test/yang/latte_oracle_test.clj:281-283) then fails loudly, but the checked-in inventory is lost and the old header comment is now false. | Fix: delete `latte-oracle-manifest` or reduce it to a delegation to `latte-oracle-tables`, and update its docstring.
-
-2. Deferred; owner seat: yang.clojure. Finding and closing obligation:
-
-> **P3 | src/cljc/yang/clojure.cljc:895-919** | The portable `try` lowerer's catch arm fires on *any* `[error-tag v]`: it binds `(data/nth outcome 1)` (line ~912) without discriminating the thrown value. A thrown non-ex-info value (e.g. `(throw "boom")` inside `(try … (catch Exception e …))`) is caught by the guest but propagates in Clojure (a thrown String is not an Exception). The catch-class guard (lines 903-905) constrains only the *syntax* of the clause, not the runtime class of the thrown value. Unexercised: all kernel sources throw ex-info only, and `test-portable-try-outcomes` (test/yang/clojure_test.clj:2024) tests ex-info throws exclusively. | Fix: either record the limitation in the library notes next to the other "known compromises" (clojure.cljc:1908-1916), or discriminate at runtime (catch only values carrying `:yin.k/message`, re-propagating others).
-
-3. Deferred; owner seat: yang.clojure. Finding and closing obligation:
-
-> **P3 | src/cljc/yang/clojure.cljc:1163-1166** | Callable collections route through `invoke-value` only when the operator is a **local** or a **non-symbol** (`(or (contains? (locals env) operator) (not (symbol? operator)))`). A top-level defined collection — `(def v [1 2]) (v 0)` — compiles to a plain `:application` and errors at runtime instead of indexing, diverging from Clojure. Untested boundary of the "callable collections" admission (test/yang/clojure_test.clj:2049 uses only `let`-bound collections). | Fix: record as a known boundary in the library notes, or extend the route to operators in `::defined`.
-
-4. Deferred; owner seat: yang.clojure. Finding and closing obligation:
-
-> **P3 | src/cljc/yang/clojure.cljc:1918-1926** | `kind-arities` publishes `'var? [1]` unconditionally (line 1926) while `kind-module` provides `var?` only under `#?(:clj … :default {})` (line 1920) — on a Node/Dart host the arity profile would admit a binding the module cannot supply. Relatedly, metadata attached via the new `kind/with-meta` seam has no stated serialization-survival guarantee: no fixture round-trips a meta'd value through the store/encoder, so `meta` after restoration is unspecified. | Fix: gate the published arity with the same reader conditional (or register the capability per-host at harness setup), and add a note/obligation that host metadata is not a serialized ABI field.
-
-Additional closing condition, verbatim:
-
-> Conditions: findings 1's cross-host arity drift and the metadata-serialization obligation above should be tracked as explicit follow-ups before the owed Node/Dart lanes.
-
-
-## Gate-verification dispositions (2026-10-30)
-
-Append-only addition: 127 existing ledger rows, 22 new rows, 149 total.
-The previous rows and closure notes remain intact. Full arity-specific obligations
-are also machine-readable in `test/yang/latte_oracle/slice9_unexercised.edn`.
-
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| gap                                                                      | evidence                               | owner seat   | closing slice            | severity |
-+==========================================================================+========================================+==============+==========================+==========+
-| elab-after-qed: recorded-deviation. Upstream embeds clojure.core/meta in | slice9_evidence.edn fixture            | yang.clojure | recorded portability     | P3       |
-| error data; the guest closure boundary is recorded, never agreement.     | :elab-after-qed; :recorded-deviation   |              | boundary                 |          |
-|                                                                          | :evidence                              |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| check-after-qed: recorded-deviation. Upstream embeds clojure.core/meta   | slice9_evidence.edn fixture            | yang.clojure | recorded portability     | P3       |
-| in error data; the guest closure boundary is recorded, never agreement.  | :check-after-qed; :recorded-deviation  |              | boundary                 |          |
-|                                                                          | :evidence                              |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.defenv/mkenv 1: unexercised. The fixtures start from        | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| empty-env or an explicit kernel context; no named closure calls mkenv.   | :entries; slice9_unexercised.edn       |              | program                  |          |
-| Needs an environment-construction fixture entering mkenv.                |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.norm/beta-red 1: unexercised. normalize enters              | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| beta-delta-normalize, not the standalone beta-red wrapper. Needs a named | :entries; slice9_unexercised.edn       |              | program                  |          |
-| normalization integration that calls beta-red.                           |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.norm/install-unfold-implicit! 1: unexercised. Implicit      | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| fixtures supply the extension in the immutable context; no named closure | :entries; slice9_unexercised.edn       |              | program                  |          |
-| invokes the upstream installer. Needs an explicit installation and       |                                        |              |                          |          |
-| subsequent normalization sequence.                                       |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.norm/delta-normalize 3: unexercised. normalize uses         | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| beta-delta-normalize and lower delta-step helpers, bypassing this public | :entries; slice9_unexercised.edn       |              | program                  |          |
-| delta-only wrapper. Needs a delta-only normalization fixture.            |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.norm/delta-normalize-local 3: unexercised. No named closure | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| enters the local-only delta wrapper. Needs a fixture that calls          | :entries; slice9_unexercised.edn       |              | program                  |          |
-| delta-normalize-local with local definitions and checks namespace        |                                        |              |                          |          |
-| isolation.                                                               |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.presyntax/exists-kw? 1: unexercised. The pinned parser      | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| dispatch does not reference exists-kw?; naming an existential term       | :entries; slice9_unexercised.edn       |              | program                  |          |
-| cannot add this absent edge. Needs a direct predicate fixture or an      |                                        |              |                          |          |
-| integration explicitly calling it.                                       |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.proof/show-deftype 1: unexercised. Only diagnostic display  | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| paths call show-deftype; named proof elaboration does not select those   | :entries; slice9_unexercised.edn       |              | program                  |          |
-| excluded display functions. Needs a portable display-result fixture and  |                                        |              |                          |          |
-| explicit diagnostic dependencies.                                        |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.proof/install-opacity-function 1: unexercised. Proof        | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| fixtures inject opacity-policy in the context and do not invoke its      | :entries; slice9_unexercised.edn       |              | program                  |          |
-| installer. Needs an installation and subsequent opaque/transparent proof |                                        |              |                          |          |
-| sequence.                                                                |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.syntax/appify 2: unexercised. Named parser and proof        | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| closures build applications without calling appify. Needs a              | :entries; slice9_unexercised.edn       |              | program                  |          |
-| syntax-construction integration entering appify.                         |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.syntax/term? 1: unexercised. The named closures use         | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| individual syntax predicates, not the public recursive term? validator.  | :entries; slice9_unexercised.edn       |              | program                  |          |
-| Needs a term-validation fixture entering term?.                          |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.syntax/bound-vars 1: unexercised. Substitution and proof    | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| closures use free-vars/vars and do not call bound-vars. Needs a          | :entries; slice9_unexercised.edn       |              | program                  |          |
-| binder-analysis integration entering bound-vars.                         |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.typing/proper-type? 1: unexercised. The proof chain calls   | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| type-of/type-check? directly, bypassing proper-type?. Needs a            | :entries; slice9_unexercised.edn       |              | program                  |          |
-| proper-type? fixture at the one-argument entry.                          |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.typing/proper-type? 2: unexercised. No named closure calls  | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| proper-type?; its context-default wrapper is not reached from type-of.   | :entries; slice9_unexercised.edn       |              | program                  |          |
-| Needs a proper-type? fixture with an explicit local context.             |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.typing/proper-type? 3: unexercised. No named closure calls  | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| proper-type?; its body calls type-of but the reverse dependency does not | :entries; slice9_unexercised.edn       |              | program                  |          |
-| exist. Needs a proper-type? fixture with explicit environment and        |                                        |              |                          |          |
-| context.                                                                 |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.unparser/prod-impl-unparser 1: unexercised. The unparser    | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| integration registers only its custom guest closure; the fundamental     | :entries; slice9_unexercised.edn       |              | program                  |          |
-| product unparser is not in that closure. Needs fundamental-unparser      |                                        |              |                          |          |
-| installation followed by product unparsing.                              |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.unparser/install-fundamental-unparsers! 0: unexercised. The | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| named unparser fixture uses an empty registry plus a custom              | :entries; slice9_unexercised.edn       |              | program                  |          |
-| registration; no fundamental installer is selected. Needs explicit       |                                        |              |                          |          |
-| fundamental-unparser installation and use.                               |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.utils/pair? 1: unexercised. No selected named closure       | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| references pair?. Needs a utility predicate fixture or a named consumer  | :entries; slice9_unexercised.edn       |              | program                  |          |
-| that explicitly calls pair?.                                             |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.utils/vectorn? 2: unexercised. No selected named closure    | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| references vectorn?. Needs a vector-size validation fixture or a named   | :entries; slice9_unexercised.edn       |              | program                  |          |
-| consumer that calls vectorn?.                                            |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.utils/safe-get 2: unexercised. Named closures use ordinary  | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| get/fetch adapters rather than safe-get. Needs a safe lookup fixture     | :entries; slice9_unexercised.edn       |              | program                  |          |
-| covering success and missing-key rejection.                              |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-| latte-kernel.utils/vremove 2: unexercised. The explicit unparser         | slice9_evidence.edn :coverage          | yang.clojure | next oracle coverage     | P2       |
-| unregister adapter uses filter/remove directly and does not depend on    | :entries; slice9_unexercised.edn       |              | program                  |          |
-| upstream vremove. Needs a vector-removal fixture entering vremove.       |                                        |              |                          |          |
-+--------------------------------------------------------------------------+----------------------------------------+--------------+--------------------------+----------+
-
-
-## Hardening2 portable try ledger correction (2026-10-30)
-
-Append-only correction to round-1 P3 item 2 above, confirmed by the glm
-reviewer and architect: `(throw "boom")`, a throw of a non-ex-info string
-payload, raises a `ClassCastException` in host Clojure. `catch Exception`
-catches that exception; `catch clojure.lang.ExceptionInfo` does not. The earlier statement
-that a thrown string simply propagates past `catch Exception` is incorrect.
-
-The guest portable `try` catches the error outcome and binds its original
-payload without equivalent runtime class discrimination. Its payload and
-catch-class handling therefore differ from host Clojure for non-ex-info
-throws. This remains a declared guest/host behavior gap owned by
-`yang.clojure`; kernel fixtures throwing only ex-info do not close it.
-The four narrowly recorded slice-9 exception dispositions remain declared
-departures, not agreements.
