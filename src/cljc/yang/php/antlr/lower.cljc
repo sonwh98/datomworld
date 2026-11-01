@@ -548,11 +548,20 @@
    folds in the global block and at fully qualified reads; an unqualified
    read inside a namespace is the two-key run-time lookup, builtins
    included (plan P6 R7)."
-  [ctx _n q]
+  [ctx n q]
   (let [{:keys [primary fallback]} (resolve-global-name ctx :const q)]
     (cond
       fallback (app* 'php/const-get (u/lit primary) (u/lit fallback))
       (contains? builtins/constants primary) (builtin-constant-node (get builtins/constants primary))
+      ;; Global bare names have no namespace fallback. Until ordinary global
+      ;; constant declarations are statically resolved, accepting one here
+      ;; defers a known unsupported construct to a runtime undefined-constant
+      ;; error and loses the lowering diagnostic contract.
+      (and (= 1 (count (:segs q)))
+           (not (:lead? q))
+           (not (:ns-kw? q))
+           (= "" (:ns ctx "")))
+      (unsupported! n :constant)
       :else (app* 'php/const-get-fq (u/lit primary)))))
 
 
