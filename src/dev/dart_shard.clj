@@ -19,6 +19,7 @@
    Exit: 0 all green; 1 any failure."
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
+            [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]))
 
