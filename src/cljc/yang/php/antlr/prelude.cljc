@@ -2179,7 +2179,7 @@
     [php/param-ref-typed
      ;; the marker as `param-ref` makes it; the value it holds is checked, and
      ;; written back coerced, as PHP coerces the caller's variable in place
-     (fn [arg type fname idx pname]
+     (fn [arg type fname idx pname binding-profile]
        (let [marker? (= (php/slot-kind arg) :ref-marker)
              cur (if marker? (php/ref-value arg) arg)
              srcs (if marker? (php/ref-sources arg) [])
@@ -2191,7 +2191,7 @@
              "TypeError"
              (data/str-concat fname "(): Argument #" (php/to-string idx) " ($" pname ") must be of type "
                               (php/type-str type) ", " (php/given-name cur) " given"))
-           (let [m (php/param-ref arg)]
+           (let [m (php/param-ref arg binding-profile)]
              (do (if (= r cur) :php/null (php/ref-set! m r)) m)))))]
     [php/param-ref
      ;; a by-reference parameter: the caller's marker (counted by the CV), or
@@ -3935,9 +3935,10 @@
      (fn [v] (php/make-closure (cell/new (cell/get (get v :php/closure)))))]
     [php/closure-env
      ;; a closure made inside a method keeps the method's `$this` and static class
-     (fn [f this static]
+     (fn [f this static scope]
        (do (if (nil? this) :php/null (cell/set! f (assoc (cell/get f) :this this)))
            (if (nil? static) :php/null (cell/set! f (assoc (cell/get f) :static static)))
+           (if (nil? scope) :php/null (cell/set! f (assoc (cell/get f) :scope scope)))
            f))]
     [php/scope-of
      ;; the class scope a closure runs in: a rebinding's, else the enclosing one

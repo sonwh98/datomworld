@@ -2969,42 +2969,41 @@
    by named arguments is `:php/undef`; a variadic parameter gathers the rest."
   [ctx n written required exact? i {:keys [name default ref? variadic? type]}]
   (if variadic?
-    (app* 'cell/new (app* 'php/gather-variadic (u/v '%args) (u/lit i)))
+    (app* 'php/gather-variadic (u/v '%args) (u/lit i))
     (let [a (core/gen (str "a" i) n)
           count-node (app* 'data/count (u/v '%args))]
-      (app* 'cell/new
-            (u/let1 a
-                    (u/if-node (app* '< (u/lit i) count-node)
-                               (app* 'get (u/v '%args) (u/lit i))
-                               (u/lit :php/undef))
-                    (u/if-node (app* '= (u/v a) (u/lit :php/undef))
-                               (if default
-                                 (let [d (lower-initializer ctx default)]
-                                   (when type (check-literal-default! ctx default default type
-                                                                      (str "parameter $" (bare name))))
-                                   (if type
-                                     (app* 'php/param-default d (u/lit type) (u/lit written)
-                                           (u/lit (inc i)) (u/lit (bare name)))
-                                     d))
-                                 (app* 'php/not-passed
-                                       (u/lit written)
-                                       (u/lit (inc i))
-                                       (u/lit (bare name))
-                                       count-node
-                                       (u/lit required)
-                                       (u/lit exact?)))
-                               (cond
-                                 (and ref? type)
-                                 (app* 'php/param-ref-typed (u/v a) (u/lit type) (u/lit written)
-                                       (u/lit (inc i)) (u/lit (bare name)))
-                                 ref? (app* 'php/param-ref
-                                            (u/v a)
-                                            (u/v '%binding-profile))
-                                 type (app* 'php/addref
-                                            (app* 'php/coerce-arg (u/v a) (u/lit type) (u/lit written)
-                                                  (u/lit (inc i)) (u/lit (bare name))))
-                                 :else (app* 'php/addref (u/v a)))))))))
-
+      (u/let1 a
+              (u/if-node (app* '< (u/lit i) count-node)
+                         (app* 'get (u/v '%args) (u/lit i))
+                         (u/lit :php/undef))
+              (u/if-node (app* '= (u/v a) (u/lit :php/undef))
+                         (if default
+                           (let [d (lower-initializer ctx default)]
+                             (when type (check-literal-default! ctx default default type
+                                                                (str "parameter $" (bare name))))
+                             (if type
+                               (app* 'php/param-default d (u/lit type) (u/lit written)
+                                     (u/lit (inc i)) (u/lit (bare name)))
+                               d))
+                           (app* 'php/not-passed
+                                 (u/lit written)
+                                 (u/lit (inc i))
+                                 (u/lit (bare name))
+                                 count-node
+                                 (u/lit required)
+                                 (u/lit exact?)))
+                         (cond
+                           (and ref? type)
+                           (app* 'php/param-ref-typed (u/v a) (u/lit type) (u/lit written)
+                                 (u/lit (inc i)) (u/lit (bare name))
+                                 (u/v '%binding-profile))
+                           ref? (app* 'php/param-ref
+                                      (u/v a)
+                                      (u/v '%binding-profile))
+                           type (app* 'php/addref
+                                      (app* 'php/coerce-arg (u/v a) (u/lit type) (u/lit written)
+                                            (u/lit (inc i)) (u/lit (bare name))))
+                           :else (app* 'php/addref (u/v a))))))))
 
 
 (defn- function-lam
@@ -3091,39 +3090,6 @@
         body (if (seq checks) (u/then (u/seq-nodes checks) body) body)
         body (if has-return? (app* 'php/call-ec (u/lam ['%ret] body)) body)
         cvs (concat (map :name params) (map :name captures) static-names-v locals)
-        body (if counted?
-               (app* 'php/try-finally
-                     (u/lam [] body)
-                     (u/lam ['%x]
-                            (if dyn?
-                              (app* 'php/scope-release! (u/v '%scope))
-                              (app* 'php/release-cvs
-                                    (args-vector (map #(u/v (symbol %)) cvs))
-                                    (u/lit 0)
-                                    (u/lit (count cvs))))))
-               (if (seq cvs)
-                 ;; no references or statics: release on the normal exit only (an
-                 ;; error leaves the counts high, which is safe)
-                 (let [rv (core/gen "rv" n)]
-                   (u/let1 rv
-                           body
-                           (u/then (app* 'php/release-cvs
-                                         (args-vector (map #(u/v (symbol %)) cvs))
-                                         (u/lit 0)
-                                         (u/lit (count cvs)))
-                                   (u/v rv))))
-                 body))
-        body (if dyn?
-               (u/let1 '%scope
-                       (app* 'php/scope-new)
-                       (u/then (u/seq-nodes
-                                 (concat (map (fn [nm]
-                                                (app* 'php/scope-adopt! (u/v '%scope) (u/lit (bare nm))
-                                                      (u/v (symbol nm))))
-                                              cvs)
-                                         [(u/lit :php/null)]))
-                               body))
-               body)
         body (if generator?
                (app* 'php/make-generator
                      (u/lit written)
@@ -3145,19 +3111,48 @@
                                 params)
                    (map (fn [c]
                           [(symbol (:name c))
-                           (app* 'cell/new
-                                 (if (:ref? c)
-                                   (app* 'php/param-ref
-                                         (u/v (:sym c))
-                                         (u/lit "sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb"))
-                                   (app* 'php/copy-capture (u/v (:sym c)))))])
+                           (if (:ref? c)
+                             (app* 'php/param-ref
+                                   (u/v (:sym c))
+                                   (u/lit "sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb"))
+                             (app* 'php/copy-capture (u/v (:sym c))))])
                         captures)
-                   (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))])
+                   (map (fn [nm] [(symbol nm) (u/lit :php/undef)])
                         (:statics scope))
-                   (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))]) locals))
+                   (map (fn [nm] [(symbol nm) (u/lit :php/undef)]) locals))
+        cell-bindings (map (fn [[sym _]] [sym (app* 'cell/new (u/lit :php/undef))]) bindings)
+        initializers (map (fn [[sym value]] (app* 'cell/set! (u/v sym) value)) bindings)
+        init-node (if (seq initializers) (u/seq-nodes initializers) (u/lit :php/null))
+        body (if dyn?
+               (u/let1 '%scope
+                       (app* 'php/scope-new)
+                       (let [scoped-body
+                             (u/then (u/seq-nodes
+                                       (concat [init-node]
+                                               (map (fn [nm]
+                                                      (app* 'php/scope-adopt! (u/v '%scope) (u/lit (bare nm))
+                                                            (u/v (symbol nm))))
+                                                    cvs)
+                                               [(u/lit :php/null)]))
+                                     body)]
+                         (if (and (not generator?) (seq cvs))
+                           (app* 'php/try-finally
+                                 (u/lam [] scoped-body)
+                                 (u/lam ['%x] (app* 'php/scope-release! (u/v '%scope))))
+                           scoped-body)))
+               (let [initialized-body (u/then init-node body)]
+                 (if (and (not generator?) (seq cvs))
+                   (app* 'php/try-finally
+                         (u/lam [] initialized-body)
+                         (u/lam ['%x]
+                                (app* 'php/release-cvs
+                                      (args-vector (map #(u/v (symbol %)) cvs))
+                                      (u/lit 0)
+                                      (u/lit (count cvs)))))
+                   initialized-body)))
         wrapped (reduce (fn [inner [sym value]] (u/let1 sym value inner))
                         body
-                        (reverse bindings))]
+                        (reverse cell-bindings))]
     [(u/lam (if closure?
               ['%fn '%args '%binding-profile '%cc]
               ['%fn '%args '%binding-profile])
@@ -3224,7 +3219,8 @@
                    (app* 'php/closure-env
                          (app* 'php/make-function (u/lit "{closure}") (u/lit spec) lam (u/lit statics))
                          (if (and (:fn ctx) (not static?)) (app* 'php/this-or-nil (u/v '%fn)) (u/lit nil))
-                         (if (:fn ctx) (app* 'php/static-or-nil (u/v '%fn)) (u/lit nil))))]
+                         (if (:fn ctx) (app* 'php/static-or-nil (u/v '%fn)) (u/lit nil))
+                         (cc-node ctx)))]
     (reduce (fn [inner c] (u/let1 (:sym c) (capture-source ctx c) inner))
             make
             (reverse caps))))
