@@ -61,5 +61,7 @@ ENV PATH="/opt/flutter/bin:${PATH}"
 RUN flutter config --no-analytics >/dev/null 2>&1 || true
 
 ENV GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"
+COPY nightly-entrypoint.sh /usr/local/bin/nightly-entrypoint.sh
+RUN chmod +x /usr/local/bin/nightly-entrypoint.sh
 WORKDIR /repo
 CMD ["/usr/local/bin/nightly-entrypoint.sh"]
