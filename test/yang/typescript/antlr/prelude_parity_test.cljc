@@ -765,6 +765,21 @@
       (is (= [true true false] (if (vector? result) result [:thrown result]))))))
 
 
+(deftest ^:slow shared-call-thrown-value-on-every-vm-test
+  (doseq [[backend result]
+          (run-with-prelude
+            prelude/uast
+            '(let [payload (js/make-object :js/null)
+                   f (cell/new
+                       (assoc {} :yang.call/entry
+                              (fn [invocation]
+                                ((get invocation :yang.call/raise)
+                                 (yang.call/thrown payload)))))]
+               (js/try (fn [] (js/call f :js/undefined []))
+                       (fn [caught] (= caught payload)))))]
+    (is (= true result) (str backend))))
+
+
 (defn- finally-order-on-every-vm
   []
   (testing "nested finally frames run inner first, once each, before the

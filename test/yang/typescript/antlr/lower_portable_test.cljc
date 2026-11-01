@@ -303,6 +303,22 @@
               (nodes bundled)))))
 
 
+(deftest linked-source-requires-convention-before-js-test
+  (doseq [ast [(lower/lower-packet var-x {:prelude :linked})
+               (lower/lower-units [var-x] {:prelude :linked})
+               (lower/lower-units [] {:prelude :linked})]]
+    (let [forms (loop [node ast
+                       suffix ()]
+                  (if (= [u/discard] (get-in node [:operator :params]))
+                    (recur (first (:operands node))
+                           (cons (get-in node [:operator :body]) suffix))
+                    (cons node suffix)))
+          requires (take 2 forms)]
+      (is (every? #(= (u/v 'require) (:operator %)) requires))
+      (is (= '[yang.call js]
+             (mapv #(get-in % [:operands 0 :value]) requires))))))
+
+
 (deftest bundled-program-depth-test
   ;; A linear prelude sequence reached 976 levels with 481 definitions:
   ;; `pr-str` could overflow even though the tree contained no cycle.

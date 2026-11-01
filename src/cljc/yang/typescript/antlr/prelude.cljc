@@ -37,8 +37,10 @@
 
    Calling convention: source calls are (js/call f this args), with `args`
    a vector built by `js/vconj`; `js/call` supplies one invocation record
-   to the shared entry. Constructors retain (js/construct F args), and a
-   function's private code is (fn [this args] ..).
+   to the shared entry after structural eligibility. Foreign entries use
+   the same path; JS entries retain local receiver, class and new.target
+   semantics. Constructors retain (js/construct F args), and a function's
+   private code is (fn [this args] ..).
 
    Control flow is continuations: `js/throw`, `js/try`, `js/try-finally`
    and `js/call-ec` copy the Python prelude's escape machinery with JS
@@ -1616,10 +1618,12 @@
        (yang.call/invoke-with
          f args []
          (fn [condition]
-           (js/throw-type-error
-             (if (= (get condition :yang.call/reason) :yang.call/not-callable)
-               {:js/str "value is not a function"}
-               {:js/str "invalid function invocation"})))
+           (if (= (get condition :yang.call/reason) :yang.call/thrown)
+             (js/throw (get condition :yang.call/value))
+             (js/throw-type-error
+               (if (= (get condition :yang.call/reason) :yang.call/not-callable)
+                 {:js/str "value is not a function"}
+                 {:js/str "invalid function invocation"}))))
          (assoc {} :yang.call/receiver this)))]
     [js/is-constructor?
      ;; [[Construct]] exists on :normal functions, class constructors and the

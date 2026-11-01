@@ -2275,6 +2275,18 @@
     (u/lam [(:this ctx)] (module-body ctx))))
 
 
+(defn- with-runtime
+  "Both source entry points install the shared convention before JS."
+  [prelude main]
+  (u/mark-tails
+    (case prelude
+      :bundled (u/then prelude/uast main)
+      :linked (u/seq-nodes [(app* 'require (u/lit 'yang.call))
+                            (app* 'require (u/lit prelude/module-name))
+                            (app* 'js/init!)
+                            main]))))
+
+
 (defn lower-units
   "A complete program for multiple separately parsed units. The runtime is
    installed and initialized once; each unit receives its own lexical body
@@ -2289,15 +2301,7 @@
                                (u/seq-nodes
                                  (mapv (fn [unit] (u/app unit (u/v 'this))) units))
                                (u/lit :js/undefined)))))]
-     (u/mark-tails
-       (case prelude
-         :bundled (u/then prelude/uast main)
-         :linked (u/seq-nodes [(u/sexp->uast (list 'require
-                                                   (list 'quote 'yang.call)))
-                               (u/sexp->uast (list 'require
-                                                   (list 'quote prelude/module-name)))
-                               (app* 'js/init!)
-                               main]))))))
+     (with-runtime prelude main))))
 
 
 (defn lower-packet
@@ -2312,17 +2316,7 @@
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
    (let [main (names/canonicalize (app* 'js/run-main (lower-unit packet)))]
-     (u/mark-tails
-       (case prelude
-         :bundled (u/then prelude/uast main)
-         :linked (u/seq-nodes [(u/sexp->uast (list 'require
-                                                   (list 'quote
-                                                         'yang.call)))
-                               (u/sexp->uast (list 'require
-                                                   (list 'quote
-                                                         prelude/module-name)))
-                               (app* 'js/init!)
-                               main]))))))
+     (with-runtime prelude main))))
 
 
 (def program-medium
