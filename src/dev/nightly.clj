@@ -137,6 +137,23 @@
 (defn- lane-jvm
   [clone par out summary]
   (let [subset (assigned-subsystems)
+        ;; prerequisites the bare-metal hosts got from prior rounds: the
+        ;; antlr-generated parser classes and the Node REPL. A fresh
+        ;; container has neither, and yang.*.antlr tests fail with
+        ;; ClassNotFoundException without the first. gen:antlr is cheap
+        ;; when its cache is warm.
+        _ (let [t0 (System/currentTimeMillis)
+                exit (run-cmd! clone (str out "/gen-antlr.log")
+                               ["bb" "gen:antlr"])]
+            (log (str "gen:antlr rc=" exit
+                      " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
+            (when-not (zero? exit) (throw (ex-info "gen:antlr failed" {}))))
+        _ (let [t0 (System/currentTimeMillis)
+                exit (run-cmd! clone (str out "/build-yin-repl-node.log")
+                               ["bb" "build:yin-repl-node"])]
+            (log (str "build:yin-repl-node rc=" exit
+                      " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
+            (when-not (zero? exit) (throw (ex-info "build:yin-repl-node failed" {}))))
         slow-nss (cond->> (slow-namespaces clone)
                    subset (filter #(in-subset? % subset)))
         ;; quick tier: subsystem-sharded on the full set; per-subsystem
