@@ -35,7 +35,7 @@ ARG FLUTTER_VERSION=3.47.8-stable
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      bash git curl openssh-client xz-utils ca-certificates \
+      bash git curl openssh-client xz-utils ca-certificates libatomic1 \
  && rm -rf /var/lib/apt/lists/*
 
 # Clojure CLI (pinned)
