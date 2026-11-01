@@ -120,8 +120,7 @@
   "The subsystem subset this host runs, from NIGHTLY_SUBSYSTEMS (comma list).
    nil = run everything (single-host mode)."
   []
-  (some->> (or (System/getenv "NIGHTLY_SUBSYSTEMS") "")
-           (str/split #",")
+  (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
            (map str/trim)
            (remove str/blank?)
            (map #(str/replace % "." "-"))
