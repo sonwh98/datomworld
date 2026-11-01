@@ -1,0 +1,33 @@
+Completed-GMT: 2026-10-28 09:07:24 GMT
+Completed-Local: 2026-10-28 16:07:24 +0700
+Coding-Agent: claude
+Session-ID: a5c84655-a61f-4a23-9732-4d1bf8e23f3d
+
+# J5b round 3b: wall limits apply only on the laptop
+
+The wall limits for r1c (15 s) and power (60 s) now apply only on macOS arm64. Other hosts record the walls and fail only past 6× those limits (90 s and 360 s). Both macOS legs pass.
+
+## Delta (files touched this round; nothing staged)
+- `src/dev/jolt_j5_budget.clj`: a `laptop?` predicate and a `wall-limit` helper, used by the r1c leg and the power leg. Each check records `:laptop` and says which limit it applied.
+- `src/dev/jolt_j5_run.clj`: the "below walls on jolt" check uses the same rule, keyed on `plat` (`darwin-arm64`), and records the platform with the walls.
+- `src/dev/jolt_j5_below.cljc`: no change this round. It only prints walls and asserts none; git status lists it as modified from earlier rounds.
+
+No other leg, bound or parser code changed.
+
+## Counts (macOS arm64)
+- **Budget leg: ALL PASS, 40 PASS lines, 0 FAIL.** That is 39 checks in the child plus the driver's own exit check.
+  - The laptop check resolved true under jolt.
+  - r1c at 10,000: 7.0 s against 15 s.
+  - power at 100,000: 20.4 s against 60 s.
+- **Below comparison: 13/13** with strict equality, and the walls check passes.
+
+  | source | jolt | JVM |
+  |---|---|---|
+  | r1c 10,000 | 7.3 s | 2.9 s |
+  | power 100,000 | 20.1 s | 9.4 s |
+  | r4 20,000 | 11.8 s | 4.9 s |
+  | not-1024 | 96 ms | 56 ms |
+
+## Notes
+- **On shiva**, the r1c walls of 17–18 s fall under the 90 s bound, so the three failures should clear. The Linux reruns are the orchestrator's: `bb src/dev/jolt_j5_run.clj budget`, `bb src/dev/jolt_j5_run.clj below`, or the full `bb probe:jolt-j5`.
+- **cljstyle is not run:** it needs approval in my shell.

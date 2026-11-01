@@ -1,0 +1,85 @@
+Completed-GMT: 2026-10-28 07:58:32 GMT
+Completed-Local: 2026-10-28 14:58:32 +0700
+Coding-Agent: claude
+Session-ID: a5c84655-a61f-4a23-9732-4d1bf8e23f3d
+
+# J5b round 2
+
+Round 2 is done except for one leg I stopped at: **C1' `r3-not` at 1,024 cannot be met.** The source `x = ` + `not `×1,024 + `1` parses, as `:yang.cst/ok` all three times with the same worker. It uses 1,038 rule frames, well under N_rule 8,192, so no bound can refuse it. I kept the leg exactly as ruled, so the budget leg reports **38 PASS, 1 FAIL**. It needs an Architect correction; I did not reinterpret it. My guess is the ruling meant the scaled R3 (1,024 nots per level, 16 levels), which refuses -7 and passes.
+
+## Changed files (git status; nothing staged)
+- **Modified:**
+  - `bb.edn`
+  - `docs/agents/known-gaps.md`
+  - `docs/design/yin.repl-jolt-implementation.md`
+  - `native/jolt-parser/CMakeLists.txt`, `jolt_parser.cpp`, `sanitize/CMakeLists.txt`, `sanitize/harness.cpp`
+  - `src/cljc/yang/python/antlr/parser.cljc`
+  - `src/dev/jolt_j0c_parity.clj`, `jolt_j5_below.cljc`, `jolt_j5_budget.clj`, `jolt_j5_child.clj`, `jolt_j5_run.clj`
+  - `src/jolt/yang/antlr/cst.jolt`
+  - `test/yang/python/antlr/cst_export_test.cljc`
+- **New:** `src/dev/jolt_j5_calibrate.clj`, `jolt_j5_measure.clj`, `jolt_j5_shapes.cljc`
+
+## A1: tried, measured, and the map kept (ruling §1)
+I built A1 (walk the parent chain at each rule entry, no map) and timed it against the map on the same at-bound shapes, three fresh runs each:
+
+| shape | map (ms) | A1 walk (ms) | change |
+|---|---|---|---|
+| parens 908 | 84 | 150 | +79% |
+| not 8178 | 710 | 790 | +11% |
+| ternary 8178 | 2,900 | 6,040 | +110% |
+| bs-ternary 8178 | 3,290 | 7,350 | +123% |
+| lambda 4089 | 542 | 638 | +18% |
+| comp-for 4085 | 1,435 | 2,430 | +69% |
+| indent 2045 | 832 | 1,442 | +73% |
+| call 408 | 338 | 370 | +9% |
+
+Seven shapes are more than 10% slower, so as §1 prescribes the map stays. The comments and docs carry the A1 soundness wording (the chain length equals the live activations), state that `exitRule` is not virtual and that there are no labelled alternatives, and record why the map was kept.
+
+## Per C item (macOS arm64)
+- **C1': met except `r3-not` (unmet).**
+  - The other repros refuse -7 three times, then the same worker parses `x * 6` (7/7): R1a, R1b, R2a, R2b, R3 exact, R3 scaled, bs-ternary 100,000.
+  - Each parses and equals the JVM's packet:
+
+    | leg | jolt wall | limit | JVM wall (`-Xss1g`) |
+    |---|---|---|---|
+    | r1c 10,000 | 7.6 s (7.7 s in the budget leg) | 15 s | 3.3 s |
+    | r4 20,000 | 12.3 s | — | 3.6 s |
+    | power 100,000 | 21.2 s | 60 s | 10.2 s |
+- **C2: met**, 12/12 at the predicted n with the exact refusal data.
+- **C3: met.** In process 9/9 PASS; children 6/6 PASS. Each child line says whether it parsed (OK) or refused (status -7/-6).
+- **C4: met.** 15/15 shapes within a quarter of the stack (worst 1.6 MB); record in `build/j5b/calibration.edn`.
+- **C5: not run.** Linux only, per the waiver; the orchestrator's.
+- **C6: met.** At-bound walls 0.1–4.3 s; the `N_full` shape (unary at 253) takes 1.3 s, under the 5 s limit; 4 MiB of comment 1.2 s.
+- **C7, C8: met.** C7 2/2 and C8 1/1 inside the budget leg; C8 2/2 more in the unavailable legs; inject 3/3 and abort 1/1 pass.
+- **C9: partly met.** macOS reports a 16,789,504-byte parse-thread stack; the cycles and workers legs are on Linux.
+- **C10: macOS part met.** The below comparison is 12/12 with strict equality; the Linux parity harness is the orchestrator's.
+- **C11: done (D1–D9).** D7's "and on Linux x86_64 (shiva)" waits for those runs.
+  - D1–D3 also edit the cpp header.
+  - D6: survivors row amended; J5c row appended.
+  - D8: §10.1 row says J5c is ledgered.
+  - D9: `r4-at-input-bound` deleted; budget and below legs updated.
+  - Ledger row count goes up by one (no rewrite), and no new collab cites.
+  - The §7.6 Platforms paragraph has a marked `PLACEHOLDER` block for you to fill from the shiva logs.
+- **C12: JVM part met.**
+  - `clojure -M:test -n yang.python.antlr.cst-export-test`: 16 tests, 173 assertions, 0 failures.
+  - kondo: no new kinds of finding. The errors are the existing `defcfn` unresolved-symbol pattern (`jolt_j0c_parity.clj` has the same at HEAD). There are two warnings: an unused require already at HEAD, and `System` in `below.cljc`'s cljs branch, a file that runs only on the JVM and jolt.
+  - cljstyle needed approval in my shell, so it is yours to run.
+  - The lanes are Linux.
+
+## Commands for the orchestrator (shiva, one at a time)
+1. `bb build:jolt-native`
+2. `bb probe:jolt-j5` (will FAIL on `r3-not` until it is ruled on)
+3. `bb calibrate:jolt-j5`
+4. `bb src/dev/jolt_j5_run.clj budget`
+5. `bb src/dev/jolt_j0c_sanitize.clj 50` (C5)
+6. `bb src/dev/jolt_j0c_cycles.clj 20000`, then `bb src/dev/jolt_j0c_workers.clj` (C9; the record must show the thread count flat)
+7. `bb src/dev/jolt_j0c_parity.clj` (C10, zero pins)
+8. `bb test:jolt-j5`
+9. `bb test:jolt-core --only '^yin\.repl\.python-antlr-test$'`, then the yin.repl lane, then `bb test:jolt-shell`
+10. `cljstyle check` over the changed `.clj`/`.cljc`/`.jolt` files
+
+Afterwards, fill the §7.6 Platforms placeholder and add "and on Linux x86_64 (shiva)" to row 59's evidence sentence.
+
+## Concerns
+- **The "not reached on the oracle corpus" clause (D2) is unchecked.** I wrote the visit-cap sentence as prescribed but have not verified it. The parity run on shiva would show it, since a refusal there would fail parity.
+- **The sanitizer additions have not been compiled anywhere yet.** That covers the new legs in `harness.cpp` and its Threads link.

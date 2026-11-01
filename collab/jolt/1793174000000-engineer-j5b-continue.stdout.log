@@ -1,0 +1,95 @@
+`bb test:jolt-j5` is still running in the background. C1–C4 and C7–C8 are done on macOS and the docs are written. Once the acceptance result is in, I'll report.
+
+Completed-GMT: 2026-10-28 07:13:46 GMT
+Completed-Local: 2026-10-28 14:13:46 +0700
+Coding-Agent: claude
+Session-ID: a5c84655-a61f-4a23-9732-4d1bf8e23f3d
+
+# J5b: the prescan is replaced by in-parser guards
+
+The new mechanism works on macOS arm64. Every one of astra's repros that nests now refuses with status -7, each shape parses exactly at its predicted bound and refuses one level past it, and every bound fits within a quarter of the 16 MiB parse thread's stack.
+
+Three things need the Architect before codex re-reviews:
+- **One fact in the ruling does not hold.** `Parser::exitRule()` is not virtual (Parser.h:275), so the decrement on exit could not be built as ruled.
+- **R1c and R4a/R4b can't be met as written** (C1 below).
+- **Time inside the bounds is not bounded.** This predates J5b; details under Concerns.
+
+Nothing is staged or committed.
+
+## Changed files
+- **Native:**
+  - `native/jolt-parser/jolt_parser.cpp`: prescan, stack clamp and `jolt_parser_nesting` deleted. It now has the rule guard (`BoundedParser`), the lookahead guard (`BoundedSimulator`), the `NestingRefused` refusal, iterative walkers and the 16 MiB parse thread. Worker free also runs on that thread. `jolt_parser_budget` now reports `{input, rule, look, full, stack}`.
+  - New test seams: `jolt_parser_live_workers`, `jolt_parser_last_stats`, `jolt_parser_stack_probe`.
+  - `native/jolt-parser/CMakeLists.txt`: new option `JOLT_PARSER_UNBOUNDED` (guards measure but never refuse), and the Threads link on Linux.
+  - `native/jolt-parser/sanitize/harness.cpp` and its `CMakeLists.txt`: C5 legs added.
+- **Jolt and shared code:**
+  - `src/jolt/yang/antlr/cst.jolt`: nesting refusals carry `:kind :rule|:lookahead`; `rule-names` caches only a successful read and retries otherwise.
+  - `src/cljc/yang/python/antlr/parser.cljc`: P2-5 (the stage opens before the worker; the worker is closed if the hand-over fails) and P2-6 (`rule-names` is a function).
+  - Its consumers: `test/yang/python/antlr/cst_export_test.cljc` and `src/dev/jolt_j0c_parity.clj`.
+- **Dev probes:**
+  - Rewritten or extended: `src/dev/jolt_j5_budget.clj`, `jolt_j5_run.clj` (legs can now be selected), `jolt_j5_child.clj`, `jolt_j5_below.cljc`.
+  - New: `jolt_j5_shapes.cljc`, `jolt_j5_measure.clj`, `jolt_j5_calibrate.clj`.
+  - `bb.edn`: `probe:jolt-j5` doc and arguments updated; new task `calibrate:jolt-j5`.
+- **Docs:**
+  - Spec §7.6 rewritten: mechanism, constants, calibration, the per-shape table, times, platforms.
+  - Spec §10.1 J5 row updated.
+  - Known-gaps row 59: reopened and given its closing evidence in place, marked as closing with J5 on the codex re-review. The survivors row is extended. No collab paths are cited.
+
+## Deviation from the ruling, for the Architect
+- **The rule count has no decrement.** Each context records its frame depth when it is entered (its parent's depth plus one). The two ways a context is added within the same frame (`pushNewRecursionContext`, `enterOuterAlt`) inherit that depth. The count is exact, and nothing runs while the refusal unwinds.
+- **No `closure` override.** `getEpsilonTarget` already receives `fullCtx`, so overriding `closure` to remember it was unnecessary.
+- **The full-LL bound counts links past the outer context.** Full-LL prediction starts from the outer rule stack, so a literal "chain length ≤ 256" would refuse every full-LL decision deeper than about 25 brackets. I bound the outer length plus `N_full`, with the outer length recorded in `computeStartState`. That outer part costs about 199 B a frame, at most 1.6 MB at `N_rule`.
+
+## Outcomes (macOS arm64 only)
+- **C1: partly met.**
+  - **Met:** R1a, R1b, R2a, R2b, R3 (exact source and my scaled form) and the backslash-continued ternary each refuse with -7 three times identically, and the same worker then parses `x * 6`. 7/7.
+  - **R1c cannot refuse.** Per the grammar it is one flat chained assignment (`x = (1 if 1 else x) = …`, 16 frames). It parses with no crash, in 89–150 s.
+  - **R4a only at a scaled size.** A 20,000-operator chain parses and its packet equals the JVM's. The JVM oracle itself overflows its stack on that tree (`StackOverflowError` at cst.clj:117), so the harness now runs it with `-Xss1g`.
+  - **R4a and R4b at full size not run.** 100,000 operators takes about 340 s natively and 4 MiB would take hours, because of a quadratic in the pinned runtime (Concerns).
+- **C2: met, 12/12.** n parses (open-nest at EOF gives its syntax error, not a refusal) and n+1 refuses with exactly `:bound B :measured B+1` and the right `:kind`.
+  - The predicted n: parens/list 908, call 408 (lookahead-bound), SLL and open nests 453, not/ternary/backslash-ternary 8,178, lambda 4,089, comprehension 4,085, indent 2,045, unary 253 (full-LL).
+  - `**` turns out to be flat in the generated parser, so it has no nesting bound.
+- **C3: met.**
+  - In process, 10× the old crash depths refuse three times identically for all 7 shapes; `**` at 100,000 parses in 21 s; 5,000 INDENT levels refuse on the input axis.
+  - In children on the jolt thread, 6/6 legs pass.
+  - Interpretation, please confirm: the old crash depths now parse where the bounds admit them (parens 544/576, not 5376, indent 1280/1344). Call 512/544 and unary 512/1024 refuse, and 10× refuses.
+- **C4: met.** 15/15 shapes within a quarter of the stack.
+  - Rule shapes cost 89–105 B a frame, at most 858 KB at the bound; SLL shapes at most 199 B a link (815 KB); unary full-LL 681 B a link (174 KB); the deep-outer full-LL case 1.6 MB.
+  - Record: `build/j5b/calibration.edn`.
+- **C5: not run.** No sanitizer build exists on this laptop and building one is the heavy step. The harness additions have not been compiled here.
+- **C6: met for the `N_full` shape** (unary at 253: 1.3 s, under 5 s). All at-bound shapes take ≤ 4.4 s. Inside the bounds, `1*1*…` takes about 490 s (Concerns).
+- **C7: met, 2/2.** A stage whose source refuses a cursor leaves no live worker, and the convenience calls dispose theirs.
+- **C8: met, 3/3.** `rule-names` is a function; requiring the namespaces loads nothing even with the library present; it answers unavailable-parser first and the native table once the library appears.
+- **C9: partly met.** The budget reports a 16,789,504-byte parse-thread stack. The J0c workers, separate-thread and cycles-20000 legs were not run (orchestrator's).
+- **C10: partly met.** The below comparison holds with strict equality, 10/10. The full J0c parity harness was not run.
+- **C11: done** (pending the codex re-review that closes row 59 with J5).
+- **Totals:** `probe:jolt-j5` budget leg 39 PASS / ALL PASS; below, crash, inject, abort and unavailable legs all pass.
+- **`bb test:jolt-j5`: stopped by the harness time limit** after 1 PASS (the session transcript leg). Not restarted, per the harness's rule, so it is unconfirmed on macOS.
+
+## Concerns
+- **Time is not bounded by any guard, and this predates J5b.** The J5 library shows the same timings.
+  - `1+1+…` parses in quadratic time in the pinned runtime: 16,000 operators take 7.4 s.
+  - `1*1*…` makes an SLL lookahead that grows with the chain: 2,000 operators take 21 s and 4,000 about 490 s. The chain refuses only at 4,097 links, so an 8 KB source holds the parse thread for about 8 minutes inside the bounds.
+  - Flat input runs at about 90 µs a token.
+  - This is disclosed in the survivors row and §7.6 and needs an Architect decision: lower `N_look` for time, or accept.
+- **The guards cost about 2× on prediction-heavy shapes** (the memo's map insert and reference counting). They cost nothing on flat input.
+- **A freed worker is leaked if its parse thread cannot be started.** That is deliberate: destroying it on the caller's stack could crash.
+
+## Commands for the orchestrator (one host at a time)
+- **C1–C6 on a Linux host:** `bb build:jolt-native && bb probe:jolt-j5 && bb calibrate:jolt-j5`. Add `bb src/dev/jolt_j5_run.clj budget` for the R1c time.
+- **C5 (Linux):** `bb src/dev/jolt_j0c_sanitize.clj 50`.
+- **C9:**
+  - `bb src/dev/jolt_j0c_cycles.clj 20000`
+  - `bb src/dev/jolt_j0c_workers.clj`
+- **C10:** `bb src/dev/jolt_j0c_parity.clj`
+- **Lanes:**
+  - `bb test:jolt-j5`
+  - `bb test:jolt-core --only '^yin\.repl\.python-antlr-test$'`
+  - the yin.repl lane
+  - `bb test:jolt-shell`
+- **JVM:**
+  - `clojure -M:test -n yang.python.antlr.cst-export-test`
+  - kondo over the changed `.clj`/`.cljc` files (not run here)
+- **If chosen, R4a at full size:** `bb src/dev/jolt_j5_calibrate.clj --measure --bounded r4 100000` (about 6 min). R4b at 4 MiB would take hours.
+
+The worktree has local builds and scratch output under `build/` (gitignored): a copy of the main checkout's `build/antlr` and native sources, `build/tools/jolt-env.sh` pointing at the main checkout's shared jolt, and logs under `build/j5b-*`.

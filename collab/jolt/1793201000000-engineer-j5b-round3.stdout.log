@@ -1,0 +1,32 @@
+Completed-GMT: 2026-10-28 08:10:28 GMT
+Completed-Local: 2026-10-28 15:10:28 +0700
+Coding-Agent: claude
+Session-ID: a5c84655-a61f-4a23-9732-4d1bf8e23f3d
+
+# J5b round 3: the r3-not correction
+
+The correction is in and both macOS legs pass: the budget leg is ALL PASS and the below comparison is 13/13.
+
+## Changed files (round-3 delta only; nothing staged)
+- `src/dev/jolt_j5_budget.clj`: the `r3-not` 1,024 pair is out of the refusal loop. It now has its own parse check: three parses on one worker, the deepest rule frame read after each, then `x * 6`.
+- `src/dev/jolt_j5_below.cljc`: `"not-1024"` added to the `deep` map.
+- `src/dev/jolt_j5_run.clj`: the below count goes from 12 to 13 and the check label names the new source. The ruling didn't list this edit, but the count is asserted there, so without it the leg could not reach 13/13.
+
+## Counts (macOS arm64)
+- **Budget leg: ALL PASS, 0 FAIL.** The log shows 40 PASS lines: the ruling's 39 checks inside the child, plus the driver's own "child exited 0" line, which the ruling's count leaves out.
+  - Not-1024 parse check: `:yang.cst/ok` with a deepest rule frame of 1,038, all three times; `x * 6` then parses.
+  - The C1' refusal list is now seven sources, each 7/7: R1a, R1b, R2a, R2b, R3 exact, R3 scaled, bs-ternary 100,000.
+- **Below comparison: 13/13** with strict equality. The wall-time check also passes.
+
+  | source | jolt | JVM |
+  |---|---|---|
+  | not-1024 | 96 ms | 52 ms |
+  | r1c 10,000 | 7.3 s | 2.6 s |
+  | power 100,000 | 20.3 s | 8.7 s |
+  | r4 20,000 | 11.6 s | 3.7 s |
+
+## Notes
+- **Where `max_rule` comes from:** the ruling says it is read through `jolt_parser_budget`, but it is actually reported by the `jolt_parser_last_stats` test seam. I bound that seam in the budget script; the 1,038 assertion is exactly as ruled.
+- **No doc or ledger edits**, as the ruling says.
+- **cljstyle is not run:** my shell needs approval for it, so the orchestrator should run it.
+- **Linux legs:** the round-2 command list stands. Expect `probe:jolt-j5` to pass on shiva now that `r3-not` is a parse leg.

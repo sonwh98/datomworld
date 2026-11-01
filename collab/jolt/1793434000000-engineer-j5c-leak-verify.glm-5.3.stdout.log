@@ -1,0 +1,52 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Both sanitized harness binaries rebuilt fresh (00:59) from the fixed source. Current state:
+
+- **`bb build:jolt-native`** — done, exit 0.
+- **Sanitize soak (gate 2)** — harnesses rebuilt; ASan+UBSan then `leaks --atExit` phases at cycles 5 running in background.
+- **`bb calibrate:jolt-j5`** — running; 5/15 shape records `:ok true` so far.
+- Waiting on both before the wall-sensitive probe (load just decayed from the build spike; probe goes next on the quiet machine), then the leak legs at cycles 0/50/100 + a fresh pre-fix control.
+
+Both logs buffer until phase boundaries. Load is decaying (10 → from 30). Waiting on the three background gates; the wall-sensitive legs get a quiet-machine rerun if contention bites, per the established procedure.
+
+Sanitize and test restarted with 2-hour budgets. The probe waits for the test to finish (keeps its wall-sensitive legs clear of the sanitize build burst), then runs alone; the leak legs launch after the probe. Waiting on notifications.
+
+Both tasks healthy: sanitize in its ASan phase, test running with REPL children. Waiting for the test to complete before launching the probe.
+
+Repro verified firsthand: both refusal legs answer correctly on macOS (`3` after the refusal, exit 0) — the bare `3` line without the `yin> ` prompt is the pre-existing host divergence. Now waiting on the probe and sanitize soak; leak legs launch when they finish.
+
+All six leak-experiment tasks are running (four `leaks --atExit` legs in parallel, three ASan legs chained), alongside the sanitize soak's own leaks phase. Everything has 2-hour budgets.
+
+Status so far this round, all firsthand:
+
+| Gate | Result |
+|---|---|
+| `bb build:jolt-native` | exit 0 |
+| `bb calibrate:jolt-j5` | **15/15 `:ok true`, exit 0** |
+| `bb probe:jolt-j5` (all legs) | **57 PASS / 0 FAIL, exit 0, ALL PASS** (r1c-10000: 9.5 s/15 s; power-100000: 26.0 s/60 s) |
+| `bb test:jolt-j5` | exit 1, 2 PASS / 2 FAIL — the two known macOS prompt-shape legs, transcripts byte-identical to the prior round's log; substance re-verified by raw REPL repro (banner + refusal + bare `3` + exit 0) |
+| ASan LSan ask | "detect_leaks is not supported on this platform" (Apple clang) — recorded |
+
+Waiting on the leak legs to land before writing the Round 2 findings section.
+
+ASan-run leg 0: **exit 0, HARNESS ok** — the fixed harness is clean under ASan+UBSan. All four `leaks --atExit` legs and the remaining ASan legs are in flight. Waiting for completions.
+
+**fixed-leaks 50: 0 leaks for 0 total leaked bytes, HARNESS ok, exit 0.** First fixed leg landed clean. Waiting on the other three leaks legs and the ASan chain.
+
+Both legs still running (ASan-100 ~11 CPU-min in; the isolated control just entered its run phase). Waiting for their completion notifications before writing the Round 2 section.
+
+Isolated control is ~11 minutes in; it should land within the half hour. Waiting for its completion notification, then writing the Round 2 findings section with all final numbers.
+
+Round 2 complete. All gates verified firsthand and the "## Round 2 (verification)" section is appended to `collab/1793310000000-engineer-j5c-leak-fix.glm-5.3.findings.md` with the stamps filled (2026-10-30 20:43 UTC). Nothing committed — the two-file patch sits unchanged for the orchestrator.
+
+**Gate 1 — leak experiment → zero** (after `bb build:jolt-native`, exit 0; sanitized harnesses rebuilt from the fixed source):
+- `fixed-leaks` 0 / 50 / 100 via `leaks --atExit`: each **exit 0, HARNESS ok, 0 leaks / 0 total leaked bytes** — signature gone at every cycle count.
+- Pre-fix control (source re-verified diff-equal to HEAD): **exit 1, HARNESS ok**, stacks through `execATNWithFullContext → computeReachSet → closure_` — the exact signature. Isolated: 3,312 leaks / 234,240 B (reproduces round 1 exactly); beside five concurrent harnesses: 1,696 / 121,792 — the count is concurrency-sensitive (full-LL vs SLL routing), reported as an observation.
+- Apple ASan has no LSan ("detect_leaks is not supported on this platform" — recorded); ASan+UBSan at all three counts without the LSan ask: exit 0, HARNESS ok each.
+
+**Gate 2 — sanitizer soak**: `bb src/dev/jolt_j0c_sanitize.clj 5` **exit 0** — ASan+UBSan HARNESS ok; leaks-ON pass 0 leaks / 0 bytes (188 nodes, all reachable).
+
+**Gate 3 — J5 gates**: `probe:jolt-j5` **57 PASS / 0 FAIL, exit 0, ALL PASS** in a single run including both wall legs (r1c-10000 at 9.5 s/15 s); `calibrate:jolt-j5` **15/15 ok**; `test:jolt-j5` exit 1 with only the two known macOS prompt-shape legs — transcripts byte-identical to round 1, substance re-verified by raw REPL repro (also corrected round 1's "5 PASS" miscount: its log shows 2 PASS / 2 FAIL).
+
+**Gate 4**: no repo file touched; the one edited script (gitignored leg driver) is cljstyle-clean, no collab path in comments.
+
+**Residual leaks elsewhere: none** — every leaks-ON run of the fixed binary reported 0/0. One operational note in the findings: the first gate launches hit the 10-minute background cap and were killed; all reported numbers are from the 2-hour-budget restarts.
