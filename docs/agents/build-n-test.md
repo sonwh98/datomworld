@@ -621,12 +621,19 @@ scanner row took about 11-19 minutes on the JVM and about 79 minutes on Node
 
 ### Known differences from the laptop
 
-- **`dao.stream.datagram.dart-test/refusals-and-lifecycle-events` fails on Linux.**
-  The assertion "a bind on a taken port deposits bind-failed" gets no `bind-failed`
-  event. A second UDP bind on a taken port evidently behaves differently on Linux
-  than on macOS (inferred, not confirmed). The test is in `dao.stream`, which the
-  semantic-register slices do not touch: treat it as a known Linux-only failure,
-  not a regression, until it is fixed or guarded.
+- **`dao.stream.datagram.dart-test/refusals-and-lifecycle-events` on Linux —
+  MEASURED AND FIXED (2026-11-02).** The old entry inferred that "a second UDP bind on
+  a taken port behaves differently on Linux"; confirmed, with the cause. Dart's
+  `RawDatagramSocket.bind` defaults to `reuseAddress: true`, and **Linux honours
+  `SO_REUSEADDR` for UDP**, so a second bind to a port a reuse-enabled socket already
+  holds *succeeds* (`strace`: `SO_REUSEADDR=1` on both sockets, no `SO_REUSEPORT`, both
+  kernel `bind()` calls succeed); macOS refuses with errno 48. The seam was correct
+  throughout — given a genuinely exclusive holder (`reuseAddress: false`) it deposits
+  `bind-failed` in ~10 ms with errno 98. The test asserted one host's binding policy
+  rather than the contract, so it now binds its own exclusive blocker
+  (`RawDatagramSocket.bind "127.0.0.1" 0 .reuseAddress false .reusePort false`) and
+  points the seam at that port: the failure path is exercised on both hosts. Verified
+  on shiva: the namespace passes 5/5.
 - A JVM lane started before the Dart peer is built skips the Dart-peer tests with a
   printed notice. The script builds the peer first so they run.
 - Both hosts run other work (a QEMU guest and rustdesk on shiva); idle load is
