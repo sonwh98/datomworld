@@ -40,9 +40,12 @@
 
 
 (defn- psh
-  "p/shell with the mise-shims PATH forced into the child environment."
+  "p/shell with the mise-shims PATH forced into the child environment,
+   MERGED over any caller-supplied :extra-env. (assoc here silently dropped
+   DATOM_SLOW_TESTS, so the Dart lane skipped every guarded slow body while
+   reporting green — review finding, 2026-11-01.)"
   [opts & cmd]
-  (apply p/shell (assoc opts :extra-env {"PATH" child-path}) cmd))
+  (apply p/shell (update opts :extra-env #(merge {"PATH" child-path} %)) cmd))
 
 
 (defn cljd-namespaces
