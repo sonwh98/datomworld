@@ -2,10 +2,8 @@
   "P4 S8 generators, live iteration and protocol integration on the JVM."
   (:require
     [clojure.test :refer [deftest is testing]]
-    [yang.core.uast :as u]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.programs-p4 :as p4]
-    [yang.tails :as tails]
     [yin.vm :as vm]
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
@@ -91,29 +89,24 @@
 
 
 (defn- live-after-collection
+  "[live cell count, deep size of cell contents] after normal PHP completion
+   and collection with the suspended generator h as the only extra root. The
+   program's `$it->self = $it` cycle preserves h after module cleanup."
   [k source]
-  (let [lowered (:ast (h/lower-program source))
-        ;; Keep the normal unit entry point, but block its body before it
-        ;; returns to php/run-main and shutdown. This fresh stream has no
-        ;; producer, so h stays live and suspended in the captured heap.
-        blocker {:type :stream/next
-                 :source {:type :stream/cursor
-                          :source {:type :stream/make :buffer 1}}}
-        ast (tails/remark-tails
-              (update-in lowered [:operator :body :operands 0 :body]
-                         u/then blocker))
-        blocked ((get final-vms k) ast (vm/ast->datoms ast))]
-    (when (is (vm/blocked? blocked) (str k " blocked before shutdown"))
-      (let [roots (into []
-                        (keep (fn [[id {:keys [value seal]}]]
-                                (when (and (= "h" (get-in value [:gen :name]))
-                                           (= :suspended (get-in value [:gen :state])))
-                                  {:type :cell-ref :id id :seal seal})))
-                        (:heap blocked))]
-        (when (is (= 1 (count roots)) (str k " one suspended delegating generator"))
-          (let [heap (:heap (engine/collect blocked roots))]
-            [(count heap)
-             (deep-size (mapv :value (vals heap)))]))))))
+  (let [ast (:ast (h/lower-program source))
+        final ((get final-vms k) ast (vm/ast->datoms ast))
+        roots (into []
+                    (keep (fn [[id {:keys [value seal]}]]
+                            (when (and (= :obj (:php/type value))
+                                       (= "Generator" (:class value))
+                                       (= "h" (get-in value [:gen :name]))
+                                       (= :suspended (get-in value [:gen :state])))
+                              {:type :cell-ref, :id id, :seal seal})))
+                    (:heap final))]
+    (is (= 1 (count roots)) (str k " one suspended delegating generator h"))
+    (let [heap (:heap (engine/collect final roots))]
+      [(count heap)
+       (deep-size (mapv :value (vals heap)))])))
 
 
 (defn- changing-caller-source
