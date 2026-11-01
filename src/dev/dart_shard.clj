@@ -33,7 +33,7 @@
 (def subs
   "This host's assigned subsystems (NIGHTLY_SUBSYSTEMS overrides for a
    disjoint two-host split)."
-  (or (some->> (str/split (System/getenv "NIGHTLY_SUBSYSTEMS") #",")
+  (or (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
                (map str/trim)
                (remove str/blank?)
                seq)

@@ -35,7 +35,7 @@
    list) for a disjoint two-host split; the uncovered residual shard still
    enumerates against the FULL registry, so no namespace can silently drop
    when two hosts split the registry between them."
-  (or (some->> (str/split (System/getenv "NIGHTLY_SUBSYSTEMS") #",")
+  (or (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
                (map str/trim)
                (remove str/blank?)
                seq)
