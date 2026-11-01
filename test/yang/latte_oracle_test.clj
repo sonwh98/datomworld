@@ -16,6 +16,7 @@
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]
             [yang.clojure-test :as compiler-test]
+            [yang.core.call :as call]
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.module :as module]
@@ -165,6 +166,7 @@
                         yang/library-adapters)]
      (-> (module/default-registry)
          module/register-stream-module
+         module/register-cell-module
          data/register-data-module
          (host-module 'kind kinds yang/kind-arities)
          (host-module 'portable portable
@@ -197,19 +199,23 @@
   [ast program]
   (let [globals (into #{'yin/def}
                       (concat (keys vm/primitive-profiles)
+                              (map first call/definitions)
                               (for [form program :when (#{'def 'defn 'defn-} (first form))]
                                 (second form))
                               (for [[module exports] {'kind yang/kind-module
+                                                      'cell module/cell-module
                                                       'data data/data-module
                                                       'portable (into {} (map (fn [[_ v]] [(symbol (name v)) nil]))
-                                                                        yang/library-adapters)}
+                                                                      yang/library-adapters)}
                                     export (keys exports)]
                                 (symbol (str module) (name export)))))]
-    (letfn [(scan [node bound]
+    (letfn [(scan
+              [node bound]
               (case (:type node)
                 :variable (if (or (contains? globals (:name node))
                                   (contains? bound (:name node))) #{} #{(:name node)})
                 :literal #{}
+                :vm/current-continuation #{}
                 :lambda (scan (:body node) (into bound (:params node)))
                 :application (into (scan (:operator node) bound)
                                    (mapcat #(scan % bound)) (:operands node))
@@ -885,9 +891,11 @@
           [(context-upstream-form 'latte_kernel.proof 'elab-proof)]
           (map #(context-upstream-form 'latte_kernel.unparser %)
                '[unparse-term-once unparse-term-rec prod-impl-unparser])
-          '[(defn unparse [kernel term]
+          '[(defn unparse
+              [kernel term]
               (first (unparse-term-rec (:unparser-registry kernel) (unparser-order kernel) term)))
-            (defn install-fundamental-unparsers [kernel]
+            (defn install-fundamental-unparsers
+              [kernel]
               (register-unparser kernel :fundamental :prod-impl prod-impl-unparser))])))
 
 
@@ -1001,14 +1009,14 @@
 
 (deftest test-oracle-slice8-definition-kinds-and-delta
   (doseq [[ctor args term-args] [['->Definition '['d [] 0 'body #{} 'T {}]]
-                       ['->Definition '['opaque [] 0 'body #{} 'T {:opaque true}]]
-                       ['->Axiom '['a [] 0 'T]]
-                       ['->Theorem '['proved [] 0 'T 'proof]]
-                       ['->Theorem '['unproved [] 0 'T nil]]
-                       ['->Definition '['empty [] 0 nil #{} 'T {}]]
-                       ['->Definition '['param '[[x T]] 1 'x #{} 'T {}] ['arg]]
-                       ['->Definition '['partial '[[x T]] 1 'x #{} 'T {}]]
-                       ['->Definition '['too-many [] 0 'body #{} 'T {}] ['arg]]]
+                                 ['->Definition '['opaque [] 0 'body #{} 'T {:opaque true}]]
+                                 ['->Axiom '['a [] 0 'T]]
+                                 ['->Theorem '['proved [] 0 'T 'proof]]
+                                 ['->Theorem '['unproved [] 0 'T nil]]
+                                 ['->Definition '['empty [] 0 nil #{} 'T {}]]
+                                 ['->Definition '['param '[[x T]] 1 'x #{} 'T {}] ['arg]]
+                                 ['->Definition '['partial '[[x T]] 1 'x #{} 'T {}]]
+                                 ['->Definition '['too-many [] 0 'body #{} 'T {}] ['arg]]]
           ns-sym ['latte_kernel.nbe 'latte_kernel.norm]
           :let [record (apply (upstream-fn (symbol "latte-kernel.defenv" (name ctor))) (map eval args))
                 name (:name record)
@@ -1023,15 +1031,15 @@
   (testing "all five explicit predicates distinguish plain maps and each other"
     (is (= [:yin.k/ok [true true true true true false false]]
            (context-bc []
-             '(let [n (->Notation 'n (fn [x] x)) i (->Implicit 'i (fn [k ctx x] x))]
-                [(definition? (->Definition 'd [] 0 'b #{} 'T {}))
-                 (theorem? (->Theorem 't [] 0 'T nil)) (axiom? (->Axiom 'a [] 0 'T))
-                 (notation? n) (implicit? i) (definition? n) (latte-definition? {})])))))
+                       '(let [n (->Notation 'n (fn [x] x)) i (->Implicit 'i (fn [k ctx x] x))]
+                          [(definition? (->Definition 'd [] 0 'b #{} 'T {}))
+                           (theorem? (->Theorem 't [] 0 'T nil)) (axiom? (->Axiom 'a [] 0 'T))
+                           (notation? n) (implicit? i) (definition? n) (latte-definition? {})])))))
   (testing "notation extension functions execute inside the guest"
     (let [a ((:notation-fn ((upstream-fn 'latte-kernel.defenv/->Notation) 'n (fn [x] ['expanded x]))) 7)]
       (is (= [:yin.k/ok a]
              (context-bc [] '(let [n (->Notation 'n (fn [x] ['expanded x]))]
-                              ((:notation-fn n) 7))))))))
+                               ((:notation-fn n) 7))))))))
 
 
 (def ^:private slice8-sequences
@@ -1039,11 +1047,13 @@
 
 
 (def ^:private registry-replay
-  '[(defn registry-snapshot [k]
+  '[(defn registry-snapshot
+      [k]
       (let [r (:unparser-registry k)]
         [(:fundamental r) (:standard r) (:user r) (into #{} (keys (:unparsers r)))
          (unparse k 'x)]))
-    (defn replay-registry [k operations]
+    (defn replay-registry
+      [k operations]
       (loop [k k operations operations snapshots [(registry-snapshot k)]]
         (if (seq operations)
           (let [[op a b c] (first operations)
@@ -1091,12 +1101,12 @@
   (testing "prior contexts retain closure-containing registries"
     (is (= [:yin.k/ok ['changed 'x 'x]]
            (context-bc []
-             (list 'let ['k0 initial-context
-                         'k1 '(register-unparser k0 :u (fn [t] ['changed true]))
-                         'k2 '(unregister-unparser k1 :u)]
-                   '[(unparse k1 'x) (unparse k0 'x) (unparse k2 'x)])))))
+                       (list 'let ['k0 initial-context
+                                   'k1 '(register-unparser k0 :u (fn [t] ['changed true]))
+                                   'k2 '(unregister-unparser k1 :u)]
+                             '[(unparse k1 'x) (unparse k0 'x) (unparse k2 'x)])))))
   (doseq [[host-call guest-call] [['latte-kernel.unparser/unregister-unparser! '(unregister-unparser K :absent)]
-                                 ['latte-kernel.unparser/register-unparser! '(register-unparser K :bad :x (fn [t] [t false]))]]]
+                                  ['latte-kernel.unparser/register-unparser! '(register-unparser K :bad :x (fn [t] [t false]))]]]
     (let [a (if (= host-call 'latte-kernel.unparser/unregister-unparser!)
               (a-leg (upstream-fn host-call) [:absent])
               (a-leg (upstream-fn host-call) [:bad :x identity]))
@@ -1105,10 +1115,12 @@
 
 
 (def ^:private opacity-replay
-  '[(defn opacity-snapshot [k]
+  '[(defn opacity-snapshot
+      [k]
       [(is-opaque? (second (fetch-definition k 'd)))
        (nbe-delta k [] '(d)) (norm-delta k [] '(d))])
-    (defn replay-opacity [k operations]
+    (defn replay-opacity
+      [k operations]
       (loop [k k operations operations snapshots [(opacity-snapshot k)]]
         (if (seq operations)
           (let [[status [next-k ctx deps uses]]
@@ -1134,7 +1146,7 @@
                               ((upstream-fn 'latte-kernel.norm/delta-reduction) [{} {}] [] '(d))])]
               (reduce (fn [snapshots op]
                         ((upstream-fn (if (= :opaque op) 'latte-kernel.proof/elab-opaque
-                                        'latte-kernel.proof/elab-transparent)) [{} {}] '[d])
+                                          'latte-kernel.proof/elab-transparent)) [{} {}] '[d])
                         (conj snapshots (snapshot)))
                       [(snapshot)] operations)))))
       (finally (remove-ns ns-sym)))))
@@ -1149,16 +1161,16 @@
   (testing "local shadowing is updated in place; old/global contexts stay transparent"
     (is (= [:yin.k/ok [[nil ['global true]] [true ['(d) false]] [nil ['global true]]]]
            (context-bc []
-             (list 'let ['base initial-context
-                         'global '(register-definition base (->Definition 'd [] 0 'global #{} 'T {}))
-                         'local '(register-definition global (->Definition 'd [] 0 'local #{} 'T {}) true)
-                         'opaque '(elab-opaque local '[d])]
-                   '[(vector (is-opaque? (second (fetch-definition global 'd)))
-                             (nbe-delta global [] '(d)))
-                     (vector (is-opaque? (second (fetch-definition opaque 'd)))
-                             (nbe-delta opaque [] '(d)))
-                     (vector (is-opaque? (second (fetch-definition global 'd)))
-                             (nbe-delta global [] '(d)))])))))
+                       (list 'let ['base initial-context
+                                   'global '(register-definition base (->Definition 'd [] 0 'global #{} 'T {}))
+                                   'local '(register-definition global (->Definition 'd [] 0 'local #{} 'T {}) true)
+                                   'opaque '(elab-opaque local '[d])]
+                             '[(vector (is-opaque? (second (fetch-definition global 'd)))
+                                       (nbe-delta global [] '(d)))
+                               (vector (is-opaque? (second (fetch-definition opaque 'd)))
+                                       (nbe-delta opaque [] '(d)))
+                               (vector (is-opaque? (second (fetch-definition global 'd)))
+                                       (nbe-delta global [] '(d)))])))))
   (testing "duplicate transitions fail, and the context's original definition remains"
     (doseq [[flag step message] [[true :opaque ":opaque fails: definition is already opaque"]
                                  [false :transparent ":transparent fails: definition is not opaque"]]]
@@ -1172,15 +1184,16 @@
     (doseq [step [:print-term :print-type :print-def :print-defenv]]
       (is (= [:yin.k/ok [0 [{} {}]]]
              (context-bc []
-               (list 'let ['result (list 'elab-proof-step initial-context [] [] {} step [])
-                           'k '(first (second result))]
-                     '[(:fresh k) (:definitions k)])))))))
+                         (list 'let ['result (list 'elab-proof-step initial-context [] [] {} step [])
+                                     'k '(first (second result))]
+                               '[(:fresh k) (:definitions k)])))))))
 
 
 (def ^:private host-constant-unfold
   ;; This admitted typed boundary is checked against the ACTUAL upstream
   ;; typing/unfold-implicit, using only host-constant arguments (no inference).
-  '[(defn unfold-host-constants [kernel ctx ddef args]
+  '[(defn unfold-host-constants
+      [kernel ctx ddef args]
       (unfold-typed-implicit kernel ctx ddef (mapv second args) (mapv second args)))])
 
 
@@ -1191,9 +1204,9 @@
           args '([:latte-kernel.presyntax/host-constant 7])
           a ((upstream-fn 'latte-kernel.typing/unfold-implicit) [{} {}] [] implicit args)
           c (context-bc host-constant-unfold
-              (list 'let ['k (list 'install-unfold-implicit initial-context 'unfold-host-constants)
-                          'i (list '->Implicit ''i fn-form)]
-                    (list 'unfold-host-constants 'k [] 'i (list 'quote args))))]
+                        (list 'let ['k (list 'install-unfold-implicit initial-context 'unfold-host-constants)
+                                    'i (list '->Implicit ''i fn-form)]
+                              (list 'unfold-host-constants 'k [] 'i (list 'quote args))))]
       (is (= [:yin.k/ok a] c) "actual upstream catch and argument assembly, A/B/C")))
   (let [norm-binding (upstream-fn 'latte-kernel.norm/+unfold-implicit+)
         nbe-binding (upstream-fn 'latte-kernel.nbe/+unfold-implicit+)
@@ -1222,23 +1235,47 @@
   (testing "extension installation is isolated and old bindings retain their value"
     (is (= [:yin.k/ok [true false true]]
            (context-bc []
-             (list 'let ['k0 initial-context
-                         'k1 '(install-unfold-implicit k0 (fn [k ctx d args] [:ok 'installed args]))
-                         'k2 '(install-opacity-function k1 missing-opacity-policy)]
-                   '[(= (:unfold-implicit k0) missing-unfold-implicit)
-                     (= (:unfold-implicit k1) (:unfold-implicit k0))
-                     (= (:opacity-policy k0) definition-opacity)]))))))
+                       (list 'let ['k0 initial-context
+                                   'k1 '(install-unfold-implicit k0 (fn [k ctx d args] [:ok 'installed args]))
+                                   'k2 '(install-opacity-function k1 missing-opacity-policy)]
+                             '[(= (:unfold-implicit k0) missing-unfold-implicit)
+                               (= (:unfold-implicit k1) (:unfold-implicit k0))
+                               (= (:opacity-policy k0) definition-opacity)]))))))
+
+
+(defn- assert-machine-data-within-budget!
+  "Bound recursive validation work, which the VM instruction budget cannot
+   interrupt. Throw outside `is` so exhaustion also stops UCF reconstruction."
+  [value limit]
+  (let [visits (volatile! 0)
+        check vm/machine-data?
+        valid? (with-redefs [vm/machine-data?
+                             (fn [x]
+                               (when (> (vswap! visits inc) limit)
+                                 (throw (ex-info "Machine-data validation budget exhausted"
+                                                 {:visits @visits :limit limit})))
+                               (check x))]
+                 (vm/machine-data? value))]
+    (is valid?)
+    (is (<= @visits limit) "descriptor environments have bounded validation work")))
 
 
 (deftest test-oracle-slice8-context-reconstruction
   (let [program [(list 'let ['checkpoint
-                              (list 'let ['base initial-context 'offset 4]
-                                    '(register-unparser base :captured
-                                       (fn [term] [(+ offset term) true])))]
-                        '(unparse checkpoint 3))]
+                             (list 'let ['base initial-context 'offset 4]
+                                   '(register-unparser base :captured
+                                                       (fn [term] [(+ offset term) true])))]
+                       '(unparse checkpoint 3))]
         forms (into (context-for program) program)
         ast (yang/compile-program (into (yang/library-for forms) forms) true arg-vector-opts)
-        modules (oracle-registry yang/kind-module)]
+        modules (oracle-registry yang/kind-module)
+        run-bounded (fn [machine]
+                      (loop [m machine n 0]
+                        (cond
+                          (vm/halted? m) (vm/value m)
+                          (= n 1000000)
+                          (throw (ex-info "Context execution budget exhausted" {:steps n}))
+                          :else (recur (vm/step m) (inc n)))))]
     (is (vm/plain-data? context-source) "adaptation is plain code data")
     (is (vm/plain-data? ast) "runtime closures are never embedded as literals")
     (testing "code rows round-trip and reconstruct the closure registry on both lanes"
@@ -1259,23 +1296,26 @@
                            (throw (ex-info "Context checkpoint was not reached" {:steps n}))
                            :else (recur (vm/step m) (inc n))))
             k (get-in checkpoint [:env 'checkpoint])
-            _ (is (values/closure? (get-in k [:unparser-registry :unparsers :captured])))
-            _ (is (vm/machine-data? k))
+            _ (is (values/closure? (get-in k [:unparser-registry :unparsers :captured
+                                              :yang.call/entry])))
+            _ (assert-machine-data-within-budget! k 100000)
             wire (rows/lift-task checkpoint (rows-support/serve-table) {:source-index source-index})
             _ (is (vm/plain-data? wire) "serialized context contains code references, not host closures")
             {:keys [attach!]} (rows-support/attacher)
             restored (rows/lower-task (rows-support/new-machine {:modules modules})
-                                     (cbor/decode (cbor/encode wire)) attach!)
+                                      (cbor/decode (cbor/encode wire)) attach!)
             k' (get-in restored [:env 'checkpoint])]
-        (is (values/closure? (get-in k' [:unparser-registry :unparsers :captured])))
-        (is (= [:yin.k/ok 7] (vm/value (vm/run restored))))
-        (is (= [:yin.k/ok 7] (vm/value (vm/run checkpoint)))))))
+        (is (values/closure? (get-in k' [:unparser-registry :unparsers :captured
+                                         :yang.call/entry])))
+        (assert-machine-data-within-budget! k' 100000)
+        (is (= [:yin.k/ok 7] (run-bounded restored)))
+        (is (= [:yin.k/ok 7] (run-bounded checkpoint))))))
   (testing "host callbacks cannot enter code data through registry literals"
     (is (thrown? Exception
-                 (encoder/project
-                   (encoder/source-envelope
-                     :program "slice8-host-callback-refusal"
-                     [{:type :literal :value {:unparser-registry {:unparsers {:bad identity}}}}]))))))
+          (encoder/project
+            (encoder/source-envelope
+              :program "slice8-host-callback-refusal"
+              [{:type :literal :value {:unparser-registry {:unparsers {:bad identity}}}}]))))))
 
 
 (deftest test-oracle-slice8-admission
@@ -1290,28 +1330,28 @@
   (testing "context modules reject host namespace and Var operations at admission"
     (doseq [call ['(resolve 'clojure.core/map) '(var? 5)]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unadmitted context dependencies"
-                           (run-outcome [] call (oracle-registry yang/kind-module) true))))))
+            (run-outcome [] call (oracle-registry yang/kind-module) true))))))
 
 
 (deftest test-oracle-slice8-implicit-delta-errors
   (let [fail-form '(fn [kernel ctx x]
-                    (throw (ex-info "extension failed" {:msg "data wins" :extra 7})))
+                     (throw (ex-info "extension failed" {:msg "data wins" :extra 7})))
         implicit ((upstream-fn 'latte-kernel.defenv/->Implicit) 'i (eval fail-form))
         env ((upstream-fn 'latte-kernel.defenv/register-definition) [{} {}] implicit)
         term '(i [:latte-kernel.presyntax/host-constant 7])]
     (doseq [[a-name c-name] [['latte-kernel.nbe/delta-reduction 'nbe-delta]
                              ['latte-kernel.norm/delta-reduction 'norm-delta]]]
       (let [a (with-redefs-fn {(upstream-fn 'latte-kernel.norm/+unfold-implicit+) (atom nil)
-                              (upstream-fn 'latte-kernel.nbe/+unfold-implicit+) (atom nil)}
+                               (upstream-fn 'latte-kernel.nbe/+unfold-implicit+) (atom nil)}
                 (fn []
                   ((upstream-fn 'latte-kernel.norm/install-unfold-implicit!)
                    (upstream-fn 'latte-kernel.typing/unfold-implicit))
                   (a-leg (upstream-fn a-name) [env [] term])))
             c (context-bc host-constant-unfold
-                (list 'let ['k (list 'register-definition
-                                     (list 'install-unfold-implicit initial-context 'unfold-host-constants)
-                                     (list '->Implicit ''i fail-form))]
-                      (list c-name 'k [] (list 'quote term))))]
+                          (list 'let ['k (list 'register-definition
+                                               (list 'install-unfold-implicit initial-context 'unfold-host-constants)
+                                               (list '->Implicit ''i fail-form))]
+                                (list c-name 'k [] (list 'quote term))))]
         (is (agrees? a c))))))
 
 
@@ -1324,7 +1364,7 @@
       (intern sandbox 'd ddef)
       (binding [*ns* sandbox]
         (with-redefs-fn {(upstream-fn 'latte-kernel.proof/+opacity-fn+)
-                        (atom (fn [v flag] (alter-var-root v assoc-in [:opts :opaque] flag)))}
+                         (atom (fn [v flag] (alter-var-root v assoc-in [:opts :opaque] flag)))}
           #(a-leg (upstream-fn 'latte-kernel.proof/elab-proof) [[{} {}] [] script])))
       (finally (remove-ns ns-sym)))))
 
@@ -1336,7 +1376,7 @@
                     '((:opaque d) (:transparent d) (:transparent d))]]
       (let [a (a-opacity-proof script)
             c (context-bc []
-                (list 'elab-proof
-                      (list 'register-definition initial-context '(->Definition 'd [] 0 'body #{} 'T {}))
-                      [] (list 'quote script)))]
+                          (list 'elab-proof
+                                (list 'register-definition initial-context '(->Definition 'd [] 0 'body #{} 'T {}))
+                                [] (list 'quote script)))]
         (is (agrees? a c) "A uses updated Vars; B/C use the returned definition environment")))))
