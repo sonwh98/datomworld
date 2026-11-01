@@ -2075,13 +2075,6 @@
 (def ^:private require-node core-module/require-node)
 
 
-(defn- calls-yang-call?
-  [ast]
-  (some (fn [n]
-          (and (symbol? n) (= "yang.call" (namespace n))))
-        (prelude/free-names ast)))
-
-
 (def module-exports
   "The exports of a compiled Python unit: its spec and body, immutable
    after install (docs/design/yang.antlr.md 8.5.6's module shape)."
@@ -2103,10 +2096,11 @@
 
 (defn module-packet
   "One ok packet as the linker module `pym.<mangled>`: one wide
-   application requiring `yang.call` first when the body reads that
-   convention, then `py`, then defining spec and body. Guest imports deliver
-   at statement time; module-spec
-   still pins every static import. `name` is
+   application requiring `yang.call` first, then `py`, then defining spec
+   and body. Every Python body can call through `py/call-kw`, whose runtime
+   dispatch uses `yang.call`, so the dependency is unconditional. Guest
+   imports deliver at statement time; module-spec still pins every static
+   import. `name` is
    the dotted Python module name and `package?` (default false) whether
    the unit is a package, which is source layout, not derivable from
    rows: the spec records both, the runtime derives `__package__` from
@@ -2119,10 +2113,8 @@
         body (u/lam [globals-sym globals-fn-sym]
                     (lower-module-body packet unit))
         defs [(u/def! 'spec (u/lit unit)) (u/def! 'body body)]
-        operands (into (vec (concat (when (calls-yang-call? body)
-                                      [(require-node 'yang.call)])
-                                    [(require-node prelude/module-name)]))
-                       defs)
+        operands (into [(require-node 'yang.call)
+                        (require-node prelude/module-name)] defs)
         params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
     (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
 
@@ -2166,9 +2158,8 @@
      :exports module-exports,
      :runtime-name prelude/module-name,
      :runtime-address py-address,
-     :deps (cond-> (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)
-             (calls-yang-call? (module-packet packet {:name name, :package? package?}))
-             (assoc 'yang.call call-address))}))
+     :deps (assoc (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)
+                  'yang.call call-address)}))
 
 
 (def ^:private module-tree core-module/module-tree)
@@ -2208,8 +2199,9 @@
   "Canonical I5 construction: sorted members, indexed bare exports
    m0-spec/m0-body, etc.; one pyscc.<mangled-members> bundle followed by
    aliases in member order. Internal deliveries read those exports without
-   requiring aliases. The bundle pins py, yang.call when a body reads it,
-   and outgoing imports.
+   requiring aliases. The bundle pins py, yang.call, and outgoing imports:
+   every member can call through py/call-kw, whose runtime dispatch uses
+   yang.call.
    Alias :requires is filled with the bundle address after publication."
   [registry units py-address call-address deps]
   (doseq [{:keys [name]} units]
@@ -2278,10 +2270,9 @@
         ;; The linker discharges body reads only when their definitions
         ;; precede every module-level application site. Install the pure
         ;; sibling bindings before require; defining the lambdas runs no py.
-        needs-call? (some calls-yang-call? wrapped-bodies)
         ast (module-tree (concat spec-defs
                                  body-defs
-                                 (when needs-call? [(require-node 'yang.call)])
+                                 [(require-node 'yang.call)]
                                  [(require-node prelude/module-name)]))
         exports (set (mapcat val keys-for))
         bundle (core-module/module-spec
@@ -2292,8 +2283,8 @@
                   :exports exports,
                   :runtime-name prelude/module-name,
                   :runtime-address py-address,
-                  :deps (cond-> (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)
-                          needs-call? (assoc 'yang.call call-address))})
+                  :deps (assoc (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)
+                               'yang.call call-address)})
         require-profile (vm/profile-of vm/primitives 'require)]
     (core-module/scc-module-specs
       bundle

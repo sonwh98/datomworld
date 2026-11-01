@@ -4,8 +4,9 @@
    loop are `yang.core.publication`'s; this namespace supplies the Python
    hooks: the imports `lower/imported-module-names` hoists, the
    `lower/module-spec` and `lower/scc-module-specs` emitters, the I7 site
-   set, and no binder table. Source modules that read `yang.call` pin the
-   address from the published `py` module's requirements.
+   set, and no binder table. Every Python module pins the `yang.call`
+   address from the published `py` module's requirements because its
+   runtime call path uses that dispatcher.
    Name assertions stay the linker's (`yin.vm.linker.publish/assertion`
    and `name-envelopes`): this namespace publishes content, it signs
    nothing."
