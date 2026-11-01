@@ -1623,6 +1623,19 @@
                             (+ i 1)
                             n))
          acc))]
+    [php/unshift-spread-loop
+     ;; array_unshift rebuilds numeric keys but carries reference slots with
+     ;; their elements, so an active by-reference foreach can follow its slot.
+     (fn [acc v i n]
+       (if (< i n)
+         (let [k (get (php/array-order v) i)
+               x (php/slot-get v k)]
+           (php/unshift-spread-loop
+             (if (php/int? k) (php/array-append acc x) (php/array-set acc k x))
+             v
+             (+ i 1)
+             n))
+         acc))]
     [php/array-spread
      (fn [acc v]
        (if (= (php/kind v) :array)
@@ -2287,14 +2300,31 @@
      ;; by-reference foreach: is there an element at ordinal `i` of the array now?
      (fn [tbl i] (if (php/array? tbl) (< i (php/array-count tbl)) false))]
     [php/fe-key (fn [tbl i] (get (php/array-order tbl) i))]
+    [php/fe-ref-index
+     ;; Find a by-reference foreach element after a key-reindexing mutation.
+     ;; The marker cell, unlike its old numeric key, moves with the element.
+     (fn [tbl marker i n]
+       (if (< i n)
+         (let [raw (php/slot-get tbl (get (php/array-order tbl) i))]
+           (if (if (= (php/slot-kind raw) :ref-marker)
+                 (= (php/cell-id raw) (php/cell-id marker))
+                 false)
+             i
+             (php/fe-ref-index tbl marker (+ i 1) n)))
+         nil))]
     [php/fe-next
-     ;; the ordinal after `key` in the array as the body left it; an element
-     ;; the body unset leaves the ordinal where its successor now sits
-     (fn [tbl key i]
+     ;; Resume after the current element in the array as the body left it.
+     ;; Track its reference marker across key-reindexing mutations such as
+     ;; array_unshift; if the body unset it, retain the old ordinal so its
+     ;; successor now occupying that ordinal is visited.
+     (fn [tbl key marker i]
        (if (php/array? tbl)
-         (let [order (php/array-order tbl)
-               j (php/name-index order key 0 (data/count order))]
-           (if (nil? j) i (+ j 1)))
+         (let [n (php/array-count tbl)
+               j (php/fe-ref-index tbl marker 0 n)]
+           (if (nil? j)
+             (let [by-key (php/name-index (php/array-order tbl) key 0 n)]
+               (if (nil? by-key) i (+ by-key 1)))
+             (+ j 1)))
          i))]
     [php/list-get
      ;; one destructuring read: a missing key warns, a non-array answers null
@@ -4723,7 +4753,7 @@
        (do (php/arity-between "array_unshift" args 1 1000000 "at least 1")
            (let [arr (php/arg-array (get args 0) "array_unshift" 1 "array")
                  head (php/push-loop (php/empty-array) args 1 (data/count args))
-                 res (php/spread-loop head arr 0 (php/array-count arr))]
+                 res (php/unshift-spread-loop head arr 0 (php/array-count arr))]
              (php/out1 (php/array-count res) res))))]
 
     ;; ---------------------------------------------------------------- sorting

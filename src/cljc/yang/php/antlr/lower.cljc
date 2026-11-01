@@ -2460,6 +2460,7 @@
                                                              (app* 'php/fe-next
                                                                    (peek-loc ctx sl)
                                                                    (u/v key)
+                                                                   (u/v m)
                                                                    (u/v i))))))))]
           (u/then
             (app* 'php/foreach-array (peek-loc ctx sl))
