@@ -49,8 +49,9 @@ RUN curl -sL "https://github.com/babashka/babashka/releases/download/v${BABASHKA
 
 # Node (pinned)
 RUN curl -sL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
- | tar xJ -C /usr/local --strip-components=1 --wildcards "node-v*/bin/node" "node-v*/bin/npm" "node-v*/bin/npx" "node-v*/lib/*" "node-v*/include/*" "node-v*/share/*" \
- && npm --version
+ | tar xJ -C /usr/local --strip-components=1 \
+ && ln -sf /usr/local/bin/node /usr/local/bin/nodejs \
+ && node --version && npm --version
 
 # Flutter (pinned stable) — test-only use; no linux-desktop toolchain needed
 RUN curl -sL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}.tar.xz" \
