@@ -337,28 +337,80 @@
     (is (not (phpt/selected-path? "ext/standard/tests/strings/sprintf_basic1.phpt")))))
 
 
+(defn- run-phpt-selection
+  [label entries]
+  (let [results (for [{:keys [id source expect expectf]} entries
+                      :let [r (engine-result source)]]
+                  (cond
+                    (:refused r) [:unsupported id]
+                    (:threw r) [:fail id]
+                    (phpt/matches-expect?
+                      (cond-> {} expect (assoc "EXPECT" expect) expectf (assoc "EXPECTF" expectf))
+                      (str (:out r)
+                           (when (:uncaught r)
+                             (str "Fatal error: Uncaught " (:class (:uncaught r)) ": "
+                                  (:message (:uncaught r))))))
+                    [:pass id]
+                    :else [:fail id]))
+        by (group-by first results)]
+    (println label (count entries) "entries;"
+             "pass" (count (:pass by)) "unsupported" (count (:unsupported by))
+             "fail" (count (:fail by)))
+    (is (empty? (:fail by)) (pr-str (take 5 (:fail by))))))
+
+
 (deftest phpt-selection-runs-test
   (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
-    (let [entries (remove :needs (:entries sel))
-          results (for [{:keys [id source expect expectf]} entries
-                        :let [r (engine-result source)]]
-                    (cond
-                      (:refused r) [:unsupported id]
-                      (:threw r) [:fail id]
-                      (phpt/matches-expect?
-                        (cond-> {} expect (assoc "EXPECT" expect) expectf (assoc "EXPECTF" expectf))
-                        (str (:out r)
-                             (when (:uncaught r)
-                               (str "Fatal error: Uncaught " (:class (:uncaught r)) ": "
-                                    (:message (:uncaught r))))))
-                      [:pass id]
-                      :else [:fail id]))
-          by (group-by first results)]
-      (println "php-src selection:" (count (:entries sel)) "entries;"
-               "pass" (count (:pass by)) "unsupported" (count (:unsupported by))
-               "fail" (count (:fail by)))
-      (is (empty? (:fail by)) (pr-str (take 5 (:fail by)))))
+    (let [entries (remove #(or (:needs %) (:slow %)) (:entries sel))]
+      (run-phpt-selection "php-src quick selection:" entries))
     (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
+
+
+(defn- run-phpt-stress-case
+  [id]
+  (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
+    (if-let [entry (first (filter #(= id (:id %)) (:entries sel)))]
+      (do
+        (is (:slow entry) (str id " must stay in the slow tier"))
+        (run-phpt-selection (str "php-src slow stress " id ":") [entry]))
+      (is false (str "missing PHPT stress case " id)))
+    (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
+
+
+(deftest ^:slow phpt-gc-013-stress-test
+  (run-phpt-stress-case "Zend/tests/gc_013.phpt"))
+
+
+(deftest ^:slow phpt-gc-023-stress-test
+  (run-phpt-stress-case "Zend/tests/gc_023.phpt"))
+
+
+(deftest ^:slow phpt-bug39438-stress-test
+  (run-phpt-stress-case "Zend/tests/bug39438.phpt"))
+
+
+(deftest ^:slow phpt-bug40261-stress-test
+  (run-phpt-stress-case "Zend/tests/bug40261.phpt"))
+
+
+(deftest ^:slow phpt-bug40809-stress-test
+  (run-phpt-stress-case "Zend/tests/bug40809.phpt"))
+
+
+(deftest ^:slow phpt-bug44069-stress-test
+  (run-phpt-stress-case "Zend/tests/bug44069.phpt"))
+
+
+(deftest ^:slow phpt-bug63055-stress-test
+  (run-phpt-stress-case "Zend/tests/bug63055.phpt"))
+
+
+(deftest ^:slow phpt-gc-012-stress-test
+  (run-phpt-stress-case "Zend/tests/gc_012.phpt"))
+
+
+(deftest ^:slow phpt-bug64660-stress-test
+  (run-phpt-stress-case "Zend/tests/bug64660.phpt"))
 
 
 (deftest gate-fix-programs-test
