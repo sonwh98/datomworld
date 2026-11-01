@@ -30,7 +30,10 @@ RESULTS="${NIGHTLY_RESULTS:-/results}"
 ROLE="${ROLE:-publish}"
 REPO=/repo-src
 
-export GIT_SSH_COMMAND="ssh -i $(find /run/ssh -type f ! -name '*.pub' | head -1) -o StrictHostKeyChecking=accept-new"
+KEY=$(find /run/ssh -maxdepth 1 -type f \
+       \( -name "id_ed25519" -o -name "id_rsa" -o -name "id_ecdsa" \) | head -1)
+[ -n "$KEY" ] || { echo "no private key found under /run/ssh"; exit 1; }
+export GIT_SSH_COMMAND="ssh -i $KEY -o StrictHostKeyChecking=accept-new"
 
 echo "entrypoint: cloning $REPO_URL at $SHA (role=$ROLE)"
 git clone --no-checkout --quiet "$REPO_URL" /tmp/src
