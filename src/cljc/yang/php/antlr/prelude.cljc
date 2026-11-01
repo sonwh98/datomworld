@@ -71,6 +71,7 @@
     [clojure.string :as str]
     [clojure.walk :as walk]
     [yang.core.prelude :as core]
+    [yang.core.call :as call]
     [yang.core.uast :as u]
     [yang.php.antlr.builtins :as builtins]
     [yang.php.antlr.prelude-module :as module-defs]
@@ -80,16 +81,17 @@
 
 (def host-names
   "Module exports the prelude calls."
-  '#{cell/new cell/get cell/set! data/count data/subvec data/str-concat
-     data/str-length data/str-join data/str-compare data/str->code-points
-     data/code-points->str data/substring data/float64 data/float-value
-     data/content= data/number? data/dissoc data/into
-     integer/add integer/sub integer/neg integer/mul integer/compare
-     integer/to-float integer/compare-float integer/true-div integer/pow
-     integer/shift-left integer/shift-right integer/bit-and integer/bit-or
-     integer/bit-xor integer/bit-not integer/from-float integer/quot-rem
-     integer/floor-div-mod integer/format integer/parse
-     integer/float-digits integer/decimal->float})
+  (into '#{cell/new cell/get cell/set! data/count data/nth data/subvec data/str-concat
+           data/str-length data/str-join data/str-compare data/str->code-points
+           data/code-points->str data/substring data/float64 data/float-value
+           data/content= data/number? data/dissoc data/into
+           integer/add integer/sub integer/neg integer/mul integer/compare
+           integer/to-float integer/compare-float integer/true-div integer/pow
+           integer/shift-left integer/shift-right integer/bit-and integer/bit-or
+           integer/bit-xor integer/bit-not integer/from-float integer/quot-rem
+           integer/floor-div-mod integer/format integer/parse
+           integer/float-digits integer/decimal->float}
+        call/host-names))
 
 
 (defquoted ^:private core-definitions
@@ -1006,19 +1008,21 @@
     [php/spaceship (fn [a b] (php/cmp a b))]
     [php/identical
      (fn [a b]
-       (let [ka (php/kind a)]
-         (if (= ka (php/kind b))
-           (if (= ka :int)
-             (= (integer/compare a b) 0)
-             (if (= ka :float)
-               (= (php/h a) (php/h b))
-               (if (= ka :array)
-                 (if (= (php/array-count a) (php/array-count b))
-                   (do (php/nest-enter!)
-                       (php/nest-leave! (php/identical-pairs a b 0 (php/array-count a))))
-                   false)
-                 (= a b))))
-           false)))]
+       (if (not (nil? (yang.call/entry a)))
+         (= a b)
+         (let [ka (php/kind a)]
+           (if (= ka (php/kind b))
+             (if (= ka :int)
+               (= (integer/compare a b) 0)
+               (if (= ka :float)
+                 (= (php/h a) (php/h b))
+                 (if (= ka :array)
+                   (if (= (php/array-count a) (php/array-count b))
+                     (do (php/nest-enter!)
+                         (php/nest-leave! (php/identical-pairs a b 0 (php/array-count a))))
+                     false)
+                   (= a b))))
+             false))))]
     [php/identical-pairs
      (fn [a b i n]
        (if (< i n)
@@ -2230,22 +2234,28 @@
            (php/throw-error "Error"
                             (data/str-concat "Call to undefined function "
                                              written "()"))
-           f)))]
+           (if (yang.call/eligible? f)
+             f
+             (php/throw-error "Error"
+                              (data/str-concat "Call to undefined function "
+                                               written "()"))))))]
     [php/call
      (fn [f args]
-       ((get (cell/get f) :yang.call/entry)
-        (assoc (assoc (assoc (assoc {} :yang.call/callee f)
-                             :yang.call/positional args)
-                      :yang.call/named [])
-               :yang.call/raise (fn [condition] (php/raise condition)))))]
+       (yang.call/invoke f args []
+                         (fn [condition]
+                           (if (= (get condition :yang.call/reason)
+                                  :yang.call/not-callable)
+                             (php/throw-error "Error" "Value not callable")
+                             (php/raise condition)))))]
     [php/call-with-binding-profile
      (fn [f args named binding-profile]
-       ((get (cell/get f) :yang.call/entry)
-        (assoc (assoc (assoc (assoc (assoc {} :yang.call/callee f)
-                                    :yang.call/positional args)
-                             :yang.call/named named)
-                      :yang.call/raise (fn [condition] (php/raise condition)))
-               :yang.call/binding-profile binding-profile)))]
+       (yang.call/invoke-with f args named
+                              (fn [condition]
+                                (if (= (get condition :yang.call/reason)
+                                       :yang.call/not-callable)
+                                  (php/throw-error "Error" "Value not callable")
+                                  (php/raise condition)))
+                              (assoc {} :yang.call/binding-profile binding-profile)))]
     ;; the internal array pointer (row 55): an ordinal in the table's `:ptr`,
     ;; so it travels with the value (copy, DUP, upgrade); absent means 0
     [php/ptr-of
@@ -2390,30 +2400,32 @@
     [php/callable?
      ;; callability from the global scope: public methods only
      (fn [v]
-       (let [k (php/kind v)]
-         (if (= k :string)
-           (let [i (php/dcolon-at v 0 (data/str-length v))]
-             (if (< i 0)
-               (not (nil? (get (cell/get php.rt/functions) (php/lc v))))
-               (php/public-method? (php/class-lookup (data/substring v 0 i))
-                                   (data/substring v (+ i 2) (data/str-length v)))))
-           (if (= k :array)
-             (if (= (php/array-count v) 2)
-               (let [t (php/array-get v 0)
-                     m (php/array-get v 1)]
-                 (if (= (php/kind m) :string)
-                   (if (= (php/kind t) :obj)
-                     (if (nil? (get t :php/obj)) false (php/public-method? (php/obj-class t) m))
-                     (if (= (php/kind t) :string) (php/public-method? (php/class-lookup t) m) false))
-                   false))
-               false)
-             (if (= k :obj)
-               (if (php/closure? v)
-                 true
-                 (if (nil? (get v :php/obj))
-                   false
-                   (not (nil? (php/class-method (php/obj-class v) "__invoke")))))
-               false)))))]
+       (if (yang.call/eligible? v)
+         true
+         (let [k (php/kind v)]
+           (if (= k :string)
+             (let [i (php/dcolon-at v 0 (data/str-length v))]
+               (if (< i 0)
+                 (not (nil? (get (cell/get php.rt/functions) (php/lc v))))
+                 (php/public-method? (php/class-lookup (data/substring v 0 i))
+                                     (data/substring v (+ i 2) (data/str-length v)))))
+             (if (= k :array)
+               (if (= (php/array-count v) 2)
+                 (let [t (php/array-get v 0)
+                       m (php/array-get v 1)]
+                   (if (= (php/kind m) :string)
+                     (if (= (php/kind t) :obj)
+                       (if (nil? (get t :php/obj)) false (php/public-method? (php/obj-class t) m))
+                       (if (= (php/kind t) :string) (php/public-method? (php/class-lookup t) m) false))
+                     false))
+                 false)
+               (if (= k :obj)
+                 (if (php/closure? v)
+                   true
+                   (if (nil? (get v :php/obj))
+                     false
+                     (not (nil? (php/class-method (php/obj-class v) "__invoke")))))
+                 false))))))]
     [php/public-method?
      (fn [c name]
        (if (nil? c)
@@ -4077,31 +4089,33 @@
      ;; function name, `"Class::method"`, `[object-or-class, "method"]`, a
      ;; Closure or an object with `__invoke`
      (fn [v ctx]
-       (let [k (php/kind v)]
-         (if (= k :string)
-           (let [i (php/dcolon-at v 0 (data/str-length v))]
-             (if (< i 0)
-               (php/resolve-fn (php/lc v) v)
-               (php/callable-method (php/class-by-name (data/substring v 0 i))
-                                    nil (data/substring v (+ i 2) (data/str-length v)) ctx)))
-           (if (= k :array)
-             (if (= (php/array-count v) 2)
-               (let [t (php/array-get v 0)
-                     m (php/array-get v 1)]
-                 (if (= (php/kind t) :obj)
-                   (php/callable-method (php/obj-class t) t m ctx)
-                   (if (= (php/kind t) :string)
-                     (php/callable-method (php/class-by-name t) nil m ctx)
-                     (php/throw-error "Error" "Array callback must have exactly two elements"))))
-               (php/throw-error "Error" "Array callback must have exactly two elements"))
-             (if (= (get v :php/type) :closure)
-               (get v :php/closure)
-               (if (nil? (get v :php/obj))
-                 (php/throw-error "Error" "Value not callable")
-                 (let [m (php/class-method (php/obj-class v) "__invoke")]
-                   (if (nil? m)
-                     (php/throw-error "Error" "Object of type is not callable")
-                     (php/bind-method m v (get (php/obj-state v) :class))))))))))]
+       (if (not (nil? (yang.call/entry v)))
+         v
+         (let [k (php/kind v)]
+           (if (= k :string)
+             (let [i (php/dcolon-at v 0 (data/str-length v))]
+               (if (< i 0)
+                 (php/resolve-fn (php/lc v) v)
+                 (php/callable-method (php/class-by-name (data/substring v 0 i))
+                                      nil (data/substring v (+ i 2) (data/str-length v)) ctx)))
+             (if (= k :array)
+               (if (= (php/array-count v) 2)
+                 (let [t (php/array-get v 0)
+                       m (php/array-get v 1)]
+                   (if (= (php/kind t) :obj)
+                     (php/callable-method (php/obj-class t) t m ctx)
+                     (if (= (php/kind t) :string)
+                       (php/callable-method (php/class-by-name t) nil m ctx)
+                       (php/throw-error "Error" "Array callback must have exactly two elements"))))
+                 (php/throw-error "Error" "Array callback must have exactly two elements"))
+               (if (= (get v :php/type) :closure)
+                 (get v :php/closure)
+                 (if (nil? (get v :php/obj))
+                   (php/throw-error "Error" "Value not callable")
+                   (let [m (php/class-method (php/obj-class v) "__invoke")]
+                     (if (nil? m)
+                       (php/throw-error "Error" "Object of type is not callable")
+                       (php/bind-method m v (get (php/obj-state v) :class)))))))))))]
     [php/dcolon-at
      (fn [s i n]
        (if (< (+ i 1) n)
@@ -4155,11 +4169,12 @@
        (let [spec (get (cell/get f) :spec)]
          (if (nil? (get spec :names))
            (php/throw-error "Error" "Named arguments are not supported for this function")
-           ((get (cell/get f) :yang.call/entry)
-            (assoc (assoc (assoc (assoc {} :yang.call/callee f)
-                                 :yang.call/positional pos)
-                          :yang.call/named named)
-                   :yang.call/raise (fn [condition] (php/raise condition)))))))]
+           (yang.call/invoke f pos named
+                             (fn [condition]
+                               (if (= (get condition :yang.call/reason)
+                                      :yang.call/not-callable)
+                                 (php/throw-error "Error" "Value not callable")
+                                 (php/raise condition)))))))]
     [php/place-named
      (fn [f spec pos named i n extras]
        (if (< i n)
@@ -5128,8 +5143,9 @@
 
 
 (def functions-uast
-  "Every definition: lambdas and the literal state slot."
-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) definitions)))
+  "The bundled shared-call definitions, PHP lambdas and literal state slot."
+  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form)))
+                    (into call/definitions definitions))))
 
 
 (def uast
@@ -5222,14 +5238,16 @@
 
 (defn module-spec
   "`yin.vm.linker.publish/publish-module!`'s spec for the module `php` over
-   the host registry `registry`; a free name nothing supplies is refused
-   before anything is published. This namespace emits; it never publishes."
-  [registry]
+   the host registry `registry`, requiring the pinned `yang.call` revision
+   at `call-address`; a free name nothing supplies is refused before
+   anything is published. This namespace emits; it never publishes."
+  [registry call-address]
   (core/module-spec {:module-name module-name,
                      :ast module-uast,
                      :exports module-exports,
-                     :requires {},
+                     :requires {call/module-name call-address},
                      :free-names module-free-names,
+                     :skip? #(= "yang.call" (namespace %)),
                      :registry registry,
                      :message "the php module reads an undeclared name",
                      :refusal-ns "yang.php"}))

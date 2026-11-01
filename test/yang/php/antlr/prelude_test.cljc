@@ -52,9 +52,10 @@
 
 (deftest module-spec-declares-every-free-name-test
   (testing "over the real host registry the manifest builds, or refuses"
-    (let [spec (prelude/module-spec (h/host-registry))]
+    (let [spec (prelude/module-spec (h/host-registry) :test/call-address)]
       (is (= 'php (:name spec)))
       (is (= prelude/module-exports (:exports spec)))
+      (is (= {'yang.call :test/call-address} (:requires spec)))
       (is (every? (:primitives spec) (filter #(= "integer" (namespace %)) prelude/host-names))))))
 
 
@@ -93,6 +94,14 @@
 (defn- run
   [form]
   (h/render (run-raw form)))
+
+
+(deftest resolver-rejects-function-cells-without-shared-entry-test
+  (is (= "PHP Fatal error:  Uncaught Error: Call to undefined function bad()"
+         (run '(do (cell/set! php.rt/functions
+                              (assoc (cell/get php.rt/functions)
+                                     "bad" {:php/type :function}))
+                   (php/resolve-fn "bad" "bad"))))))
 
 
 (defn- diag

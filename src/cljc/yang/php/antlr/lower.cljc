@@ -3701,7 +3701,7 @@
    `:yang.php/computed-include-path`).
 
    Options: `:prelude` is `:bundled` (default; the prelude tree ahead of the
-   body) or `:linked` (`(require 'php) (php/init!)`, the profile includes
+   body) or `:linked` (`(require 'yang.call) (require 'php) (php/init!)`, the profile includes
    need); `:path` the entry unit's declared path (default `entry-path`);
    `:paths` the normalized paths whose units the composition published,
    which a computed include resolves against; `:class-map` true requires
@@ -3719,7 +3719,8 @@
          main (app* 'php/run-main (u/lam [] (unit-node ctx)))]
      {:ast (u/mark-tails
              (if linked?
-               (u/seq-nodes (concat [(app* 'require (u/lit prelude/module-name))
+               (u/seq-nodes (concat [(app* 'require (u/lit 'yang.call))
+                                     (app* 'require (u/lit prelude/module-name))
                                      (app* 'php/init!)]
                                     (when (and (seq paths) (not class-map)) [(path-map-node paths)])
                                     (when class-map

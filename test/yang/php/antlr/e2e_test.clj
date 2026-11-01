@@ -116,6 +116,35 @@
     (h/render result)))
 
 
+(defn- run-with-ts-global
+  "Project `%foreign` into a PHP global before the unmodified source body."
+  [donor-source export-name php-global php-source]
+  (let [donor (lowered-ts donor-source)
+        {:keys [ast diagnostics]} (h/lower-program php-source)
+        _ (assert (nil? diagnostics) (pr-str diagnostics))
+        global-projection (u/sexp->uast
+                            (list 'php/global-store! php-global '%foreign))
+        seen (volatile! false)
+        php-ast (walk/postwalk
+                  (fn [node]
+                    (if (app? node 'php/run-main)
+                      (let [body (first (:operands node))]
+                        (assert (= :lambda (:type body)) "php/run-main body is not a lambda")
+                        (vreset! seen true)
+                        (assoc node :operands [(update body :body #(u/then global-projection %))]))
+                      node))
+                  ast)
+        _ (assert @seen "PHP program has no php/run-main application")
+        composition {:type :application,
+                     :operator {:type :lambda,
+                                :params ['%foreign],
+                                :body php-ast},
+                     :operands [(export-projection donor export-name)]}
+        result (vm/value (vm/eval (tu/create-vm {:modules (php-h/host-registry)})
+                                  composition))]
+    (h/render result)))
+
+
 (deftest real-lowered-ts-export-called-from-php-test
   (testing "unmodified PHP source calls a published TS global export through yang.call"
     (is (= "4"
@@ -123,6 +152,16 @@
              "globalThis.donor = (x, y) => x + y;"
              "donor"
              "<?php echo donor(1.5, 2.5);")))))
+
+
+(deftest real-lowered-ts-callback-called-from-php-test
+  (testing "PHP stores a foreign function cell in an array, invokes it, and keeps its identity"
+    (is (= "same"
+           (run-with-ts-global
+             "globalThis.donor = () => { globalThis.called = true; };"
+             "donor"
+             "cb"
+             "<?php $items = [$cb]; $items[0](); echo ($items[0] === $cb ? 'same' : 'different');")))))
 
 
 (deftest real-lowered-php-callback-round-trip-test

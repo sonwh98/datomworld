@@ -12,6 +12,7 @@
    backend here: its link of `php` is refused until L-b."
   (:require
     [dao.jing.mem :as mem]
+    [yang.core.call :as call]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.portable-harness :as portable]
     [yang.php.antlr.prelude :as prelude]
@@ -35,12 +36,16 @@
 
 
 (def published
-  "`php` published once into its own content store:
-   `{:store s :result r :address a}`, `r` `publish-module!`'s answer."
+  "`yang.call` and `php` published once into their own content store."
   (delay
     (let [store (mem/create-content-mem)
-          result (publish/publish-module! store (prelude/module-spec (registry)))]
-      {:store store, :result result, :address (:address result)})))
+          call-result (publish/publish-module! store (call/module-spec (registry)))
+          result (publish/publish-module! store (prelude/module-spec (registry)
+                                                                     (:address call-result)))]
+      {:store store,
+       :result result,
+       :address (:address result),
+       :call-address (:address call-result)})))
 
 
 (defn publish-units!
@@ -57,7 +62,8 @@
    publisher."
   [name-env]
   (link/composition {:content-store (:store @published),
-                     :name-env (merge {'php (:address @published)} name-env),
+                     :name-env (merge {'php (:address @published),
+                                       'yang.call (:call-address @published)} name-env),
                      :derivation :trusted}))
 
 
