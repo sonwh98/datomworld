@@ -192,28 +192,43 @@
     (let [sha (git-out clone "rev-parse" "origin/master")]
       (cond
         publish?
-        (let [line (str "run-id=" (vn-date) "-" (subs stamp 9 13) " sha=" sha " ts="
+        (let [line (str "run-id=" (vn-date) "-" (vn-hour) " sha=" sha " ts="
                         (str/trim (:out (psh {:out :string} "date" "-u" "+%Y-%m-%dT%H:%M:%SZ"))))]
           (spit (str pin-file ".tmp") line)
           (fs/move (str pin-file ".tmp") pin-file {:replace-existing true})
           (log (str "pin published: " line))
           (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha))
         read-pin?
-        (let [line (if pin-peer
-                     (str/trim (:out (psh {:out :string :continue true}
-                                          "ssh" "-o" "BatchMode=yes"
-                                          "-o" "ConnectTimeout=8"
-                                          pin-peer "cat" pin-file)))
-                     (when (fs/exists? pin-file) (str/trim (slurp pin-file))))
-              prid (some->> line (re-find #"run-id=(\S+)") second)
-              psha (some->> line (re-find #"sha=([0-9a-f]{7,40})") second)]
-          (if (and psha (= (subs prid 0 8) (vn-date))
-                   (zero? (:exit (psh {:dir clone :continue true} "git" "cat-file" "-e" psha))))
-            (do (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" psha)
-                (log (str "pin read: " psha " (run-id " prid ")")))
-            (do (reset! rc 1)
-                (log (str "FAIL: pin absent/stale/unverifiable (" (or prid "none") ") — advisory run at " sha))
-                (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha))))
+        (let [;; R4 fix (codex re-review): the reader requires the pin whose
+              ;; run-id carries TODAY's VN date AND the window hour it is
+              ;; currently inside (03 or 17). Yesterday's pin, or the morning
+              ;; pin read at the 17:00 slot, is refused — no cross-slot pairing.
+              slot (vn-hour)
+              line (loop [tries 15]
+                     (let [l (if pin-peer
+                               (str/trim (:out (psh {:out :string :continue true}
+                                                    "ssh" "-o" "BatchMode=yes"
+                                                    "-o" "ConnectTimeout=8"
+                                                    pin-peer "cat" pin-file)))
+                               (when (fs/exists? pin-file) (str/trim (slurp pin-file))))
+                           prid (some->> l (re-find #"run-id=(\S+)") second)]
+                       (if (and l prid (= (subs prid 0 8) (vn-date))
+                                (= (subs prid 9 11) slot))
+                         l
+                         (when (pos? tries)
+                           (Thread/sleep 12000)
+                           (recur (dec tries))))))]
+          (when (nil? line) (log (str "no pin for the " slot ":00 " (vn-date) " slot after 3 min")))
+          (let [prid (some->> line (re-find #"run-id=(\S+)") second)
+                psha (some->> line (re-find #"sha=([0-9a-f]{7,40})") second)]
+            (if (and psha (= (subs prid 0 8) (vn-date))
+                     (= (subs prid 9 11) slot)
+                     (zero? (:exit (psh {:dir clone :continue true} "git" "cat-file" "-e" psha))))
+              (do (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" psha)
+                  (log (str "pin read: " psha " (run-id " prid ")")))
+              (do (reset! rc 1)
+                  (log (str "FAIL: pin absent/stale/unverifiable (" (or prid "none") ") — advisory run at " sha))
+                  (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha)))))
         :else (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha)))
     (log (str "nightly " stamp " at " (git-out clone "log" "--oneline" "-1")
               " lanes=" (str/join "," (sort lanes)) " par=" par))
