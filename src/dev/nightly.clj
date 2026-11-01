@@ -35,7 +35,7 @@
 
 
 (def home (System/getProperty "user.home"))
-(def results-dir (str home "/ci/nightly-results"))
+(def results-dir (or (System/getenv "NIGHTLY_RESULTS") (str home "/ci/nightly-results")))
 (def pin-file (str home "/ci/nightly-pin.txt"))
 
 
@@ -160,6 +160,8 @@
         flags (set (filter #(str/starts-with? % "--") flag-args))
         pin-peer (some (fn [[a b]] (when (= a "--pin-peer") b))
                        (partition 2 1 flag-args))
+        pin-sha (some (fn [[a b]] (when (= a "--pin-sha") b))
+                      (partition 2 1 flag-args))
         [clone lanes par] positional
         clone (or clone (str home "/ci/datomworld"))
         lanes (set (str/split (or lanes "jvm,node,dart") #","))
@@ -181,15 +183,18 @@
       (println "outside the 03:00/17:00 Vietnam windows; pass --now to force")
       (System/exit 0))
     (fs/create-dirs out)
-    (when-not (= 0 (:exit (psh {:dir clone :continue true} "mise" "trust")))
-      (println "mise trust failed"))
-    (let [ti (run-cmd! clone (str out "/mise-install.log") ["mise" "install"])]
-      (log (str "mise-install rc=" ti))
-      (when-not (zero? ti) (log "FAIL: toolchain install")))
+    ;; mise owns the toolchain on the hosts; the nightly container ships the
+    ;; same pinned tools on PATH instead, so mise steps are conditional.
+    (when (fs/which "mise")
+      (when-not (= 0 (:exit (psh {:dir clone :continue true} "mise" "trust")))
+        (println "mise trust failed"))
+      (let [ti (run-cmd! clone (str out "/mise-install.log") ["mise" "install"])]
+        (log (str "mise-install rc=" ti))
+        (when-not (zero? ti) (log "FAIL: toolchain install"))))
     ;; pin protocol
     (when-not (zero? (:exit (psh {:dir clone :continue true} "git" "fetch" "origin")))
       (log "FAIL: git fetch"))
-    (let [sha (git-out clone "rev-parse" "origin/master")]
+    (let [sha (or pin-sha (git-out clone "rev-parse" "origin/master"))]
       (cond
         publish?
         (let [line (str "run-id=" (vn-date) "-" (vn-hour) " sha=" sha " ts="
