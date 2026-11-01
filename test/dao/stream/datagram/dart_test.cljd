@@ -296,8 +296,8 @@
           (let [t3 (ring 8)
                 blocker (await (io/RawDatagramSocket.bind
                                  "127.0.0.1" 0
-                                 {:reuseAddress false
-                                  :reusePort false}))
+                                 .reuseAddress false
+                                 .reusePort false))
                 blocked-port (.-port ^io/RawDatagramSocket blocker)]
             (try
               (let [seam-c (bind! "loser" t3 blocked-port 1200)
