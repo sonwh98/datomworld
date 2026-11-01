@@ -399,26 +399,56 @@
 
 (defn- read-reflection-corpus
   "Read `reflection` to its source end; resolves with the normalized
-   values received, or nil when any ask never settled."
+   values received. A read that never settles, or that settles to an
+   outcome outside ok/end, reports that outcome and fails — it does NOT
+   collapse to a bare nil. The old collapse made three different causes
+   (settle timeout, :transport-error, an unexpected terminal) read as the
+   single message `the corpus read never completed`, which is what made
+   the parallel-run failure undiagnosable (2026-11-01)."
   [reflection]
   (let [profile (:profile @under-test)]
     (-> (settle #(stream/cursor reflection stream/anchor-oldest) settle-ms)
         (.then
           (fn [c0]
-            (when (and c0 (= :dao.stream/ok (:dao.stream/outcome c0)))
+            (cond
+              (nil? c0)
+              (do (is false (str "the initial cursor read never settled within "
+                                 settle-ms "ms (outcome stayed "
+                                 (pr-str not-yet) ")"))
+                  nil)
+
+              (not= :dao.stream/ok (:dao.stream/outcome c0))
+              (do (is false (str "the initial cursor read settled to "
+                                 (pr-str (:dao.stream/outcome c0))))
+                  nil)
+
+              :else
               (letfn [(step
                         [cursor acc]
                         (-> (settle #(stream/next reflection cursor) settle-ms)
                             (.then
                               (fn [n]
-                                (case (:dao.stream/outcome n)
-                                  :dao.stream/ok
-                                  (step (:dao.stream/cursor n)
-                                        (conj acc (corpus/normalize
-                                                    profile
-                                                    (:dao.stream/value n))))
-                                  :dao.stream/end acc
-                                  nil)))))]
+                                (let [o (:dao.stream/outcome n)]
+                                  (cond
+                                    (nil? n)
+                                    (do (is false (str "read #" (count acc)
+                                                       " never settled within "
+                                                       settle-ms "ms (outcome stayed "
+                                                       (pr-str not-yet) ")"))
+                                        nil)
+
+                                    (= :dao.stream/end o) acc
+
+                                    (= :dao.stream/ok o)
+                                    (step (:dao.stream/cursor n)
+                                          (conj acc (corpus/normalize
+                                                      profile
+                                                      (:dao.stream/value n))))
+
+                                    :else
+                                    (do (is false (str "read #" (count acc)
+                                                       " settled to " (pr-str o)))
+                                        nil)))))))]
                 (step (:dao.stream/cursor c0) []))))))))
 
 
