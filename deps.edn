@@ -37,6 +37,14 @@
                                latte-kernel/latte-kernel
                                {:git/url "https://github.com/latte-central/latte-kernel"
                                 :git/sha "86fca0d1d054af005cb37395eae04500d45e6279"}}
+                  ;; The guest recursion limit allows depth that needs more than the
+                  ;; JVM's platform default thread stack (1024 KB on Linux, 2048 KB on
+                  ;; macOS): under 1 MB the guard loses to a JVM StackOverflowError
+                  ;; before it can raise Python's RecursionError, so the same tests
+                  ;; pass on macOS and fail on Linux. 4 MB is twice the measured
+                  ;; macOS-default minimum, leaving headroom as the prelude grows.
+                  ;; Evidence: docs/agents/known-gaps.md (the recursion rows).
+                  :jvm-opts ["-Xss4m"]
                   :main-opts ["-m" "cognitect.test-runner"]
                   :exec-fn cognitect.test-runner.api/test}
            :nREPL {:extra-paths ["test"]
