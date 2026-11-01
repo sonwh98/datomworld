@@ -185,7 +185,13 @@ tri-host success: for foundation/compiler changes also run
 serialization rule. G1, full post-merge `bb test` (G3), applicable slow G4,
 demo smoke checks and review/landing gates all remain required. Node and Dart
 lanes retain their current commands. The original unsharded tasks remain
-available. Do not run another lane set concurrently on the laptop.
+available. **Never run the slow tier, `bb test:all`, or `nightly.clj` on the
+laptop** — the slow tier is 52 long namespaces whose JVM processes each
+multi-thread (test workers, JIT, GC threads sized by core count); four of them
+GC-thrashing at once drove a laptop load average over 100 on 2026-11-01 while
+making no progress (the remote hosts run this tier: jupiter 5,645 s at 12
+workers, shiva comparable). Do not run another lane set concurrently on the
+laptop either.
 
 #### Worktree-local prerequisite caches
 
@@ -504,7 +510,9 @@ find flutter on PATH", and so does `bb build:yin-repl-peer`.
 "One lane set at a time" and "one Dart lane at a time" are per-machine rules about
 CPU: they exist because a laptop has 8 cores. They are not a rule about repos.
 `test.subsystems.md` section 5 item 6 says the same ("on one machine where
-avoidable"). On shiva (24 cores) and jupiter (48) the cores are not the limit, so
+avoidable"). The laptop additionally never runs the slow tier or the nightly
+driver (see the sharded-lane section) — a full slow tier there reached a load
+average over 100 on 2026-11-01; the remote hosts own that tier. On shiva (24 cores) and jupiter (48) the cores are not the limit, so
 lanes may overlap, with these limits:
 
 - **JVM and Dart lanes must not share one clone.** `src/dev/affected.clj`
