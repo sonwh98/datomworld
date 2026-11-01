@@ -48,13 +48,13 @@
 
 
 (defn- run-cmd!
-  "Run cmd to out-file; return the exit code."
+  "Run cmd to a fresh log with stdout/stderr merged; return the exit code."
   [dir out-file cmd]
-  (:exit (psh {:dir dir
-               :out (io/writer out-file :append true)
-               :err (io/writer out-file :append true)
-               :continue true}
-              cmd)))
+  (:exit (apply psh {:dir dir
+                     :out (io/file out-file)
+                     :err :out
+                     :continue true}
+                cmd)))
 
 
 (defn- vn-date

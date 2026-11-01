@@ -85,7 +85,10 @@
                 (spit summary (str "FAIL: " msg "\n") :append true))
         log   (fn [msg] (println msg) (spit summary (str msg "\n") :append true))
         sh    (fn [out-file cmd]
-                (let [{:keys [exit]} (apply psh {:dir clone, :out (io/writer out-file :append true), :err (io/writer out-file :append true),
+                ;; Each command owns a fresh log. File redirects need no
+                ;; caller-owned buffer; :err :out avoids two file offsets
+                ;; overwriting the same path.
+                (let [{:keys [exit]} (apply psh {:dir clone, :out (io/file out-file), :err :out,
                                                  :continue true}
                                             cmd)]
                   exit))]
@@ -179,8 +182,8 @@
                       (let [t0 (System/currentTimeMillis)
                             {:keys [exit]}
                             (psh {:dir clone
-                                  :out (io/writer (str out "/" s ".log") :append true)
-                                  :err (io/writer (str out "/" s ".err.log") :append true)
+                                  :out (io/file (str out "/" s ".log"))
+                                  :err (io/file (str out "/" s ".err.log"))
                                   :extra-env {"DATOM_SLOW_TESTS" "1"}
                                   :continue true}
                                  "node" "target/node-tests.js"

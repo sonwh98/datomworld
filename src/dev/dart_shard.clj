@@ -78,10 +78,12 @@
     (fs/create-sym-link (str clone "/target-ci/dart-shards-latest")
                         (str "dart-shards-" stamp))
     (log (str "start " stamp " conc=" conc))
+    ;; Each command owns a fresh log: File redirects avoid unflushed Writers,
+    ;; and :err :out merges both streams through one file offset.
     ;; the Dart peer; its absence makes peer tests skip
     (let [{:keys [exit]} (psh {:dir clone
-                               :out (io/writer (str out "/build-peer.log") :append true)
-                               :err (io/writer (str out "/build-peer.log") :append true)
+                               :out (io/file (str out "/build-peer.log"))
+                               :err :out
                                :continue true}
                               "bb" "build:yin-repl-peer")]
       (log (str "build-yin-repl-peer rc=" exit))
@@ -122,8 +124,8 @@
                      vec)
           {:keys [exit]}
           (apply psh {:dir clone
-                      :out (io/writer (str out "/compile.log") :append true)
-                      :err (io/writer (str out "/compile.log") :append true)
+                      :out (io/file (str out "/compile.log"))
+                      :err :out
                       :continue true}
                  "clojure" "-M:clojuredart:cljd" "compile" allns)]
       (log (str "compile-all rc=" exit
@@ -139,8 +141,8 @@
                   d (str clone "/build/cljd-agg-" stamp "-" s)
                   {:keys [exit]}
                   (psh {:dir clone
-                        :out (str out "/" s ".emit.log")
-                        :err :append
+                        :out (io/file (str out "/" s ".emit.log"))
+                        :err :out
                         :continue true}
                        "bb" "src/dev/cljd_agg.clj" "--only" nss
                        "--shard-dir" d "--no-compile" "--no-run")]
@@ -154,8 +156,8 @@
         (let [t0 (System/currentTimeMillis)
               {:keys [exit]}
               (apply psh {:dir clone
-                          :out (str out "/all.log")
-                          :err :append
+                          :out (io/file (str out "/all.log"))
+                          :err :out
                           :extra-env {"DATOM_SLOW_TESTS" "1"}
                           :continue true}
                      "flutter" "test" "--concurrency" (str conc) @dirs)
