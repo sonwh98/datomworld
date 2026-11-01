@@ -12,6 +12,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             ["dart:core" :as core]
             ["dart:async" :as async]
+            ["dart:io" :as io]
             [dao.stream :as stream]
             [dao.stream.base64 :as base64]
             [dao.stream.datagram :as datagram]
@@ -286,19 +287,32 @@
                                       (values traffic-a)))
                                   5000))]
               (is (some? failed) "no send-failed event deposited"))))
-        (testing "a bind on a taken port deposits bind-failed"
+        (testing "a bind on an exclusively held port deposits bind-failed"
+          ;; Dart binds with reuseAddress: true by default and Linux honours
+          ;; SO_REUSEADDR for UDP, so binding to a port that a reuse-enabled
+          ;; socket already holds SUCCEEDS there (macOS refuses with
+          ;; EADDRINUSE). The port must be held exclusively for the seam's
+          ;; failure path to be exercised on both hosts.
           (let [t3 (ring 8)
-                seam-c (bind! "loser" t3 dest 1200)]
-            (let [failed (await (poll-until
-                                  (fn []
-                                    (some
-                                      (fn [v]
-                                        (= :dao.stream.datagram/bind-failed
-                                           (:dao.stream.datagram/event v)))
-                                      (values t3)))
-                                  5000))]
-              (is (some? failed) "no bind-failed event deposited"))
-            ((:close! seam-c))))
+                blocker (await (io/RawDatagramSocket.bind
+                                 "127.0.0.1" 0
+                                 {:reuseAddress false
+                                  :reusePort false}))
+                blocked-port (.-port ^io/RawDatagramSocket blocker)]
+            (try
+              (let [seam-c (bind! "loser" t3 blocked-port 1200)
+                    failed (await (poll-until
+                                    (fn []
+                                      (some
+                                        (fn [v]
+                                          (= :dao.stream.datagram/bind-failed
+                                             (:dao.stream.datagram/event v)))
+                                        (values t3)))
+                                    5000))]
+                (is (some? failed) "no bind-failed event deposited")
+                ((:close! seam-c)))
+              (finally
+                (.close ^io/RawDatagramSocket blocker)))))
         (stream/close! writer-a)
         ((:close! seam-a))
         ((:close! seam-b))))))
