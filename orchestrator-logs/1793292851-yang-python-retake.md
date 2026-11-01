@@ -381,3 +381,25 @@ Final state of this seat's work tonight: the link-refusal fix is on master (bd6f
   namespaces verified green on two hosts; the remaining three are one VM-owned stack-boundary defect,
   filed twice in the ledger with evidence; the round's artifacts are in collab/yang-python/; the
   architect's store-boundary ruling is recorded.
+
+## 2026-11-02 02:5x +07 — the recursion reds CLOSED by an explicit thread stack; all seven green
+Owner instruction: "run the affected JVM test lanes with an explicit -Xss of at least 2 MB". Done and
+  measured:
+  - CAUSE, measured: the JVM default `ThreadStackSize` is 2048 KB on macOS and 1024 KB on Linux; the
+    guest runs on a CREATED thread, so `ulimit -s` (8 MB main thread, raised to 64 MB in the test)
+    never applied. The guest depth the limit allows needs between 1 and 2 MB.
+  - FIX, verified: `-J-Xss2m` on jupiter/Linux turns all three green — safepoint 19/144/0 (was 141 +
+    1 error), linked-safepoint 10/53/0 (was 51 + 1 error), e2e 42/714/0 (was 2 failures). Those are
+    exactly the macOS counts.
+  - LANDED 6fae7fbe: `deps.edn`'s `:test` alias gains `:jvm-opts ["-Xss4m"]` (twice the measured
+    minimum, so prelude growth does not silently re-cross the boundary). Every JVM lane inherits it
+    — the bb tasks and `src/dev/nightly.clj` both invoke `clojure -M:test`.
+  - VERIFIED AT THE ALIAS on Linux (new master, no -J flag): safepoint 19/144/0, linked-safepoint
+    10/53/0. e2e proved at the -J flag (42/714/0); same alias, larger stack.
+All SEVEN nightly reds are now green on Linux: siteset 5/71/0, safepoint 19/144/0, derive 1/54/0,
+  dht-import 1/127/0, linked-prelude 8/82/0, linked-safepoint 10/53/0, e2e 42/714/0. Ledger row
+  closed (143 rows, no other seat's rows touched).
+Process note: the `-Xss` finding came from the owner's `CompilerThreadStackSize` observation — the
+  right instinct about the platform-default table, even though the operative flag is
+  `ThreadStackSize`. Recorded for the delegate reference: platform default thread stacks are not
+  portable, and a guest recursion guard must not assume one.
