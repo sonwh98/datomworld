@@ -184,9 +184,19 @@
                                   :extra-env {"DATOM_SLOW_TESTS" "1"}
                                   :continue true}
                                  "node" "target/node-tests.js"
-                                 "--test" (str/join "," (sel s)))
+                                 ;; ONE argument: shadow 3.3.5's runner accepts
+                                 ;; only --test=<list>; a separate "--test" arg
+                                 ;; is ignored ("Unknown arg") and the worker
+                                 ;; silently runs the FULL suite (2026-11-01).
+                                 (str "--test=" (str/join "," (sel s))))
                             secs (quot (- (System/currentTimeMillis) t0) 1000)]
-                        (swap! runs assoc s {:rc exit :secs secs})
+                        (let [logtxt (try (slurp (str out "/" s ".log"))
+                                          (catch Exception _ ""))
+                              suspicious (or (str/includes? logtxt "Unknown arg")
+                                             (str/includes? logtxt "Ran 0 tests"))]
+                          (when suspicious
+                            (fail! (str "shard " s " ran nothing (selection not applied)")))
+                          (swap! runs assoc s {:rc exit :secs secs}))
                         (spit (str out "/runs.txt")
                               (str s " rc=" exit " secs=" secs "\n")
                               :append true)))]
