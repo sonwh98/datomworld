@@ -4061,8 +4061,15 @@
          (do (php/delref (get ts (- i 1))) (php/release-tmp-range ts (- i 1) mark))
          :php/null))]
     [php/make-closure
-     ;; a Closure value (an object, `kind` :obj) around the function cell
-     (fn [f] (assoc (assoc {} :php/type :closure) :php/closure f))]
+     ;; A Closure value (an object, `kind` :obj) around the function cell.
+     ;; Its own identity-bearing descriptor publishes the common entry; the
+     ;; entry delegates to the already-created cell, never wrapping/replacing
+     ;; the source Closure when another frontend calls it.
+     (fn [f]
+       (assoc (assoc (assoc {} :php/type :closure) :php/closure f)
+              :yang.call/entry
+              (fn [invocation]
+                (php/call f (get invocation :yang.call/positional)))))]
     [php/callable-of (fn [v] (php/callable-in v :php/null))]
     [php/callable-fn (fn [h] (php/callable-of h))]
     [php/callable-in

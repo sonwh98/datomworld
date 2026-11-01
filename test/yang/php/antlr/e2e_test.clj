@@ -4,18 +4,24 @@
    the semantic, stack and register VMs). Every fixture of
    `yang.php.antlr.programs` prints the same text on all four."
   (:require
+    [clojure.walk :as walk]
     [clojure.edn :as edn]
     [clojure.java.io :as io]
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [yang.core.uast :as u]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
+    [yang.php.antlr.portable-harness :as php-h]
     [yang.php.antlr.packets :as packets]
     [yang.php.antlr.packets-p3b :as packets-p3b]
     [yang.php.antlr.permutations :as perms]
     [yang.php.antlr.phpt :as phpt]
     [yang.php.antlr.programs :as programs]
-    [yang.php.antlr.programs-p3b :as p3b]))
+    [yang.php.antlr.programs-p3b :as p3b]
+    [yang.typescript.antlr.e2e-test :as ts]
+    [yin.vm :as vm]
+    [yin.vm.test-utils :as tu]))
 
 
 (def ^:private vms [:ast-walker :semantic :stack :register])
@@ -47,6 +53,93 @@
     (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
     (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
         (name id))))
+
+
+(defn- app?
+  [node op]
+  (and (map? node)
+       (= :application (:type node))
+       (= {:type :variable, :name op} (:operator node))))
+
+
+(defn- lowered-ts
+  [source]
+  (let [{:keys [program diagnostics]} (ts/lower-source source :bundled)]
+    (assert (nil? diagnostics) (pr-str diagnostics))
+    (let [{:yin/keys [batch root]} program]
+      (nth batch root))))
+
+
+(defn- export-projection
+  "The donor program followed by its explicitly named global export read."
+  [donor export-name]
+  (u/then donor (u/sexp->uast (list 'js/global-get {:js/str export-name}))))
+
+
+(defn- install-php-function-export
+  "Project `%foreign` into PHP's function namespace before the source body.
+   The lowered PHP call and its resolve/call nodes remain untouched."
+  [ast export-name]
+  (let [projection (u/sexp->uast
+                     (list 'cell/set! 'php.rt/functions
+                           (list 'assoc
+                                 '(cell/get php.rt/functions)
+                                 export-name
+                                 '%foreign)))
+        seen (volatile! false)
+        result (walk/postwalk
+                 (fn [node]
+                   (if (app? node 'php/run-main)
+                     (let [body (first (:operands node))]
+                       (assert (= :lambda (:type body)) "php/run-main body is not a lambda")
+                       (vreset! seen true)
+                       (assoc node :operands [(update body :body #(u/then projection %))]))
+                     node))
+                 ast)]
+    (assert @seen "PHP program has no php/run-main application")
+    result))
+
+
+(defn- run-with-ts-export
+  [donor-source export-name php-source]
+  (let [donor (lowered-ts donor-source)
+        {:keys [ast diagnostics]} (h/lower-program php-source)
+        _ (assert (nil? diagnostics) (pr-str diagnostics))
+        php-ast (install-php-function-export ast export-name)
+        composition {:type :application,
+                     :operator {:type :lambda,
+                                :params ['%foreign],
+                                :body php-ast},
+                     :operands [(export-projection donor export-name)]}
+        result (vm/value (vm/eval (tu/create-vm {:modules (php-h/host-registry)})
+                                  composition))]
+    (h/render result)))
+
+
+(deftest real-lowered-ts-export-called-from-php-test
+  (testing "unmodified PHP source calls a published TS global export through yang.call"
+    (is (= "4"
+           (run-with-ts-export
+             "globalThis.donor = (x, y) => x + y;"
+             "donor"
+             "<?php echo donor(1.5, 2.5);")))))
+
+
+(deftest real-lowered-php-callback-round-trip-test
+  (testing "TS stores and calls the received PHP closure, then returns the same cell"
+    (is (= "calledsame"
+           (run-with-ts-export
+             (str "globalThis.accept = (f) => {"
+                  " globalThis.stored = f;"
+                  " globalThis.stored(7);"
+                  " return globalThis.stored;"
+                  "};")
+             "accept"
+             (str "<?php $cb = function($x) {"
+                  " echo 'called'; return $x + 1;"
+                  "};"
+                  "$returned = accept($cb);"
+                  "echo ($returned === $cb ? 'same' : 'different');"))))))
 
 
 (deftest packets-match-source-test
