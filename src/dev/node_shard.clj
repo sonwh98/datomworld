@@ -101,8 +101,10 @@
     ;; npm always through mise exec: mise's npm wrapper execs `node` by bare
     ;; name, which fails under any caller PATH that lacks the mise node bin
     ;; (mise exec supplies it). The repo's mise.toml pins the node version.
-    (let [exit (sh (str out "/npm-ci.log")
-                   ["mise" "exec" "--" "npm" "ci" "--silent"])]
+    (let [cmd (if (fs/which "mise")
+                ["mise" "exec" "--" "npm" "ci" "--silent"]
+                ["npm" "ci" "--silent"])
+          exit (apply sh (str out "/npm-ci.log") [cmd])]
       (log (str "npm-ci rc=" exit))
       (when-not (zero? exit) (fail! "npm ci failed")))
     (doseq [[nm cmd] [["build-yin-repl-node" ["bb" "build:yin-repl-node"]]
