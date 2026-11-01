@@ -19,6 +19,9 @@
                      other host (the pin authority; shiva)
      --pin-read      check out the pinned SHA, refusing a pin whose Vietnam
                      date is not today (advisory + nonzero exit otherwise)
+     --pin-peer H    with --pin-read: the host holding the pin (the authority,
+                     e.g. shiva.stigmergy.systems). Without it the pin is read
+                     from this host's own file, which only the publisher writes.
 
    Exit: 0 all lanes green; 1 any red, missing, or infrastructure failure.
 
@@ -153,7 +156,10 @@
   ;; NB: never pad args with (repeat nil) — destructuring `& rest` off an
   ;; infinite lazy seq makes (remove nil? rest) loop forever (2026-11-01).
   (let [positional (take-while #(not (str/starts-with? % "--")) args)
-        flags (set (filter #(str/starts-with? % "--") args))
+        flag-args (drop (count positional) args)
+        flags (set (filter #(str/starts-with? % "--") flag-args))
+        pin-peer (some (fn [[a b]] (when (= a "--pin-peer") b))
+                       (partition 2 1 flag-args))
         [clone lanes par] positional
         clone (or clone (str home "/ci/datomworld"))
         lanes (set (str/split (or lanes "jvm,node,dart") #","))
@@ -189,7 +195,12 @@
           (log (str "pin published: " line))
           (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha))
         read-pin?
-        (let [line (when (fs/exists? pin-file) (str/trim (slurp pin-file)))
+        (let [line (if pin-peer
+                     (str/trim (:out (psh {:out :string :continue true}
+                                          "ssh" "-o" "BatchMode=yes"
+                                          "-o" "ConnectTimeout=8"
+                                          pin-peer "cat" pin-file)))
+                     (when (fs/exists? pin-file) (str/trim (slurp pin-file))))
               prid (some->> line (re-find #"run-id=(\S+)") second)
               psha (some->> line (re-find #"sha=([0-9a-f]{7,40})") second)]
           (if (and psha (= (subs prid 0 8) (vn-date))
