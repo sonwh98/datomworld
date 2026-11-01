@@ -361,3 +361,23 @@ Artifacts: 17 files filed into collab/yang-python/ (this round's prompts, logs, 
   both peer briefs, the muse-era nightly-red round).
 Next: the three recursion reds belong to the yin.vm seat (row filed). On master the nightly will show
   4 fewer yang.python reds; the remaining three need the VM hashing fix.
+
+## 2026-11-02 02:0x +07 — the recursion root, nailed: the guard loses to the JVM stack
+The e2e re-run on JUPITER (independent host, no other lane) produced the decisive assertion text:
+  `recursion-under-real-hooks-test` (e2e_test.clj:819) expects
+  `#:py{:exception {:type "RecursionError", :args ["maximum recursion depth exceeded"]}}` and gets
+  `[:thrown "java.lang.StackOverflowError"]`. So the Python guard is not firing before the JVM thread
+  stack gives out. Green on the macOS dev machine, red on both Linux hosts → a stack-size boundary,
+  one root for all three remaining slow reds (safepoint and linked-safepoint surface it inside
+  `Continuation.hasheq` while hashing the state). Refinement row landed 7a618bb0, routed to yin.vm
+  with the three candidate fixes (lower the guest depth limit / size the test JVM stack / measure
+  actual remaining stack).
+Owner correction heeded: another orchestrator was running lanes on the shared hosts; I read its log
+  (it records killing ITS OWN p4 lane after the e2e wedge, and a safe ci_gc), found no admission about
+  my run, and changed my standing rule: NO kills by pattern on any host — only named sessions of my
+  own, and even then nothing while another seat is active. My one still-running lane (jupiter `vje`,
+  the e2e re-run) is left to finish on its own.
+Final state of this seat's work tonight: the link-refusal fix is on master (bd6f5697) with 4 of 7
+  namespaces verified green on two hosts; the remaining three are one VM-owned stack-boundary defect,
+  filed twice in the ledger with evidence; the round's artifacts are in collab/yang-python/; the
+  architect's store-boundary ruling is recorded.
