@@ -285,3 +285,17 @@ Worktrees: both of my seat's merged worktrees deleted (nightr with its nightly-r
   remaining worktrees belong to other seats.
 Going forward from this seat: in-flight artifacts flat in collab/, round-close filing into
   collab/yang-python/, every batch committed and pushed as docs(collab):.
+
+## 2026-11-01 00:1x +07 — ALL WORK STOPPED until further notice (owner directive)
+Everything running is killed: the shiva manual nightly run (the tmux session + the nightly-jvm
+  sharded lane), the jupiter full-now comparison run, all tmux servers on both hosts, and the one
+  stray muse exec process. The codex/muse/kimi delegate rounds had all completed before the stop.
+Left in place, per the owner's standing approvals: the 3am nightly crontab on shiva (the scheduled
+  policy instrument — it will fire on its own; if the owner wants it stopped too, say so), the two
+  CLI daemons (codex app-server, muse serve — resident services, not work), the landed master
+  (deaa290c + the policy/collab docs), and the committed session log.
+The state at the stop: the 8.10 integration complete on master; the nightly's in-flight run was
+  re-proving the already-fixed yang.python red (the run predates the fix) and its cljs lane was
+  green; the Dart leg and the slow-cluster confirmation go to the next 3am crontab fire, which runs
+  unattended. The seat holds: no dispatches, no verification runs, no new rounds until further
+  notice.
