@@ -116,10 +116,12 @@
                                         str/split-lines
                                         (remove str/blank?)))
                              subs)
-                     (apply concat (some->> (str out "/ns-uncovered.txt")
-                                            slurp
-                                            str/split-lines
-                                            (remove str/blank?)))
+                     ;; mapcat already flattened the subsystem lists. apply
+                     ;; concat would split each namespace string into chars.
+                     (concat (when (fs/exists? (str out "/ns-uncovered.txt"))
+                               (->> (slurp (str out "/ns-uncovered.txt"))
+                                    str/split-lines
+                                    (remove str/blank?))))
                      distinct
                      vec)
           {:keys [exit]}
@@ -130,7 +132,9 @@
                  "clojure" "-M:clojuredart:cljd" "compile" allns)]
       (log (str "compile-all rc=" exit
                 " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
-      (when-not (zero? exit) (fail! "cljd compile failed")))
+      (when-not (zero? exit)
+        (fail! "cljd compile failed")
+        (System/exit @rc)))
     ;; emit one shard dir per subsystem (residual included; failures fatal)
     (let [dirs (atom [])
           {:keys [continue]} nil]
