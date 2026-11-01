@@ -4277,7 +4277,9 @@
     [php/gen-state (fn [g] (get (php/obj-state g) :gen))]
     [php/gen-put!
      (fn [g s]
-       (do (cell/set! (get g :php/obj) (assoc (php/obj-state g) :gen s)) s))]
+       ;; A discarded state result would remain in a lowered do's %_ across
+       ;; yield and retain the caller's continuation through :return.
+       (do (cell/set! (get g :php/obj) (assoc (php/obj-state g) :gen s)) :php/null))]
     [php/gen-outcome (fn [tag v] (php/pair tag v))]
     [php/make-generator
      (fn [name body cleanup]
@@ -4307,7 +4309,12 @@
          ((fn [r]
             (if (= (cell/get flag) :first)
               (do (cell/set! flag :re-entered)
-                  (php/gen-put! g (assoc (assoc s :state :running) :return r
+                  ;; A yield captures the running state: carrying the old
+                  ;; :resume/:ctx forward would retain every prior suspension.
+                  (php/gen-put! g (assoc {} :state :running
+                                         :name (get s :name) :cleanup (get s :cleanup)
+                                         :current (get s :current) :key (get s :key)
+                                         :next-key (get s :next-key) :return r
                                          :caller-ctx (cell/get php.rt/ctx)))
                   (if (= st :created)
                     (php/gen-start g (get s :body))
@@ -4335,7 +4342,10 @@
             (if (= (cell/get flag) :first)
               (let [s (php/gen-state g)]
                 (do (cell/set! flag :re-entered)
-                    (php/gen-put! g (assoc (assoc s :state :suspended) :resume r
+                    (php/gen-put! g (assoc {} :state :suspended
+                                           :name (get s :name) :cleanup (get s :cleanup)
+                                           :current (get s :current) :key (get s :key)
+                                           :next-key (get s :next-key) :resume r
                                            :ctx (cell/get php.rt/ctx)))
                     (cell/set! php.rt/ctx (get s :caller-ctx))
                     ((get s :return) (php/gen-outcome :yield v))))
@@ -4349,8 +4359,8 @@
          supplied))]
     [php/yield
      (fn [g supplied v]
-       (let [s (php/gen-state g)
-             k (php/gen-next-key! g s supplied)]
+       ;; Keep no running-state snapshot (and its :return) across capture.
+       (let [k (php/gen-next-key! g (php/gen-state g) supplied)]
          (do (php/gen-put! g (assoc (php/gen-state g) :key k :current v))
              (let [msg (php/yield-raw g v)]
                (if (= (get msg 0) :throw) (php/raise (get msg 1)) (get msg 1))))))]
