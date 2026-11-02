@@ -1944,12 +1944,14 @@
             "the declarations file's version/provenance are part of its contract")
     (doseq [[id d] (:portability parsed)]
       (assert (and (complete? d portability-required)
-                   (= :nonportable-host-value (:boundary d)))
+                   (= :nonportable-host-value (:boundary d))
+                   (= 'clojure.core/meta (:upstream-value d)))
               (str "incomplete or out-of-scope portability declaration: " id)))
     (doseq [[id d] (:upstream-failures parsed)]
       (assert (and (complete? d upstream-required)
-                   (contains? #{:upstream-unbound-definition :upstream-malformed-proof-sequence}
-                              (:boundary d)))
+                   (= (:boundary d) ({:typing-ascription :upstream-unbound-definition
+                                      :compile-malformed :upstream-malformed-proof-sequence} id))
+                   (= "86fca0d1d054af005cb37395eae04500d45e6279" (:upstream-revision d)))
               (str "incomplete or out-of-scope upstream-failure declaration: " id)))
     parsed))
 
@@ -2132,8 +2134,10 @@
                                              (assoc-in (c-with descriptor) [:outcome 1 :yin.k/data :script] '())
                                              (c-with descriptor))))
       ;; Shape-only mutation: identical contents delivered as a list in A
-      ;; while C keeps the vector - the raw shape comparison refuses it even
-      ;; though the vec-normalized declaration guard alone would not.
+      ;; while the declaration (and C) keep the vector - the vec-normalized
+      ;; declaration guard alone would accept it, and the refusal lands on
+      ;; the A=B outcome equality (and, had B agreed, the raw shape
+      ;; comparison) - both layers hold.
       (is (nil? (kernel-host-value-deviation fixture
                                              (assoc-in a [:outcome :thrown :data :script]
                                                        (apply list script))
