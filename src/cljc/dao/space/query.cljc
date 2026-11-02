@@ -2069,7 +2069,8 @@
         was-hit? (hit? st call-key)
         restore (fn [st]
                   (if was-hit? (note-hit st call-key) (clear-hit st call-key)))
-        run (fn run [st table acc]
+        run (fn run
+              [st table acc]
               (let [st (clear-hit st call-key)
                     a2 {:seen (:seen table), :new [], :acc acc}]
                 (bind (bounce (fn []

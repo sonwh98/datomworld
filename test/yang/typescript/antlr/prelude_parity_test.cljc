@@ -638,7 +638,8 @@
            f (js/make-function {:js/str "F"} 0 :strict :normal (fn [this args] other))]
        (= (js/construct f []) other))
     true]
-   [(throws '(js/construct (js/make-function {:js/str "a"} 0 :lexical :normal
+   ;; an arrow (lexical this) has no [[Construct]]
+   [(throws '(js/construct (js/make-function {:js/str "a"} 0 :lexical :arrow
                                              (fn [t a] t))
                            []))
     {:js/str "TypeError"}]
@@ -762,6 +763,21 @@
                  (js/callable? disabled))))]
     (testing (str k)
       (is (= [true true false] (if (vector? result) result [:thrown result]))))))
+
+
+(deftest ^:slow shared-call-thrown-value-on-every-vm-test
+  (doseq [[backend result]
+          (run-with-prelude
+            prelude/uast
+            '(let [payload (js/make-object :js/null)
+                   f (cell/new
+                       (assoc {} :yang.call/entry
+                              (fn [invocation]
+                                ((get invocation :yang.call/raise)
+                                 (yang.call/thrown payload)))))]
+               (js/try (fn [] (js/call f :js/undefined []))
+                       (fn [caught] (= caught payload)))))]
+    (is (= true result) (str backend))))
 
 
 (defn- finally-order-on-every-vm

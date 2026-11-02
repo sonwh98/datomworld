@@ -1,12 +1,24 @@
 (require '[clojure.edn :as edn] '[clojure.string :as str]
          '[dao.space.datomic-query-fixtures :as fx]
          '[dao.space.datomic-query-conformance-test :as ct])
+
+
 (def obs (:observations (edn/read-string (slurp "/tmp/jupiter-observations.edn"))))
 (def same? @#'ct/same?)
-(defn short [x n] (let [s (pr-str x)] (if (> (count s) n) (str (subs s 0 n) "...") s)))
+
+
+(defn short
+  [x n]
+  (let [s (pr-str x)] (if (> (count s) n) (str (subs s 0 n) "...") s)))
+
+
 (println "status counts of observed:"
          (frequencies (map #(get (fx/case-by-id (:id %)) "status") obs)))
+
+
 (println "pending observed:" (count (filter #(= "pending" (get (fx/case-by-id (:id %)) "status")) obs)))
+
+
 (doseq [o (sort-by (fn [o] [(get (fx/case-by-id (:id o)) "status") (:id o)]) obs)
         :let [c (fx/case-by-id (:id o))
               st (get c "status")
