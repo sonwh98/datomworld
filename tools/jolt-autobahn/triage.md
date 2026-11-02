@@ -1,6 +1,6 @@
 # Pinned per-case triage
 
-Status: proposed J6 policy; owner approval required. This inventory is not a conformance result.
+Status: J6 policy ratified by the Architect under owner delegation (2026-10-28); the owner may overrule. This inventory is not a conformance result.
 
 517 cases from the pinned 25.10.1 image: 298 must-pass, 3 exception-listed, 216 not-applicable. Every selected case runs in both testee roles. Group 10.1.1 is included as a supplemental fragmentation check.
 

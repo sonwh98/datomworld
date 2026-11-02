@@ -4,6 +4,11 @@
    :task (apply shell "bb" "src/dev/build_cache.clj"
                 "antlr" *command-line-args*)}
 
+  autobahn:jolt
+  {:doc "J6f Autobahn conformance: starts the testee and the Dockerized pinned suite, waits for the READY barrier, runs harness.py per role, collects results/, and shuts both sides down. Usage: bb autobahn:jolt <role> <agent>"
+   :task (System/exit
+           (:exit (shell {:continue true} "bash" "tools/jolt-autobahn/launch.sh" ~@*command-line-args*)))}}
+
   deps:npm
   {:doc "Worktree-local npm ci, reused only while input and installed-file digests match"
    :task (shell "bb" "src/dev/build_cache.clj" "npm")}
