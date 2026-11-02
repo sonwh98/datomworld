@@ -44,14 +44,14 @@
                   ;; pass on macOS and fail on Linux. 4 MB is twice the measured
                   ;; macOS-default minimum, leaving headroom as the prelude grows.
                   ;; Evidence: docs/agents/known-gaps.md (the recursion rows).
-                  :jvm-opts ["-Xss4m"]
-                  :main-opts ["-m" "cognitect.test-runner"]
-                  :exec-fn cognitect.test-runner.api/test
+                  ;; merged stack policy: -Xss64m supersedes the earlier -Xss4m —
                   ;; deep assertion payloads (the PHPT selection diagnostics and
-                  ;; the conformance compositions) overflow the ~1MB default
-                  ;; stack in clojure.test's printer; master's -Xss4m is still
-                  ;; too small on shiva (verified green at -Xss64m)
-                  :jvm-opts ["-Xss64m"]}
+                  ;; the conformance compositions) overflow smaller stacks in
+                  ;; clojure.test's printer on shiva (verified green at -Xss64m;
+                  ;; the 4m minimum for the prelude recursion rows still holds)
+                  :jvm-opts ["-Xss64m"]
+                  :main-opts ["-m" "cognitect.test-runner"]
+                  :exec-fn cognitect.test-runner.api/test}
            :nREPL {:extra-paths ["test"]
                    :extra-deps {nrepl/nrepl {:mvn/version "1.0.0"}
                                 cider/cider-nrepl {:mvn/version "0.58.0"}}
