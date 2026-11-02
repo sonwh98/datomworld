@@ -302,6 +302,10 @@ muse exec --model muse-wonder-1.0 --session-id <uuid> --disable-write \
 # Muse follow-up: resume the exact recorded UUID interactively (never `muse resume --last`).
 muse resume <uuid>
 
+# Muse headless in an UNTRUSTED directory (any scratch clone): add --trust-workspace,
+# or the run starts untrusted (AGENTS.md rules skipped, agent delegation off).
+# muse exec --trust-workspace --model muse-wonder-1.0 --session-id <uuid> ...
+
 # Codex
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
   > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
