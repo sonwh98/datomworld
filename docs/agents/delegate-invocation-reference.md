@@ -376,6 +376,35 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   delegate dispatches; the host's background tracking owns the wait, and a
   truncated turn is recovered by `--conversation <id>` resume with a new
   prompt/artifact name, never by raising the limit as a routine.
+- **AGY headless denies every shell command unless the host's settings carry
+  an allow rule** (observed 2026-11-03, agy 1.4.12 on shiva): a headless
+  `--mode accept-edits` round with no `permissions.allow` entry in
+  `~/.gemini/settings.json` auto-denies the first `command` tool call and the
+  turn ends `SUCCESS` with an empty response and no files written — the
+  failure is silent unless the log is read. Add
+  `"permissions": {"allow": ["command(*)"]}` to the host's settings (or
+  accept `--dangerously-skip-permissions`, which the delegate contract
+  forbids) before the first headless dispatch on any new host.
+- **AGY resume is `--conversation <id>`, not `--resume <id>`** — `--resume`
+  is not an agy flag; passing it makes the CLI print its help text and exit
+  with no work done (observed 2026-11-03). Resumes keep the original mode,
+  model, and sandbox.
+- **AGY implementation turns run long (20+ minutes observed on a
+  single-flash-model implementation round)** — dispatch under the host's
+  background/nohup tracking, poll the log and the worktree's status, and
+  never assume a silent first minutes means failure; the JSON status line
+  (`"status":"SUCCESS"`/`"ERROR"`) lands only at the turn's end.
+- **AGY's model catalog is per-host** (observed 2026-11-03: shiva offers
+  `gemini-4-argon-{low,medium,high}`, `gemini-3.8-flash-{low,medium,high}`,
+  `claude-opus/sonnet-5-5-*`; the reference's `gemini-3.1-pro-high` alias is
+  invalid there, and `--effort` is unsupported for pro-high entries). Run
+  `agy models` on the dispatch host before writing the model name into a
+  brief; the routing split (flash implements, argon for hard problems and
+  architectural review) selects within the host's list.
+- **AGY auto-denial and interruption recovery**: an interrupted turn is
+  resumable by `--conversation <id>` with a "continue to completion" prompt;
+  the resumed turn re-derives its state from the conversation and completes
+  the brief.
 - **Claude `Not logged in` / Codex app-server `Operation not permitted`**
   under the default command sandbox are host diagnostics: retry via host
   escalation with the documented narrow prefixes, preserving each CLI's own
