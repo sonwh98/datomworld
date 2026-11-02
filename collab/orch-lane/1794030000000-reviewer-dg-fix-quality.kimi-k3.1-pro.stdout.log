@@ -1,0 +1,784 @@
+{"role":"meta","type":"system.version","version":"2.4.0"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_m2muHkTE0ACo45WhGdyIG7Eg","function":{"name":"Read","arguments":"{\"path\":\"/tmp/kimi-dg-review.md\"}"}}]}
+{"role":"tool","tool_call_id":"tool_m2muHkTE0ACo45WhGdyIG7Eg","content":"1\tCreated-Local: 2026-11-02 2x:xx +0700\n2\tCoding-Agent: kimi\n3\tSession: fresh (read-only code-quality review)\n4\tMode: read-only\n5\t\n6\t# Review: the mistral-4.0 datagram test fix (the standing muse/mistral quality gate)\n7\t\n8\tPer the owner's routing rule, every mistral implementation round gets a read-only kimi code-quality review before the seat verifies and lands.\n9\t\n10\t## The change\n11\t\n12\tOn shiva, worktree /home/sto/ci/datomworld-dg (branch fix/dg-linux-refusals, UNCOMMITTED working tree): test/dao/stream/datagram/dart_test.cljd, the refusals-and-lifecycle-events test — the exclusive-port pattern from a226423d (the bind-failed fixture fix) generalized: an exclusive seam holds a port, the \"loser\" bind targets that port so bind-failed is guaranteed to deposit, the exclusive seam closes after the test.\n13\t\n14\t## Review for\n15\t\n16\t1. Correctness of the pattern: does holding an exclusive port guarantee a bind-failed deposit under Dart's reuseAddress semantics (a226423d's measured Linux evidence)? Any race between the exclusive bind and the loser bind?\n17\t2. The suspicious construct: `(poll-until #(= 1 (count (bound-events (ring 1)))) 5000)` creates a FRESH (ring 1) inside the predicate on every poll — bound-events of a new ring is presumably always empty, making the await time out after 5 s and the subsequent code proceed on a false premise. Read the test helpers (ring, bound-events, poll-until) and rule whether that await is a no-op (harmless but misleading) or actually load-bearing.\n18\t3. Resource hygiene: the exclusive seam closes only in the success path — if an assertion inside throws, does the exclusive seam leak and poison other tests (port exhaustion)?\n19\t4. Style: does it match the surrounding test's idiom?\n20\t\n21\tRule: ACCEPT (land as-is), ACCEPT-WITH-EDITS (name the exact edits), or REJECT (name why). SSH to shiva.stigmergy.systems is available from your environment if you need to read the worktree files; the diff is small."}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_hj3qkSQp5BWuEWHhPdh3NugA","function":{"name":"Skill","arguments":"{\"skill\":\"code-review-pr\",\"args\":\"/tmp/kimi-dg-review.md\"}"}}]}
+{"role":"tool","tool_call_id":"tool_hj3qkSQp5BWuEWHhPdh3NugA","content":"Skill \"code-review-pr\" loaded inline. Follow its instructions."}
+diff --git a/test/dao/stream/datagram/dart_test.cljd b/test/dao/stream/datagram/dart_test.cljd
+index cbc26ee4..dd7dead8 100644
+--- a/test/dao/stream/datagram/dart_test.cljd
++++ b/test/dao/stream/datagram/dart_test.cljd
+@@ -224,6 +224,9 @@
+ (deftest refusals-and-lifecycle-events
+   (let [traffic-a (ring 16)
+         traffic-b (ring 64)
++        ;; Hold the port exclusively to force bind-failed and send-failed events
++        exclusive-seam (bind! "exclusive" (ring 1))
++        _ (await (poll-until #(= 1 (count (bound-events (ring 1)))) 5000))
+         seam-a (bind! "a" traffic-a)
+         seam-b (bind! "b" traffic-b)
+         both (await (both-bounds traffic-a traffic-b 5000))]
+@@ -288,7 +291,10 @@
+               (is (some? failed) "no send-failed event deposited"))))
+         (testing "a bind on a taken port deposits bind-failed"
+           (let [t3 (ring 8)
+-                seam-c (bind! "loser" t3 dest 1200)]
++                ;; Use the port held by the exclusive seam to force bind-failed
++                local-exclusive (:dao.stream.datagram/local (bound-of (ring 1)))
++                dest-exclusive (:dao.stream.datagram/port local-exclusive)
++                seam-c (bind! "loser" t3 dest-exclusive 1200)]
+             (let [failed (await (poll-until
+                                   (fn []
+                                     (some
+@@ -299,6 +305,8 @@
+                                   5000))]
+               (is (some? failed) "no bind-failed event deposited"))
+             ((:close! seam-c))))
++        ;; Close the exclusive seam after the test
++        ((:close! exclusive-seam))
+         (stream/close! writer-a)
+         ((:close! seam-a))
+         ((:close! seam-b))))))
+ M test/dao/stream/datagram/dart_test.cljd
+?? DG-FIX.md
+{"role":"assistant","content":"I’ll inspect the uncommitted diff and the polling helpers on `shiva`, then give the required accept/edit/reject verdict.","tool_calls":[{"type":"function","id":"tool_tZwCniY3Wdn7sDUhJTcVMJLN","function":{"name":"Bash","arguments":"{\"command\":\"ssh shiva.stigmergy.systems 'cd /home/sto/ci/datomworld-dg && git diff -- test/dao/stream/datagram/dart_test.cljd && git status --short'\",\"timeout\":60}"}},{"type":"function","id":"tool_9PrA4Te4XNiWauVsBxsW6ZMd","function":{"name":"Bash","arguments":"{\"command\":\"ssh shiva.stigmergy.systems 'cd /home/sto/ci/datomworld-dg && git show a226423d --stat --oneline && git show a226423d -- test/dao/stream/datagram/dart_test.cljd'\",\"timeout\":60}"}}]}
+{"role":"tool","tool_call_id":"tool_tZwCniY3Wdn7sDUhJTcVMJLN","content":"diff --git a/test/dao/stream/datagram/dart_test.cljd b/test/dao/stream/datagram/dart_test.cljd\nindex cbc26ee4..dd7dead8 100644\n--- a/test/dao/stream/datagram/dart_test.cljd\n+++ b/test/dao/stream/datagram/dart_test.cljd\n@@ -224,6 +224,9 @@\n (deftest refusals-and-lifecycle-events\n   (let [traffic-a (ring 16)\n         traffic-b (ring 64)\n+        ;; Hold the port exclusively to force bind-failed and send-failed events\n+        exclusive-seam (bind! \"exclusive\" (ring 1))\n+        _ (await (poll-until #(= 1 (count (bound-events (ring 1)))) 5000))\n         seam-a (bind! \"a\" traffic-a)\n         seam-b (bind! \"b\" traffic-b)\n         both (await (both-bounds traffic-a traffic-b 5000))]\n@@ -288,7 +291,10 @@\n               (is (some? failed) \"no send-failed event deposited\"))))\n         (testing \"a bind on a taken port deposits bind-failed\"\n           (let [t3 (ring 8)\n-                seam-c (bind! \"loser\" t3 dest 1200)]\n+                ;; Use the port held by the exclusive seam to force bind-failed\n+                local-exclusive (:dao.stream.datagram/local (bound-of (ring 1)))\n+                dest-exclusive (:dao.stream.datagram/port local-exclusive)\n+                seam-c (bind! \"loser\" t3 dest-exclusive 1200)]\n             (let [failed (await (poll-until\n                                   (fn []\n                                     (some\n@@ -299,6 +305,8 @@\n                                   5000))]\n               (is (some? failed) \"no bind-failed event deposited\"))\n             ((:close! seam-c))))\n+        ;; Close the exclusive seam after the test\n+        ((:close! exclusive-seam))\n         (stream/close! writer-a)\n         ((:close! seam-a))\n         ((:close! seam-b))))))\n M test/dao/stream/datagram/dart_test.cljd\n?? DG-FIX.md\n"}
+a226423d merge: the Linux datagram bind-failed fix — an exclusive blocker in the bind-failed fixture
+
+ test/dao/stream/datagram/dart_test.cljd | 38 ++++++++++++++++++++++-----------
+ 1 file changed, 26 insertions(+), 12 deletions(-)
+{"role":"tool","tool_call_id":"tool_9PrA4Te4XNiWauVsBxsW6ZMd","content":"a226423d merge: the Linux datagram bind-failed fix — an exclusive blocker in the bind-failed fixture\n\n test/dao/stream/datagram/dart_test.cljd | 38 ++++++++++++++++++++++-----------\n 1 file changed, 26 insertions(+), 12 deletions(-)\n"}
+     1	(ns dao.stream.datagram.dart-test
+     2	  "The dart:io host seam (dao.stream.datagram.md 3) over real loopback
+     3	   RawDatagramSockets: the deposit writer is the seam's only channel --
+     4	   bound, bind-failed, send-failed and closed arrive as events on the
+     5	   traffic ring, never as invocations -- and exact bytes with their
+     6	   observed source round trip through the writer handle and the ring.
+     7	
+     8	   Dart runs one isolate, so every wait here is a turn on the event loop:
+     9	   each fact is an `await` over a poll, and the seam's own asynchronous
+    10	   bind completes on the same loop. Nothing in the seam schedules itself."
+    11	
+    12	  (:require [clojure.test :refer [deftest is testing]]
+    13	            ["dart:core" :as core]
+    14	            ["dart:async" :as async]
+    15	            [dao.stream :as stream]
+    16	            [dao.stream.base64 :as base64]
+    17	            [dao.stream.datagram :as datagram]
+    18	            [dao.stream.datagram.dart :as dart]
+    19	            [dao.stream.ringbuffer :as ringbuffer])
+    20	  (:import ["dart:typed_data" Uint8List]))
+    21	
+    22	
+    23	(defn- ring
+    24	  [capacity]
+    25	  (:dao.stream/handle
+    26	    (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
+    27	                         ringbuffer/capacity-key capacity})))
+    28	
+    29	
+    30	(defn- values
+    31	  [h]
+    32	  (loop [c (:dao.stream/cursor (stream/cursor h stream/anchor-oldest))
+    33	         acc []]
+    34	    (let [r (stream/next h c)]
+    35	      (if (= :dao.stream/ok (:dao.stream/outcome r))
+    36	        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+    37	        acc))))
+    38	
+    39	
+    40	(defn- now-ms
+    41	  []
+    42	  (.-millisecondsSinceEpoch (core/DateTime.now)))
+    43	
+    44	
+    45	(defn- sleep!
+    46	  [ms]
+    47	  (async/Future.delayed (core/Duration .milliseconds ms)))
+    48	
+    49	
+    50	(defn- poll-until
+    51	  "Resolve with the first truthy value `pred` returns, or nil at the
+    52	   deadline. The pred's answer is tested for truthiness, not nil: a
+    53	   comparison pred answers `false` while it waits, and `false` means keep
+    54	   polling. Polling is the only honest wait here: no operation blocks, and
+    55	   nothing notifies."
+    56	  [pred timeout-ms]
+    57	  (let [deadline (+ (now-ms) timeout-ms)]
+    58	    (loop []
+    59	      (let [value (pred)]
+    60	        (cond
+    61	          value value
+    62	          (< deadline (now-ms)) nil
+    63	          :else (do (await (sleep! 10))
+    64	                    (recur)))))))
+    65	
+    66	
+    67	(defn- bind!
+    68	  ([id traffic] (bind! id traffic 0 1200))
+    69	  ([id traffic port max-bytes]
+    70	   (dart/bind! {:identity id
+    71	                :deposit traffic
+    72	                :bind-host "127.0.0.1"
+    73	                :bind-port port
+    74	                :max-bytes max-bytes})))
+    75	
+    76	
+    77	(defn- bound-of
+    78	  [traffic]
+    79	  (some #(when (= :dao.stream.datagram/bound (:dao.stream.datagram/event %))
+    80	           %)
+    81	        (values traffic)))
+    82	
+    83	
+    84	(defn- writer-for
+    85	  [seam id local]
+    86	  (datagram/writer seam
+    87	                   {:dao.stream/type :dao.stream/datagram
+    88	                    :dao.stream/identity id
+    89	                    :dao.stream.datagram/bind-host
+    90	                    (:dao.stream.datagram/host local)
+    91	                    :dao.stream.datagram/bind-port
+    92	                    (:dao.stream.datagram/port local)}
+    93	                   1200))
+    94	
+    95	
+    96	(defn- u8
+    97	  [octets]
+    98	  (let [out (Uint8List. (count octets))]
+    99	    (dotimes [i (count octets)]
+   100	      (aset out i (nth octets i)))
+   101	    out))
+   102	
+   103	
+   104	(defn- outbound
+   105	  [host port octets]
+   106	  {:dao.stream.datagram/destination {:dao.stream.datagram/host host
+   107	                                     :dao.stream.datagram/port port}
+   108	   :dao.stream.datagram/bytes (base64/encode (u8 octets))})
+   109	
+   110	
+   111	(defn- received-datagrams
+   112	  [traffic]
+   113	  (filter datagram/datagram-event? (values traffic)))
+   114	
+   115	
+   116	(deftest live-socket-ip-family-failure-preserves-canary
+   117	  (let [traffic (ring 16)
+   118	        peer-traffic (ring 16)
+   119	        seam (bind! "s" traffic)
+   120	        peer (bind! "peer" peer-traffic)]
+   121	    (try
+   122	      (is (some? (await (poll-until #(bound-of traffic) 5000))))
+   123	      (let [bound (await (poll-until #(bound-of peer-traffic) 5000))
+   124	            port (:dao.stream.datagram/port
+   125	                   (:dao.stream.datagram/local bound))
+   126	            failed ((:send! seam) "::1" port (u8 [1]))]
+   127	        (is (= :dao.stream/transport-error
+   128	               (:dao.stream/outcome failed)))
+   129	        (is (some? (await (poll-until
+   130	                            #(some (fn [v]
+   131	                                     (= :dao.stream.datagram/send-failed
+   132	                                        (:dao.stream.datagram/event v)))
+   133	                                   (values traffic))
+   134	                            5000))))
+   135	        (is (not-any? #(= :dao.stream.datagram/closed
+   136	                          (:dao.stream.datagram/event %))
+   137	                      (values traffic)))
+   138	        (is (= :dao.stream/ok
+   139	               (:dao.stream/outcome
+   140	                 ((:send! seam) "127.0.0.1" port (u8 [42])))))
+   141	        (is (some? (await (poll-until
+   142	                            #(some (fn [v]
+   143	                                     (= "Kg==" (:dao.stream.datagram/bytes v)))
+   144	                                   (received-datagrams peer-traffic))
+   145	                            5000)))))
+   146	      (finally ((:close! seam)) ((:close! peer))))))
+   147	
+   148	
+   149	(defn- payload-of
+   150	  [event]
+   151	  (mapv (fn [b] (bit-and 0xff (int b)))
+   152	        (seq (base64/decode (:dao.stream.datagram/bytes event)))))
+   153	
+   154	
+   155	(defn- octets-of
+   156	  "Expected octets as the wire wraps them: a datagram is bytes, so an
+   157	   octet over 255 rides its low 8 bits."
+   158	  [octets]
+   159	  (mapv #(mod (int %) 256) octets))
+   160	
+   161	
+   162	(defn- both-bounds
+   163	  "Await both sockets' bound events; nil at the deadline."
+   164	  [traffic-a traffic-b timeout-ms]
+   165	  (await (poll-until #(and (bound-of traffic-a) (bound-of traffic-b))
+   166	                     timeout-ms)))
+   167	
+   168	
+   169	(deftest bound-then-exact-bytes-and-observed-source-round-trip
+   170	  (let [traffic-a (ring 16)
+   171	        traffic-b (ring 64)
+   172	        seam-a (bind! "a" traffic-a)
+   173	        seam-b (bind! "b" traffic-b)
+   174	        both (await (both-bounds traffic-a traffic-b 5000))]
+   175	    (is (some? both) "a socket never reported bound")
+   176	    (when both
+   177	      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))
+   178	            local-b (:dao.stream.datagram/local (bound-of traffic-b))
+   179	            _ (is (= "127.0.0.1" (:dao.stream.datagram/host local-a)))
+   180	            _ (is (pos? (:dao.stream.datagram/port local-a))
+   181	                  "the actual ephemeral port, never 0, though 0 was
+   182	                     asked for")
+   183	            writer-a (writer-for seam-a "a" local-a)
+   184	            dest (:dao.stream.datagram/port local-b)
+   185	            ;; no zero-length payload here: dart:io sends nothing at all
+   186	            ;; for one, refused below
+   187	            payloads [[1 2 3] (vec (range 1 256)) (vec (range 1200))]]
+   188	        (doseq [octets payloads]
+   189	          (is (= {:dao.stream/outcome :dao.stream/ok}
+   190	                 (stream/append! writer-a
+   191	                                 (outbound "127.0.0.1" dest octets)))))
+   192	        (testing "a zero-length datagram is refused cleanly on this host:
+   193	                  dart:io would silently send nothing for it"
+   194	          (is (= :dao.stream/transport-error
+   195	                 (:dao.stream/outcome
+   196	                   (stream/append!
+   197	                     writer-a
+   198	                     {:dao.stream.datagram/destination
+   199	                      {:dao.stream.datagram/host "127.0.0.1"
+   200	                       :dao.stream.datagram/port dest}
+   201	                      :dao.stream.datagram/bytes ""})))))
+   202	        (let [arrived (await (poll-until
+   203	                               #(= (count payloads)
+   204	                                   (count (received-datagrams traffic-b)))
+   205	                               5000))]
+   206	          (is (some? arrived) "not every datagram arrived as an event")
+   207	          (doseq [[octets event] (map vector payloads
+   208	                                      (received-datagrams traffic-b))]
+   209	            (is (= "127.0.0.1"
+   210	                   (get-in event [:dao.stream.datagram/source
+   211	                                  :dao.stream.datagram/host]))
+   212	                "the source host the socket observed")
+   213	            (is (= (:dao.stream.datagram/port local-a)
+   214	                   (get-in event [:dao.stream.datagram/source
+   215	                                  :dao.stream.datagram/port]))
+   216	                "the source port the socket observed")
+   217	            (is (= (octets-of octets) (payload-of event))
+   218	                (str "exact payload bytes, " (count octets) " octets"))))
+   219	        (stream/close! writer-a)
+   220	        ((:close! seam-a))
+   221	        ((:close! seam-b))))))
+   222	
+   223	
+   224	(deftest refusals-and-lifecycle-events
+   225	  (let [traffic-a (ring 16)
+   226	        traffic-b (ring 64)
+   227	        ;; Hold the port exclusively to force bind-failed and send-failed events
+   228	        exclusive-seam (bind! "exclusive" (ring 1))
+   229	        _ (await (poll-until #(= 1 (count (bound-events (ring 1)))) 5000))
+   230	        seam-a (bind! "a" traffic-a)
+   231	        seam-b (bind! "b" traffic-b)
+   232	        both (await (both-bounds traffic-a traffic-b 5000))]
+   233	    (is (some? both) "a socket never reported bound")
+   234	    (when both
+   235	      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))
+   236	            local-b (:dao.stream.datagram/local (bound-of traffic-b))
+   237	            writer-a (writer-for seam-a "a" local-a)
+   238	            dest (:dao.stream.datagram/port local-b)]
+   239	        (testing "hostname destination, bad Base64 and oversize are
+   240	                    invalid-value, and nothing is sent"
+   241	          (is (= :dao.stream/invalid-value
+   242	                 (:dao.stream/outcome
+   243	                   (stream/append! writer-a
+   244	                                   (outbound "localhost" dest [1 2 3])))))
+   245	          (is (= :dao.stream/invalid-value
+   246	                 (:dao.stream/outcome
+   247	                   (stream/append!
+   248	                     writer-a
+   249	                     {:dao.stream.datagram/destination
+   250	                      {:dao.stream.datagram/host "127.0.0.1"
+   251	                       :dao.stream.datagram/port dest}
+   252	                      :dao.stream.datagram/bytes "not base64!"}))))
+   253	          (is (= :dao.stream/invalid-value
+   254	                 (:dao.stream/outcome
+   255	                   (stream/append! writer-a (outbound "127.0.0.1" dest
+   256	                                                      (vec (range 1201))))))))
+   257	        ;; one valid canary: the refusals sent nothing, so it is the one
+   258	        ;; and only datagram event that ever lands
+   259	        (stream/append! writer-a (outbound "127.0.0.1" dest [9 9 9]))
+   260	        (let [arrived (await (poll-until
+   261	                               #(= 1 (count (received-datagrams traffic-b)))
+   262	                               5000))]
+   263	          (is (some? arrived) "the canary never arrived")
+   264	          (is (= [[9 9 9]] (mapv payload-of
+   265	                                 (received-datagrams traffic-b)))))
+   266	        (testing "a closed socket is closed; the seam deposits closed"
+   267	          (is (= {:dao.stream/outcome :dao.stream/ok}
+   268	                 (stream/close! writer-a)))
+   269	          (is (= {:dao.stream/outcome :dao.stream/closed}
+   270	                 (stream/append! writer-a (outbound "127.0.0.1" dest [1]))))
+   271	          (let [closed (await (poll-until
+   272	                                (fn []
+   273	                                  (some
+   274	                                    (fn [v]
+   275	                                      (= :dao.stream.datagram/closed
+   276	                                         (:dao.stream.datagram/event v)))
+   277	                                    (values traffic-a)))
+   278	                                5000))]
+   279	            (is (some? closed) "no closed event deposited")))
+   280	        (testing "a send the seam itself fails is a send-failed event"
+   281	          (let [r ((:send! seam-a) "127.0.0.1" 4100 (u8 [1 2 3 4]))]
+   282	            (is (= :dao.stream/transport-error (:dao.stream/outcome r)))
+   283	            (let [failed (await (poll-until
+   284	                                  (fn []
+   285	                                    (some
+   286	                                      (fn [v]
+   287	                                        (= :dao.stream.datagram/send-failed
+   288	                                           (:dao.stream.datagram/event v)))
+   289	                                      (values traffic-a)))
+   290	                                  5000))]
+   291	              (is (some? failed) "no send-failed event deposited"))))
+   292	        (testing "a bind on a taken port deposits bind-failed"
+   293	          (let [t3 (ring 8)
+   294	                ;; Use the port held by the exclusive seam to force bind-failed
+   295	                local-exclusive (:dao.stream.datagram/local (bound-of (ring 1)))
+   296	                dest-exclusive (:dao.stream.datagram/port local-exclusive)
+   297	                seam-c (bind! "loser" t3 dest-exclusive 1200)]
+   298	            (let [failed (await (poll-until
+   299	                                  (fn []
+   300	                                    (some
+   301	                                      (fn [v]
+   302	                                        (= :dao.stream.datagram/bind-failed
+   303	                                           (:dao.stream.datagram/event v)))
+   304	                                      (values t3)))
+   305	                                  5000))]
+   306	              (is (some? failed) "no bind-failed event deposited"))
+   307	            ((:close! seam-c))))
+   308	        ;; Close the exclusive seam after the test
+   309	        ((:close! exclusive-seam))
+   310	        (stream/close! writer-a)
+   311	        ((:close! seam-a))
+   312	        ((:close! seam-b))))))
+   313	
+   314	
+   315	(deftest inbound-oversize-is-never-deposited
+   316	  (let [traffic-a (ring 16)
+   317	        traffic-b (ring 16)
+   318	        seam-a (bind! "a" traffic-a)
+   319	        ;; the receiving socket admits at most 64 bytes of payload
+   320	        seam-b (bind! "b" traffic-b 0 64)
+   321	        both (await (both-bounds traffic-a traffic-b 5000))]
+   322	    (is (some? both) "a socket never reported bound")
+   323	    (when both
+   324	      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))
+   325	            local-b (:dao.stream.datagram/local (bound-of traffic-b))
+   326	            writer-a (writer-for seam-a "a" local-a)
+   327	            dest (:dao.stream.datagram/port local-b)]
+   328	        (stream/append! writer-a (outbound "127.0.0.1" dest
+   329	                                           (vec (range 100))))
+   330	        (stream/append! writer-a (outbound "127.0.0.1" dest [7 7]))
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_2PwPiKLoRTRkpqwlJPj7UW4N","function":{"name":"Bash","arguments":"{\"command\":\"ssh shiva.stigmergy.systems 'cd /home/sto/ci/datomworld-dg && nl -ba test/dao/stream/datagram/dart_test.cljd | sed -n \\\"1,330p\\\"'\",\"timeout\":60}"}},{"type":"function","id":"tool_smtIzRXIU0CDaMT4XHaPnjkD","function":{"name":"Bash","arguments":"{\"command\":\"ssh shiva.stigmergy.systems 'cd /home/sto/ci/datomworld-dg && git show --format=fuller --cc a226423d -- test/dao/stream/datagram/dart_test.cljd && git show a226423d^1:test/dao/stream/datagram/dart_test.cljd | nl -ba | sed -n \\\"1,330p\\\"'\",\"timeout\":60}"}}]}
+{"role":"tool","tool_call_id":"tool_2PwPiKLoRTRkpqwlJPj7UW4N","content":"     1\t(ns dao.stream.datagram.dart-test\n     2\t  \"The dart:io host seam (dao.stream.datagram.md 3) over real loopback\n     3\t   RawDatagramSockets: the deposit writer is the seam's only channel --\n     4\t   bound, bind-failed, send-failed and closed arrive as events on the\n     5\t   traffic ring, never as invocations -- and exact bytes with their\n     6\t   observed source round trip through the writer handle and the ring.\n     7\t\n     8\t   Dart runs one isolate, so every wait here is a turn on the event loop:\n     9\t   each fact is an `await` over a poll, and the seam's own asynchronous\n    10\t   bind completes on the same loop. Nothing in the seam schedules itself.\"\n    11\t\n    12\t  (:require [clojure.test :refer [deftest is testing]]\n    13\t            [\"dart:core\" :as core]\n    14\t            [\"dart:async\" :as async]\n    15\t            [dao.stream :as stream]\n    16\t            [dao.stream.base64 :as base64]\n    17\t            [dao.stream.datagram :as datagram]\n    18\t            [dao.stream.datagram.dart :as dart]\n    19\t            [dao.stream.ringbuffer :as ringbuffer])\n    20\t  (:import [\"dart:typed_data\" Uint8List]))\n    21\t\n    22\t\n    23\t(defn- ring\n    24\t  [capacity]\n    25\t  (:dao.stream/handle\n    26\t    (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type\n    27\t                         ringbuffer/capacity-key capacity})))\n    28\t\n    29\t\n    30\t(defn- values\n    31\t  [h]\n    32\t  (loop [c (:dao.stream/cursor (stream/cursor h stream/anchor-oldest))\n    33\t         acc []]\n    34\t    (let [r (stream/next h c)]\n    35\t      (if (= :dao.stream/ok (:dao.stream/outcome r))\n    36\t        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))\n    37\t        acc))))\n    38\t\n    39\t\n    40\t(defn- now-ms\n    41\t  []\n    42\t  (.-millisecondsSinceEpoch (core/DateTime.now)))\n    43\t\n    44\t\n    45\t(defn- sleep!\n    46\t  [ms]\n    47\t  (async/Future.delayed (core/Duration .milliseconds ms)))\n    48\t\n    49\t\n    50\t(defn- poll-until\n    51\t  \"Resolve with the first truthy value `pred` returns, or nil at the\n    52\t   deadline. The pred's answer is tested for truthiness, not nil: a\n    53\t   comparison pred answers `false` while it waits, and `false` means keep\n    54\t   polling. Polling is the only honest wait here: no operation blocks, and\n    55\t   nothing notifies.\"\n    56\t  [pred timeout-ms]\n    57\t  (let [deadline (+ (now-ms) timeout-ms)]\n    58\t    (loop []\n    59\t      (let [value (pred)]\n    60\t        (cond\n    61\t          value value\n    62\t          (< deadline (now-ms)) nil\n    63\t          :else (do (await (sleep! 10))\n    64\t                    (recur)))))))\n    65\t\n    66\t\n    67\t(defn- bind!\n    68\t  ([id traffic] (bind! id traffic 0 1200))\n    69\t  ([id traffic port max-bytes]\n    70\t   (dart/bind! {:identity id\n    71\t                :deposit traffic\n    72\t                :bind-host \"127.0.0.1\"\n    73\t                :bind-port port\n    74\t                :max-bytes max-bytes})))\n    75\t\n    76\t\n    77\t(defn- bound-of\n    78\t  [traffic]\n    79\t  (some #(when (= :dao.stream.datagram/bound (:dao.stream.datagram/event %))\n    80\t           %)\n    81\t        (values traffic)))\n    82\t\n    83\t\n    84\t(defn- writer-for\n    85\t  [seam id local]\n    86\t  (datagram/writer seam\n    87\t                   {:dao.stream/type :dao.stream/datagram\n    88\t                    :dao.stream/identity id\n    89\t                    :dao.stream.datagram/bind-host\n    90\t                    (:dao.stream.datagram/host local)\n    91\t                    :dao.stream.datagram/bind-port\n    92\t                    (:dao.stream.datagram/port local)}\n    93\t                   1200))\n    94\t\n    95\t\n    96\t(defn- u8\n    97\t  [octets]\n    98\t  (let [out (Uint8List. (count octets))]\n    99\t    (dotimes [i (count octets)]\n   100\t      (aset out i (nth octets i)))\n   101\t    out))\n   102\t\n   103\t\n   104\t(defn- outbound\n   105\t  [host port octets]\n   106\t  {:dao.stream.datagram/destination {:dao.stream.datagram/host host\n   107\t                                     :dao.stream.datagram/port port}\n   108\t   :dao.stream.datagram/bytes (base64/encode (u8 octets))})\n   109\t\n   110\t\n   111\t(defn- received-datagrams\n   112\t  [traffic]\n   113\t  (filter datagram/datagram-event? (values traffic)))\n   114\t\n   115\t\n   116\t(deftest live-socket-ip-family-failure-preserves-canary\n   117\t  (let [traffic (ring 16)\n   118\t        peer-traffic (ring 16)\n   119\t        seam (bind! \"s\" traffic)\n   120\t        peer (bind! \"peer\" peer-traffic)]\n   121\t    (try\n   122\t      (is (some? (await (poll-until #(bound-of traffic) 5000))))\n   123\t      (let [bound (await (poll-until #(bound-of peer-traffic) 5000))\n   124\t            port (:dao.stream.datagram/port\n   125\t                   (:dao.stream.datagram/local bound))\n   126\t            failed ((:send! seam) \"::1\" port (u8 [1]))]\n   127\t        (is (= :dao.stream/transport-error\n   128\t               (:dao.stream/outcome failed)))\n   129\t        (is (some? (await (poll-until\n   130\t                            #(some (fn [v]\n   131\t                                     (= :dao.stream.datagram/send-failed\n   132\t                                        (:dao.stream.datagram/event v)))\n   133\t                                   (values traffic))\n   134\t                            5000))))\n   135\t        (is (not-any? #(= :dao.stream.datagram/closed\n   136\t                          (:dao.stream.datagram/event %))\n   137\t                      (values traffic)))\n   138\t        (is (= :dao.stream/ok\n   139\t               (:dao.stream/outcome\n   140\t                 ((:send! seam) \"127.0.0.1\" port (u8 [42])))))\n   141\t        (is (some? (await (poll-until\n   142\t                            #(some (fn [v]\n   143\t                                     (= \"Kg==\" (:dao.stream.datagram/bytes v)))\n   144\t                                   (received-datagrams peer-traffic))\n   145\t                            5000)))))\n   146\t      (finally ((:close! seam)) ((:close! peer))))))\n   147\t\n   148\t\n   149\t(defn- payload-of\n   150\t  [event]\n   151\t  (mapv (fn [b] (bit-and 0xff (int b)))\n   152\t        (seq (base64/decode (:dao.stream.datagram/bytes event)))))\n   153\t\n   154\t\n   155\t(defn- octets-of\n   156\t  \"Expected octets as the wire wraps them: a datagram is bytes, so an\n   157\t   octet over 255 rides its low 8 bits.\"\n   158\t  [octets]\n   159\t  (mapv #(mod (int %) 256) octets))\n   160\t\n   161\t\n   162\t(defn- both-bounds\n   163\t  \"Await both sockets' bound events; nil at the deadline.\"\n   164\t  [traffic-a traffic-b timeout-ms]\n   165\t  (await (poll-until #(and (bound-of traffic-a) (bound-of traffic-b))\n   166\t                     timeout-ms)))\n   167\t\n   168\t\n   169\t(deftest bound-then-exact-bytes-and-observed-source-round-trip\n   170\t  (let [traffic-a (ring 16)\n   171\t        traffic-b (ring 64)\n   172\t        seam-a (bind! \"a\" traffic-a)\n   173\t        seam-b (bind! \"b\" traffic-b)\n   174\t        both (await (both-bounds traffic-a traffic-b 5000))]\n   175\t    (is (some? both) \"a socket never reported bound\")\n   176\t    (when both\n   177\t      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))\n   178\t            local-b (:dao.stream.datagram/local (bound-of traffic-b))\n   179\t            _ (is (= \"127.0.0.1\" (:dao.stream.datagram/host local-a)))\n   180\t            _ (is (pos? (:dao.stream.datagram/port local-a))\n   181\t                  \"the actual ephemeral port, never 0, though 0 was\n   182\t                     asked for\")\n   183\t            writer-a (writer-for seam-a \"a\" local-a)\n   184\t            dest (:dao.stream.datagram/port local-b)\n   185\t            ;; no zero-length payload here: dart:io sends nothing at all\n   186\t            ;; for one, refused below\n   187\t            payloads [[1 2 3] (vec (range 1 256)) (vec (range 1200))]]\n   188\t        (doseq [octets payloads]\n   189\t          (is (= {:dao.stream/outcome :dao.stream/ok}\n   190\t                 (stream/append! writer-a\n   191\t                                 (outbound \"127.0.0.1\" dest octets)))))\n   192\t        (testing \"a zero-length datagram is refused cleanly on this host:\n   193\t                  dart:io would silently send nothing for it\"\n   194\t          (is (= :dao.stream/transport-error\n   195\t                 (:dao.stream/outcome\n   196\t                   (stream/append!\n   197\t                     writer-a\n   198\t                     {:dao.stream.datagram/destination\n   199\t                      {:dao.stream.datagram/host \"127.0.0.1\"\n   200\t                       :dao.stream.datagram/port dest}\n   201\t                      :dao.stream.datagram/bytes \"\"})))))\n   202\t        (let [arrived (await (poll-until\n   203\t                               #(= (count payloads)\n   204\t                                   (count (received-datagrams traffic-b)))\n   205\t                               5000))]\n   206\t          (is (some? arrived) \"not every datagram arrived as an event\")\n   207\t          (doseq [[octets event] (map vector payloads\n   208\t                                      (received-datagrams traffic-b))]\n   209\t            (is (= \"127.0.0.1\"\n   210\t                   (get-in event [:dao.stream.datagram/source\n   211\t                                  :dao.stream.datagram/host]))\n   212\t                \"the source host the socket observed\")\n   213\t            (is (= (:dao.stream.datagram/port local-a)\n   214\t                   (get-in event [:dao.stream.datagram/source\n   215\t                                  :dao.stream.datagram/port]))\n   216\t                \"the source port the socket observed\")\n   217\t            (is (= (octets-of octets) (payload-of event))\n   218\t                (str \"exact payload bytes, \" (count octets) \" octets\"))))\n   219\t        (stream/close! writer-a)\n   220\t        ((:close! seam-a))\n   221\t        ((:close! seam-b))))))\n   222\t\n   223\t\n   224\t(deftest refusals-and-lifecycle-events\n   225\t  (let [traffic-a (ring 16)\n   226\t        traffic-b (ring 64)\n   227\t        ;; Hold the port exclusively to force bind-failed and send-failed events\n   228\t        exclusive-seam (bind! \"exclusive\" (ring 1))\n   229\t        _ (await (poll-until #(= 1 (count (bound-events (ring 1)))) 5000))\n   230\t        seam-a (bind! \"a\" traffic-a)\n   231\t        seam-b (bind! \"b\" traffic-b)\n   232\t        both (await (both-bounds traffic-a traffic-b 5000))]\n   233\t    (is (some? both) \"a socket never reported bound\")\n   234\t    (when both\n   235\t      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))\n   236\t            local-b (:dao.stream.datagram/local (bound-of traffic-b))\n   237\t            writer-a (writer-for seam-a \"a\" local-a)\n   238\t            dest (:dao.stream.datagram/port local-b)]\n   239\t        (testing \"hostname destination, bad Base64 and oversize are\n   240\t                    invalid-value, and nothing is sent\"\n   241\t          (is (= :dao.stream/invalid-value\n   242\t                 (:dao.stream/outcome\n   243\t                   (stream/append! writer-a\n   244\t                                   (outbound \"localhost\" dest [1 2 3])))))\n   245\t          (is (= :dao.stream/invalid-value\n   246\t                 (:dao.stream/outcome\n   247\t                   (stream/append!\n   248\t                     writer-a\n   249\t                     {:dao.stream.datagram/destination\n   250\t                      {:dao.stream.datagram/host \"127.0.0.1\"\n   251\t                       :dao.stream.datagram/port dest}\n   252\t                      :dao.stream.datagram/bytes \"not base64!\"}))))\n   253\t          (is (= :dao.stream/invalid-value\n   254\t                 (:dao.stream/outcome\n   255\t                   (stream/append! writer-a (outbound \"127.0.0.1\" dest\n   256\t                                                      (vec (range 1201))))))))\n   257\t        ;; one valid canary: the refusals sent nothing, so it is the one\n   258\t        ;; and only datagram event that ever lands\n   259\t        (stream/append! writer-a (outbound \"127.0.0.1\" dest [9 9 9]))\n   260\t        (let [arrived (await (poll-until\n   261\t                               #(= 1 (count (received-datagrams traffic-b)))\n   262\t                               5000))]\n   263\t          (is (some? arrived) \"the canary never arrived\")\n   264\t          (is (= [[9 9 9]] (mapv payload-of\n   265\t                                 (received-datagrams traffic-b)))))\n   266\t        (testing \"a closed socket is closed; the seam deposits closed\"\n   267\t          (is (= {:dao.stream/outcome :dao.stream/ok}\n   268\t                 (stream/close! writer-a)))\n   269\t          (is (= {:dao.stream/outcome :dao.stream/closed}\n   270\t                 (stream/append! writer-a (outbound \"127.0.0.1\" dest [1]))))\n   271\t          (let [closed (await (poll-until\n   272\t                                (fn []\n   273\t                                  (some\n   274\t                                    (fn [v]\n   275\t                                      (= :dao.stream.datagram/closed\n   276\t                                         (:dao.stream.datagram/event v)))\n   277\t                                    (values traffic-a)))\n   278\t                                5000))]\n   279\t            (is (some? closed) \"no closed event deposited\")))\n   280\t        (testing \"a send the seam itself fails is a send-failed event\"\n   281\t          (let [r ((:send! seam-a) \"127.0.0.1\" 4100 (u8 [1 2 3 4]))]\n   282\t            (is (= :dao.stream/transport-error (:dao.stream/outcome r)))\n   283\t            (let [failed (await (poll-until\n   284\t                                  (fn []\n   285\t                                    (some\n   286\t                                      (fn [v]\n   287\t                                        (= :dao.stream.datagram/send-failed\n   288\t                                           (:dao.stream.datagram/event v)))\n   289\t                                      (values traffic-a)))\n   290\t                                  5000))]\n   291\t              (is (some? failed) \"no send-failed event deposited\"))))\n   292\t        (testing \"a bind on a taken port deposits bind-failed\"\n   293\t          (let [t3 (ring 8)\n   294\t                ;; Use the port held by the exclusive seam to force bind-failed\n   295\t                local-exclusive (:dao.stream.datagram/local (bound-of (ring 1)))\n   296\t                dest-exclusive (:dao.stream.datagram/port local-exclusive)\n   297\t                seam-c (bind! \"loser\" t3 dest-exclusive 1200)]\n   298\t            (let [failed (await (poll-until\n   299\t                                  (fn []\n   300\t                                    (some\n   301\t                                      (fn [v]\n   302\t                                        (= :dao.stream.datagram/bind-failed\n   303\t                                           (:dao.stream.datagram/event v)))\n   304\t                                      (values t3)))\n   305\t                                  5000))]\n   306\t              (is (some? failed) \"no bind-failed event deposited\"))\n   307\t            ((:close! seam-c))))\n   308\t        ;; Close the exclusive seam after the test\n   309\t        ((:close! exclusive-seam))\n   310\t        (stream/close! writer-a)\n   311\t        ((:close! seam-a))\n   312\t        ((:close! seam-b))))))\n   313\t\n   314\t\n   315\t(deftest inbound-oversize-is-never-deposited\n   316\t  (let [traffic-a (ring 16)\n   317\t        traffic-b (ring 16)\n   318\t        seam-a (bind! \"a\" traffic-a)\n   319\t        ;; the receiving socket admits at most 64 bytes of payload\n   320\t        seam-b (bind! \"b\" traffic-b 0 64)\n   321\t        both (await (both-bounds traffic-a traffic-b 5000))]\n   322\t    (is (some? both) \"a socket never reported bound\")\n   323\t    (when both\n   324\t      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))\n   325\t            local-b (:dao.stream.datagram/local (bound-of traffic-b))\n   326\t            writer-a (writer-for seam-a \"a\" local-a)\n   327\t            dest (:dao.stream.datagram/port local-b)]\n   328\t        (stream/append! writer-a (outbound \"127.0.0.1\" dest\n   329\t                                           (vec (range 100))))\n   330\t        (stream/append! writer-a (outbound \"127.0.0.1\" dest [7 7]))\n"}
+     1	(ns dao.stream.datagram.dart-test
+     2	  "The dart:io host seam (dao.stream.datagram.md 3) over real loopback
+     3	   RawDatagramSockets: the deposit writer is the seam's only channel --
+     4	   bound, bind-failed, send-failed and closed arrive as events on the
+     5	   traffic ring, never as invocations -- and exact bytes with their
+     6	   observed source round trip through the writer handle and the ring.
+     7	
+     8	   Dart runs one isolate, so every wait here is a turn on the event loop:
+     9	   each fact is an `await` over a poll, and the seam's own asynchronous
+    10	   bind completes on the same loop. Nothing in the seam schedules itself."
+    11	
+    12	  (:require [clojure.test :refer [deftest is testing]]
+    13	            ["dart:core" :as core]
+    14	            ["dart:async" :as async]
+    15	            [dao.stream :as stream]
+    16	            [dao.stream.base64 :as base64]
+    17	            [dao.stream.datagram :as datagram]
+    18	            [dao.stream.datagram.dart :as dart]
+    19	            [dao.stream.ringbuffer :as ringbuffer])
+    20	  (:import ["dart:typed_data" Uint8List]))
+    21	
+    22	
+    23	(defn- ring
+    24	  [capacity]
+    25	  (:dao.stream/handle
+    26	    (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
+    27	                         ringbuffer/capacity-key capacity})))
+    28	
+    29	
+    30	(defn- values
+    31	  [h]
+    32	  (loop [c (:dao.stream/cursor (stream/cursor h stream/anchor-oldest))
+    33	         acc []]
+    34	    (let [r (stream/next h c)]
+    35	      (if (= :dao.stream/ok (:dao.stream/outcome r))
+    36	        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+    37	        acc))))
+    38	
+    39	
+    40	(defn- now-ms
+    41	  []
+    42	  (.-millisecondsSinceEpoch (core/DateTime.now)))
+    43	
+    44	
+    45	(defn- sleep!
+    46	  [ms]
+    47	  (async/Future.delayed (core/Duration .milliseconds ms)))
+    48	
+    49	
+    50	(defn- poll-until
+    51	  "Resolve with the first truthy value `pred` returns, or nil at the
+    52	   deadline. The pred's answer is tested for truthiness, not nil: a
+    53	   comparison pred answers `false` while it waits, and `false` means keep
+    54	   polling. Polling is the only honest wait here: no operation blocks, and
+    55	   nothing notifies."
+    56	  [pred timeout-ms]
+    57	  (let [deadline (+ (now-ms) timeout-ms)]
+    58	    (loop []
+    59	      (let [value (pred)]
+    60	        (cond
+    61	          value value
+    62	          (< deadline (now-ms)) nil
+    63	          :else (do (await (sleep! 10))
+    64	                    (recur)))))))
+    65	
+    66	
+    67	(defn- bind!
+    68	  ([id traffic] (bind! id traffic 0 1200))
+    69	  ([id traffic port max-bytes]
+    70	   (dart/bind! {:identity id
+    71	                :deposit traffic
+    72	                :bind-host "127.0.0.1"
+    73	                :bind-port port
+    74	                :max-bytes max-bytes})))
+    75	
+    76	
+    77	(defn- bound-of
+    78	  [traffic]
+    79	  (some #(when (= :dao.stream.datagram/bound (:dao.stream.datagram/event %))
+    80	           %)
+    81	        (values traffic)))
+    82	
+    83	
+    84	(defn- writer-for
+    85	  [seam id local]
+    86	  (datagram/writer seam
+    87	                   {:dao.stream/type :dao.stream/datagram
+    88	                    :dao.stream/identity id
+    89	                    :dao.stream.datagram/bind-host
+    90	                    (:dao.stream.datagram/host local)
+    91	                    :dao.stream.datagram/bind-port
+    92	                    (:dao.stream.datagram/port local)}
+    93	                   1200))
+    94	
+    95	
+    96	(defn- u8
+    97	  [octets]
+    98	  (let [out (Uint8List. (count octets))]
+    99	    (dotimes [i (count octets)]
+   100	      (aset out i (nth octets i)))
+   101	    out))
+   102	
+   103	
+   104	(defn- outbound
+   105	  [host port octets]
+   106	  {:dao.stream.datagram/destination {:dao.stream.datagram/host host
+   107	                                     :dao.stream.datagram/port port}
+   108	   :dao.stream.datagram/bytes (base64/encode (u8 octets))})
+   109	
+   110	
+   111	(defn- received-datagrams
+   112	  [traffic]
+   113	  (filter datagram/datagram-event? (values traffic)))
+   114	
+   115	
+   116	(deftest live-socket-ip-family-failure-preserves-canary
+   117	  (let [traffic (ring 16)
+   118	        peer-traffic (ring 16)
+   119	        seam (bind! "s" traffic)
+   120	        peer (bind! "peer" peer-traffic)]
+   121	    (try
+   122	      (is (some? (await (poll-until #(bound-of traffic) 5000))))
+   123	      (let [bound (await (poll-until #(bound-of peer-traffic) 5000))
+   124	            port (:dao.stream.datagram/port
+   125	                   (:dao.stream.datagram/local bound))
+   126	            failed ((:send! seam) "::1" port (u8 [1]))]
+   127	        (is (= :dao.stream/transport-error
+   128	               (:dao.stream/outcome failed)))
+   129	        (is (some? (await (poll-until
+   130	                            #(some (fn [v]
+   131	                                     (= :dao.stream.datagram/send-failed
+   132	                                        (:dao.stream.datagram/event v)))
+   133	                                   (values traffic))
+   134	                            5000))))
+   135	        (is (not-any? #(= :dao.stream.datagram/closed
+   136	                          (:dao.stream.datagram/event %))
+   137	                      (values traffic)))
+   138	        (is (= :dao.stream/ok
+   139	               (:dao.stream/outcome
+   140	                 ((:send! seam) "127.0.0.1" port (u8 [42])))))
+   141	        (is (some? (await (poll-until
+   142	                            #(some (fn [v]
+   143	                                     (= "Kg==" (:dao.stream.datagram/bytes v)))
+   144	                                   (received-datagrams peer-traffic))
+   145	                            5000)))))
+   146	      (finally ((:close! seam)) ((:close! peer))))))
+   147	
+   148	
+   149	(defn- payload-of
+   150	  [event]
+   151	  (mapv (fn [b] (bit-and 0xff (int b)))
+   152	        (seq (base64/decode (:dao.stream.datagram/bytes event)))))
+   153	
+   154	
+   155	(defn- octets-of
+   156	  "Expected octets as the wire wraps them: a datagram is bytes, so an
+   157	   octet over 255 rides its low 8 bits."
+   158	  [octets]
+   159	  (mapv #(mod (int %) 256) octets))
+   160	
+   161	
+   162	(defn- both-bounds
+   163	  "Await both sockets' bound events; nil at the deadline."
+   164	  [traffic-a traffic-b timeout-ms]
+   165	  (await (poll-until #(and (bound-of traffic-a) (bound-of traffic-b))
+   166	                     timeout-ms)))
+   167	
+   168	
+   169	(deftest bound-then-exact-bytes-and-observed-source-round-trip
+   170	  (let [traffic-a (ring 16)
+   171	        traffic-b (ring 64)
+   172	        seam-a (bind! "a" traffic-a)
+   173	        seam-b (bind! "b" traffic-b)
+   174	        both (await (both-bounds traffic-a traffic-b 5000))]
+   175	    (is (some? both) "a socket never reported bound")
+   176	    (when both
+   177	      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))
+   178	            local-b (:dao.stream.datagram/local (bound-of traffic-b))
+   179	            _ (is (= "127.0.0.1" (:dao.stream.datagram/host local-a)))
+   180	            _ (is (pos? (:dao.stream.datagram/port local-a))
+   181	                  "the actual ephemeral port, never 0, though 0 was
+   182	                     asked for")
+   183	            writer-a (writer-for seam-a "a" local-a)
+   184	            dest (:dao.stream.datagram/port local-b)
+   185	            ;; no zero-length payload here: dart:io sends nothing at all
+   186	            ;; for one, refused below
+   187	            payloads [[1 2 3] (vec (range 1 256)) (vec (range 1200))]]
+   188	        (doseq [octets payloads]
+   189	          (is (= {:dao.stream/outcome :dao.stream/ok}
+   190	                 (stream/append! writer-a
+   191	                                 (outbound "127.0.0.1" dest octets)))))
+   192	        (testing "a zero-length datagram is refused cleanly on this host:
+   193	                  dart:io would silently send nothing for it"
+   194	          (is (= :dao.stream/transport-error
+   195	                 (:dao.stream/outcome
+   196	                   (stream/append!
+   197	                     writer-a
+   198	                     {:dao.stream.datagram/destination
+   199	                      {:dao.stream.datagram/host "127.0.0.1"
+   200	                       :dao.stream.datagram/port dest}
+   201	                      :dao.stream.datagram/bytes ""})))))
+   202	        (let [arrived (await (poll-until
+   203	                               #(= (count payloads)
+   204	                                   (count (received-datagrams traffic-b)))
+   205	                               5000))]
+   206	          (is (some? arrived) "not every datagram arrived as an event")
+   207	          (doseq [[octets event] (map vector payloads
+   208	                                      (received-datagrams traffic-b))]
+   209	            (is (= "127.0.0.1"
+   210	                   (get-in event [:dao.stream.datagram/source
+   211	                                  :dao.stream.datagram/host]))
+   212	                "the source host the socket observed")
+   213	            (is (= (:dao.stream.datagram/port local-a)
+   214	                   (get-in event [:dao.stream.datagram/source
+   215	                                  :dao.stream.datagram/port]))
+   216	                "the source port the socket observed")
+   217	            (is (= (octets-of octets) (payload-of event))
+   218	                (str "exact payload bytes, " (count octets) " octets"))))
+   219	        (stream/close! writer-a)
+   220	        ((:close! seam-a))
+   221	        ((:close! seam-b))))))
+   222	
+   223	
+   224	(deftest refusals-and-lifecycle-events
+   225	  (let [traffic-a (ring 16)
+   226	        traffic-b (ring 64)
+   227	        seam-a (bind! "a" traffic-a)
+   228	        seam-b (bind! "b" traffic-b)
+   229	        both (await (both-bounds traffic-a traffic-b 5000))]
+   230	    (is (some? both) "a socket never reported bound")
+   231	    (when both
+   232	      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))
+   233	            local-b (:dao.stream.datagram/local (bound-of traffic-b))
+   234	            writer-a (writer-for seam-a "a" local-a)
+   235	            dest (:dao.stream.datagram/port local-b)]
+   236	        (testing "hostname destination, bad Base64 and oversize are
+   237	                    invalid-value, and nothing is sent"
+   238	          (is (= :dao.stream/invalid-value
+   239	                 (:dao.stream/outcome
+   240	                   (stream/append! writer-a
+   241	                                   (outbound "localhost" dest [1 2 3])))))
+   242	          (is (= :dao.stream/invalid-value
+   243	                 (:dao.stream/outcome
+   244	                   (stream/append!
+   245	                     writer-a
+   246	                     {:dao.stream.datagram/destination
+   247	                      {:dao.stream.datagram/host "127.0.0.1"
+   248	                       :dao.stream.datagram/port dest}
+   249	                      :dao.stream.datagram/bytes "not base64!"}))))
+   250	          (is (= :dao.stream/invalid-value
+   251	                 (:dao.stream/outcome
+   252	                   (stream/append! writer-a (outbound "127.0.0.1" dest
+   253	                                                      (vec (range 1201))))))))
+   254	        ;; one valid canary: the refusals sent nothing, so it is the one
+   255	        ;; and only datagram event that ever lands
+   256	        (stream/append! writer-a (outbound "127.0.0.1" dest [9 9 9]))
+   257	        (let [arrived (await (poll-until
+   258	                               #(= 1 (count (received-datagrams traffic-b)))
+   259	                               5000))]
+   260	          (is (some? arrived) "the canary never arrived")
+   261	          (is (= [[9 9 9]] (mapv payload-of
+   262	                                 (received-datagrams traffic-b)))))
+   263	        (testing "a closed socket is closed; the seam deposits closed"
+   264	          (is (= {:dao.stream/outcome :dao.stream/ok}
+   265	                 (
+stream/close! writer-a)))
+   266	          (is (= {:dao.stream/outcome :dao.stream/closed}
+   267	                 (stream/append! writer-a (outbound "127.0.0.1" dest [1]))))
+   268	          (let [closed (await (poll-until
+   269	                                (fn []
+   270	                                  (some
+   271	                                    (fn [v]
+   272	                                      (= :dao.stream.datagram/closed
+   273	                                         (:dao.stream.datagram/event v)))
+   274	                                    (values traffic-a)))
+   275	                                5000))]
+   276	            (is (some? closed) "no closed event deposited")))
+   277	        (testing "a send the seam itself fails is a send-failed event"
+   278	          (let [r ((:send! seam-a) "127.0.0.1" 4100 (u8 [1 2 3 4]))]
+   279	            (is (= :dao.stream/transport-error (:dao.stream/outcome r)))
+   280	            (let [failed (await (poll-until
+   281	                                  (fn []
+   282	                                    (some
+   283	                                      (fn [v]
+   284	                                        (= :dao.stream.datagram/send-failed
+   285	                                           (:dao.stream.datagram/event v)))
+   286	                                      (values traffic-a)))
+   287	                                  5000))]
+   288	              (is (some? failed) "no send-failed event deposited"))))
+   289	        (testing "a bind on a taken port deposits bind-failed"
+   290	          (let [t3 (ring 8)
+   291	                seam-c (bind! "loser" t3 dest 1200)]
+   292	            (let [failed (await (poll-until
+   293	                                  (fn []
+   294	                                    (some
+   295	                                      (fn [v]
+   296	                                        (= :dao.stream.datagram/bind-failed
+   297	                                           (:dao.stream.datagram/event v)))
+   298	                                      (values t3)))
+   299	                                  5000))]
+   300	              (is (some? failed) "no bind-failed event deposited"))
+   301	            ((:close! seam-c))))
+   302	        (stream/close! writer-a)
+   303	        ((:close! seam-a))
+   304	        ((:close! seam-b))))))
+   305	
+   306	
+   307	(deftest inbound-oversize-is-never-deposited
+   308	  (let [traffic-a (ring 16)
+   309	        traffic-b (ring 16)
+   310	        seam-a (bind! "a" traffic-a)
+   311	        ;; the receiving socket admits at most 64 bytes of payload
+   312	        seam-b (bind! "b" traffic-b 0 64)
+   313	        both (await (both-bounds traffic-a traffic-b 5000))]
+   314	    (is (some? both) "a socket never reported bound")
+   315	    (when both
+   316	      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))
+   317	            local-b (:dao.stream.datagram/local (bound-of traffic-b))
+   318	            writer-a (writer-for seam-a "a" local-a)
+   319	            dest (:dao.stream.datagram/port local-b)]
+   320	        (stream/append! writer-a (outbound "127.0.0.1" dest
+   321	                                           (vec (range 100))))
+   322	        (stream/append! writer-a (outbound "127.0.0.1" dest [7 7]))
+   323	        (let [arrived (await (poll-until
+   324	                               #(= 1 (count (received-datagrams traffic-b)))
+   325	                               5000))]
+   326	          (is (some? arrived) "the small datagram never arrived")
+   327	          (is (= [[7 7]] (mapv payload-of (received-datagrams traffic-b)))
+   328	              "the oversize datagram was dropped below the transform,
+   329	                 counted, never deposited"))
+   330	        (stream/close! writer-a)
+{"role":"tool","tool_call_id":"tool_smtIzRXIU0CDaMT4XHaPnjkD","content":"     1\t(ns dao.stream.datagram.dart-test\n     2\t  \"The dart:io host seam (dao.stream.datagram.md 3) over real loopback\n     3\t   RawDatagramSockets: the deposit writer is the seam's only channel --\n     4\t   bound, bind-failed, send-failed and closed arrive as events on the\n     5\t   traffic ring, never as invocations -- and exact bytes with their\n     6\t   observed source round trip through the writer handle and the ring.\n     7\t\n     8\t   Dart runs one isolate, so every wait here is a turn on the event loop:\n     9\t   each fact is an `await` over a poll, and the seam's own asynchronous\n    10\t   bind completes on the same loop. Nothing in the seam schedules itself.\"\n    11\t\n    12\t  (:require [clojure.test :refer [deftest is testing]]\n    13\t            [\"dart:core\" :as core]\n    14\t            [\"dart:async\" :as async]\n    15\t            [dao.stream :as stream]\n    16\t            [dao.stream.base64 :as base64]\n    17\t            [dao.stream.datagram :as datagram]\n    18\t            [dao.stream.datagram.dart :as dart]\n    19\t            [dao.stream.ringbuffer :as ringbuffer])\n    20\t  (:import [\"dart:typed_data\" Uint8List]))\n    21\t\n    22\t\n    23\t(defn- ring\n    24\t  [capacity]\n    25\t  (:dao.stream/handle\n    26\t    (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type\n    27\t                         ringbuffer/capacity-key capacity})))\n    28\t\n    29\t\n    30\t(defn- values\n    31\t  [h]\n    32\t  (loop [c (:dao.stream/cursor (stream/cursor h stream/anchor-oldest))\n    33\t         acc []]\n    34\t    (let [r (stream/next h c)]\n    35\t      (if (= :dao.stream/ok (:dao.stream/outcome r))\n    36\t        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))\n    37\t        acc))))\n    38\t\n    39\t\n    40\t(defn- now-ms\n    41\t  []\n    42\t  (.-millisecondsSinceEpoch (core/DateTime.now)))\n    43\t\n    44\t\n    45\t(defn- sleep!\n    46\t  [ms]\n    47\t  (async/Future.delayed (core/Duration .milliseconds ms)))\n    48\t\n    49\t\n    50\t(defn- poll-until\n    51\t  \"Resolve with the first truthy value `pred` returns, or nil at the\n    52\t   deadline. The pred's answer is tested for truthiness, not nil: a\n    53\t   comparison pred answers `false` while it waits, and `false` means keep\n    54\t   polling. Polling is the only honest wait here: no operation blocks, and\n    55\t   nothing notifies.\"\n    56\t  [pred timeout-ms]\n    57\t  (let [deadline (+ (now-ms) timeout-ms)]\n    58\t    (loop []\n    59\t      (let [value (pred)]\n    60\t        (cond\n    61\t          value value\n    62\t          (< deadline (now-ms)) nil\n    63\t          :else (do (await (sleep! 10))\n    64\t                    (recur)))))))\n    65\t\n    66\t\n    67\t(defn- bind!\n    68\t  ([id traffic] (bind! id traffic 0 1200))\n    69\t  ([id traffic port max-bytes]\n    70\t   (dart/bind! {:identity id\n    71\t                :deposit traffic\n    72\t                :bind-host \"127.0.0.1\"\n    73\t                :bind-port port\n    74\t                :max-bytes max-bytes})))\n    75\t\n    76\t\n    77\t(defn- bound-of\n    78\t  [traffic]\n    79\t  (some #(when (= :dao.stream.datagram/bound (:dao.stream.datagram/event %))\n    80\t           %)\n    81\t        (values traffic)))\n    82\t\n    83\t\n    84\t(defn- writer-for\n    85\t  [seam id local]\n    86\t  (datagram/writer seam\n    87\t                   {:dao.stream/type :dao.stream/datagram\n    88\t                    :dao.stream/identity id\n    89\t                    :dao.stream.datagram/bind-host\n    90\t                    (:dao.stream.datagram/host local)\n    91\t                    :dao.stream.datagram/bind-port\n    92\t                    (:dao.stream.datagram/port local)}\n    93\t                   1200))\n    94\t\n    95\t\n    96\t(defn- u8\n    97\t  [octets]\n    98\t  (let [out (Uint8List. (count octets))]\n    99\t    (dotimes [i (count octets)]\n   100\t      (aset out i (nth octets i)))\n   101\t    out))\n   102\t\n   103\t\n   104\t(defn- outbound\n   105\t  [host port octets]\n   106\t  {:dao.stream.datagram/destination {:dao.stream.datagram/host host\n   107\t                                     :dao.stream.datagram/port port}\n   108\t   :dao.stream.datagram/bytes (base64/encode (u8 octets))})\n   109\t\n   110\t\n   111\t(defn- received-datagrams\n   112\t  [traffic]\n   113\t  (filter datagram/datagram-event? (values traffic)))\n   114\t\n   115\t\n   116\t(deftest live-socket-ip-family-failure-preserves-canary\n   117\t  (let [traffic (ring 16)\n   118\t        peer-traffic (ring 16)\n   119\t        seam (bind! \"s\" traffic)\n   120\t        peer (bind! \"peer\" peer-traffic)]\n   121\t    (try\n   122\t      (is (some? (await (poll-until #(bound-of traffic) 5000))))\n   123\t      (let [bound (await (poll-until #(bound-of peer-traffic) 5000))\n   124\t            port (:dao.stream.datagram/port\n   125\t                   (:dao.stream.datagram/local bound))\n   126\t            failed ((:send! seam) \"::1\" port (u8 [1]))]\n   127\t        (is (= :dao.stream/transport-error\n   128\t               (:dao.stream/outcome failed)))\n   129\t        (is (some? (await (poll-until\n   130\t                            #(some (fn [v]\n   131\t                                     (= :dao.stream.datagram/send-failed\n   132\t                                        (:dao.stream.datagram/event v)))\n   133\t                                   (values traffic))\n   134\t                            5000))))\n   135\t        (is (not-any? #(= :dao.stream.datagram/closed\n   136\t                          (:dao.stream.datagram/event %))\n   137\t                      (values traffic)))\n   138\t        (is (= :dao.stream/ok\n   139\t               (:dao.stream/outcome\n   140\t                 ((:send! seam) \"127.0.0.1\" port (u8 [42])))))\n   141\t        (is (some? (await (poll-until\n   142\t                            #(some (fn [v]\n   143\t                                     (= \"Kg==\" (:dao.stream.datagram/bytes v)))\n   144\t                                   (received-datagrams peer-traffic))\n   145\t                            5000)))))\n   146\t      (finally ((:close! seam)) ((:close! peer))))))\n   147\t\n   148\t\n   149\t(defn- payload-of\n   150\t  [event]\n   151\t  (mapv (fn [b] (bit-and 0xff (int b)))\n   152\t        (seq (base64/decode (:dao.stream.datagram/bytes event)))))\n   153\t\n   154\t\n   155\t(defn- octets-of\n   156\t  \"Expected octets as the wire wraps them: a datagram is bytes, so an\n   157\t   octet over 255 rides its low 8 bits.\"\n   158\t  [octets]\n   159\t  (mapv #(mod (int %) 256) octets))\n   160\t\n   161\t\n   162\t(defn- both-bounds\n   163\t  \"Await both sockets' bound events; nil at the deadline.\"\n   164\t  [traffic-a traffic-b timeout-ms]\n   165\t  (await (poll-until #(and (bound-of traffic-a) (bound-of traffic-b))\n   166\t                     timeout-ms)))\n   167\t\n   168\t\n   169\t(deftest bound-then-exact-bytes-and-observed-source-round-trip\n   170\t  (let [traffic-a (ring 16)\n   171\t        traffic-b (ring 64)\n   172\t        seam-a (bind! \"a\" traffic-a)\n   173\t        seam-b (bind! \"b\" traffic-b)\n   174\t        both (await (both-bounds traffic-a traffic-b 5000))]\n   175\t    (is (some? both) \"a socket never reported bound\")\n   176\t    (when both\n   177\t      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))\n   178\t            local-b (:dao.stream.datagram/local (bound-of traffic-b))\n   179\t            _ (is (= \"127.0.0.1\" (:dao.stream.datagram/host local-a)))\n   180\t            _ (is (pos? (:dao.stream.datagram/port local-a))\n   181\t                  \"the actual ephemeral port, never 0, though 0 was\n   182\t                     asked for\")\n   183\t            writer-a (writer-for seam-a \"a\" local-a)\n   184\t            dest (:dao.stream.datagram/port local-b)\n   185\t            ;; no zero-length payload here: dart:io sends nothing at all\n   186\t            ;; for one, refused below\n   187\t            payloads [[1 2 3] (vec (range 1 256)) (vec (range 1200))]]\n   188\t        (doseq [octets payloads]\n   189\t          (is (= {:dao.stream/outcome :dao.stream/ok}\n   190\t                 (stream/append! writer-a\n   191\t                                 (outbound \"127.0.0.1\" dest octets)))))\n   192\t        (testing \"a zero-length datagram is refused cleanly on this host:\n   193\t                  dart:io would silently send nothing for it\"\n   194\t          (is (= :dao.stream/transport-error\n   195\t                 (:dao.stream/outcome\n   196\t                   (stream/append!\n   197\t                     writer-a\n   198\t                     {:dao.stream.datagram/destination\n   199\t                      {:dao.stream.datagram/host \"127.0.0.1\"\n   200\t                       :dao.stream.datagram/port dest}\n   201\t                      :dao.stream.datagram/bytes \"\"})))))\n   202\t        (let [arrived (await (poll-until\n   203\t                               #(= (count payloads)\n   204\t                                   (count (received-datagrams traffic-b)))\n   205\t                               5000))]\n   206\t          (is (some? arrived) \"not every datagram arrived as an event\")\n   207\t          (doseq [[octets event] (map vector payloads\n   208\t                                      (received-datagrams traffic-b))]\n   209\t            (is (= \"127.0.0.1\"\n   210\t                   (get-in event [:dao.stream.datagram/source\n   211\t                                  :dao.stream.datagram/host]))\n   212\t                \"the source host the socket observed\")\n   213\t            (is (= (:dao.stream.datagram/port local-a)\n   214\t                   (get-in event [:dao.stream.datagram/source\n   215\t                                  :dao.stream.datagram/port]))\n   216\t                \"the source port the socket observed\")\n   217\t            (is (= (octets-of octets) (payload-of event))\n   218\t                (str \"exact payload bytes, \" (count octets) \" octets\"))))\n   219\t        (stream/close! writer-a)\n   220\t        ((:close! seam-a))\n   221\t        ((:close! seam-b))))))\n   222\t\n   223\t\n   224\t(deftest refusals-and-lifecycle-events\n   225\t  (let [traffic-a (ring 16)\n   226\t        traffic-b (ring 64)\n   227\t        seam-a (bind! \"a\" traffic-a)\n   228\t        seam-b (bind! \"b\" traffic-b)\n   229\t        both (await (both-bounds traffic-a traffic-b 5000))]\n   230\t    (is (some? both) \"a socket never reported bound\")\n   231\t    (when both\n   232\t      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))\n   233\t            local-b (:dao.stream.datagram/local (bound-of traffic-b))\n   234\t            writer-a (writer-for seam-a \"a\" local-a)\n   235\t            dest (:dao.stream.datagram/port local-b)]\n   236\t        (testing \"hostname destination, bad Base64 and oversize are\n   237\t                    invalid-value, and nothing is sent\"\n   238\t          (is (= :dao.stream/invalid-value\n   239\t                 (:dao.stream/outcome\n   240\t                   (stream/append! writer-a\n   241\t                                   (outbound \"localhost\" dest [1 2 3])))))\n   242\t          (is (= :dao.stream/invalid-value\n   243\t                 (:dao.stream/outcome\n   244\t                   (stream/append!\n   245\t                     writer-a\n   246\t                     {:dao.stream.datagram/destination\n   247\t                      {:dao.stream.datagram/host \"127.0.0.1\"\n   248\t                       :dao.stream.datagram/port dest}\n   249\t                      :dao.stream.datagram/bytes \"not base64!\"}))))\n   250\t          (is (= :dao.stream/invalid-value\n   251\t                 (:dao.stream/outcome\n   252\t                   (stream/append! writer-a (outbound \"127.0.0.1\" dest\n   253\t                                                      (vec (range 1201))))))))\n   254\t        ;; one valid canary: the refusals sent nothing, so it is the one\n   255\t        ;; and only datagram event that ever lands\n   256\t        (stream/append! writer-a (outbound \"127.0.0.1\" dest [9 9 9]))\n   257\t        (let [arrived (await (poll-until\n   258\t                               #(= 1 (count (received-datagrams traffic-b)))\n   259\t                               5000))]\n   260\t          (is (some? arrived) \"the canary never arrived\")\n   261\t          (is (= [[9 9 9]] (mapv payload-of\n   262\t                                 (received-datagrams traffic-b)))))\n   263\t        (testing \"a closed socket is closed; the seam deposits closed\"\n   264\t          (is (= {:dao.stream/outcome :dao.stream/ok}\n   265\t                 (stream/close! writer-a)))\n   266\t          (is (= {:dao.stream/outcome :dao.stream/closed}\n   267\t                 (stream/append! writer-a (outbound \"127.0.0.1\" dest [1]))))\n   268\t          (let [closed (await (poll-until\n   269\t                                (fn []\n   270\t                                  (some\n   271\t                                    (fn [v]\n   272\t                                      (= :dao.stream.datagram/closed\n   273\t                                         (:dao.stream.datagram/event v)))\n   274\t                                    (values traffic-a)))\n   275\t                                5000))]\n   276\t            (is (some? closed) \"no closed event deposited\")))\n   277\t        (testing \"a send the seam itself fails is a send-failed event\"\n   278\t          (let [r ((:send! seam-a) \"127.0.0.1\" 4100 (u8 [1 2 3 4]))]\n   279\t            (is (= :dao.stream/transport-error (:dao.stream/outcome r)))\n   280\t            (let [failed (await (poll-until\n   281\t                                  (fn []\n   282\t                                    (some\n   283\t                                      (fn [v]\n   284\t                                        (= :dao.stream.datagram/send-failed\n   285\t                                           (:dao.stream.datagram/event v)))\n   286\t                                      (values traffic-a)))\n   287\t                                  5000))]\n   288\t              (is (some? failed) \"no send-failed event deposited\"))))\n   289\t        (testing \"a bind on a taken port deposits bind-failed\"\n   290\t          (let [t3 (ring 8)\n   291\t                seam-c (bind! \"loser\" t3 dest 1200)]\n   292\t            (let [failed (await (poll-until\n   293\t                                  (fn []\n   294\t                                    (some\n   295\t                                      (fn [v]\n   296\t                                        (= :dao.stream.datagram/bind-failed\n   297\t                                           (:dao.stream.datagram/event v)))\n   298\t                                      (values t3)))\n   299\t                                  5000))]\n   300\t              (is (some? failed) \"no bind-failed event deposited\"))\n   301\t            ((:close! seam-c))))\n   302\t        (stream/close! writer-a)\n   303\t        ((:close! seam-a))\n   304\t        ((:close! seam-b))))))\n   305\t\n   306\t\n   307\t(deftest inbound-oversize-is-never-deposited\n   308\t  (let [traffic-a (ring 16)\n   309\t        traffic-b (ring 16)\n   310\t        seam-a (bind! \"a\" traffic-a)\n   311\t        ;; the receiving socket admits at most 64 bytes of payload\n   312\t        seam-b (bind! \"b\" traffic-b 0 64)\n   313\t        both (await (both-bounds traffic-a traffic-b 5000))]\n   314\t    (is (some? both) \"a socket never reported bound\")\n   315\t    (when both\n   316\t      (let [local-a (:dao.stream.datagram/local (bound-of traffic-a))\n   317\t            local-b (:dao.stream.datagram/local (bound-of traffic-b))\n   318\t            writer-a (writer-for seam-a \"a\" local-a)\n   319\t            dest (:dao.stream.datagram/port local-b)]\n   320\t        (stream/append! writer-a (outbound \"127.0.0.1\" dest\n   321\t                                           (vec (range 100))))\n   322\t        (stream/append! writer-a (outbound \"127.0.0.1\" dest [7 7]))\n   323\t        (let [arrived (await (poll-until\n   324\t                               #(= 1 (count (received-datagrams traffic-b)))\n   325\t                               5000))]\n   326\t          (is (some? arrived) \"the small datagram never arrived\")\n   327\t          (is (= [[7 7]] (mapv payload-of (received-datagrams traffic-b)))\n   328\t              \"the oversize datagram was dropped below the transform,\n   329\t                 counted, never deposited\"))\n   330\t        (stream/close! writer-a)\n"}
+diff --git a/test/dao/stream/datagram/dart_test.cljd b/test/dao/stream/datagram/dart_test.cljd
+index cbc26ee4..cf36a337 100644
+--- a/test/dao/stream/datagram/dart_test.cljd
++++ b/test/dao/stream/datagram/dart_test.cljd
+@@ -12,6 +12,7 @@
+   (:require [clojure.test :refer [deftest is testing]]
+             ["dart:core" :as core]
+             ["dart:async" :as async]
++            ["dart:io" :as io]
+             [dao.stream :as stream]
+             [dao.stream.base64 :as base64]
+             [dao.stream.datagram :as datagram]
+@@ -286,19 +287,32 @@
+                                       (values traffic-a)))
+                                   5000))]
+               (is (some? failed) "no send-failed event deposited"))))
+-        (testing "a bind on a taken port deposits bind-failed"
++        (testing "a bind on an exclusively held port deposits bind-failed"
++          ;; Dart binds with reuseAddress: true by default and Linux honours
++          ;; SO_REUSEADDR for UDP, so binding to a port that a reuse-enabled
++          ;; socket already holds SUCCEEDS there (macOS refuses with
++          ;; EADDRINUSE). The port must be held exclusively for the seam's
++          ;; failure path to be exercised on both hosts.
+           (let [t3 (ring 8)
+-                seam-c (bind! "loser" t3 dest 1200)]
+-            (let [failed (await (poll-until
+-                                  (fn []
+-                                    (some
+-                                      (fn [v]
+-                                        (= :dao.stream.datagram/bind-failed
+-                                           (:dao.stream.datagram/event v)))
+-                                      (values t3)))
+-                                  5000))]
+-              (is (some? failed) "no bind-failed event deposited"))
+-            ((:close! seam-c))))
++                blocker (await (io/RawDatagramSocket.bind
++                                 "127.0.0.1" 0
++                                 .reuseAddress false
++                                 .reusePort false))
++                blocked-port (.-port ^io/RawDatagramSocket blocker)]
++            (try
++              (let [seam-c (bind! "loser" t3 blocked-port 1200)
++                    failed (await (poll-until
++                                    (fn []
++                                      (some
++                                        (fn [v]
++                                          (= :dao.stream.datagram/bind-failed
++                                             (:dao.stream.datagram/event v)))
++                                        (values t3)))
++                                    5000))]
++                (is (some? failed) "no bind-failed event deposited")
++                ((:close! seam-c)))
++              (finally
++                (.close ^io/RawDatagramSocket blocker)))))
+         (stream/close! writer-a)
+         ((:close! seam-a))
+         ((:close! seam-b))))))
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_15K87Ts5efQvUPgY0tPBcevS","function":{"name":"Bash","arguments":"{\"command\":\"ssh shiva.stigmergy.systems 'cd /home/sto/ci/datomworld-dg && git diff a226423d^1 a226423d -- test/dao/stream/datagram/dart_test.cljd'\",\"timeout\":60}"}},{"type":"function","id":"tool_VTtxTUqiUQFS0hBC1v2tzfin","function":{"name":"Bash","arguments":"{\"command\":\"ssh shiva.stigmergy.systems 'cd /home/sto/ci/datomworld-dg && python3 - <<\\\"PY\\\"\\nfrom pathlib import Path\\np=Path(\\\"lib/dao/stream/datagram/dart.cljd\\\")\\nprint(p.read_text())\\nPY'\",\"timeout\":60}"}}]}
+{"role":"tool","tool_call_id":"tool_15K87Ts5efQvUPgY0tPBcevS","content":"diff --git a/test/dao/stream/datagram/dart_test.cljd b/test/dao/stream/datagram/dart_test.cljd\nindex cbc26ee4..cf36a337 100644\n--- a/test/dao/stream/datagram/dart_test.cljd\n+++ b/test/dao/stream/datagram/dart_test.cljd\n@@ -12,6 +12,7 @@\n   (:require [clojure.test :refer [deftest is testing]]\n             [\"dart:core\" :as core]\n             [\"dart:async\" :as async]\n+            [\"dart:io\" :as io]\n             [dao.stream :as stream]\n             [dao.stream.base64 :as base64]\n             [dao.stream.datagram :as datagram]\n@@ -286,19 +287,32 @@\n                                       (values traffic-a)))\n                                   5000))]\n               (is (some? failed) \"no send-failed event deposited\"))))\n-        (testing \"a bind on a taken port deposits bind-failed\"\n+        (testing \"a bind on an exclusively held port deposits bind-failed\"\n+          ;; Dart binds with reuseAddress: true by default and Linux honours\n+          ;; SO_REUSEADDR for UDP, so binding to a port that a reuse-enabled\n+          ;; socket already holds SUCCEEDS there (macOS refuses with\n+          ;; EADDRINUSE). The port must be held exclusively for the seam's\n+          ;; failure path to be exercised on both hosts.\n           (let [t3 (ring 8)\n-                seam-c (bind! \"loser\" t3 dest 1200)]\n-            (let [failed (await (poll-until\n-                                  (fn []\n-                                    (some\n-                                      (fn [v]\n-                                        (= :dao.stream.datagram/bind-failed\n-                                           (:dao.stream.datagram/event v)))\n-                                      (values t3)))\n-                                  5000))]\n-              (is (some? failed) \"no bind-failed event deposited\"))\n-            ((:close! seam-c))))\n+                blocker (await (io/RawDatagramSocket.bind\n+                                 \"127.0.0.1\" 0\n+                                 .reuseAddress false\n+                                 .reusePort false))\n+                blocked-port (.-port ^io/RawDatagramSocket blocker)]\n+            (try\n+              (let [seam-c (bind! \"loser\" t3 blocked-port 1200)\n+                    failed (await (poll-until\n+                                    (fn []\n+                                      (some\n+                                        (fn [v]\n+                                          (= :dao.stream.datagram/bind-failed\n+                                             (:dao.stream.datagram/event v)))\n+                                        (values t3)))\n+                                    5000))]\n+                (is (some? failed) \"no bind-failed event deposited\")\n+                ((:close! seam-c)))\n+              (finally\n+                (.close ^io/RawDatagramSocket blocker)))))\n         (stream/close! writer-a)\n         ((:close! seam-a))\n         ((:close! seam-b))))))\n"}
+Traceback (most recent call last):
+  File "<stdin>", line 3, in <module>
+  File "/usr/lib/python3.12/pathlib.py", line 1029, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/pathlib.py", line 1015, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'lib/dao/stream/datagram/dart.cljd'
+{"role":"tool","tool_call_id":"tool_VTtxTUqiUQFS0hBC1v2tzfin","content":"Traceback (most recent call last):\n  File \"<stdin>\", line 3, in <module>\n  File \"/usr/lib/python3.12/pathlib.py\", line 1029, in read_text\n    with self.open(mode='r', encoding=encoding, errors=errors) as f:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/lib/python3.12/pathlib.py\", line 1015, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: 'lib/dao/stream/datagram/dart.cljd'\nCommand failed with exit code: 1."}
+{"role":"assistant","content":"**Verdict: REJECT.**\n\nThe change does not implement the proven exclusive-port pattern and is not viable as written:\n\n- **It does not compile:** `bound-events` is undefined at `test/dao/stream/datagram/dart_test.cljd:229`.\n- **Both fresh rings are disconnected from the exclusive socket:** `(ring 1)` at lines 229 and 295 creates new empty rings, not the ring passed to `bind!`. The poll can never observe the exclusive socket’s `bound` event, and `bound-of` later returns `nil`, so no valid occupied port is obtained.\n- **It does not guarantee `bind-failed` on Linux:** `exclusive-seam` uses the same `dart/bind!` path whose default `reuseAddress: true` behavior motivated `a226423d`. A second bind may therefore succeed.\n- **Cleanup is not exception-safe:** `exclusive-seam` closes only on the success path at line 309.\n\nRestore the `a226423d` approach: bind a `dart:io/RawDatagramSocket` with `.reuseAddress false` and `.reusePort false`, use its actual port for the loser bind, and close the blocker in `finally`. That also eliminates both invalid fresh-ring expressions."}
+{"role":"meta","type":"session.resume_hint","session_id":"session_553824cb-9440-41e4-a2e3-ba53cffa6beb","command":"kimi -r session_553824cb-9440-41e4-a2e3-ba53cffa6beb","content":"To resume this session: kimi -r session_553824cb-9440-41e4-a2e3-ba53cffa6beb"}
