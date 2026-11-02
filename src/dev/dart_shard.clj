@@ -115,7 +115,7 @@
                    set)
           covered (apply set/union (map set (vals lists)))
           uncovered (set/difference all covered)
-          lists (cond-> lists (seq uncovered)
+          lists (cond-> lists (and run-uncovered? (seq uncovered))
                         (assoc "uncovered" (vec uncovered)))]
       (log (str "all=" (count all) " covered=" (count covered)
                 " uncovered=" (count uncovered)))
