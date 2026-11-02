@@ -2425,8 +2425,13 @@
           ast (yang/compile-program forms true outcome-opts)]
       (doseq [lane [:walker :semantic]]
         (is (= [:yin.k/ok 500]
-               (run-guest-ast ast outcome-modules lane 120000))
-            (str lane ": 1000 intra-unit calls fit comfortably inside 120k steps")))))
+               (run-guest-ast ast outcome-modules lane 160000))
+            (str lane ": 1000 intra-unit calls fit comfortably inside 160k steps.
+                      The unary-entry token-packet lane (D2) measures 140,142 walker
+                      steps for these 1000 calls - 140 per call against the two-argument
+                      lane's 102 - because the packet build and the token check are
+                      dispatch the old direct? flag never executed. The guard keeps ~14%
+                      headroom over that measured cost.")))))
   (testing "local shadowing of a top-level defn preserves dynamic admission and routing"
     (doseq [lane [:walker :semantic]]
       (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable

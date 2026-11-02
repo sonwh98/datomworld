@@ -224,7 +224,12 @@
                                    (mapcat #(scan % bound)) (:operands node))
                 :if (into #{} (mapcat #(scan (get node %) bound))
                           [:test :consequent :alternate])
-                (throw (ex-info "Unexpected AST in context admission" {:type (:type node)}))))]
+                ;; The rejection carries the node itself (print-bounded): a
+                ;; bare symbol or unknown shape names its emitter directly.
+                (throw (ex-info "Unexpected AST in context admission"
+                                {:type (:type node)
+                                 :node (binding [*print-length* 40 *print-level* 8]
+                                         (pr-str node))}))))]
       (scan ast #{}))))
 
 

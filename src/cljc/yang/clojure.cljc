@@ -1053,13 +1053,10 @@
 
 
 (defn- call-entry
-  "The unary public entry, closed over a private argument-vector body.
-   A truthy second argument selects the unit's private intra-unit lane,
-   where `invocation` is already the positional argument vector."
+  "The unary public entry, closed over a private argument-vector body."
   []
   (let [body (symbol (str reserved-prefix "body"))
         invocation (symbol (str reserved-prefix "invocation"))
-        direct? (symbol (str reserved-prefix "direct"))
         outcome (symbol (str reserved-prefix "entry_outcome"))
         positional (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/positional))
         named (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/named))
@@ -1085,22 +1082,34 @@
                                        (u/app (u/v 'yang.call/thrown)
                                               (u/app (u/v 'data/nth)
                                                      (u/v outcome) (u/lit 1))))))
-        ;; The private lanes forward the body's outcome in tail position.
-        ;; The public 1-arg entry nil-fills `direct?` and converts outcomes
-        ;; to value/raise normally unless authenticated by `:clj/outcome-token`.
-        entry (u/lam [invocation direct?]
-                     (u/if-node
-                       (u/v direct?)
-                       (u/app (u/v body) (u/v invocation))
-                       (u/if-node
-                         (u/app (u/v 'dsg__equal)
-                                (u/app (u/v 'dsg__get) (u/v invocation)
-                                       (u/lit :clj/outcome-token))
-                                (u/v 'dsg__call_token))
-                         (u/if-node (u/app (u/v 'dsg__empty) named)
-                                    (u/app (u/v body) positional)
-                                    binding-error)
-                         entry-body)))]
+        ;; The private lane forwards the body's outcome in tail position.
+        ;; The public entry still converts outcomes to value/raise normally.
+        ;; The compiler's token packet - a two-element vector whose first
+        ;; element is the compiler-held token - selects the private tail
+        ;; lane on the SAME unary entry: no record unwrap, no map lookups.
+        ;; A guest cannot forge it: the token is compiler-held and the
+        ;; reserved-prefix regime refuses binding or shadowing it. Maps
+        ;; keep the ordinary record path. The vector guard is required:
+        ;; data/nth refuses non-vectors, and dsg__get reads vectors as
+        ;; nil whenever the program defines its own get.
+        packet (u/if-node
+                 (u/app (u/v 'data/vector?) (u/v invocation))
+                 (u/if-node
+                   (u/app (u/v 'dsg__equal)
+                          (u/app (u/v 'data/nth) (u/v invocation) (u/lit 0))
+                          (u/v 'dsg__call_token))
+                   (u/app (u/v body) (u/app (u/v 'data/nth) (u/v invocation) (u/lit 1)))
+                   (u/app (u/v body) (u/v invocation)))
+                 (u/if-node
+                   (u/app (u/v 'dsg__equal)
+                          (u/app (u/v 'dsg__get) (u/v invocation)
+                                 (u/lit :clj/outcome-token))
+                          (u/v 'dsg__call_token))
+                   (u/if-node (u/app (u/v 'dsg__empty) named)
+                              (u/app (u/v body) positional)
+                              binding-error)
+                   entry-body))
+        entry (u/lam [invocation] packet)]
     (u/lam [body] entry)))
 
 
@@ -1408,8 +1417,10 @@
                        (map compile-operand operands)))
         tail? (assoc :tail? true)))
 
-    ;; a statically intra-unit defn/defn- under the outcome model:
-    ;; dispatch through the unit's private entry lane without bridge capture
+    ;; a statically intra-unit defn/defn- under the outcome model: apply the
+    ;; unit's public entry with the compiler's token packet (a two-element
+    ;; vector: [token args]) - the private lane on the same unary entry,
+    ;; one conj and one lookup, no record construction
     (intra-unit-fn? env operator)
     (cond-> {:type :application
              :operator {:type :variable, :name 'dsg__intra_call}
@@ -2149,6 +2160,9 @@
                                                          (assoc env ::top-level true) macro-env))]}
                        tail? (assoc :tail? true))))))]
        (cond->> (go forms initial-macro-env)
+         ;; The two sibling closures share one frame: separate bindings would
+         ;; retain one extra helper environment in every closure a guest
+         ;; captures (the machine-data validation bound notices).
          (outcomes? env) (#(u/app
                              (u/lam '[dsg__admitted? dsg__intra_call] %)
                              (u/sexp->uast
@@ -2157,14 +2171,16 @@
                                     (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
                                           dsg__witness (dsg__get dsg__candidate :clj/admission)]
                                       (if (data/callable? dsg__entry)
-                                        (if (data/callable? dsg__witness)
-                                          (dsg__equal
-                                            dsg__witness
-                                            (dsg__make_admission
-                                              (dsg__assoc dsg__candidate :clj/admission nil)))
-                                          false)
+                                        (dsg__equal
+                                          dsg__witness
+                                          (dsg__make_admission
+                                            (dsg__assoc dsg__candidate :clj/admission nil)))
                                         false))
                                     false)))
+                             ;; The intra-unit dispatcher: resolve the unit's public entry,
+                             ;; apply it with the compiler's token packet [token args] - one
+                             ;; variadic conj and one application, no record construction.
+                             ;; Non-map callees refuse.
                              (u/sexp->uast
                                (list 'fn '[dsg__callee dsg__args]
                                      (list 'if '(data/map? dsg__callee)
@@ -2173,8 +2189,9 @@
                                                          'get)
                                                        'dsg__callee
                                                        :yang.call/entry)
-                                                 'dsg__args
-                                                 true)
+                                                 (list 'conj '[]
+                                                       'dsg__call_token
+                                                       'dsg__args))
                                            '(conj (conj [] :yin.k/error)
                                                   (yang.call/condition
                                                     :yang.call/not-callable
@@ -2217,23 +2234,15 @@
                                       nil)))
                                (u/sexp->uast '(fn [m k] (get m k))))
                              (u/sexp->uast '(fn [a b] (data/content= a b)))
-                             (if (contains? (::defined env) 'assoc)
-                               (u/sexp->uast
-                                 '(fn [m k v k2 v2 k3 v3]
-                                    (let [one (conj m (conj [] k v))]
-                                      (if (data/content= k2 nil)
-                                        one
-                                        (let [two (conj one (conj [] k2 v2))]
-                                          (if (data/content= k3 nil)
-                                            two
-                                            (conj two (conj [] k3 v3))))))))
-                               (u/sexp->uast
-                                 '(fn [m k v k2 v2 k3 v3]
+                             (u/sexp->uast
+                               '(fn [m k v k2 v2 k3 v3]
+                                  (let [one (conj m (conj [] k v))]
                                     (if (data/content= k2 nil)
-                                      (assoc m k v)
-                                      (if (data/content= k3 nil)
-                                        (assoc m k v k2 v2)
-                                        (assoc m k v k2 v2 k3 v3))))))
+                                      one
+                                      (let [two (conj one (conj [] k2 v2))]
+                                        (if (data/content= k3 nil)
+                                          two
+                                          (conj two (conj [] k3 v3))))))))
                              (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
          (outcomes? env) u/mark-tails)))))
 
