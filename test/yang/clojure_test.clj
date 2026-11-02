@@ -1349,6 +1349,21 @@
                          (yang.call/eligible? f)
                          (f 21)]]))))
 
+(deftest test-common-call-token-packet-forgery-refuses
+  (testing "a forged vector never reaches a descriptor's private body: the
+            entry's packet dispatch authenticates on the compiler-held token
+            and every forged shape refuses without applying the body"
+    (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]]
+      (let [form (list 'let '[raw (yang.call/entry target)]
+                       (list 'raw (list 'quote forged)))
+            payload (run-outcome
+                     ['(defn target
+                         [x]
+                         :private-body-entered)
+                      form])]
+        (is (not= :private-body-entered payload)
+            (str "the body ran for forged " (pr-str forged)))))))
+
 
 (deftest test-common-call-invalid-continuation-refuses
   (let [tamper (fn [forms]
