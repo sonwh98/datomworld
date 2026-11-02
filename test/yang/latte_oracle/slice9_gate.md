@@ -144,7 +144,7 @@ accepted-negative claim, or equality projection is introduced for these rows.
 
 An independent audit re-derives the credited arities and fixture paths from
 the two raw C traces. Kondo reports zero errors and warnings. The full oracle
-runs 26 tests and 1,689 assertions with exactly one failure and no errors:
+runs 26 tests and 1,695 assertions with exactly one failure and no errors:
 its retained `(= :pass (:gate-status evidence))` closure assertion. The
 unexercised arities — **58** under the current accounting, including
 `parse/1` — therefore continue to block acceptance. Verification results are

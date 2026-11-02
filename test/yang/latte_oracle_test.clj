@@ -1930,9 +1930,28 @@
 (def ^:private kernel-declarations
   "The declared dispositions: explicit, versioned input to classification.
    Generated evidence is never their source of truth; provenance is in-file.
-   A declaration whose revalidation guards fail leaves its row a blocker,
+   The file's contract is validated at load: version and provenance are
+   fixed, and every historical disposition must retain its exact boundary
+   and a complete record - the file is authoritative for this metadata, and
+   a load-time failure means the file was edited beyond its contract. A
+   declaration whose revalidation guards fail leaves its row a blocker,
    not a deviation."
-  (edn/read-string (slurp (io/resource "yang/latte_oracle/slice9_declarations.edn"))))
+  (let [parsed (edn/read-string (slurp (io/resource "yang/latte_oracle/slice9_declarations.edn")))
+        complete? (fn [d required] (every? d required))
+        portability-required [:call :script :message :boundary :upstream-value :reason]
+        upstream-required [:call :boundary :reason :upstream-revision]]
+    (assert (and (= 1 (:version parsed)) (= "ea18c8e4^" (:provenance parsed)))
+            "the declarations file's version/provenance are part of its contract")
+    (doseq [[id d] (:portability parsed)]
+      (assert (and (complete? d portability-required)
+                   (= :nonportable-host-value (:boundary d)))
+              (str "incomplete or out-of-scope portability declaration: " id)))
+    (doseq [[id d] (:upstream-failures parsed)]
+      (assert (and (complete? d upstream-required)
+                   (contains? #{:upstream-unbound-definition :upstream-malformed-proof-sequence}
+                              (:boundary d)))
+              (str "incomplete or out-of-scope upstream-failure declaration: " id)))
+    parsed))
 
 (defn- kernel-callable-descriptor?
   "True when `value` is the shape of the admitted common-call descriptor the
@@ -2112,6 +2131,15 @@
       (is (nil? (kernel-host-value-deviation fixture a a
                                              (assoc-in (c-with descriptor) [:outcome 1 :yin.k/data :script] '())
                                              (c-with descriptor))))
+      ;; Shape-only mutation: identical contents delivered as a list in A
+      ;; while C keeps the vector - the raw shape comparison refuses it even
+      ;; though the vec-normalized declaration guard alone would not.
+      (is (nil? (kernel-host-value-deviation fixture
+                                             (assoc-in a [:outcome :thrown :data :script]
+                                                       (apply list script))
+                                             a
+                                             (c-with descriptor)
+                                             (c-with descriptor))))
       ;; Descriptor forgeries refuse.
       (is (nil? (kernel-host-value-deviation fixture a a
                                              (c-with (dissoc descriptor :clj/admission))
@@ -2134,6 +2162,18 @@
                                              (c-with (dissoc descriptor :clj/outcomes?))))
           "a descriptor with a missing outcomes marker fails")
       (is (nil? (kernel-host-value-deviation fixture a a (c-with {:type :closure}) (c-with {:type :closure}))))
+      ;; A descriptor copied across calls: the structurally valid
+      ;; check-after-qed descriptor submitted under the elab-after-qed
+      ;; fixture refuses through the declared-call pin - the copy carries
+      ;; another call's identity. (Two descriptors of the SAME call with
+      ;; identical payloads are the same deviation claim; their witness
+      ;; authenticity is the compiler's admission check.)
+      (is (nil? (let [other (get-in kernel-declarations [:portability :check-after-qed])
+                      other-descriptor (assoc descriptor :yang.call/entry (values/closure nil {})
+                                              :clj/admission (values/closure nil {}))]
+                  (kernel-host-value-deviation (assoc fixture :call (:call other))
+                                               a a (c-with other-descriptor) (c-with other-descriptor))))
+          "a descriptor copied across calls fails the declared-call pin")
       ;; A mutated declaration (declared message != live failure) fails the guard.
       (with-redefs [kernel-declarations (assoc-in kernel-declarations
                                                   [:portability :elab-after-qed :message]
