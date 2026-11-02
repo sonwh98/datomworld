@@ -4654,7 +4654,7 @@
       "reason": "No permessage-deflate negotiation in this ws-only, no-extension profile; ignore offers, negotiate none. Re-triage if extensions are enabled."
     }
   ],
-  "policy_status": "proposal, owner approval required",
+  "policy_status": "ratified by the Architect under owner delegation (2026-10-28); the owner may overrule",
   "source_image": "crossbario/autobahn-testsuite@sha256:519915fb568b04c9383f70a1c405ae3ff44ab9e35835b085239c258b6fac3074",
   "version": "25.10.1"
 }

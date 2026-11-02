@@ -143,8 +143,9 @@ def evaluate(raw, role, agent, mode):
     return {'schema': 1, 'mode': mode, 'testee_role': role, 'agent': agent,
             'suite_image': pin['image'], 'cases_sha256': pin['cases_sha256'],
             'exceptions_sha256': pin['exceptions_sha256'],
-            'scope': 'STUB PLUMBING ONLY' if mode == 'smoke' else 'PROPOSED J6 GATE (owner approval required)',
-            'conformance_claim': False, 'policy_status': 'proposal',
+            'scope': 'STUB PLUMBING ONLY' if mode == 'smoke' else 'J6 GATE (ratified by the Architect under owner delegation 2026-10-28; the owner may overrule)',
+            'conformance_claim': False,
+            'policy_status': 'ratified by the Architect under owner delegation (2026-10-28); the owner may overrule',
             'accepted': not issues and all(x['accepted'] for x in output),
             'issues': issues, 'expected': len(wanted), 'received': len(records), 'results': output}
 
