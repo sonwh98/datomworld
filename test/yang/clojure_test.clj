@@ -1228,7 +1228,7 @@
                           (fn [node]
                             (cond (= node (u/v 'profile-function)) descriptor
                                   (= node (u/v 'profile-raise)) (u/lam ['condition]
-                                                                      (u/v 'condition))
+                                                                       (u/v 'condition))
                                   :else node))
                           (outcome-ast [form])))]
       (is (= [:yin.k/ok eligible?]
@@ -1282,7 +1282,9 @@
                         (u/lam ['condition] (u/lit :refused))
                         node))
                     (outcome-ast (if admitted?
-                                   ['(defn f [x] (+ x 21)) invoke]
+                                   ['(defn f
+                                       [x]
+                                       (+ x 21)) invoke]
                                    [invoke])))
               _ (reset! effect-log [])
               [result] (run ast)]
@@ -1933,9 +1935,9 @@
    :native vm/primitive-profiles})
 
 
-(defn run-guest-ast
+(defn run-guest-machine
   "Run an AST through either observer composition with a finite instruction
-   budget. Shared by the library and upstream LaTTe acceptance fixtures."
+   budget. Return the terminal machine so fixtures can observe its streams."
   [ast modules lane step-limit]
   (let [run-bounded (fn [machine]
                       (loop [v machine, n 0]
@@ -1960,7 +1962,13 @@
     (-> (observer/run-on-stream queued engine/ready-for-ingress?
                                 (vm/fresh-code-loader load-program vm/ast-contract)
                                 run-bounded)
-        :consumer vm/value)))
+        :consumer)))
+
+
+(defn run-guest-ast
+  "The value from run-guest-machine; shared by library and oracle fixtures."
+  [ast modules lane step-limit]
+  (vm/value (run-guest-machine ast modules lane step-limit)))
 
 
 (defn- run-library
@@ -2218,3 +2226,116 @@
       (is (= [:yin.k/ok 10] (run-library '[(let [g +] (g 1 2 3 4))] opts)))
       (is (= :arity (:yin.vm.data/reason
                       (second (run-library '[(let [g +] (g 1 2 3 4 5))] opts))))))))
+
+
+(deftest test-hardening-library-admissions
+  (doseq [lane [:walker :semantic]]
+    (is (= [:yin.k/ok [nil 2 nil '(1 2) 'b :missing true false false {:name 'source}]]
+           (run-library '[[(last nil) (last [1 2]) (butlast [1]) (butlast [1 2 3])
+                           (nth '(a b) 1) (nth [1] 3 :missing)
+                           (string? "") (string? 'x) (var? 'x)
+                           (meta (with-meta 'x {:name 'source}))]]
+                        library-opts lane 1000000))))
+  (testing "fresh supply crosses function calls and repeated loop iterations"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok [false 12]]
+             (run-library
+               '[(defn allocate
+                   [s]
+                   (fresh-symbol s "fresh"))
+                 (let [[a s] (allocate {:counter 0})
+                       [b s] (allocate s)
+                       s (loop [s s i 0]
+                           (if (= i 10) s
+                               (let [[n next-s] (allocate s)] (recur next-s (inc i)))))]
+                   [(= a b) (:counter s)])]
+               library-opts lane 1000000)))))
+  (is (= :yin.k/error (first (run-library '[(gensym "fresh")])))))
+
+
+(deftest test-portable-try-outcomes
+  (doseq [lane [:walker :semantic]
+          [form expected]
+          [['(try :ok (catch Exception e :bad)) :ok]
+           ['(try (throw (ex-info "failure" {:extra 7}))
+                  (catch Exception e [(.getMessage e) (ex-data e)])) ["failure" {:extra 7}]]
+           ['(try (try (throw (ex-info "inner" {}))
+                       (catch Exception e (throw (ex-info "outer" (ex-data e)))))
+                  (catch Exception e (.getMessage e))) "outer"]
+           ['(let [v (try (+ 1 (throw (ex-info "early" {})))
+                          (catch Exception e 8))] (inc v)) 9]]]
+    (is (= [:yin.k/ok expected] (run-library [form] library-opts lane 1000000))))
+  (doseq [form '[(try 1 (catch Exception e 2) :ignored)
+                 (try 1 (finally 2))
+                 (try 1 (catch Throwable e 2))
+                 (try 1 (catch Exception e (.getStackTrace e)))]]
+    (is (thrown? clojure.lang.ExceptionInfo
+          (yang/compile-program [form] true library-opts)))))
+
+
+(deftest test-guest-callable-collections-and-threading
+  (doseq [lane [:walker :semantic]]
+    (is (= [:yin.k/ok ['b 2 :absent :k nil 3 {:n 3}]]
+           (run-library
+             '[(let [v '[a b] m {:k 2} s #{:k} k :n]
+                 [(v 1) (m :k) (m :missing :absent) (s :k) (s :missing)
+                  (k {:n 3}) (-> {:n 1} (update :n + 2))])]
+             library-opts lane 1000000))))
+  (is (= [:yin.k/ok :caught]
+         (run-library '[(try (let [v [1]] (v)) (catch Exception e :caught))]))))
+
+
+(deftest test-value-invocation-refusals-are-terminating
+  (testing "entry-absent callees refuse through the library invoker instead of
+            re-entering the dispatcher; the vector binder only forces the
+            invoker into the library so the routing is actually exercised"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
+                            :yang.call/data {:yang.call/callee 5}}]
+             (run-library '[(let [five 5 v [five]] (five 1))]
+                          library-opts lane 1000000))
+          "a scalar callee terminates as not-callable")
+      (let [[tag _] (run-library
+                      '[(defn f
+                          [x]
+                          x)
+                        (let [e yang.call/entry v [e]] (e f))]
+                      library-opts lane 1000000)]
+        (is (= :yin.k/ok tag)
+            "a module fn is an admitted descriptor: the call goes through admission"))
+      (let [[tag payload] (run-library
+                            '[(defn f
+                                [x]
+                                x)
+                              (let [raw (yang.call/entry f) v [raw]] (raw {}))]
+                            library-opts lane 1000000)]
+        (is (= :yin.k/error tag) "a projected raw closure terminates")
+        (is (= :yang.call/not-callable (:yang.call/reason payload))
+            "a raw closure keeps the adoption's refusal"))
+      (doseq [entry [nil false]]
+        (let [[tag payload] (run-library
+                              [(list 'let ['m {:yang.call/entry entry :x 42} 'v '[m]]
+                                     '(m :x))]
+                              library-opts lane 1000000)]
+          (is (= :yin.k/error tag) (str "a " (pr-str entry) " entry is present, not absent"))
+          (is (= :yang.call/not-callable (:yang.call/reason payload))
+              (str "a " (pr-str entry) " entry reaches admission and refuses"))))
+      (let [tail-run (run-library
+                       '[(defn tail-refusal
+                           []
+                           (let [five 5 v [five]] (five 1)))
+                         (tail-refusal)]
+                       library-opts lane 1000000)]
+        (is (= :yang.call/not-callable
+               (:yang.call/reason (second tail-run)))
+            "the refusal survives a tail-position value call"))
+      (doseq [[where form] [[1 '(five (boom) 2)] [2 '(five 1 (boom))]]]
+        (let [[tag payload] (run-library
+                              ['(defn boom
+                                  []
+                                  (throw (ex-info "boom" {})))
+                               (list 'let '[five 5 v [five]] form)]
+                              library-opts lane 1000000)]
+          (is (= :yin.k/error tag) (str "operand " where " errors before the refusal"))
+          (is (= "boom" (:yin.k/message payload))
+              (str "operand " where " is evaluated before the callee check")))))))

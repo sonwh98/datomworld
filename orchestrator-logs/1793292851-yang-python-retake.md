@@ -162,6 +162,51 @@ Next: WATCH yang-call's master publication (the TS/PHP orchestrator's landing); 
   dependency request is moot (the runtime exists, pending publication); the queued coordination
   items (dry1 reconciliation, the c3-gate baseline) remain available without the dependency.
 
+## 2026-10-30 11:5x +07 — S3 chain complete through 38c00ae3; the decisive quick tier running
+The S3 wiring arc, in order (all on python-s3-wiring, all pushed):
+  e133e822 the wiring (source calls route through the shared convention; both emitters; fixture
+    Python legs; generator :py 4010->4017 double-run identical) — the first shiva census found 18 JVM
+    quick failures, 16 Node, 13+ Dart, ALL in two mechanical families + a behavioral import family;
+  7a4ae8a9 the linked wrapper requires yang.call before py (the "Module link refused: absent"
+    behavioral reds — the diagnose-first gate in the brief paid off: a re-pin would have been wrong)
+    + the closure ledgers gain call.cljc + the generator run (byte-identical, no further movement);
+  2101dfc6 stray-file removal (my add -A sweep);
+  a5242457 + 1fa80339 the Python float-address pins (discovered the split-two-halves pin format the
+    hard way: first prefix substitution half-fixed, the suffixes fixed it); float-address green;
+  38c00ae3 the expectations round: closure union totals 167->168; the TypeScript pins RE-MINTED on
+    the JVM (prelude 478e8f91..., float program 01d7f8c0... — FLAGGED for the TS/PHP orchestrator);
+    the Python import require assertions updated for PROGRAMS only, module-packet deliberately keeps
+    [py] (the guest module image does not add the program's wiring) — the delivery/preseeded/
+    relative-import semantics untouched.
+In flight: the JVM quick tier at 38c00ae3 on shiva (was 18 -> 16 -> these 16 addressed); then Node
+  and Dart; then the kimi gate with the three ownership flags (call.cljc's data/nth, the closure
+  ledgers/totals, the TS pins); then the landing coordinated with the owner's other seat's 64f2885a.
+
+## 2026-10-30 12:1x +07 — the two-tier testing policy, corrected to a shiva crontab
+The owner ruled the nightly full suite (all lanes, all host targets) runs once daily at 03:00, and
+  clarified twice: (1) the nightly's target is MASTER — never a worktree/branch; branch/worktree
+  testing runs only the change-targeted namespaces. (2) The schedule is a CRONTAB on shiva, not an
+  orchestrator-held automation. Done: ~/ci/nightly-full.sh on shiva (fetches origin/master, the JVM
+  full suite, the full Node suite, the full Dart suite; per-stamp summaries under ~/ci/nightly-
+  results/), the crontab entry installed directly on shiva ("0 3 * * * /home/sto/ci/nightly-full.sh",
+  alongside the host's existing 03:00 backup cron), my automation automation-9854c7c4 DELETED, and
+  the two-tier policy recorded in build-n-test.md (e0296b7f on python-s3-wiring). The role boundary
+  lesson: scheduled infrastructure belongs to the machines it runs on; the orchestrator records and
+  monitors, it does not become the scheduler.
+Next: the S3 subset results on shiva -> the kimi gate -> the landing.
+
+## 2026-10-30 12:3x +07 — every yang.* compiler is its own subsystem
+Owner ruling: "all the yang.* supported compilers should be its own subsystem." Done (4d4bf30c on
+  python-s3-wiring): yang.php split out of yang.base's prefix union into its own subsystem
+  (prefixes ["yang.php"], layer 3); yang.base keeps the shared machinery (yang.clojure, yang.frontend,
+  yang.safepoint, yang.stage, yang.tails, yang.io) and gains "yang.core" explicitly (the shared
+  runtime's home). The subsystem roster is now 19: the dao.* eight, yin.vm.ucf/yin.vm/yin.repl,
+  yang.python/yang.php/yang.typescript/yang.base, demo/world/dev/bench. The branch-gate effect:
+  `bb test:sub --base` now selects PHP changes into their own shard instead of dragging all of
+  yang.base, and each compiler's tests isolate under `bb test:sub yang.<lang>`.
+Note: the edit rides python-s3-wiring and lands with it; if the TS/PHP orchestrator's board edits
+  subsystems.edn concurrently, the union rule applies.
+
 ## 2026-10-31 02:5x +07 — S3 LANDED to master (efc99cc4): Python source calls cross language boundaries
 The integration the owner resumed the track for is complete end to end: the :call lowering routes
   admitted callables through the shared convention (eligible -> entry -> invoke), both emitters
