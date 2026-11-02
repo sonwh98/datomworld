@@ -58,7 +58,9 @@
 
 
 (ffi/defcfn ^:private c-export "jolt_parser_export"
-  [:pointer :pointer :size_t :pointer :pointer] :int :blocking)
+            [:pointer :pointer :size_t :pointer :pointer] :int :blocking)
+
+
 (ffi/defcfn ^:private c-free "jolt_parser_free" [:pointer] :void)
 (ffi/defcfn ^:private c-worker-new "jolt_parser_worker_new" [] :pointer)
 (ffi/defcfn ^:private c-worker-free "jolt_parser_worker_free" [:pointer] :void)
@@ -119,11 +121,12 @@
                      :library library}))))
 
 
-;; The budget (J5b, known-gaps row 59): the wrapper refuses an input over the
-;; input bound before any ANTLR object exists (status -6), and nesting from
-;; guards inside recognition (status -7, kind rule or lookahead), before any
-;; buffer is built. The input bound is mirrored here so an oversized source
-;; is refused without the call.
+;; The budget (J5b, known-gaps row 59; the work axis J5c, rows 60-61): the
+;; wrapper refuses an input over the input bound before any ANTLR object
+;; exists (status -6), and nesting or work from guards inside recognition
+;; (status -7, kind rule or lookahead, or the work axis), before any buffer
+;; is built. The input bound is mirrored here so an oversized source is
+;; refused without the call.
 (def input-bound
   "The largest source, in UTF-8 bytes, the native parser accepts: 4 MiB, as
    native/jolt-parser's kMaxInputBytes."
@@ -131,9 +134,9 @@
 
 
 (defn- budget-refusal
-  "The qualified :parser-budget diagnostic for `axis` (:input, or :nesting
-   with `kind` :rule or :lookahead): an operational refusal, never a syntax
-   error, never another parser, never a partial packet."
+  "The qualified :parser-budget diagnostic for `axis` (:input, :nesting with
+   `kind` :rule or :lookahead, or :work): an operational refusal, never a
+   syntax error, never another parser, never a partial packet."
   ([axis measured bound] (budget-refusal axis measured bound nil))
   ([axis measured bound kind]
    (ex-info (str "parser-budget: " (name axis) " " measured " is over the bound "
@@ -141,7 +144,7 @@
                  (case kind
                    :rule " rule frames"
                    :lookahead " lookahead links"
-                   " bytes")
+                   (if (= :work axis) " work units" " bytes"))
                  (if (= :input axis)
                    " (the native Python parser refuses before parsing)"
                    " (the native Python parser refuses; no partial packet)"))
@@ -260,8 +263,9 @@
                    {:line (u32), :column (u32), :message (text),
                     :span-kind (u8), :a (i32), :b (i32), :type (i32)}))
         failure {:kind (u8), :no-viable (u8), :index (i32), :buffered (u32)}
-        tokens (counted (fn [] {:type (i32), :index (i32), :start (i32),
-                                :stop (i32)}))]
+        tokens (counted (fn []
+                          {:type (i32), :index (i32), :start (i32),
+                           :stop (i32)}))]
     (when-not (= @pos length)
       (refuse "trailing bytes" {:consumed @pos, :length length}))
     (when-not (= status (if (seq errors) 1 0))
@@ -296,8 +300,9 @@
 
 (defn- type-name
   [{:keys [symbolic literal]} t]
-  (let [pick (fn [names] (let [s (when (< -1 t (count names)) (names t))]
-                           (when (seq s) s)))]
+  (let [pick (fn [names]
+               (let [s (when (< -1 t (count names)) (names t))]
+                 (when (seq s) s)))]
     (if (= -1 t) "EOF" (or (pick symbolic) (pick literal) (str t)))))
 
 

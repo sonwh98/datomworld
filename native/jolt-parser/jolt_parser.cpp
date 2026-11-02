@@ -39,8 +39,9 @@
 //   -6  input over budget: more than kMaxInputBytes (4 MiB) of source; *out
 //       holds "input <measured> <bound>" (J5, known-gaps row 59), decided
 //       before any ANTLR object exists
-//   -7  nesting over budget: a guard inside recognition refused; *out holds
-//       "nesting <measured> <bound> <kind>", kind "rule" or "lookahead"
+//   -7  nesting or work over budget: a guard inside recognition refused;
+//       *out holds "nesting <measured> <bound> <kind>", kind "rule" or
+//       "lookahead", or "work <measured> <bound>" (J5c, known-gaps rows 60-61)
 // A -7 is thrown out of recognition before any buffer is built, so no partial
 // answer can escape; the lexer, parser and tree are destroyed with the call.
 //
@@ -91,6 +92,30 @@
 // exitRule/unrollRecursionContexts, and adaptivePredict's, which restores the
 // input. Nothing the guards override runs during that unwinding.
 //
+// WORK (J5c, known-gaps rows 60-61). The nesting guards bound stack, not
+// time: an input under every nesting bound can still walk an adversarial
+// ambiguity for unbounded time (a flat `1+` chain parses quadratically, an
+// SLL lookahead over a `1*` chain faster still). The work guard makes the
+// parse's cost a function of its source: one counter charged at the three
+// units of recognition — every rule entry (BoundedParser::enter_frame),
+// every closure epsilon step (BoundedSimulator::getEpsilonTarget, the reach
+// computation's inner loop) and every consumed token (BoundedTokens, its
+// own or a prediction's lookahead walk) — refused past kMaxWork with the
+// same -7 as the nesting guards, message "work <measured> <bound>". The
+// token unit carries the quadratic: prediction's DFA walk does not accept
+// until its statement ends (precedence predicates resolve only there), so a
+// flat chain's every loop decision re-consumes the rest of the statement —
+// measured 64,024,002 consumptions for a 16,002-token 8,000-operator
+// chain; the closure unit carries the `1*` SLL walk. No unit throws inside
+// a full-context prediction (see charge_work); the bound is checked again
+// at every prediction's entry and once after recognition, before any
+// buffer exists. A work refusal resets the worker's parser DFA (the aborted
+// attempt's cached edges would otherwise warm a retry past the bound), so
+// the refusal is a function of the source alone. kMaxWork
+// is calibrated (bb calibrate:jolt-j5's work record) from the measured
+// maximum over the parsing corpus with margin, the same measured-wall rule
+// the stack bounds used (§7.6).
+//
 // Recognition, export and the destruction of the parser, the tree and the
 // worker's caches run on a wrapper-owned thread with a fixed kParseStack (16
 // MiB, committed lazily), joined before the call returns, so the bounds hold
@@ -102,8 +127,8 @@
 // kMaxLook 4,096 links are each at most a quarter of kParseStack at the
 // worst cost per frame and per link measured (the C4 calibration record);
 // kMaxFull 256 links is set by time, not stack (full-LL lookahead over a
-// unary run grows about 9x per doubling). Time is not bounded inside the
-// axes (§7.6; slice J5c): no cancellation of an under-bound parse is offered.
+// unary run grows about 9x per doubling). kMaxWork is the work budget's
+// bound (J5c above; the calibration record derives it).
 //
 // jolt_parser_parse (J0c round 1) recognizes with the generated static
 // caches. jolt_parser_export takes a worker (§7.4, round 4): an opaque handle
@@ -327,6 +352,8 @@ constexpr size_t kParseStack = size_t{16} << 20;    // 16 MiB
 constexpr uint64_t kMaxRule = 8192;                 // rule frames
 constexpr uint64_t kMaxLook = 4096;                 // SLL chain links
 constexpr uint64_t kMaxFull = 256;                  // full-LL links past the outer context
+constexpr uint64_t kMaxWork = 600000000;  // work units per parse (J5c; the
+                                          // calibration record derives it)
 
 #ifdef JOLT_PARSER_UNBOUNDED
 constexpr bool kEnforce = false;  // the calibration build: measure, never refuse
@@ -334,7 +361,7 @@ constexpr bool kEnforce = false;  // the calibration build: measure, never refus
 constexpr bool kEnforce = true;
 #endif
 
-enum class Kind : uint8_t { Rule, Lookahead };
+enum class Kind : uint8_t { Rule, Lookahead, Work };
 
 // The guards' refusal. Not derived from std::exception or RecognitionException,
 // so no handler in the generated parser or the runtime catches it.
@@ -350,7 +377,38 @@ struct Stats {
   uint64_t max_look = 0;   // longest SLL chain a rule transition made
   uint64_t max_full = 0;   // longest full-LL chain past the outer context
   uint64_t full_predictions = 0;
+  uint64_t work = 0;       // work units charged (rule entries, closure steps,
+                           // consumed tokens)
+  bool in_full = false;    // a full-context prediction is running (J5c: the
+                           // work guard's throw is suppressed there)
 };
+
+// The work guard (J5c): charge `units` of parse work and refuse past kMaxWork.
+// Work is what makes a parse's cost a function of its source: a rule entry
+// (BoundedParser), a closure epsilon step (BoundedSimulator) or a consumed
+// token (BoundedTokens) — the three units the calibration record counts per
+// shape, and the three that grow superlinearly on the adversarial shapes (a
+// flat `1+` chain is prediction re-consuming the rest of its statement on
+// every loop decision, quadratic in the operators; an SLL lookahead over a
+// `1*` chain is closure steps, faster still). Charging is one add and a
+// compare; it allocates nothing, so it cannot disturb the reach-set ownership
+// the computeReachSet override establishes. A charged unit throws the moment
+// it passes the bound, so the measured work at a refusal is the bound plus
+// one unit (deterministic in the source, independent of cache warming).
+// Inside a full-context prediction (in_full, set by BoundedSimulator) no unit
+// throws: a throw out of the full-context loop's own consume() would unwind
+// past the reach computation whose caller set the computeReachSet override
+// protects — the next prediction's entry check refuses instead, so the
+// overshoot is one full-context walk, bounded by the input.
+inline void check_work(const Stats& s) {
+  if (kEnforce && s.work > kMaxWork)
+    throw NestingRefused{Kind::Work, s.work, kMaxWork};
+}
+
+inline void charge_work(Stats& s, uint64_t units) {
+  s.work += units;
+  if (!s.in_full) check_work(s);
+}
 
 // The input bound, checked before any ANTLR object exists.
 int32_t over_input(size_t len, uint8_t** out, size_t* out_len) noexcept {
@@ -362,12 +420,39 @@ int32_t over_input(size_t len, uint8_t** out, size_t* out_len) noexcept {
 
 int32_t refused(const NestingRefused& r, uint8_t** out, size_t* out_len) noexcept {
   char text[96];
-  std::snprintf(text, sizeof text, "nesting %llu %llu %s",
-                static_cast<unsigned long long>(r.measured),
-                static_cast<unsigned long long>(r.bound),
-                r.kind == Kind::Rule ? "rule" : "lookahead");
+  if (r.kind == Kind::Work)
+    std::snprintf(text, sizeof text, "work %llu %llu",
+                  static_cast<unsigned long long>(r.measured),
+                  static_cast<unsigned long long>(r.bound));
+  else
+    std::snprintf(text, sizeof text, "nesting %llu %llu %s",
+                  static_cast<unsigned long long>(r.measured),
+                  static_cast<unsigned long long>(r.bound),
+                  r.kind == Kind::Rule ? "rule" : "lookahead");
   return message(text, -7, out, out_len);
 }
+
+// The work guard's token unit (J5c): every token the parser consumes, its
+// own or a prediction's lookahead walk, is one unit of work. The prediction
+// walk is where a flat left-recursive chain spends its quadratic time: the
+// loop decision's DFA does not accept until the statement ends (its states
+// carry precedence predicates, resolved only at the end), so each operator's
+// prediction re-consumes everything to the end of the statement — measured
+// 64,024,002 consumptions for a 16,002-token 8,000-operator chain. The
+// throw is suppressed during full-context prediction (see charge_work).
+class BoundedTokens : public antlr4::CommonTokenStream {
+ public:
+  BoundedTokens(antlr4::TokenSource* src, Stats& stats)
+      : CommonTokenStream(src), stats_(stats) {}
+
+  void consume() override {
+    charge_work(stats_, 1);
+    CommonTokenStream::consume();
+  }
+
+ private:
+  Stats& stats_;
+};
 
 // The rule-depth guard. A frame's depth is the length of the current
 // context's parent chain plus one: each live rule activation contributes
@@ -413,6 +498,7 @@ class BoundedParser : public Python3Parser {
   void enter_frame(antlr4::ParserRuleContext* localctx) {
     uint64_t d = depth_of(_ctx) + 1;
     if (d > stats_.max_rule) stats_.max_rule = d;
+    charge_work(stats_, 1);
     if (kEnforce && d > kMaxRule) throw NestingRefused{Kind::Rule, d, kMaxRule};
     depth_[localctx] = d;
   }
@@ -446,6 +532,10 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
 
   size_t adaptivePredict(antlr4::TokenStream* input, size_t decision,
                          antlr4::ParserRuleContext* outer) override {
+    // the work guard's prediction-boundary check (J5c): a full-context walk
+    // charges without throwing, so an overshoot from one is refused here,
+    // at the next prediction, rather than inside the walk
+    check_work(stats_);
     // the memo lives for one prediction; its references keep the contexts
     // it names alive, so no address is reused while it is keyed
     struct Clear {
@@ -454,6 +544,7 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
         s->memo_.clear();
         s->full_base_ = 0;
         s->full_s0_ = nullptr;
+        s->stats_.in_full = false;
       }
     } clear{this};
     return ParserATNSimulator::adaptivePredict(input, decision, outer);
@@ -462,6 +553,9 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
   std::unique_ptr<antlr4::atn::ATNConfigSet> computeStartState(
       antlr4::atn::ATNState* p, antlr4::RuleContext* ctx, bool fullCtx) override {
     if (fullCtx) {
+      // a full-context prediction runs until this prediction's Clear: while
+      // it does, no work charge throws (charge_work)
+      stats_.in_full = true;
       // the length of PredictionContext::fromRuleContext(ctx)
       uint64_t n = 0;
       for (antlr4::RuleContext* c = ctx;
@@ -481,6 +575,7 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
       Ref<antlr4::atn::ATNConfig> const& config, const antlr4::atn::Transition* t,
       bool collectPredicates, bool inContext, bool fullCtx,
       bool treatEofAsEpsilon) override {
+    charge_work(stats_, 1);
     if (t->getTransitionType() == antlr4::atn::TransitionType::RULE)
       check(config->context, fullCtx);
     return ParserATNSimulator::getEpsilonTarget(config, t, collectPredicates,
@@ -583,7 +678,7 @@ class BoundedSimulator : public antlr4::atn::ParserATNSimulator {
 
 #ifdef JOLT_PARSER_TEST_SEAMS
 std::atomic<bool> g_stack_probe{false};
-std::atomic<uint64_t> g_last[6];  // the last parse's Stats, high-water, stack
+std::atomic<uint64_t> g_last[7];  // the last parse's Stats, high-water, stack
 
 // The stack's lowest usable address on this thread (0 unknown).
 uintptr_t stack_low() noexcept {
@@ -663,6 +758,7 @@ void* parse_thread_main(void* p) {
   g_last[3] = job.stats.full_predictions;
   g_last[4] = high_water;
   g_last[5] = thread_stack_size();
+  g_last[6] = job.stats.work;
 #endif
   return nullptr;
 }
@@ -907,7 +1003,7 @@ int32_t export_job(Job& job) {
     // the static caches; the generated destructors delete these at scope exit
     lexer.setInterpreter(new antlr4::atn::LexerATNSimulator(
         &lexer, *c.w->lexer_atn, c.w->lexer_dfa, c.w->lexer_ctx));
-    antlr4::CommonTokenStream tokens(&lexer);
+    BoundedTokens tokens(&lexer, job.stats);
     BoundedParser parser(&tokens, job.stats);
     parser.setInterpreter(new BoundedSimulator(
         &parser, *c.w->parser_atn, c.w->parser_dfa, c.w->parser_ctx, job.stats));
@@ -918,6 +1014,9 @@ int32_t export_job(Job& job) {
     parser.addErrorListener(&errors);
 
     antlr4::tree::ParseTree* tree = parser.file_input();
+    // a full-context walk at the very end may have charged past the bound
+    // without a later prediction to refuse at: refuse before any buffer
+    check_work(job.stats);
 
     Out o;
     o.buf.insert(o.buf.end(), {'J', 'P', 'X', '1'});
@@ -962,6 +1061,20 @@ int32_t export_job(Job& job) {
     }
     return hand_off(o.buf, c.out, c.out_len);
   } catch (const NestingRefused& r) {
+    // A work refusal leaves the worker's parser DFA partially filled by the
+    // aborted attempt; a retry over the warm cache charges less closure work
+    // and could parse where the first attempt refused. Reset the worker's
+    // parser DFA, so a refused source refuses again — the refusal stays a
+    // function of the source. (The prediction-context cache stays: it holds
+    // allocation results, not step counts. The nesting guards need no reset:
+    // their measured depths are structural, not cache-dependent. A reset
+    // that itself fails answers the refusal with the cache left warm.)
+    if (r.kind == Kind::Work && c.w) {
+      try {
+        c.w->parser_dfa = fresh_dfa(*c.w->parser_atn);
+      } catch (...) {
+      }
+    }
     return refused(r, c.out, c.out_len);
   } catch (const Oversize&) {
     return -4;
@@ -980,7 +1093,7 @@ int32_t parse_job(Job& job) {
     SourceStream input(
         std::string_view(reinterpret_cast<const char*>(c.src), c.len));
     Python3Lexer lexer(&input);
-    antlr4::CommonTokenStream tokens(&lexer);
+    BoundedTokens tokens(&lexer, job.stats);
     BoundedParser parser(&tokens, job.stats);
     // the guard over the generated static caches the default simulator uses
     auto* generated = parser.getInterpreter<antlr4::atn::ParserATNSimulator>();
@@ -995,6 +1108,8 @@ int32_t parse_job(Job& job) {
     parser.addErrorListener(&errors);
 
     antlr4::tree::ParseTree* tree = parser.file_input();
+    // as in export_job: the last walk may have charged past the bound
+    check_work(job.stats);
 
     Out o;
     o.buf.insert(o.buf.end(), {'J', 'P', 'T', '1'});
@@ -1110,9 +1225,10 @@ JOLT_EXPORT int32_t jolt_parser_layout_version(void) { return 1; }
 // The JPX1 layout version jolt_parser_export writes.
 JOLT_EXPORT int32_t jolt_parser_export_layout_version(void) { return 2; }
 
-// The budget (J5b): out[0] the input bound in bytes, out[1] the rule-frame
-// bound, out[2] the SLL lookahead bound, out[3] the full-LL lookahead bound
-// (links past the outer context), out[4] the stack a parse thread actually
+// The budget (J5b; the work bound J5c): out[0] the input bound in bytes,
+// out[1] the rule-frame bound, out[2] the SLL lookahead bound, out[3] the
+// full-LL lookahead bound (links past the outer context), out[4] the work
+// bound (units a parse may charge), out[5] the stack a parse thread actually
 // has (read on one; 0 unreadable). -3 when no parse thread can be started.
 JOLT_EXPORT int32_t jolt_parser_budget(uint64_t* out) {
   if (!out) return -1;
@@ -1120,8 +1236,9 @@ JOLT_EXPORT int32_t jolt_parser_budget(uint64_t* out) {
   out[1] = kMaxRule;
   out[2] = kMaxLook;
   out[3] = kMaxFull;
-  out[4] = 0;
-  Job job{stack_job, &out[4], {}, -3};
+  out[4] = kMaxWork;
+  out[5] = 0;
+  Job job{stack_job, &out[5], {}, -3};
   uint8_t* msg = nullptr;
   size_t msg_len = 0;
   int32_t status = on_parse_thread(job, &msg, &msg_len);
@@ -1150,12 +1267,12 @@ JOLT_EXPORT int32_t jolt_parser_stack_probe(int32_t on) {
 // rule frame entered, out[1] the longest SLL chain made, out[2] the longest
 // full-LL chain past the outer context, out[3] full-LL predictions, out[4]
 // the parse thread's stack high-water mark in bytes (0 unless the probe was
-// on), out[5] that thread's stack size; out[6] 1 when this build enforces the
-// bounds (0: -DJOLT_PARSER_UNBOUNDED).
+// on), out[5] that thread's stack size, out[6] the work units charged (J5c);
+// out[7] 1 when this build enforces the bounds (0: -DJOLT_PARSER_UNBOUNDED).
 JOLT_EXPORT int32_t jolt_parser_last_stats(uint64_t* out) {
   if (!out) return -1;
-  for (int i = 0; i < 6; ++i) out[i] = g_last[i].load();
-  out[6] = kEnforce ? 1 : 0;
+  for (int i = 0; i < 7; ++i) out[i] = g_last[i].load();
+  out[7] = kEnforce ? 1 : 0;
   return 0;
 }
 
