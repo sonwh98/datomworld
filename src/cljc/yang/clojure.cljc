@@ -1265,9 +1265,53 @@
                       public-bridge)
                     public-bridge)
           admitted (u/if-node (u/app (u/v 'dsg__admitted?) (u/v callee))
-                              bridged refused)]
+                              bridged refused)
+          ;; A callee carrying a call entry is convention territory whether it
+          ;; admits or forges one, so admission rules it. Everything else is a
+          ;; data-side invocation - a collection lookup or a raw closure call -
+          ;; and the guest library's invoker owns those semantics. The invoker
+          ;; is itself a published descriptor, so it is reached the same way
+          ;; any guest callee is; its raise escapes to a capture of this site
+          ;; and the resumed pass materializes the error outcome here.
+          value-call (u/app
+                       (u/lam ['dsg__raise_escape]
+                              (u/if-node
+                                (u/app (u/v 'data/callable?) (u/v 'dsg__raise_escape))
+                                (u/let1
+                                  (symbol (str reserved-prefix "invoker_result"))
+                                  (u/app (u/v 'yang.call/invoke)
+                                         (u/v 'invoke-value)
+                                         (u/app (u/v 'conj) (u/lit []) (u/v callee) (u/v arguments))
+                                         (u/lit [])
+                                         (u/lam [condition]
+                                                (assoc (u/app (u/v 'dsg__raise_escape)
+                                                              (u/app (u/v 'dsg__assoc) (u/lit {})
+                                                                     (u/lit :clj/escape-token) (u/v 'dsg__call_token)
+                                                                     (u/lit :clj/outcome) condition->outcome))
+                                                       :tail? true)))
+                                  (outcome-node ok-tag (u/v (symbol (str reserved-prefix "invoker_result")))))
+                                (u/if-node
+                                  (u/app (u/v 'dsg__equal)
+                                         (u/app (u/v 'dsg__get) (u/v 'dsg__raise_escape)
+                                                (u/lit :clj/escape-token))
+                                         (u/v 'dsg__call_token))
+                                  (u/app (u/v 'dsg__get) (u/v 'dsg__raise_escape) (u/lit :clj/outcome))
+                                  (outcome-node
+                                    error-tag
+                                    (u/app (u/v 'yang.call/condition)
+                                           (u/lit :yang.call/invalid-invocation)
+                                           (u/lit {:yang.call/reason :missing-raise-exit}))))))
+                       u/capture)
+          routed (if (::invoker env)
+                   (u/if-node
+                     (u/if-node (u/app (u/v 'data/map?) (u/v callee))
+                                (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
+                                (u/lit false))
+                     admitted
+                     value-call)
+                   admitted)]
       (cond-> (u/mark-tails (u/let1 callee callee-ast
-                                    (u/let1 arguments arguments-ast admitted)))
+                                    (u/let1 arguments arguments-ast routed)))
         tail? (assoc :tail? true)))))
 
 
@@ -1353,12 +1397,6 @@
                          (seq (meta operator)) (with-meta (meta operator)))
              :operands (mapv #(compile-form % false env macro-env) operands)}
       tail? (assoc :tail? true))
-
-    ;; The guest library supplies collection invocation. The apply intrinsic
-    ;; in invoke-value is the raw closure call, so this never wraps itself.
-    (and (::invoker env)
-         (or (contains? (locals env) operator) (not (symbol? operator))))
-    (compile-av-application 'invoke-value [operator (vec operands)] env tail? macro-env)
 
     ;; anything else: one guest invocation, in tail position when the call is
     :else
@@ -1931,6 +1969,7 @@
                                  :macros (set (:macros opts))}
                    ::defined defined
                    ::invoker (boolean (some #(and (seq? %) (= 'defn (first %))
+                                                  (= 'invoke-value (second %))
                                                   (:yin.k/invoker (meta (second %)))) forms))}
             (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})}))))))
 
@@ -2216,11 +2255,10 @@
       (or (= x true) (= x false)))
     (defn fn?
       [x]
-      (data/callable? x))
+      (if (data/callable? x) true (yang.call/eligible? x)))
     (defn ^:yin.k/invoker invoke-value
       [f args]
       (cond
-        (data/callable? f) (apply f args)
         (vector? f) (if (= 1 (count args)) (nth f (first args))
                         (throw (ex-info "Vector invocation requires one index" {:argc (count args)})))
         (or (map? f) (keyword? f))
@@ -2231,7 +2269,11 @@
         (set? f) (if (= 1 (count args))
                    (if (contains? f (first args)) (first args) nil)
                    (throw (ex-info "Set invocation requires one key" {:argc (count args)})))
-        :else (apply f args)))
+        ;; Everything unsupported - a scalar, a raw closure the convention
+        ;; never published, a forged shape that slipped past the call-site
+        ;; routing - refuses as the admission path would. No apply here: a
+        ;; guest apply would re-enter the call-site dispatcher and recurse.
+        :else (throw (yang.call/condition :yang.call/not-callable {:yang.call/callee f}))))
     (defn update
       ([m k f] (assoc m k (f (get m k))))
       ([m k f a] (assoc m k (f (get m k) a)))

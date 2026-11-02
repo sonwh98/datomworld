@@ -1228,7 +1228,7 @@
                           (fn [node]
                             (cond (= node (u/v 'profile-function)) descriptor
                                   (= node (u/v 'profile-raise)) (u/lam ['condition]
-                                                                      (u/v 'condition))
+                                                                       (u/v 'condition))
                                   :else node))
                           (outcome-ast [form])))]
       (is (= [:yin.k/ok eligible?]
@@ -1282,7 +1282,9 @@
                         (u/lam ['condition] (u/lit :refused))
                         node))
                     (outcome-ast (if admitted?
-                                   ['(defn f [x] (+ x 21)) invoke]
+                                   ['(defn f
+                                       [x]
+                                       (+ x 21)) invoke]
                                    [invoke])))
               _ (reset! effect-log [])
               [result] (run ast)]
@@ -2281,3 +2283,59 @@
              library-opts lane 1000000))))
   (is (= [:yin.k/ok :caught]
          (run-library '[(try (let [v [1]] (v)) (catch Exception e :caught))]))))
+
+
+(deftest test-value-invocation-refusals-are-terminating
+  (testing "entry-absent callees refuse through the library invoker instead of
+            re-entering the dispatcher; the vector binder only forces the
+            invoker into the library so the routing is actually exercised"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
+                            :yang.call/data {:yang.call/callee 5}}]
+             (run-library '[(let [five 5 v [five]] (five 1))]
+                          library-opts lane 1000000))
+          "a scalar callee terminates as not-callable")
+      (let [[tag _] (run-library
+                      '[(defn f
+                          [x]
+                          x)
+                        (let [e yang.call/entry v [e]] (e f))]
+                      library-opts lane 1000000)]
+        (is (= :yin.k/ok tag)
+            "a module fn is an admitted descriptor: the call goes through admission"))
+      (let [[tag payload] (run-library
+                            '[(defn f
+                                [x]
+                                x)
+                              (let [raw (yang.call/entry f) v [raw]] (raw {}))]
+                            library-opts lane 1000000)]
+        (is (= :yin.k/error tag) "a projected raw closure terminates")
+        (is (= :yang.call/not-callable (:yang.call/reason payload))
+            "a raw closure keeps the adoption's refusal"))
+      (doseq [entry [nil false]]
+        (let [[tag payload] (run-library
+                              [(list 'let ['m {:yang.call/entry entry :x 42} 'v '[m]]
+                                     '(m :x))]
+                              library-opts lane 1000000)]
+          (is (= :yin.k/error tag) (str "a " (pr-str entry) " entry is present, not absent"))
+          (is (= :yang.call/not-callable (:yang.call/reason payload))
+              (str "a " (pr-str entry) " entry reaches admission and refuses"))))
+      (let [tail-run (run-library
+                       '[(defn tail-refusal
+                           []
+                           (let [five 5 v [five]] (five 1)))
+                         (tail-refusal)]
+                       library-opts lane 1000000)]
+        (is (= :yang.call/not-callable
+               (:yang.call/reason (second tail-run)))
+            "the refusal survives a tail-position value call"))
+      (doseq [[where form] [[1 '(five (boom) 2)] [2 '(five 1 (boom))]]]
+        (let [[tag payload] (run-library
+                              ['(defn boom
+                                  []
+                                  (throw (ex-info "boom" {})))
+                               (list 'let '[five 5 v [five]] form)]
+                              library-opts lane 1000000)]
+          (is (= :yin.k/error tag) (str "operand " where " errors before the refusal"))
+          (is (= "boom" (:yin.k/message payload))
+              (str "operand " where " is evaluated before the callee check")))))))
