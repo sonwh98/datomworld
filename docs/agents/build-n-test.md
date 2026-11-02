@@ -550,6 +550,46 @@ The first run on shiva (2026-10-11) overlapped JVM and Dart in one clone before
 this rule was written down; its results are advisory until repeated with a
 separate Dart clone.
 
+### Scratch-clone first-run gaps (two measured sightings)
+
+A fresh scratch clone needs two things the lane runner does not yet set up
+itself; until the runner heuristic is fixed, do them by hand before the
+first lane:
+
+1. **`npm install`** — the Node tests require npm deps (`@noble/hashes` was
+   the measured miss on shiva 2026-11-02: the cljs lane ran but the
+   node-tests bundle died with `MODULE_NOT_FOUND`).
+2. **`bb gen:antlr`** — the `prerequisites` heuristic in
+   `src/dev/affected.clj` decides `:gen:antlr` from the JVM lane's reach
+   only ("ANTLR classes are JVM only" — stale: python keeps multi-target
+   parsers), so a cljs/cljd-only selection that reaches
+   `yang.python.antlr.parser` (e.g. `bb test:sub:cljs yang.base` via
+   `yin.repl.frontends`) skips the generation and the shadow build dies on
+   the missing `Python3Lexer.js`. Sighted independently on the p4 lane
+   (PhpLexer ClassNotFoundException) and the yang.base cljs lane
+   (2026-11-02). A fix round is in flight on `fix/gen-antlr-prereq-heuristic`.
+
+### Ledger commit hygiene: never commit a conflict marker
+
+The append-only ledgers (`docs/agents/known-gaps.md`,
+`orchestrator-logs/*.md`, `docs/agents/routing-status.md`) resolve rebase
+and merge conflicts by the union rule, which means conflicts are common —
+and a conflict marker that reaches a commit silently corrupts the record
+(measured: the 2026-10-30 rebase landed a log with three committed
+`<<<<<<<`/`>>>>>>>` markers and dropped records the union was supposed to
+keep; caught by the architect four rounds later). Before committing ANY
+change to a ledger file:
+
+```sh
+git diff --cached | grep -E '^\+(<{7}|={7}$|>{7})' && echo CONFLICT-MARKERS-STAGED
+git grep -E '^(<{7}|={7}$|>{7})' -- docs/agents/known-gaps.md orchestrator-logs docs/agents/routing-status.md
+```
+
+If either hits, the commit stops until the union is redone. When resolving
+a ledger conflict, prefer regenerating the union from both sides' section
+lists over hand-merging, and re-read the result against BOTH parents before
+staging.
+
 ### The jolt J2 lane: run it with `--jobs` on the servers
 
 The jolt lane's core mode (`bb src/dev/jolt_j2_lane.clj core [--jobs N]
