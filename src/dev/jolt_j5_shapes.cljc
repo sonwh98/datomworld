@@ -57,7 +57,18 @@
 ;; the largest with base + per x n <= bound. power is not here: the
 ;; generated expr loop makes `2 ** 2 ** ...` iterative (no frame or link per
 ;; level), so it is bounded by the input axis only.
-(def bounds {:rule 8192, :look 4096, :full 256})
+(def bounds {:rule 8192, :look 4096, :full 256, :work 600000000})
+
+
+;; C2w (J5c): the flat shapes the work axis bounds — every operator's
+;; prediction re-consumes its statement to its end (the `1+` chain, work
+;; exactly n² + 6n + 9,567) or walks an SLL closure over it (the `1*`
+;; chain, work about 50.5n² + 1.5e4n) — with the largest n whose work stays
+;; under the work bound (the calibration record's work ladders and exact
+;; quadratic fits, build/j5b/work.edn: 599,965,594 at 24,491 and 599,944,032
+;; at 3,448; each n+1 crosses 600,000,000). The nesting shapes are not
+;; here: their guards refuse first, under every work the corpus costs.
+(def work-at-bound {"r4" 24491, "r4-mul" 3448})
 
 
 (def predicted

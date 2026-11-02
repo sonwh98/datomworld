@@ -60,9 +60,9 @@
 (defn- last-max-rule
   "The last parse's deepest rule frame (the jolt_parser_last_stats seam)."
   []
-  (let [p (ffi/alloc 56)]
+  (let [p (ffi/alloc 64)]
     (try (c-last-stats p)
-         (first (ffi/read-array p :uint64 7))
+         (first (ffi/read-array p :uint64 8))
          (finally (ffi/free p)))))
 
 
@@ -90,10 +90,10 @@
 ;; =============================================================================
 
 (def budget
-  (let [p (ffi/alloc 40)]
+  (let [p (ffi/alloc 48)]
     (try (let [st (c-budget p)]
-           (assoc (zipmap [:input-bytes :rule :look :full :stack]
-                          (vec (ffi/read-array p :uint64 5)))
+           (assoc (zipmap [:input-bytes :rule :look :full :work :stack]
+                          (vec (ffi/read-array p :uint64 6)))
                   :status st))
          (finally (ffi/free p)))))
 
@@ -101,10 +101,10 @@
 (println "RECORD budget" (pr-str budget))
 
 
-(check "the wrapper's bounds are the ruling's (input 4 MiB, rule 8192, lookahead 4096, full-LL 256), the jolt mirror equal, and a parse thread has 16 MiB of stack"
+(check "the wrapper's bounds are the ruling's (input 4 MiB, rule 8192, lookahead 4096, full-LL 256) with the J5c work bound, and a parse thread has 16 MiB of stack"
        (and (zero? (:status budget))
             (= 4194304 (:input-bytes budget) cst/input-bound)
-            (= shapes/bounds (select-keys budget [:rule :look :full]))
+            (= shapes/bounds (select-keys budget [:rule :look :full :work]))
             (>= (:stack budget) (* 16 1024 1024)))
        budget)
 
@@ -224,6 +224,98 @@
            (and (= expect at)
                 (= (refusal (if (= :rule kind) :rule :lookahead) bound) over))
            {:at at, :over over, :wall-ms wall})))
+
+
+;; =============================================================================
+;; C2w/C1w: the work axis (J5c, known-gaps rows 60-61)
+;; =============================================================================
+
+(defn- work-refusal
+  [bound]
+  {:diagnostic :parser-budget, :axis :work, :bound bound,
+   :measured (inc bound)})
+
+
+;; at and over the work bound per flat shape: the largest n under the bound
+;; parses, n+1 refuses with exactly the work data (a fresh worker per parse:
+;; a work refusal resets the worker's parser DFA, so cold is what a retry of
+;; a refused source sees too)
+(doseq [shape (sort (keys shapes/work-at-bound))]
+  (let [f (shapes/shapes shape)
+        n (shapes/work-at-bound shape)
+        bound (:work shapes/bounds)
+        t0 (System/nanoTime)
+        at (outcome (f n))
+        wall (ms t0)
+        over (outcome (f (inc n)))]
+    (println "RECORD work-at-bound" shape
+             (pr-str {:n n, :outcome at, :wall-ms wall}))
+    (check (str "C2w " shape ": n=" n " parses (under the work bound); n+1 refuses with exactly bound "
+                bound ", measured " (inc bound))
+           (and (= :yang.cst/ok at)
+                (= (work-refusal bound) over))
+           {:at at, :over over, :wall-ms wall})))
+
+
+;; the slow shape itself, over the bound by far, on ONE worker three times:
+;; each refusal identical (a retry sees the reset, cold worker, so the
+;; refusal is a function of the source), the session parses after
+(let [src ((shapes/shapes "r4") 100000)
+      bound (:work shapes/bounds)
+      t0 (System/nanoTime)
+      w (parser/make-worker)
+      rs (vec (repeatedly 3 #(outcome w src)))
+      wall (ms t0)
+      after (outcome w "x * 6\n")]
+  (parser/close-worker w)
+  (println "RECORD C1w 1+-100000" (pr-str {:first (first rs), :wall-ms wall}))
+  (check (str "C1w the 1+ chain at 100,000 operators: refuses (-7, work) three times identically on one worker within "
+              (/ (wall-limit 240000) 1000) " s (" (if laptop? "the laptop limit" "6x the laptop limit")
+              ", the wall of all three), then the same worker parses x * 6")
+         (and (apply = rs)
+              (= (work-refusal bound) (first rs))
+              (= :yang.cst/ok after)
+              (<= wall (wall-limit 240000)))
+         {:first (first rs), :after after, :wall-ms wall}))
+
+
+;; the 1* chain: an SLL closure over the lookahead, minutes ungated before
+;; J5c at 4,000 operators; the work guard refuses it mid-walk
+(let [src ((shapes/shapes "r4-mul") 4000)
+      bound (:work shapes/bounds)
+      t0 (System/nanoTime)
+      r (outcome src)
+      wall (ms t0)]
+  (println "RECORD C1w 1*-4000" (pr-str {:outcome r, :wall-ms wall}))
+  (check (str "C1w the 1* chain at 4,000 operators (a few KB of source, minutes ungated): refuses :work within "
+              (/ (wall-limit 600000) 1000) " s (" (if laptop? "the laptop limit" "6x the laptop limit") ")")
+         (and (= (work-refusal bound) r) (<= wall (wall-limit 600000)))
+         {:outcome r, :wall-ms wall}))
+
+
+(let [bound (:work shapes/bounds)
+      [st msg] (native-status ((shapes/shapes "r4") 100000))]
+  (check "C1w the wrapper's own answer: status -7, \"work <measured> <bound>\""
+         (and (= -7 st)
+              (= (str "work " (inc bound) " " bound) msg))
+         [st msg]))
+
+
+;; the corpus's biggest legit flat inputs stay parses: the gated 1+ chain at
+;; 20,000 (the below leg's packet comparison) and 100,000 `**` parse under
+;; the bound (their work is the calibration record's floor)
+(let [t0 (System/nanoTime)
+      r1 (outcome ((shapes/shapes "r4") 20000))
+      w1 (ms t0)
+      t1 (System/nanoTime)
+      r2 (outcome ((shapes/shapes "power") 100000))
+      w2 (ms t1)]
+  (println "RECORD work-under" (pr-str {:r4-20000 r1, :wall-1 w1
+                                        :power-100000 r2, :wall-2 w2}))
+  (check "C2w the gated flat sizes parse under the work bound: the 20,000-operator 1+ chain and 100,000 `**` (the below leg's shapes)"
+         (and (= :yang.cst/ok r1) (= :yang.cst/ok r2)
+              (<= w1 (wall-limit 30000)) (<= w2 (wall-limit 60000)))
+         {:r4-20000 r1, :wall-ms-1 w1, :power-100000 r2, :wall-ms-2 w2}))
 
 
 ;; =============================================================================
