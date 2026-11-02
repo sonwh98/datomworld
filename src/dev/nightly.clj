@@ -120,10 +120,11 @@
   "The subsystem subset this host runs, from NIGHTLY_SUBSYSTEMS (comma list).
    nil = run everything (single-host mode)."
   []
+  ;; Registry names keep their dots (test:sub:clj matches against
+  ;; subsystems.edn's dotted names). Only folder names get dash-normalized.
   (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
            (map str/trim)
            (remove str/blank?)
-           (map #(str/replace % "." "-"))
            seq))
 
 
