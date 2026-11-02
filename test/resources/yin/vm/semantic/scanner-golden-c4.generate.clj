@@ -43,7 +43,14 @@
 
 (def path "test/yin/vm/semantic/scanner_goldens.cljc")
 
-(def deferred #{:pysp})
+
+;; 2026-11-01: the yang-common-call adoption (6d6b7e711, "link shared call
+;; runtime") linked one shared runtime definition into every :c4 module, so
+;; each scanned module gained exactly +1 application with identical
+;; free-name sets (verified by the delta pass before this regeneration).
+;; The deferred set is therefore the six moved :c4 groups; :py/:pysp and
+;; :b0/:register did not move.
+(def deferred #{:k :m :t :w :e :n})
 
 
 (def specs (scan-test/c4-specs))

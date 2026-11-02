@@ -7890,12 +7890,13 @@
      {:free-names #{py/global-set py/call py/global-get py/vconj require},
       :occurrences
       [[require false]
+       [require false]
        [py/global-set true]
        [py/call true]
        [py/global-get true]
        [py/vconj true]],
       :definitions [[spec false] [body false]],
-      :application-count 8,
+      :application-count 9,
       :requirements
       {:store-keys #{body spec},
        :ffi-ops #{},
@@ -7905,6 +7906,7 @@
       {:status :ok,
        :obligations
        [[require false]
+        [require false]
         [py/global-set true]
         [py/call true]
         [py/global-get true]
@@ -7927,6 +7929,7 @@
         cell/set!},
       :occurrences
       [[require false]
+       [require false]
        [py/global-set true]
        [py/call true]
        [py/global-get true]
@@ -7949,7 +7952,7 @@
        [cell/set! true]
        [py/raise true]],
       :definitions [[spec false] [body false]],
-      :application-count 31,
+      :application-count 32,
       :requirements
       {:store-keys #{body spec},
        :ffi-ops #{},
@@ -7959,6 +7962,7 @@
       {:status :ok,
        :obligations
        [[require false]
+        [require false]
         [py/global-set true]
         [py/call true]
         [py/global-get true]
@@ -7997,6 +8001,7 @@
         pym.k/spec},
       :occurrences
       [[require false]
+       [require false]
        [py/import true]
        [py/call true]
        [py/global-get true]
@@ -8012,7 +8017,7 @@
        [pym.k/spec true]
        [pym.k/body true]],
       :definitions [[spec false] [body false]],
-      :application-count 18,
+      :application-count 19,
       :requirements
       {:store-keys #{body spec},
        :ffi-ops #{},
@@ -8022,6 +8027,7 @@
       {:status :ok,
        :obligations
        [[require false]
+        [require false]
         [py/import true]
         [py/call true]
         [py/global-get true]
@@ -8041,6 +8047,7 @@
       #{py/call py/global-get py/vconj require py/as-exception py/raise},
       :occurrences
       [[require false]
+       [require false]
        [py/call true]
        [py/global-get true]
        [py/vconj true]
@@ -8050,7 +8057,7 @@
        [py/global-get true]
        [py/vconj true]],
       :definitions [[spec false] [body false]],
-      :application-count 12,
+      :application-count 13,
       :requirements
       {:store-keys #{body spec},
        :ffi-ops #{},
@@ -8060,6 +8067,7 @@
       {:status :ok,
        :obligations
        [[require false]
+        [require false]
         [py/call true]
         [py/global-get true]
         [py/vconj true]
@@ -8080,6 +8088,7 @@
         py/raise},
       :occurrences
       [[require false]
+       [require false]
        [py/global-set true]
        [py/make-function true]
        [py/raise true]
@@ -8088,7 +8097,7 @@
        [py/global-get true]
        [py/vconj true]],
       :definitions [[spec false] [body false]],
-      :application-count 11,
+      :application-count 12,
       :requirements
       {:store-keys #{body spec},
        :ffi-ops #{},
@@ -8098,6 +8107,7 @@
       {:status :ok,
        :obligations
        [[require false]
+        [require false]
         [py/global-set true]
         [py/make-function true]
         [py/raise true]
@@ -8109,12 +8119,13 @@
      {:free-names #{py/call py/global-get py/vconj require},
       :occurrences
       [[require false]
+       [require false]
        [py/call true]
        [py/global-get true]
        [py/vconj true]
        [py/global-get true]],
       :definitions [[spec false] [body false]],
-      :application-count 7,
+      :application-count 8,
       :requirements
       {:store-keys #{body spec},
        :ffi-ops #{},
@@ -8124,6 +8135,7 @@
       {:status :ok,
        :obligations
        [[require false]
+        [require false]
         [py/call true]
         [py/global-get true]
         [py/vconj true]
