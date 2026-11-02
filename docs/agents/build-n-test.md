@@ -46,6 +46,9 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # (or `clojure -M:test -i :slow -n <ns>`).
 # While iterating, use the Gate Ladder (see below): G0 iterate via `bb test:sub:clj <own>`
 # or `clojure -M:test -n <ns>`. Do not run the full `bb test` while iterating.
+# When a test fails, reproduce and fix it by running ONLY the failing test
+# (`clojure -M:test -n <ns> -v <ns>/<var>`, Node `--test=<ns>`, Dart `--only <ns>`) --
+# never the whole suite (owner ruling 2026-11-01; see Gate Ladder G0).
 # At slice checkpoints, run G1 (`bb test:sub <own>`). Before landing a slice, run
 # G2 (`bb test:changed` in the worktree across all three lanes).
 # Full repo-wide `bb test` runs twice daily on the remote hosts (03:00/17:00 VN);
@@ -261,6 +264,18 @@ selected namespaces and run automatically when needed.
 #### Gate Ladder (docs/design/test.subsystems.md)
 
 1. **G0 Iterate**: Run only the subsystem's JVM lane (`bb test:sub:clj <own>` or `clojure -M:test -n <ns>`).
+   **Failure-reproduction rule (owner ruling 2026-11-01): when a test fails anywhere — a
+   gate, the nightly, or a delegate report — reproduce and fix it by running ONLY the
+   failing test, never the whole suite.** JVM: `clojure -M:test -n <ns>` (a single
+   deftest: add `-v <ns>/<var-name>`). Node: `node target/node-tests.js --test=<ns>`
+   (built by `bb build:yin-repl-node` first only if that test needs the Node REPL).
+   Dart: `bb src/dev/cljd_agg.clj --only <ns>`. Fix against the failing test alone,
+   re-run it green, then climb back up (G1 for the home subsystem, G2 for dependents).
+   Never reproduce or chase a failure with the full suite or the slow tier — the full
+   suite is not a debugging tool, and running it locally for one failing test is the
+   exact misuse that drove a laptop load average over 100 (2026-11-01). A failure that
+   only reproduces under the full suite's concurrency is diagnosed with the suite's own
+   logs (its per-shard/per-test output), not by re-running the suite repeatedly.
 2. **G1 Checkpoint**: Run the three-lane subsystem test (`bb test:sub <own>`). Proves the home suite across all three hosts before reporting ready.
 3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change (for foundation subsystems like `dao.stream` or `dao.jing`, this correctly runs nearly the full suite).
 4. **G3 Master (merged in place by the 2026-11-01 owner ruling)**: The landing gate
