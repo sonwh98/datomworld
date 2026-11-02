@@ -1,27 +1,31 @@
 # Slice 9 kernel differential gate: execution evidence correction
 
-The gate on `yang-hardening2` is **blocked**. The architect denied the prior
+The gate on the hardening line is **blocked**. The architect denied the prior
 165/165 closure claim because membership in a static dependency closure did
 not prove execution of every arity. That claim is withdrawn. The gate retains
 its final assertion `(= :pass (:gate-status evidence))`; missing execution
 evidence must fail that assertion.
 
-The 106-fixture corpus still has 102 passing agreements, two recorded
-deviations, and two recorded upstream failures. The four narrowly recorded
-exception dispositions remain declared departures, not agreements. No
-upstream or `src/cljc/` source changes are made. Admission is unchanged:
-155 bindings (146 admitted, 9 excluded) and 175 candidate function/arities
-(165 admitted, 10 excluded).
+The 106-fixture corpus has **100 passing agreements, two recorded deviations
+(`elab-after-qed`, `check-after-qed`), two blocked fixtures, and two recorded
+upstream failures.** The four narrowly recorded exception dispositions remain
+declared departures, not agreements. No upstream or `src/cljc/` source changes
+are made by H3-0. Admission is unchanged: 155 bindings (146 admitted, 9
+excluded) and 175 candidate function/arities (165 admitted, 10 excluded).
 
-Recorded executions now establish **145/165** admitted arities: 39 directly
-and 106 through named integrations. The other 20, including `parse/1`, remain
-uncredited. All 20 unsupported credits from the prior 165/165 claim are
-withdrawn. Both C lanes record eight `parse/2` calls and zero `parse/1` calls.
-The corrected counts and remaining arities are recorded in
-[`slice9_evidence.edn`](slice9_evidence.edn) and
-[`slice9_unexercised.edn`](slice9_unexercised.edn). The 20 earlier residual
-consumers in [`fixture_closure.edn`](fixture_closure.edn) retain their concrete
-expected outcomes; they do not establish closure of the full inventory.
+Recorded executions establish **107/165** admitted arities: 39 directly
+and 68 through named integrations. The other **58**, including `parse/1`,
+remain uncredited. The declared departures are carried by the versioned
+[`slice9_declarations.edn`](slice9_declarations.edn) (provenance `ea18c8e4^`),
+revalidated on every refresh by the representation-aware classifier: the
+guest `:meta` value may be a pre-adoption raw closure or the admitted §8.10
+descriptor; forged shapes refuse. The corrected counts and remaining arities
+are recorded in [`slice9_evidence.edn`](slice9_evidence.edn) and
+[`slice9_unexercised.edn`](slice9_unexercised.edn). The residual consumers in
+[`fixture_closure.edn`](fixture_closure.edn) retain their concrete expected
+outcomes; they do not establish closure of the full inventory, and their
+count (20) predates the re-derivation — the live unexercised set is the
+58-name list.
 
 ## Consumer evidence
 

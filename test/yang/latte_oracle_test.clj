@@ -1927,32 +1927,68 @@
                                   "No passing direct fixture or named integration records this exact arity in both C lanes."))})))
 
 
+(def ^:private kernel-declarations
+  "The declared dispositions: explicit, versioned input to classification.
+   Generated evidence is never their source of truth; provenance is in-file.
+   A declaration whose revalidation guards fail leaves its row a blocker,
+   not a deviation."
+  (edn/read-string (slurp (io/resource "yang/latte_oracle/slice9_declarations.edn"))))
+
+(defn- kernel-callable-descriptor?
+  "True when `value` is the admitted common-call descriptor the reconciled
+   compiler publishes for a guest closure: a function-type marker, an entry
+   that is itself a minted closure, and an admission witness. Forged shapes -
+   a bare `{:type :closure}` map, a scalar or missing entry, a missing
+   witness - fail."
+  [value]
+  (and (map? value)
+       (= :function (:clj/type value))
+       (values/closure? (get value :yang.call/entry))
+       (values/closure? (get value :clj/admission))))
+
 (defn- kernel-host-value-deviation
   [id a b walker semantic]
   ;; Disposition only: keep every original comparison and all four outcomes.
   ;; A new failure outside this exact host-value boundary remains a mismatch.
-  (when (and (contains? #{:elab-after-qed :check-after-qed} id)
-             (= :completed (:status a) (:status b) (:status walker) (:status semantic))
-             (= (:outcome a) (:outcome b))
-             (= (get-in a [:outcome :thrown :data :meta])
-                {:nonportable-host-value (str (class clojure.core/meta))})
-             (= "Wrong proof script: proof steps after qed."
-                (get-in a [:outcome :thrown :message]))
-             (every? (fn [c]
-                       (and (= :yin.k/error (first (:outcome c)))
-                            (= (get-in a [:outcome :thrown :message])
-                               (get-in c [:outcome 1 :yin.k/message]))
-                            (= (dissoc (get-in a [:outcome :thrown :data]) :meta)
-                               (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta))
-                            (= (result-shape (dissoc (get-in a [:outcome :thrown :data]) :meta))
-                               (result-shape (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta)))
-                            (values/closure? (get-in c [:outcome 1 :yin.k/data :meta]))))
-                     [walker semantic]))
-    {:boundary :nonportable-host-value
-     :upstream-value 'clojure.core/meta
-     :evidence {:file "slice9_evidence.edn" :fixture-id id
-                :path [:a :outcome :thrown :data :meta]}
-     :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}))
+  ;; The declared boundary, upstream value and reason come from the versioned
+  ;; declarations file; the guards revalidate the live execution against it.
+  (let [declared (get-in kernel-declarations [:portability id])]
+    (when (and declared
+               (contains? #{:elab-after-qed :check-after-qed} id)
+               (= :completed (:status a) (:status b) (:status walker) (:status semantic))
+               (= (:outcome a) (:outcome b))
+               (= (get-in a [:outcome :thrown :data :meta])
+                  {:nonportable-host-value (str (class clojure.core/meta))})
+               (= "Wrong proof script: proof steps after qed."
+                  (get-in a [:outcome :thrown :message]))
+               ;; The declaration must describe THIS failure: same message and
+               ;; same script (top-level sequential shape normalized), or the
+               ;; guard fails and the row stays a blocker.
+               (= (:message declared) (get-in a [:outcome :thrown :message]))
+               (= (vec (:script declared))
+                  (vec (get-in a [:outcome :thrown :data :script])))
+               (every? (fn [c]
+                         (and (= :yin.k/error (first (:outcome c)))
+                              (= (get-in a [:outcome :thrown :message])
+                                 (get-in c [:outcome 1 :yin.k/message]))
+                              (= (dissoc (get-in a [:outcome :thrown :data]) :meta)
+                                 (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta))
+                              (= (result-shape (dissoc (get-in a [:outcome :thrown :data]) :meta))
+                                 (result-shape (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta)))
+                              (let [meta (get-in c [:outcome 1 :yin.k/data :meta])]
+                                ;; Both representations the pipeline actually
+                                ;; produces: a pre-adoption raw closure, or the
+                                ;; admitted §8.10 descriptor. Anything else -
+                                ;; including an invented `{:type :closure}` map -
+                                ;; fails.
+                                (or (values/closure? meta)
+                                    (kernel-callable-descriptor? meta)))))
+                       [walker semantic]))
+      {:boundary (:boundary declared)
+       :upstream-value (:upstream-value declared)
+       :evidence {:file "slice9_evidence.edn" :fixture-id id
+                  :path [:a :outcome :thrown :data :meta]}
+       :reason (:reason declared)})))
 
 
 (defn- kernel-upstream-failure
@@ -2029,21 +2065,55 @@
              (mapv :exercise (kernel-exercise-entries inventory [fixture]
                                                       (mapv #(dissoc % lane) rows))))
           "Both C lanes must demonstrate the exact arity")))
-  (let [a {:status :completed
-           :outcome {:thrown {:message "Wrong proof script: proof steps after qed."
-                              :data {:script [] :meta {:nonportable-host-value (str (class clojure.core/meta))}}}}}
-        c {:status :completed
-           :outcome [:yin.k/error {:yin.k/message "Wrong proof script: proof steps after qed."
-                                   :yin.k/data {:script [] :meta (values/closure nil {})}}]}]
-    (is (some? (kernel-host-value-deviation :elab-after-qed a a c c)))
-    (is (nil? (kernel-host-value-deviation :other a a c c)))
-    (is (nil? (kernel-host-value-deviation :elab-after-qed a a (assoc c :status :blocked) c)))
-    (is (nil? (kernel-host-value-deviation :elab-after-qed a a
-                                           (assoc-in c [:outcome 1 :yin.k/data :script] [:new-mismatch]) c)))
-    (is (nil? (kernel-host-value-deviation :elab-after-qed a a
-                                           (assoc-in c [:outcome 1 :yin.k/data :script] '()) c)))
-    (is (nil? (kernel-host-value-deviation :elab-after-qed a a
-                                           (assoc-in c [:outcome 1 :yin.k/data :meta] {:type :closure}) c)))))
+  (let [script (vector [:qed '(lambda [A :type] (lambda [x A] x)) {}] [:qed 'missing {}])]
+    (is (= (vec (:script (get-in kernel-declarations [:portability :elab-after-qed]))) (vec script))
+        "The controls model the declared script exactly")
+    (let [a {:status :completed
+             :outcome {:thrown {:message "Wrong proof script: proof steps after qed."
+                                :data {:script script
+                                       :meta {:nonportable-host-value (str (class clojure.core/meta))}}}}}
+          descriptor {:yang.call/entry (values/closure nil {})
+                      :clj/type :function
+                      :clj/outcomes? true
+                      :clj/admission (values/closure nil {})}
+          c-with (fn [meta]
+                   {:status :completed
+                    :outcome [:yin.k/error {:yin.k/message "Wrong proof script: proof steps after qed."
+                                            :yin.k/data {:script script :meta meta}}]})]
+      ;; Both representations the reconciled pipeline actually produces.
+      (is (some? (kernel-host-value-deviation :elab-after-qed a a
+                                             (c-with (values/closure nil {})) (c-with (values/closure nil {})))))
+      (is (some? (kernel-host-value-deviation :elab-after-qed a a (c-with descriptor) (c-with descriptor)))
+          "The admitted §8.10 descriptor classifies as the declared deviation")
+      (is (nil? (kernel-host-value-deviation :other a a (c-with descriptor) (c-with descriptor))))
+      (is (nil? (kernel-host-value-deviation :elab-after-qed a a (assoc (c-with descriptor) :status :blocked) (c-with descriptor))))
+      ;; Payload and shape mutations refuse.
+      (is (nil? (kernel-host-value-deviation :elab-after-qed a a
+                                             (assoc-in (c-with descriptor) [:outcome 1 :yin.k/data :script] [:new-mismatch])
+                                             (c-with descriptor))))
+      (is (nil? (kernel-host-value-deviation :elab-after-qed a a
+                                             (assoc-in (c-with descriptor) [:outcome 1 :yin.k/data :script] '())
+                                             (c-with descriptor))))
+      ;; Descriptor forgeries refuse.
+      (is (nil? (kernel-host-value-deviation :elab-after-qed a a
+                                             (c-with (dissoc descriptor :clj/admission))
+                                             (c-with (dissoc descriptor :clj/admission))))
+          "a descriptor without its admission witness fails")
+      (is (nil? (kernel-host-value-deviation :elab-after-qed a a
+                                             (c-with (assoc descriptor :yang.call/entry :not-a-closure))
+                                             (c-with (assoc descriptor :yang.call/entry :not-a-closure))))
+          "a descriptor whose entry is not a minted closure fails")
+      (is (nil? (kernel-host-value-deviation :elab-after-qed a a
+                                             (c-with (assoc descriptor :clj/type :data))
+                                             (c-with (assoc descriptor :clj/type :data))))
+          "a descriptor with a wrong type marker fails")
+      (is (nil? (kernel-host-value-deviation :elab-after-qed a a (c-with {:type :closure}) (c-with {:type :closure}))))
+      ;; A mutated declaration (declared message != live failure) fails the guard.
+      (with-redefs [kernel-declarations (assoc-in kernel-declarations
+                                                  [:portability :elab-after-qed :message]
+                                                  "A different declared failure")]
+        (is (nil? (kernel-host-value-deviation :elab-after-qed a a (c-with descriptor) (c-with descriptor))))
+        "carrying a declaration forward means revalidating it, not copying it"))))
 
 
 (defn- kernel-row
@@ -2195,25 +2265,28 @@
 
 
 (defn write-kernel-gate-evidence!
-  "Explicit evidence/coverage refresh; normal tests never update these files."
-  []
-  (let [evidence (kernel-gate-evidence)]
-    (spit "test/yang/latte_oracle/slice9_unexercised.edn"
-          (str ";; GENERATED from exact execution evidence in both C lanes.\n"
-               (pr-str (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))
-                             (for [entry (get-in evidence [:coverage :entries])
-                                   :when (= :unexercised (:exercise entry))]
-                               [(:function-arity entry) (:missing-dependency entry)]))) "\n"))
-    (with-open [w (io/writer "test/yang/latte_oracle/slice9_evidence.edn")]
-      ;; prn keeps (quote ...) in valid EDN rather than pprint's reader
-      ;; shorthand. One fixture per line keeps refreshes independently diffable.
-      (binding [*out* w *print-length* nil *print-level* nil]
-        (print "{")
-        (doseq [[k v] (dissoc evidence :fixtures)] (pr k) (print " ") (prn v))
-        (println ":fixtures [")
-        (doseq [row (:fixtures evidence)] (prn row))
-        (println "]}")))
-    (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates :coverage])))
+  "Explicit evidence/coverage refresh; normal tests never update these files.
+   With `dir`, writes into that directory (the round-trip test's temp dir);
+   without it, the checked-in locations."
+  ([] (write-kernel-gate-evidence! "test/yang/latte_oracle"))
+  ([dir]
+   (let [evidence (kernel-gate-evidence)]
+     (spit (str dir "/slice9_unexercised.edn")
+           (str ";; GENERATED from exact execution evidence in both C lanes.\n"
+                (pr-str (into (sorted-map-by #(compare (pr-str %1) (pr-str %2)))
+                              (for [entry (get-in evidence [:coverage :entries])
+                                    :when (= :unexercised (:exercise entry))]
+                                [(:function-arity entry) (:missing-dependency entry)]))) "\n"))
+     (with-open [w (io/writer (str dir "/slice9_evidence.edn"))]
+       ;; prn keeps (quote ...) in valid EDN rather than pprint's reader
+       ;; shorthand. One fixture per line keeps refreshes independently diffable.
+       (binding [*out* w *print-length* nil *print-level* nil]
+         (print "{")
+         (doseq [[k v] (dissoc evidence :fixtures)] (pr k) (print " ") (prn v))
+         (println ":fixtures [")
+         (doseq [row (:fixtures evidence)] (prn row))
+         (println "]}")))
+     (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates :coverage]))))
 
 
 (deftest test-kernel-differential-gate
@@ -2296,3 +2369,33 @@
         (str "Kernel gate remains blocked: " (:counts evidence)
              "; admitted/candidate but unexercised function/arities=" (count (get-in evidence [:coverage :unexercised]))
              ". See slice9_evidence.edn; blocked fixtures are not accepted negatives."))))
+
+
+(deftest test-kernel-gate-evidence-writer-round-trip
+  "Rewriting the checked-in evidence through the writer into a temporary
+   directory reproduces it exactly: the statuses (including the declared
+   deviations), the raw comparisons and the coverage survive. No fixtures
+   re-run; the checked-in file is the fixture."
+  (let [dir (str (System/getProperty "java.io.tmpdir") "/slice9-roundtrip-" (System/currentTimeMillis))
+        committed (edn/read-string (slurp "test/yang/latte_oracle/slice9_evidence.edn"))]
+    (try
+      (.mkdirs (java.io.File. dir))
+      (with-redefs [kernel-gate-evidence (constantly committed)]
+        (write-kernel-gate-evidence! dir))
+      (let [written (edn/read-string (slurp (str dir "/slice9_evidence.edn")))]
+        (is (= committed written) "the writer's output re-reads as the same evidence")
+        (is (= #{:elab-after-qed :check-after-qed}
+               (set (map :id (filter #(= :recorded-deviation (:status %)) (:fixtures written)))))
+            "the declared departures survive as recorded deviations")
+        (is (every? (fn [row]
+                      (and (contains? row :a) (contains? row :b)
+                           (contains? row :c-walker) (contains? row :c-semantic)))
+                    (:fixtures written))
+            "every fixture row keeps its raw A/B/C comparisons")
+        (let [unexercised (edn/read-string (slurp (str dir "/slice9_unexercised.edn")))]
+          (is (= (count (get-in written [:coverage :unexercised])) (count unexercised))
+              "the companion file lists every unexercised arity with its dependency")))
+      (finally
+        (run! #(let [f (java.io.File. (str dir "/" %))] (when (.exists f) (.delete f)))
+              ["slice9_evidence.edn" "slice9_unexercised.edn"])
+        (let [d (java.io.File. dir)] (when (.exists d) (.delete d)))))))
