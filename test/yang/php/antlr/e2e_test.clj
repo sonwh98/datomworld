@@ -4,7 +4,6 @@
    the semantic, stack and register VMs). Every fixture of
    `yang.php.antlr.programs` prints the same text on all four."
   (:require
-    [clojure.walk :as walk]
     [clojure.edn :as edn]
     [clojure.java.io :as io]
     [clojure.string :as str]
@@ -70,34 +69,51 @@
       (nth batch root))))
 
 
-(defn- export-projection
-  "The donor program followed by its explicitly named global export read."
-  [donor export-name]
-  (u/then donor (u/sexp->uast (list 'js/global-get {:js/str export-name}))))
+(defn- find-path
+  "Find one node while visiting each collection identity once. Lowered trees
+   share subtrees; ordinary postwalk expands those shares needlessly."
+  [pred tree]
+  (let [seen (java.util.IdentityHashMap.)
+        found (volatile! nil)]
+    (letfn [(visit
+              [node path]
+              (when (and (nil? @found) (pred node))
+                (vreset! found path))
+              (when (and (nil? @found) (coll? node)
+                         (not (.containsKey seen node)))
+                (.put seen node true)
+                (cond
+                  (map? node)
+                  (doseq [[k v] node :while (nil? @found)]
+                    (visit v (conj path k)))
+
+                  (sequential? node)
+                  (doseq [[i v] (map-indexed vector node) :while (nil? @found)]
+                    (visit v (conj path i)))
+
+                  :else nil)))]
+      (visit tree [])
+      @found)))
 
 
 (defn- install-php-function-export
-  "Project `%foreign` into PHP's function namespace before the source body.
-   The lowered PHP call and its resolve/call nodes remain untouched."
+  "Project a published JS global into PHP's function namespace before the
+   source body. The caller tree contains a name reference, never donor code."
   [ast export-name]
   (let [projection (u/sexp->uast
                      (list 'cell/set! 'php.rt/functions
                            (list 'assoc
                                  '(cell/get php.rt/functions)
                                  export-name
-                                 '%foreign)))
-        seen (volatile! false)
-        result (walk/postwalk
-                 (fn [node]
-                   (if (app? node 'php/run-main)
-                     (let [body (first (:operands node))]
-                       (assert (= :lambda (:type body)) "php/run-main body is not a lambda")
-                       (vreset! seen true)
-                       (assoc node :operands [(update body :body #(u/then projection %))]))
-                     node))
-                 ast)]
-    (assert @seen "PHP program has no php/run-main application")
-    result))
+                                 (list 'js/global-get {:js/str export-name}))))
+        path (find-path #(app? % 'php/run-main) ast)]
+    (assert path "PHP program has no php/run-main application")
+    (update-in ast path
+               (fn [node]
+                 (let [body (first (:operands node))]
+                   (assert (= :lambda (:type body)) "php/run-main body is not a lambda")
+                   (assoc node :operands
+                          [(update body :body #(u/then projection %))]))))))
 
 
 (defn- run-with-ts-export
@@ -106,13 +122,11 @@
         {:keys [ast diagnostics]} (h/lower-program php-source)
         _ (assert (nil? diagnostics) (pr-str diagnostics))
         php-ast (install-php-function-export ast export-name)
-        composition {:type :application,
-                     :operator {:type :lambda,
-                                :params ['%foreign],
-                                :body php-ast},
-                     :operands [(export-projection donor export-name)]}
-        result (vm/value (vm/eval (tu/create-vm {:modules (php-h/host-registry)})
-                                  composition))]
+        vm0 (tu/create-vm {:modules (php-h/host-registry)})
+        ;; Complete the donor first. Its global table owns the live function
+        ;; cell; the caller AST below only reads the published name.
+        vm1 (vm/eval vm0 donor)
+        result (vm/value (vm/eval vm1 php-ast))]
     (h/render result)))
 
 
@@ -123,25 +137,20 @@
         {:keys [ast diagnostics]} (h/lower-program php-source)
         _ (assert (nil? diagnostics) (pr-str diagnostics))
         global-projection (u/sexp->uast
-                            (list 'php/global-store! php-global '%foreign))
-        seen (volatile! false)
-        php-ast (walk/postwalk
-                  (fn [node]
-                    (if (app? node 'php/run-main)
-                      (let [body (first (:operands node))]
-                        (assert (= :lambda (:type body)) "php/run-main body is not a lambda")
-                        (vreset! seen true)
-                        (assoc node :operands [(update body :body #(u/then global-projection %))]))
-                      node))
-                  ast)
-        _ (assert @seen "PHP program has no php/run-main application")
-        composition {:type :application,
-                     :operator {:type :lambda,
-                                :params ['%foreign],
-                                :body php-ast},
-                     :operands [(export-projection donor export-name)]}
-        result (vm/value (vm/eval (tu/create-vm {:modules (php-h/host-registry)})
-                                  composition))]
+                            (list 'php/global-store! php-global
+                                  (list 'js/global-get {:js/str export-name})))
+        path (find-path #(app? % 'php/run-main) ast)
+        _ (assert path "PHP program has no php/run-main application")
+        php-ast (update-in ast path
+                           (fn [node]
+                             (let [body (first (:operands node))]
+                               (assert (= :lambda (:type body))
+                                       "php/run-main body is not a lambda")
+                               (assoc node :operands
+                                      [(update body :body #(u/then global-projection %))]))))
+        vm0 (tu/create-vm {:modules (php-h/host-registry)})
+        vm1 (vm/eval vm0 donor)
+        result (vm/value (vm/eval vm1 php-ast))]
     (h/render result)))
 
 
