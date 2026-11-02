@@ -146,7 +146,10 @@
                         bundle (jing/get store bundle-address nil)]
                     (is (= 2 (count aliases)))
                     (is (every? #(= {'pyscc.ca$$cb bundle-address} %) requirements))
-                    (is (= {'py py} (:yin.module/requires bundle)))
+                    ;; the shared call runtime (yang-common-call) is now a
+                    ;; require of every published module alongside py
+                    (is (= {'py py, 'yang.call (:call-address @h/published)}
+                           (:yin.module/requires bundle)))
                     (is (= '#{m0-spec m0-body m1-spec m1-body} (:yin.module/exports bundle))))))))
 
 
