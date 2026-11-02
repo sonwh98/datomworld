@@ -1053,10 +1053,13 @@
 
 
 (defn- call-entry
-  "The unary public entry, closed over a private argument-vector body."
+  "The unary public entry, closed over a private argument-vector body.
+   A truthy second argument selects the unit's private intra-unit lane,
+   where `invocation` is already the positional argument vector."
   []
   (let [body (symbol (str reserved-prefix "body"))
         invocation (symbol (str reserved-prefix "invocation"))
+        direct? (symbol (str reserved-prefix "direct"))
         outcome (symbol (str reserved-prefix "entry_outcome"))
         positional (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/positional))
         named (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/named))
@@ -1082,18 +1085,22 @@
                                        (u/app (u/v 'yang.call/thrown)
                                               (u/app (u/v 'data/nth)
                                                      (u/v outcome) (u/lit 1))))))
-        ;; The private lane forwards the body's outcome in tail position.
-        ;; The public entry still converts outcomes to value/raise normally.
-        entry (u/lam [invocation]
+        ;; The private lanes forward the body's outcome in tail position.
+        ;; The public 1-arg entry nil-fills `direct?` and converts outcomes
+        ;; to value/raise normally unless authenticated by `:clj/outcome-token`.
+        entry (u/lam [invocation direct?]
                      (u/if-node
-                       (u/app (u/v 'dsg__equal)
-                              (u/app (u/v 'dsg__get) (u/v invocation)
-                                     (u/lit :clj/outcome-token))
-                              (u/v 'dsg__call_token))
-                       (u/if-node (u/app (u/v 'dsg__empty) named)
-                                  (u/app (u/v body) positional)
-                                  binding-error)
-                       entry-body))]
+                       (u/v direct?)
+                       (u/app (u/v body) (u/v invocation))
+                       (u/if-node
+                         (u/app (u/v 'dsg__equal)
+                                (u/app (u/v 'dsg__get) (u/v invocation)
+                                       (u/lit :clj/outcome-token))
+                                (u/v 'dsg__call_token))
+                         (u/if-node (u/app (u/v 'dsg__empty) named)
+                                    (u/app (u/v body) positional)
+                                    binding-error)
+                         entry-body)))]
     (u/lam [body] entry)))
 
 
@@ -1195,6 +1202,17 @@
   (and (= 'apply operator)
        (not (contains? (locals env) operator))
        (not (contains? (::defined env) operator))))
+
+
+(defn- intra-unit-fn?
+  "True when `operator` statically names a top-level `defn`/`defn-` of this
+   unit under the outcome model: unshadowed by locals and never defined by
+   `def` or `defmacro`."
+  [env operator]
+  (and (outcomes? env)
+       (symbol? operator)
+       (not (contains? (locals env) operator))
+       (contains? (::defined-fns env) operator)))
 
 
 (defn- compile-guest-call
@@ -1389,6 +1407,16 @@
                                                      (u/v (first bindings)))))))
                        (map compile-operand operands)))
         tail? (assoc :tail? true)))
+
+    ;; a statically intra-unit defn/defn- under the outcome model:
+    ;; dispatch through the unit's private entry lane without bridge capture
+    (intra-unit-fn? env operator)
+    (cond-> {:type :application
+             :operator {:type :variable, :name 'dsg__intra_call}
+             :operands [(cond-> {:type :variable, :name operator}
+                          (seq (meta operator)) (with-meta (meta operator)))
+                        (compile-form (vec operands) false env macro-env)]}
+      tail? (assoc :tail? true))
 
     ;; a statically native name: call it directly
     (native-name? env operator)
@@ -1926,6 +1954,34 @@
        ast))))
 
 
+(defn- top-level-defined-fns
+  "Plain symbols in `forms` whose top-level definitions are exclusively native
+   `defn` or `defn-` descriptors. Any `def`, `defmacro`, or external macro
+   excludes the symbol (or the unit, when macros are active) from static
+   intra-unit dispatch so dynamic admission still governs."
+  [forms external-macros]
+  (if (or (seq external-macros)
+          (some #(and (seq? %) (= 'defmacro (first %))) forms))
+    #{}
+    (:fns
+      (reduce (fn [{:keys [fns non-fns] :as acc} f]
+                (if-not (and (seq? f) (symbol? (second f)))
+                  acc
+                  (let [head (first f)
+                        sym  (strip-symbol-meta (second f))]
+                    (cond
+                      (= 'def head)
+                      {:fns (disj fns sym), :non-fns (conj non-fns sym)}
+
+                      (contains? #{'defn 'defn-} head)
+                      {:fns     (if (contains? non-fns sym) fns (conj fns sym))
+                       :non-fns non-fns}
+
+                      :else acc))))
+              {:fns #{}, :non-fns #{}}
+              forms))))
+
+
 (defn- program-env
   "The compile-time env of one program. Without `opts` it is empty: the
    native path. `{:convention :arg-vector, :native #{symbol}, :macros
@@ -1950,7 +2006,8 @@
                                                (contains? #{'def 'defn 'defn- 'defmacro} (first f))
                                                (symbol? (second f)))
                                       (strip-symbol-meta (second f)))))
-                            forms)]
+                            forms)
+              defined-fns (top-level-defined-fns forms (:macros opts))]
           ;; the compiler emits bare conj and vec (collection literals, apply),
           ;; so a program definition of either would capture them
           (when-let [hit (first (filter #{'conj 'vec} defined))]
@@ -1968,6 +2025,7 @@
                                                 (when (map? (:native opts)) (:native opts)))
                                  :macros (set (:macros opts))}
                    ::defined defined
+                   ::defined-fns defined-fns
                    ::invoker (boolean (some #(and (seq? %) (= 'defn (first %))
                                                   (= 'invoke-value (second %))
                                                   (:yin.k/invoker (meta (second %)))) forms))}
@@ -2091,20 +2149,36 @@
                                                          (assoc env ::top-level true) macro-env))]}
                        tail? (assoc :tail? true))))))]
        (cond->> (go forms initial-macro-env)
-         (outcomes? env) (u/let1
-                           'dsg__admitted?
-                           (u/sexp->uast
-                             '(fn [dsg__candidate]
-                                (if (data/map? dsg__candidate)
-                                  (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
-                                        dsg__witness (dsg__get dsg__candidate :clj/admission)]
-                                    (if (data/callable? dsg__entry)
-                                      (dsg__equal
-                                        dsg__witness
-                                        (dsg__make_admission
-                                          (dsg__assoc dsg__candidate :clj/admission nil)))
-                                      false))
-                                  false))))
+         (outcomes? env) (#(u/app
+                             (u/lam '[dsg__admitted? dsg__intra_call] %)
+                             (u/sexp->uast
+                               '(fn [dsg__candidate]
+                                  (if (data/map? dsg__candidate)
+                                    (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
+                                          dsg__witness (dsg__get dsg__candidate :clj/admission)]
+                                      (if (data/callable? dsg__entry)
+                                        (if (data/callable? dsg__witness)
+                                          (dsg__equal
+                                            dsg__witness
+                                            (dsg__make_admission
+                                              (dsg__assoc dsg__candidate :clj/admission nil)))
+                                          false)
+                                        false))
+                                    false)))
+                             (u/sexp->uast
+                               (list 'fn '[dsg__callee dsg__args]
+                                     (list 'if '(data/map? dsg__callee)
+                                           (list (list (if (contains? (::defined env) 'get)
+                                                         'dsg__get
+                                                         'get)
+                                                       'dsg__callee
+                                                       :yang.call/entry)
+                                                 'dsg__args
+                                                 true)
+                                           '(conj (conj [] :yin.k/error)
+                                                  (yang.call/condition
+                                                    :yang.call/not-callable
+                                                    (dsg__assoc {} :yang.call/callee dsg__callee))))))))
          (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
          (outcomes? env) (u/let1
                            'dsg__make_admission
@@ -2143,15 +2217,23 @@
                                       nil)))
                                (u/sexp->uast '(fn [m k] (get m k))))
                              (u/sexp->uast '(fn [a b] (data/content= a b)))
-                             (u/sexp->uast
-                               '(fn [m k v k2 v2 k3 v3]
-                                  (let [one (conj m (conj [] k v))]
+                             (if (contains? (::defined env) 'assoc)
+                               (u/sexp->uast
+                                 '(fn [m k v k2 v2 k3 v3]
+                                    (let [one (conj m (conj [] k v))]
+                                      (if (data/content= k2 nil)
+                                        one
+                                        (let [two (conj one (conj [] k2 v2))]
+                                          (if (data/content= k3 nil)
+                                            two
+                                            (conj two (conj [] k3 v3))))))))
+                               (u/sexp->uast
+                                 '(fn [m k v k2 v2 k3 v3]
                                     (if (data/content= k2 nil)
-                                      one
-                                      (let [two (conj one (conj [] k2 v2))]
-                                        (if (data/content= k3 nil)
-                                          two
-                                          (conj two (conj [] k3 v3))))))))
+                                      (assoc m k v)
+                                      (if (data/content= k3 nil)
+                                        (assoc m k v k2 v2)
+                                        (assoc m k v k2 v2 k3 v3))))))
                              (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
          (outcomes? env) u/mark-tails)))))
 
