@@ -103,7 +103,8 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| vibe         | `~/.vibe`                   | no caller ID; capture from the session journal (`--output-dir` export.json) | `--resume <id>` (or `-c`) |
+| mistral — binary `vibe`                      | `~/.vibe`                   | no caller ID; capture from the session journal (`--output-dir` export.json) | `--resume <id>` (or `-c`) |
+|                                              |                             | (`mistral` is an alias for `vibe`; prefer `mistral`)                        |                           |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
@@ -176,11 +177,16 @@ listed CLIs.
 |                | K3.1 Pro / K3 families     |                            | `--agent-file        |                            | capture session ID   |                    |
 |                |                            |                            | <path>` (read-only)  |                            | from session index   |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `vibe`         | Mistral AI; aliases:       | `--model <model>`          | `--agent ask`         | `--agent accept-edits`     | no caller ID;       | `--resume <id>`    |
-|                | `mistral-large`,           |                            | (read-only)          | (edit)                     | capture from         | (or `-c`)          |
-|                | `mistral-medium-3.5`,      |                            |                      |                            | session journal      |                    |
-|                | `mistral-4.0`, `devstral`,  |                            |                      |                            |                     |                    |
-|                | `codestral`                |                            |                      |                            |                     |                    |
+| `mistral`      | Mistral AI CLI; the binary | `--model <model>`          | `--agent ask`         | `--agent accept-edits`     | no caller ID;        | `--resume <id>`    |
+|                | is named `vibe` and        |                            | (read-only)          | (edit)                     | capture from         | (or `-c`)          |
+|                | `mistral` is an alias for  |                            |                      |                            | session journal      |                    |
+|                | it; either name invokes    |                            |                      |                            |                      |                    |
+|                | the same CLI (vibe 3.0.4). |                            |                      |                            |                      |                    |
+|                | Model aliases:             |                            |                      |                            |                      |                    |
+|                | `mistral-large`,           |                            |                      |                            |                      |                    |
+|                | `mistral-medium-3.5`,      |                            |                      |                            |                      |                    |
+|                | `mistral-4.0`, `devstral`, |                            |                      |                            |                      |                    |
+|                | `codestral`                |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 | `agy`          | Gemini, flat-rate;         | `--model <model> --effort  | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
 |                | `gemini-3.1-ultra`,        | <effort>`                  | --sandbox`           | --sandbox`                 | capture              | <id>`              |
@@ -206,6 +212,16 @@ Claude Code wrapper and shares no flags with the `claude` family beyond
 flags, never through the Claude Code wrapper conventions (`MODEL=<model> muse`,
 `--permission-mode`, `--name`, `-p`). Auth is `muse login` (Meta account;
 `META_API_KEY` takes priority); allowance is shown by `muse usage`.
+
+**Muse billing lane (interactive and `muse exec`):** `META_API_KEY` in the
+environment always wins over the saved `muse login` account, so billing is
+selected per run without re-logging in. Subscription billing: unset
+`META_API_KEY` and rely on the saved `muse login` session
+(`env -u META_API_KEY muse exec …`). API billing: export `META_API_KEY`, or
+pipe it per run via `muse exec --api-key-stdin` / persist it with
+`muse auth set --api-key-stdin` (key comes from stdin only, never as an
+argv value, so it stays out of shell history). `muse logout` removes the
+saved credential; it never touches `META_API_KEY`.
 Headless dispatch is `muse exec`; the interactive form is `muse [PROMPT]`
 and follow-up is `muse resume <uuid>`. Reasoning effort is
 `--reasoning-effort <none|minimal|low|medium|high|xhigh|max|ultra>`
@@ -301,15 +317,17 @@ kimi --session <session-id> -m kimi-code/k3.1-pro \
   -p "Read <follow-up-prompt> and complete it now." --output-format stream-json \
   < /dev/null > collab/<timestamp>-<role>-<task>-r2.kimi-k3.1-pro.stdout.log 2>&1
 
-# Vibe — Mistral AI CLI (model takes aliases: mistral-large, mistral-medium-3.5, mistral-4.0, devstral, codestral)
-vibe --agent ask --model mistral-large \
+# Mistral — the Mistral AI CLI. The binary is named `vibe`; `mistral` is an
+# alias for it and is the preferred invocation name. Either works.
+# (model takes aliases: mistral-large, mistral-medium-3.5, mistral-4.0, devstral, codestral)
+mistral --agent ask --model mistral-4.0 \
   -p "Read <prompt> and complete it now." < /dev/null \
-  > collab/<timestamp>-<role>-<task>.vibe-<model>.stdout.log 2>&1
+  > collab/<timestamp>-<role>-<task>.mistral-<model>.stdout.log 2>&1
 
-# Vibe follow-up: resume the same session, new prompt and artifact.
-vibe --resume <session-id> --model mistral-large \
+# Mistral follow-up: resume the same session, new prompt and artifact.
+mistral --resume <session-id> --model mistral-4.0 \
   -p "Read <follow-up-prompt> and complete it now." < /dev/null \
-  > collab/<timestamp>-<role>-<task>-r2.vibe-<model>.stdout.log 2>&1
+  > collab/<timestamp>-<role>-<task>-r2.mistral-<model>.stdout.log 2>&1
 
 # Gemini / AGY
 # No --print-timeout: it is optional and defaults to 0 (wait until the turn
