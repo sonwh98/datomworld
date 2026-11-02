@@ -501,6 +501,32 @@ To test another branch later, fetch and check it out in the scratch clone with
 `git fetch origin` then `git checkout --detach origin/<branch>`. A branch that
 was never pushed cannot be tested remotely.
 
+### A clone is only current if it updated from real master
+
+A scratch clone's `origin/master` ref is only as fresh as the place it fetches
+from — and a clone made from another scratch clone inherits that clone's *stale*
+refs. Measured on shiva 2026-11-02: the `dg` clone was created from the `p4`
+scratch clone, whose local `master` ref had not moved since October 26 because
+every lane on it ran detached off fetched branches; the `dg` lane's
+`checkout origin/master` therefore produced a commit 436 commits behind real
+master, and the G3 Dart leg honestly reported failures (the datagram fix) for a
+tree that did not contain them.
+
+Before any lane runs in a clone — every time, not just the first:
+
+```sh
+cd ~/ci/datomworld-<name>
+git remote get-url origin          # must be the GitHub URL, never another scratch clone
+git fetch -q origin "+refs/heads/*:refs/remotes/origin/*"
+git checkout -q --detach origin/master   # or the lane's branch
+git merge-base --is-ancestor <the-commit-hash-you-pushed> HEAD && echo CURRENT
+```
+
+If `origin` is not GitHub, repoint it (`git remote set-url origin "$URL"`). If
+the `merge-base` check fails, the clone's bookkeeping lies: refetch, or delete
+and recreate the clone from GitHub directly. Never trust a hash the clone
+reports without comparing it to the hash your push from the laptop printed.
+
 ### Activate the toolchain in the right order
 
 A non-interactive `ssh host cmd` does not load the shell profile, so `mise` and its
