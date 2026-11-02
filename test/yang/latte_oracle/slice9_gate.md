@@ -19,7 +19,9 @@ remain uncredited. The declared departures are carried by the versioned
 [`slice9_declarations.edn`](slice9_declarations.edn) (provenance `ea18c8e4^`),
 revalidated on every refresh by the representation-aware classifier: the
 guest `:meta` value may be a pre-adoption raw closure or the admitted §8.10
-descriptor; forged shapes refuse. The corrected counts and remaining arities
+descriptor; structurally invalid descriptors and any payload, message, script
+or call mismatch refuse (descriptor authenticity itself is the compiler's
+admission witness upstream of the outcome). The corrected counts and remaining arities
 are recorded in [`slice9_evidence.edn`](slice9_evidence.edn) and
 [`slice9_unexercised.edn`](slice9_unexercised.edn). The residual consumers in
 [`fixture_closure.edn`](fixture_closure.edn) retain their concrete expected
@@ -140,16 +142,14 @@ accepted-negative claim, or equality projection is introduced for these rows.
 
 ## Verification
 
-The accounting tests pass 2 tests and 22 assertions. An independent audit
-re-derives all 145 retained arities and all 360 credited fixture paths from
-the two raw C traces. The four regression suites pass 122 tests and 1,338
-assertions. Kondo reports zero errors and warnings; cljstyle and
-`git diff --check` pass. The full oracle runs 26 tests and 1,879 assertions
-with exactly one failure and no errors: its retained
-`(= :pass (:gate-status evidence))` closure assertion. The missing 20 arities
-therefore continue to block acceptance. Verification results are recorded in
-[`slice9_verification.edn`](slice9_verification.edn), with command outputs
-beside it.
+An independent audit re-derives the credited arities and fixture paths from
+the two raw C traces. Kondo reports zero errors and warnings. The full oracle
+runs 26 tests and 1,689 assertions with exactly one failure and no errors:
+its retained `(= :pass (:gate-status evidence))` closure assertion. The
+unexercised arities — **58** under the current accounting, including
+`parse/1` — therefore continue to block acceptance. Verification results are
+recorded in [`slice9_verification.edn`](slice9_verification.edn), with command
+outputs beside it.
 `yang.latte-oracle-test/write-kernel-gate-evidence!` explicitly regenerates
 both execution evidence and the remaining-arity inventory; normal tests do
 not write them. Evidence retains the pinned upstream revision, compiler
