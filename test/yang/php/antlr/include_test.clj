@@ -78,6 +78,14 @@
   (is (= ["lib/b.php"] (edges "<?php include dirname(__DIR__) . '/lib/b.php';" "sub/a.php"))))
 
 
+(deftest imported-constant-resolves-before-global-refusal-test
+  (let [fixture (some #(when (= :ns-use-function-const (:id %)) %) p6/enabled)
+        result (run fixture)]
+    (is (some? fixture))
+    (doseq [[engine value] (:values result)]
+      (is (= ["gk" [] nil] (observed value)) (str engine)))))
+
+
 (deftest include-refusals-test
   (testing "a bundled program cannot include"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"(?i)include"

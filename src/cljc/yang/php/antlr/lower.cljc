@@ -560,6 +560,7 @@
       (and (= 1 (count (:segs q)))
            (not (:lead? q))
            (not (:ns-kw? q))
+           (not (contains? (get-in ctx [:uses :const]) (first (:segs q))))
            (= "" (:ns ctx "")))
       (unsupported! n :constant)
       :else (app* 'php/const-get-fq (u/lit primary)))))
