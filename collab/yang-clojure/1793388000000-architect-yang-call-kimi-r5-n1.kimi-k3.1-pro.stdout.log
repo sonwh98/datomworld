@@ -1,0 +1,69 @@
+kimi version 2.4.0
+• I need respond arbitration read-only. Should read specified full review both worktree main tree and own findings. Should inspect code enough decide. Should have timestamps response exact first lines. No edits. Tools read parallel. Main tree path unknown likely /Users/sto/workspace/datomworld perhaps locate? User says main tree's collab same filename. Can read current and own and perhaps git worktree list via Bash read-only. First reads.
+
+• I’ll compare the confirmation review in both trees, then check the invocation paths and prior rulings before issuing the read-only arbitration./Users/sto/workspace/datomworld                                   63674368 [master]
+/Users/sto/.codex/worktrees/jolt-j6e-reverify/datomworld          fa592bbb [codex/jolt-j6e-linux-verification]
+/Users/sto/.codex/worktrees/yang-common-call/datomworld           13ba4a2f [python-s3-wiring]
+/Users/sto/workspace/datomworld-ble                               57207b36 [ble-track]
+/Users/sto/workspace/datomworld-call                              98390529 [yang-call]
+/Users/sto/workspace/datomworld-codec-c2-old                      47f43405 (detached HEAD)
+/Users/sto/workspace/datomworld-dry1                              ffea556a [yang-dry1]
+/Users/sto/workspace/datomworld-j5b                               b140782d [jolt-j5b]
+/Users/sto/workspace/datomworld-j6b                               c68a5d68 [jolt-j6b]
+/Users/sto/workspace/datomworld-j6c                               31ec6f9d [jolt-j6c]
+/Users/sto/workspace/datomworld-j6d                               c03e89c2 [jolt-j6d]
+/Users/sto/workspace/datomworld-j6e                               878a1f11 [jolt-j6e]
+/Users/sto/workspace/datomworld-orch                              09c0c145 [jolt-orch]
+/Users/sto/workspace/datomworld-php-p4                            ebdf2a6d [yang-php-p4]
+/Users/sto/workspace/datomworld-teststrategy                      336875a1 [yang-teststrategy]
+/Users/sto/workspace/datomworld-teststrategy-fc                   ebe94375 [yang-teststrategy-fc]
+/Users/sto/workspace/datomworld-ts-t3                             c4644d3b [yang-ts-t3]
+/Users/sto/workspace/datomworld-wp-w0a                            be1a3a25 [wp-w0a]
+/Users/sto/workspace/datomworld-wp-w0b                            750dd505 [wp-w0b]
+/Users/sto/workspace/datomworld-yang-common-call                  abbfb998 [yang-common-call]
+/Users/sto/workspace/datomworld-yang-h2                           862520bc [yang-hardening2]
+/Users/sto/workspace/datomworld-yang-s3                           a34a2251 [yang-slice3]
+/Users/sto/workspace/datomworld-yang-s4                           efa80ae2 [yang-slice4]
+/Users/sto/workspace/datomworld-yang-s5                           a99754f1 [yang-slice5]
+/Users/sto/workspace/datomworld-yang-s6                           8125a1bb [yang-slice6]
+/Users/sto/workspace/datomworld-yang-s7                           1fe3eb07 [yang-slice7]
+/Users/sto/workspace/datomworld-yang-s8                           f7250f03 [yang-slice8]
+/Users/sto/workspace/datomworld-yang-s9                           12d14e1e [yang-slice9]
+/Users/sto/workspace/datomworld/.claude/worktrees/dao-star-demo   a98377e7 (detached HEAD)
+/Users/sto/workspace/datomworld/.claude/worktrees/jolt-j4d-fixes  67aa4cd2 [jolt-j4d-fixes]
+/Users/sto/workspace/datomworld/.claude/worktrees/jolt-j5         0fe6ad0d [jolt-j5]
+
+
+• Own findings NONE odd perhaps overwritten main has full. Read main both.No changes main. Own r4 file current NONE unfortunate. Should retrieve git history? untracked collab perhaps file was overwritten? Perhaps current worktree stdout has content. User specifically reread own findings but NONE. I can state current placeholder. Could find prior arbitration in other collab or logs. Search filename via Glob /Users/sto/workspace perhaps specific. I need robust reasoning. Read rest runtime. Docs §8.10.
+
+• The two confirmation reports are identical. This worktree’s r4 findings file now contains only `NONE`, so I’m checking the surviving arbitration record and the §8.10 contract rather than inferring missing text.
+
+• I have decisive: gate both. I'll respond with timestamps. Could no need more reads. Should have nuance forged nonclosure: gating first returns not-callable no host crash. Both direct and aliases? Native-name? branch only operator exact. Source value-position invoke? If passed then called via generic compile-guest-call: invoke itself descriptor? Runtime shared function perhaps source prelude defn not admitted? But probes value eligible consistent. User specifically direct. Rule exact. N2 no ruling. Mention r4 a no exception. Sanctioned invocation channel but not admission/construction channel. Explicit UAST remains admitted via profile. Should require positive/negative fixtures both invoke variants forged copied entry, scalar/guest fn => not-callable, valid admitted success, eligible false. Ledger not deviation. Shared runtime no edit needed/request. Could mention current adoption blocked until fix. Should have timestamps fresh date.2026-10-30 19:21:45 GMT
+2026-10-31 02:21:45 +07
+Respond exact local timezone-name user wants e.g. +07 accepted? User specifies local-timezone-name use Asia/Ho_Chi_Minh perhaps command %Z gives +07 but prior reports +07. "Completed-Local: 2026-10-31 02:21:45 +07" meets. Could use Asia/Ho_Chi_Minh more proper. Respond concise with rationale refs. No files changed.
+
+• Completed-GMT: 2026-10-30 19:21:45 GMT
+  Completed-Local: 2026-10-31 02:21:45 Asia/Ho_Chi_Minh
+
+  ## N1 — gate both operators
+
+  `yang.call/invoke` and `yang.call/invoke-with` are the sanctioned **invocation** channel, but they are not a source-level callable-admission or descriptor-construction channel. They must therefore be witness-gated at the Clojure compile branch, like `yang.call/eligible?`.
+
+  Declaring this a deviation would contradict r4(a): copying an entry into an `assoc`-constructed source map must not make that map callable through any source-visible invocation route. The absence of demonstrated privilege escalation does not relax that boundary.
+
+  Required disposition:
+
+  - Extend the special compile branch at `src/cljc/yang/clojure.cljc:1286` to cover both operators and check `dsg__admitted?` on their callee before invoking the shared runtime.
+  - Unadmitted callees must refuse with the qualified `:yang.call/not-callable` condition, including copied entries, scalar entries, and guest-function entries. No host “Cannot apply non-function” defect may escape.
+  - Add refusal fixtures for both operators and positive controls for genuinely admitted descriptors, including the existing dynamic-eligibility behavior.
+  - This is a required conformance fix, not a ledger deviation.
+
+  No change to `src/cljc/yang/core/call.cljc` is required for this ruling: its structural projection remains correct **after admission**. Consequently, no request to the shared-runtime owner is necessary.
+
+  ## N2 — mechanical scope confirmed
+
+  Regenerating `closure-{clj,cljs,cljd}.edn` to include the newly reached `src/cljc/yang/core/call.cljc`, and updating the associated counts, is repository hygiene. No architectural ruling or deviation is involved.
+
+  The adoption remains unsigned until N1 is fixed and N2’s manifests are regenerated. No files were changed.
+
+To resume this session: kimi -r session_0cbe7179-fb00-4e5f-acff-23ab3836a2e8

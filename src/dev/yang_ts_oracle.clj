@@ -53,7 +53,7 @@
              "]}\n")))
 
 
-(declare generate!)
+(declare generate! generate-units!)
 
 
 (defn -main
@@ -90,4 +90,35 @@
     (doseq [{:keys [id err exit]} results
             :when (or (not (zero? exit)) (not (str/blank? err)))]
       (println "NODE" id "exit" exit (str/trim err)))
-    (println "wrote" nm (count corpus) "entries")))
+    (println "wrote" nm (count corpus) "entries")
+    (when (.exists (io/file dir (str nm "_units_src.edn")))
+      (generate-units! nm header worker))))
+
+
+(defn generate-units!
+  "`<name>_units_src.edn` lists multi-unit programs, each a vector of sources
+   that the implementation parses and lowers separately. Node has no other
+   way to run them than as one concatenated module, so the oracle runs the
+   concatenation (recorded in the header); the packets are per unit.
+   Writes `<name>_units.edn`."
+  [nm header worker]
+  (let [units (edn/read-string (slurp (str dir nm "_units_src.edn")))
+        results (mapv (fn [{:keys [id units]}]
+                        (assoc (run-node (str/join "\n" units)) :id id))
+                      units)]
+    (write-entries! (str dir nm "_units.edn")
+                    (assoc header
+                           :grammar cst/grammar-id
+                           :oracle "node runs the units concatenated in one module")
+                    (mapv (fn [{:keys [id step units]} {:keys [out exit]}]
+                            {:id id,
+                             :step step,
+                             :out out,
+                             :exit exit,
+                             :packets (mapv #(cst/parse-source worker [:unit 0] %)
+                                            units)})
+                          units results))
+    (doseq [{:keys [id err exit]} results
+            :when (or (not (zero? exit)) (not (str/blank? err)))]
+      (println "NODE" id "exit" exit (str/trim err)))
+    (println "wrote" nm "units" (count units))))

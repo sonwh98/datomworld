@@ -1,0 +1,55 @@
+diff --git a/src/cljc/yang/clojure.cljc b/src/cljc/yang/clojure.cljc
+index 976694ba..8d324bd4 100644
+--- a/src/cljc/yang/clojure.cljc
++++ b/src/cljc/yang/clojure.cljc
+@@ -1284,9 +1284,16 @@
+           tail? (assoc :tail? true)))
+ 
+     (and (outcomes? env) (= operator 'yang.call/eligible?))
+-    (cond-> (apply u/app (u/v 'dsg__admitted?)
+-                   (map #(compile-form % false env macro-env) operands))
+-      tail? (assoc :tail? true))
++    (let [candidate 'dsg__eligibility_candidate]
++      (cond-> (u/mark-tails
++                (apply u/app
++                       (u/lam [candidate]
++                              (u/if-node
++                                (u/app (u/v 'dsg__admitted?) (u/v candidate))
++                                (u/app (u/v 'yang.call/eligible?) (u/v candidate))
++                                (u/lit false)))
++                       (map #(compile-form % false env macro-env) operands)))
++        tail? (assoc :tail? true)))
+ 
+     ;; a statically native name: call it directly
+     (native-name? env operator)
+diff --git a/test/yang/clojure_test.clj b/test/yang/clojure_test.clj
+index 4a955bdc..7bf4c97a 100644
+--- a/test/yang/clojure_test.clj
++++ b/test/yang/clojure_test.clj
+@@ -1201,6 +1201,26 @@
+           (is (= expected (first (run ast)))))))))
+ 
+ 
++(deftest test-common-call-profile-eligibility
++  (doseq [eligible? [true false]
++          run [walker-run semantic-run]]
++    (let [descriptor (#'yang/admit-call-descriptor
++                      (u/app (u/v 'assoc) (u/lit {})
++                             (u/lit :yang.call/entry) (u/lam ['record] (u/lit :called))
++                             (u/lit :yang.call/eligible?) (u/lam ['callee] (u/lit eligible?)))
++                      false)
++          profile-ast (fn [form]
++                        (walk/postwalk
++                          (fn [node]
++                            (if (= node (u/v 'profile-function)) descriptor node))
++                          (outcome-ast [form])))]
++      (is (= [:yin.k/ok eligible?]
++             (first (run (profile-ast '(yang.call/eligible? profile-function))))))
++      (when-not eligible?
++        (let [result (first (run (profile-ast '(profile-function))))]
++          (is (= :yang.call/not-callable (:yang.call/reason (second result)))))))))
++
++
+ (deftest test-common-call-shadowed-helpers
+   (doseq [binding '[get = assoc empty?]]
+     (testing (str "construction and invocation with a local " binding)

@@ -511,16 +511,15 @@
 (defn prerequisites
   "The bb build tasks the per-lane selection `selected` {lane [ns]} needs:
    a task is needed when a selected test, or a namespace it requires,
-   names the artifact the task builds. ANTLR classes are JVM only."
+   names the artifact the task builds. ANTLR outputs serve multiple lanes."
   [index selected]
   (let [all (into #{} (mapcat val) selected)
         texts (reached-text index all)
-        clj-texts (reached-text index (set (:clj selected)))
         any? (fn [texts re] (some #(re-find re %) texts))]
     (cond-> #{}
       (any? texts #"yin-repl\.js") (conj :build:yin-repl-node)
       (any? texts #"yin-repl-peer") (conj :build:yin-repl-peer)
-      (any? clj-texts #"Python3Parser|Python3Lexer|build/antlr")
+      (any? texts #"Python3Parser|Python3Lexer|build/antlr")
       (conj :gen:antlr))))
 
 

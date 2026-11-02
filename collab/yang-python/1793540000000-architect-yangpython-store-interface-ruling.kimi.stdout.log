@@ -1,0 +1,62 @@
+kimi version 2.4.0
+• I need read file and complete. Must abide read only. Should inspect prompt.Should derive citations. Should inspect exact files and design sections and adapters to judge. Use Read parallel.Should decide design broader in dao.jing docs storage raw handle direct local. Should inspect related core publication / linker publish and docs composition. Also content client handle shape. Search.Looks clearly permitted as is: plain data handle abstraction local remote incl DHT. Should examine docs exact around 390, 520, DHT. And content client returns handle. Read.I have sufficient. Should have a response that begins with exact metadata including session id; provider completion metadata unavailable, so say so explicitly. Should completed GMT/local current actual via date; read-only command allowed. Use Bash date.2026-11-01 11:43:55 GMT
+2026-11-01 18:43:55 +0700 (+0700)
+Respond ruling thorough A D. Cite every claim. Metadata no citation obviously. Session ID unavailable provider. Conclude permitted as is. Explain indirect import and direct host both. Correct seam same handle, content beneath. Remote content client handle? Docs confirms coordinate local handles and DHT. Not necessarily current direct raw remote (content constructors), but abstraction. dao.jing.stream codec helper not handle. Cite. B conditional no change; if raw streams signature would change but not current. "No signature change. keep [handle ...]." "one logical path handle, backend variation". Siteset same. D no change, no sequencing, yang.call follow existing no issue cite current lines 75-79. Perhaps requirement exact end one line. Good.
+
+• Completed-GMT: 2026-11-01 11:43:55 GMT  
+  Completed-Local: 2026-11-01 18:43:55 +07 (+0700)  
+  Coding-Agent: kimi (read-only agent bound via --agent-file)  
+  Session-ID: unavailable in provider completion metadata
+
+  ## Ruling
+
+  The owner’s statement is correct for **guest imports and guest I/O**, but it does not imply that host-side publication must stop accepting a `dao.jing` content-store handle.
+
+  The content-store handle **is the abstraction above local, remote-content, and DHT backends**. Requiring publication to call `dao.jing.content` or `dao.jing.stream` directly would invert the existing composition: those mechanisms implement or transport a handle’s byte-store effects; they are not replacement interfaces for publishers.
+
+  ### A. Direct handle: permitted, locally and remotely
+
+  **The current host-side publication shape is permitted.**
+
+  `dao.jing` defines a content-store handle as plain data containing `:put-bytes-fn`, `:get-bytes-fn`, and optionally `:close-fn`; `materialize!` and `get` deliberately dispatch through that handle (`docs/design/dao.jing.md:392-397`). This is precisely the interface used by linker publication, which materializes trees, images, derivation records, and manifests through the supplied handle (`src/cljc/yin/vm/linker/publish.cljc:156-193`, `src/cljc/yin/vm/linker/publish.cljc:212-218`).
+
+  1. **Local test/REPL publication:** Direct use is the intended composition. In-memory and file backends are both content-store backends (`docs/design/dao.jing.md:408-431`). No stream crossing occurs, so there is no transport boundary for publication to traverse.
+
+  2. **Remote or DHT-backed publication:** The same handle-taking shape remains correct, but the **composed handle must implement the remote behavior**. Coordinates are explicitly interpreted into live local handles (`docs/design/dao.jing.md:399-406`), and reads may be local, remote through `dao.jing.content`, or DHT-backed without changing content identity or semantics (`docs/design/dao.jing.md:321-329`). In particular, `dao.jing.dht/store-handle` returns the same plain-data byte-store handle; its put inserts locally and enqueues replication, while its get reads locally (`src/cljc/dao/jing/dht.cljc:1333-1363`; `docs/design/dao.jing.md:489-498`).
+
+  Thus the answer does **not** differ architecturally between local and remote publication. What differs is the backend composed beneath the handle, not the publication API.
+
+  The guest import path remains separately indirect: this ruling does not give guest code a store capability. Likewise, §8.10.1 concerns source-language calls inside a task and portable guest I/O, explicitly distinguishing those calls from transport and host callbacks (`docs/design/yang.antlr.md:3523-3538`). It does not prohibit a host compiler/linker helper from using a content-store handle.
+
+  ### B. Seam and signature
+
+  **No rerouting and no signature change are required.** Keep:
+
+  ```clojure
+  (publish-units! handle registry py-address units published)
+  ```
+
+  with the optional `publish-fn` arity unchanged. The helper already accepts the content-store handle, obtains the pinned `py` manifest through `jing/get`, and delegates publication through the configured publisher (`src/cljc/yang/python/antlr/publication.cljc:50-79`).
+
+  The correct seam is therefore **the `dao.jing` byte-store handle above both alternatives**:
+
+  - `dao.jing.content` is the request/response service over remote streams. Its serving half itself consumes a local `dao.jing` handle and performs ingress validation before invoking that handle’s put function (`src/cljc/dao/jing/content.cljc:18-24`, `src/cljc/dao/jing/content.cljc:75-113`).
+  - `dao.jing.stream` is a canonical-byte wrapping/unwrapping codec adapter, not a publication or store-client interface (`src/cljc/dao/jing/stream.cljc:1-23`, `src/cljc/dao/jing/stream.cljc:56-101`).
+
+  Consequently, there should be **one logical publication path—the handle path—not separate local and remote publisher APIs**. Local and remote handles are alternative compositions of that path. The ingress requirement is preserved by the remote service: content puts and fetched bytes pass through `dao.jing.content` and `accept-bytes!`; transport itself does not validate content (`docs/design/yang.antlr.md:118-122`). The canonical-byte-only remote representation is likewise enforced below the publisher (`docs/design/yang.antlr.md:2428-2432`).
+
+  Calling `dao.jing.content` or `dao.jing.stream` directly from `yang.python.antlr.publication` would therefore be the layering violation, not the present handle dependency.
+
+  ### C. Site-set publication
+
+  **The answer is unchanged.** `siteset/publish!` correctly uses the same supplied handle to materialize the site set and its publication record (`src/cljc/yang/python/antlr/siteset.cljc:90-101`). Those records are additional immutable Jing content associated with the module; they do not introduce a distinct transport requirement. The generic publication loop intentionally invokes the site-set publisher with that same handle (`src/cljc/yang/core/publication.cljc:124-139`).
+
+  Local, remote-content, and DHT-backed handles therefore follow the same rule for code images and site-set records alike.
+
+  ### D. Sequencing
+
+  **No change is required, so there is no prerequisite or follow-up layering slice.** The in-flight `yang.call` addition may proceed through the existing handle. Python publication already derives the `yang.call` address from the pinned `py` manifest and passes it into module-spec generation before delegating to the common publisher (`src/cljc/yang/python/antlr/publication.cljc:26-39`, `src/cljc/yang/python/antlr/publication.cljc:74-79`). That changes published content, not the store boundary.
+
+  Ruling: PERMITTED AS IS
+
+To resume this session: kimi -r session_d991895e-c106-444f-b296-cea51393d840

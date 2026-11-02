@@ -259,10 +259,10 @@
              (entry "test/r/plain_test.cljc" "(ns r.plain-test)")]]
     (is (= #{:build:yin-repl-node}
            (a/prerequisites idx {:clj '[r.spawn-test]})))
-    (is (= #{:gen:python-antlr}
+    (is (= #{:gen:antlr}
            (a/prerequisites idx {:clj '[r.parse-test]})))
-    (is (= #{} (a/prerequisites idx {:cljs '[r.parse-test]}))
-        "the ANTLR classes are a JVM-lane need only")
+    (is (= #{:gen:antlr} (a/prerequisites idx {:cljs '[r.parse-test]})))
+    (is (= #{:gen:antlr} (a/prerequisites idx {:cljd '[r.parse-test]})))
     (is (= #{:build:yin-repl-peer}
            (a/prerequisites idx {:cljd '[r.peer-test]})))
     (is (= #{} (a/prerequisites idx {:clj '[r.plain-test]

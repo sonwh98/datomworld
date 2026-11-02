@@ -350,7 +350,7 @@
   (testing "a.b.c's relative imports deliver a, a.b and a.b.d; the failed
             one (beyond the top level) delivers nothing and raises"
     (let [ast (lower/module-packet programs/i2-abc-packet {:name "a.b.c"})]
-      (is (= '[py]
+      (is (= '[yang.call py]
              (requires-of ast)))
       (is (= [{:py/str "attempted relative import beyond top-level package"}]
              (mapv #(get-in % [:operands 0 :value])
@@ -375,9 +375,9 @@
                                        [:name ["NAME" "x"]]]]]])
                 ["EOF" "<EOF>"]])
           ast (lower/module-packet pk {:name "a", :package? true})]
-      (is (= '[py] (requires-of ast)))
+      (is (= '[yang.call py] (requires-of ast)))
       (is (= {:name "a", :package? true}
-             (get-in (second (:operands ast)) [:operands 1 :value])))
+             (get-in (nth (:operands ast) 2) [:operands 1 :value])))
       (is (some #(= :py/None (get-in % [:operands 1 :value]))
                 (call-sites ast 'py/import))))))
 
@@ -476,20 +476,20 @@
   (let [ast (lower/module-packet programs/m-packet {:name "m"})
         operands (:operands ast)
         op (:operator ast)]
-    (testing "one application: the py require, one per static import,
+    (testing "one application: the yang.call and py runtime requires,
               then the spec and body definitions"
       (is (= :application (:type ast)))
       (is (= :lambda (:type op)))
       (is (= (count operands) (count (:params op))))
       (is (nil? (get-in op [:body :value])))
-      (is (= '[py] (requires-of ast)))
-      (is (= '[spec body] (mapv def-key (drop 1 operands)))))
+      (is (= '[yang.call py] (requires-of ast)))
+      (is (= '[spec body] (mapv def-key (drop 2 operands)))))
     (testing "the spec is the literal module record; the body is the same
               %globals form the main wrapper runs"
       (is (= {:name "m", :package? false}
-             (get-in (second operands) [:operands 1 :value])))
+             (get-in (nth operands 2) [:operands 1 :value])))
       (is (= '[%globals %globals-fn]
-             (get-in (nth operands 2) [:operands 1 :params])))
+             (get-in (nth operands 3) [:operands 1 :params])))
       (is (= '#{spec body} lower/module-exports)))
     (testing "Rule R holds over the module tree"
       (is (nil? (vm/ast-reserved-defect ast))))))
@@ -497,7 +497,7 @@
 
 (deftest module-packet-of-a-unit-with-imports-requires-them-test
   (let [ast (lower/module-packet programs/t-packet {:name "t"})]
-    (is (= '#{py} (required-modules ast)))
+    (is (= '#{yang.call py} (required-modules ast)))
     (is (contains? (set (keep #(when (= :variable (:type %)) (:name %))
                               (nodes ast)))
                    'pym.k/spec))
@@ -505,8 +505,9 @@
               refused, a `$` among them, which keeps the mangling
               injective"
       (is (= {:name "a.b", :package? false}
-             (get-in (second (:operands (lower/module-packet
-                                          programs/m-packet {:name "a.b"})))
+             (get-in (nth (:operands (lower/module-packet
+                                       programs/m-packet {:name "a.b"}))
+                          2)
                      [:operands 1 :value])))
       (doseq [bad ["" "a..b" ".a" "a." "a$b"]]
         (is (= :yang.python.antlr/unsupported
@@ -520,10 +521,12 @@
   (let [spec (lower/module-spec (h/registry) programs/t-packet
                                 {:name "t",
                                  :py-address stand-in-address,
+                                 :call-address :test/call,
                                  :deps {"k" :test/k}})]
-    (testing "the linker module pym.t requires py and each import pinned"
+    (testing "the linker module pym.t pins py, the call runtime, and imports"
       (is (= 'pym.t (:name spec)))
-      (is (= '{py :test/address, pym.k :test/k} (:requires spec)))
+      (is (= '{py :test/address, pym.k :test/k, yang.call :test/call}
+             (:requires spec)))
       (is (= '#{spec body} (:exports spec)))
       (is (= (vm/profile-of vm/primitives 'try-require)
              (get-in spec [:primitives 'try-require])))
@@ -545,6 +548,7 @@
                       #(lower/module-spec no-cell programs/m-packet
                                           {:name "m",
                                            :py-address stand-in-address,
+                                           :call-address :test/call,
                                            :deps {}}))]
         (is (= :yang.python.antlr/undeclared-free
                (:yang.python.antlr/refusal refusal)))
@@ -1230,7 +1234,8 @@
 (deftest i5-fixtures-and-initialization-lowering-test
   (let [a (i5-unit "a" [(statement (relative-from-stmt 0 "b" "x"))])
         b (i5-unit "b" [(statement (import-simple-stmt "a")) (i5-assignment "x" 2)])
-        [bundle] (lower/scc-module-specs (h/registry) [a b] :test/py {})
+        [bundle] (lower/scc-module-specs (h/registry) [a b]
+                                         :test/py :test/call {})
         main (lower/lower-packet
                (i5-packet [(statement (import-simple-stmt "a"))
                            (i5-print-attributes [["a" "b.x"]])]) {:prelude :linked})]

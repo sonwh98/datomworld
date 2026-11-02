@@ -37,8 +37,10 @@
 
    Calling convention: source calls are (js/call f this args), with `args`
    a vector built by `js/vconj`; `js/call` supplies one invocation record
-   to the shared entry. Constructors retain (js/construct F args), and a
-   function's private code is (fn [this args] ..).
+   to the shared entry after structural eligibility. Foreign entries use
+   the same path; JS entries retain local receiver, class and new.target
+   semantics. Constructors retain (js/construct F args), and a function's
+   private code is (fn [this args] ..).
 
    Control flow is continuations: `js/throw`, `js/try`, `js/try-finally`
    and `js/call-ec` copy the Python prelude's escape machinery with JS
@@ -1554,30 +1556,49 @@
     ;; :yang.call/entry (fn [invocation] ..)
     ;; :this-mode :strict|:lexical :name s :length n :props om :proto ref
     ;; :extensible? true}; every call is (js/call f this args).
+    ;; `nt?` true means the code takes a third argument, the new.target
+    ;; (undefined under a plain call); `js/make-function` keeps the landed
+    ;; five-argument shape for the callers that never construct through
+    ;; new.target.
     [js/make-function
      (fn [name length this-mode kind code]
+       (js/make-function-nt name length this-mode kind code false))]
+    [js/make-function-nt
+     (fn [name length this-mode kind code nt?]
+       ;; Ordinary calls enter through yang.call; construction still applies
+       ;; the private code with its explicit new.target below.
        (let [entry
              (fn [invocation]
                (let [callee (get invocation :yang.call/callee)
+                     c (cell/get callee)
+                     k (get c :kind)
                      receiver (if (data/contains? invocation :yang.call/receiver)
                                 (get invocation :yang.call/receiver)
                                 :js/undefined)]
-                 (code (if (= this-mode :lexical) :js/undefined receiver)
-                       (get invocation :yang.call/positional))))]
+                 (if (if (= k :class) true (= k :derived))
+                   (js/throw-type-error
+                     {:js/str "Class constructor cannot be invoked without 'new'"})
+                   (let [t (if (= (get c :this-mode) :lexical) :js/undefined receiver)
+                         args (get invocation :yang.call/positional)]
+                     (if (= (get c :nt?) true)
+                       ((get c :code) t args :js/undefined)
+                       ((get c :code) t args))))))]
          (let [f (cell/new
-                   (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
-                                                                                         :js/type
-                                                                                         :function)
-                                                                                  :code code)
-                                                                           :yang.call/entry entry)
-                                                                    :this-mode this-mode)
-                                                             :name name)
-                                                      :length length)
-                                               :props (js/om-new))
-                                        :proto js.rt/fn-proto)
-                                 :extensible? true)
-                          :kind
-                          kind))]
+                   (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
+                                                                                                :js/type
+                                                                                                :function)
+                                                                                         :code code)
+                                                                                  :yang.call/entry entry)
+                                                                           :this-mode this-mode)
+                                                                    :name name)
+                                                             :length length)
+                                                      :props (js/om-new))
+                                               :proto js.rt/fn-proto)
+                                        :extensible? true)
+                                 :kind
+                                 kind)
+                          :nt?
+                          nt?))]
            (do (js/define-own! f
                                {:js/str "length"}
                                (js/slot (data/float64 length) false false true))
@@ -1597,35 +1618,54 @@
        (yang.call/invoke-with
          f args []
          (fn [condition]
-           (js/throw-type-error
-             (if (= (get condition :yang.call/reason) :yang.call/not-callable)
-               {:js/str "value is not a function"}
-               {:js/str "invalid function invocation"})))
+           (if (= (get condition :yang.call/reason) :yang.call/thrown)
+             (js/throw (get condition :yang.call/value))
+             (js/throw-type-error
+               (if (= (get condition :yang.call/reason) :yang.call/not-callable)
+                 {:js/str "value is not a function"}
+                 {:js/str "invalid function invocation"}))))
          (assoc {} :yang.call/receiver this)))]
     [js/is-constructor?
-     ;; [[Construct]] exists on :normal functions and on the builtins
-     ;; flagged :ctor?; arrows, methods, accessors and the rest have none
+     ;; [[Construct]] exists on :normal functions, class constructors and the
+     ;; builtins flagged :ctor?; arrows, methods, accessors and the rest have
+     ;; none
      (fn [v]
-       (if (js/cell? v)
-         (let [c (cell/get v)]
-           (if (= (get c :js/type) :function)
-             (if (= (get c :kind) :normal)
-               (= (get c :this-mode) :strict)
-               (if (= (get c :kind) :builtin) (= (get c :ctor?) true) false))
-             false))
+       (if (js/callable? v)
+         (let [c (cell/get v)
+               k (get c :kind)]
+           (if (= k :normal)
+             true
+             (if (= k :class)
+               true
+               (if (= k :derived)
+                 true
+                 (if (= k :builtin) (= (get c :ctor?) true) false)))))
          false))]
-    [js/construct
-     (fn [f args]
+    [js/construct-with-nt
+     ;; [[Construct]](args, nt): a derived constructor allocates nothing (its
+     ;; `this` is bound by super()); every other kind allocates from
+     ;; nt.prototype. A bound function constructs its target, passing the
+     ;; target as new.target when nt is the bound function itself.
+     (fn [f args nt]
        (if (js/is-constructor? f)
          (let [c (cell/get f)]
            (if (nil? (get c :bound-target))
-             (let [pr (js/get-prop f {:js/str "prototype"})
-                   o (js/make-object (if (js/object? pr) pr js.rt/obj-proto))
-                   r ((get c :code) o args)]
-               (if (js/object? r) r o))
-             (js/construct (get c :bound-target)
-                           (data/into (get c :bound-args) args))))
+             (if (= (get c :kind) :derived)
+               ((get c :code) :js/undefined args nt)
+               (let [pr (js/get-prop nt {:js/str "prototype"})
+                     o (js/make-object (if (js/object? pr) pr js.rt/obj-proto))
+                     _ (if (= (get c :kind) :class)
+                         (do (js/brand! o f) (js/run-fields! f o))
+                         :js/undefined)
+                     r (if (= (get c :nt?) true)
+                         ((get c :code) o args nt)
+                         ((get c :code) o args))]
+                 (if (js/object? r) r o)))
+             (js/construct-with-nt (get c :bound-target)
+                                   (data/into (get c :bound-args) args)
+                                   (if (= nt f) (get c :bound-target) nt))))
          (js/throw-type-error {:js/str "value is not a constructor"})))]
+    [js/construct (fn [f args] (js/construct-with-nt f args f))]
 
     ;; ---------------------------------------------------------- escapes
     ;; The dynamic context is one record in one cell, {:handlers}: every
@@ -2032,10 +2072,24 @@
                        (assoc {} :js/str name)
                        (js/slot value true false true)))]
     [js/install-ctor!
-     ;; a constructor function cell wired to its prototype both ways
      (fn [name length code proto ctor?]
-       (let [f (js/make-function (assoc {} :js/str name) length :strict :builtin code)]
-         (do (cell/set! f (assoc (cell/get f) :ctor? ctor?))
+       (js/install-ctor-nt! name length code proto ctor? false))]
+    [js/install-ctor-nt!
+     ;; a constructor function cell wired to its prototype both ways; `nt?`
+     ;; means the code takes the new.target as a third argument. :ctor-id
+     ;; names the builtin so its code can tell a direct `new Object(..)`
+     ;; from a subclass construction
+     (fn [name length code proto ctor? nt?]
+       (let [f (js/make-function-nt (assoc {} :js/str name)
+                                    length
+                                    :strict
+                                    :builtin
+                                    code
+                                    nt?)]
+         (do (cell/set! f
+                        (assoc (assoc (cell/get f) :ctor? ctor?)
+                               :ctor-id
+                               (assoc {} :js/str name)))
              (js/define-own! f
                              {:js/str "prototype"}
                              (js/slot proto false false false))
@@ -2341,14 +2395,20 @@
 
     ;; ------------------------------------------------------------ Object
     [js/object-fn
-     (fn [this args]
-       (let [v (js/arg args 0)]
-         (if (js/object? v)
-           v
-           (if (if (= v :js/undefined) true (= v :js/null))
-             (js/make-object js.rt/obj-proto)
-             (js/throw-type-error
-               {:js/str "Object(value) of a primitive is not supported (no wrapper objects)"})))))]
+     ;; nt is the new.target: a subclass construction (`extends Object`)
+     ;; keeps the `this` allocated from nt.prototype
+     (fn [this args nt]
+       (if (if (= nt :js/undefined)
+             true
+             (= (get (cell/get nt) :ctor-id) {:js/str "Object"}))
+         (let [v (js/arg args 0)]
+           (if (js/object? v)
+             v
+             (if (if (= v :js/undefined) true (= v :js/null))
+               (js/make-object js.rt/obj-proto)
+               (js/throw-type-error
+                 {:js/str "Object(value) of a primitive is not supported (no wrapper objects)"}))))
+         this))]
     [js/object-keys
      (fn [this args]
        (js/list->array
@@ -2631,7 +2691,7 @@
              {:js/str "Object.fromEntries accepts arrays only (iterables are T5)"}))))]
     [js/install-object!
      (fn []
-       (let [f (js/install-ctor! "Object" 1 js/object-fn js.rt/obj-proto true)]
+       (let [f (js/install-ctor-nt! "Object" 1 js/object-fn js.rt/obj-proto true true)]
          (do (js/def-method! f "keys" 1 js/object-keys)
              (js/def-method! f "values" 1 js/object-values)
              (js/def-method! f "entries" 1 js/object-entries)
@@ -2952,14 +3012,23 @@
              (js/some-step a f t (+ i 1) n want)))
          (not want)))]
     [js/array-fn
-     (fn [this args]
+     ;; a subclass construction (nt.prototype an object) re-parents the new
+     ;; array exotic cell onto nt.prototype
+     (fn [this args nt]
        (let [n (data/count args)
-             a0 (js/arg args 0)]
-         (if (if (= n 1) (= (js/kind-of a0) :number) false)
-           (let [len (js/array-length-value a0)]
-             (do (js/check-sparse 0 len)
-                 (js/list->array (js/items-pad [] len))))
-           (js/list->array args))))]
+             a0 (js/arg args 0)
+             a (if (if (= n 1) (= (js/kind-of a0) :number) false)
+                 (let [len (js/array-length-value a0)]
+                   (do (js/check-sparse 0 len)
+                       (js/list->array (js/items-pad [] len))))
+                 (js/list->array args))]
+         (if (= nt :js/undefined)
+           a
+           (let [pr (js/get-prop nt {:js/str "prototype"})]
+             (do (if (js/object? pr)
+                   (cell/set! a (assoc (cell/get a) :proto pr))
+                   :js/undefined)
+                 a)))))]
     [js/array-is-array
      (fn [this args] (js/array? (js/arg args 0)))]
     [js/array-of (fn [this args] (js/list->array args))]
@@ -3173,11 +3242,356 @@
              (js/from-map (js/this-fn f) (js/arg args 2) items 0 [])))))]
     [js/install-array!
      (fn []
-       (let [f (js/install-ctor! "Array" 1 js/array-fn js.rt/array-proto true)]
+       (let [f (js/install-ctor-nt! "Array" 1 js/array-fn js.rt/array-proto true true)]
          (do (js/def-method! f "isArray" 1 js/array-is-array)
              (js/def-method! f "of" 0 js/array-of)
              (js/def-method! f "from" 1 js/array-from)
              :js/undefined)))]])
+
+
+(defquoted ^:private class-definitions
+  "T3 S3: classes. Heritage, the class constructor cell, descriptors, fields,
+   private names and brand checks, and `super`. A class constructor cell is
+   a function cell of kind :class or :derived with :nt? true, :fields
+   [[key init] ...] (instance fields, init a host lambda of `this` or
+   undefined) and :priv-methods [[pn entry] ...] (the private methods and
+   accessors branded onto each instance). Private state lives in :privs
+   {pn-ref entry} on the object's own cell, outside :props, so no reflection
+   path sees it; an entry is {:kind :field :value v}, {:kind :method :fn f}
+   or {:kind :accessor :get g :set s}. The map is looked up only."
+  '[;; ------------------------------------------------------ heritage
+    [js/wrapper-ctor?
+     ;; String, Number, Boolean and BigInt are constructors in JavaScript but
+     ;; have no [[Construct]] here (no wrapper objects, L-T2-3), so a class
+     ;; may extend them and the TypeError arrives at super() (L-T3-4)
+     (fn [p]
+       (if (js/callable? p)
+         (let [id (get (cell/get p) :ctor-id)]
+           (if (nil? id)
+             false
+             (if (= id {:js/str "String"})
+               true
+               (if (= id {:js/str "Number"})
+                 true
+                 (if (= id {:js/str "Boolean"})
+                   true
+                   (= id {:js/str "BigInt"}))))))
+         false))]
+    [js/class-heritage
+     ;; `p` is :js/none for a class without extends. Answers
+     ;; {:proto-parent .. :ctor-parent ..}.
+     (fn [p]
+       (if (= p :js/none)
+         (assoc (assoc {} :proto-parent js.rt/obj-proto)
+                :ctor-parent js.rt/fn-proto)
+         (if (= p :js/null)
+           (assoc (assoc {} :proto-parent :js/null) :ctor-parent js.rt/fn-proto)
+           (if (if (js/is-constructor? p) true (js/wrapper-ctor? p))
+             (let [pp (js/get-prop p {:js/str "prototype"})]
+               (if (if (js/object? pp) true (= pp :js/null))
+                 (assoc (assoc {} :proto-parent pp) :ctor-parent p)
+                 (js/throw-type-error
+                   {:js/str "Class extends value does not have valid prototype property"})))
+             (js/throw-type-error
+               {:js/str "Class extends value is not a constructor or null"})))))]
+    [js/make-class
+     ;; the constructor cell, its prototype link and the back-link
+     (fn [name length derived? ctor-parent proto code]
+       (let [f (js/make-function-nt name
+                                    length
+                                    :strict
+                                    (if derived? :derived :class)
+                                    code
+                                    true)]
+         (do (cell/set! f
+                        (assoc (assoc (assoc (cell/get f) :proto ctor-parent)
+                                      :fields
+                                      [])
+                               :priv-methods
+                               []))
+             (js/define-own! f
+                             {:js/str "prototype"}
+                             (js/slot proto false false false))
+             (js/define-own! proto
+                             {:js/str "constructor"}
+                             (js/slot f true false true))
+             f)))]
+
+    ;; ------------------------------------------------------ instanceof
+    [js/instanceof
+     ;; OrdinaryHasInstance (Symbol.hasInstance is deferred, L-T3-7)
+     (fn [v f]
+       (if (js/callable? f)
+         (let [c (cell/get f)]
+           (if (nil? (get c :bound-target))
+             (if (js/object? v)
+               (let [pr (js/get-prop f {:js/str "prototype"})]
+                 (if (js/object? pr)
+                   (js/proto-chain-has? (get (cell/get v) :proto) pr)
+                   (js/throw-type-error
+                     {:js/str "Function has non-object prototype in instanceof check"})))
+               false)
+             (js/instanceof v (get c :bound-target))))
+         (js/throw-type-error
+           {:js/str "Right-hand side of 'instanceof' is not callable"})))]
+
+    ;; ------------------------------------------------------ errors
+    [js/error-init!
+     ;; message (when supplied) and cause (when the options object has one)
+     ;; on the error object `e`
+     (fn [e args]
+       (let [msg (js/arg args 0)
+             opts (js/arg args 1)]
+         (do (cell/set! e (assoc (cell/get e) :js/class :error))
+             (if (= msg :js/undefined)
+               :js/undefined
+               (js/define-own! e
+                               {:js/str "message"}
+                               (js/slot (js/to-string msg) true false true)))
+             (if (if (js/object? opts) (js/has-property opts {:js/str "cause"}) false)
+               (js/define-own! e
+                               {:js/str "cause"}
+                               (js/slot (js/get-prop opts {:js/str "cause"})
+                                        true
+                                        false
+                                        true))
+               :js/undefined)
+             e)))]
+    [js/error-construct
+     ;; called without new, an error constructor allocates from its own
+     ;; prototype; constructed, it initializes the `this` allocated from
+     ;; new.target.prototype
+     (fn [proto this args nt]
+       (if (= nt :js/undefined)
+         (js/error-init! (js/make-object proto) args)
+         (js/error-init! this args)))]
+
+    ;; ------------------------------------------------------ elements
+    [js/def-class-method!
+     (fn [target key f] (js/define-own! target key (js/slot f true false true)))]
+    [js/def-class-accessor!
+     ;; kind :get or :set; the halves of a pair merge
+     (fn [target key kind f]
+       (js/define-accessor-half! target key kind f false))]
+    [js/private-name
+     (fn [desc]
+       (cell/new (assoc (assoc {} :js/type :private-name) :description desc)))]
+    [js/private-name?
+     (fn [k]
+       (if (js/cell? k)
+         (= (get (cell/get k) :js/type) :private-name)
+         false))]
+    [js/private-text
+     (fn [pn] (get (cell/get pn) :description))]
+    [js/add-field!
+     (fn [f key init]
+       (let [c (cell/get f)]
+         (cell/set! f (assoc c :fields (conj (get c :fields) (conj (conj [] key) init))))))]
+    [js/define-field!
+     ;; define semantics: a public field is CreateDataPropertyOrThrow, a
+     ;; private one a new private entry
+     (fn [o key v]
+       (if (js/private-name? key)
+         (js/priv-define! o key (assoc (assoc {} :kind :field) :value v))
+         (js/define-property-or-throw
+           o
+           key
+           (assoc (assoc (assoc (assoc {} :value v) :writable true)
+                         :enumerable
+                         true)
+                  :configurable
+                  true))))]
+    [js/run-fields-from
+     (fn [fields o i]
+       (if (< i (data/count fields))
+         (let [fd (get fields i)
+               init (get fd 1)]
+           (do (js/define-field! o
+                                 (get fd 0)
+                                 (if (= init :js/undefined) :js/undefined (init o)))
+               (js/run-fields-from fields o (+ i 1))))
+         :js/undefined))]
+    [js/run-fields!
+     (fn [f o] (js/run-fields-from (get (cell/get f) :fields) o 0))]
+    [js/run-static-from
+     (fn [thunks f i]
+       (if (< i (data/count thunks))
+         (do ((get thunks i) f) (js/run-static-from thunks f (+ i 1)))
+         :js/undefined))]
+    [js/static-init! (fn [f thunks] (js/run-static-from thunks f 0))]
+
+    ;; ------------------------------------------------------ private names
+    [js/priv-entry
+     (fn [o pn] (get (get (cell/get o) :privs {}) pn))]
+    [js/priv-put!
+     (fn [o pn entry]
+       (let [c (cell/get o)]
+         (cell/set! o (assoc c :privs (assoc (get c :privs {}) pn entry)))))]
+    [js/priv-define!
+     (fn [o pn entry]
+       (if (nil? (js/priv-entry o pn))
+         (js/priv-put! o pn entry)
+         (js/throw-type-error
+           (js/str-concat {:js/str "Cannot initialize "}
+                          (js/str-concat (js/private-text pn)
+                                         {:js/str " twice on the same object"})))))]
+    [js/priv-missing
+     (fn [pn verb]
+       (js/throw-type-error
+         (js/str-concat
+           {:js/str "Cannot "}
+           (js/str-concat
+             verb
+             (js/str-concat
+               {:js/str " private member "}
+               (js/str-concat
+                 (js/private-text pn)
+                 {:js/str " from an object whose class did not declare it"}))))))]
+    [js/priv-entry-of
+     (fn [o pn verb]
+       (if (js/object? o)
+         (let [e (js/priv-entry o pn)]
+           (if (nil? e) (js/priv-missing pn verb) e))
+         (js/priv-missing pn verb)))]
+    [js/priv-get
+     (fn [o pn]
+       (let [e (js/priv-entry-of o pn {:js/str "read"})
+             k (get e :kind)]
+         (if (= k :field)
+           (get e :value)
+           (if (= k :method)
+             (get e :fn)
+             (if (= (get e :get) :js/undefined)
+               (js/throw-type-error
+                 (js/str-concat (js/private-text pn)
+                                {:js/str " was defined without a getter"}))
+               (js/call (get e :get) o []))))))]
+    [js/priv-set
+     (fn [o pn v]
+       (let [e (js/priv-entry-of o pn {:js/str "write"})
+             k (get e :kind)]
+         (if (= k :field)
+           (js/priv-put! o pn (assoc e :value v))
+           (if (= k :method)
+             (js/throw-type-error
+               (js/str-concat {:js/str "Private method "}
+                              (js/str-concat (js/private-text pn)
+                                             {:js/str " is not writable"})))
+             (if (= (get e :set) :js/undefined)
+               (js/throw-type-error
+                 (js/str-concat (js/private-text pn)
+                                {:js/str " was defined without a setter"}))
+               (do (js/call (get e :set) o (js/vconj [] v)) :js/undefined))))))]
+    [js/priv-has
+     (fn [o pn]
+       (if (js/object? o)
+         (not (nil? (js/priv-entry o pn)))
+         (js/throw-type-error
+           {:js/str "Cannot use 'in' operator to search for a private field in a non-object"})))]
+    [js/priv-merge
+     ;; the entry after adding a method (:method) or an accessor half
+     ;; (:get / :set) `f` to `cur`
+     (fn [cur kind f]
+       (if (= kind :method)
+         (assoc (assoc {} :kind :method) :fn f)
+         (let [acc? (if (nil? cur) false (= (get cur :kind) :accessor))
+               g (if (= kind :get) f (if acc? (get cur :get) :js/undefined))
+               s (if (= kind :set) f (if acc? (get cur :set) :js/undefined))]
+           (assoc (assoc (assoc {} :kind :accessor) :get g) :set s))))]
+    [js/def-static-private!
+     ;; a static private method or accessor half, installed on `f` itself
+     (fn [f pn kind fn-value]
+       (js/priv-put! f pn (js/priv-merge (js/priv-entry f pn) kind fn-value)))]
+    [js/priv-methods-put
+     (fn [ms pn entry i]
+       (if (< i (data/count ms))
+         (if (= (get (get ms i) 0) pn)
+           (js/priv-methods-splice ms (conj (conj [] pn) entry) i)
+           (js/priv-methods-put ms pn entry (+ i 1)))
+         (conj ms (conj (conj [] pn) entry))))]
+    [js/priv-methods-splice
+     (fn [ms new-entry at]
+       (js/priv-methods-splice-from ms new-entry at 0 []))]
+    [js/priv-methods-splice-from
+     (fn [ms new-entry at i acc]
+       (if (< i (data/count ms))
+         (js/priv-methods-splice-from ms new-entry at (+ i 1)
+                                      (conj acc (if (= i at) new-entry (get ms i))))
+         acc))]
+    [js/priv-methods-find
+     (fn [ms pn i]
+       (if (< i (data/count ms))
+         (if (= (get (get ms i) 0) pn) (get (get ms i) 1) (js/priv-methods-find ms pn (+ i 1)))
+         nil))]
+    [js/add-priv-method!
+     ;; an instance private method or accessor half, branded onto each
+     ;; instance by `js/brand!`
+     (fn [f pn kind fn-value]
+       (let [c (cell/get f)
+             ms (get c :priv-methods)
+             entry (js/priv-merge (js/priv-methods-find ms pn 0) kind fn-value)]
+         (cell/set! f (assoc c :priv-methods (js/priv-methods-put ms pn entry 0)))))]
+    [js/brand-from
+     (fn [o ms i]
+       (if (< i (data/count ms))
+         (do (js/priv-define! o (get (get ms i) 0) (get (get ms i) 1))
+             (js/brand-from o ms (+ i 1)))
+         :js/undefined))]
+    [js/brand!
+     ;; install `f`'s private methods and accessors on the instance `o`,
+     ;; before any field initializer runs
+     (fn [o f] (js/brand-from o (get (cell/get f) :priv-methods) 0))]
+
+    ;; ------------------------------------------------------ super
+    [js/super-call
+     ;; super(...args) in the derived constructor `f` (design order, F7):
+     ;; construct the parent with new.target, then check the this-cell is
+     ;; still uninitialized, bind it, brand, run the field initializers
+     (fn [f nt thisc args]
+       (let [parent (get (cell/get f) :proto)]
+         (if (js/is-constructor? parent)
+           (let [o (js/construct-with-nt parent args nt)]
+             (if (= (cell/get thisc) :js/tdz)
+               (do (cell/set! thisc o)
+                   (js/brand! o f)
+                   (js/run-fields! f o)
+                   o)
+               (js/throw-reference-error
+                 {:js/str "Super constructor may only be called once"})))
+           (js/throw-type-error
+             {:js/str "Super constructor is not a constructor"}))))]
+    [js/this-after-super
+     (fn [thisc]
+       (let [v (cell/get thisc)]
+         (if (= v :js/tdz)
+           (js/throw-reference-error
+             {:js/str "Must call super constructor in derived class before accessing 'this' or returning from derived constructor"})
+           v)))]
+    [js/derived-result
+     ;; the completion of a derived constructor body that finished with `r`
+     (fn [thisc r]
+       (if (js/object? r)
+         r
+         (if (= r :js/undefined)
+           (js/this-after-super thisc)
+           (js/throw-type-error
+             {:js/str "Derived constructors may only return object or undefined"}))))]
+    [js/super-parent
+     (fn [home]
+       (let [p (get (cell/get home) :proto)]
+         (if (= p :js/null)
+           (js/throw-type-error
+             {:js/str "Cannot read properties of null (super)"})
+           p)))]
+    [js/super-get
+     (fn [home key receiver] (js/get-prop-r (js/super-parent home) key receiver))]
+    [js/super-set
+     (fn [home key v receiver]
+       (if (js/set-prop (js/super-parent home) key v receiver)
+         v
+         (js/throw-type-error
+           (js/str-concat {:js/str "Cannot assign to read only property '"}
+                          (js/str-concat (js/key-text key) {:js/str "'"})))))]])
 
 
 (defquoted ^:private json-definitions
@@ -3549,7 +3963,9 @@
    ["TypeError" 'js.rt/type-error-proto 'js.rt/error-proto]
    ["ReferenceError" 'js.rt/reference-error-proto 'js.rt/error-proto]
    ["RangeError" 'js.rt/range-error-proto 'js.rt/error-proto]
-   ["SyntaxError" 'js.rt/syntax-error-proto 'js.rt/error-proto]])
+   ["SyntaxError" 'js.rt/syntax-error-proto 'js.rt/error-proto]
+   ["EvalError" 'js.rt/eval-error-proto 'js.rt/error-proto]
+   ["URIError" 'js.rt/uri-error-proto 'js.rt/error-proto]])
 
 
 (def ^:private primitive-protos
@@ -3642,19 +4058,28 @@
                          key
                          {:js/str "message"}
                          (list 'js/slot {:js/str ""} true false true))
-                   (list 'js/install-ctor!
+                   (list 'js/install-ctor-nt!
                          nm
                          1
                          (list 'fn
-                               '[this args]
-                               (list 'js/make-error key '(js/arg args 0)))
+                               '[this args nt]
+                               (list 'js/error-construct key 'this 'args 'nt))
                          key
+                         true
                          true)])
                 error-classes)
         (mapv (fn [[key nm code]]
                 (list 'js/install-ctor! nm 1 code key false))
               primitive-protos)
-        ['(let [f (js/make-function {:js/str "Symbol"} 0 :lexical :builtin js/symbol-fn)]
+        ['(js/install-ctor!
+            "Function"
+            1
+            (fn [this args]
+              (js/throw-type-error
+                {:js/str "The Function constructor is not supported"}))
+            js.rt/fn-proto
+            false)
+         '(let [f (js/make-function {:js/str "Symbol"} 0 :lexical :builtin js/symbol-fn)]
             (do (js/define-own! f
                                 {:js/str "prototype"}
                                 (js/slot js.rt/symbol-proto false false false))
@@ -3694,13 +4119,33 @@
       :js/undefined)))
 
 
+(def ^:private t4-definitions
+  [['js/args-object '(fn [args] (js/new-array args))]
+   ['js/spread-array-items
+    '(fn [items i out]
+       (if (< i (data/count items))
+         (js/spread-array-items
+           items
+           (+ i 1)
+           (js/vconj out (js/item-val (get items i))))
+         out))]
+   ['js/args-spread
+    '(fn [args value]
+       (if (js/array? value)
+         (data/into args
+                    (js/spread-array-items (get (cell/get value) :items) 0 []))
+         (js/throw-type-error {:js/str "Spread value is not iterable"})))]])
+
+
 (def definitions
   "The single definition list, `[store-key form]` in definition order:
    every prelude function, the literal state slot, then `js/init!`.
    Defining them runs nothing."
-  (into (into (into (into core-definitions object-definitions)
-                    array-definitions)
-              json-definitions)
+  (into (into (into (into (into (into core-definitions object-definitions)
+                                t4-definitions)
+                          array-definitions)
+                    json-definitions)
+              class-definitions)
         [['js.rt/state :js/uninit] ['js/init! (init-form)]]))
 
 
@@ -3711,7 +4156,17 @@
 
 (defn- definitions->uast
   [defs]
-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
+  ;; A linear `then` chain adds two tree levels per definition and can
+  ;; overflow the host printer's stack. Balance the sequence, preserving
+  ;; left-to-right effects and the last definition's value.
+  (letfn [(sequence-tree
+            [nodes]
+            (if (<= (count nodes) 1)
+              (first nodes)
+              (let [middle (quot (count nodes) 2)]
+                (u/then (sequence-tree (subvec nodes 0 middle))
+                        (sequence-tree (subvec nodes middle))))))]
+    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
 
 
 (def functions-uast

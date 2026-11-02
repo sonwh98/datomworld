@@ -67,21 +67,25 @@
 (deftest canonical-bundle-and-alias-contract-test
   (let [units [{:name "ca", :packet programs/ca-packet}
                {:name "cb", :packet programs/cb-packet}]
-        [bundle a b :as specs] (lower/scc-module-specs (h/registry) units :test/py {})
+        [bundle a b :as specs] (lower/scc-module-specs (h/registry) units
+                                                       :test/py :test/call {})
         vars (set (keep :name (nodes (:ast bundle))))]
-    (is (= specs (lower/scc-module-specs (h/registry) (reverse units) :test/py {})))
+    (is (= specs (lower/scc-module-specs (h/registry) (reverse units)
+                                         :test/py :test/call {})))
     (is (= 'pyscc.ca$$cb (:name bundle)))
     (is (= '#{m0-spec m0-body m1-spec m1-body} (:exports bundle)))
-    (is (= {'py :test/py} (:requires bundle)))
+    (is (= {'py :test/py, 'yang.call :test/call} (:requires bundle)))
     (is (= '[pym.ca pym.cb] (mapv :name [a b])))
     (is (empty? (filter #(and (symbol? %) (contains? #{"pym.ca" "pym.cb"} (namespace %))) vars)))
     (is (not (contains? vars 'try-require)))
     ;; Bundle installation evaluates only require and definitions. Mutable
     ;; Python module state is allocated later, when a member body runs.
-    (is (= 5 (count (get-in bundle [:ast :operands]))))
+    (is (= 6 (count (get-in bundle [:ast :operands]))))
     (is (every? #(= 'yin/def (get-in % [:operator :name]))
-                (butlast (get-in bundle [:ast :operands]))))
-    (is (= 'require (get-in (last (get-in bundle [:ast :operands])) [:operator :name])))
+                (take 4 (get-in bundle [:ast :operands]))))
+    (is (= '[yang.call py]
+           (mapv #(get-in % [:operands 0 :value])
+                 (drop 4 (get-in bundle [:ast :operands])))))
     (is (= '#{m0-body m1-body}
            (set (filter '#{m0-body m1-body} vars))))
     (doseq [alias [a b]]
@@ -104,21 +108,23 @@
 (deftest bundle-outgoing-pins-test
   (let [[bundle] (lower/scc-module-specs (h/registry)
                                          [(unit "a" ["b" "out"]) (unit "b" ["a"])]
-                                         :test/py {"out" :test/out})]
-    (is (= {'py :test/py, 'pym.out :test/out} (:requires bundle)))
+                                         :test/py :test/call {"out" :test/out})]
+    (is (= {'py :test/py, 'yang.call :test/call,
+            'pym.out :test/out} (:requires bundle)))
     (is (some #(= 'try-require (:name %)) (nodes (:ast bundle))))))
 
 
 (deftest canonical-code-address-fixtures-test
   (let [specs (lower/scc-module-specs (h/registry)
                                       [{:name "ca", :packet programs/ca-packet}
-                                       {:name "cb", :packet programs/cb-packet}] :test/py {})
+                                       {:name "cb", :packet programs/cb-packet}]
+                                      :test/py :test/call {})
         code (mapv #(vm/ast->semantic-bytecode (:ast %)) specs)]
-    (is (= [:segment/blake3-c3b97dc9100586138a7540249739095a75cd76e747d0cc55859386d74954d978
+    (is (= [:segment/blake3-806a8b17624e9e6beb297ba42aa0baf6f8cfe6408fd2c9f39dd7853a4f11423f
             :segment/blake3-6ac5f971328799b6b3aa13a8e52f9ff386661f1883ab26934e749dee7cae9943
             :segment/blake3-942c8045d94be038305e7f53f3de86c3d8215b3dcceb76224445917709134a7f]
            (mapv :root code)))
-    (is (= [103 13 13] (mapv #(count (:rows %)) code)))))
+    (is (= [105 13 13] (mapv #(count (:rows %)) code)))))
 
 
 (deftest ^:slow deterministic-published-scc-addresses-test
@@ -140,7 +146,10 @@
                         bundle (jing/get store bundle-address nil)]
                     (is (= 2 (count aliases)))
                     (is (every? #(= {'pyscc.ca$$cb bundle-address} %) requirements))
-                    (is (= {'py py} (:yin.module/requires bundle)))
+                    ;; the shared call runtime (yang-common-call) is now a
+                    ;; require of every published module alongside py
+                    (is (= {'py py, 'yang.call (:call-address @h/published)}
+                           (:yin.module/requires bundle)))
                     (is (= '#{m0-spec m0-body m1-spec m1-body} (:yin.module/exports bundle))))))))
 
 
@@ -153,8 +162,9 @@
     (is (= {:status :ok, :addresses {"out" :test/pym.out, "a" :test/pym.a, "b" :test/pym.b},
             :bundles {'pyscc.a$$b :test/pyscc.a$$b}}
            (publication/publish-units! nil (h/registry) :test/py units {} publish-fn)))
-    (is (= [{:name 'pym.out, :requires {'py :test/py}}
-            {:name 'pyscc.a$$b, :requires {'py :test/py, 'pym.out :test/pym.out}}
+    (is (= [{:name 'pym.out, :requires {'py :test/py, 'yang.call nil}}
+            {:name 'pyscc.a$$b, :requires {'py :test/py, 'yang.call nil,
+                                           'pym.out :test/pym.out}}
             {:name 'pym.a, :requires {'pyscc.a$$b :test/pyscc.a$$b}}
             {:name 'pym.b, :requires {'pyscc.a$$b :test/pyscc.a$$b}}]
            @seen))))
@@ -206,7 +216,7 @@
 (deftest dotted-sibling-delivery-test
   (let [[bundle] (lower/scc-module-specs (h/registry)
                                          [(unit "pkg.a" ["pkg.b"]) (unit "pkg.b" ["pkg.a"])]
-                                         :test/py {"pkg" :test/pkg})
+                                         :test/py :test/call {"pkg" :test/pkg})
         ast-nodes (nodes (:ast bundle))
         names (set (keep #(when (= :variable (:type %)) (:name %)) ast-nodes))]
     (is (= 'pyscc.pkg$a$$pkg$b (:name bundle)))
@@ -219,11 +229,13 @@
 
 (defn- scc-source
   [store py result]
-  (link/composition
-    {:content-store store,
-     :derivation :trusted,
-     :name-env (merge {'py py, 'yang.call (:call-address @h/published)} (:bundles result)
-                      (into {} (map (fn [[n a]] [(lower/module-symbol n) a])) (:addresses result)))}))
+  (let [call-address (get-in (jing/get store py nil) [:yin.module/requires 'yang.call])]
+    (link/composition
+      {:content-store store,
+       :derivation :trusted,
+       :name-env (merge {'py py, 'yang.call call-address} (:bundles result)
+                        (into {} (map (fn [[n a]] [(lower/module-symbol n) a]))
+                              (:addresses result)))})))
 
 
 (defn- bundle-entry
@@ -235,8 +247,12 @@
   (let [store (mem/create-content-mem)
         ;; Installation never calls py. A tiny pure dependency keeps this
         ;; test fast while retaining the real require, admission, and lift.
+        call (publish/publish-module! store {:name 'yang.call, :ast (u/lit nil),
+                                             :exports #{}, :requires {},
+                                             :primitives {}})
         py (publish/publish-module! store {:name 'py, :ast (u/lit nil), :exports #{},
-                                           :requires {}, :primitives {}})
+                                           :requires {'yang.call (:address call)},
+                                           :primitives {}})
         result (publication/publish-units! store (h/registry) (:address py)
                                            [(unit "a" ["b"]) (unit "b" ["a"])])
         source (scc-source store (:address py) result)]

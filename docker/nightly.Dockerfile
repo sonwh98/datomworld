@@ -35,7 +35,7 @@ ARG FLUTTER_VERSION=3.47.8-stable
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      bash git curl openssh-client xz-utils ca-certificates \
+      bash git curl openssh-client xz-utils ca-certificates libatomic1 rlwrap \
  && rm -rf /var/lib/apt/lists/*
 
 # Clojure CLI (pinned)
@@ -49,8 +49,9 @@ RUN curl -sL "https://github.com/babashka/babashka/releases/download/v${BABASHKA
 
 # Node (pinned)
 RUN curl -sL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
- | tar xJ -C /usr/local --strip-components=1 --wildcards "node-v*/bin/node" "node-v*/bin/npm" "node-v*/bin/npx" "node-v*/lib/*" "node-v*/include/*" "node-v*/share/*" \
- && npm --version
+ | tar xJ -C /usr/local --strip-components=1 \
+ && ln -sf /usr/local/bin/node /usr/local/bin/nodejs \
+ && node --version && npm --version
 
 # Flutter (pinned stable) — test-only use; no linux-desktop toolchain needed
 RUN curl -sL "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}.tar.xz" \
@@ -60,5 +61,21 @@ ENV PATH="/opt/flutter/bin:${PATH}"
 RUN flutter config --no-analytics >/dev/null 2>&1 || true
 
 ENV GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"
+COPY nightly-entrypoint.sh /usr/local/bin/nightly-entrypoint.sh
+RUN chmod +x /usr/local/bin/nightly-entrypoint.sh
+
+# Run as a non-root user matching the host account (uid/gid 1000 = `sto` on
+# both hosts) so bind-mounted results and named-volume caches carry host
+# ownership instead of root. Flutter's SDK cache is chowned so the runtime
+# user can stamp it. The clone dir and the user-level dep caches are
+# pre-created and chowned at build time so the nightly user can write them.
+RUN groupadd -g 1000 nightly && useradd -m -u 1000 -g nightly nightly \
+ && mkdir -p /opt/flutter /repo /repo-src \
+      /repo-src/node_modules /repo-src/.shadow-cljs \
+      /repo-src/build /repo-src/lib/cljd-out \
+      /home/nightly/.m2 /home/nightly/.gitlibs \
+ && chown -R nightly:nightly /opt/flutter /repo /repo-src /home/nightly
+ENV HOME=/home/nightly
+USER nightly
 WORKDIR /repo
 CMD ["/usr/local/bin/nightly-entrypoint.sh"]

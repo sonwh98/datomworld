@@ -46,6 +46,9 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # (or `clojure -M:test -i :slow -n <ns>`).
 # While iterating, use the Gate Ladder (see below): G0 iterate via `bb test:sub:clj <own>`
 # or `clojure -M:test -n <ns>`. Do not run the full `bb test` while iterating.
+# When a test fails, reproduce and fix it by running ONLY the failing test
+# (`clojure -M:test -n <ns> -v <ns>/<var>`, Node `--test=<ns>`, Dart `--only <ns>`) --
+# never the whole suite (owner ruling 2026-11-01; see Gate Ladder G0).
 # At slice checkpoints, run G1 (`bb test:sub <own>`). Before landing a slice, run
 # G2 (`bb test:changed` in the worktree across all three lanes).
 # Full repo-wide `bb test` runs twice daily on the remote hosts (03:00/17:00 VN);
@@ -261,6 +264,18 @@ selected namespaces and run automatically when needed.
 #### Gate Ladder (docs/design/test.subsystems.md)
 
 1. **G0 Iterate**: Run only the subsystem's JVM lane (`bb test:sub:clj <own>` or `clojure -M:test -n <ns>`).
+   **Failure-reproduction rule (owner ruling 2026-11-01): when a test fails anywhere — a
+   gate, the nightly, or a delegate report — reproduce and fix it by running ONLY the
+   failing test, never the whole suite.** JVM: `clojure -M:test -n <ns>` (a single
+   deftest: add `-v <ns>/<var-name>`). Node: `node target/node-tests.js --test=<ns>`
+   (built by `bb build:yin-repl-node` first only if that test needs the Node REPL).
+   Dart: `bb src/dev/cljd_agg.clj --only <ns>`. Fix against the failing test alone,
+   re-run it green, then climb back up (G1 for the home subsystem, G2 for dependents).
+   Never reproduce or chase a failure with the full suite or the slow tier — the full
+   suite is not a debugging tool, and running it locally for one failing test is the
+   exact misuse that drove a laptop load average over 100 (2026-11-01). A failure that
+   only reproduces under the full suite's concurrency is diagnosed with the suite's own
+   logs (its per-shard/per-test output), not by re-running the suite repeatedly.
 2. **G1 Checkpoint**: Run the three-lane subsystem test (`bb test:sub <own>`). Proves the home suite across all three hosts before reporting ready.
 3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change (for foundation subsystems like `dao.stream` or `dao.jing`, this correctly runs nearly the full suite).
 4. **G3 Master (merged in place by the 2026-11-01 owner ruling)**: The landing gate
@@ -535,6 +550,46 @@ The first run on shiva (2026-10-11) overlapped JVM and Dart in one clone before
 this rule was written down; its results are advisory until repeated with a
 separate Dart clone.
 
+### Scratch-clone first-run gaps (two measured sightings)
+
+A fresh scratch clone needs two things the lane runner does not yet set up
+itself; until the runner heuristic is fixed, do them by hand before the
+first lane:
+
+1. **`npm install`** — the Node tests require npm deps (`@noble/hashes` was
+   the measured miss on shiva 2026-11-02: the cljs lane ran but the
+   node-tests bundle died with `MODULE_NOT_FOUND`).
+2. **`bb gen:antlr`** — the `prerequisites` heuristic in
+   `src/dev/affected.clj` decides `:gen:antlr` from the JVM lane's reach
+   only ("ANTLR classes are JVM only" — stale: python keeps multi-target
+   parsers), so a cljs/cljd-only selection that reaches
+   `yang.python.antlr.parser` (e.g. `bb test:sub:cljs yang.base` via
+   `yin.repl.frontends`) skips the generation and the shadow build dies on
+   the missing `Python3Lexer.js`. Sighted independently on the p4 lane
+   (PhpLexer ClassNotFoundException) and the yang.base cljs lane
+   (2026-11-02). A fix round is in flight on `fix/gen-antlr-prereq-heuristic`.
+
+### Ledger commit hygiene: never commit a conflict marker
+
+The append-only ledgers (`docs/agents/known-gaps.md`,
+`orchestrator-logs/*.md`, `docs/agents/routing-status.md`) resolve rebase
+and merge conflicts by the union rule, which means conflicts are common —
+and a conflict marker that reaches a commit silently corrupts the record
+(measured: the 2026-10-30 rebase landed a log with three committed
+`<<<<<<<`/`>>>>>>>` markers and dropped records the union was supposed to
+keep; caught by the architect four rounds later). Before committing ANY
+change to a ledger file:
+
+```sh
+git diff --cached | grep -E '^\+(<{7}|={7}$|>{7})' && echo CONFLICT-MARKERS-STAGED
+git grep -E '^(<{7}|={7}$|>{7})' -- docs/agents/known-gaps.md orchestrator-logs docs/agents/routing-status.md
+```
+
+If either hits, the commit stops until the union is redone. When resolving
+a ledger conflict, prefer regenerating the union from both sides' section
+lists over hand-merging, and re-read the result against BOTH parents before
+staging.
+
 ### The jolt J2 lane: run it with `--jobs` on the servers
 
 The jolt lane's core mode (`bb src/dev/jolt_j2_lane.clj core [--jobs N]
@@ -621,12 +676,19 @@ scanner row took about 11-19 minutes on the JVM and about 79 minutes on Node
 
 ### Known differences from the laptop
 
-- **`dao.stream.datagram.dart-test/refusals-and-lifecycle-events` fails on Linux.**
-  The assertion "a bind on a taken port deposits bind-failed" gets no `bind-failed`
-  event. A second UDP bind on a taken port evidently behaves differently on Linux
-  than on macOS (inferred, not confirmed). The test is in `dao.stream`, which the
-  semantic-register slices do not touch: treat it as a known Linux-only failure,
-  not a regression, until it is fixed or guarded.
+- **`dao.stream.datagram.dart-test/refusals-and-lifecycle-events` on Linux —
+  MEASURED AND FIXED (2026-11-02).** The old entry inferred that "a second UDP bind on
+  a taken port behaves differently on Linux"; confirmed, with the cause. Dart's
+  `RawDatagramSocket.bind` defaults to `reuseAddress: true`, and **Linux honours
+  `SO_REUSEADDR` for UDP**, so a second bind to a port a reuse-enabled socket already
+  holds *succeeds* (`strace`: `SO_REUSEADDR=1` on both sockets, no `SO_REUSEPORT`, both
+  kernel `bind()` calls succeed); macOS refuses with errno 48. The seam was correct
+  throughout — given a genuinely exclusive holder (`reuseAddress: false`) it deposits
+  `bind-failed` in ~10 ms with errno 98. The test asserted one host's binding policy
+  rather than the contract, so it now binds its own exclusive blocker
+  (`RawDatagramSocket.bind "127.0.0.1" 0 .reuseAddress false .reusePort false`) and
+  points the seam at that port: the failure path is exercised on both hosts. Verified
+  on shiva: the namespace passes 5/5.
 - A JVM lane started before the Dart peer is built skips the Dart-peer tests with a
   printed notice. The script builds the peer first so they run.
 - Both hosts run other work (a QEMU guest and rustdesk on shiva); idle load is

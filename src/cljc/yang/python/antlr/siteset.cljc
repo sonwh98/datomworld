@@ -362,7 +362,7 @@
                                            (:hooks-profile requirement)))
               ast (when inserted
                     (vm/semantic-bytecode->ast (:tree inserted)))
-              runtime (or (:runtime requirement) '#{py pysp})
+              runtime (or (:runtime requirement) '#{py pysp yang.call})
               out (when ast
                     (publish/publish-module!
                       handle
@@ -424,7 +424,7 @@
    read has succeeded."
   [ctx registry records requirement manifest derived]
   (let [handle (:store ctx)
-        runtime (or (:runtime requirement) '#{py pysp})
+        runtime (or (:runtime requirement) '#{py pysp yang.call})
         adm (admit handle manifest (records-for ctx records manifest)
                    requirement)]
     (if (not= :ok (:status adm))
@@ -504,7 +504,9 @@
    of a Python import under `requirement`: `{:profile name :hooks true
    :hooks-profile p :pysp address}` or `{:profile name :noninterruptible
    true}`, with `:runtime` the names of the runtime modules (default `py`,
-   `pysp`) it passes through. `records` ({manifest [record-address ...]})
+   `pysp`, and `yang.call`) it passes through. `yang.call` is the shared
+   call dispatcher, not guest Python code, so it has no Python site marks.
+   `records` ({manifest [record-address ...]})
    are the local publication's records; a DHT source supplies none and the
    stage discovers them from the index datoms of its context. The stage
    reads only the context's `:store` and never fetches: it answers
@@ -516,7 +518,7 @@
    record's address), or the refusal naming the profile, the set and the
    `:name` refused."
   [registry requirement records]
-  (let [runtime (or (:runtime requirement) '#{py pysp})]
+  (let [runtime (or (:runtime requirement) '#{py pysp yang.call})]
     (fn [ctx name address]
       (cond
         (contains? runtime name) {:status :ok, :address address}

@@ -1,0 +1,8 @@
+[
+ {:id :units-error-identity :step :t3/units
+  :units ["class MyErr extends Error { constructor(m) { super(m); this.name = 'MyErr'; } } globalThis.MyErr = MyErr; globalThis.boom = () => { throw new MyErr('x'); };"
+          "try { globalThis.boom(); } catch (e) { console.log(e instanceof globalThis.MyErr, e instanceof Error, e instanceof TypeError, e.name, e.message); }"]}
+ {:id :units-sibling-class :step :t3/units
+  :units ["class MyErr extends Error { constructor(m) { super(m); this.name = 'MyErr'; } } globalThis.MyErr = MyErr; globalThis.boom = () => { throw new MyErr('x'); };"
+          "class Other extends Error {} try { globalThis.boom(); } catch (e) { console.log(e instanceof Other, e instanceof globalThis.MyErr, Object.getPrototypeOf(globalThis.MyErr) === Error); }"]}
+]

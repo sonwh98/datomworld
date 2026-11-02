@@ -77,13 +77,16 @@
 (defn source
   "The serving composition over the published store: `name-env` defaults
    to `{py <address> yang.call <address>}`, derivation `:trusted`, the test being the
-   publisher. `pysp`-serving sources pass their own `name-env`, the
+   publisher. Explicit name environments also receive the harness's
+   `yang.call` runtime module, which every linked Python body requires.
+   `pysp`-serving sources pass their own `name-env`, the
    safepointed runs' `{'py a :pysp b}` both."
   ([] (source {'py (:address @published),
                'yang.call (:call-address @published)}))
   ([name-env]
    (link/composition {:content-store (:store @published),
-                      :name-env name-env,
+                      :name-env (merge {'yang.call (:call-address @published)}
+                                       name-env),
                       :derivation :trusted})))
 
 
@@ -98,11 +101,16 @@
 (defn publish-guest-module!
   "One guest module's `spec` (lower/module-spec's) published into `py`'s
    own content store, where its pinned requirements already live:
-   `publish-module!`'s answer. Guest modules are tiny beside `py`, so a
-   test may publish its own; publish imports bottom-up, the `deps` map
-   naming each import's address."
+   `publish-module!`'s answer. The test helper supplies the harness's
+   `yang.call` address as the runtime dependency when a test constructs a
+   spec directly. Guest modules are tiny beside `py`, so a test may publish
+   its own; publish imports bottom-up, the `deps` map naming each import's
+   address."
   [spec]
-  (publish/publish-module! (:store @published) spec))
+  (publish/publish-module! (:store @published)
+                           (update spec :requires
+                                   #(assoc (or % {}) 'yang.call
+                                           (:call-address @published)))))
 
 
 (def backends

@@ -162,6 +162,51 @@ Next: WATCH yang-call's master publication (the TS/PHP orchestrator's landing); 
   dependency request is moot (the runtime exists, pending publication); the queued coordination
   items (dry1 reconciliation, the c3-gate baseline) remain available without the dependency.
 
+## 2026-10-30 11:5x +07 — S3 chain complete through 38c00ae3; the decisive quick tier running
+The S3 wiring arc, in order (all on python-s3-wiring, all pushed):
+  e133e822 the wiring (source calls route through the shared convention; both emitters; fixture
+    Python legs; generator :py 4010->4017 double-run identical) — the first shiva census found 18 JVM
+    quick failures, 16 Node, 13+ Dart, ALL in two mechanical families + a behavioral import family;
+  7a4ae8a9 the linked wrapper requires yang.call before py (the "Module link refused: absent"
+    behavioral reds — the diagnose-first gate in the brief paid off: a re-pin would have been wrong)
+    + the closure ledgers gain call.cljc + the generator run (byte-identical, no further movement);
+  2101dfc6 stray-file removal (my add -A sweep);
+  a5242457 + 1fa80339 the Python float-address pins (discovered the split-two-halves pin format the
+    hard way: first prefix substitution half-fixed, the suffixes fixed it); float-address green;
+  38c00ae3 the expectations round: closure union totals 167->168; the TypeScript pins RE-MINTED on
+    the JVM (prelude 478e8f91..., float program 01d7f8c0... — FLAGGED for the TS/PHP orchestrator);
+    the Python import require assertions updated for PROGRAMS only, module-packet deliberately keeps
+    [py] (the guest module image does not add the program's wiring) — the delivery/preseeded/
+    relative-import semantics untouched.
+In flight: the JVM quick tier at 38c00ae3 on shiva (was 18 -> 16 -> these 16 addressed); then Node
+  and Dart; then the kimi gate with the three ownership flags (call.cljc's data/nth, the closure
+  ledgers/totals, the TS pins); then the landing coordinated with the owner's other seat's 64f2885a.
+
+## 2026-10-30 12:1x +07 — the two-tier testing policy, corrected to a shiva crontab
+The owner ruled the nightly full suite (all lanes, all host targets) runs once daily at 03:00, and
+  clarified twice: (1) the nightly's target is MASTER — never a worktree/branch; branch/worktree
+  testing runs only the change-targeted namespaces. (2) The schedule is a CRONTAB on shiva, not an
+  orchestrator-held automation. Done: ~/ci/nightly-full.sh on shiva (fetches origin/master, the JVM
+  full suite, the full Node suite, the full Dart suite; per-stamp summaries under ~/ci/nightly-
+  results/), the crontab entry installed directly on shiva ("0 3 * * * /home/sto/ci/nightly-full.sh",
+  alongside the host's existing 03:00 backup cron), my automation automation-9854c7c4 DELETED, and
+  the two-tier policy recorded in build-n-test.md (e0296b7f on python-s3-wiring). The role boundary
+  lesson: scheduled infrastructure belongs to the machines it runs on; the orchestrator records and
+  monitors, it does not become the scheduler.
+Next: the S3 subset results on shiva -> the kimi gate -> the landing.
+
+## 2026-10-30 12:3x +07 — every yang.* compiler is its own subsystem
+Owner ruling: "all the yang.* supported compilers should be its own subsystem." Done (4d4bf30c on
+  python-s3-wiring): yang.php split out of yang.base's prefix union into its own subsystem
+  (prefixes ["yang.php"], layer 3); yang.base keeps the shared machinery (yang.clojure, yang.frontend,
+  yang.safepoint, yang.stage, yang.tails, yang.io) and gains "yang.core" explicitly (the shared
+  runtime's home). The subsystem roster is now 19: the dao.* eight, yin.vm.ucf/yin.vm/yin.repl,
+  yang.python/yang.php/yang.typescript/yang.base, demo/world/dev/bench. The branch-gate effect:
+  `bb test:sub --base` now selects PHP changes into their own shard instead of dragging all of
+  yang.base, and each compiler's tests isolate under `bb test:sub yang.<lang>`.
+Note: the edit rides python-s3-wiring and lands with it; if the TS/PHP orchestrator's board edits
+  subsystems.edn concurrently, the union rule applies.
+
 ## 2026-10-31 02:5x +07 — S3 LANDED to master (efc99cc4): Python source calls cross language boundaries
 The integration the owner resumed the track for is complete end to end: the :call lowering routes
   admitted callables through the shared convention (eligible -> entry -> invoke), both emitters
@@ -299,3 +344,107 @@ The state at the stop: the 8.10 integration complete on master; the nightly's in
   green; the Dart leg and the slow-cluster confirmation go to the next 3am crontab fire, which runs
   unattended. The seat holds: no dispatches, no verification runs, no new rounds until further
   notice.
+
+## 2026-11-01 18:5x +07 — the link-reds round: 7/7 green; the store-interface ruling PERMITTED AS IS
+The seven slow-tier yang.python reds (84/9/4/2/2/1/1 at jupiter's 20261101-0148) are fixed by
+  codex round 6d6b7e71 on branch yangpython-link-reds. Two product hunks, both predicted:
+  (1) lower.cljc — `calls-yang-call?` deleted; every linked Python module and SCC bundle now requires
+      `yang.call` unconditionally, because `py/call-kw`'s runtime dispatch reaches it whether or not
+      the source names it; the manifest pins the same dependency (lower.cljc:2096-2161);
+  (2) siteset.cljc — the default runtime pass-through set becomes `#{py pysp yang.call}`, so the
+      shared dispatcher is no longer treated as instrumentable guest Python (the
+      `missing-site-set` refusal was correct behavior against a wrong categorization).
+  Engineer's local slow-tier counts: siteset 5/71, safepoint 19/144, derive 1/54, dht-import 1/127,
+  linked-prelude 8/82, linked-safepoint 10/53, e2e 42/714 — all 0 failures; bb test:sub:clj
+  yang.python 28 namespaces / 265 tests / 0; kondo 0/0. The DHT fixture was regenerated through its
+  CHECKED-IN generator (dht-import-v1.generate.clj, verified in the log), and both named e2e reds
+  passed with no separate defect.
+Correction owned: my first brief's signature table said `:reason :absent` for the link refusals; the
+  verified logs show `:yang.python.antlr/missing-site-set` under `:py/hooks` on `yang.call`. I wrote
+  the correction artifact before the round ended; the engineer had already independently reached the
+  same root from its own reproduction, so no redispatch was needed.
+OWNER QUESTION, ruled by kimi k3.1-pro (collab/1793540000000-...-ruling, session_d991895e):
+  "the interface from yang.python with the dht is indirect, right? it should be via dao.stream"
+  → Ruling: PERMITTED AS IS. The handle is a plain-data byte-store capability
+  ({:put-bytes-fn :get-bytes-fn :close-fn :entries-fn}, dao/jing.cljc:5), deliberately stream-agnostic
+  ("embeds no intake stream and identifies no source", mem.cljc). dao.jing.content is the request/
+  response service OVER remote streams whose serving half consumes a local handle and validates
+  ingress (content.cljc:18-24,75-113); dao.jing.stream is a canonical-byte codec adapter, not a
+  publisher (stream.cljc:1-23,56-101). Calling either FROM publication.cljc would be the layering
+  violation. One logical publication path; local and DHT-backed handles are compositions of it.
+  Site sets: unchanged (same handle, core/publication.cljc:124-139). No prerequisite, no follow-up
+  slice — the yang.call addition changes published content, not the store boundary.
+Next: orchestrator verification of the seven namespaces on shiva (running), then the independent
+  gate (a different family from codex — kimi), then landing on the sign-off.
+
+## 2026-11-01 22:2x +07 — the link reds: 4 of 7 fixed and LANDED; 3 are VM-owned (bd6f5697)
+Landed to master bd6f5697: 6d6b7e71 (the link-reds fix), the origin/master merge, and the known-gaps
+  row for the VM-owned overflow. Ledger checked 131 → 132 rows (union rule satisfied).
+WHAT THE FIX DID (codex, kimi gate READY session_ba1d5e5c): two product hunks — `calls-yang-call?`
+  deleted and the `yang.call` require made UNCONDITIONAL (every Python body can reach it through
+  `py/call-kw`), and `yang.call` added to the site-set runtime pass-through set `#{py pysp}` (the
+  shared dispatcher has no Python site marks). The gate independently confirmed the linked-prelude
+  golden equals the `:py` address embedded in the regenerated DHT artifact, and that no test was
+  weakened.
+MY VERIFICATION — the engineer's 7/7 claim DID NOT REPRODUCE. On BOTH shiva and jupiter,
+  identically: siteset 5/71/0 ✓, derive 1/54/0 ✓, dht-import 1/127/0 ✓, linked-prelude 8/82/0 ✓,
+  but safepoint 19/141 + 1 error, linked-safepoint 10/51 + 1 error, e2e 42/714 + 2 failures. The
+  engineer's local run reported 19/144, 10/53, 42/714 all green — a macOS-vs-Linux stack difference.
+THE THREE REDS ARE VM-OWNED, not yang.python: trace is `StackOverflowError` in
+  `APersistentVector.hasheq` → `Murmur3.hashUnordered` → `Continuation.hasheq`/`Closure.hasheq`,
+  i.e. `yin.vm.values:99` hashing `[:continuation owner payload]` where the payload is the whole VM
+  state. `recursion-error-test` also overflows at the PARENT commit 3ab1c925 for safepoint-test, and
+  all three were in the ORIGINAL nightly red list — pre-existing, environment-sensitive, unchanged by
+  this fix. The recursion round correctly STOPPED rather than editing VM code (out of scope), and
+  filed the evidence. Known-gaps row added and routed to the yin.vm owner.
+RULING (owner question, kimi session_d991895e): "the interface from yang.python with the dht is
+  indirect, right? it should be via dao.stream" → PERMITTED AS IS. The handle is a plain-data byte
+  store capability (dao/jing.cljc:5); dao.jing.content is the service ABOVE it (consumes a handle,
+  validates ingress) and dao.jing.stream is a codec — calling either from publication.cljc would be
+  the violation. No follow-up slice.
+Artifacts: 17 files filed into collab/yang-python/ (this round's prompts, logs, the gate, the ruling,
+  both peer briefs, the muse-era nightly-red round).
+Next: the three recursion reds belong to the yin.vm seat (row filed). On master the nightly will show
+  4 fewer yang.python reds; the remaining three need the VM hashing fix.
+
+## 2026-11-02 02:0x +07 — the recursion root, nailed: the guard loses to the JVM stack
+The e2e re-run on JUPITER (independent host, no other lane) produced the decisive assertion text:
+  `recursion-under-real-hooks-test` (e2e_test.clj:819) expects
+  `#:py{:exception {:type "RecursionError", :args ["maximum recursion depth exceeded"]}}` and gets
+  `[:thrown "java.lang.StackOverflowError"]`. So the Python guard is not firing before the JVM thread
+  stack gives out. Green on the macOS dev machine, red on both Linux hosts → a stack-size boundary,
+  one root for all three remaining slow reds (safepoint and linked-safepoint surface it inside
+  `Continuation.hasheq` while hashing the state). Refinement row landed 7a618bb0, routed to yin.vm
+  with the three candidate fixes (lower the guest depth limit / size the test JVM stack / measure
+  actual remaining stack).
+Owner correction heeded: another orchestrator was running lanes on the shared hosts; I read its log
+  (it records killing ITS OWN p4 lane after the e2e wedge, and a safe ci_gc), found no admission about
+  my run, and changed my standing rule: NO kills by pattern on any host — only named sessions of my
+  own, and even then nothing while another seat is active. My one still-running lane (jupiter `vje`,
+  the e2e re-run) is left to finish on its own.
+Final state of this seat's work tonight: the link-refusal fix is on master (bd6f5697) with 4 of 7
+  namespaces verified green on two hosts; the remaining three are one VM-owned stack-boundary defect,
+  filed twice in the ledger with evidence; the round's artifacts are in collab/yang-python/; the
+  architect's store-boundary ruling is recorded.
+
+## 2026-11-02 02:5x +07 — the recursion reds CLOSED by an explicit thread stack; all seven green
+Owner instruction: "run the affected JVM test lanes with an explicit -Xss of at least 2 MB". Done and
+  measured:
+  - CAUSE, measured: the JVM default `ThreadStackSize` is 2048 KB on macOS and 1024 KB on Linux; the
+    guest runs on a CREATED thread, so `ulimit -s` (8 MB main thread, raised to 64 MB in the test)
+    never applied. The guest depth the limit allows needs between 1 and 2 MB.
+  - FIX, verified: `-J-Xss2m` on jupiter/Linux turns all three green — safepoint 19/144/0 (was 141 +
+    1 error), linked-safepoint 10/53/0 (was 51 + 1 error), e2e 42/714/0 (was 2 failures). Those are
+    exactly the macOS counts.
+  - LANDED 6fae7fbe: `deps.edn`'s `:test` alias gains `:jvm-opts ["-Xss4m"]` (twice the measured
+    minimum, so prelude growth does not silently re-cross the boundary). Every JVM lane inherits it
+    — the bb tasks and `src/dev/nightly.clj` both invoke `clojure -M:test`.
+  - VERIFIED AT THE ALIAS on Linux (new master, no -J flag): safepoint 19/144/0, linked-safepoint
+    10/53/0. e2e proved at the -J flag (42/714/0); same alias, larger stack.
+All SEVEN nightly reds are now green on Linux: siteset 5/71/0, safepoint 19/144/0, derive 1/54/0,
+  dht-import 1/127/0, linked-prelude 8/82/0, linked-safepoint 10/53/0, e2e 42/714/0. Ledger row
+  closed (143 rows, no other seat's rows touched).
+Process note: the `-Xss` finding came from the owner's `CompilerThreadStackSize` observation — the
+  right instinct about the platform-default table, even though the operative flag is
+  `ThreadStackSize`. Recorded for the delegate reference: platform default thread stacks are not
+  portable, and a guest recursion guard must not assume one.

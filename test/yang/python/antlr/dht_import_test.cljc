@@ -448,8 +448,8 @@
 
 (def ^:private nothing-ran
   "A refused import's observation: no line printed and no guest install
-   child; the one child started is py's."
-  {:output [], :guests #{}, :children 1})
+   child; `yang.call` and `py` are the two runtime install children."
+  {:output [], :guests #{}, :children 2})
 
 
 (defn- observes
@@ -470,8 +470,10 @@
                outcome)
             (str k " " (pr-str response)))
         (testing "and the observation sees the same run"
+          ;; The linked task installs `py`, the shared `yang.call`
+          ;; dispatcher, then the guest module.
           (observes k {:output ["m-body" "7"], :guests #{"pym.m"},
-                       :children 2}
+                       :children 3}
                     seen)))
       (testing "and t delivers k, its pinned import, by name"
         (let [[w results] (on-every-vm w (get-in artifact [:importers :tt])
@@ -509,7 +511,7 @@
                   :yin.admit/address k2}
                  (select-keys response [:status :yin.admit/address]))
               (str k " " (pr-str response)))
-          (observes k {:output [], :guests #{"pym.t"}, :children 3} seen))
+          (observes k {:output [], :guests #{"pym.t"}, :children 4} seen))
         w))))
 
 
@@ -563,7 +565,7 @@
           (is (= caught-e outcome) (str k " " (pr-str response)))
           (observes k {:output ["caught-e"],
                        :guests #{"pym.e"},
-                       :children 2,
+                       :children 3,
                        :admissions {"pym.e"
                                     {:yin.admit/id (:yin.admit/id response),
                                      :yin.admit/decision :allow,

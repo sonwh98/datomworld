@@ -389,3 +389,47 @@ Decisions: The kind/with-meta host-seam departure accepted per glm's justificati
 Verification: as above.
 Delegates: engineer/gpt-6.1-sol (note: CLI resolved the brief's gpt-6.1-sol to gpt-6-luna — model resolution gap to watch), reviewer/glm (3ca9258a).
 Next: astra sign-off request (reset window open) -> then the gate-green verification slice decision -> lanes -> merge.
+
+## 2026-10-30 12:30:27 +07 — common-call adoption UNBLOCKED and S1 dispatched (yang-call landed on master)
+Completed-GMT: 2026-10-30 05:30:27 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@64f2885a+ (the coordinating seat merged the yang.call shared runtime: S0 core + TS wiring + PHP wiring + S1 fixes; 16 files, +713/-127 incl. src/cljc/yang/core/call.cljc 187 lines and its 226-line test suite); NEW worktree yang-common-call REBASED onto 64f2885a
+Done: The coordinating owner landed the shared yang.call runtime on master, unblocking the adoption track. Adoption branch rebased onto 64f2885a (clean). S1 for Clojure dispatched to codex/gpt-6.1-sol (brief collab/-engineer-clojure-adoption-s1.prompt.md): descriptor publication at defn/fn/def sites per A1 (entry = new unary record-closure over the private argument-vector body, outcome-model aware), universal source-application routing per A2 (internal compiler calls stay private), the A4 outcome<->raise conversion at every generated entry, :yang.call/named [] per A3, and a hand-constructed conforming-descriptor end-to-end fixture (cross-frontend fixtures defer to the coordinating owner's suite). The shared runtime core call.cljc is read-only to the engineer. A5 confirmed: privates stay private.
+Decisions: The adoption is additive — plain non-descriptor closures behave exactly as today; the accumulated oracle corpus must stay green (that is the regression proof of A2's "internal calls remain private").
+Verification: dispatch launched.
+Delegates: engineer/gpt-6.1-sol (Clojure S1 adoption).
+Next: collect S1 -> verify -> glm review -> astra sign-off -> merge. Hardening-2 astra re-signoff pending (astra mid-verification). Slice-9 gate stays preserved on yang-slice9.
+
+## 2026-10-30 20:39:45 +07 — adoption S1 glm review: 2 P1 + 2 P2 + 2 P3; contradiction escalated to kimi r4 arbitration
+Completed-GMT: 2026-10-30 13:39:45 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: yang-common-call @64f2885a + uncommitted adoption diff (kimi implementation + codex hang fix)
+Done: glm adoption-S1 review (session e1599324, findings synced to main collab/1793309500000-reviewer-adopt-s1.glm-5.3.findings.md): the A1/A2/A4 mechanics are implemented and probe-verified, but found 2 P1 + 2 P2 + 2 P3: (P1-1) user-shadowable names capture the generated entry/bridge code (bare get/=/assoc/empty? emitted as :variable nodes inside user binders; probed crashes); (P1-2) ordinary assoc mints a working callable — spec 8.10.11 requires entry-spelled source data to REMAIN DATA, and the contradiction is that MY OWN orchestrator brief directed the hand-constructed-descriptor fixture; (P2-1) the direct-apply fallback is value-structural (any entry-less value applies directly), so :yang.call/not-callable is unreachable from source; (P2-2) tail chains through the entry/bridge grow the semantic stack ~9 frames/activation — the slice-4/5 constant-depth invariant was dropped in this diff; (P3s) silent continuation fallback, named-arg errors riding :yang.call/thrown. Escalated (a) the contradiction + (b)-(e) to kimi r4 arbitration (session in collab/1793309600000-*).
+Decisions: P1-2 is an orchestrator-brief vs spec contradiction — my brief's item 5 (hand-constructed fixture) was written by me from the spec's illustrative example, and it conflicts with 8.10.11's remains-data requirement as realized in open Clojure maps; escalated to the section's approving architect rather than resolved by the seat that created the contradiction.
+Verification: glm probes reproduced every finding read-only.
+Delegates: reviewer/glm (e1599324 continuation... actually fresh session e1599324 for adopt-s1 review), architect/kimi (r4 arbitration in flight).
+Next: kimi r4 rulings -> fix round -> glm confirmation -> sign-off -> merge. The ownership map's shared-runtime dependency is satisfied (yang.call landed); only this arbitration + fix round remain for the adoption track.
+
+## 2026-10-30 20:43:28 +07 — kimi r4 arbitration DELIVERED: adoption blocked on 4 rulings + continuation fallback; fix round scoped
+Completed-GMT: 2026-10-30 13:43:28 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: yang-common-call @64f2885a + uncommitted adoption diff (kimi impl + codex hang fix, unfixed per r4)
+Done: kimi r4 arbitration delivered (session_375e0301 resumed after an interrupted first launch; findings synced to main collab/1793309600000-*): (a) source assoc-forgery of descriptors is a CONFORMANCE BLOCKER — constructor/profile-produced descriptors must be distinguished from ordinary source maps WITHOUT a VM type/seal/registry; hand-constructed fixtures valid only as explicit UAST/profile construction; negative tests required (entry-spelled data stays data, copied entries, assoc-forged descriptors). (b) shadowable-names fix = hygienic dsg__ aliases established beside the prepended call/uast, NOT rejecting user bindings (that would change the source language). (c) direct branch restricted to compiler-generated callees only — source applications all go through admission; missing entry = :yang.call/not-callable (my orchestrator prompt's broader 'pre-adopted program values' allowance SUPERSEDED by A2). (d) tail-stack regression NOT accepted as tradeoff — constant-stack named/mutual tail calls required in the entry/bridge design; constant-depth assertions reinstated for both lanes. (e) continuation fallback must refuse explicitly (never yield a continuation as a value); named-arg condition classification CONFORMANT as-is. Adoption remains blocked on (a)-(d) + (e)'s fallback.
+Decisions: The my-brief-vs-spec contradiction was resolved against my brief (spec wins; my hand-constructed-fixture instruction is demoted to UAST/profile-level construction only).
+Verification: kimi r4 exit 0, findings synced.
+Delegates: architect/kimi (r4 arbitration).
+Next: fix round per r4 rulings (descriminator/seal design is the hard part of (a) without VM types), glm re-review, then sign-off -> merge. Hardening-2 astra re-signoff pending.
+
+## 2026-10-30 21:57:06 +07 — codex's partial fix round was actually a COMMITTED round (1eb14d06); context pack written for kimi
+Completed-GMT: 2026-10-30 14:57:06 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: yang-common-call @1eb14d06 + 30 lines uncommitted (the eligibility follow-up)
+Done: Owner asked whether codex's context can be shared with kimi. Investigated the "dead" codex fix round: it had actually COMMITTED 1eb14d06 (554 insertions: callable admission enforcement + tail-depth restoration + 36 ledger rows) and reported required suites green, broader JVM 1022/16300 green, Node 953/45162 green, REPL 336, oracle shard 61 — with Dart still RUNNING at the cut (no Dart result) and one uncommitted eligibility follow-up (source callable predicate must honor an admitted profile's :yang.call/eligible? as well as its admission proof; 13 lines + a 20-line regression; lint-clean; final JVM regression not completed). My earlier "partial work" characterization was wrong — the PARTIAL.diff snapshot predated the commit and is superseded. Wrote collab/1793314500000-prior-attempt-context-for-kimi.md (synced to main): what codex completed, gates it reported, the exact remaining work, and instructions to VERIFY rather than trust. kimi is mid-run on the fix round and has already independently observed "the five behavioral fixes are already present in the base worktree, and the required four-suite run passes" — consistent. Cross-provider context sharing is artifact-mediated by necessity (codex thread ids are not resumable from kimi; different session stores); the commit + this pack are the lossless share.
+Decisions: Sign-off legs stay with codex/astra at ~23:24 (independence from the r4 arbitration author, who is kimi).
+Verification: git show 1eb14d06 (4 files, 554 insertions); the session trail (188 items) inspected for claims.
+Delegates: engineer/kimi (fix round, session_de70ca2a live).
+Next: kimi reports -> verify 1eb14d06 against the r4 probes independently -> glm re-review -> astra sign-off after 23:24 -> merge.

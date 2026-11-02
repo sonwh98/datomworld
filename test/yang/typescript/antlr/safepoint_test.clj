@@ -46,6 +46,17 @@
                 "for (const k in o) { t += k; } console.log(t);"),
    :for-in-forever "const o = {a: 1}; while (true) { for (const k in o) { } }",
    :caught "try { while (true) { } } catch (e) { console.log('caught'); }",
+   :class-sites (str "class A { constructor() { while (true) { } } m() { } "
+                     "x = 1; static { } }"),
+   :ctor-loop "class A { constructor() { while (true) { } } } new A();",
+   :ctor-loop-caught (str "class A { constructor() { while (true) { } } } "
+                          "try { new A(); } catch (e) { console.log('caught'); }"),
+   :method-loop "class A { m() { while (true) { } } } new A().m();",
+   :field-loop (str "class A { x = (() => { while (true) { } })(); } "
+                    "new A();"),
+   :static-loop "class A { static { while (true) { } } }",
+   :derived-loop (str "class A { } class B extends A { constructor() { "
+                      "super(); while (true) { } } } new B();"),
    :def-and-while (str "function f(n) { return n + 1; } var i = 0; "
                        "while (i < 5) { i = f(i); } console.log(i);")})
 
@@ -157,6 +168,26 @@
                                               hooks/profile)))))))))
 
 
+(deftest class-sites-test
+  (let [{:keys [projected]} (derive* (parse (:class-sites programs))
+                                     hooks/profile)
+        marks (map #(nth % 4)
+                   (filter #(= :yang/site (nth % 3))
+                           (:yin/frontend-metadata projected)))
+        kinds (frequencies (map #(if (vector? %) (first %) %) marks))
+        names (set (keep #(when (and (vector? %) (= :call (first %))) (second %))
+                         marks))]
+    (is (= {:call 4, :loop 1} kinds)
+        "constructor, method, field initializer and static block are call
+         sites; the constructor's loop is a loop site")
+    (is (= #{"A" "m" "x" "static"} names)
+        "each call site carries its element's name")
+    (testing "every derived row validates"
+      (is (nil? (vm/validate-rows
+                  (tree-of (:derived (derive* (parse (:class-sites programs))
+                                              hooks/profile)))))))))
+
+
 (deftest for-in-loop-site-test
   (let [{:keys [projected]} (derive* (parse (:for-in programs)) hooks/profile)
         marks (map #(nth % 4)
@@ -214,6 +245,22 @@
 
 (deftest ^:slow for-in-interrupt-test
   (slow/guard "for-in-interrupt-test" for-in-interrupt))
+
+
+(defn- class-interrupt
+  []
+  (doseq [k [:ctor-loop :ctor-loop-caught :method-loop :field-loop
+             :static-loop :derived-loop]]
+    (testing (name k)
+      (every= [true false {:js/out [], :js/uncaught "Interrupt: interrupted"}]
+              (on-every-vm (hooks/program hooks/uast
+                                          (derived-ast (parse (get programs k))
+                                                       hooks/profile))
+                           (with-signals [2]))))))
+
+
+(deftest ^:slow class-interrupt-test
+  (slow/guard "class-interrupt-test" class-interrupt))
 
 
 (deftest ^:slow no-park-test

@@ -24,10 +24,20 @@
             [clojure.string :as str]))
 
 
-(def subs
+(def all-subs
   ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
    "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
    "dao.postgraphics" "yang.base" "dao.base"])
+
+
+(def subs
+  "This host's assigned subsystems (NIGHTLY_SUBSYSTEMS overrides for a
+   disjoint two-host split)."
+  (or (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
+               (map str/trim)
+               (remove str/blank?)
+               seq)
+      all-subs))
 
 
 (def ^:private child-path

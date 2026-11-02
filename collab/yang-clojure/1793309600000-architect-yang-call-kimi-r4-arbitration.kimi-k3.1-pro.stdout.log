@@ -1,0 +1,51 @@
+kimi version 2.4.0
+• I'll reread three now per user. I have content but explicit read. Should date fresh GMT via bash. Can parallel 3 reads date. Then deliver reordered.2026-10-30 13:42:12 GMT
+Respond exactly begins timestamp then complete. No Completed-Local asked but format likely add. Use current local not needed.
+
+• Completed-GMT: 2026-10-30 13:42:12 GMT
+
+  ## (a) Hand-constructed-descriptor contradiction — source forgery is nonconformant
+
+  The orchestrator’s fixture instruction and A1’s data-map obligation address different levels:
+
+  - A hand-constructed descriptor in **UAST** is a valid profile-level construction and may test the common invocation path.
+  - A Clojure source map constructed or modified with `assoc` remains source data. Copying `:yang.call/entry` into it must not make it callable.
+  - Structural projection is valid **after callable admission**; it is not itself proof of admission.
+
+  **Ruling:** the current source-level `assoc` forgery is a conformance blocker. Do not resolve this by declaring every entry-spelled Clojure map a profile projection.
+
+  **Recommendation:** distinguish constructor/profile-produced descriptors from ordinary source maps at source resolution, without adding a VM type, descriptor seal, or provenance registry. Keep the hand-constructed fixture only as explicit UAST/profile construction. Add negative tests for entry-spelled source data, copied entries, and `assoc`-forged descriptors.
+
+  ## (b) Shadowable-names fix — prefer hygienic `dsg__` aliases
+
+  Both proposed fixes could stop the capture, but rejecting user bindings of `get`, `=`, `assoc`, and `empty?` unnecessarily changes the Clojure source language to accommodate generated code.
+
+  **Ruling:** use compiler-private `dsg__` aliases established beside the prepended `call/uast`, and emit those aliases throughout generated entry and caller-bridge code. Local binding rejection is not the preferred fix.
+
+  **Recommendation:** test every captured name around function construction and invocation, including successful returns and exception/raise paths. Generated code must be insulated from all source lexical bindings.
+
+  ## (c) Direct-branch scope — compiler-private calls only
+
+  The prompt’s allowance for “pre-adopted program values” was broader than A2 and is superseded by A2. A source application may not use structural entry absence as permission for direct application.
+
+  **Ruling:** every source-resolved application goes through common callable admission. Missing entry means `:yang.call/not-callable`, not direct application and not a raw host/VM defect. Only explicitly compiler-generated implementation calls may remain direct.
+
+  **Recommendation:** restrict the direct branch to private generated callees rather than arbitrary entry-less runtime values. Test scalars, ordinary maps, malformed descriptors, and entry-less foreign values. Internal adapters and continuations may remain private only where their calls are genuinely compiler-generated.
+
+  ## (d) Tail-stack tradeoff — do not accept the regression
+
+  Replacing constant-depth assertions with assertions of linear growth documents a regression; it does not establish conformance. Successful deep recursion and the absence of a hard VM depth limit do not preserve tail behavior.
+
+  **Ruling:** constant-stack tail behavior remains required. This is not approved as a tradeoff with an unspecified future optimization.
+
+  **Recommendation:** restore constant-stack named and mutual tail calls in the entry/bridge design. Reinstate constant-depth assertions for both execution lanes. Any later fast path must separately prove all A2 requirements, and correctness must not depend on it.
+
+  ## (e) P3 records — continuation fallback requires fixing; named binding is conformant
+
+  **Non-callable captured continuation:** the fallback that returns `escape` as a successful value is wrong even if currently unreachable. Replace it with explicit qualified failure; a continuation must never silently become the call result.
+
+  **Nonempty named arguments:** retain `:yang.call/thrown`. Under §8.10.7, callee argument-binding failures carry the actual callee exception under `:yang.call/thrown`; `:yang.call/unsupported-binding` is for protocol/profile binding failures. The existing classification is therefore conformant, provided the complete original error payload remains intact.
+
+  **Final disposition:** adoption remains blocked on (a)–(d), plus the continuation fallback in (e). The named-argument condition needs no reclassification. No files were changed.
+
+To resume this session: kimi -r session_375e0301-61bb-4cd3-ad2d-2a4fb2adb18b

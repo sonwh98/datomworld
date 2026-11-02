@@ -112,6 +112,67 @@
             ["CloseBrace" "}"]]))
 
 
+(def ^:private class-a
+  "class A { m() { return 1; } }"
+  [:classDeclaration
+   ["Class" "class"]
+   [:identifier ["Identifier" "A"]]
+   [:classHeritage]
+   [:classTail
+    ["OpenBrace" "{"]
+    [:classElement
+     [:propertyMemberDeclaration
+      [:propertyMemberBase]
+      [:classElementName
+       [:propertyName [:identifierName [:identifier ["Identifier" "m"]]]]]
+      [:callSignature ["OpenParen" "("] ["CloseParen" ")"]]
+      ["OpenBrace" "{"]
+      [:functionBody
+       [:sourceElements
+        [:sourceElement
+         [:statement
+          [:returnStatement
+           ["Return" "return"]
+           [:expressionSequence (num-expr "1")]
+           [:eos ["SemiColon" ";"]]]]]]]
+      ["CloseBrace" "}"]]]
+    ["CloseBrace" "}"]]])
+
+
+(def ^:private class-b
+  "class B extends A { constructor() { super(); } }"
+  [:classDeclaration
+   ["Class" "class"]
+   [:identifier ["Identifier" "B"]]
+   [:classHeritage
+    [:classExtendsClause ["Extends" "extends"] (name-expr "A")]]
+   [:classTail
+    ["OpenBrace" "{"]
+    [:classElement
+     [:constructorDeclaration
+      ["Constructor" "constructor"]
+      ["OpenParen" "("]
+      ["CloseParen" ")"]
+      ["OpenBrace" "{"]
+      [:functionBody
+       [:sourceElements
+        [:sourceElement
+         [:statement
+          [:expressionStatement
+           [:expressionSequence
+            [:singleExpression
+             [:singleExpression
+              [:identifierName [:reservedWord [:keyword ["Super" "super"]]]]]
+             [:arguments ["OpenParen" "("] ["CloseParen" ")"]]]]
+           ["SemiColon" ";"]]]]]]
+      ["CloseBrace" "}"]]]
+    ["CloseBrace" "}"]]])
+
+
+(def ^:private classes
+  (program class-a class-b))
+
+
 (defn- diagnostic
   [pk]
   (try (lower/lower-module-body pk)
@@ -131,6 +192,17 @@
             tree))
 
 
+(defn- tree-depth
+  [tree]
+  (loop [level [tree], depth 0]
+    (if (empty? level)
+      depth
+      (recur (into [] (mapcat #(cond (map? %) (vals %)
+                                     (sequential? %) %
+                                     :else [])) level)
+             (inc depth)))))
+
+
 (deftest hand-packet-golden-test
   (is (= (u/app (u/lam ['x]
                        (u/then (u/then (u/app (u/v 'cell/set!)
@@ -148,10 +220,10 @@
            (diagnostic (program [:no_such_rule])))))
   (testing "an unsupported grammar rule names its construct and slice"
     (is (= {:yang.ts/diagnostic :yang.ts/unsupported,
-            :rule "classDeclaration",
-            :construct "class",
-            :slice :T3}
-           (diagnostic (program [:classDeclaration])))))
+            :rule "namespaceDeclaration",
+            :construct "namespace",
+            :slice :T9}
+           (diagnostic (program [:namespaceDeclaration])))))
   (testing "a type-only rule refuses as type syntax"
     (is (= {:yang.ts/diagnostic :yang.ts/unsupported,
             :rule "interfaceDeclaration",
@@ -197,6 +269,27 @@
     (is (= [[:call "f" 0]] (vec (marks function-f))))))
 
 
+(deftest class-fixtures-test
+  (testing "the two class programs lower; the renaming law and site marks hold"
+    (let [p (lower/lower-packet classes)
+          marks (set (keep #(:yang/site (meta %)) (nodes p)))]
+      (is (= p (names/canonicalize p)) "idempotent on a lowered program")
+      (is (every? (fn [s]
+                    (or (= '%_ s) (re-matches #"%\d+" (name s))))
+                  (filter #(and (symbol? %) (= \% (first (name %))))
+                          (nodes p)))
+          "every generated name is canonical")
+      (is (contains? marks [:call "m" 0]) "the method is a call site")
+      (is (contains? marks [:call "B" 0]) "the constructor is a call site")
+      (is (contains? marks [:call "A" 0]) "so is the default constructor")
+      (is (some #(and (map? %) (= (u/v 'js/super-call) (:operator %)))
+                (nodes p)))
+      (is (some #(and (map? %) (= (u/v 'js/make-class) (:operator %)))
+                (nodes p)))))
+  (testing "the same packet lowers to the same program"
+    (is (= (lower/lower-packet classes) (lower/lower-packet classes)))))
+
+
 (deftest linked-and-bundled-profiles-test
   (let [bundled (lower/lower-packet var-x)
         linked (lower/lower-packet var-x {:prelude :linked})]
@@ -208,6 +301,30 @@
         "and allocates the task's state")
     (is (some #(and (map? %) (= (u/v 'js/run-main) (:operator %)))
               (nodes bundled)))))
+
+
+(deftest linked-source-requires-convention-before-js-test
+  (doseq [ast [(lower/lower-packet var-x {:prelude :linked})
+               (lower/lower-units [var-x] {:prelude :linked})
+               (lower/lower-units [] {:prelude :linked})]]
+    (let [forms (loop [node ast
+                       suffix ()]
+                  (if (= [u/discard] (get-in node [:operator :params]))
+                    (recur (first (:operands node))
+                           (cons (get-in node [:operator :body]) suffix))
+                    (cons node suffix)))
+          requires (take 2 forms)]
+      (is (every? #(= (u/v 'require) (:operator %)) requires))
+      (is (= '[yang.call js]
+             (mapv #(get-in % [:operands 0 :value]) requires))))))
+
+
+(deftest bundled-program-depth-test
+  ;; A linear prelude sequence reached 976 levels with 481 definitions:
+  ;; `pr-str` could overflow even though the tree contained no cycle.
+  ;; Leave room for the runtime bodies, but catch that sequencing growth
+  ;; independently of the JVM printer's stack size and JIT warmup.
+  (is (< (tree-depth (lower/lower-packet var-x)) 512)))
 
 
 (deftest transform-routes-programs-and-diagnostics-test
@@ -230,10 +347,10 @@
            out)))
   (let [[_ [[port d]]] (lower/lower-transform
                          {}
-                         (program [:classDeclaration]))]
+                         (program [:namespaceDeclaration]))]
     (is (= :diagnostics port))
     (is (= :yang.ts/unsupported (:yang.ts/diagnostic d)))
-    (is (= "class" (:construct d))))
+    (is (= "namespace" (:construct d))))
   (let [[_ [[port d]]] (lower/lower-transform
                          {}
                          (program [:breakStatement ["Break" "break"]]))]

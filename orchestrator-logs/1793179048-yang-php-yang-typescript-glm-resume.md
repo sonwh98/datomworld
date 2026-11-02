@@ -465,3 +465,241 @@ Decisions: the seat does not merge yang-call to master while the yang.python orc
 Verification: origin/yang-call @ 98390529 (pushed); origin/yang-php-p4 @ fc102486 (pushed); origin/yang-ts-t3 @ d722dc9b (pushed).
 Delegates: none in flight (the parallel seat's J6e round continues).
 Next: the yang.python orchestrator completes its integration -> the coordinated landing -> this seat continues the P4/T3/P6 tracks. The :claims scope ruling and the J6e round continue under their own seats.
+
+## 2026-10-30 11:1x +0700 — P4 S8 (the generator runtime) dispatched to codex gpt-6-luna
+Completed-GMT: 2026-10-30 03:1x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The P4 S8 round dispatched to codex gpt-6-luna (fresh session, the php-p4 worktree): the generator runtime on the C2 core, with the 12 pre-registered generator fixtures wired to :p4-s8 requires.
+Decisions: none.
+Verification: dispatch liveness.
+Delegates: codex gpt-6-luna (the P4 S8 round, IN FLIGHT).
+Next: the round returns -> shiva verify -> commit -> the checkpoint-B oracle pass -> the checkpoint-B re-audit -> the P4 landing.
+
+## 2026-10-30 12:0x +0700 — the P4 S8 round dispatched to kimi k3.1-pro (the strongest available; codex rate-limited until 13:05)
+Completed-GMT: 2026-10-30 04:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The P4 S8 round (the generator runtime on the C2 core) dispatched to kimi k3.1-pro — crossing the architect/implementer boundary because codex is rate-limited until 13:05 and the difficulty warrants the strongest available model. The brief carries the standing rules and the note about the role crossing.
+Decisions: the difficulty-matching rule overrides the role-boundary convention when the primary implementer is unavailable — recorded, not silent.
+Verification: dispatch liveness (the kimi reply test).
+Delegates: kimi k3.1-pro (the P4 S8 round, IN FLIGHT).
+Next: the round returns -> shiva verify -> commit -> the checkpoint-B oracle pass -> the P4 checkpoint-B re-audit.
+
+## 2026-10-30 14:1x +0700 — P4 S8 partial landed (55f01779): the generator runtime, the kimi session hit its 5-hour limit mid-round
+Completed-GMT: 2026-10-30 06:1x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The P4 S8 round (kimi k3.1-pro, the architect crossing to implement) delivered a partial generator runtime: the yield/yield-from machinery, the generator objects, the iterator protocol integration, the 12 S7 generator fixtures enabled, the antlr manifest updated. 352 insertions across lower.cljc, prelude.cljc, programs_p4.cljc, class_model_test.cljc, and a new generators_test.clj. The kimi session hit its 5-hour limit mid-round — the delivered work is committed and pushed (55f01779); the remaining S8 scope is for the next round. Committed from git status (not path globs — the lesson held).
+Decisions: the partial round is committed rather than left uncommitted, per the standing rule that partial delivered work is committed and the remaining scope is named.
+Verification: the kimi round's local counts; the shiva verification pending at the new tip.
+Delegates: kimi k3.1-pro (the P4 S8 round, hit its 5-hour limit — the session is paused, not dead).
+Next: dispatch the S8 remainder to codex gpt-6-luna (now back from its reset) or re-dispatch to kimi after its reset. The shiva verification of 55f01779. The checkpoint-B oracle pass continues.
+
+## 2026-10-29 02:3x +0700 — the P4 branch oracle pass 12 completed: 50 awaiting-oracle fixtures recorded
+Completed-GMT: 2026-10-29 02:3x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The checkpoint-B oracle recording pass 12 ran on shiva at the yang-php-p4 branch tip: the 50 awaiting-oracle fixtures from the checkpoint-B fixture package are recorded. The results are in the shiva log.
+Decisions: the P4 checkpoint-B closure checklist advances: the oracle fixtures are recorded, the remaining closure conditions are the fable re-audit and the three-host quick verification.
+Verification: the shiva run's completion.
+Delegates: none (shiva compute).
+Next: the P4 checkpoint-B re-audit (fable) after the S7 conditions round completes. The T3 S10 round continues.
+
+## 2026-10-29 02:4x +0700 — the T3 S10 round re-dispatched with the corrected scope
+Completed-GMT: 2026-10-29 02:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The T3 S10 round re-dispatched to codex gpt-6-luna with the corrected scope: the S10 is a portability checkpoint (run every applicable .cljc namespace on JVM/Node/Dart), NOT new feature implementation. The prior dispatch failed because the plan file path wasn't accessible from the worktree. The re-dispatch inlines the scope and the standing rules.
+Decisions: the plan-v2 file path issue (the worktree can't see the main checkout's collab/) is resolved by inlining the scope into the brief.
+Verification: dispatch liveness.
+Delegates: codex gpt-6-luna (the T3 S10 round, IN FLIGHT).
+Next: the round returns -> shiva verify -> commit. The P6 S3+ round continues.
+
+## 2026-10-30 01:0x +0700 — the T3 S10 r2 round completed: the portability checkpoint's remaining items named
+Completed-GMT: 2026-10-29 (entry written at the round completion)
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The T3 S10 r2 round (the portability checkpoint verification) completed: the diff from S5 to the tip is clean (17 files, 1,653 insertions), the implementation changes are in lower.cljc/scope.cljc/prelude.cljc, and the remaining work before the checkpoint closes is: (1) the JVM enum errors and stale optional-chaining refusal assertions need resolution, (2) two golden drifts need explanation/adjudication, (3) the orchestrator's Node/Dart verification and the three-host confirmation. The engineer did not run Node or Dart (the orchestrator's).
+Decisions: none.
+Verification: the round's own diff-and-read analysis; the JVM-side evidence from the shiva runs.
+Delegates: codex gpt-6-luna (the T3 S10 r2 round, complete).
+Next: the remaining items route to the T3 engineer's next round; the checkpoint-B oracle pass and the P4 S8 remainder continue in flight.
+
+## 2026-10-30 19:0x +0700 — P4 S8 remainder completed: the generator fixture wiring done; the heap-measurement gate needs the architect (ruling 7); the P3-c prerequisite confirmed
+Completed-GMT: 2026-10-30 11:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The P4 S8 remainder round completed. The generator fixture wiring is done: the fast generator gate passes (2 tests / 64 assertions / 0 failures), kondo clean. The slow heap gate (the reachable-heap measurement, ruling 7) FAILS (1 test / 12 assertions / 8 failures): the test finds no suspended generator to use as a root because PHP shutdown closes the generators before the final snapshot. This needs an architect-level decision on how the JVM test captures a live suspended generator before shutdown — the engineer correctly escalated rather than improvising. The P3-c prerequisite (the iterator-registry slice before P4-b) is confirmed not landed on the branch, per the plan's sequencing.
+Decisions: the reachable-heap measurement ruling 7 needs the architect's call on the test approach.
+Verification: the fast generator gate green; the slow heap gate failing with the root cause identified.
+Delegates: codex gpt-6-luna (the P4 S8 remainder, complete).
+Next: route the reachable-heap question to the architect; the P3-c slice dispatches before P4-b; the remaining S8 scope is the heap-measurement approach. The checkpoint-B oracle pass continues.
+
+## 2026-10-30 12:1x +0700 — the heap-measurement implementation dispatched to sol (the difficulty-matched delegate)
+Completed-GMT: 2026-10-30 04:1x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The reachable-heap measurement implementation dispatched to codex gpt-6.1-sol per the difficulty-matching rule (the architectural engineering difficulty). The brief carries the kimi ruling's five-step approach verbatim.
+Decisions: the difficulty-matching routing is running — sol for the architectural engineering, luna for the bounded rounds.
+Verification: dispatch liveness.
+Delegates: codex gpt-6.1-sol (the heap implementation, IN FLIGHT).
+Next: the round returns -> shiva verify -> commit -> the checkpoint-B oracle pass -> the checkpoint-B re-audit -> the P4 landing.
+
+## 2026-10-30 20:0x +0700 — seat re-established; both tracks' closure rounds dispatched concurrently
+Completed-GMT: 2026-10-30 13:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Tree: yang-php-p4 @ 8a807c0e (clean, 27 ahead of master b6e280b2); yang-ts-t3 @ 216346f5 (clean, 12 ahead); yang-call merged to master (64f2885a)
+Done: Re-derived the tree state and dispatched the two closure rounds the checkpoint audits named, routed by difficulty per the owner's rule: (1) the P4 oracle fold to codex gpt-6-luna (bounded mechanical: 71 pass-12 records into programs_p4/programs_p3b, the 2 FAILs as oracle-wins corrections on the C25 spread fixtures, the 13 remaining pending fixtures classified); (2) the T3 S10 remaining items to codex gpt-6.1-sol (architectural judgment: the JVM enum errors, the stale optional-chaining refusals, the two golden drifts). Both in flight.
+Decisions: the difficulty-matching rule (owner ruling 2026-10-30) applied at dispatch: luna for the mechanical fold, sol for the judgment round.
+Delegates: codex gpt-6-luna (P4 oracle fold, IN FLIGHT); codex gpt-6.1-sol (T3 S10 items, IN FLIGHT).
+Next: both rounds return -> shiva verify -> commit/push -> checkpoint-B re-audit (P4) and the S10 checkpoint closure with the three-host matrix (T3). Both tracks then approach their landing gates.
+
+## 2026-10-30 20:2x +0700 — COMPLIANCE GAP FOUND AND CLOSED: the G1 three-lane checkpoint was never run for either branch
+Completed-GMT: 2026-10-30 13:2x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The owner asked whether I had read build-n-test.md; the audit found a real compliance gap. I have been running G0 iterate (focused JVM) plus cljstyle/kondo and ad-hoc Node/Dart subsystem runs, but NOT the gate ladder's three-lane checks: G1 (`bb test:sub <own>` across all three lanes) was never run for either branch, and G2 (`bb test:changed` three lanes before landing) has not run for either near-landing branch. Both branches are 27 (p4) and 12 (ts) commits ahead of master, so this is the moment it matters. Corrective action launched: G1 three-lane for both branches concurrently in separate clones on shiva (g1php in ~/ci/datomworld-p3b at origin/yang-php-p4; g1ts in ~/ci/datomworld-ts-t2b at origin/yang-ts-t3), respecting the gen:antlr same-worktree race rule. G2 follows once the in-flight rounds land.
+Decisions: the routing table's class for my tracks is `bb test:quick-sharded --changed <paths>` for broad JVM feedback, and the doc states plainly that sharded JVM success alone is not G2/G3 tri-host success. The gate ladder is now the seat's checklists: G1 per checkpoint, G2 before each landing, G3 after each merge.
+Verification: G1 lanes launched in tmux on shiva; results pending.
+Delegates: none new (in flight: the P4 oracle fold on luna, the T3 S10 items on sol).
+Next: read both G1 summaries; then G2 three-lane test:changed per branch before landing, G3 after.
+
+## 2026-10-30 20:2x +0700 — G1 RESULTS: both branches have real failures the ad-hoc verification missed
+Completed-GMT: 2026-10-30 13:2x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The G1 three-lane runs at the pushed tips returned failures on both branches — confirming the compliance gap was material, not bookkeeping.
+**yang-ts-t3 @ 216346f5:** clj exit 1 and cljd exit 1. Findings: (a) class-refusals-test demands `class A { m() { return a?.b; } }` be refused as unsupported/optional-chaining, but T4 implemented optional chaining — the de-list class, 5th instance on this track; (b) float-address-test prelude-address and program-address FAIL — the two golden drifts the S10 round named; (c) two new ERRORs: linked-and-bundled-profiles-test (PersistentHashMap) and transform-routes-programs-and-diagnostics-test + unknown-rule-fails-qualified-test (core.clj:598).
+**yang-php-p4 @ 8a807c0e:** cljd exit 1 — a COMPILATION error: yang.php.antlr.prelude-test requires yin.vm.test-utils (a test-only namespace) which the Dart per-namespace aggregator cannot resolve. A real portability defect. clj: p4-registry-is-inert-test failures (class_model_test.cljc:309,313).
+Decisions: the fixes wait for the two in-flight rounds (the P4 oracle fold on luna, the T3 S10 items on sol) to land — fixing a state that is about to change wastes a round and risks a conflict. The T3 items round may already cover (a) and (b).
+Verification: the shiva G1 summaries and per-lane logs.
+Delegates: codex gpt-6-luna (P4 oracle fold, IN FLIGHT); codex gpt-6.1-sol (T3 S10 items, IN FLIGHT).
+Next: both rounds land -> the G1 failures re-checked against the new tips -> the fix rounds for whatever remains -> G2 three-lane test:changed per branch -> the landings.
+
+## 2026-10-30 20:4x +0700 — the oracle pin defect fixed (ada1ed14): it folded only :out
+Completed-GMT: 2026-10-30 13:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The P4 oracle fold round (luna) landed (ada1ed14, pushed). Real finding: the pin function folded only :out, leaving :diag and :uncaught stale from hand-authored pins — a latent defect. It now folds all three recorded fields with recorded values authoritative. The pass-12 records folded (the two row65 spread cases, the ro-clone-child readonly case). My brief's assumptions were wrong in three ways the engineer corrected: 68 of the 71 records belong to P6 fixtures (not the P4/P3b files), the 2 pass-12 FAILs are generator fixtures (gen-break-then-resume, gen-c8-pending-finally-departure — needing re-recording), not the C25 cases. Remaining: 2 pending in programs_p4, 9 in programs_p3b, 2 in programs_p6, plus the class-model-test generator-metadata assertion (expects the banner on unrecorded generators-v1 fixtures).
+Decisions: the remaining pending fixtures need a pass-13 recording at the new tip (the generator fixtures changed with S8); the class-model-test assertion should tolerate :oracle :pending or the fixtures get recorded.
+Verification: the round's focused run (11 tests / 1104 assertions / 1 failure); kondo 0/0.
+Delegates: codex gpt-6-luna (the P4 oracle fold, complete).
+Next: re-run G1 at the new tip (ada1ed14); the pass-13 oracle recording for the generator fixtures; the class-model-test assertion fix; the T3 S10 items round still in flight.
+
+## 2026-10-30 21:0x +0700 — the T3 S10 items fixed (55dac802); G1 re-launched at both new tips
+Completed-GMT: 2026-10-30 14:0x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: Two closures and one measurement. (1) The T3 S10 items round (sol) landed (55dac802, pushed): both float-address goldens PROVEN to be expected T4 re-pins (removing only T4's three added definitions reproduces both old hashes exactly — the strongest form of the explanation the audit asked for), and the stale refusals de-listed (??, optional property access, array/call spread, optional access in class methods). JVM quick 100/3048/0, kondo 0/0, cljstyle clean. (2) The P4 oracle fold's pin defect and records landed earlier (ada1ed14). (3) The first G1 pass at the OLD tips measured: TS clj 16 ns / 100 tests / 25 failures, cljs 10/73/4, cljd 10/73/4 — the whole-subsystem gate found far more than the ad-hoc sample (25 clj failures vs the 5 sampled), which is precisely why G0-only verification was inadequate. Both G1 lanes re-launched at the new tips (php ada1ed14, ts 55dac802).
+Decisions: the fix rounds now precede the G1 re-measurement rather than following it — no more sampling.
+Verification: G1 re-runs in tmux on shiva.
+Delegates: codex gpt-6.1-sol (T3 S10 items, complete); codex gpt-6-luna (P4 oracle fold, complete).
+Next: read both G1 results at the new tips; fix whatever remains; then G2 three-lane test:changed per branch; then the landings.
+
+## 2026-10-30 21:2x +0700 — OWNER RULING recorded: parsing stays JVM-only; the JS/Dart parser slice retired
+Completed-GMT: 2026-10-30 14:2x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Owner, verbatim: "ok lets go with that. don't build the JS/Dart parser except on the JVM"
+Done: The ruling recorded in three places: (1) the decision record collab/1793-decided-jvm-only-parsing.md (what it settles, the verified state, what remains the rule, the only reopening case); (2) ledger row 130 (the declined capability, with the evidence that nothing exists to remove and that Python's multi-target parsers are its own lane's capability); (3) this entry. Verified before recording: both manifests declare :java only; build/antlr/{typescript,php} hold no js/dart output; lib/antlr/{typescript,php} do not exist; the helper-port licensing therefore covers nothing built. Python unaffected (all four targets, artifacts on disk, portable wrapper, J2b zero pins).
+Decisions: the cross-host parse slice's plan of record is retired as declined. The packets-not-parsers boundary is confirmed as the standing rule for Node, Dart and any future host including jolt.
+Verification: the manifest and artifact checks above.
+Delegates: none.
+Next: back to the closure work — G1 results at the new tips, the remaining P4/T3 fixes, G2 three-lane per branch, the landings.
+
+## 2026-10-30 21:4x +0700 — G1 re-run at the new tips: T3 down to 1 failure (both JS lanes pass); P4 cljd has one blocker
+Completed-GMT: 2026-10-30 14:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The G1 re-runs at the new tips produced actionable results. (1) **T3 @ 55dac802**: clj 16 ns / 100 tests / **1 failure** (down from 25), cljs 10/73/**pass**, cljd 10/73/**pass** — sol's fix eliminated 24 clj failures and all 8 JS-lane failures. The single remaining failure is a StackOverflowError in `linked-and-bundled-profiles-test` while `pr-str`-ing the linked program tree: the linked emission carries a self-referential structure (prime suspect: the yang.call S1 linked wiring that requires the published module and pins its address). Dispatched to sol (architectural; UAST must be serialisable data — a cycle in a lowered program is itself the defect). (2) **P4 @ ada1ed14**: cljs **passes** (exit 0, 490s), cljd fails, clj still running. The cljd failure root-caused: `yang.php.antlr.prelude-test` requires `yin.vm.test-utils` (test-only) which the Dart per-namespace aggregator cannot resolve — it works on JVM only because test/ is on the classpath. Dispatched to luna (mechanical portability fix: use the harness's own VM path or production dao.stream.memory-log, keep all three lanes identical).
+Decisions: the G1 gate is now generating the fix queue — every failure has an owner and a difficulty-matched delegate.
+Verification: shiva G1 summaries per lane; the failure details extracted.
+Delegates: codex gpt-6.1-sol (T3 linked-cycle, IN FLIGHT); codex gpt-6-luna (P4 cljd test-utils, IN FLIGHT).
+Next: both fixes land -> G1 re-run at the resultant tips -> G2 three-lane test:changed -> the landings.
+
+## 2026-10-30 21:5x +0700 — codex hit its usage limit (resets 23:24); both fixes re-routed to available families
+Completed-GMT: 2026-10-30 14:5x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: Both codex dispatches (the T3 linked-cycle on sol, the P4 cljd test-utils on luna) failed on the codex usage limit (resets 23:24 +0700). Re-routed to the available families per routing-status: the T3 architectural diagnosis to kimi k3.1-pro (verified available by test dispatch), the P4 mechanical portability fix to deepseek-v4-pro (verified available). Both re-dispatched and working — kimi is already drafting a tree-depth assertion to replace the fragile pr-str size comparison.
+Decisions: the delegate-unavailable re-route follows the difficulty rule against whatever bench is live, not a fixed model order.
+Verification: the test dispatches (deepseek OK, kimi session established); the re-dispatched logs growing.
+Delegates: kimi k3.1-pro (T3 linked-cycle, IN FLIGHT); deepseek-v4-pro (P4 cljd, IN FLIGHT).
+Next: both fixes land -> G1 re-run -> G2 three-lane -> landings. G1-php clj lane still running from the previous pass (it will be superseded by the re-run).
+
+## 2026-10-30 22:1x +0700 — T3's last G1 failure fixed by kimi (prelude then-chain); the P4 cljd failure root-caused to lower.cljc itself
+Completed-GMT: 2026-10-30 15:1x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The T3 linked-cycle round (kimi, re-routed after codex's limit) found the true cause — NOT linked-module wiring: the BUNDLED prelude built a deeply nested linear `then` chain, so `pr-str` recursed past the JVM stack. Fixed by balancing the sequencing at prelude.cljc:4127, with a depth regression test and re-pinned content addresses. Committed c4644d3b. JVM 14/60/0, kondo 0/0. (2) The P4 cljd blocker is deeper than the test-helper require: after removing `yin.vm.test-utils` (e89bb261, which was a real defect too — a test-only namespace in a test's ns form blocking the Dart aggregator), the lane still failed. Isolating by single-namespace compile proves the real defect: `yang.php.antlr.lower` (a src namespace) does not compile on CLJD at all — the compiler reports its whole ns form as faulty with no deeper diagnostic, the same terse shape as the TS prelude overflow. Dispatched to kimi (the same delegate who solved the structurally identical TS case).
+Decisions: the diagnosis pattern is now established — the CLJD compiler's terse "faulty form = ns" report on a src namespace means the namespace's own content is unprocessable, and deep linear nesting is the prime suspect (two confirmed instances).
+Verification: the single-namespace cljd compile reproduced deterministically.
+Delegates: kimi k3.1-pro (P4 lower CLJD, IN FLIGHT).
+Next: the P4 lower fix lands -> cljd compile green -> G1 re-run for both branches -> G2 three-lane -> the landings.
+
+## 2026-10-30 13:1x +0700 — the P4 cljd blocker root-caused and fixed (ff60b919): the prelude and prelude_module gain the CLJD-only clojure.edn require
+Completed-GMT: 2026-10-30 06:1x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The P4 cljd blocker root-caused and fixed: defquoted expands to edn/read-string, but the prelude and prelude_module lacked the caller-side clojure.edn alias on CLJD — the same root cause as the TS prelude overflow. The fix: the CLJD-only require in both files. The single-namespace compile green (yang.php.antlr.lower compiles). The prelude-test require of yin.vm.test-utils was a second, real defect (a test-only namespace in a test's ns form blocking the Dart aggregator) — also fixed (e89bb261).
+Decisions: the defquoted macro must declare its caller-side requires on every target — the macro-author rule.
+Verification: the single-namespace cljd compile green for lower.
+Delegates: kimi k3.1-pro (the P4 lower CLJD fix, complete); codex luna (the P4 cljd test-utils fix, complete).
+Next: the P4 G1 re-run (the nine namespaces) at the new tip; the prelude-test CLJD compile check; then the P6 S3+ shiva verify and the checkpoint-B oracle pass.
+## 2026-10-30 22:3x +0700 — the P6 S3+ shiva verification landed; the T4 round landed; the checkpoint-B oracle pass 12 landed (478/0/120); the T3 S10 round dispatched
+Completed-GMT: 2026-10-30 14:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The P6 S3+ shiva verification landed: cljstyle rc=0, kondo 0/0, the nine-namespace suite green (the include-test 5/26 green, the e2e failures triaged as the stale refusal pair + the known phpt StackOverflow). (2) The T4 round landed (216346f5): ??, optional property access, array spread, template substitutions, arguments. (3) The checkpoint-B oracle pass 11 ran on shiva: 478 targets, 0 failures, 120 records — the largest pass yet. (4) The T3 S10 round dispatched to codex (the ts-t3 worktree): the portability checkpoint per the plan of record v2, with the :claims scope ruling honored (the :claims emission and binder-table verification are T10 work, NOT T3).
+Decisions: the :claims scope ruling (kimi) is authoritative — the T3 S9/S10 scope excludes enum lowering and all T10 claims work.
+Verification: the shiva runs; the log entries.
+Delegates: codex gpt-6-luna (the T4 round, complete; the T3 S10 round, IN FLIGHT); kimi (the P6 v2 confirm, APPROVED); fable (the W0a/W0b recon, IN FLIGHT).
+Next: the P6 S3+ round -> shiva verify -> commit; the P6 S6+ round; the W0a/W0b plan lands -> the W0a/W0b execution; the T3 S10 round -> shiva verify -> commit; the T3 S5 shiva legs; the checkpoint-B oracle pass.
+
+## 2026-10-30 21:5x +0700 — the handoff artifact: the yang.call S0+S1 landed on master; the yang.python and yang.clojure orchestrators unblocked
+Completed-GMT: 2026-10-29 17:5x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The yang.call shared runtime is landed on master (64f2885a): the S0 core (entry discovery, eligibility, invocation construction/validation, condition transfer, invoke/invoke-with), the TS S1 wiring, the PHP S1 wiring, the PHP reference binding-profile, and the cross-frontend identity fixture. The yang.python and yang.clojure orchestrators can begin their integration of the common call for their languages.
+Decisions: the handoff artifact is this log entry — the yang.call API surface (entry, eligible?, invocation, invocation-with, valid-invocation?, condition, thrown, transfer, invoke, invoke-with), the dependency addresses (yang.core.call, yang.core.uast, yang.core.prelude, yin.vm, yin.vm.module), and the convention spec (yang.antlr.md section 8.10, committed eb8030e8, kimi-approved).
+Verification: the merge landed on master (64f2885a); the ledger union row-wise (127 unique rows at merge time).
+Delegates: none new (the shiva compute lanes for the checkpoint-B oracle pass continue).
+Next: the yang.python and yang.clojure orchestrators dispatch their S1 wiring rounds; this seat continues the P4/T3/P6 rounds on codex luna/sol.
+## 2026-11-01 20:3x +0700 — resume: both track branches queued for shiva verification; the checkpoint-B fold round dispatched to codex
+Completed-GMT: 2026-11-01 13:3x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: The board was idle (no delegate rounds, no shiva lanes). (1) The shiva verification lanes launched for both track tips: yang-php-p4 @ ebdf2a6d and yang-ts-t3 @ bce0e454, each in its own scratch clone (~/ci/datomworld-p4, ~/ci/datomworld-ts3), tmux sessions verify-p4 / verify-ts3, each running cljstyle + kondo + the subsystem JVM gate (yang.php / yang.typescript). (2) The checkpoint-B state re-derived: the pass-12 fold already landed (0911edd0 — the pin folds :out/:diag/:uncaught, the records folded); the open defect is the class_model_test recorded/pending/generator assertions not matching the folded state. (3) The checkpoint-B fold-reconciliation round dispatched to codex gpt-6-luna in the php-p4 worktree (brief /tmp/orch/p4-checkpointB-fold.md, findings to collab/1793496000000-engineer-p4-checkpointB-fold.gpt-6-luna.findings.md; the engineer commits but does not push — the seat pushes after shiva verification).
+Decisions: the fold round routes to codex (engineer routing); the oracle pins themselves are untouchable (oracle wins); no push until the shiva lanes return green.
+Verification: the tmux sessions live (both lanes in the kondo phase, load 13/24 on shiva).
+Delegates: codex gpt-6-luna (the checkpoint-B fold round, IN FLIGHT); two shiva lanes (verify-p4, verify-ts3, IN FLIGHT).
+Next: the shiva lanes return -> the track-branch verification verdicts; the fold round returns -> the focused-gate counts -> the shiva verify of the fold commit -> push; then the checkpoint-B re-audit (kimi/sol per routing) and the P4 landing sequence; the T3 S5 slow-tier legs after the verify lanes clear (the one-lane-set discipline).
+## 2026-11-01 22:2x +0700 — the verification rounds: ts3 green (clj 101/0, cljd 76/0); the p4 lane wedged in e2e; three engineer rounds landed; the kimi heap ruling
+Completed-GMT: 2026-11-01 14:2x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The shiva verification of yang-ts-t3 @ bce0e454: clj 16 ns / 101 tests / 0 failures (765 s), cljd 10 ns / 76 / 0 (683 s) — pass. The cljs tier failed on the known fresh-clone npm gap (@noble/hashes missing); the deps:npm fix + cljs quick + Node slow tier relaunched (tmux t3-node-slow). (2) The p4 lane: the first run's clj tier died on the missing generated ANTLR sources in the fresh clone (ClassNotFoundException PhpLexer — the subsystem runner's "Skipping gen:antlr" heuristic is wrong for fresh clones; the lane fix is to run bb gen:antlr first). The relaunched clj tier reproduced exactly one failure (the generator-metadata assertion, :pending vs banner) then WEDGED in yang.php.antlr.e2e-test: 93+ minutes at 100% CPU, jstack shows the main thread spinning inside yin.vm.engine/run_loop via test-utils/run-vm — a guest program that never terminates in a non-slow e2e fixture (the known shiva e2e hang class, now with a thread dump: collab/orch-lane/p4-e2e-hang-threaddump.txt). The lane was killed; the hang diagnosis round is queued after the in-flight worktree round (one writer). (3) The checkpoint-B fold round landed (304ef51e: the class_model_test assertions reconciled to the folded state; 8/587/0 on the namespace). (4) The objects-defects round landed (c7c90249: the two typed-byref mismatches — the binding profile dropped and the cleanup bypass on failed binding — plus the closure declaring-class-scope fix; the combined consumer gate 14/1209 with only the excluded heap failures). (5) The kimi heap ruling (collab/orch-lane/1793502000000-architect-p4-heap-ruling.kimi-k3.1-pro.stdout.log): option (c) — the MEASUREMENT is wrong, not the runtime; engine/collect's roots are extra roots on top of the blocked main activation, so N=10 vs N=1000 compared different module-frame live sets; the correction ports the Python fixture's protocol (run to normal completion, collect from the cycle-rooted generator alone); the heap-fixture round dispatched to codex.
+Decisions: the lane-script gap (gen:antlr in fresh clones) is recorded for every future scratch-clone lane; the e2e hang is reported with evidence, not weakened; the heap growth claim is withdrawn per the ruling (no leak evidence; a corrected fixture that still grows would justify a leak investigation).
+Verification: the shiva lane tables; the codex round counts; the jstack dump; the kimi ruling's engine.cljc citations.
+Delegates: codex gpt-6-luna (fold 304ef51e COMPLETE; objects c7c90249 COMPLETE; heap-fixture IN FLIGHT); kimi k3.1-pro (the heap ruling, COMPLETE); shiva lanes (ts3 pass; p4 wedged, killed; t3-node-slow IN FLIGHT).
+Next: the heap-fixture round returns -> shiva re-verify of the p4 tip (gen:antlr first, e2e excluded-or-bounded pending the hang round) -> push 304ef51e + c7c90249 + the heap fix; the e2e-hang round dispatches; the T3 Node slow leg returns -> the Dart slow leg -> the T3 S7 sign-off; the checkpoint-B re-audit after the p4 tip is green.
+## 2026-11-01 23:0x-01:4x +0700 — the T3 sign-off tiers green (tri-tier + Node slow); the heap leak root-caused (kimi r2) and fixed (sol); the PHPT wedge is systemic
+Completed-GMT: 2026-11-01 15:0x-17:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The ts3 verification is fully green at bce0e454 after the deps:npm fix: clj 101/0, Node cljs 76/0 (1018 s), Dart cljd 76/0 (461 s) — the T3 S7 sign-off's quick-tier conditions hold at the fixed tip; the Node slow tier passed (76/0, 924 s); the Dart slow leg (DATOM_SLOW_TESTS=1 cljd) runs on (tmux t3-dart-slow, alive, ticking through the t3 corpus). (2) The kimi heap r2 diagnosis (collab/orch-lane/1793510000000-architect-p4-heap-r2.kimi-k3.1-pro.stdout.log): the corrected fixture's growth is a REAL runtime defect — php/gen-enter (prelude.cljc:4310) assocs the running state onto the previous suspended state, chaining :resume/:ctx continuations across every resume; checkpoint B must WAIT for the fix (unbounded retention under ordinary suspend/resume). (3) The sol leak-fix round: the gen-enter-only rebuild still leaked; the authorized extension (rebuild suspension + drop yield's saved running-state snapshot + gen-put! returns null; no destructor changes) passes the regression exactly — 99 cells at N=10 AND N=1000 on all four VMs, identical deep sizes per VM. The broad JVM quick tier wedged in the PHPT selection (10k+ iteration stress cases, 33+ min) — the SECOND independent sighting of the unbounded-guest-loop hang class (with the e2e-test 93-minute wedge on shiva); sol instructed to land without the broad tier and note the sighting; r3 in flight. (4) The push of 304ef51e + c7c90249 + 18ef324d + the leak fix waits for the shiva re-verify of the p4 tip (with gen:antlr first and the e2e/PHPT hang status recorded).
+Decisions: the leak-fix extension authorized by the seat as within the kimi ruling's intent (all three touchpoints are the same live continuation chain; no destructor releases); the hang class is now systemic (two sightings) and gets its own engineer round after sol lands (candidate scope: a guest step budget or bounding the stress corpus — likely needs the architect if it touches the safepoint contract).
+Verification: the shiva lane tables (lane3-ts3 all pass; Node slow 76/0); the sol r2 measured table; the kimi r2 prelude.cljc line citations.
+Delegates: codex gpt-6.1-sol (the leak fix, r3 IN FLIGHT); kimi k3.1-pro (the r2 diagnosis, COMPLETE); shiva lanes (t3-dart-slow IN FLIGHT).
+Next: sol r3 commits -> the shiva re-verify of the p4 tip -> push; the e2e/PHPT hang round dispatches; the Dart slow leg returns -> the T3 S5/S7 sign-off completes; then the checkpoint-B re-audit (fable) -> the P4 landing sequence; the P6 S6+ and P4 S9-S12 rounds after.
+## 2026-11-02 01:0x-02:4x +0700 — the p4 tip pushed and verified (JVM tier 108/3208/0 minus e2e); the hang class closed as finite stress cost (kimi ruling); the re-tier lands
+Completed-GMT: 2026-11-02 15:0x-18:4x GMT (log times approximate; entered ~2026-11-02 02:4x +0700)
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The p4 tip (304ef51e fold, c7c90249 byref/closure fixes, 18ef324d heap fixture, 4c8eaacf the leak fix — rebuild running/suspended generator states with only live fields; keep running-state snapshots out of yield continuations incl. discarded state-update results in lowered do bindings) PUSHED and verified on shiva: the clj tier minus e2e ran 108 tests / 3208 assertions / 0 failures / 0 errors. The heap regression gate passes exactly (99 cells at N=10 and N=1000, identical deep sizes per VM). (2) The kimi stress ruling (collab/orch-lane/1793545000000-architect-p4-stress-budget-ruling.kimi-k3.1-pro.stdout.log): NO unbounded fixture exists — the 93-minute shiva e2e sighting is CLOSED as finite stress cost (Zend gc_013: 10,001 iterations, ~259 s on one VM; e2e carries phpt-derived stress); the remedy is (b) re-tier the stress cases to ^:slow NOW and (a) a separate P7-a execution-budget change with the ruled contract (per-run safepoint-count budget on the PHP execution profile counting the existing :loop/:call hooks, default off/unlimited, exhaustion = the pinned PHP operational fatal, non-catchable, skips destructor shutdown; NO wall-clock timeouts as guest semantics; production unchanged). (3) The re-tier round (codex luna, resumed session) in flight: gc_013/gc_023 moved; the walk surfaced two MORE expensive quick-tier fixtures (bug40261: a 100,000-iteration loop; bug39438) now moved; luna is proving the reduced quick selection's completion time. (4) The Dart slow leg: the first run died silently mid-corpus (211 t3 cases in, no summary, no surviving process, 32 GB free — cause unknown); relaunched and running (t3 cases ticking).
+Decisions: the shiva e2e "wedge" is reclassified from defect to stress cost per the ruling; the lane6 lesson recorded (scratch-clone focused runs need clojure -M:test; the plain clojure -M lacks the test classpath).
+Verification: the shiva lane6 counts; the sol r2 measured table; the kimi ruling's citations (yang.php.md:1239, :1921-1938, :2093-2097; yin.vm.engine.md:565-568; yin.vm.semantic.md:655-659).
+Delegates: codex gpt-6-luna (the hang walk COMPLETE; the re-tier IN FLIGHT); kimi k3.1-pro (the stress ruling, COMPLETE); shiva lanes (p4-noe2e COMPLETE 108/3208/0; the Dart slow leg IN FLIGHT).
+Next: the re-tier lands -> shiva quick-tier completion proof -> push; the checkpoint-B re-audit routes to the architect (kimi or sol per the difficulty routing — NOT fable, claude is expired) once the p4 tip is fully green including the re-tiered e2e; the Dart slow leg -> the T3 S5/S7 sign-off closes; then the P4 S9-S12 and P6 S6+ rounds.
+## 2026-11-02 0x:xx-1x:xx +0700 — the conformance gap closure: TS and PHP real-source rounds landed; the crosslang gap CONFIRMED by codex; the e2e red triaged; gc_013 oracle-checked
+Completed-GMT: 2026-11-02 1x:xx GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The peer python-orchestrator note (collab/1793610000000-...) claimed the section 8.10.11 gap for TS/PHP; codex verified it READ-ONLY (collab/orch-lane/1793630000000-engineer-crosslang-gap-verify.gpt-6-luna.stdout.log): PARTIAL — the rewrites (cross_lang_test.clj:110-137 postwalk) and synthetic cells (call_test.cljc:202-260 inline fns) CONFIRMED with line evidence; the "bypass" framing too broad (the calls already route through invoke-with/:yang.call/entry); no qualifying real-source x convention test for TS/PHP anywhere. (2) The TS S11 round landed (cccebf3e on yang-ts-t3, PUSHED and shiva-verified: JVM subsystem 18 ns / 103 tests / 0 failures in the fresh ts3b clone): direct TS->PHP source calls pass on JVM and Node; the higher-order callback leg was blocked because PHP's resolver rejected TS cells. (3) The PHP conformance round landed (d145085b: unchanged PHP source calling a named TS export + the stored-called-returned closure leg; PHP closures publish a yang.call entry on the closure value) and the foreign-admission round landed (edc50134: PHP admits conforming foreign callable cells through the shared resolver; non-conforming cells keep the undefined-function diagnostic; the PHP-side callback identity test passes). Both PUSHED. (4) The foreach_016 defect fixed (3321ecee: by-ref foreach cursor preserved across array_unshift reindexing; the pin matched on all four VMs at 481 ms). (5) The e2e red triaged by reproduction at the tip: the 115/271 PHPT selection mismatches are the LONG-STANDING S10 backlog (foreach by-ref, gc, unset CV, named-params families); the refusals-are-named FOO diagnostic regression is REAL (echo FOO produces nil instead of :yang.php/unsupported/:constant — likely the P6 constants work); plus one error. The triage round (manifest bookkeeping for the selection, the FOO fix, the error, the gc_013 disposition) dispatched to luna. (6) gc_013 oracle cross-check run by the seat on shiva (docker php:8.3-cli, the pinned source): real PHP outputs bool(true)/ok — the PIN IS CORRECT; the mismatch is the engine's cycle-collection semantics -> a named known-gap row. (7) The lane lessons: the codex resume writer-lock recursed (the r2 nuance dispatch failed with thread-store conflict; sol's r1 had already converged correctly, so no re-dispatch needed); scratch-clone focused runs need clojure -M:test; the -e :slow flag EXCLUDES slow tests (lane7 forgot it and ran the 259 s gc_013 stress case); an orphaned 100%-CPU test-runner survived a tmux kill-session and burned 2.5 h before the seat killed it.
+Decisions: the conformance matrix is 4 frontends (ts/php/python/clojure) x all pairs x both directions + higher-order identity, built on ONE shared JVM helper, landing as the combined round on master after both branches land; the sol callback completion folds into that round (it needs PHP admission from the p4 branch); the selection manifest replaces the empty-mismatch assertion with counted per-family bookkeeping so silent regressions still fail; the owner affirmed the invariant (transparent cross-language calls, no adapters, AT THE UAST LEVEL) and cross_lang_test will carry yang.clojure and yang.python legs.
+Verification: codex's line-cited verdict; the shiva lane8 table (103/0); the local e2e reproduction (20/1112, 3 failures 1 error); the docker oracle run (bool(true)/ok, EXIT=0).
+Delegates: codex gpt-6-luna (foreach 3321ecee, PHP conf d145085b, admission edc50134, triage IN FLIGHT); codex gpt-6.1-sol (TS S11 cccebf3e COMPLETE, callback leg parked for the combined round); kimi (stress ruling, heap r2 — landed earlier today); shiva lanes (lane7c superseded by the triage round's own green run; the Dart slow leg IN FLIGHT at t2).
+Next: the triage round returns -> push -> the checkpoint-B re-audit to kimi; the Dart slow leg -> the T3 S5/S7 sign-off; then the combined cross_lang_test round on master (both branches merged) with the python seat's fixture-shape answer; the P7-a budget round and the P4 S9-S12/P6 S6+ steps after.
+## 2026-11-02 2x:xx +0700 — the Dart slow leg PASSED (76/0, the T3 S5/S7 sign-off complete); the composition fix landed (a77c4b0d); one shiva red left
+Completed-GMT: 2026-11-02 1x:xx GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The Dart slow leg (DATOM_SLOW_TESTS=1 cljd yang.typescript, the relaunched lane4b) PASSED: 10 ns / 76 tests / 0 failures, 27,188 s. With the tri-tier quick green (clj 101/0, cljs 76/0, cljd 76/0) and the Node slow tier 76/0, the T3 S5/S5 shiva legs and the S7 sign-off conditions are COMPLETE. (2) The conformance composition fix landed (a77c4b0d: donors execute first and PUBLISH into the global table; the caller AST references the name — no donor code embedded; the three real-lowered-* tests and yang.cross-lang-test pass at default stack). (3) The shiva subsystem rerun at a77c4b0d: 129 tests / 1 failure — the SO errors are gone; the last red is phpt-selection-runs-test overflowing while PRINTING a huge failure map (the assert's actual embeds engine outputs; core_print blew the stack), and the shiva actual may differ from local (corpus environment). The bounded-assertion fix round dispatched to luna (counts per family + ID lists only; never print unbounded payloads; explain the shiva/local delta). (4) gc_013 root-caused for the ledger: the ENGINE lacks gc_collect_cycles entirely (undefined function, empty output) while the docker php:8.3 oracle confirms the pin (bool(true)/ok) — the proposed known-gap row wording is in luna's findings.
+Decisions: the T3 S5/S7 closure is recorded on the shiva evidence; the selection manifest's environment-conditionality is part of the in-flight round; the P4 landing gate is now that single shiva red.
+Verification: the lane4b table (76/0 pass); lane10 (129/1); the docker oracle run recorded earlier.
+Delegates: codex gpt-6-luna (the selection-print round, IN FLIGHT); shiva lanes (the Dart slow leg COMPLETE; p4-final2 COMPLETE 129/1).
+Next: the selection-print round -> push -> the FINAL shiva green run -> the checkpoint-B re-audit to kimi -> the P4 landing; the combined cross_lang_test round on master (both branches carry everything it needs); the P7-a budget round; the P4 S9-S12/P6 S6+ steps.
+## 2026-11-02 1x:xx +0700 — BOTH TRACKS LAND ON MASTER: checkpoint B closed (kimi riders), T3 S5/S7 sign-off complete, the G2 three-lane gate green, the merges pushed, G3 running
+Completed-GMT: 2026-11-02 0x:xx GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: (1) The const-resolution round landed (c5450901: use-const imports resolve before the refusal; echo FOO keeps its named :constant refusal; :ns-use-function-const OK on linked VMs; the slow include corpus was locally unbounded — the shiva lane covers it). (2) The G2 three-lane gate at c5450901 on shiva: clj 16 ns / 130 tests / 0 failures / 0 errors; cljs (Node) 4 ns / 51 / 0; cljd (Dart) 4 ns / 51 / 0 — all pass. (3) The P4 landing: yang-php-p4 merged to master (b5f1daea) — the known-gaps ledger union-merged. (4) The T3 landing: yang-ts-t3 merged to master (4ed8a254) — two conflicts resolved: latte_oracle_test.clj kept master's validation-budget helper (the ts branch simply lacked it); float_address_test.cljc took the ts branch's emitter pins (its evolved emitter is the newer truth — G3 verifies). (5) Both merges PUSHED to origin/master; the G3 full bb test suite launched on shiva (~70 min; tmux g3). The checkpoint-B re-audit verdict (kimi, collab/orch-lane/1793940000000-...): CLOSED with riders (the PHP cyclic-GC known gap incl. the missing gc_collect_cycles; the const reconciliation — now landed; the 105 manifested PHPT mismatches), and S7 fixture enablement AUTHORIZED (generators-v1 activation).
+Decisions: the float_address pin conflict resolved toward the ts branch (the branch is the emitter's owner); the ledger resolved by union with the pre-push checks; the G3 verdict gates any claim of master health.
+Verification: the G2 tables; the merge commits on origin/master (4ed8a254); the kimi audit verdict text.
+Delegates: codex gpt-6-luna (const-resolution COMPLETE); kimi k3.1-pro (the checkpoint-B re-audit, COMPLETE); shiva lanes (G2 clj/cljs/cljd COMPLETE; G3 IN FLIGHT).
+Next: the G3 verdict -> if green, master is the landed base; then the generators-v1 activation round, the combined cross_lang_test rebuild (4 frontends on master — completes sol's parked callback leg and answers the python seat), the P7-a budget round, and the P4 S9-S12 / P6 S6+ steps.

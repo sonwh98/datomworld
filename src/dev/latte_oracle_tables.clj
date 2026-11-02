@@ -6,6 +6,8 @@
 ;; Run: clj -X:test:dev latte-oracle-tables/-main
 (ns latte-oracle-tables
   (:require [clojure.java.io :as io]
+            [clojure.edn :as edn]
+            [clojure.string :as str]
             [clojure.pprint :as pp]
             [yang.latte-oracle-test]))
 
@@ -23,8 +25,35 @@
   (println "wrote" (count rows) "rows to" file))
 
 
+(def ^:private exclusions
+  {'latte_kernel.utils/nano-time "Reads the host monotonic clock; no portable clock capability is installed."
+   'latte_kernel.unparser/show-term "Captures host output and invokes clojure.pprint; formatting is host-local."
+   'latte_kernel.proof/show-term "Invokes the excluded host pprint/output formatter."
+   'latte_kernel.proof/show-def "Invokes the excluded host pprint/output formatter."
+   'latte_kernel.proof/elab-print-term "Writes directly to host stdout; no portable output stream is supplied."
+   'latte_kernel.proof/elab-print-type "Writes directly to host stdout; no portable output stream is supplied."
+   'latte_kernel.proof/elab-print-def "Writes directly to host stdout; no portable output stream is supplied."
+   'latte_kernel.proof/elab-print-defenv "Writes directly to host stdout; no portable output stream is supplied."
+   'latte_kernel.proof/print-state "Writes directly to host stdout; no portable output stream is supplied."})
+
+
+(defn- admission-rows
+  []
+  (mapv (fn [{:keys [ns name] :as row}]
+          (let [excluded (get exclusions (symbol (str ns) (str name)))]
+            (assoc row :source (str (str/replace (str ns) "." "/") ".cljc")
+                   :disposition (if excluded :excluded :admitted)
+                   :admission-reason
+                   (or excluded
+                       "Guest source and explicit immutable context adapters over data/* and the declared kind/* host seams."))))
+        (edn/read-string (slurp "test/yang/latte_oracle/manifest.edn"))))
+
+
 (defn -main
   [& _]
+  (write-table! "test/yang/latte_oracle/manifest.edn"
+                ";; GENERATED admission inventory; each binding is :admitted or :excluded with a reason.\n"
+                (admission-rows))
   (write-table! "test/yang/latte_oracle/throw_sites.edn"
                 (str ";; GENERATED from the manifest forms by yang.latte-oracle-test/throw-site-rows.\n"
                      ";; One row per throw symbol; disposition :fixture | :deferred | :excluded.\n")

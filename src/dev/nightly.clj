@@ -116,19 +116,69 @@
     @results))
 
 
+(defn- assigned-subsystems
+  "The subsystem subset this host runs, from NIGHTLY_SUBSYSTEMS (comma list).
+   nil = run everything (single-host mode)."
+  []
+  (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
+           (map str/trim)
+           (remove str/blank?)
+           (map #(str/replace % "." "-"))
+           seq))
+
+
+(defn- in-subset?
+  "True when a test namespace belongs to one of the assigned subsystem
+   prefixes (dots normalized to dashes for comparison)."
+  [nss prefixes]
+  (some #(str/starts-with? nss %) prefixes))
+
+
+(defn- log-lane
+  [summary msg]
+  (println msg)
+  (spit summary (str msg "\n") :append true))
+
+
 (defn- lane-jvm
   [clone par out summary]
-  (let [quick (run-cmd! clone (str out "/jvm-quick.log")
-                        ["bb" "test:quick-sharded" "--workers" (str par)])
-        slow-nss (slow-namespaces clone)
+  (let [subset (assigned-subsystems)
+        ;; prerequisites the bare-metal hosts got from prior rounds: the
+        ;; antlr-generated parser classes and the Node REPL. A fresh
+        ;; container has neither, and yang.*.antlr tests fail with
+        ;; ClassNotFoundException without the first. gen:antlr is cheap
+        ;; when its cache is warm.
+        _ (doseq [[nm cmd] [["gen:antlr" ["bb" "gen:antlr"]]
+                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]]
+                  :let [t0 (System/currentTimeMillis)
+                        exit (run-cmd! clone (str out "/" nm ".log") cmd)]]
+            (log-lane summary (str nm " rc=" exit
+                                   " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
+            (when-not (zero? exit) (throw (ex-info (str nm " failed") {}))))
+        slow-nss (cond->> (slow-namespaces clone)
+                   subset (filter #(in-subset? % subset)))
+        ;; quick tier: subsystem-sharded on the full set; per-subsystem
+        ;; test:sub:clj runs pooled when a disjoint subset is assigned
+        quick-log (str out "/jvm-quick.log")
+        quick (if subset
+                (let [results (run-pool par
+                                        (fn [s]
+                                          (run-cmd! clone
+                                                    (str out "/jvm-quick-" s ".log")
+                                                    ["bb" "test:sub:clj" s]))
+                                        subset)]
+                  (reduce + (vals results)))
+                (run-cmd! clone quick-log
+                          ["bb" "test:quick-sharded" "--workers" (str par)]))
         slow (run-pool par
                        (fn [nss]
                          (run-cmd! clone (str out "/slow-" nss ".log")
                                    ["clojure" "-M:test" "-i" :slow "-n" nss]))
                        slow-nss)
         slow-red (count (remove zero? (vals slow)))]
-    (spit summary (str "jvm-quick rc=" quick " (sharded, " par " workers)\n"
-                       "jvm-slow namespaces=" (count slow-nss)
+    (spit summary (str "jvm-quick rc=" quick
+                       (when subset (str " (subset: " (str/join "," (sort subset)) ")"))
+                       "\njvm-slow namespaces=" (count slow-nss)
                        " red=" slow-red "\n")
           :append true)
     (when-not (zero? quick) (throw (ex-info "jvm quick tier red" {:rc quick})))
@@ -250,7 +300,8 @@
                       (quot (- (System/currentTimeMillis) t0) 1000)))
             (catch Exception e
               (reset! rc 1)
-              (log (str "FAIL " lane ": " (ex-message e)
+              (log (str "FAIL " lane ": [" (some-> e class .getSimpleName) "] "
+                        (ex-message e)
                         " secs=" (quot (- (System/currentTimeMillis) t0) 1000))))))))
     (log (str "done rc=" @rc))
     (System/exit @rc)))

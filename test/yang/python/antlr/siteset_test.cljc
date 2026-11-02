@@ -205,15 +205,19 @@
 
 
 (defn- stub-store
-  "A store holding stand-in `py` and `pysp` modules (the stage reads the
-   hook module's manifest for the derived footprint): `[store py pysp]`."
+  "A store holding stand-in `yang.call`, `py` and `pysp` modules (the
+   stage reads the hook module's manifest for the derived footprint):
+   `[store py pysp]`."
   []
   (let [store (mem/create-content-mem)
-        stub (fn [nm]
+        stub (fn [nm requires]
                (:address (publish/publish-module!
                            store {:name nm, :ast (u/lit nil), :exports #{},
-                                  :requires {}, :primitives {}})))]
-    [store (stub 'py) (stub 'pysp)]))
+                                  :requires requires, :primitives {}})))
+        call (stub 'yang.call {})
+        py (stub 'py {'yang.call call})
+        pysp (stub 'pysp {'py py})]
+    [store py pysp]))
 
 
 (defn- hook-requirement

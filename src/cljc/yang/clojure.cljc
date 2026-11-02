@@ -27,7 +27,9 @@
   as regular function applications and resolved through the module system at runtime.
 
   The compiler is written in .cljc format to run on both JVM and Node.js."
-  (:refer-clojure :exclude [compile]))
+  (:refer-clojure :exclude [compile])
+  (:require [yang.core.call :as call]
+            [yang.core.uast :as u]))
 
 
 ;; Forward declaration for mutual recursion
@@ -172,6 +174,8 @@
   (when-let [hit (and (::convention env) (some #{'conj 'vec} names))]
     (throw (ex-info (str "Binding " hit " would capture the argument-vector constructor")
                     {:names names})))
+  (when (and (::invoker env) (some #{'invoke-value} names))
+    (throw (ex-info "Binding invoke-value would capture the guest collection invoker" {:names names})))
   (assoc env ::locals (into (locals env) (remove #(= '& %)) names)))
 
 
@@ -614,11 +618,12 @@
 ;;                           by a call-site test or the harness boundary
 ;;
 ;; Lowering is a source-to-source pass over one function body, run before the
-;; ordinary compile. A tail form returns an outcome: a value is wrapped, a
-;; guest call in tail position is forwarded UNCHANGED (no let, no test, so the
-;; semantic VM's return stack stays constant through tail chains), `throw`
-;; becomes the error outcome. A may-fail form in operand position is the early
-;; return pattern, the only mechanism:
+;; ordinary compile. A tail form returns an outcome: a value is wrapped,
+;; and a source call is admitted before invoking the common entry. Generated
+;; entries can forward a private body's outcome directly in tail position;
+;; public entries convert value/raise through the caller bridge. This keeps
+;; named and mutual tail chains at constant depth. `throw` becomes the error
+;; outcome. A may-fail form in operand position is the early return pattern:
 ;;
 ;;   (let [o <outcome>] (if (error? o) o <rest of the function with (payload o)>))
 ;;
@@ -677,6 +682,13 @@
     (cond
       (empty? form) form
       (= 'quote (first form)) form
+      (#{'.getMessage 'ex-message 'ex-data} (first form))
+      (do (when-not (= 2 (count form))
+            (reject! "Error accessor requires one portable error value" {:form form}))
+          (list (if (= 'ex-data (first form)) :yin.k/data :yin.k/message)
+                (rewrite-ex-info (second form))))
+      (and (symbol? (first form)) (= \. (first (name (first form)))))
+      (reject! "Host exception/interop accessor is not portable" {:form form})
       (= 'ex-info (first form))
       (let [[_ msg data cause] (map rewrite-ex-info form)]
         (cond-> {:yin.k/message msg, :yin.k/data data}
@@ -699,7 +711,7 @@
 
 
 (def ^:private lowered-specials
-  #{'if 'let 'do 'loop 'recur 'throw 'quote 'fn 'and 'or})
+  #{'if 'let 'do 'loop 'recur 'throw 'try 'quote 'fn 'and 'or})
 
 
 (declare failing? expand-control)
@@ -708,7 +720,7 @@
 (def ^:private control-heads
   "case and the standard control forms: compiler forms that lower to
    if/let/do, so the outcome pass sees through them like those."
-  #{'case 'cond 'when 'if-let 'if-some 'when-let 'when-some})
+  #{'case 'cond 'when 'if-let 'if-some 'when-let 'when-some '->})
 
 
 (defn- any-failing?
@@ -750,6 +762,7 @@
         (cond
           (contains? #{'quote 'fn} head) false
           (= 'throw head) true
+          (= 'try head) true
           (= 'let head) (let [[bindings & body] ops]
                           (scoped-failing? env (partition 2 (expand-bindings bindings env)) body))
           ;; the raw outcome of one guest call is a value, not a failure
@@ -882,8 +895,26 @@
           loop (lower-loop env (first ops) (rest ops))
           recur (lower-operands env (vec ops) (fn [vs] (rebuild form (cons 'recur vs))))
           throw (lower-operand env (first ops) (fn [v] [error-tag v]))
+          try (let [clauses (filter #(and (seq? %) (#{'catch 'finally} (first %))) ops)
+                    body (take-while #(not (and (seq? %) (#{'catch 'finally} (first %)))) ops)
+                    [clause] clauses
+                    [_ klass binding & handler] clause
+                    outcome (gen-sym env)]
+                (when-not (and (= (count ops) (+ (count body) (count clauses)))
+                               (= 1 (count clauses)) (= 'catch (first clause))
+                               (#{'Exception 'java.lang.Exception
+                                  'clojure.lang.ExceptionInfo} klass)
+                               (symbol? binding))
+                  (reject! "Portable try requires one Exception/ExceptionInfo catch and no finally"
+                           {:form form :clauses clauses}))
+                (check-binder! binding clause)
+                (list 'dsg__let [outcome (lower-tail env (body-expression body))]
+                      (list 'if (list 'data/content= (list 'data/nth outcome 0) error-tag)
+                            (list 'dsg__let [binding (list 'data/nth outcome 1)]
+                                  (lower-tail (with-locals env [binding]) (body-expression handler)))
+                            outcome)))
           (quote fn) (ok-form form)
-          (case cond when if-let if-some when-let when-some)
+          (case cond when if-let if-some when-let when-some ->)
           (lower-tail env (expand-control env head ops))
           and (case (count ops)
                 0 (ok-form true)
@@ -1016,9 +1047,90 @@
     (check-binder! p params)))
 
 
+(defn- outcome-node
+  [tag value]
+  (u/app (u/v 'conj) (u/app (u/v 'conj) (u/lit []) (u/lit tag)) value))
+
+
+(defn- call-entry
+  "The unary public entry, closed over a private argument-vector body."
+  []
+  (let [body (symbol (str reserved-prefix "body"))
+        invocation (symbol (str reserved-prefix "invocation"))
+        outcome (symbol (str reserved-prefix "entry_outcome"))
+        positional (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/positional))
+        named (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/named))
+        raise (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/raise))
+        binding-error (outcome-node
+                        error-tag
+                        (u/app (u/v 'dsg__assoc) (u/lit {})
+                               (u/lit :yin.k/message)
+                               (u/lit "Clojure functions do not accept named arguments")
+                               (u/lit :yin.k/data)
+                               (u/app (u/v 'dsg__assoc) (u/lit {})
+                                      (u/lit :yang.call/named) named)))
+        entry-body (u/let1
+                     outcome
+                     (u/if-node (u/app (u/v 'dsg__empty) named)
+                                (u/app (u/v body) positional)
+                                binding-error)
+                     (u/if-node (u/app (u/v 'dsg__equal)
+                                       (u/app (u/v 'data/nth) (u/v outcome) (u/lit 0))
+                                       (u/lit ok-tag))
+                                (u/app (u/v 'data/nth) (u/v outcome) (u/lit 1))
+                                (u/app raise
+                                       (u/app (u/v 'yang.call/thrown)
+                                              (u/app (u/v 'data/nth)
+                                                     (u/v outcome) (u/lit 1))))))
+        ;; The private lane forwards the body's outcome in tail position.
+        ;; The public entry still converts outcomes to value/raise normally.
+        entry (u/lam [invocation]
+                     (u/if-node
+                       (u/app (u/v 'dsg__equal)
+                              (u/app (u/v 'dsg__get) (u/v invocation)
+                                     (u/lit :clj/outcome-token))
+                              (u/v 'dsg__call_token))
+                       (u/if-node (u/app (u/v 'dsg__empty) named)
+                                  (u/app (u/v body) positional)
+                                  binding-error)
+                       entry-body))]
+    (u/lam [body] entry)))
+
+
+(defn- admit-call-descriptor
+  "Admit a descriptor constructed by trusted UAST/profile code. This is not
+   a source form: entry-spelled source maps never pass through this constructor."
+  [descriptor-ast tail?]
+  (let [descriptor-name 'dsg__descriptor
+        canonical (u/app (u/v 'dsg__assoc) descriptor-ast
+                         (u/lit :clj/admission) (u/lit nil))
+        ;; The factory closure captures the canonical descriptor and private
+        ;; token. Projection reconstructs and compares that opaque closure;
+        ;; it never applies a source-supplied predicate. An equal immutable
+        ;; reconstruction is the same value, not admission of different data.
+        witness (u/app (u/v 'dsg__make_admission) (u/v descriptor-name))
+        published (u/let1 descriptor-name canonical
+                          (u/app (u/v 'dsg__assoc) (u/v descriptor-name)
+                                 (u/lit :clj/admission) witness))]
+    (cond-> (u/mark-tails published)
+      tail? (assoc :tail? true))))
+
+
+(defn- compile-call-descriptor
+  "Publish a private body through a canonical constructor-created entry."
+  [body-ast tail?]
+  (admit-call-descriptor
+    (u/app (u/v 'dsg__assoc) (u/lit {})
+           (u/lit :yang.call/entry) (u/app (u/v 'dsg__make_entry) body-ast)
+           (u/lit :clj/type) (u/lit :function)
+           (u/lit :clj/outcomes?) (u/lit true))
+    tail?))
+
+
 (defn- compile-av-fn
   "Compile arities [{:params :body}] to one closure over an argument vector.
-   `fn-name` names the function in an arity error outcome."
+   `fn-name` names the function in an arity error outcome. Under the outcome
+   model the published value is an immutable common-call descriptor."
   ([arities env tail? macro-env] (compile-av-fn arities env tail? macro-env nil nil))
   ([arities env tail? macro-env fn-name] (compile-av-fn arities env tail? macro-env fn-name nil))
   ([arities env tail? macro-env fn-name source]
@@ -1026,8 +1138,12 @@
                          (check-av-params! params)
                          {:n (count params)
                           :form (av-let env macro-env params body)})
-                       arities)]
-     (compile-lambda [av-sym] (av-dispatch env fn-name source arities) env tail? macro-env))))
+                       arities)
+         body (compile-lambda [av-sym] (av-dispatch env fn-name source arities)
+                              env false macro-env)]
+     (if (outcomes? env)
+       (compile-call-descriptor body tail?)
+       (cond-> body tail? (assoc :tail? true))))))
 
 
 (defn- fn-arities
@@ -1081,6 +1197,124 @@
        (not (contains? (::defined env) operator))))
 
 
+(defn- compile-guest-call
+  "Admit a source operator before common invocation. Only generated UAST
+   implementation calls apply private closures directly."
+  [callee-ast arguments-ast env tail?]
+  (if-not (outcomes? env)
+    (cond-> (u/app callee-ast arguments-ast)
+      tail? (assoc :tail? true))
+    (let [callee (symbol (str reserved-prefix "callee"))
+          arguments (symbol (str reserved-prefix "arguments"))
+          escape (symbol (str reserved-prefix "raise_escape"))
+          condition (symbol (str reserved-prefix "condition"))
+          result (symbol (str reserved-prefix "call_result"))
+          condition->outcome (u/if-node
+                               (u/app (u/v 'dsg__equal)
+                                      (u/app (u/v 'dsg__get) (u/v condition)
+                                             (u/lit :yang.call/reason))
+                                      (u/lit :yang.call/thrown))
+                               (outcome-node
+                                 error-tag
+                                 (u/app (u/v 'dsg__get) (u/v condition)
+                                        (u/lit :yang.call/value)))
+                               (outcome-node error-tag (u/v condition)))
+          raise (u/lam [condition]
+                       (assoc (u/app (u/v escape)
+                                     (u/app (u/v 'dsg__assoc) (u/lit {})
+                                            (u/lit :clj/escape-token) (u/v 'dsg__call_token)
+                                            (u/lit :clj/outcome) condition->outcome))
+                              :tail? true))
+          common-call (u/let1
+                        result
+                        (u/app (u/v 'yang.call/invoke) (u/v callee) (u/v arguments)
+                               (u/lit []) raise)
+                        (outcome-node ok-tag (u/v result)))
+          refused (outcome-node
+                    error-tag
+                    (u/app (u/v 'yang.call/condition)
+                           (u/lit :yang.call/not-callable)
+                           (u/app (u/v 'dsg__assoc) (u/lit {})
+                                  (u/lit :yang.call/callee) (u/v callee))))
+          activation (u/if-node
+                       (u/app (u/v 'data/callable?) (u/v escape))
+                       common-call
+                       ;; Applying the escape resumes the capture operand.
+                       ;; Only our authenticated transfer packet may resume
+                       ;; here; an invalid captured value explicitly refuses.
+                       (u/if-node
+                         (u/app (u/v 'dsg__equal)
+                                (u/app (u/v 'dsg__get) (u/v escape)
+                                       (u/lit :clj/escape-token))
+                                (u/v 'dsg__call_token))
+                         (u/app (u/v 'dsg__get) (u/v escape) (u/lit :clj/outcome))
+                         (outcome-node
+                           error-tag
+                           (u/app (u/v 'yang.call/condition)
+                                  (u/lit :yang.call/invalid-invocation)
+                                  (u/lit {:yang.call/reason :missing-raise-exit})))))
+          public-bridge (u/app (u/lam [escape] activation) u/capture)
+          bridged (if tail?
+                    (u/if-node
+                      (u/app (u/v 'dsg__get) (u/v callee) (u/lit :clj/outcomes?))
+                      (u/app (u/v 'yang.call/invoke-with)
+                             (u/v callee) (u/v arguments) (u/lit [])
+                             (u/lam [condition] condition->outcome)
+                             (u/app (u/v 'dsg__assoc) (u/lit {})
+                                    (u/lit :clj/outcome-token) (u/v 'dsg__call_token)))
+                      public-bridge)
+                    public-bridge)
+          admitted (u/if-node (u/app (u/v 'dsg__admitted?) (u/v callee))
+                              bridged refused)
+          ;; A callee carrying a call entry is convention territory whether it
+          ;; admits or forges one, so admission rules it. Everything else is a
+          ;; data-side invocation - a collection lookup or a raw closure call -
+          ;; and the guest library's invoker owns those semantics. The invoker
+          ;; is itself a published descriptor, so it is reached the same way
+          ;; any guest callee is; its raise escapes to a capture of this site
+          ;; and the resumed pass materializes the error outcome here.
+          value-call (u/app
+                       (u/lam ['dsg__raise_escape]
+                              (u/if-node
+                                (u/app (u/v 'data/callable?) (u/v 'dsg__raise_escape))
+                                (u/let1
+                                  (symbol (str reserved-prefix "invoker_result"))
+                                  (u/app (u/v 'yang.call/invoke)
+                                         (u/v 'invoke-value)
+                                         (u/app (u/v 'conj) (u/lit []) (u/v callee) (u/v arguments))
+                                         (u/lit [])
+                                         (u/lam [condition]
+                                                (assoc (u/app (u/v 'dsg__raise_escape)
+                                                              (u/app (u/v 'dsg__assoc) (u/lit {})
+                                                                     (u/lit :clj/escape-token) (u/v 'dsg__call_token)
+                                                                     (u/lit :clj/outcome) condition->outcome))
+                                                       :tail? true)))
+                                  (outcome-node ok-tag (u/v (symbol (str reserved-prefix "invoker_result")))))
+                                (u/if-node
+                                  (u/app (u/v 'dsg__equal)
+                                         (u/app (u/v 'dsg__get) (u/v 'dsg__raise_escape)
+                                                (u/lit :clj/escape-token))
+                                         (u/v 'dsg__call_token))
+                                  (u/app (u/v 'dsg__get) (u/v 'dsg__raise_escape) (u/lit :clj/outcome))
+                                  (outcome-node
+                                    error-tag
+                                    (u/app (u/v 'yang.call/condition)
+                                           (u/lit :yang.call/invalid-invocation)
+                                           (u/lit {:yang.call/reason :missing-raise-exit}))))))
+                       u/capture)
+          routed (if (::invoker env)
+                   (u/if-node
+                     (u/if-node (u/app (u/v 'data/map?) (u/v callee))
+                                (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
+                                (u/lit false))
+                     admitted
+                     value-call)
+                   admitted)]
+      (cond-> (u/mark-tails (u/let1 callee callee-ast
+                                    (u/let1 arguments arguments-ast routed)))
+        tail? (assoc :tail? true)))))
+
+
 (defn- compile-apply
   "(apply f a b coll) as one application of f to the assembled argument
    vector (into [a b] (vec coll)): the convention's own calling shape, so it
@@ -1092,13 +1326,12 @@
   (let [[f & more] operands
         lead (vec (butlast more))
         coll-form (list 'vec (last more))]
-    (cond-> {:type :application
-             :operator (compile-form f false env macro-env)
-             :operands [(compile-form (if (seq lead)
+    (compile-guest-call (compile-form f false env macro-env)
+                        (compile-form (if (seq lead)
                                         (list 'data/into lead coll-form)
                                         coll-form)
-                                      false env macro-env)]}
-      tail? (assoc :tail? true))))
+                                      false env macro-env)
+                        env tail?)))
 
 
 (defn- compile-av-application
@@ -1122,6 +1355,41 @@
                                  (rest operands))}
           tail? (assoc :tail? true)))
 
+    (and (outcomes? env) (= operator 'yang.call/eligible?))
+    (let [candidate 'dsg__eligibility_candidate]
+      (cond-> (u/mark-tails
+                (apply u/app
+                       (u/lam [candidate]
+                              (u/if-node
+                                (u/app (u/v 'dsg__admitted?) (u/v candidate))
+                                (u/app (u/v 'yang.call/eligible?) (u/v candidate))
+                                (u/lit false)))
+                       (map #(compile-form % false env macro-env) operands)))
+        tail? (assoc :tail? true)))
+
+    (and (outcomes? env)
+         (#{'yang.call/invoke 'yang.call/invoke-with} operator)
+         (<= 4 (count operands)))
+    (let [bindings (into ['dsg__invocation_candidate]
+                         (map #(symbol (str "dsg__invocation_operand_" %)))
+                         (range (dec (count operands))))
+          compile-operand #(compile-form % false env macro-env)]
+      (cond-> (u/mark-tails
+                (apply u/app
+                       (u/lam bindings
+                              (u/if-node
+                                (u/app (u/v 'dsg__admitted?) (u/v (first bindings)))
+                                (apply u/app (u/v operator) (map u/v bindings))
+                                (u/app (u/v 'yang.call/transfer)
+                                       (u/v (nth bindings 3))
+                                       (u/app (u/v 'yang.call/condition)
+                                              (u/lit :yang.call/not-callable)
+                                              (u/app (u/v 'dsg__assoc) (u/lit {})
+                                                     (u/lit :yang.call/callee)
+                                                     (u/v (first bindings)))))))
+                       (map compile-operand operands)))
+        tail? (assoc :tail? true)))
+
     ;; a statically native name: call it directly
     (native-name? env operator)
     (cond-> {:type :application
@@ -1132,10 +1400,9 @@
 
     ;; anything else: one guest invocation, in tail position when the call is
     :else
-    (cond-> {:type :application
-             :operator (compile-form operator false env macro-env)
-             :operands [(compile-form (vec operands) false env macro-env)]}
-      tail? (assoc :tail? true))))
+    (compile-guest-call (compile-form operator false env macro-env)
+                        (compile-form (vec operands) false env macro-env)
+                        env tail?)))
 
 
 (defn compile-application
@@ -1493,6 +1760,11 @@
              (list 'if test (cons 'do body) nil))
       if-let (expand-if-let head operands (temp "iflet"))
       if-some (expand-if-let head operands (temp "ifsome"))
+      -> (reduce (fn [value step]
+                   (if (seq? step)
+                     (rebuild step (list* (first step) value (rest step)))
+                     (list step value)))
+                 (first operands) (rest operands))
       when-let (let [[bindings & body] operands]
                  (expand-control env 'if-let [bindings (cons 'do body) nil]))
       when-some (let [[bindings & body] operands]
@@ -1551,7 +1823,9 @@
     (and (seq? form) (empty? form)) (compile-literal form tail?)
     ;; Variables (symbols)
     (symbol? form) (if (native-name? env form)
-                     (compile-adapter form env tail? macro-env)
+                     (if (outcomes? env)
+                       (compile-call-descriptor (compile-adapter form env false macro-env) tail?)
+                       (compile-adapter form env tail? macro-env))
                      (compile-variable form tail?))
     ;; Special forms and function application
     (seq? form)
@@ -1594,7 +1868,7 @@
           dsg__let (compile-let-simple (first operands) (body-expression (rest operands))
                                        env tail? macro-env)
           recur (compile-recur operands env tail? macro-env)
-          (case cond when if-let if-some when-let when-some)
+          (case cond when if-let if-some when-let when-some ->)
           (compile-lowered (expand-control env operator operands)
                            tail? env macro-env)
           ;; Short-circuit logical: expand to if chains so unevaluated operands are never touched
@@ -1693,7 +1967,10 @@
                                                           [sym a])))
                                                 (when (map? (:native opts)) (:native opts)))
                                  :macros (set (:macros opts))}
-                   ::defined defined}
+                   ::defined defined
+                   ::invoker (boolean (some #(and (seq? %) (= 'defn (first %))
+                                                  (= 'invoke-value (second %))
+                                                  (:yin.k/invoker (meta (second %)))) forms))}
             (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})}))))))
 
 
@@ -1759,7 +2036,14 @@
   ([forms tail? opts]
    (run! check-program-symbols! forms)
    (let [env (program-env forms opts)]
-     (letfn [(go
+     ;; A discarded definition must not become a lexical binding in the
+     ;; following definitions. Descriptor entry and body closures both capture
+     ;; their environment: retaining the previous descriptor here doubles its
+     ;; paths at each definition during machine-data validation and UCF lift.
+     (letfn [(discard-result
+               [ast]
+               (if (outcomes? env) (u/then ast (u/lit nil)) ast))
+             (go
                [forms macro-env]
                (if (empty? forms)
                  (compile-literal nil tail?)
@@ -1779,7 +2063,7 @@
                                                      (assoc macro-env
                                                             (strip-symbol-meta (second head))
                                                             {:type :user}))}
-                                :operands [defined]}
+                                :operands [(discard-result defined)]}
                          tail? (assoc :tail? true)))
                      ;; def: sequence with current macro-env
                      (and (seq? head) (= 'def (first head)))
@@ -1792,7 +2076,7 @@
                        (cond-> {:type     :application
                                 :operator {:type :lambda, :params ['_]
                                            :body (go rest-forms macro-env)}
-                                :operands [(compile-def name value env false macro-env)]}
+                                :operands [(discard-result (compile-def name value env false macro-env))]}
                          tail? (assoc :tail? true)))
                      ;; single form
                      (= 1 (count forms))
@@ -1802,10 +2086,74 @@
                      (cond-> {:type     :application
                               :operator {:type :lambda, :params ['_]
                                          :body (go rest-forms macro-env)}
-                              :operands [(compile-form head false
-                                                       (assoc env ::top-level true) macro-env)]}
+                              :operands [(discard-result
+                                           (compile-form head false
+                                                         (assoc env ::top-level true) macro-env))]}
                        tail? (assoc :tail? true))))))]
-       (go forms initial-macro-env)))))
+       (cond->> (go forms initial-macro-env)
+         (outcomes? env) (u/let1
+                           'dsg__admitted?
+                           (u/sexp->uast
+                             '(fn [dsg__candidate]
+                                (if (data/map? dsg__candidate)
+                                  (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
+                                        dsg__witness (dsg__get dsg__candidate :clj/admission)]
+                                    (if (data/callable? dsg__entry)
+                                      (dsg__equal
+                                        dsg__witness
+                                        (dsg__make_admission
+                                          (dsg__assoc dsg__candidate :clj/admission nil)))
+                                      false))
+                                  false))))
+         (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
+         (outcomes? env) (u/let1
+                           'dsg__make_admission
+                           (u/sexp->uast
+                             '(fn [dsg__descriptor]
+                                (fn [dsg__candidate]
+                                  (if (data/callable? dsg__call_token)
+                                    (dsg__get dsg__descriptor :yang.call/entry)
+                                    nil)))))
+         (outcomes? env) (u/then
+                           (discard-result
+                             (u/app (u/lam '[get = assoc empty?] call/uast)
+                                    (u/v 'dsg__get) (u/v 'dsg__equal)
+                                    (u/v 'dsg__assoc) (u/v 'dsg__empty))))
+         (outcomes? env) (u/let1 'dsg__call_token (u/lam [] (u/lit nil)))
+         ;; Guest closures keep captured environments portable: binding host
+         ;; primitive values here would make UCF machine-data validation fail.
+         ;; These helpers cover generated map lookups/writes and comparisons;
+         ;; conj/vec are already protected by the convention's binder checks.
+         ;; Evaluate siblings outside each other's bindings to avoid retaining
+         ;; a chain of redundant helper environments.
+         (outcomes? env) (#(u/app
+                             (u/lam '[dsg__get dsg__equal dsg__assoc dsg__empty] %)
+                             (if (contains? (::defined env) 'get)
+                               (u/sexp->uast
+                                 '(fn [m k]
+                                    (if (data/map? m)
+                                      (let [find (fn [self entries]
+                                                   (if (data/content= 0 (data/count entries))
+                                                     nil
+                                                     (let [pair (data/nth entries 0)]
+                                                       (if (data/content= k (data/nth pair 0))
+                                                         (data/nth pair 1)
+                                                         (self self (data/subvec entries 1))))))]
+                                        (find find (vec m)))
+                                      nil)))
+                               (u/sexp->uast '(fn [m k] (get m k))))
+                             (u/sexp->uast '(fn [a b] (data/content= a b)))
+                             (u/sexp->uast
+                               '(fn [m k v k2 v2 k3 v3]
+                                  (let [one (conj m (conj [] k v))]
+                                    (if (data/content= k2 nil)
+                                      one
+                                      (let [two (conj one (conj [] k2 v2))]
+                                        (if (data/content= k3 nil)
+                                          two
+                                          (conj two (conj [] k3 v3))))))))
+                             (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
+         (outcomes? env) u/mark-tails)))))
 
 
 ;; =============================================================================
@@ -1832,17 +2180,19 @@
 ;; What stays a host primitive, named by the `kind` module: a symbol, a
 ;; keyword and a host string are distinguished or built only by the host
 ;; (symbol?, keyword?, name, symbol, keyword, str, int?), as is metadata access
-;; (meta). No `data` export or
-;; VM primitive tells a symbol from a keyword. var? and resolve are the host's
-;; Var primitives: a harness on a host with Vars registers them in `kind`
-;; (`kind-module` leaves them out); a program that never mentions them does
-;; not need them.
+;; (meta and with-meta). The current data ABI has no metadata-write export,
+;; so with-meta is an explicit pure representation seam, not an ambient store.
+;; No VM primitive tells a symbol from a keyword. Clojure Var identity is an
+;; explicitly admitted kind/var? seam on the JVM; namespace lookup (resolve)
+;; still requires a separately installed host capability.
 ;;
 ;; Known compromises: `reduced` is an untyped tagged map, so reduced? matches
 ;; any map holding :yin.k/reduced true; seq refuses a non-collection (a string
 ;; is the data module's str-* ops, not a seq); eager sequences are lists;
 ;; rem rejects non-integers and a zero divisor before arithmetic; the compiler
 ;; emits bare conj and vec, so a program may not define or bind either.
+;; When collection calls are needed, invoke-value is a library helper whose
+;; local capture is refused explicitly.
 ;;
 ;; Variadic Clojure functions are fixed-arity here (the convention has no
 ;; variadic parameter): str, list and vector admit 0 to 6 arguments, concat and
@@ -1857,26 +2207,30 @@
   {'data/count 'portable/count
    'data/peek 'portable/peek
    'data/dissoc 'portable/dissoc
-   'data/disj 'portable/disj})
+   'data/disj 'portable/disj
+   'data/str-length 'portable/str-length})
 
 
 (def kind-module
   "The `kind` host module's exports, symbol to host function: the irreducible
    kind and name primitives (see the library notes). Every export is pure."
-  {'symbol? symbol?
-   'keyword? keyword?
-   'name name
-   'symbol symbol
-   'keyword keyword
-   'str str
-   'int? int?
-   'meta meta})
+  (merge
+    {'symbol? symbol?
+     'keyword? keyword?
+     'name name
+     'symbol symbol
+     'keyword keyword
+     'str str
+     'int? int?
+     'with-meta with-meta
+     'meta meta}
+    #?(:clj {'var? var?} :default {})))
 
 
 (def kind-arities
   "The published arities of each `kind` export."
   {'symbol? [1], 'keyword? [1], 'name [1], 'symbol [1 2], 'keyword [1 2]
-   'str [0 1 2 3 4 5 6 :variadic], 'int? [1], 'meta [1]})
+   'str [0 1 2 3 4 5 6 :variadic], 'int? [1], 'var? [1], 'with-meta [2], 'meta [1]})
 
 
 (def library
@@ -1901,7 +2255,30 @@
       (or (= x true) (= x false)))
     (defn fn?
       [x]
-      (data/callable? x))
+      (if (data/callable? x) true (yang.call/eligible? x)))
+    (defn ^:yin.k/invoker invoke-value
+      [f args]
+      (cond
+        (vector? f) (if (= 1 (count args)) (nth f (first args))
+                        (throw (ex-info "Vector invocation requires one index" {:argc (count args)})))
+        (or (map? f) (keyword? f))
+        (if (<= 1 (count args) 2)
+          (if (keyword? f) (get (first args) f (second args))
+              (get f (first args) (second args)))
+          (throw (ex-info "Lookup invocation requires one key and optional default" {:argc (count args)})))
+        (set? f) (if (= 1 (count args))
+                   (if (contains? f (first args)) (first args) nil)
+                   (throw (ex-info "Set invocation requires one key" {:argc (count args)})))
+        ;; Everything unsupported - a scalar, a raw closure the convention
+        ;; never published, a forged shape that slipped past the call-site
+        ;; routing - refuses as the admission path would. No apply here: a
+        ;; guest apply would re-enter the call-site dispatcher and recurse.
+        :else (throw (yang.call/condition :yang.call/not-callable {:yang.call/callee f}))))
+    (defn update
+      ([m k f] (assoc m k (f (get m k))))
+      ([m k f a] (assoc m k (f (get m k) a)))
+      ([m k f a b] (assoc m k (f (get m k) a b)))
+      ([m k f a b c] (assoc m k (f (get m k) a b c))))
     (defn count
       [x]
       (data/count x))
@@ -1943,9 +2320,40 @@
       ([a b c d] (kind/str a b c d))
       ([a b c d e] (kind/str a b c d e))
       ([a b c d e f] (kind/str a b c d e f)))
+    ;; A supply is immutable data. The caller must retain the returned supply;
+    ;; there is deliberately no ambient one-argument prefix allocator.
+    (defn fresh-symbol
+      [supply prefix]
+      [(kind/symbol (kind/str "G__" prefix (:counter supply)))
+       (assoc supply :counter (+ (:counter supply) 1))])
     (defn gensym
-      ([n] (kind/symbol (kind/str "G__" n)))
-      ([prefix n] (kind/symbol (kind/str prefix n))))
+      ([n] (if (int? n)
+             (kind/symbol (kind/str "G__" n))
+             (throw (ex-info "gensym requires an explicit fresh-name supply"
+                             {:prefix n :required 'fresh-symbol}))))
+      ([prefix n] (if (map? prefix) (fresh-symbol prefix n)
+                      (kind/symbol (kind/str prefix n)))))
+    (defn last
+      [coll]
+      (if (empty? coll) nil
+          (loop [s coll]
+            (if (empty? (rest s)) (first s) (recur (rest s))))))
+    (defn butlast
+      [coll]
+      (loop [s coll acc []]
+        (if (empty? s) (seq acc)
+            (if (empty? (rest s)) (seq acc)
+                (recur (rest s) (conj acc (first s)))))))
+    (defn nth
+      ([coll n] (if (nil? coll) nil (data/nth (vec coll) n)))
+      ([coll n missing] (if (and (int? n) (<= 0 n) (< n (count coll)))
+                          (data/nth (vec coll) n) missing)))
+    (defn string?
+      [x]
+      (= :yin.k/ok (first (yin.k/outcome-of (data/str-length x)))))
+    (defn with-meta
+      [x m]
+      (kind/with-meta x m))
     (defn coll?
       [x]
       (if (nil? x)
@@ -2165,7 +2573,27 @@
                        (recur (into (rest todo)
                                     (remove (conj defined n) (mentions (by-name n))))
                               (conj seen n))))))]
-    (filterv #(contains? needed (second %)) library)))
+    (letfn [(nodes
+              [form]
+              (cons form (when (and (coll? form) (not (and (seq? form) (= 'quote (first form)))))
+                           (mapcat nodes form))))
+            (dynamic-call?
+              [source]
+              (let [tree (nodes source)
+                    possible-locals (into #{} (comp (filter vector?) (mapcat identity) (filter symbol?)) tree)]
+                (some (fn [x]
+                        (and (seq? x) (seq x) (not= 'quote (first x))
+                             (or (contains? possible-locals (first x))
+                                 (and (not (symbol? (first x))) (not (keyword? (first x))))))) tree)))
+            (close
+              [todo seen]
+              (if-let [n (first todo)]
+                (if (or (contains? seen n) (contains? defined n) (not (contains? by-name n)))
+                  (recur (rest todo) seen)
+                  (recur (concat (rest todo) (mentions (by-name n))) (conj seen n))) seen))]
+      (let [source (concat forms (map by-name needed))
+            needed (if (some dynamic-call? source) (close ['invoke-value] needed) needed)]
+        (filterv #(contains? needed (second %)) library)))))
 
 
 (defn compile

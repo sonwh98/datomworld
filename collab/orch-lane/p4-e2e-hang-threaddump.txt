@@ -1,0 +1,219 @@
+2026-11-01 10:17:13
+Full thread dump OpenJDK 64-Bit Server VM (21.0.2+13-58 mixed mode, sharing):
+
+Threads class SMR info:
+_java_thread_list=0x00007117bc00d880, length=11, elements={
+0x000071186002bf40, 0x00007118601664c0, 0x0000711860167c30, 0x0000711860169710,
+0x000071186016ad50, 0x000071186016c2f0, 0x000071186016deb0, 0x0000711860177560,
+0x0000711860186330, 0x000071186018a4b0, 0x00007117bc00c830
+}
+
+"main" #1 [1180737] prio=5 os_prio=0 cpu=5529257.94ms elapsed=5588.18s tid=0x000071186002bf40 nid=1180737 runnable  [0x00007118677f9000]
+   java.lang.Thread.State: RUNNABLE
+	at clojure.lang.RT.nthFrom(RT.java:944)
+	at clojure.lang.RT.nth(RT.java:917)
+	at yin.vm.ast_walker$eval16594$__GT_ASTWalkerVM__16741.doInvoke(ast_walker.cljc:40)
+	at clojure.lang.RestFn.invoke(RestFn.java:4073)
+	at yin.vm.ast_walker$cesk_return.invokeStatic(ast_walker.cljc:115)
+	at yin.vm.ast_walker$cesk_return.invoke(ast_walker.cljc:104)
+	at yin.vm.ast_walker$cesk_transition.invokeStatic(ast_walker.cljc:505)
+	at yin.vm.ast_walker$cesk_transition.invoke(ast_walker.cljc:298)
+	at yin.vm.ast_walker$vm_step.invokeStatic(ast_walker.cljc:830)
+	at yin.vm.ast_walker$vm_step.invoke(ast_walker.cljc:827)
+	at yin.vm.engine$run_loop.invokeStatic(engine.cljc:2213)
+	at yin.vm.engine$run_loop.invoke(engine.cljc:2207)
+	at yin.vm.ast_walker$ast_walker_run_scheduler.invokeStatic(ast_walker.cljc:1042)
+	at yin.vm.ast_walker$ast_walker_run_scheduler.invoke(ast_walker.cljc:1037)
+	at yin.vm.ffi$maybe_run.invokeStatic(ffi.cljc:341)
+	at yin.vm.ffi$maybe_run.invoke(ffi.cljc:334)
+	at yin.vm.ast_walker$eval16872$fn__16875.invoke(ast_walker.cljc:1070)
+	at yin.vm$eval9331$fn__9332$G__9312__9337.invoke(vm.cljc:42)
+	at yin.vm.test_utils$run_vm.invokeStatic(test_utils.cljc:100)
+	at yin.vm.test_utils$run_vm.invoke(test_utils.cljc:96)
+	at dao.stream.observer$run_on_stream$fn__11010.invoke(observer.cljc:277)
+	at dao.stream.observer$run_on_stream.invokeStatic(observer.cljc:277)
+	at dao.stream.observer$run_on_stream.invoke(observer.cljc:217)
+	at yin.vm.test_utils$run_session.invokeStatic(test_utils.cljc:203)
+	at yin.vm.test_utils$run_session.invoke(test_utils.cljc:199)
+	at yang.php.antlr.e2e_harness$run_raw.invokeStatic(e2e_harness.clj:138)
+	at yang.php.antlr.e2e_harness$run_raw.invoke(e2e_harness.clj:129)
+	at yang.php.antlr.e2e_test$engine_result.invokeStatic(e2e_test.clj:274)
+	at yang.php.antlr.e2e_test$engine_result.invoke(e2e_test.clj:269)
+	at yang.php.antlr.e2e_test$fn__19846$iter__19847__19851$fn__19852$fn__19853.invoke(e2e_test.clj:344)
+	at yang.php.antlr.e2e_test$fn__19846$iter__19847__19851$fn__19852.invoke(e2e_test.clj:343)
+	at clojure.lang.LazySeq.force(LazySeq.java:50)
+	at clojure.lang.LazySeq.realize(LazySeq.java:87)
+	at clojure.lang.LazySeq.seq(LazySeq.java:104)
+	at clojure.lang.ChunkedCons.chunkedNext(ChunkedCons.java:61)
+	at clojure.core$chunk_next.invokeStatic(core.clj:710)
+	at clojure.core.protocols$fn__8274.invokeStatic(protocols.clj:136)
+	at clojure.core.protocols$fn__8274.invoke(protocols.clj:123)
+	at clojure.core.protocols$fn__8233$G__8228__8242.invoke(protocols.clj:19)
+	at clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:31)
+	at clojure.core.protocols$fn__8266.invokeStatic(protocols.clj:74)
+	at clojure.core.protocols$fn__8266.invoke(protocols.clj:74)
+	at clojure.core.protocols$fn__8207$G__8202__8220.invoke(protocols.clj:13)
+	at clojure.core$reduce.invokeStatic(core.clj:6965)
+	at clojure.core$group_by.invokeStatic(core.clj:7294)
+	at clojure.core$group_by.invoke(core.clj:7294)
+	at yang.php.antlr.e2e_test$fn__19846.invokeStatic(e2e_test.clj:356)
+	at yang.php.antlr.e2e_test$fn__19846.invoke(e2e_test.clj:340)
+	at clojure.test$test_var$fn__9898.invoke(test.clj:717)
+	at clojure.test$test_var.invokeStatic(test.clj:717)
+	at clojure.test$test_var.invoke(test.clj:708)
+	at clojure.test$test_vars$fn__9924$fn__9929.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars$fn__9924.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars.invokeStatic(test.clj:731)
+	at clojure.test$test_all_vars.invokeStatic(test.clj:737)
+	at clojure.test$test_ns.invokeStatic(test.clj:758)
+	at clojure.test$test_ns.invoke(test.clj:743)
+	at clojure.core$map$fn__5956.invoke(core.clj:2772)
+	at clojure.lang.LazySeq.force(LazySeq.java:50)
+	at clojure.lang.LazySeq.realize(LazySeq.java:87)
+	at clojure.lang.LazySeq.seq(LazySeq.java:104)
+	at clojure.lang.Cons.next(Cons.java:41)
+	at clojure.lang.RT.next(RT.java:733)
+	at clojure.core$next__5472.invokeStatic(core.clj:64)
+	at clojure.core$reduce1.invokeStatic(core.clj:946)
+	at clojure.core$reduce1.invokeStatic(core.clj:936)
+	at clojure.core$merge_with.invokeStatic(core.clj:3083)
+	at clojure.core$merge_with.doInvoke(core.clj:3075)
+	at clojure.lang.RestFn.applyTo(RestFn.java:142)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.test$run_tests.invokeStatic(test.clj:768)
+	at clojure.test$run_tests.doInvoke(test.clj:768)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at cognitect.test_runner$test.invokeStatic(test_runner.clj:74)
+	at cognitect.test_runner$test.invoke(test_runner.clj:62)
+	at cognitect.test_runner$_main.invokeStatic(test_runner.clj:127)
+	at cognitect.test_runner$_main.doInvoke(test_runner.clj:115)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.main$main_opt.invokeStatic(main.clj:515)
+	at clojure.main$main_opt.invoke(main.clj:511)
+	at clojure.main$main.invokeStatic(main.clj:665)
+	at clojure.main$main.doInvoke(main.clj:617)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.main.main(main.java:40)
+
+"Reference Handler" #9 [1180758] daemon prio=10 os_prio=0 cpu=25.19ms elapsed=5588.14s tid=0x00007118601664c0 nid=1180758 waiting on condition  [0x00007118278f7000]
+   java.lang.Thread.State: RUNNABLE
+	at java.lang.ref.Reference.waitForReferencePendingList(java.base@21.0.2/Native Method)
+	at java.lang.ref.Reference.processPendingReferences(java.base@21.0.2/Reference.java:246)
+	at java.lang.ref.Reference$ReferenceHandler.run(java.base@21.0.2/Reference.java:208)
+
+"Finalizer" #10 [1180759] daemon prio=8 os_prio=0 cpu=0.33ms elapsed=5588.14s tid=0x0000711860167c30 nid=1180759 in Object.wait()  [0x00007118271fe000]
+   java.lang.Thread.State: WAITING (on object monitor)
+	at java.lang.Object.wait0(java.base@21.0.2/Native Method)
+	- waiting on <0x00000004159d7e20> (a java.lang.ref.NativeReferenceQueue$Lock)
+	at java.lang.Object.wait(java.base@21.0.2/Object.java:366)
+	at java.lang.Object.wait(java.base@21.0.2/Object.java:339)
+	at java.lang.ref.NativeReferenceQueue.await(java.base@21.0.2/NativeReferenceQueue.java:48)
+	at java.lang.ref.ReferenceQueue.remove0(java.base@21.0.2/ReferenceQueue.java:158)
+	at java.lang.ref.NativeReferenceQueue.remove(java.base@21.0.2/NativeReferenceQueue.java:89)
+	- locked <0x00000004159d7e20> (a java.lang.ref.NativeReferenceQueue$Lock)
+	at java.lang.ref.Finalizer$FinalizerThread.run(java.base@21.0.2/Finalizer.java:173)
+
+"Signal Dispatcher" #11 [1180760] daemon prio=9 os_prio=0 cpu=0.79ms elapsed=5588.14s tid=0x0000711860169710 nid=1180760 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Service Thread" #12 [1180761] daemon prio=9 os_prio=0 cpu=34.19ms elapsed=5588.14s tid=0x000071186016ad50 nid=1180761 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Monitor Deflation Thread" #13 [1180762] daemon prio=9 os_prio=0 cpu=862.95ms elapsed=5588.14s tid=0x000071186016c2f0 nid=1180762 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"C2 CompilerThread0" #14 [1180763] daemon prio=9 os_prio=0 cpu=42004.75ms elapsed=5588.14s tid=0x000071186016deb0 nid=1180763 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+"C1 CompilerThread0" #22 [1180765] daemon prio=9 os_prio=0 cpu=3527.50ms elapsed=5588.14s tid=0x0000711860177560 nid=1180765 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+"Notification Thread" #26 [1180775] daemon prio=9 os_prio=0 cpu=0.23ms elapsed=5588.12s tid=0x0000711860186330 nid=1180775 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Common-Cleaner" #27 [1180778] daemon prio=8 os_prio=0 cpu=13.81ms elapsed=5588.11s tid=0x000071186018a4b0 nid=1180778 waiting on condition  [0x000071182692e000]
+   java.lang.Thread.State: TIMED_WAITING (parking)
+	at jdk.internal.misc.Unsafe.park(java.base@21.0.2/Native Method)
+	- parking to wait for  <0x000000041585e548> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+	at java.util.concurrent.locks.LockSupport.parkNanos(java.base@21.0.2/LockSupport.java:269)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(java.base@21.0.2/AbstractQueuedSynchronizer.java:1847)
+	at java.lang.ref.ReferenceQueue.await(java.base@21.0.2/ReferenceQueue.java:71)
+	at java.lang.ref.ReferenceQueue.remove0(java.base@21.0.2/ReferenceQueue.java:143)
+	at java.lang.ref.ReferenceQueue.remove(java.base@21.0.2/ReferenceQueue.java:218)
+	at jdk.internal.ref.CleanerImpl.run(java.base@21.0.2/CleanerImpl.java:140)
+	at java.lang.Thread.runWith(java.base@21.0.2/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.2/Thread.java:1583)
+	at jdk.internal.misc.InnocuousThread.run(java.base@21.0.2/InnocuousThread.java:186)
+
+"Attach Listener" #50 [1229349] daemon prio=9 os_prio=0 cpu=0.58ms elapsed=0.10s tid=0x00007117bc00c830 nid=1229349 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"VM Thread" os_prio=0 cpu=5144.99ms elapsed=5588.15s tid=0x0000711860159650 nid=1180752 runnable  
+
+"GC Thread#0" os_prio=0 cpu=4157.01ms elapsed=5588.18s tid=0x000071186005a470 nid=1180740 runnable  
+
+"GC Thread#1" os_prio=0 cpu=3999.40ms elapsed=5585.89s tid=0x00007117cc00a110 nid=1180931 runnable  
+
+"GC Thread#2" os_prio=0 cpu=4101.53ms elapsed=5585.89s tid=0x00007117cc00ab40 nid=1180932 runnable  
+
+"GC Thread#3" os_prio=0 cpu=4212.59ms elapsed=5585.89s tid=0x00007117cc00b620 nid=1180933 runnable  
+
+"GC Thread#4" os_prio=0 cpu=4134.96ms elapsed=5585.89s tid=0x00007117cc00c100 nid=1180934 runnable  
+
+"GC Thread#5" os_prio=0 cpu=4141.52ms elapsed=5585.89s tid=0x00007117cc00cbe0 nid=1180935 runnable  
+
+"GC Thread#6" os_prio=0 cpu=4069.20ms elapsed=5585.89s tid=0x00007117cc00d6f0 nid=1180936 runnable  
+
+"GC Thread#7" os_prio=0 cpu=4056.65ms elapsed=5585.88s tid=0x00007117cc00e200 nid=1180937 runnable  
+
+"GC Thread#8" os_prio=0 cpu=3990.83ms elapsed=5585.88s tid=0x00007117cc00f140 nid=1180938 runnable  
+
+"GC Thread#9" os_prio=0 cpu=4038.42ms elapsed=5585.88s tid=0x00007117cc010080 nid=1180939 runnable  
+
+"GC Thread#10" os_prio=0 cpu=4049.45ms elapsed=5585.88s tid=0x00007117cc010fc0 nid=1180940 runnable  
+
+"GC Thread#11" os_prio=0 cpu=4091.02ms elapsed=5585.88s tid=0x00007117cc011f00 nid=1180941 runnable  
+
+"GC Thread#12" os_prio=0 cpu=4032.47ms elapsed=5585.88s tid=0x00007117cc012e40 nid=1180942 runnable  
+
+"GC Thread#13" os_prio=0 cpu=4041.83ms elapsed=5585.88s tid=0x00007117cc013d80 nid=1180943 runnable  
+
+"GC Thread#14" os_prio=0 cpu=4177.09ms elapsed=5585.88s tid=0x00007117cc014cc0 nid=1180944 runnable  
+
+"GC Thread#15" os_prio=0 cpu=4153.72ms elapsed=5585.88s tid=0x00007117cc015c00 nid=1180945 runnable  
+
+"GC Thread#16" os_prio=0 cpu=4038.89ms elapsed=5585.88s tid=0x00007117cc016b40 nid=1180946 runnable  
+
+"GC Thread#17" os_prio=0 cpu=4090.58ms elapsed=5585.87s tid=0x00007117cc017a80 nid=1180947 runnable  
+
+"G1 Main Marker" os_prio=0 cpu=3.93ms elapsed=5588.18s tid=0x000071186006b560 nid=1180742 runnable  
+
+"G1 Conc#0" os_prio=0 cpu=69.77ms elapsed=5588.18s tid=0x000071186006c530 nid=1180744 runnable  
+
+"G1 Conc#1" os_prio=0 cpu=20.17ms elapsed=5573.99s tid=0x0000711828000d90 nid=1181176 runnable  
+
+"G1 Conc#2" os_prio=0 cpu=48.17ms elapsed=5573.99s tid=0x00007118280018b0 nid=1181177 runnable  
+
+"G1 Conc#3" os_prio=0 cpu=44.78ms elapsed=5573.99s tid=0x00007118280023d0 nid=1181178 runnable  
+
+"G1 Conc#4" os_prio=0 cpu=74.69ms elapsed=5573.98s tid=0x0000711828002f20 nid=1181179 runnable  
+
+"G1 Refine#0" os_prio=0 cpu=4383.19ms elapsed=5588.18s tid=0x0000711860123c20 nid=1180747 runnable  
+
+"G1 Service" os_prio=0 cpu=629.97ms elapsed=5588.18s tid=0x0000711860124bd0 nid=1180748 runnable  
+
+"VM Periodic Task Thread" os_prio=0 cpu=4667.31ms elapsed=5588.16s tid=0x000071186013e790 nid=1180750 waiting on condition  
+
+JNI global refs: 17, weak refs: 0
+

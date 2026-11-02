@@ -9,7 +9,7 @@
    their closures but `py`'s, which each reader has installed, and each
    module's site set blob and publication record blob, I7), each
    unit's manifest address, the signed name envelopes of three index
-   transactions -- `A` naming py, m, k and t; `A` retracting k and
+   transactions -- `A` naming py, yang.call, m, k and t; `A` retracting k and
    naming k2; a foreign principal `B` naming e -- and the importer
    packets the reader lowers, and a fourth index transaction of `A`'s signed
    site-set publication entries (I7). The keys are fixed test seeds, and Ed25519
@@ -136,18 +136,19 @@
       {:refused refused}
       (let [addresses (:addresses units)
             own (assert-names key-a 1 [['py py]
+                                       ['yang.call (:call-address @h/published)]
                                        ['pym.m (get addresses "m")]
                                        ['pym.k (get addresses "k")]
                                        ['pym.t (get addresses "t")]])
             republish [(publish/retraction
                          key-a
-                         {:of (jing/segment-key (:envelope (nth own 2))),
-                          :seq 5})
+                         {:of (jing/segment-key (:envelope (nth own 3))),
+                          :seq 6})
                        (publish/assertion
                          key-a
                          {:name 'pym.k,
                           :manifest (get-in k2 [:addresses "k"]),
-                          :seq 6})]
+                          :seq 7})]
             foreign (assert-names key-b 1 [['pym.e (get addresses "e")]])
             ;; I7: A's signed publication entry for each module's site-set
             ;; record, the units' then k's republication

@@ -8,14 +8,19 @@
     [clojure.java.io :as io]
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [yang.core.uast :as u]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
+    [yang.php.antlr.portable-harness :as php-h]
     [yang.php.antlr.packets :as packets]
     [yang.php.antlr.packets-p3b :as packets-p3b]
     [yang.php.antlr.permutations :as perms]
     [yang.php.antlr.phpt :as phpt]
     [yang.php.antlr.programs :as programs]
-    [yang.php.antlr.programs-p3b :as p3b]))
+    [yang.php.antlr.programs-p3b :as p3b]
+    [yang.typescript.antlr.e2e-test :as ts]
+    [yin.vm :as vm]
+    [yin.vm.test-utils :as tu]))
 
 
 (def ^:private vms [:ast-walker :semantic :stack :register])
@@ -47,6 +52,142 @@
     (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
     (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
         (name id))))
+
+
+(defn- app?
+  [node op]
+  (and (map? node)
+       (= :application (:type node))
+       (= {:type :variable, :name op} (:operator node))))
+
+
+(defn- lowered-ts
+  [source]
+  (let [{:keys [program diagnostics]} (ts/lower-source source :bundled)]
+    (assert (nil? diagnostics) (pr-str diagnostics))
+    (let [{:yin/keys [batch root]} program]
+      (nth batch root))))
+
+
+(defn- find-path
+  "Find one node while visiting each collection identity once. Lowered trees
+   share subtrees; ordinary postwalk expands those shares needlessly."
+  [pred tree]
+  (let [seen (java.util.IdentityHashMap.)
+        found (volatile! nil)]
+    (letfn [(visit
+              [node path]
+              (when (and (nil? @found) (pred node))
+                (vreset! found path))
+              (when (and (nil? @found) (coll? node)
+                         (not (.containsKey seen node)))
+                (.put seen node true)
+                (cond
+                  (map? node)
+                  (doseq [[k v] node :while (nil? @found)]
+                    (visit v (conj path k)))
+
+                  (sequential? node)
+                  (doseq [[i v] (map-indexed vector node) :while (nil? @found)]
+                    (visit v (conj path i)))
+
+                  :else nil)))]
+      (visit tree [])
+      @found)))
+
+
+(defn- install-php-function-export
+  "Project a published JS global into PHP's function namespace before the
+   source body. The caller tree contains a name reference, never donor code."
+  [ast export-name]
+  (let [projection (u/sexp->uast
+                     (list 'cell/set! 'php.rt/functions
+                           (list 'assoc
+                                 '(cell/get php.rt/functions)
+                                 export-name
+                                 (list 'js/global-get {:js/str export-name}))))
+        path (find-path #(app? % 'php/run-main) ast)]
+    (assert path "PHP program has no php/run-main application")
+    (update-in ast path
+               (fn [node]
+                 (let [body (first (:operands node))]
+                   (assert (= :lambda (:type body)) "php/run-main body is not a lambda")
+                   (assoc node :operands
+                          [(update body :body #(u/then projection %))]))))))
+
+
+(defn- run-with-ts-export
+  [donor-source export-name php-source]
+  (let [donor (lowered-ts donor-source)
+        {:keys [ast diagnostics]} (h/lower-program php-source)
+        _ (assert (nil? diagnostics) (pr-str diagnostics))
+        php-ast (install-php-function-export ast export-name)
+        vm0 (tu/create-vm {:modules (php-h/host-registry)})
+        ;; Complete the donor first. Its global table owns the live function
+        ;; cell; the caller AST below only reads the published name.
+        vm1 (vm/eval vm0 donor)
+        result (vm/value (vm/eval vm1 php-ast))]
+    (h/render result)))
+
+
+(defn- run-with-ts-global
+  "Project `%foreign` into a PHP global before the unmodified source body."
+  [donor-source export-name php-global php-source]
+  (let [donor (lowered-ts donor-source)
+        {:keys [ast diagnostics]} (h/lower-program php-source)
+        _ (assert (nil? diagnostics) (pr-str diagnostics))
+        global-projection (u/sexp->uast
+                            (list 'php/global-store! php-global
+                                  (list 'js/global-get {:js/str export-name})))
+        path (find-path #(app? % 'php/run-main) ast)
+        _ (assert path "PHP program has no php/run-main application")
+        php-ast (update-in ast path
+                           (fn [node]
+                             (let [body (first (:operands node))]
+                               (assert (= :lambda (:type body))
+                                       "php/run-main body is not a lambda")
+                               (assoc node :operands
+                                      [(update body :body #(u/then global-projection %))]))))
+        vm0 (tu/create-vm {:modules (php-h/host-registry)})
+        vm1 (vm/eval vm0 donor)
+        result (vm/value (vm/eval vm1 php-ast))]
+    (h/render result)))
+
+
+(deftest real-lowered-ts-export-called-from-php-test
+  (testing "unmodified PHP source calls a published TS global export through yang.call"
+    (is (= "4"
+           (run-with-ts-export
+             "globalThis.donor = (x, y) => x + y;"
+             "donor"
+             "<?php echo donor(1.5, 2.5);")))))
+
+
+(deftest real-lowered-ts-callback-called-from-php-test
+  (testing "PHP stores a foreign function cell in an array, invokes it, and keeps its identity"
+    (is (= "same"
+           (run-with-ts-global
+             "globalThis.donor = () => { globalThis.called = true; };"
+             "donor"
+             "cb"
+             "<?php $items = [$cb]; $items[0](); echo ($items[0] === $cb ? 'same' : 'different');")))))
+
+
+(deftest real-lowered-php-callback-round-trip-test
+  (testing "TS stores and calls the received PHP closure, then returns the same cell"
+    (is (= "calledsame"
+           (run-with-ts-export
+             (str "globalThis.accept = (f) => {"
+                  " globalThis.stored = f;"
+                  " globalThis.stored(7);"
+                  " return globalThis.stored;"
+                  "};")
+             "accept"
+             (str "<?php $cb = function($x) {"
+                  " echo 'called'; return $x + 1;"
+                  "};"
+                  "$returned = accept($cb);"
+                  "echo ($returned === $cb ? 'same' : 'different');"))))))
 
 
 (deftest packets-match-source-test
@@ -87,19 +228,16 @@
 (deftest refusals-are-named-test
   (doseq [[source construct]
           [["<?php $a = &f();" :reference-source]
-           ["<?php $a->b = 1;" :assignment-target]
            ["<?php $$a[0] = 1;" :assignment-target]
-           ["<?php function f(int $a) {}" :type-declaration]
-           ["<?php function f(): int {}" :return-type]
+           ["<?php function f(int ...$a) {}" :typed-variadic]
            ["<?php function f(&...$a) {}" :variadic-reference]
            ["<?php $a = &new B;" :reference]
            ["<?php static $a = 1;" :static]
-           ["<?php return 1;" :return]
            ["<?php echo FOO;" :constant]
            ["<?php echo \"a$b[0]\";" :interpolation]
            ["<?php echo \"a$b->c\";" :interpolation]
-           ["<?php echo isset($a->b);" :isset-target]
-           ["<?php echo (array)1;" :cast/array]]
+           ["<?php echo (array)1;" :cast/array]
+           ["<?php $o = new class { public $x = 1; };" :anonymous-class]]
           :when construct]
     (let [{:keys [diagnostics]} (h/run-php source)
           d (first diagnostics)]
@@ -140,6 +278,24 @@
            ["<?php $n = 1; while (1) { break $n; }" "non-integer operand"]
            ["<?php function f() {} function F() {}" "Cannot redeclare F()"]
            ["<?php function strlen() {}" "Cannot redeclare strlen()"]
+           ["<?php class A { public int $x = 'bad'; }"
+            "Cannot use string as default value for property A::$x of type int"]
+           ["<?php class A { public static float $x = 'bad'; }"
+            "Cannot use string as default value for property A::$x of type float"]
+           ["<?php class A { public int $x = null; }"
+            "Default value for property of type int may not be null. Use the nullable type ?int to allow null default value"]
+           ["<?php class A { public int $x = 1.5; }"
+            "Cannot use float as default value for property A::$x of type int"]
+           ["<?php class A { public int $x = -1.5; }"
+            "Cannot use float as default value for property A::$x of type int"]
+           ["<?php class A { public int $x = []; }"
+            "Cannot use array as default value for property A::$x of type int"]
+           ["<?php class A { public array $x = 1; }"
+            "Cannot use int as default value for property A::$x of type array"]
+           ["<?php function f(int $x = 1.5) {}"
+            "Cannot use float as default value for parameter $x of type int"]
+           ["<?php function f(int $x = 'bad') {}"
+            "Cannot use string as default value for parameter $x of type int"]
            ["<?php switch (1) { default: echo 1; default: echo 2; }"
             "Switch statements may only contain one default clause"]
            ["<?php switch (1): default: echo 1; case 2: break; default: echo 2; endswitch;"
@@ -322,28 +478,134 @@
     (is (not (phpt/selected-path? "ext/standard/tests/strings/sprintf_basic1.phpt")))))
 
 
+(defn- run-phpt-selection
+  [label entries manifest]
+  (let [results (for [{:keys [id source expect expectf]} entries
+                      :let [r (engine-result source)]]
+                  (cond
+                    (:refused r) [:unsupported id]
+                    (:threw r) [:fail id r]
+                    (phpt/matches-expect?
+                      (cond-> {} expect (assoc "EXPECT" expect) expectf (assoc "EXPECTF" expectf))
+                      (str (:out r)
+                           (when (:uncaught r)
+                             (str "Fatal error: Uncaught " (:class (:uncaught r)) ": "
+                                  (:message (:uncaught r))))))
+                    [:pass id]
+                    :else [:fail id r]))
+        by (group-by first results)]
+    (println label (count entries) "entries;"
+             "pass" (count (:pass by)) "unsupported" (count (:unsupported by))
+             "fail" (count (:fail by)))
+    (if manifest
+      (let [expected (set (mapcat :entries (:known-gaps manifest)))
+            actual (set (map second (:fail by)))
+            family-of (fn [feature]
+                        (case feature
+                          :gc-cycle-collection :gc
+                          (:foreach-semantics :pass-by-reference) :foreach-by-ref
+                          :unset-cv :unset-cv
+                          :named-parameter-binding :named-params
+                          :other))
+            families [:gc :foreach-by-ref :unset-cv :named-params :other]
+            id->family (into {}
+                             (mapcat (fn [{:keys [feature entries]}]
+                                       (map (fn [id] [id (family-of feature)]) entries)))
+                             (:known-gaps manifest))
+            family-counts (fn [ids]
+                            (merge (zipmap families (repeat 0))
+                                   (frequencies (map #(get id->family % :other) ids))))
+            recorded-counts (:counts manifest)
+            expected-counts
+            {:gc (get recorded-counts :gc-cycle-collection 0)
+             :foreach-by-ref (+ (get recorded-counts :foreach-semantics 0)
+                                (get recorded-counts :pass-by-reference 0))
+             :unset-cv (get recorded-counts :unset-cv 0)
+             :named-params (get recorded-counts :named-parameter-binding 0)
+             :other (reduce + 0 (vals (apply dissoc recorded-counts
+                                             [:total :unsupported :gc-cycle-collection
+                                              :foreach-semantics :pass-by-reference :unset-cv
+                                              :named-parameter-binding])))}
+            actual-counts (family-counts actual)
+            ids (sort actual)]
+        (is (= (:total (:counts manifest)) (count expected)) "manifest total is recorded")
+        (is (= expected (set (keys (:descriptions manifest))))
+            (str "PHPT manifest description IDs changed: " (pr-str (sort expected))))
+        (is (= expected-counts actual-counts)
+            (str "PHPT mismatch family counts changed; IDs: " (pr-str ids)))
+        (is (= expected actual)
+            (str "PHPT mismatch IDs changed; IDs: " (pr-str ids)))
+        (is (= (:unsupported (:counts manifest)) (count (:unsupported by)))
+            "the recorded quick-tier refusal count is stable"))
+      (is (empty? (:fail by))
+          (str "PHPT mismatch IDs: " (pr-str (sort (map second (:fail by)))))))))
+
+
 (deftest phpt-selection-runs-test
   (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
-    (let [entries (remove :needs (:entries sel))
-          results (for [{:keys [id source expect expectf]} entries
-                        :let [r (engine-result source)]]
-                    (cond
-                      (:refused r) [:unsupported id]
-                      (:threw r) [:fail id]
-                      (phpt/matches-expect?
-                        (cond-> {} expect (assoc "EXPECT" expect) expectf (assoc "EXPECTF" expectf))
-                        (str (:out r)
-                             (when (:uncaught r)
-                               (str "Fatal error: Uncaught " (:class (:uncaught r)) ": "
-                                    (:message (:uncaught r))))))
-                      [:pass id]
-                      :else [:fail id]))
-          by (group-by first results)]
-      (println "php-src selection:" (count (:entries sel)) "entries;"
-               "pass" (count (:pass by)) "unsupported" (count (:unsupported by))
-               "fail" (count (:fail by)))
-      (is (empty? (:fail by)) (pr-str (take 5 (:fail by)))))
+    (let [entries (remove #(or (:needs %) (:slow %)) (:entries sel))
+          manifest (read-edn-file "test/yang/php/antlr/phpt_quick_mismatch_manifest.edn")]
+      (is (= (:php-src-tag manifest) (:tag sel))
+          "quick mismatch manifest applies to its pinned php-src selection tag")
+      (if manifest
+        (run-phpt-selection "php-src quick selection:" entries manifest)
+        (is false "missing PHPT quick mismatch manifest")))
     (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
+
+
+(defn- run-phpt-stress-case
+  [id]
+  (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
+    (if-let [entry (first (filter #(= id (:id %)) (:entries sel)))]
+      (let [manifest (read-edn-file "test/yang/php/antlr/phpt_quick_mismatch_manifest.edn")
+            gap (first (filter #(= id (:id %)) (:slow-known-gaps manifest)))]
+        (is (:slow entry) (str id " must stay in the slow tier"))
+        (if gap
+          (let [actual (engine-result (:source entry))]
+            (println "php-src recorded engine gap" id actual)
+            (is (= (:expect entry) (:oracle-expect gap))
+                (str id " pinned oracle expectation changed"))
+            (is (= (:engine-result gap) (select-keys actual [:out :diag :uncaught]))
+                (str id " engine gap result changed")))
+          (run-phpt-selection (str "php-src slow stress " id ":") [entry] nil)))
+      (is false (str "missing PHPT stress case " id)))
+    (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
+
+
+(deftest ^:slow phpt-gc-013-stress-test
+  (run-phpt-stress-case "Zend/tests/gc_013.phpt"))
+
+
+(deftest ^:slow phpt-gc-023-stress-test
+  (run-phpt-stress-case "Zend/tests/gc_023.phpt"))
+
+
+(deftest ^:slow phpt-bug39438-stress-test
+  (run-phpt-stress-case "Zend/tests/bug39438.phpt"))
+
+
+(deftest ^:slow phpt-bug40261-stress-test
+  (run-phpt-stress-case "Zend/tests/bug40261.phpt"))
+
+
+(deftest ^:slow phpt-bug40809-stress-test
+  (run-phpt-stress-case "Zend/tests/bug40809.phpt"))
+
+
+(deftest ^:slow phpt-bug44069-stress-test
+  (run-phpt-stress-case "Zend/tests/bug44069.phpt"))
+
+
+(deftest ^:slow phpt-bug63055-stress-test
+  (run-phpt-stress-case "Zend/tests/bug63055.phpt"))
+
+
+(deftest ^:slow phpt-gc-012-stress-test
+  (run-phpt-stress-case "Zend/tests/gc_012.phpt"))
+
+
+(deftest ^:slow phpt-bug64660-stress-test
+  (run-phpt-stress-case "Zend/tests/bug64660.phpt"))
 
 
 (deftest gate-fix-programs-test

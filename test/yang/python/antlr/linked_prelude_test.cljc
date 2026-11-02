@@ -243,7 +243,7 @@
    slice moved only the hook prelude, so this address did not move. The
    S3 shared-call publication moved the Python module manifest."
   (keyword (str "segment/blake3-"
-                "281b18a60d6dbda283ce6f8319f544d5969ee6403f8d8e54f5653f27052fd942")))
+                "34893d591a14df92a0baf2f5edf41e1a8260195f8c64dde3e69a0be3bc3a5cb9")))
 
 
 (def ^:private vector-formats
@@ -331,7 +331,9 @@
   [ast]
   (let [nodes (tree-seq coll? seq ast)
         symbols (filter symbol? nodes)
-        prelude-rows (set (:operands prelude/module-uast))]
+        ;; The final operand is the linked runtime dependency, not a
+        ;; prelude definition carried by the program.
+        prelude-rows (set (butlast (:operands prelude/module-uast)))]
     (is (not-any? #{'yin/def} symbols))
     (is (not-any? #(contains? #{"py.b" "py.rt"} (namespace %))
                   (filter namespace symbols)))
@@ -470,16 +472,20 @@
         exports (sort-by str prelude/module-exports)]
     (doseq [[k f] (map vector [:semantic :stack :register] vector-formats)]
       (testing (name k)
-        (let [parent ((get h/backends k)
+        (let [pair (link/make-pair)
+              parent ((get h/backends k)
                       (u/lit nil)
-                      (h/composition (h/registry) (link/make-pair)))
-              child (vm/run (module/spawn-module
-                              parent
-                              (get-in result [:links f :value])
-                              {:modules (:modules parent),
-                               :origin :t0.0,
-                               :ancestry ['py],
-                               :capability-secret "child"}))
+                      (h/composition (h/registry) pair))
+              child (first
+                      (h/drive
+                        (module/spawn-module
+                          parent
+                          (get-in result [:links f :value])
+                          {:modules (:modules parent),
+                           :origin :t0.0,
+                           :ancestry ['py],
+                           :capability-secret "child"})
+                        pair (h/source)))
               store (vm/store child)]
           (is (vm/halted? child))
           (is (not (vm/blocked? child)))
@@ -534,7 +540,11 @@
             task (vm/run ((get h/backends k)
                           linked-x-equals-1
                           (h/composition (h/registry) pair)))
-            served (link/serve {:pair pair, :source (h/source {})})
+            served (link/serve {:pair pair,
+                                :source (link/composition
+                                          {:content-store (:store @h/published),
+                                           :name-env {},
+                                           :derivation :trusted})})
             refusal (refusal-of #(vm/run task))
             held (keys (vm/store task))]
         (is (empty? (:pending served)))
