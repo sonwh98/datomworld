@@ -30,6 +30,13 @@
    "dao.postgraphics" "yang.base" "dao.base"])
 
 
+(def run-uncovered?
+  "The uncovered residual shard runs only on the designated host
+   (NIGHTLY_UNCOVERED=1 default; NIGHTLY_SKIP_UNCOVERED=1 skips it), so the
+   residual is executed exactly once across a two-host split."
+  (not= "1" (System/getenv "NIGHTLY_SKIP_UNCOVERED")))
+
+
 (def subs
   "This host's assigned subsystems (NIGHTLY_SUBSYSTEMS overrides for a
    disjoint two-host split)."
