@@ -13,8 +13,8 @@
      :source    PHP source
      :out       expected stdout pinned from the rows, or absent for oracle-only
      :oracle    `:pending` until the shiva recording pass has run; `pin` then
-                sets the banner from `recorded`. A mismatch is escalated to the
-                architect and never fixed by editing :out.
+                folds the recorded result. A recorded result is authoritative
+                and replaces any hand-authored output pin.
 
    `all-fixtures` is unconditional (the oracle iterates it). `enabled` is the
    subset whose :requires are all in `completed-steps`; implementation runners
@@ -341,7 +341,8 @@
    :call-spread-string-key-gap {:out "1", :diag [], :uncaught nil}
    :foreach-ref-sort-inside-loop {:out "323", :diag [], :uncaught nil}
    :call-unknown-named-later-arg-runs {:out "Unknown named parameter $z", :diag [], :uncaught nil}
-   :closure-call-user-class {:out "8", :diag [], :uncaught nil}})
+   :closure-call-user-class {:out "8", :diag [], :uncaught nil}
+   :foreach-ref-array-reassigned-in-loop {:out "177777", :diag [], :uncaught nil}})
 
 
 (def banner "php-8.3.35 shiva 2026-10-25")
@@ -353,10 +354,11 @@
    non-empty `:diag`/`:uncaught` are kept. Unrecorded fixtures stay pending."
   [fixture]
   (if-let [r (get recorded (:id fixture))]
-    (cond-> (assoc fixture :oracle banner)
-      (not (contains? fixture :out)) (assoc :out (:out r))
-      (seq (:diag r)) (assoc :diag (:diag r))
-      (:uncaught r) (assoc :uncaught (:uncaught r)))
+    (assoc fixture
+           :oracle banner
+           :out (:out r)
+           :diag (:diag r)
+           :uncaught (:uncaught r))
     fixture))
 
 
@@ -480,9 +482,9 @@
     :rows [25],
     :level :oracle-only,
     :requires #{},
-    :source "<?php $a = [1, 2]; foreach ($a as $k => &$v) { if ($k == 0) { $a = [7, 8]; } echo $v; }",
+    :source "<?php $a = [1, 2]; $n = 0; foreach ($a as $k => &$v) { if ($k == 0) { $a = [7, 8]; } echo $v; if (++$n > 5) { break; } }",
     :oracle :pending,
-    :note "C26: the unrelated-table clause of row 25 is not implemented; closes with the P3-c iterator registry. NOT PINNED: pass 5 recorded about 1.8 GB of output (the loop keeps iterating the reassigned array without bound), so the source must be bounded (for example a counter and break) and re-recorded; escalated"}
+    :note "C26: the unrelated-table clause of row 25 is not implemented; closes with the P3-c iterator registry. Bounded (counter and break) after pass 5 recorded about 1.8 GB from the unbounded source; awaiting the pass-7 record"}
    {:id :call-unknown-named-later-arg-runs,
     :group :calls-v1,
     :rows [57],
@@ -491,6 +493,7 @@
     :source (str "<?php function f($a) { return $a; } function side() { echo 'S'; return 1; }"
                  " try { f(1, z: 2, w: side()); } catch (Error $e) { echo $e->getMessage(); }"),
     :oracle :pending,
+    :zend "Unknown named parameter $z",
     :note "C28: PHP stops at the send of z (side() never runs); here php/call-named validates at entry, so side() runs first"}
    {:id :closure-call-stdclass,
     :group :closures-v1,
@@ -520,11 +523,13 @@
 
 
 (defn enabled?
-  "True when every step the fixture requires has landed. Oracle-only
-   fixtures never run on the implementation."
-  [fixture]
-  (and (not= :oracle-only (:level fixture))
-       (every? completed-steps (:requires fixture))))
+  "True when every step the fixture requires has landed (in `steps`, default
+   this slice's `completed-steps`). Oracle-only fixtures never run on the
+   implementation."
+  ([fixture] (enabled? fixture completed-steps))
+  ([fixture steps]
+   (and (not= :oracle-only (:level fixture))
+        (every? steps (:requires fixture)))))
 
 
 (def enabled

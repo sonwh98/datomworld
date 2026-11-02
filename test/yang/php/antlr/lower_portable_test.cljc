@@ -131,7 +131,7 @@
         (is (= (:diag r) (vec (:diag f))) (name (:id f)))
         (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
     (testing "only the escalated and not-yet-recorded fixtures are still pending"
-      (is (= #{:foreach-ref-array-reassigned-in-loop}
+      (is (= #{}
              (set (map :id (filter #(= :pending (:oracle %)) all)))))
       (is (= 10 (count (filter #(= :typed-ref-candidates (:group %)) all)))
           "the S9 text candidates are all recorded"))))

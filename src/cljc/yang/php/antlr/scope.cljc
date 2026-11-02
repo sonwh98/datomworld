@@ -16,6 +16,9 @@
      :arrow-captures  arrow-function captures (refused in P1)
      :dynamic?        true when the scope names a variable dynamically
                       (`$$x`, `${...}`)
+     :includes?       true when the scope holds an include/require expression
+                      (outside nested functions): the dynamic-scope profile
+                      of plan P6 R5
      :this?           true when the scope reads `$this`
 
    P1 consumes `:kind :params :assigned :statics`; the rest are computed here
@@ -29,6 +32,13 @@
   #{"functionDeclaration" "lambdaFunctionExpr"})
 
 
+(defn- method?
+  "A class member that is a method: a `classStatement` with `function`."
+  [pk k]
+  (and (p/rule? k "classStatement")
+       (boolean (some #(and (p/token? %) (= "Function_" (:type %))) (p/children pk k)))))
+
+
 (defn- empty-scope
   [kind]
   {:kind kind,
@@ -40,6 +50,7 @@
    :uses [],
    :arrow-captures [],
    :dynamic? false,
+   :includes? false,
    :this? false})
 
 
@@ -90,6 +101,15 @@
                   (map #(chain-base pk %) (filter #(p/rule? % "chain") after-arrow))))))
 
 
+(defn- include-expr?
+  "True for `include`/`include_once`/`require`/`require_once <operand>`."
+  [pk n]
+  (let [kids (p/children pk n)]
+    (and (= 2 (count kids))
+         (p/token? (first kids))
+         (contains? #{"Include" "IncludeOnce" "Require" "RequireOnce"} (:type (first kids))))))
+
+
 (declare analyze-fn)
 
 
@@ -122,11 +142,12 @@
         (not (p/rule? k)) (if (= "VarName" (:type k))
                             [(note-name scope :vars (:text k)) scopes]
                             acc)
-        (contains? scope-rules (:rule k)) (let [[s ss] (analyze-fn pk k scopes)]
-                                            [(if (= "lambdaFunctionExpr" (:rule k))
-                                               (fold-closure pk k s scope)
-                                               scope)
-                                             (assoc ss (:id k) s)])
+        (or (contains? scope-rules (:rule k)) (method? pk k))
+        (let [[s ss] (analyze-fn pk k scopes)]
+          [(if (= "lambdaFunctionExpr" (:rule k))
+             (fold-closure pk k s scope)
+             scope)
+           (assoc ss (:id k) s)])
         :else
         (let [scope (case (:rule k)
                       "staticVariableStatement"
@@ -148,9 +169,10 @@
                               (mapcat #(p/children pk %)
                                       (p/child-rules pk k "globalVar")))
                       "expression"
-                      (reduce #(note-name %1 :assigned %2)
-                              scope
-                              (assign-targets pk k))
+                      (cond-> (reduce #(note-name %1 :assigned %2)
+                                      scope
+                                      (assign-targets pk k))
+                        (include-expr? pk k) (assoc :includes? true))
                       "foreachStatement"
                       (reduce #(note-name %1 :assigned %2)
                               scope
