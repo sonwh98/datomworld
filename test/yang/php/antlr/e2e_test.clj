@@ -500,27 +500,53 @@
     (if manifest
       (let [expected (set (mapcat :entries (:known-gaps manifest)))
             actual (set (map second (:fail by)))
-            feature-counts (frequencies (mapcat (fn [{:keys [feature entries]}]
-                                                  (repeat (count entries) feature))
-                                                (:known-gaps manifest)))]
+            family-of (fn [feature]
+                        (case feature
+                          :gc-cycle-collection :gc
+                          (:foreach-semantics :pass-by-reference) :foreach-by-ref
+                          :unset-cv :unset-cv
+                          :named-parameter-binding :named-params
+                          :other))
+            families [:gc :foreach-by-ref :unset-cv :named-params :other]
+            id->family (into {}
+                             (mapcat (fn [{:keys [feature entries]}]
+                                       (map (fn [id] [id (family-of feature)]) entries)))
+                             (:known-gaps manifest))
+            family-counts (fn [ids]
+                            (merge (zipmap families (repeat 0))
+                                   (frequencies (map #(get id->family % :other) ids))))
+            recorded-counts (:counts manifest)
+            expected-counts
+            {:gc (get recorded-counts :gc-cycle-collection 0)
+             :foreach-by-ref (+ (get recorded-counts :foreach-semantics 0)
+                                (get recorded-counts :pass-by-reference 0))
+             :unset-cv (get recorded-counts :unset-cv 0)
+             :named-params (get recorded-counts :named-parameter-binding 0)
+             :other (reduce + 0 (vals (apply dissoc recorded-counts
+                                             [:total :unsupported :gc-cycle-collection
+                                              :foreach-semantics :pass-by-reference :unset-cv
+                                              :named-parameter-binding])))}
+            actual-counts (family-counts actual)
+            ids (sort actual)]
         (is (= (:total (:counts manifest)) (count expected)) "manifest total is recorded")
         (is (= expected (set (keys (:descriptions manifest))))
-            "every known mismatch has its PHPT feature description")
-        (is (= (dissoc (:counts manifest) :total :unsupported)
-               feature-counts)
-            "manifest per-feature counts match its entries")
+            (str "PHPT manifest description IDs changed: " (pr-str (sort expected))))
+        (is (= expected-counts actual-counts)
+            (str "PHPT mismatch family counts changed; IDs: " (pr-str ids)))
         (is (= expected actual)
-            (str "PHPT mismatch IDs changed; expected "
-                 (pr-str (sort expected)) " but got " (pr-str (sort actual))))
+            (str "PHPT mismatch IDs changed; IDs: " (pr-str ids)))
         (is (= (:unsupported (:counts manifest)) (count (:unsupported by)))
             "the recorded quick-tier refusal count is stable"))
-      (is (empty? (:fail by)) (pr-str (take 5 (:fail by)))))))
+      (is (empty? (:fail by))
+          (str "PHPT mismatch IDs: " (pr-str (sort (map second (:fail by)))))))))
 
 
 (deftest phpt-selection-runs-test
   (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
     (let [entries (remove #(or (:needs %) (:slow %)) (:entries sel))
           manifest (read-edn-file "test/yang/php/antlr/phpt_quick_mismatch_manifest.edn")]
+      (is (= (:php-src-tag manifest) (:tag sel))
+          "quick mismatch manifest applies to its pinned php-src selection tag")
       (if manifest
         (run-phpt-selection "php-src quick selection:" entries manifest)
         (is false "missing PHPT quick mismatch manifest")))
