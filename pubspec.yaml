@@ -23,6 +23,13 @@ dependencies:
   # DaoJing multihash content-addressing (BLAKE3).
   blake3_dart: 1.0.0
   ed25519_edwards: 0.3.2
+  # The dao.stream.ble dart seam (docs/design/dao.stream.ble.md 8): the
+  # central role and the peripheral role of one BLE radio node. Both
+  # pinned exact and both BSD-3: flutter_blue_plus 2.x changed to a
+  # license that is not free for for-profit use, and this repository is
+  # GPL-2.0-only with a linking exception.
+  flutter_blue_plus: 1.36.8
+  flutter_ble_peripheral: 3.1.0
 
 dev_dependencies:
   flutter_test:
