@@ -1,0 +1,28 @@
+{:version 1
+ :provenance "ea18c8e4^"
+ :portability
+ {:elab-after-qed
+  {:call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))
+   :script [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]
+   :message "Wrong proof script: proof steps after qed."
+   :boundary :nonportable-host-value
+   :upstream-value clojure.core/meta
+   :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}
+  :check-after-qed
+  {:call (latte-kernel.proof/check-proof env [] (quote late) (quote ✳) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))
+   :script [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]
+   :message "Wrong proof script: proof steps after qed."
+   :boundary :nonportable-host-value
+   :upstream-value clojure.core/meta
+   :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}}
+ :upstream-failures
+ {:typing-ascription
+  {:call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (:latte-kernel.syntax/ascribe x A)))
+   :boundary :upstream-unbound-definition
+   :reason "Pinned upstream declares type-of-ascribe without a definition; B/C explicitly refuse that branch."
+   :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279"}
+  :compile-malformed
+  {:call (latte-kernel.proof/compile-proof (quote [42]))
+   :boundary :upstream-malformed-proof-sequence
+   :reason "Scalar proof step raises a native sequence exception upstream and a portable sequence refusal in C; no agreement is claimed."
+   :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279"}}}
