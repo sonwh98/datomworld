@@ -4,6 +4,17 @@
  [{:id "Zend/tests/gc_013.phpt",
    :feature :gc-cycle-collection,
    :oracle-expect "bool(true)\nok",
+   :engine-result
+   {:out "",
+    :diag [],
+    :uncaught
+    {:class "Error",
+     :message "Call to undefined function gc_collect_cycles()"}},
+   :engine-work-item
+   "Implement PHP cyclic garbage collection and roots/threshold behavior."},
+  {:id "Zend/tests/gc_023.phpt",
+   :feature :gc-cycle-collection,
+   :oracle-expect "int(0)\nint(9999)\nint(0)\nint(1)\nok",
    :engine-result {:out "",
                    :diag [],
                    :uncaught {:class "Error",
@@ -14,7 +25,7 @@
   :named-parameter-binding 3,
   :zend-regression 70,
   :array-pointer 1,
-  :total 105,
+  :total 101,
   :unset-cv 4,
   :unsupported 58,
   :pass-by-reference 5,
@@ -51,7 +62,6 @@
     "Zend/tests/bug60738.phpt"
     "Zend/tests/bug61681.phpt"
     "Zend/tests/bug63173.phpt"
-    "Zend/tests/bug63206_1.phpt"
     "Zend/tests/bug63882_2.phpt"
     "Zend/tests/bug64515.phpt"
     "Zend/tests/bug64578.phpt"
@@ -70,7 +80,6 @@
     "Zend/tests/bug70293.phpt"
     "Zend/tests/bug70662.phpt"
     "Zend/tests/bug70804.phpt"
-    "Zend/tests/bug71470.phpt"
     "Zend/tests/bug72347.phpt"
     "Zend/tests/bug72441.phpt"
     "Zend/tests/bug72943.phpt"
@@ -87,7 +96,6 @@
     "Zend/tests/bug79792.phpt"
     "Zend/tests/bug79828.phpt"
     "Zend/tests/bug79836.phpt"
-    "Zend/tests/bug79836_1.phpt"
     "Zend/tests/bug79948.phpt"
     "Zend/tests/bug80096.phpt"
     "Zend/tests/bug80184.phpt"
@@ -231,8 +239,6 @@
   "Attempt to pass a constant by reference",
   "Zend/tests/bug72441.phpt"
   "Bug #72441 (Segmentation fault: RFC list_keys)",
-  "Zend/tests/bug71470.phpt"
-  "Bug #71470: Leaked 1 hashtable iterators",
   "Zend/tests/bug39018.phpt"
   "Bug #39018 (Error control operator '@' fails to suppress \"Uninitialized string offset\")",
   "Zend/tests/bug70293.phpt"
@@ -273,8 +279,6 @@
   "Zend/tests/bug81705.phpt"
   "Bug #81705 (type confusion/UAF on set_error_handler with concat operation)",
   "Zend/tests/bug67874.phpt" "Bug #67874 Crash in array_map()",
-  "Zend/tests/bug63206_1.phpt"
-  "Bug #63206 Fully support error_handler stacking, even with null",
   "Zend/tests/bug69376_2.phpt" "Bug #69376 (Wrong ref counting)",
   "Zend/tests/bug63173.phpt"
   "Bug #63173: Crash when invoking invalid array callback",
@@ -336,8 +340,6 @@
   "Bug #60738 Allow 'set_error_handler' to handle NULL",
   "Zend/tests/bug29883.phpt"
   "Bug #29883 (isset gives invalid values on strings)",
-  "Zend/tests/bug79836_1.phpt"
-  "Bug #79836 (Segfault in concat_function)",
   "Zend/tests/foreach_014.phpt"
   "array_pop() function precerve foreach by reference iterator pointer",
   "Zend/tests/bug78502.phpt"
