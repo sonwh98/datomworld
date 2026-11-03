@@ -1,0 +1,10 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing d2-wedge-probe2
+:STAGE-D :walker-cell-in-isolation {:driver yang.clojure-test/run-guest-machine, :fixture :check-assume-have-discharge, :step-limit 2000000}
+:STEP-STARTED
+:TICK {:s 10, :steps 1539593, :in-step-ms 8201, :steps-per-s-last-tick :first-tick, :step-ns {:n 64, :min-ns 3291, :p50-ns 19458, :max-ns 498000}, :cont-depth nil, :loads 1, :runs 0}
+:WORKER-DONE {:consumer {:blocked? false, :wait-set 0, :window-size 0, :value ["_" 6], :control-inst {:segment nil, :pc nil, :image true}, :cont-depth 1, :control {}, :halted? false, :top-frame nil, :ready-queue 0}, :in-step-ms 10591, :steps 2000000, :class class clojure.lang.ExceptionInfo, :kind :threw, :data-keys [:lane :steps :consumer :session], :loads 1, :session-consumer {:blocked? false, :wait-set 0, :window-size 0, :value ["_" 6], :control-inst {:segment nil, :pc nil, :image true}, :cont-depth 1, :control {}, :halted? false, :top-frame nil, :ready-queue 0}, :runs [{:entry-steps 0, :exit-steps 2000000, :threw Guest instruction budget exhausted}], :message Guest instruction budget exhausted}

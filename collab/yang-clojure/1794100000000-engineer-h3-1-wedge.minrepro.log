@@ -1,0 +1,40 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing d2-wedge-min-repro
+:ARM-A {:steps 0, :halted true, :blocked false, :queue-line :absent}
+:ARM-B {:steps 1105792, :halted true, :blocked false, :outcome [:yin.k/ok [:ok [(<a>) (Π [A ✳] (Π [B ✳] (Π [f (Π [⇧ A] B)] (Π [x A] (Π [⇧ A] B)))))]]]}
+:ARM-C {:propagated true, :message Guest instruction budget exhausted, :data-has-consumer true, :data-has-session true, :consumer-advanced {:halted false, :blocked false, :cont-depth 2, :control {:segment -1, :pc 21}}, :cause-preserved true}
+:ARM-D-UNFINISHED-AFTER-MS 120000
+   app//clojure.lang.RT.seqFrom(RT.java:563)
+   app//clojure.lang.RT.seq(RT.java:557)
+   app//clojure.core$seq__5488.invokeStatic(core.clj:139)
+   app//clojure.core$some.invokeStatic(core.clj:2709)
+   app//clojure.core$some.invoke(core.clj:2709)
+   yang.latte_oracle_test$upstream_record_data$fn__24432.invoke(latte_oracle_test.clj:1025)
+   app//clojure.walk$walk.invokeStatic(walk.clj:50)
+   app//clojure.walk$postwalk.invokeStatic(walk.clj:53)
+   app//clojure.walk$postwalk.invoke(walk.clj:53)
+   app//clojure.core$partial$fn__5929.invoke(core.clj:2641)
+   app//clojure.core$map$fn__5956.invoke(core.clj:2770)
+   app//clojure.lang.LazySeq.force(LazySeq.java:50)
+   app//clojure.lang.LazySeq.realize(LazySeq.java:87)
+   app//clojure.lang.LazySeq.seq(LazySeq.java:104)
+   app//clojure.lang.RT.seq(RT.java:555)
+   app//clojure.core$seq__5488.invokeStatic(core.clj:139)
+   app//clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:24)
+   app//clojure.core.protocols$fn__8266.invokeStatic(protocols.clj:74)
+   app//clojure.core.protocols$fn__8266.invoke(protocols.clj:74)
+   app//clojure.core.protocols$fn__8207$G__8202__8220.invoke(protocols.clj:13)
+   app//clojure.core$reduce.invokeStatic(core.clj:6965)
+   app//clojure.core$into.invokeStatic(core.clj:7038)
+   app//clojure.walk$walk.invokeStatic(walk.clj:50)
+   app//clojure.walk$postwalk.invokeStatic(walk.clj:53)
+   app//clojure.walk$postwalk.invoke(walk.clj:53)
+:ARM-D {:finished false, :capped-at-ms 120000}
+:ARM-E {:unique-containers 78913, :shared-revisits 3442, :cycle nil}
+
+Ran 1 tests containing 6 assertions.
+0 failures, 0 errors.
