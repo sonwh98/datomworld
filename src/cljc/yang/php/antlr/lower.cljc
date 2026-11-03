@@ -101,7 +101,6 @@
   "Expression forms led by a keyword or operator token."
   {"Clone" :clone,
    "New" :new,
-   "Exit" :exit,
    "Eval" :eval,
    "Include" :include,
    "IncludeOnce" :include,
@@ -1264,6 +1263,7 @@
       "Empty" (lower-empty ctx n (nth ks 2))
       "Print" (u/then (app* 'php/echo (app* 'php/to-string (lower ctx operand)))
                       (u/lit 1))
+      "Exit" (app* 'php/exit (if operand (lower ctx operand) (u/lit 0)))
       "OpenRoundBracket" (lower-cast ctx n ks)
       "Throw" (app* 'php/throw-value (lower ctx operand))
       "Clone" (app* 'php/clone-obj (lower ctx operand) (cc-node ctx))
@@ -1804,6 +1804,12 @@
           "empty" (let [cs (argument-chains ctx n arguments)]
                     (when (not= 1 (count cs)) (unsupported! n :argument-form))
                     (lower-empty ctx n (first cs)))
+          ("exit" "die") (let [as (core/rules ctx arguments "actualArgument")]
+                           (when (> (count as) 1) (unsupported! n :argument-form))
+                           (app* 'php/exit
+                                 (if (seq as)
+                                   (lower ctx (first (core/kids ctx (first as))))
+                                   (u/lit 0))))
           (let [f (core/gen "f" n)
                 by-ref (when-not user-lc
                          (:by-ref (get builtins/supported lc)))]

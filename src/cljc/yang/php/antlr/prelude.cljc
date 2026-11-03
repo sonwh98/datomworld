@@ -45,7 +45,11 @@
                            (the Throwable hierarchy, data only)
      php.rt/next-ord       a cell, the per-task object ordinal
      php.rt/next-cell      a cell, the per-task counted-cell id (`:id`)
+     php.rt/request        a cell holding the explicit request record
+     php.rt/response       a cell holding ordered response records
+     php.rt/headers-sent, php.rt/status   output state and the response status
      php.rt/error-handler  a cell, :php/null or a callable
+     php.rt/error-handlers a cell holding previous handlers for restoration
      php.rt/error-reporting a cell, the mask (E_ALL initially)
      php.rt/diag           a cell, the vector of diagnostic records
      php.rt/int-max, php.rt/int-min   exact integers computed in `init!`,
@@ -53,8 +57,8 @@
                            portable)
 
    Errors are raised with `php/raise`; with no handler frame above them they
-   reach the unit root, `php/run-main`, which answers
-   `{:php/out s :php/diag [...] :php/uncaught nil-or-{:class :message}}`.
+   reach the unit root, `php/run-main`, which answers output, response and
+   diagnostic records, any uncaught error, and an exit status when present.
 
    Float text: `php/float-text x ndigit` is `zend_gcvt`; `ndigit` 14 is
    `echo` (precision), 17 is `var_dump` (serialize_precision -1, the
@@ -276,8 +280,7 @@
        (assoc (assoc (assoc {} :php.diag/warning true) :errno errno)
               :message msg))]
     [php/warn-sink
-     ;; the P1 sink: a record on php.rt/diag when the mask admits it; P5
-     ;; replaces the cell with the composition's stream
+     ;; a diagnostic record on php.rt/diag when the mask admits it
      (fn [rec]
        (if (= (integer/bit-and (get rec :errno) (cell/get php.rt/error-reporting))
               0)
@@ -320,12 +323,134 @@
                (cell/set! php.rt/error-reporting saved)
                :php/null)))))]
 
-    ;; ---------------------------------------------------------------- output
+    ;; ---------------------------------------------------------------- request and output
+    [php/request-array-loop
+     (fn [entries i a]
+       (if (< i (data/count entries))
+         (let [entry (get entries i)]
+           (php/request-array-loop entries (+ i 1)
+                                   (php/array-put a (get entry 0) (get entry 1))))
+         a))]
+    [php/request-array
+     (fn [entries]
+       (if (nil? entries)
+         (php/empty-array)
+         (if (= (get entries :php/type) :array)
+           entries
+           (php/request-array-loop entries 0 (php/empty-array)))))]
+    [php/request-field
+     (fn [request field]
+       (php/request-array (get request field)))]
+    [php/bind-request!
+     (fn [request]
+       (let [geta (php/request-field request :php.request/query)
+             post (php/request-field request :php.request/body)
+             cookies (php/request-field request :php.request/cookies)
+             server (php/array-put
+                      (php/array-put (php/request-field request :php.request/server)
+                                     "REQUEST_METHOD"
+                                     (let [method (get request :php.request/method)]
+                                       (if (nil? method) "" method)))
+                      "REQUEST_URI" (let [uri (get request :php.request/uri)]
+                                      (if (nil? uri) "" uri)))
+             env (php/request-field request :php.request/env)
+             files (php/request-field request :php.request/files)
+             req (php/merge-loop (php/vconj (php/vconj [] geta) post)
+                                 0 2 (php/empty-array))]
+         (do (cell/set! php.rt/request request)
+             (php/global-put! "_GET" geta)
+             (php/global-put! "_POST" post)
+             (php/global-put! "_COOKIE" cookies)
+             (php/global-put! "_SERVER" server)
+             (php/global-put! "_ENV" env)
+             (php/global-put! "_FILES" files)
+             (php/global-put! "_REQUEST" req)
+             :php/null)))]
+    [php/emit-response!
+     (fn [record]
+       (cell/set! php.rt/response (php/vconj (cell/get php.rt/response) record)))]
     [php/echo
      (fn [s]
        (let [bufs (cell/get php.rt/out)
              i (- (data/count bufs) 1)]
-         (cell/set! php.rt/out (assoc bufs i (conj (get bufs i) s)))))]
+         (do (if (if (= i 0) (> (data/str-length s) 0) false)
+               (cell/set! php.rt/headers-sent true)
+               :php/null)
+             (cell/set! php.rt/out (assoc bufs i (conj (get bufs i) s))))))]
+    [php/bi-ob-start
+     (fn [args]
+       (do (cell/set! php.rt/out (php/vconj (cell/get php.rt/out) [])) true))]
+    [php/bi-ob-get-contents
+     (fn [args]
+       (let [bufs (cell/get php.rt/out)]
+         (if (= (data/count bufs) 1)
+           false
+           (data/str-join "" (get bufs (- (data/count bufs) 1))))))]
+    [php/bi-ob-end-clean
+     (fn [args]
+       (let [bufs (cell/get php.rt/out)]
+         (if (= (data/count bufs) 1)
+           false
+           (do (cell/set! php.rt/out (php/args-prefix bufs (- (data/count bufs) 1) 0 [])) true))))]
+    [php/bi-ob-get-clean
+     (fn [args]
+       (let [s (php/bi-ob-get-contents args)]
+         (if (= s false) false (do (php/bi-ob-end-clean args) s))))]
+    [php/bi-ob-end-flush
+     (fn [args]
+       (let [s (php/bi-ob-get-contents args)]
+         (if (= s false) false (do (php/bi-ob-end-clean args) (php/echo s) true))))]
+    [php/headers-refused?
+     (fn []
+       (if (cell/get php.rt/headers-sent)
+         (do (php/warn 2 "Cannot modify header information - headers already sent") true)
+         false))]
+    [php/bi-header
+     (fn [args]
+       (if (php/headers-refused?)
+         :php/null
+         (php/emit-response!
+           (assoc (assoc {} :php.response/header (php/to-string (get args 0)))
+                  :replace (if (> (data/count args) 1) (php/to-bool (get args 1)) true)))))]
+    [php/bi-headers-sent
+     (fn [args] (cell/get php.rt/headers-sent))]
+    [php/bi-http-response-code
+     (fn [args]
+       (if (= (data/count args) 0)
+         (cell/get php.rt/status)
+         (if (php/headers-refused?)
+           false
+           (let [status (php/to-int (get args 0))]
+             (do (cell/set! php.rt/status status)
+                 (php/emit-response! (assoc {} :php.response/status status))
+                 true)))))]
+    [php/bi-setcookie
+     (fn [args]
+       (if (php/headers-refused?)
+         false
+         (let [cookie (assoc (assoc {} :name (php/to-string (get args 0)))
+                             :value (if (> (data/count args) 1) (php/to-string (get args 1)) ""))]
+           (do (php/emit-response! (assoc {} :php.response/cookie cookie)) true))))]
+    [php/bi-setrawcookie
+     (fn [args] (php/bi-setcookie args))]
+    [php/php-sapi-name
+     (fn [args] "yin-http")]
+    [php/bi-getenv
+     (fn [args]
+       (let [name (php/to-string (get args 0))
+             env (php/request-field (cell/get php.rt/request) :php.request/env)
+             value (php/array-get env name)]
+         (if (= value :php/null) false value)))]
+    [php/exit
+     (fn [value]
+       (if (= (php/kind value) :string)
+         (do (php/echo value) (php/raise (assoc {} :php/type :exit :status 0)))
+         (php/raise (assoc {} :php/type :exit :status (php/to-int value)))))]
+    [php/bi-trigger-error
+     (fn [args]
+       (do (php/warn (if (> (data/count args) 1) (php/to-int (get args 1)) 1024)
+                     (php/to-string (get args 0)))
+           true))]
     [php/zeros
      (fn [n acc] (if (> n 0) (php/zeros (- n 1) (data/str-concat acc "0")) acc))]
     [php/strip-zeros
@@ -4294,11 +4419,17 @@
          (php/throw-error "ArgumentCountError"
                           "set_error_handler() expects at least 1 argument, 0 given")
          (let [old (cell/get php.rt/error-handler)]
-           (do (cell/set! php.rt/error-handler (get args 0))
+           (do (cell/set! php.rt/error-handlers
+                          (php/vconj (cell/get php.rt/error-handlers) old))
+               (cell/set! php.rt/error-handler (get args 0))
                old))))]
     [php/bi-restore-error-handler
-     ;; one level in P1: the previous handler is not remembered (P5)
-     (fn [args] (do (cell/set! php.rt/error-handler :php/null) true))]
+     (fn [args]
+       (let [stack (cell/get php.rt/error-handlers)
+             n (data/count stack)]
+         (do (cell/set! php.rt/error-handler (if (= n 0) :php/null (get stack (- n 1))))
+             (if (> n 0) (cell/set! php.rt/error-handlers (data/subvec stack 0 (- n 1))) :php/null)
+             true)))]
     [php/bi-error-reporting
      (fn [args]
        (let [old (cell/get php.rt/error-reporting)]
@@ -4920,26 +5051,36 @@
                           (fn [e] e)
                           (fn [] :php/null)))))))]
     [php/run-main
-     ;; the unit root: output, diagnostics and the uncaught error, if any
+     ;; the unit root: output, response records, diagnostics and any uncaught error
      (fn [body]
        (do (cell/set! php.rt/out [[]])
            (cell/set! php.rt/ctx (php/ctx nil 0 0 nil))
+           (cell/set! php.rt/response [])
+           (cell/set! php.rt/headers-sent false)
+           (cell/set! php.rt/status 200)
            (let [exc0 (php/try (fn [] (do (body) :php/null))
                                (fn [e] e)
                                (fn [] :php/null))
                  result (fn [exc]
-                          (assoc (assoc (assoc {} :php/out
-                                               (data/str-join "" (get (cell/get php.rt/out) 0)))
-                                        :php/diag (cell/get php.rt/diag))
-                                 :php/uncaught
-                                 (if (= exc :php/null) nil (php/snapshot-exc exc))))]
+                          (let [out (data/str-join "" (get (cell/get php.rt/out) 0))
+                                response (cell/get php.rt/response)]
+                            (assoc (assoc (assoc (assoc {} :php/out out)
+                                                 :php/diag (cell/get php.rt/diag))
+                                          :php/uncaught
+                                          (if (= exc :php/null) nil (php/snapshot-exc exc)))
+                                   :php/response
+                                   (if (= out "")
+                                     response
+                                     (php/vconj response (assoc {} :php.response/body out))))))]
              (if (= true (get exc0 :php/operational))
                (assoc (result :php/null) :php/fatal (get exc0 :message))
-               (let [exc1 (php/handle-uncaught exc0)
+               (let [exit? (= (get exc0 :php/type) :exit)
+                     exc1 (if exit? :php/null (php/handle-uncaught exc0))
                      exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
                                    (fn [e] e)
-                                   (fn [] :php/null))]
-                 (result (if (= exc1 :php/null) exc2 exc1)))))))]])
+                                   (fn [] :php/null))
+                     r (result (if (= exc1 :php/null) exc2 exc1))]
+                 (if exit? (assoc r :php/status (get exc0 :status)) r))))))]])
 
 
 (def ^:private builtins
@@ -5094,6 +5235,11 @@
                 ['do
                  (define 'php.rt/ctx '(cell/new (php/ctx nil 0 0 nil)))
                  (define 'php.rt/out '(cell/new [[]]))
+                 (define 'php.rt/request '(cell/new {}))
+                 (define 'php.rt/response '(cell/new []))
+                 (define 'php.rt/headers-sent '(cell/new false))
+                 (define 'php.rt/status '(cell/new 200))
+                 (define 'php.rt/error-handlers '(cell/new []))
                  (define 'php.rt/globals
                    '(cell/new (php/empty-array)))
                  (define 'php.rt/functions '(cell/new {}))
@@ -5172,9 +5318,9 @@
     php.rt/class-order php.rt/exception-handler php.rt/exception-handlers php.rt/finalizable php.rt/pending-exc
     php.rt/shutdown-fns php.rt/strict php.rt/included php.rt/path-map php.rt/unit
     php.rt/autoloaders php.rt/autoloading php.rt/class-map php.rt/constants
-    php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
+    php.rt/error-reporting php.rt/error-handlers php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
-    php.rt/out php.rt/tmps])
+    php.rt/out php.rt/request php.rt/response php.rt/headers-sent php.rt/status php.rt/tmps])
 
 
 (defn strip
