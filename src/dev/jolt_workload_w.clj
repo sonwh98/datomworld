@@ -33,7 +33,6 @@
             [yin.repl.connect :as connect]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
-            [yin.repl.driver :as driver]
             [yin.repl.main :as repl.main]
             [yin.repl.serve :as serve]))
 
@@ -89,28 +88,44 @@
 
 
 (defn- write-all!
-  [fd bs]
-  (let [bs (if (bytes/bytes? bs) bs (octets bs))
-        n (alength bs)
-        max-stalls 100]
-    (with-native n
-      (fn [p]
-        (ffi/write-array p bs)
-        (loop [off 0
-               stalls 0]
-          (if (>= off n)
-            off
-            (let [r (tcp/send-chunk! fd p (- n off))]
-              (cond
-                (= :would-block r)
-                (if (>= stalls max-stalls)
-                  (throw (ex-info "raw write-all stalled on :would-block"
-                                  {:off off :total n :stalls stalls}))
-                  (do (native/poll-one fd native/pollout 2000)
-                      (recur off (inc stalls))))
-                (:error r) (throw (ex-info "raw write failed" {:error r}))
-                :else (let [written (if (map? r) (:n r) (- n off))]
-                        (recur (+ off written) 0))))))))))
+  ([fd bs]
+   (write-all! fd bs (+ (poller/clock-ms) 300000)))
+  ([fd bs deadline]
+   (let [bs (if (bytes/bytes? bs) bs (octets bs))
+         n (alength bs)
+         max-stalls 100]
+     (with-native (max 1 n)
+       (fn [p]
+         (loop [off 0
+                stalls 0]
+           (when (>= (poller/clock-ms) deadline)
+             (throw (ex-info "raw write deadline exceeded"
+                             {:workload/failure :timeout, :off off, :total n})))
+           (if (>= off n)
+             off
+             (do
+               ;; A short send must resume at the unsent byte, not byte zero.
+               (ffi/write-array p bs off (- n off))
+               (let [r (tcp/send-chunk! fd p (- n off))]
+                 (cond
+                   (:error r)
+                   (throw (ex-info "raw write failed" {:error r}))
+
+                   (and (map? r) (number? (:n r)) (pos? (:n r)) (<= (:n r) (- n off)))
+                   (recur (+ off (:n r)) 0)
+
+                   (or (= :would-block r) (= 0 (:n r)))
+                   (let [remaining (max 0 (long (- deadline (poller/clock-ms))))
+                         _ (native/poll-one fd native/pollout (min 2000 remaining))
+                         stalls (inc stalls)]
+                     (if (>= stalls max-stalls)
+                       (throw (ex-info "TRANSFER STALLED: raw write made no progress"
+                                       {:workload/failure :transfer-stalled,
+                                        :off off, :total n, :stalls stalls, :result r}))
+                       (recur off stalls)))
+
+                   :else
+                   (throw (ex-info "unexpected raw write result" {:result r}))))))))))))
 
 
 (defn- write-some!
@@ -180,20 +195,30 @@
     bs))
 
 
+(defn- check-deadline!
+  [deadline phase]
+  (when (>= (poller/clock-ms) deadline)
+    (throw (ex-info "Workload W exceeded its five-minute deadline"
+                    {:workload/failure :timeout, :phase phase}))))
+
+
 (defn run-workload-w
   "Run the pre-registered Workload W benchmark:
    - Peer A: one 4,194,304 byte binary message (:ws/max-frame-bytes) paced over >= 60 s.
    - Peer B: 1 KiB request/reply concurrent (up to 8 outstanding) at 10 Hz.
    - REPL loop: evaluates a submitted loop each round, step count advances every round.
    - Criterion: p99 <= 250 ms, no reply lost, A delivered once, REPL step advances every round.
-   Returns {:pass? ... :p99 ... :samples ... :delivered-once? ... :repl-advances? ...}."
+   Run through bb workload-w:jolt for the independent five-minute watchdog.
+   Returns {:pass? ... :p99 ... :samples ... :elapsed-ms ... :delivered-once? ... :repl-advances? ...}."
   [& {:keys [target-duration-ms target-samples]
       :or {target-duration-ms 60000 target-samples 600}}]
   (println "================================================================================")
   (println "J6g Workload W: Starting benchmark (target duration:" target-duration-ms
            "ms, target samples:" target-samples ")")
   (println "================================================================================")
-  (let [w (wake/make-wake)
+  (let [run-start (poller/clock-ms)
+        deadline (+ run-start 300000)
+        w (wake/make-wake)
         server-inst (wsj/create)
         client-b-inst (wsj/create)
 
@@ -239,6 +264,7 @@
 
         ;; Drive until server listener is bound
         _ (loop []
+            (check-deadline! deadline :server-bind)
             (when-not @server-bound?
               (wake/sleep-fds! w 5 (wsj/host-pump server-inst) nil)
               (recur)))
@@ -264,7 +290,10 @@
                                  sent-at (get @b-outstanding req-id)]
                              (if sent-at
                                (do (swap! b-outstanding dissoc req-id)
-                                   (swap! b-samples conj (- now sent-at)))
+                                    (swap! b-samples conj (- now sent-at))
+                                    ;; The independent sampler observes every completed reply.
+                                    (println "W-SAMPLE" (- now sent-at))
+                                    (flush))
                                (swap! b-lost inc))))
                 :message! (fn [_])
                 :closed! (fn [_ _])
@@ -279,6 +308,7 @@
 
       ;; Drive until Peer B connection is open
       (loop []
+        (check-deadline! deadline :peer-b-upgrade)
         (when-not @b-opened?
           (wake/sleep-fds! w 5 (wsj/host-pump server-inst) nil)
           (wake/sleep-fds! w 5 (wsj/host-pump client-b-inst) nil)
@@ -297,10 +327,11 @@
                              "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
                              "Sec-WebSocket-Version: 13\r\n"
                              "Sec-WebSocket-Protocol: dao.stream.cbor\r\n\r\n")]
-        (write-all! (:fd raw-a) (text/utf8-encode upgrade-req))
+        (write-all! (:fd raw-a) (text/utf8-encode upgrade-req) deadline)
 
         ;; Drive until Peer A upgrade response arrives
         (loop []
+          (check-deadline! deadline :peer-a-upgrade)
           (raw-poll! raw-a)
           (when-not (head-end @(:in raw-a))
             (wake/sleep-fds! w 5 (wsj/host-pump server-inst) nil)
@@ -331,13 +362,13 @@
               a-stalls (atom 0)
               a-stalled? (atom false)
               timed-out? (atom false)
-              hard-timeout-ms 300000
               max-consecutive-stalls 500
               server-pump (wsj/host-pump server-inst)
               client-b-pump (wsj/host-pump client-b-inst)]
 
           (println "Frame length for Peer A:" total-a-frame-len "bytes")
           (println "Entering owner round loop...")
+          (flush)
 
           ;; Main owner loop
           (loop []
@@ -345,13 +376,17 @@
                   elapsed (- now start-time)]
 
               ;; Hard timeout guard: cap whole run at 5 minutes
-              (if (>= elapsed hard-timeout-ms)
+              (if (>= now deadline)
                 (do (reset! timed-out? true)
-                    (println "HARD CAP EXCEEDED: workload-w exceeded 5 minutes (" elapsed "ms), terminating loop."))
+                    (println "HARD CAP EXCEEDED: workload-w exceeded 5 minutes ("
+                             (- now run-start) "ms), terminating loop."))
 
                 (do
                   ;; 1. Advance owner round and step REPL loop
                   (swap! owner-round-count inc)
+                  (when (= 1 @owner-round-count)
+                    (println "W-PHASE repl-step")
+                    (flush))
                   (driver/submit-line! (:input @repl-state)
                                        "(loop [i 0] (if (< i 5) (recur (inc i)) i))")
                   (let [stepped (driver/repl-step @repl-state now)
@@ -360,6 +395,9 @@
                     (swap! repl-step-count inc))
 
                   ;; 2. Paced Peer A transfer across target-duration-ms (with no-progress guard)
+                  (when (= 1 @owner-round-count)
+                    (println "W-PHASE peer-a-send")
+                    (flush))
                   (when-not @a-stalled?
                     (let [target-bytes (if (>= elapsed target-duration-ms)
                                          total-a-frame-len
@@ -370,19 +408,23 @@
                         (let [to-write (min (- target-bytes @a-sent) 65536)
                               r (write-some! (:fd raw-a) a-frame @a-sent to-write)]
                           (cond
-                            (= :would-block r)
+                            (or (= :would-block r) (= 0 r))
                             (let [stalls (swap! a-stalls inc)]
+                              (native/poll-one (:fd raw-a) native/pollout 0)
                               (when (>= stalls max-consecutive-stalls)
                                 (reset! a-stalled? true)
                                 (println "TRANSFER STALLED: Peer A hit" stalls
-                                         "consecutive :would-block polls at" @a-sent "/" total-a-frame-len "bytes. Aborting transfer leg.")))
+                                         "consecutive no-progress polls at" @a-sent "/" total-a-frame-len "bytes. Aborting transfer leg.")
+                                (flush)))
 
                             (and (number? r) (pos? r))
                             (do (reset! a-stalls 0)
                                 (swap! a-sent + r))
 
                             :else
-                            (swap! a-stalls inc))))))
+                            (do (reset! a-stalled? true)
+                                (println "TRANSFER STALLED: unexpected Peer A send result" r)
+                                (flush)))))))
 
                   ;; 3. Peer B 10 Hz dispatch: concurrent requests up to 8 outstanding
                   (when (>= (- now @last-10hz-tick) 100)
@@ -397,18 +439,26 @@
                   (when (>= (- now @last-telemetry-tick) 10000)
                     (reset! last-telemetry-tick now)
                     (let [sc (count @b-samples)
-                          cur-p99 (if (pos? sc)
-                                    (nth (sort @b-samples) (min (dec sc) (int (* 0.99 sc))))
-                                    0)]
+                          cur-p99 (when (pos? sc)
+                                    (nth (sort @b-samples) (min (dec sc) (int (* 0.99 sc)))))]
                       (println (str "TELEMETRY: elapsed=" (long (/ elapsed 1000)) "s, samples=" sc
-                                    ", running p99=" cur-p99 "ms, A-sent=" @a-sent "/" total-a-frame-len
+                                    ", running p99=" (if cur-p99 (str cur-p99 "ms") "ABSENT") ", A-sent=" @a-sent "/" total-a-frame-len
                                     " (" (long (* 100 (/ (double @a-sent) (double total-a-frame-len)))) "%), A-deliveries=" (count @a-deliveries)
                                     (when @a-stalled? " [A-STALLED]")))
                       (flush)))
 
                   ;; 5. Pump I/O for server and client B
+                  (when (= 1 @owner-round-count)
+                    (println "W-PHASE server-pump")
+                    (flush))
                   (wake/sleep-fds! w 5 server-pump nil)
+                  (when (= 1 @owner-round-count)
+                    (println "W-PHASE client-b-pump")
+                    (flush))
                   (wake/sleep-fds! w 5 client-b-pump nil)
+                  (when (= 1 @owner-round-count)
+                    (println "W-PHASE owner-round-complete")
+                    (flush))
 
                   ;; Check exit conditions
                   (let [a-done? (or @a-stalled?
@@ -422,7 +472,7 @@
                       (let [drain-deadline (+ (poller/clock-ms) 500)]
                         (loop []
                           (when (and (seq @b-outstanding)
-                                     (< (poller/clock-ms) drain-deadline))
+                                     (< (poller/clock-ms) (min deadline drain-deadline)))
                             (wake/sleep-fds! w 5 server-pump nil)
                             (wake/sleep-fds! w 5 client-b-pump nil)
                             (recur))))
@@ -438,14 +488,14 @@
           ;; Evaluation of pre-registered criterion
           ;; -------------------------------------------------------------------
           (let [sample-count (count @b-samples)
+                elapsed-ms (- (poller/clock-ms) run-start)
                 valid-run? (>= sample-count 500)
                 target-samples-met? (>= sample-count target-samples)
                 sorted (sort @b-samples)
                 p99-idx (int (* 0.99 sample-count))
-                p99 (if (pos? sample-count)
-                      (nth sorted (min (dec sample-count) p99-idx))
-                      0)
-                p99-ok? (<= p99 250)
+                p99 (when (and (not @timed-out?) (pos? sample-count))
+                      (nth sorted (min (dec sample-count) p99-idx)))
+                p99-ok? (and (some? p99) (<= p99 250))
                 repl-advances? (= @owner-round-count @repl-step-count)
                 a-deliv-count (count @a-deliveries)
                 a-deliv-len (or (first @a-deliveries) 0)
@@ -467,10 +517,11 @@
             (println "Workload W Results:" (if all-pass? "SUCCESS" "FAILURE"))
             (println "================================================================================")
             (println "  Hard cap timed out:           " @timed-out?)
+            (println "  Elapsed:                      " elapsed-ms "ms")
             (println "  Peer A transfer stalled:      " @a-stalled?)
             (println "  Sample count:                 " sample-count
                      (str "(valid >= 500: " valid-run? ", target >= " target-samples ": " target-samples-met? ")"))
-            (println "  p99 round-trip latency:       " (if (pos? sample-count) (str p99 "ms") "ABSENT")
+            (println "  p99 round-trip latency:       " (if (some? p99) (str p99 "ms") "ABSENT")
                      (str "(criterion <= 250 ms: " p99-ok? ")"))
             (println "  Peer B replies lost:          " replies-lost "(unanswered) +" @b-lost "(corrupt)")
             (println "  Peer A delivered once:        " delivered-once?
@@ -480,10 +531,11 @@
             (println)
 
             ;; Required report records per BRIEF-j6g.md
-            (if (pos? sample-count)
+            (if (some? p99)
               (println "RECORD p99" p99 "ms")
               (println "RECORD p99 ABSENT"))
             (println "RECORD sample count" sample-count)
+            (println "RECORD elapsed ms" elapsed-ms)
             (println "RECORD delivered once" delivered-once?)
             (println "RECORD per-round step advance" repl-advances?)
 
@@ -492,6 +544,9 @@
                   {:pass? true
                    :p99 p99
                    :samples sample-count
+                    :elapsed-ms elapsed-ms
+                    :timed-out? @timed-out?
+                    :transfer-stalled? @a-stalled?
                    :delivered-once? delivered-once?
                    :repl-advances? repl-advances?
                    :replies-lost replies-lost})
@@ -499,6 +554,9 @@
                   {:pass? false
                    :p99 p99
                    :samples sample-count
+                    :elapsed-ms elapsed-ms
+                    :timed-out? @timed-out?
+                    :transfer-stalled? @a-stalled?
                    :delivered-once? delivered-once?
                    :repl-advances? repl-advances?
                    :replies-lost replies-lost}))))))))
@@ -986,6 +1044,15 @@
 
 (defn -main
   [& args]
+  (when-not (= "1" (System/getenv "JOLT_WORKLOAD_W_SUPERVISED"))
+    (println "Workload W Results: FAILURE")
+    (println "Use bb workload-w:jolt so the independent watchdog owns the runtime cap.")
+    (println "RECORD p99 ABSENT")
+    (println "RECORD sample count 0")
+    (println "RECORD elapsed ms 0")
+    (println "FAIL workload-w")
+    (flush)
+    (System/exit 1))
   (let [cmd (or (first args) "workload-w")
         ok? (case cmd
               "workload-w" (:pass? (run-workload-w))

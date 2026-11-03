@@ -101,10 +101,10 @@
            (System/exit (if (every? (comp zero? second) results) 0 1)))}
 
   workload-w:jolt
-  {:doc "J6g: pre-registered Workload W (v3 §2 A1, v3.1 D4) — one jolt process serving two peers on the same machine while the REPL evaluates a submitted loop each round; peer A sends one binary message at :ws/max-frame-bytes; peer B exchanges 1 KiB request/reply messages concurrently (up to 8 outstanding, at 10 Hz) for the whole of A's transfer and >= 60 s; prints p99, sample count, delivered-once checks, per-round step advance (needs bb bootstrap:jolt and bb build:jolt-native)"
+   {:doc "J6g: pre-registered Workload W, with an independent five-minute watchdog and ten-second sampler; one jolt worker serves two peers while stepping the REPL (needs bb bootstrap:jolt and bb build:jolt-native)"
    :task (System/exit
            (:exit (apply shell {:continue true} "sh" "-c"
-                         ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_workload_w.clj \"$@\""
+                          "exec bb src/dev/jolt_workload_w_run.clj \"$@\""
                          "jolt" *command-line-args*)))}
 
   build:jolt-native
