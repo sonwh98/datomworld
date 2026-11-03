@@ -51,11 +51,11 @@ Codex and AGY expose it via structured output:
 ```sh
 # Codex JSONL: first thread.started event
 TASK_SESSION_ID="$(jq -r 'select(.type == "thread.started") | .thread_id' \
-  collab/<timestamp>-<role>-<task>.<model>.stdout.log | head -1)"
+  collab/<topic>/<timestamp>-<role>-<task>.<model>.stdout.log | head -1)"
 
 # AGY JSON: top-level conversation_id
 TASK_SESSION_ID="$(jq -r '.conversation_id' \
-  collab/<timestamp>-<role>-<task>.<model>.stdout.log)"
+  collab/<topic>/<timestamp>-<role>-<task>.<model>.stdout.log)"
 ```
 
 For Kimi Code, record the new session's exact ID from
@@ -108,7 +108,7 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 > [!IMPORTANT]
 > **Don't probe before delegating.** Never run throwaway commands (`echo ok`, `--version`, `--help`) to
 > verify a delegate CLI before invoking it — every flag and pattern below is canonical and pre-verified.
-> Document the exact tool call here and invoke directly, capturing output into `collab/`.
+> Document the exact tool call here and invoke directly, capturing output into `collab/`'s topic subfolder for the track (per orchestrator.md's write-time filing rule — decide the topic before writing; the flat root is only for undetermined-track artifacts).
 
 > [!IMPORTANT]
 > **Never double-background a delegate dispatch.** When the host you're operating through already tracks a
@@ -292,43 +292,43 @@ table above and append `-r<n>` to the output artifact's basename.
 CLAUDE_BIN="claude-cloud"   # or: claude | MODEL=<model> glm | MODEL=<model> deepseek
 $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
   --output-format text -p "Read <prompt> and complete it now." < /dev/null \
-  > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
+  > collab/<topic>/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
 
 # Muse (Meta) — native CLI; --disable-write is the read-only review form, omit it for implementation.
 # Headless form (any host, any root): ALWAYS add --trust-workspace and --approval-mode never.
 muse exec --trust-workspace --approval-mode never --model muse-wonder-1.0 --session-id <uuid> --disable-write \
   "Read <prompt> and complete it now." \
-  > collab/<timestamp>-<role>-<task>.muse-wonder-1.0.stdout.log 2>&1
+  > collab/<topic>/<timestamp>-<role>-<task>.muse-wonder-1.0.stdout.log 2>&1
 
 # Muse follow-up: resume the exact recorded UUID interactively (never `muse resume --last`).
 # Headless failure modes and the server-side verification record: see Known CLI quirks.
 
 # Codex
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
-  > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
+  > collab/<topic>/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 
 # Kimi Code — native CLI for every Kimi model
 # New implementation session; for a read-only review, add --agent <read-only-agent>.
 kimi -m kimi-code/k3.1-pro -p "Read <prompt> and complete it now." \
   --output-format stream-json < /dev/null \
-  > collab/<timestamp>-<role>-<task>.kimi-k3.1-pro.stdout.log 2>&1
+  > collab/<topic>/<timestamp>-<role>-<task>.kimi-k3.1-pro.stdout.log 2>&1
 
 # Kimi follow-up: exact generated ID, original model, new prompt and artifact.
 kimi --session <session-id> -m kimi-code/k3.1-pro \
   -p "Read <follow-up-prompt> and complete it now." --output-format stream-json \
-  < /dev/null > collab/<timestamp>-<role>-<task>-r2.kimi-k3.1-pro.stdout.log 2>&1
+  < /dev/null > collab/<topic>/<timestamp>-<role>-<task>-r2.kimi-k3.1-pro.stdout.log 2>&1
 
 # Mistral — the Mistral AI CLI. The binary is named `vibe`; `mistral` is an
 # alias for it and is the preferred invocation name. Either works.
 # (model takes aliases: mistral-large, mistral-medium-3.5, mistral-4.0, devstral, codestral)
 mistral --agent ask --model mistral-4.0 \
   -p "Read <prompt> and complete it now." < /dev/null \
-  > collab/<timestamp>-<role>-<task>.mistral-<model>.stdout.log 2>&1
+  > collab/<topic>/<timestamp>-<role>-<task>.mistral-<model>.stdout.log 2>&1
 
 # Mistral follow-up: resume the same session, new prompt and artifact.
 mistral --resume <session-id> --model mistral-4.0 \
   -p "Read <follow-up-prompt> and complete it now." < /dev/null \
-  > collab/<timestamp>-<role>-<task>-r2.mistral-<model>.stdout.log 2>&1
+  > collab/<topic>/<timestamp>-<role>-<task>-r2.mistral-<model>.stdout.log 2>&1
 
 # Gemini / AGY
 # No --print-timeout: it is optional and defaults to 0 (wait until the turn
@@ -336,7 +336,7 @@ mistral --resume <session-id> --model mistral-4.0 \
 # 2026-10-18: a 5m limit killed an architecture review mid-turn; see quirks).
 agy --model <model> --effort <effort> <review-or-implementation-flags> \
   --output-format json -p "Read <prompt> and complete it now." \
-  > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
+  > collab/<topic>/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 ```
 
 ## Known CLI quirks

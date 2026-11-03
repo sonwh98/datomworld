@@ -93,7 +93,9 @@ are named `<timestamp>-<role>-<task>.prompt.md`,
 The `<timestamp>` prefix is a UNIX millisecond timestamp (e.g. `1725791234567`) so files sort
 chronologically in Git's untracked view; `<sanitized-model>` prevents parallel reviewers from colliding.
 
-**Decide the topic before writing (2026-11-03 owner ruling).** An artifact
+**Decide the topic before writing (2026-11-03 owner ruling; consolidates
+the 2026-10-31 one-record ruling that superseded the 2026-10-17
+separate-top-level-archive ruling).** An artifact
 is written directly into its destination topic subfolder
 (`collab/yang-python/`, `collab/dev/`, … per step 11's folder rules) when
 the subsystem it belongs to is known — which is essentially always, since
@@ -139,8 +141,9 @@ durable-per-seat-readable record), while an in-flight artifact exists
 only as an untracked file in the checkout that created it — invisible
 from other checkouts and from every branch until it is committed. This
 visibility split is why a merged worktree's collab files must be
-committed before that worktree is deleted (the worktree-deletion rule
-above), and why in-flight artifacts belong in their topic subfolder from
+committed before that worktree is deleted (the worktree-deletion rule in
+the Worktree section below), and why in-flight artifacts belong in their
+topic subfolder from
 birth: a committed topic file survives checkout deletion, a flat-root
 file does not. Promote final responses to
 `.findings.md`; `.stdout.log` is only
@@ -160,15 +163,17 @@ not be inferred from a missing final report.
 
 Read-only reviewers may share the main tree. Concurrent editors use separate
 worktrees from a committed base; uncommitted bases require serialization or
-explicit disjoint ownership. Only one process owns the CLJD lane because
-`bb test:cljd` writes shared generated output. Auxiliary worktrees lack
+explicit disjoint ownership (lane-sharing limits like "only one process owns
+the CLJD lane" are test-execution constraints owned by
+[`build-n-test.md`](../build-n-test.md), not artifact rules). Auxiliary
+worktrees lack
 `collab/`, so briefs use absolute paths, and delegates there often stage
-their own reference copies of prompts/findings in a local `collab/`. Before
-removing a worktree, diff its `collab/` against the main tree's and copy
-over anything unique — a worktree merge moves only committed content.
-Under the one-record `collab/` regime this is not a copy-out burden:
-collab files generated in a worktree are added to git there (step 11's
-`docs(collab):` commit) and reach master through the merge. A worktree
+their own reference copies of prompts/findings in a local `collab/`. The
+canonical procedure makes copy-out unnecessary: collab files generated in a
+worktree are committed there (step 11's `docs(collab):` commit) and reach
+master through the merge. Before removing a worktree, diff its `collab/`
+against the main tree's only as a safety check that no untracked file is
+being lost — a worktree merge moves only committed content. A worktree
 is deleted only after its work has been successfully merged to master
 under that authority — or on user instruction, which is a deliberate
 discard. Because deletion follows the merge, the merged content is
@@ -200,7 +205,11 @@ only: one per coherent unit (a delegated round, a fix, a review reconciliation,
 a readiness report), an unfinished-work entry when work stops before the next
 unit finishes, and a final handoff entry when the seat is passed on. It records
 completed and stopped units only; in-flight state lives in `collab/`,
-referenced by filename and session ID rather than duplicated.
+referenced by filename and session ID rather than duplicated. The
+unfinished-work entry uses the same header schema, with the fields filled
+for what IS true: `Completed-GMT` timestamps the stop, `Done` names exactly
+what landed and what did not, and the body ends with the remaining steps so
+a successor can continue from the artifact trail alone.
 
 Start every entry with actual timestamps and identity fields (never fabricate
 them), then state what `git log` alone cannot re-derive:
@@ -331,27 +340,20 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
     rule before pushing.
 11. **Archive completed-task artifacts.** When collaboration artifacts are no
     longer needed for active collaboration (their task is committed or its
-    track is otherwise closed), commit them. Under the write-time filing
-    rule (Artifact protocol, 2026-11-03) the artifacts already sit in their
-    topic subfolder, so archiving is `git add collab/<topic>/` plus the
-    commit; the only files that need MOVING are flat-root stragglers whose
-    track was undetermined at write time — move those into git-tracked,
-    subsystem-organized subfolders of the same directory (e.g.
+    track is otherwise closed), commit them — the storage model, the
+    write-time filing rule, and the ruling history are canonical in the
+    Artifact protocol; this step is only the mechanical procedure.
+    Artifacts filed at write time are archived by `git add collab/<topic>/`
+    plus the commit; the only files that need MOVING are flat-root
+    stragglers whose track was undetermined at write time — move those into
+    git-tracked, subsystem-organized subfolders of the same directory (e.g.
     `collab/yang-python/`, `collab/dao-stream/`, `collab/yin-ucf/`,
-    `collab/yin-linker/`) under their exact filenames. There is no separate
-    archive root: `collab/` IS the collaboration record, its topic
-    subfolders are the archive, and the flat root is only the undetermined-
-    track staging space (2026-10-31 owner ruling, superseding the 2026-10-17
-    separate-top-level-archive ruling; amended 2026-11-03 to move the filing
-    decision to write time). The archived subfolders are under version
-    control deliberately — the git history is the historical record of the
-    collaboration — so every archive batch is committed (and pushed) as
-    `docs(archive):` or `docs(collab):`; an archive that is not committed is
-    not an archive. Do not leave archived files untracked, and do not invent
-    intermediate locations. Do not dump files flat into the `collab/` root
-    when their subsystem is known (that space is only for undetermined-track
-    artifacts). Organize archived files by
-    design subsystem, not by generic slice codes or temporary folder names:
+    `collab/yin-linker/`) under their exact filenames. Every archive batch
+    is committed (and pushed) as `docs(archive):` or `docs(collab):`; an
+    archive that is not committed is not an archive. Do not leave archived
+    files untracked, and do not invent intermediate locations. Organize
+    archived files by design subsystem, not by generic slice codes or
+    temporary folder names:
 
     - **The subsystem is defined by the code, not by the seat.** When the work
       belongs to a subsystem in [`src/dev/subsystems.edn`](../../../src/dev/subsystems.edn)
@@ -372,9 +374,10 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
       drop the duplicate; differing same-name artifacts are kept as suffixed
       variants (the `-b`, `-r2` convention) — neither copy dies.
 
-    Never delete, truncate, rename, or overwrite an artifact;
-    use `mv -n` and leave collisions in the flat in-flight space until the
-    reused task name is resolved. Archive only committed work and only when
+    Never delete, truncate, rename, or overwrite an artifact. Same-named
+    collisions (in whatever folder they meet) resolve by the rule above;
+    a `mv` that would land on an existing file leaves the collision in
+    place for that resolution. Archive only committed work and only when
     no uncommitted tracked changes could make task ownership ambiguous.
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
@@ -424,7 +427,8 @@ Required workflow:
 - Run <focused-test-command> and <lint-command> locally.
 
 Do not broaden scope; do not stage, commit, or merge without an Architect
-sign-off or explicit user instruction; do not trust
+sign-off, an explicit user instruction, or the trivial-edit exemption
+(see the Coordination contract above); do not trust
 delegated test claims without local evidence, or terminate a healthy agent
 merely because it is slow or temporarily quiet.
 
