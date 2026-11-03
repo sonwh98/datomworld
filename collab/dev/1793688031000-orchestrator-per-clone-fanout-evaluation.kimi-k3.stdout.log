@@ -1,0 +1,55 @@
+kimi version 2.4.0
+• Read the files.Evaluate. Key points:
+
+  Current nightly.clj runs lanes sequentially (doseq). Neither compile-gated overlap nor per-clone is implemented in this file — proposal presumably modifies nightly.clj to run node+dart concurrently.
+
+  Correctness hazards:
+  1. Pin protocol: both clones must checkout same sha. nightly.clj does git fetch + checkout in <clone>. With per-clone, driver must fetch in both clones (or fetch once then clone locally). Fetch in primary, then create second clone from local dir / or fetch in both — the second clone's fetch could see a NEWER origin/master if push lands between fetches. Must resolve sha once (rev-parse in primary) and pass --pin-sha to both / checkout sha explicitly in both. The pin protocol already supports --pin-sha. Easy but must be explicit.
+  2. ~/ci naming & ci_gc.sh: gc only touches `datomworld-*` glob — clones named `datomworld-node`, `datomworld-dart` match. Danger: gc rule "modified within 7 days" keeps them; nightly runs daily, so mtime fresh → safe. But `pgrep -f "$d"` — path-based matching: `datomworld-node` prefix-matches? pgrep -f pattern is regex; `datomworld-node` won't match `datomworld-node2`. But careful: if primary clone is `~/ci/datomworld` (no dash), gc never touches it (glob requires dash). New clones `datomworld-node/dart` match the glob and get deleted only if older than 7 days unmodified and clean — a nightly that runs daily keeps them fresh. But a clone idle >7 days (host down, lanes changed) gets deleted mid-run? pgrep check protects. Also "detached HEAD reachable from origin/master" — pinned sha is origin/master's head, reachable, so eligible for deletion when stale. Fine.
+  3. Shared-state hazard missed by proposal: jvm lane. nightly.clj currently runs jvm lane in the same clone. If jvm also runs (shiva runs jvm,node,dart?) — per proposal lanes "node and dart" each get own clone; what about jvm? Presumably jvm stays in primary clone and runs... concurrently? If jvm runs in primary concurrently with node/dart clones, fine (disjoint). But if jvm shares clone with anything, same races. Proposal must specify jvm's clone. Also mise install runs in clone (harmless, toolchain not tree). run.lock: ci_gc checks target-ci/run.lock — neither shard writes it; pgrep is the real guard.
+  4. Stamps: node-shards-$STAMP / dart-shards-$STAMP — same stamp in different clones, fine. results dir summary: one driver writes one summary — nightly.clj lanes write to shared summary file via spit append; with futures both lanes append concurrently — spit append race (interleaving/corruption unlikely but possible; messages small, O_APPEND atomic-ish on local fs for small writes; still should serialize via locking or collect after deref).
+  5. target-ci/node-shards-latest symlink per clone — fine.
+  6. Cache hazards beyond m2/gitlibs: shadow-cljs cache is per-clone (.shadow-cljs) — fine; npm ci per-clone writes node_modules in clone — fine; but npm cache (~/.npm) shared — npm cache is content-addressed with locking, generally safe. Clojure CLI ~/.m2 concurrent downloads: maven resolver lacks robust file locking → corrupted jars possible on cold cache. Mitigation warm-up pass: run `clojure -P` / deps prep in primary before fanning out. Flutter: pub cache ~/.pub-cache shared — flutter pub get concurrent? cljd compile resolves dart deps; pub cache has some locking but historically racy. Also flutter tool lock (~/.flutter/bin/cache lockfile) — flutter first-run/upgrade stamps; pinned version, warm. Add pub-cache to the warm-up list.
+  7. Disk: two clones ~1-2GB each plus node_modules ×2, .shadow-cljs ×2, build/cljd-out ×2 — more like 3-6GB extra; mention.
+  8. Memory: node par=12 + flutter conc — on 16GB, each node test process ~300-600MB → 12×0.5=6GB plus JVM compiles; flutter concurrency 6. Agree with cap, maybe par node down to 8.
+
+  Performance: vs compile-gated overlap: gate means dart waits for node's compile (or vice versa); per-clone saves that serialization (~compile time of one lane, minutes). Duplicated prereq work runs in parallel. Slight regression: second clone loses warm .shadow-cljs/cljd incremental caches unless seeded (rsync target dirs after first run, or accept first-run cost; cron daily keeps both warm thereafter). Wall clock ≈ max(node, dart) vs max with gating overhead — per-clone wins or ties.
+
+  ci_gc interaction: with two clones touched daily, both retained; gc disk pressure doubles retention. Also the `-latest` symlinks and pgrep guard ok.
+
+  Also: node lane writes target/node-tests.js; dart lane reads? No — disjoint clones.
+
+  One more: git fetch in both clones concurrently against origin — fine (read-only remote). But local clone creation: use `git clone --shared` or worktree? Worktree shares .git — git worktree has lock on index? Separate worktrees have separate index/HEAD — safe; but proposal says full clone, fine either way.
+
+  Verdict: adopt per-clone, with conditions (single-sha pin resolution, warm-up pass for shared caches, memory caps, gc naming fit).
+
+• I've read all four files. One important framing note first: the checked-in `nightly.clj` currently runs lanes **sequentially** (`doseq` at `src/dev/nightly.clj:291`) — both "compile-gated overlap" and "per-clone" are proposals against that baseline. Here's the evaluation of per-clone on its merits.
+
+  ## Correctness
+
+  **Hazards the proposal eliminates — confirmed real in the code:**
+  - `node_shard.clj:129-131` runs `build:yin-repl-node`, `build:yin-repl-peer`, `gen:antlr`, and `npm ci`, all writing into the clone (`target/`, `node_modules/`, antlr output); `dart_shard.clj:104-110` also runs `build:yin-repl-peer`. Concurrent lanes in one clone genuinely race here. Per-clone removes this whole class by construction.
+
+  **Hazards the proposal misses or must handle explicitly:**
+
+  1. **Pin skew between the two fetches.** `nightly.clj:246-248` does `git fetch` then `rev-parse origin/master`. If each lane clone fetches independently, a push landing between the two fetches puts the clones on different SHAs — silently breaking the pin contract the whole protocol exists for. Fix: resolve the SHA *once* (the driver already supports `--pin-sha`, line 214) and check out that exact SHA in both clones. This is easy but must be in the design, not assumed.
+  2. **The jvm lane.** The proposal says "node and dart each get a clone" but shiva's lane set is `jvm,node,dart`. Where does jvm run? If it stays in the primary clone and runs concurrently with the node/dart clones, that's fine (disjoint trees) — but then jvm vs. node overlap still needs the primary clone to not be shared. Cleanest: jvm keeps the primary clone, node and dart get `datomworld-node` / `datomworld-dart`, all three fan out. The proposal must say this explicitly or the race just moves.
+  3. **Summary file is a shared write set.** `nightly.clj:138-141` appends to one `summary.txt` via `spit :append`. Two lane futures appending concurrently can interleave/corrupt (small writes are *usually* atomic with O_APPEND on local fs, but `spit` open/write/close is not one syscall). Fix: collect per-lane summary text in the future, and let the driver append serially after deref — trivial, but it's a real shared write the "disjoint by construction" claim overlooks.
+  4. **Shared caches beyond ~/.m2 and ~/.gitlibs:** `~/.pub-cache` (cljd compile resolves Dart deps; pub's concurrent-fetch behavior is not robust), `~/.npm` (content-addressed, generally safe), and the Flutter tool's own cache lock (warm if version is pinned and previously run — fine). Your mitigation (a cache-warm prep pass in the primary clone before fanning out: `clojure -P`, `bb gen:antlr`-class dep resolution, `flutter pub get`-equivalent) covers these; make the pub-cache fetch part of that pass, not just m2/gitlibs.
+  5. **`ci_gc.sh` fit — mostly good, one caveat.** The gc glob is `datomworld-*` (line 34), so `datomworld-node`/`datomworld-dart` are collected, while the primary `~/ci/datomworld` is not. Protection relies on the 7-day-mtime rule and `pgrep -f "$d"` (lines 40, 66); a nightly touching the clones daily keeps them fresh, and pgrep catches in-flight runs. Caveat: `pgrep -f` pattern-matches the path string — fine here, but never name a third clone `datomworld-node2`, since the keep-check for `datomworld-node` would also match its processes (harmless direction: over-keep, not over-delete). Also note the `target-ci/run.lock` check (line 39) protects nothing — neither shard writes that file; pgrep is the only live-run guard.
+  6. **First-run cache coldness.** Per-clone loses warm `.shadow-cljs/` and `lib/cljd-out/` incremental state in the second clone. Seed it (rsync `target/`, `.shadow-cljs/`, `lib/cljd-out/` from primary after the first full run) or accept a one-time full compile; daily cron keeps both warm thereafter.
+
+  ## Performance
+
+  Per-clone strictly dominates compile-gated overlap on wall clock: the gate serializes one lane's compile behind the other's, while per-clone pays duplicated prereq work (~2-3 min) *in parallel*. Wall clock ≈ max(node-lane, dart-lane) either way, minus the gating offset. Only regressions: (a) the cold second-clone compile on day one, (b) duplicated disk — realistically 3-6 GB extra once `node_modules`, `.shadow-cljs`, and `build/` are counted (more than the claimed 1-2 GB), which also doubles what gc retains between rotations.
+
+  ## Operational risk
+
+  - **gitlibs/m2 races:** real on cold cache, eliminated by the prep pass; after day one, caches are warm and this concern largely evaporates. Low residual risk.
+  - **Disk:** moderate; gc already rotates `datomworld-*`, and daily mtime keeps both clones alive — verify ~/ci has headroom for ~2× tree + build artifacts.
+  - **Memory:** agree with your cap. 12 node processes (~0.3-0.6 GB each) + flutter `--concurrency 6` + two compile JVMs on 16 GB is tight but workable; consider node par 8-10 rather than 12 to leave headroom for the cljd compiler's JVM.
+  - **Reporting:** one driver, one summary, lanes as futures joined before the `done rc=` line — the existing `doseq` structure converts cleanly; just serialize summary appends (point 3).
+
+  VERDICT: adopt per-clone — it deletes an entire class of ordering bugs that gating logic only contains, at a cost of ~3-6 GB disk and a one-time cold compile, provided the SHA is resolved once and reused for both clones, a cache-warm prep pass (m2/gitlibs/pub-cache) precedes fan-out, jvm keeps the primary clone, and summary writes are serialized after the join.
+
+To resume this session: kimi -r session_57c492c0-7fb5-48ce-9333-b494a2d47a1f

@@ -1,0 +1,127 @@
+kimi version 2.4.0
+• The user says "Review this diff" but no diff is attached; I should read the current file and callers. Let me read nightly.clj and the related files.
+
+• No diff was attached, so I'll review the current state of the file plus its callers.
+
+• Read callers: node_shard.clj, dart_shard.clj, docs/agents/build-n-test.md.Now review nightly.clj carefully. Walk through the checklist.
+
+  **1. Paren/structure + babashka compat**
+
+  - Structure looks balanced.
+  - `psh` uses `p/shell` with `:extra-env` — bb supports `:extra-env`. In `psh`, `(apply p/shell (update opts :extra-env #(merge {"PATH" child-path} %)) cmd)` — apply with two collections: `(apply f opts cmd)` where opts is a map and cmd is a list of strings. `apply p/shell opts "a" "b"`? Actually `(apply f coll1 coll2)` means `(apply f (concat coll1 coll2))` — wait, apply's contract: `(apply f x y coll)` = `(f x y (first coll)...)`. Here `(apply p/shell map coll)` = `(apply p/shell (concat map-items... ))`? No — apply treats all-but-last as individual args, last as a seq. So `(apply p/shell opts cmd)` → `(p/shell opts (first cmd) ...)`. That's correct.
+  - In `lane-node`: `(run-cmd! clone ... ["bb" ...])` — run-cmd! does `(apply psh {...} cmd)` = `(apply psh opts cmd)` — same pattern, fine.
+  - `vn-date`/`vn-hour`: `(psh {:out :string ...} "date" ...)` — psh's variadic `& cmd` collects strings; then `(apply p/shell (update opts...) cmd)` → `(apply p/shell opts cmd)` → ok.
+  - `git-out`: `(apply psh {:dir dir ...} "git" args)` → psh gets opts, "git", args; `(apply p/shell opts "git" args)` → `(apply p/shell opts "git" arg1...)`. Correct.
+  - `run-pool` uses futures and locking — fine in bb.
+  - `ensure-lane-clone!`: uses `log` passed in — the `log` in -main writes to summary file, called before futures, fine.
+  - `(psh {:dir clone-dir ...} "git" "checkout" ...)` return value discarded, frc returned. Checkout failure (bad sha) goes undetected — potential issue: if checkout fails, lane clone is at wrong sha silently. frc only captures fetch rc. Worth flagging? The clone was just fetched from the same origin where sha was resolved, so checkout should succeed. Minor robustness note, not a blocker... Actually could matter if sha is from `--pin-sha` not on origin. Flag as observation.
+  - `slow-namespaces` uses `(apply psh {...} ["grep" ...])` fine.
+  - Line 160 in dart_shard: `{:keys [continue]} nil` — dead binding, not nightly's problem (and I shouldn't fix).
+
+  **2. Single-lane backward compat**
+
+  `multi? (> (count lanes) 1)`. Single lane: no cache-warm. `lane-clones` — for single lane "jvm" → primary. But wait: single lane "node" on jupiter! Jupiter invocation: "nightly.clj <clone> jvm 12 --pin-read --pin-peer ..." — lane jvm, so clone is primary, no lane clone. But if jupiter were invoked with just "node", lane-clones gives `<clone>-node`, and ensure-lane-clone! creates it — that changes single-lane behavior for a non-jvm lane. Hmm: `multi?` is false, but the doseq creating lane clones runs whenever a lane's clone differs from primary — regardless of multi?. So a single "node" lane gets a new clone and runs in it — different from "before" (previously ran in primary). The stated compat case (jvm single lane) is fine. Is this intended? The docstring says "Single-lane runs (jupiter) keep the primary clone for every lane" — but lane-clones maps jvm→primary and others→suffixed regardless of count. That's a contradiction: single-lane "node" would use a clone. Whether that's a bug depends on intent; for the jupiter invocation in question (jvm), it's fine. Worth noting.
+
+  Also single-lane run still writes `summary-jvm.txt` and then appends it into summary.txt — "no summary-<lane>.txt surprises": summary files are created for every lane even single-lane. That's new files in the results dir compared to before, but harmless; content still lands in summary.txt. The log/lane-lane writes go to lane summary... wait, `log` in -main writes to main summary; lane fns write to `(lane-summary lane)`. Single lane still uses summary-jvm.txt. Fine.
+
+  **3. Multi-lane shared writes**
+
+  Lanes: jvm→primary, node→<primary>-node, dart→<primary>-dart. Each lane writes logs to shared `out` dir — distinct filenames (jvm-quick-*.log, node-shard.log, dart-shard.log) — no overlap. Per-lane summary files distinct. target-ci: node_shard writes `<clone>/target-ci/node-shards-...` inside its own lane clone — fine. dart similar. stamp collision between lanes? node and dart have distinct prefixes. OK.
+
+  One catch: node_shard/dart_shard are invoked as `bb src/dev/node_shard.clj clone par` with `:dir clone` where clone is the LANE clone — the script path `src/dev/node_shard.clj` resolves relative to the lane clone. Good — that means lane clones need the same commit checked out, which ensure-lane-clone! does.
+
+  Shared caches: ~/.m2, ~/.gitlibs — cache-warm only warms -M:test (jvm lane). Node lane runs `npm ci` in its own clone — node_modules per clone, fine; npm cache shared read mostly. Shadow compile in node clone uses clj with :cljs alias — resolves deps from ~/.m2 again; cache-warm only warmed :test alias deps! `clojure -P -M:test` doesn't prep the `:cljs` or `:clojuredart` alias deps. So node/dart lanes may still fetch concurrently into ~/.m2 — the race the warm was meant to remove isn't fully removed. That's a real gap: cache-warm should prep all aliases the lanes use (`-P -M:test:cljs:clojuredart:cljd` or separate). Flag as R.
+
+  Also flutter pub cache shared — "one Dart lane per host at a time" rule holds (only one dart lane).
+
+  **4. Failure semantics**
+
+  - ensure-lane-clone! throws ex-info on clone creation failure — thrown inside the `doseq` in -main → uncaught → bb exits nonzero (1?) but without `(System/exit @rc)` and without writing summary. bb uncaught exception → exit code 1. So exit nonzero, but summary lacks "done rc=". Acceptable-ish; but per spec "Exit: 1 ... infrastructure failure" holds.
+  - Fetch failure: logs FAIL, frc returned, rc set 1. Good.
+  - cache-warm failure: rc=1, continues. OK.
+  - Lane exceptions: caught, lane-rc 1, rc 1. Good.
+  - BUT: if ensure-lane-clone! throws (clone creation), the exception propagates out of -main before System/exit — bb default exit for uncaught exception is 1. Fine but abrupt; pin published already on shiva — publish happens before. Hmm, shiva publishes the pin then might crash on lane clone creation → jupiter reads a pin whose run failed infra on shiva. Pre-existing concern, minor.
+  - Another: if cache-warm fails rc=1 but run continues and lane results appended — exit code still 1 at end since rc atom persists. Good.
+  - `doseq [[lane lc] (sort-by key clones) :when (not= lc clone)]` — `:when` with destructuring doseq, fine.
+
+  **5. Pin-publish ordering**
+
+  ensure-lane-clone! is called inside the `let [sha ...]` body after the pin cond — yes, checkout in primary happens in the cond, then lane clones get `sha` (which for read-pin... wait! In the read-pin branch, the primary checks out `psha` when valid, but `sha` (used for lane clones and logged) remains `origin/master` rev-parse, NOT psha! Look:
+
+  ```
+  (let [sha (or pin-sha (git-out clone "rev-parse" "origin/master"))]
+    (cond ... read-pin? → checkout psha ...)
+    ...
+    _ (doseq ... (ensure-lane-clone! clone lc sha log))
+  ```
+
+  In the read-pin branch, primary checks out `psha`, but lane clones check out `sha` = origin/master — a DIFFERENT commit. Also the "nightly ... at ..." log uses git-out of primary (psha). So on a multi-lane host with --pin-read, lanes would run origin/master while jvm runs psha. Jupiter is single-lane so unaffected in practice, but shiva is multi-lane and uses --pin-publish (sha == checked out, fine). Still a latent bug if pin-read is ever combined with multi-lane: lane clones don't match primary. Given the checklist explicitly asks "do the lane clones get the same sha" — answer: for pin-publish and default paths yes, for pin-read NO (lanes get origin/master, primary gets psha). That's a real finding — R. Fix: bind the effective sha (psha when pin validated).
+
+  Wait — check read-pin failure branch: checks out sha (origin/master), consistent. Success branch: psha. So lane clones diverge exactly when pin succeeds. Also note pin-sha flag: sha=pin-sha, checkout sha — consistent.
+
+  **6. Host wrappers**
+
+  - shiva: `--pin-publish`, lanes default "jvm,node,dart" (multi). Jupiter: `--pin-read --pin-peer shiva`, lanes "jvm". 
+  - Jupiter waits for pin up to 3 min; fine.
+  - Pin-publish on shiva publishes BEFORE lanes run (existing behavior).
+  - `run-id` uses `(subs prid 0 8)` date and `(subs prid 9 11)` hour — run-id format "yyyyMMdd-HH": index 8 is "-", 9-11 hour. OK.
+  - Cron hourly on both hosts; jupiter single-lane jvm never touches lane clones — good.
+  - `stamp` uses LocalDateTime/now — host-local; shiva/jupiter in different tz could produce different stamps, but each host has own results dir. Fine.
+  - One more: `ensure-lane-clone!` clone target `home` dir — clones to `<primary>-node` — fine.
+  - `git clone -q url clone-dir` with :dir home — fine.
+  - futures in bb: use agent pool? bb supports `future` (uses its own executor, threads killed at exit). With System/exit at end, fine.
+  - `log` from -main writes to summary via spit append; called before futures only — ok.
+
+  Other observations:
+  - `multi?` uses count of lanes set — lanes "jvm,jvm" dedup'd to 1, fine.
+  - If lanes contains unknown name, `(case lane ...)` in run-lane throws → caught → lane-rc 1. In lane-clones, case default `(str primary "-" lane)`. OK.
+  - Lane-clone creation failure throws → aborts whole run before any lane; exit 1 via uncaught exception — summary missing; acceptable but could be R: wrap to reset! rc and skip? The spec says exit 1 on infra failure — satisfied.
+
+  - Another shared write: node_shard and dart_shard both compute `stamp` inside their own process — invoked from different lane clones; out dirs are per-clone so no clash.
+
+  - Cache-warm runs `clojure -P -M:test` — note in lane-jvm slow tier uses `clojure -M:test -i :slow` — covered. But node lane's `clj -M:cljs -m shadow...` and dart's `clojure -M:clojuredart:cljd compile` use aliases not prepped — concurrent m2 fetch race remains. R.
+
+  - Single-lane `node` runs in `<clone>-node` as noted — behavior change for single non-jvm lane; contradicts docstring "Single-lane runs keep the primary clone for every lane". R or note. Also then jupiter-if-configured-with-node would silently create a clone. Suggest gating lane-clones on multi? : if single lane, all lanes map to primary.
+
+  Verdict: revise.
+
+  Rs:
+  R1: pin-read success path: lane clones get `sha` (origin/master) not `psha` — primary and lanes diverge. Bind effective sha from the pin branch.
+  R2: cache-warm only preps `-M:test`; node (`-M:cljs`) and dart (`-M:clojuredart:cljd`) alias deps still resolve concurrently in ~/.m2/~/.gitlibs. Warm all lane aliases.
+  R3: single-lane non-jvm runs get a lane clone anyway (lane-clones ignores multi?); either gate on multi? or fix docstring.
+  R4 (minor): ensure-lane-clone! ignores checkout exit code — a failed checkout (e.g. --pin-sha not on origin) leaves lane on stale HEAD while reporting rc=fetch. Return checkout rc / check it.
+  R5 (minor): clone-creation failure throws out of -main — no "done rc=" in summary; consider catching to record infra failure.
+
+  Check paren balance quickly — file read fine, bb syntax looks ok. `psh` usage in lane-jvm doseq: run-cmd! fine.
+
+  One more: `(some (fn [[a b]] ...) (partition 2 1 flag-args))` — partition 2 1 gives pairs; "--pin-peer" followed by value works. But if --pin-peer is last arg, pair [a nil] → b nil → some skips. ok.
+
+  Also `positional (take-while #(not (str/starts-with? % "--")) args)` — par positional parsed. jupiter invocation "nightly.clj <clone> jvm 12 --pin-read --pin-peer shiva": pin-peer value "shiva" is in flag-args; take-while stops at --pin-read so "shiva" not positional. Good.
+
+  Write review.
+
+• Reviewed `src/dev/nightly.clj` (full file — no diff was attached, so I reviewed the current state) against `node_shard.clj`, `dart_shard.clj`, and `docs/agents/build-n-test.md`. Findings per your checklist:
+
+  **1. Structure / babashka compat — OK.** Parens balance; `psh`'s `(apply p/shell (update opts :extra-env ...) cmd)` and the `(apply psh opts "git" args)` pattern in `git-out`/`run-cmd!` are correct apply usage. `p/shell` with `:extra-env`, `fs/move` with `:replace-existing`, futures, `locking`, and `subvec` on the work queue are all bb-safe. Summary appends are correctly serialized after the join (nightly.clj:379-386). No concurrent `spit` from futures.
+
+  **2. Single-lane (jupiter) compat — mostly OK, one gap.** For `nightly.clj <clone> jvm 12 --pin-read --pin-peer shiva`: `multi?` is false → no cache-warm; `lane-clones` maps `jvm → <clone>` → the `ensure-lane-clone!` doseq's `:when (not= lc clone)` skips everything; lane runs serially. The only new artifact is `summary-jvm.txt` in the out dir (still folded into `summary.txt`) — harmless. However: the "single-lane keeps the primary clone" guarantee only holds for **jvm**. A single-lane `node` or `dart` invocation gets `<clone>-node`/`<clone>-dart` created and used even when `multi?` is false, contradicting the `lane-clones` docstring ("Single-lane runs keep the primary clone for every lane") and silently changing behavior for any wrapper that runs a lone non-jvm lane (R3).
+
+  **3. Multi-lane shared writes — clean within clones, one real race outside them.** Lane log filenames in the shared `out` dir are disjoint (`jvm-quick-*`, `node-shard.log`, `dart-shard.log`, `summary-<lane>.txt`); `target-ci/node-shards-*` and `target-ci/dart-shards-*` land inside each lane's own clone. **But the cache-warm (`clojure -P -M:test`, nightly.clj:344-345) only preps the `:test` alias.** The node lane runs `clj -M:cljs -m shadow...` and the dart lane runs `clojure -M:clojuredart:cljd compile` — those aliases' deps are *not* warmed, so node and dart futures still resolve/fetch concurrently into the shared `~/.m2` and `~/.gitlibs`. That is exactly the race the warm pass claims to remove (R2).
+
+  **4. Failure semantics — propagates, with two holes.** Cache-warm failure: `rc` set 1, run continues, `System/exit @rc` honors it. Lane-clone *fetch* failure: `frc` returned, `rc` set 1. Lane exceptions: caught → `:lane-rc 1` → `rc` 1 → exit 1. Lane-clone *creation* failure throws out of `-main` before `System/exit` — bb exits 1 on the uncaught exception, so the exit code is right, but `summary.txt` gets no `done rc=` line (minor; R5). The bigger hole: `ensure-lane-clone!` discards the `checkout --detach sha` exit code and returns only the fetch rc (nightly.clj:170-171). A failed checkout (e.g. a `--pin-sha` not present on the clone's origin) leaves the lane on a stale HEAD while reporting `rc=0` (R4).
+
+  **5. Pin ordering — broken on the read-pin path.** `ensure-lane-clone!` is correctly called after the pin `cond` for every non-primary clone, using the single-resolved `sha`. For `--pin-publish` and the default path that's the same sha the primary checked out — fine. But in the `--pin-read` success branch (nightly.clj:327-328) the **primary** checks out `psha` while the lane clones receive `sha` = `origin/master` rev-parse (nightly.clj:292, 353). jvm and node/dart lanes would run different commits, and the `nightly ... at` log line (primary's HEAD) would misreport the lanes' commit. Today's wrappers don't hit it (shiva multi-lane uses `--pin-publish`; jupiter `--pin-read` is single-lane jvm), but the code path is wrong and will bite the first multi-lane pin-reader (R1).
+
+  **6. Host wrappers — OK apart from R1/R2.** Arg parsing handles `<clone> jvm 12 --pin-read --pin-peer shiva` correctly (`--pin-peer`'s value can't leak into positionals). The run-id slot check (`(subs prid 0 8)` / `(subs prid 9 11)`) matches the `yyyyMMdd-HH` format. The build-n-test.md overlap rules are respected: one dart lane per host, JVM/Dart never share a clone, and the gen:antlr cross-lane race is gone by construction.
+
+  **Required fixes:**
+
+  - **R1:** Bind an effective sha from the pin block (e.g. `(or validated-psha pin-sha sha)`) and pass *that* to `ensure-lane-clone!`, so lane clones always ride the primary's checked-out commit.
+  - **R2:** Warm every alias the lanes use, e.g. `clojure -P -M:test:cljs:clojuredart:cljd` (or three `-P` passes), so no lane fetches into shared `~/.m2`/`~/.gitlibs` concurrently.
+  - **R3:** Decide single-lane semantics: either gate `lane-clones` on `multi?` (single lane → always primary), or fix the docstring. Current code silently forks behavior for lone non-jvm lanes.
+  - **R4:** Check the `checkout --detach` exit in `ensure-lane-clone!` and fold it into the returned rc (or throw) — a stale-HEAD lane must not report ready.
+  - **R5 (minor):** Catch the `ensure-lane-clone!` creation-failure `ex-info` in `-main`, log `FAIL: lane-clone ...` + `done rc=1` to the summary, and exit 1 explicitly, so the summary always terminates with a verdict line.
+
+  VERDICT: revise — R1 (pin-read lanes diverge from primary's sha) and R2 (cache-warm covers only :test, leaving the exact ~/.m2 race it exists to prevent) are real correctness gaps in the new fan-out; R3/R4 close silent-divergence holes.
+
+To resume this session: kimi -r session_88098a48-f969-4832-89a1-4c824b7b620b
