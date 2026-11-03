@@ -138,7 +138,11 @@
                        (if (= (get (cell/get x) :js/type) :symbol)
                          :symbol
                          :object))
-                     :number))))))))]
+                     ;; An admitted foreign callable that is not a JS
+                     ;; cell (a clojure descriptor, a bound method) is
+                     ;; still a function; only a value no profile admits
+                     ;; keeps the bare-number fallback.
+                     (if (yang.call/eligible? x) :function :number)))))))))]
     [js/ty (fn [k] (if (= k :function) :object k))]
     [js/prim-type?
      (fn [t]

@@ -90,21 +90,33 @@
                     [:php "<?php echo py_apply(function($x) { return $x + 1; });"])))))
 
 
-;; Named skip: yang.clojure <-> TypeScript, both directions. yang.clojure has
-;; convention-wired application lowering, but no published runtime module,
-;; run-main entry, or runtime global namespace through which the shared helper
-;; can run a donor and project exports. Adding those would be frontend work,
-;; not a test-only composition through this helper. The test below pins the
-;; skip: the helper refuses :clojure as not admitted, so admitting the
-;; frontend turns this test red and the legs must be written for real.
+;; yang.clojure <-> TypeScript, both directions. yang.clojure now publishes
+;; its runtime module (`clj`: the run-main entry, the task-local global
+;; namespace and the admission surface, yang.clojure.prelude), so the named
+;; skip is closed: the helper drives a clojure donor or caller like any
+;; other admitted frontend, and the same-cell identity check runs here too.
 
 
-(deftest clojure-typescript-cross-lang-skip-test
-  (testing "named skip: yang.clojure <-> TypeScript, both directions"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"frontend not admitted"
-          (xl/call [:clojure "(defn clj-apply [f] (+ (f 20) 1))"]
-                   ["clj_apply"]
-                   [:typescript "console.log(clj_apply);"])))))
+(deftest clojure-closure-called-from-typescript-test
+  (testing "TS stores and calls the same clojure function cell it received"
+    ;; Clojure integers are bare exact integers, the value JS spells as a
+    ;; BigInt, so the TS callback adds with `1n` and logs `22n`.
+    (is (= {:js/out ["true 22n"], :js/uncaught nil}
+           (xl/call [:clojure "(defn clj_apply [f] (+ (f 20) 1))"]
+                    ["clj_apply"]
+                    [:typescript
+                     (str "const stored = clj_apply; "
+                          "console.log(stored === clj_apply, stored(x => x + 1n));")])))))
+
+
+(deftest typescript-closure-called-from-clojure-test
+  (testing "TS stores and calls the same clojure function cell it received"
+    (is (= "22"
+           (xl/call [:typescript
+                     (str "globalThis.ts_apply = f => { globalThis.stored = f; "
+                          "return stored === f ? f(20n) + 1n : -1n; };")]
+                    ["ts_apply"]
+                    [:clojure "(ts_apply (fn [x] (+ x 1)))"])))))
 
 
 (deftest limits-test

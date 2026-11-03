@@ -28,8 +28,11 @@
 
   The compiler is written in .cljc format to run on both JVM and Node.js."
   (:refer-clojure :exclude [compile])
-  (:require [yang.core.call :as call]
-            [yang.core.uast :as u]))
+  (:require [clojure.tools.reader :as treader]
+            [clojure.tools.reader.reader-types :as rt]
+            [yang.core.call :as call]
+            [yang.core.uast :as u]
+            [yin.vm :as vm]))
 
 
 ;; Forward declaration for mutual recursion
@@ -1347,7 +1350,11 @@
           routed (if (::invoker env)
                    (u/if-node
                      (u/if-node (u/app (u/v 'data/map?) (u/v callee))
-                                (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
+                                (u/if-node (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
+                                           (u/lit true)
+                                           (u/app (u/v 'dsg__equal)
+                                                  (u/app (u/v 'dsg__get) (u/v callee) (u/lit :type))
+                                                  (u/lit :cell-ref)))
                                 (u/lit false))
                      admitted
                      value-call)
@@ -2183,16 +2190,29 @@
                              (u/sexp->uast
                                '(fn [dsg__candidate]
                                   (if (data/map? dsg__candidate)
-                                    (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
-                                          dsg__witness (dsg__get dsg__candidate :clj/admission)]
-                                      (if (data/callable? dsg__entry)
-                                        (if (data/callable? dsg__witness)
-                                          (dsg__equal
-                                            dsg__witness
-                                            (dsg__make_admission
-                                              (dsg__assoc dsg__candidate :clj/admission nil)))
-                                          false)
-                                        false))
+                                    (if (dsg__equal (dsg__get dsg__candidate :type)
+                                                    :cell-ref)
+                                      ;; A cell-backed callable stores its entry
+                                      ;; in the cell contents (yang.antlr.md
+                                      ;; 8.10.2); projection is structural, as
+                                      ;; `yang.call/_descriptor` projects it.
+                                      ;; Only the cell case dereferences, so a
+                                      ;; source map with an entry spelling
+                                      ;; still needs the witness below.
+                                      (let [dsg__descriptor (cell/get dsg__candidate)
+                                            dsg__entry (dsg__get dsg__descriptor
+                                                                 :yang.call/entry)]
+                                        (data/callable? dsg__entry))
+                                      (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
+                                            dsg__witness (dsg__get dsg__candidate :clj/admission)]
+                                        (if (data/callable? dsg__entry)
+                                          (if (data/callable? dsg__witness)
+                                            (dsg__equal
+                                              dsg__witness
+                                              (dsg__make_admission
+                                                (dsg__assoc dsg__candidate :clj/admission nil)))
+                                            false)
+                                          false)))
                                     false)))
                              ;; The intra-unit dispatcher: resolve the unit's public entry,
                              ;; apply it with the compiler's token packet [token args] - one
@@ -2736,3 +2756,149 @@
                           {:type :literal, :value 2}]}}"
   [form]
   (compile-form form true {}))
+
+
+;; =============================================================================
+;; The linked runtime entry (the conformance matrix round, yang.antlr.md
+;; section 8.10)
+;; =============================================================================
+;;
+;; A linked clojure program is published as an ordinary linker module whose
+;; one export, `body`, is its unmodified lowered unit, and run under its own
+;; entry, `clj/run-main` (the `clj` runtime module, yang.clojure.prelude).
+;; `read-forms` is the frontend's parser — the reader itself — and
+;; `lower-unit` lowers what it reads to the entry's argument: one thunk
+;; whose call runs the program compiled under the argument-vector
+;; convention and the outcome model over the guest library, with every
+;; top-level definition published to the runtime global namespace
+;; (`clj/define-global!`/`clj/global-get`), as a Python def lands in
+;; its module's globals. No call node is rewritten and no foreign
+;; `:code` is extracted: the unit is the program's own lowering,
+;; wrapped.
+
+(def unit-opts
+  "The `compile-program` opts a linked unit compiles with: the
+   argument-vector convention with the outcome model over the guest
+   library's adapters, every VM primitive callable directly by bare name."
+  {:convention :arg-vector,
+   :outcomes true,
+   :adapters library-adapters,
+   :native vm/primitive-profiles})
+
+
+(def top-defining-operators
+  "The operators whose second element names a top-level definition."
+  '#{def defn defn- defmacro})
+
+
+(defn read-forms
+  "Every form `source` text reads. The reader is the parser: a malformed
+   source throws, as any frontend's refused parse does."
+  [source]
+  (let [rd (rt/string-push-back-reader source)]
+    (loop [forms []]
+      (let [form (treader/read rd false ::eof)]
+        (if (= form ::eof)
+          forms
+          (recur (conj forms form)))))))
+
+
+(defn top-level-names
+  "The names `forms` define at the top level, in order: the second element
+   of each def/defn/defn-/defmacro head."
+  [forms]
+  (into []
+        (comp (filter #(and (seq? %) (contains? top-defining-operators (first %))))
+              (map (comp strip-symbol-meta second)))
+        forms))
+
+
+(declare publish-to-globals)
+
+
+(defn- globals-child
+  [x names bound]
+  (cond
+    (and (map? x) (contains? x :type)) (publish-to-globals x names bound)
+    (vector? x) (mapv #(globals-child % names bound) x)
+    :else x))
+
+
+(defn- publish-to-globals
+  "Rewrite the compiled `node` for the linked unit: a top-level
+   definition in `names` becomes a `clj/define-global!` write and a free
+   read of one becomes a `clj/global-get`, both under the name's string.
+   A store definition inside the unit thunk is conditional to the
+   linker, so no body read of it discharges (the runtime preludes avoid
+   this by keeping every definition at module level); the runtime
+   global namespace is the linked unit's definition table instead, as
+   a Python module body writes its dictionary. Lexically bound names,
+   quoted literals and macro definitions keep their store shape: a
+   macro is not a runtime value."
+  [node names bound]
+  (case (:type node)
+    :literal node
+    :vm/current-continuation node
+    :variable (if (and (contains? names (:name node))
+                       (not (contains? bound (:name node))))
+                (u/app (u/v 'clj/global-get) (u/lit (str (:name node))))
+                node)
+    :lambda (assoc node :body (publish-to-globals (:body node) names
+                                                  (into bound (:params node))))
+    :application
+    (if (and (= 'yin/def (get-in node [:operator :name]))
+             (= 2 (count (:operands node)))
+             (= :literal (:type (first (:operands node))))
+             (contains? names (:value (first (:operands node)))))
+      (u/app (u/v 'clj/define-global!)
+             (u/lit (str (:value (first (:operands node)))))
+             (publish-to-globals (second (:operands node)) names bound))
+      (assoc node
+             :operator (publish-to-globals (:operator node) names bound)
+             :operands (mapv #(publish-to-globals % names bound)
+                             (:operands node))))
+    :if (cond-> node
+          (contains? node :test)
+          (assoc :test (publish-to-globals (:test node) names bound))
+          (contains? node :consequent)
+          (assoc :consequent (publish-to-globals (:consequent node) names bound))
+          (contains? node :alternate)
+          (assoc :alternate (publish-to-globals (:alternate node) names bound)))
+    (reduce (fn [n k]
+              (let [v (get n k)]
+                (if (or (and (map? v) (contains? v :type)) (vector? v))
+                  (assoc n k (globals-child v names bound))
+                  n)))
+            node (keys node))))
+
+
+(defn lower-unit
+  "The `clj/run-main` entry's unit for the top-level source `forms`: one
+   thunk whose call runs the program — `forms` plus the definitions of
+   the guest library they need, compiled unmodified under `unit-opts`
+   and published to the runtime global namespace by
+   `publish-to-globals` — so the helper's export projection can read
+   each top-level definition. The program's own `yang.call` call sites
+   need no free-name declaration: the convention preamble
+   `compile-program` emits defines those names locally, and the donor
+   publication pins the `yang.call` module for the qualified reads
+   that remain."
+  [forms]
+  (let [source (vec forms)
+        library (library-for source)
+        program (compile-program (concat source library) true unit-opts)
+        macros (into #{}
+                     (comp (filter #(and (seq? %) (= 'defmacro (first %))))
+                           (map (comp strip-symbol-meta second)))
+                     (concat source library))
+        names (reduce disj
+                      (into (set (top-level-names source))
+                            (map (comp strip-symbol-meta second) library))
+                      macros)]
+    (u/lam [] (publish-to-globals program names #{}))))
+
+
+(defn output
+  "The `clj/run-main` value as test data."
+  [value]
+  (pr-str value))
