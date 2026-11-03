@@ -85,6 +85,18 @@ narrowed authorization, a near-empty quota), see
 [`routing-status.md`](../routing-status.md) — check it before routing to a
 metered destination, and add an entry when the owner relays a new status.
 
+**Delegate dispatches run locally by default (2026-11-03 owner ruling).**
+A delegate CLI is invoked on THIS machine — the laptop — unless the work
+itself must run elsewhere: test/nightly lanes on the remote hosts, or a
+CLI that is genuinely missing locally (checked with `which <cli>` /
+`<cli> models` first, never assumed). Never route a dispatch to a remote
+host because a previous round ran there, because the per-host model
+catalog was measured there, or for convenience: per-host catalogs are a
+reason to run `<cli> models` wherever you dispatch, including locally,
+before writing a model name into a brief. Remote dispatch adds scp and
+ssh round-trips to every turn and resume of the session, with no benefit
+when the local checkout is current (push master first and it always is).
+
 ## Artifact protocol
 
 Coordination is through repository artifacts, not hidden context. Artifacts
