@@ -4,12 +4,14 @@
    is the unit's bottom buffer, a latin-1 byte carrier, decoded as UTF-8
    here at the boundary."
   (:require
+    [clojure.walk :as walk]
     [dao.host.text :as text]
     [dao.stream :as stream]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.portable-harness :as portable]
     [yang.php.antlr.safepoint :as hooks]
+    [yang.core.uast :as u]
     [yang.safepoint :as safepoint]
     [yin.vm :as vm]
     [yin.vm.debruijn.register :as rvm]
@@ -146,12 +148,28 @@
 
 
 (defn run-raw
-  "The unit's value, `{:php/out :php/diag :php/uncaught}`, on the AST walker."
-  [source]
-  (let [{:keys [ast diagnostics]} (lower-program source)]
-    (if diagnostics
-      {:diagnostics diagnostics}
-      (let [session (tu/make-observer-session
-                      (tu/create-vm {:modules (host-registry)}))]
-        (tu/queue-ast! session ast)
-        (vm/value (:consumer (tu/run-session session)))))))
+  "The unit's value on the AST walker, optionally after binding a request record."
+  ([source] (run-raw source nil))
+  ([source request]
+   (let [{:keys [ast diagnostics]} (lower-program source)]
+     (if diagnostics
+       {:diagnostics diagnostics}
+       (let [session (tu/make-observer-session
+                       (tu/create-vm {:modules (host-registry)}))
+             ast (if request
+                   (walk/postwalk
+                     (fn [node]
+                       (if (and (map? node)
+                                (= :application (:type node))
+                                (= 'php/run-main (get-in node [:operator :name])))
+                         (let [body (first (:operands node))]
+                           (assoc node :operands
+                                  [(u/lam []
+                                          (u/then
+                                            (u/sexp->uast (list 'php/bind-request! request))
+                                            (u/app body)))]))
+                         node))
+                     ast)
+                   ast)]
+         (tu/queue-ast! session ast)
+         (vm/value (:consumer (tu/run-session session))))))))
