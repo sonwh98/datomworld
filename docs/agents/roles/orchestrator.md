@@ -76,7 +76,11 @@ Local verification (step 6) is never a substitute for any of these. History
 rewrites (amend, revert, reset) are outside all three, with one exception: an
 unauthorized pre-review commit that is local, unpushed, and unmerged is
 soft-reset and the work goes through review, never reviewed after the fact.
-Any other rewrite needs the user.
+Any other rewrite needs the user. That includes pushed work: a commit that
+has reached origin and then fails verification is reported to the user
+immediately with the evidence, and only the user authorizes its revert,
+forward-fix, or force-push — the orchestrator never rewrites pushed history
+on its own authority.
 
 For cost constraints and CLI routing caveats, see [`team.md`](../team.md)'s
 **Available Subscriptions & Cost Constraints** table. For current, session-
@@ -206,7 +210,9 @@ the repository root as
 using the actual Unix timestamp (`date +%s`) and a short lowercase,
 hyphen-separated description. Each orchestration is independent: never append
 to `docs/orchestrator-log.md` or to another session's file, even when the new
-session continues an earlier task. When continuing a task, reference the prior
+session continues an earlier task. `docs/orchestrator-log.md` is the frozen
+legacy record from before per-session logs existed — readable as historical
+claims only, never extended. When continuing a task, reference the prior
 session's log path in the new log's first entry and final handoff instead of
 sharing or copying the file.
 
@@ -253,7 +259,13 @@ authorization for the exact payload and destination. Invoke from the authorized
 agent; consent does not carry over. Pass prompt paths or stdin, never private
 diffs or credentials in arguments. Use read-only/plan review and minimum write
 scope; never bypass permission checks. Preserve unrelated changes and never
-expose or commit tokens or configuration.
+expose or commit tokens or configuration. The same rule binds delegates: a
+delegate that requests a credential gets the requirement escalated to the
+user — never satisfied by pasting a secret into a prompt file or environment
+the orchestrator controls. Before an archive commit, scan the batch for
+credential-shaped strings (keys, tokens, `sk-`, bearer values); a stdout log
+that captured a secret is redacted or left uncommitted and the incident
+recorded in the work log.
 
 ## Workflow
 
@@ -303,6 +315,21 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
    output is not failure; wait for completion or an explicit error. Do not
    terminate a healthy agent merely because it is quiet for several minutes
    (especially true for DeepSeek).
+   - **Quiet vs. stalled is a procedure, not a judgment.** A delegate is
+     stalled only when, for 15 minutes, its stdout log has not grown AND no
+     live process matches it (`pgrep -f <cli>`); check the CLI's quirk entry
+     in [`delegate-invocation-reference.md`](../delegate-invocation-reference.md)
+     before concluding (some quiet runs are healthy, some "session in use"
+     messages mean the first run is still alive). A stalled run is killed,
+     its artifact inspected for partial work, and the round recovered by
+     resume-by-state or fresh session — never silently re-dispatched as if
+     nothing happened.
+   - **Delegate death has a terminal state.** After two failed rounds on the
+     same unit (different sessions, and at least two different models where
+     the roster allows), stop dispatching: record both failures in the work
+     log with their artifact trails and escalate to the user with the
+     evidence. A third model is chosen only on user instruction — an
+     unbounded retry loop is the failure mode this rule exists to end.
 6. **Verify locally.** Inspect the actual artifact and diff and run the focused
    checks in the orchestrator's environment. Delegated test claims are untrusted.
    User-run results count as evidence only when the exact command, output, and
@@ -318,7 +345,12 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
    before committing (exceptions: the coordination contract's user waiver and
    trivial-edit exemption). Weigh findings on their merits, fix accepted
    defects, and resume the same reviewer to confirm the correction. Preserve
-   every round.
+   every round. Findings are reconciled when every one carries a recorded
+   disposition: fixed and reviewer-confirmed, rejected with evidence, or
+   deferred with user approval. A reviewer–architect dispute is terminated by
+   one architect adjudication per unit: the ruling is final for that unit,
+   and residual disagreement is recorded as an unresolved risk in the step 8
+   readiness report — never re-litigated by re-dispatching review rounds.
 8. **Report readiness.** Report exact commands, assertion counts, reviewer
    sign-off, unrun checks, unreviewed changes, unresolved risks, and any tool or
    hook noise. Do not let the summary outrun the evidence. Append the unit's
@@ -327,7 +359,12 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
    contract's commit authority. Stage only the authorized work, inspect the
    staged diff immediately before committing, and commit only that diff.
    Use the commit message format in
-   [`format.md`](../format.md#git-commit-messages).
+   [`format.md`](../format.md#git-commit-messages). Before staging in the
+   shared main tree, re-run `git status` and compare against the state
+   derived in step 2: any working-tree change not attributable to this
+   seat's units (another seat's or the user's in-flight work) freezes the
+   commit — escalate, never stage around it, and never `git add -A` in the
+   main tree.
 10. **Verify what landed.** Compare the commit's diff with the authorized
     staged diff. If hooks or formatters changed what landed, review that delta and
     rerun its affected checks — the pre-commit formatter hook can stage files
@@ -378,7 +415,11 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
       categories like `collab/dao-star/`, `collab/jolt/`). A new folder is
       created only when no existing subfolder fits; name it after the
       subsystem when there is one, otherwise after the durable track or topic
-      (never a date, a slice code, or a seat name).
+      (never a date, a slice code, or a seat name). When neither the registry
+      nor an existing folder fits, propose the new folder name in the step 8
+      readiness report for user or architect confirmation instead of creating
+      it unilaterally — folder names are durable, and naming is a shared
+      convention, not a per-seat choice.
     - **One artifact, one destination.** Same-named collisions resolve by
       content comparison, never by size or ending heuristics: identical bytes
       drop the duplicate; differing same-name artifacts are kept as suffixed
@@ -393,7 +434,19 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
 If the remaining budget cannot finish the next coherent unit, leave the tree
 readable and record incomplete work in the findings rather than leaving a
 half-applied edit, and append the unfinished-work entry naming what remains
-so a successor can continue it.
+so a successor can continue it. The trigger is explicit: when the seat
+estimates its remaining budget is less than one more coherent unit requires,
+it writes the unfinished-work entry and issues the Seat Handoff Template
+(below) before attempting further work — it does not start a unit it cannot
+finish.
+
+**Blocked on the user: park, don't poll.** When progress requires a user
+answer (authorization, scope, an adjudication this doc reserves to the
+user), stop the work: park every delegate (no session left running or
+metered while idle — the 144-minute idle-session incident is the cost this
+rule exists to end), record the blocker and the pending question in the
+work log's unfinished-work entry, and end the turn. The seat resumes only
+when the user's answer arrives.
 
 ## Orchestrator Seat Handoff Template
 
@@ -462,3 +515,7 @@ CLI flags, canonical recipes, and known quirks for every delegate CLI
 not here — read it before shelling out to any delegate CLI. It is reference
 material needed at the moment of dispatch, not on every orchestrator turn,
 which is why it is kept separate from this role's core identity and workflow.
+Dispatch is always by direct CLI invocation per that reference's canonical
+recipes; the legacy `dispatch.sh` helper predates several CLIs, does not
+know them, and carries stale cases (its muse case, for example, still uses
+Claude Code wrapper conventions) — never route through it.
