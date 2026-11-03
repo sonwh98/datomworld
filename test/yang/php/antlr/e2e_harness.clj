@@ -9,9 +9,12 @@
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.portable-harness :as portable]
+    [yang.php.antlr.safepoint :as hooks]
+    [yang.safepoint :as safepoint]
     [yin.vm :as vm]
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
+    [yin.vm.encoder :as encoder]
     [yin.vm.semantic :as semantic]
     [yin.vm.semantic.derive :as derive]
     [yin.vm.semantic.linearize :as sr-linearize]
@@ -48,8 +51,8 @@
           (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
       (if (seq problems)
         {:diagnostics problems}
-        (let [{:yin/keys [batch root]} (first (tu/drain program))]
-          {:ast (nth batch root), :warnings (vec warnings)})))))
+        (let [{:yin/keys [batch root] :as envelope} (first (tu/drain program))]
+          {:ast (nth batch root), :envelope envelope, :warnings (vec warnings)})))))
 
 
 (defn packet->form
@@ -75,42 +78,58 @@
 (defn render
   "The text a unit prints: its output, then, for an uncaught error, the
    fatal line (no path, plan section 3.9)."
-  [{:php/keys [out uncaught]}]
+  [{:php/keys [out uncaught fatal]}]
   (str (latin1->text out)
        (when uncaught
-         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))))
+         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))
+       (when fatal
+         (str "PHP Fatal error:  " fatal))))
 
 
 (defn run-vms
   "`{vm-key rendered}` of `ast` on the four VMs; a host throw is
-   `[:thrown message]`."
-  [registry ast]
-  (let [opts (assoc base-opts :modules registry)
-        session (tu/make-observer-session (tu/create-vm {:modules registry}))
-        datoms (vec (vm/ast->datoms ast))
-        projected #(:vector (sr-linearize/project ast))
-        attempt (fn [f]
-                  (try (render (f))
-                       (catch Exception e [:thrown (ex-message e)])))]
-    (tu/queue-ast! session ast)
-    {:ast-walker (attempt #(vm/value (:consumer (tu/run-session session)))),
-     :semantic (attempt #(vm/value (vm/run (load-semantic (semantic/create-vm opts)
-                                                          datoms)))),
-     :stack (attempt #(vm/value (vm/run (dvm/create-vm
-                                          (:image (derive/stack-image (projected)))
-                                          (assoc opts :contract vm/stack-contract))))),
-     :register (attempt #(vm/value (vm/run (rvm/create-vm
-                                             (derive/register-image (projected))
-                                             (assoc opts
-                                                    :contract
-                                                    vm/register-contract)))))}))
+   `[:thrown message]`. `:execution-budget` derives the PHP safepoint hooks
+   and starts one per-run counter; no option leaves the AST unchanged."
+  ([registry ast] (run-vms registry ast {}))
+  ([registry ast {:keys [execution-budget envelope]}]
+   (let [ast (if (some? execution-budget)
+               (let [projected (encoder/project envelope)
+                     derived (:envelope (safepoint/derive-envelope
+                                          projected hooks/profile :test/derived))
+                     tree (nth (:yin/batch derived) (:yin/root derived))]
+                 (hooks/program execution-budget
+                                (vm/semantic-bytecode->ast tree)))
+               ast)
+         opts (assoc base-opts :modules registry)
+         session (tu/make-observer-session (tu/create-vm {:modules registry}))
+         datoms (vec (vm/ast->datoms ast))
+         projected #(:vector (sr-linearize/project ast))
+         attempt (fn [f]
+                   (try (render (f))
+                        (catch Exception e [:thrown (ex-message e)])))]
+     (tu/queue-ast! session ast)
+     {:ast-walker (attempt #(vm/value (:consumer (tu/run-session session)))),
+      :semantic (attempt #(vm/value (vm/run (load-semantic (semantic/create-vm opts)
+                                                           datoms)))),
+      :stack (attempt #(vm/value (vm/run (dvm/create-vm
+                                           (:image (derive/stack-image (projected)))
+                                           (assoc opts :contract vm/stack-contract))))),
+      :register (attempt #(vm/value (vm/run (rvm/create-vm
+                                              (derive/register-image (projected))
+                                              (assoc opts
+                                                     :contract
+                                                     vm/register-contract)))))})))
 
 
 (defn run-php
-  "`{vm-key rendered}` for `source`, or `{:diagnostics d}`."
-  [source]
-  (let [{:keys [ast diagnostics]} (lower-program source)]
-    (if diagnostics {:diagnostics diagnostics} (run-vms (host-registry) ast))))
+  "`{vm-key rendered}` for `source`, or `{:diagnostics d}`. The optional
+   `:execution-budget` is a count of PHP `:loop` and `:call` safepoints."
+  ([source] (run-php source {}))
+  ([source options]
+   (let [{:keys [ast diagnostics envelope]} (lower-program source)]
+     (if diagnostics
+       {:diagnostics diagnostics}
+       (run-vms (host-registry) ast (assoc options :envelope envelope))))))
 
 
 (defn run-walker

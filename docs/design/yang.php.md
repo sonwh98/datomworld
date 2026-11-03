@@ -1927,7 +1927,13 @@ as data; its filesystem resolution is not (owner decision B8.7).
 - `max_execution_time` and `set_time_limit` are wall-clock in PHP and so
   nondeterministic: the profile offers a deterministic **safepoint-count
   budget** instead, raising the fatal with PHP's text, a recorded departure
-  (owner decision B8.5, corner C21).
+  (owner decision B8.5, corner C21). A composition may supply one non-negative
+  integer budget per run; omission means unlimited. Each entry to a `:loop` or
+  `:call` hook consumes one unit, and the hook after the last available unit
+  raises `PHP Fatal error:  Maximum execution time of 30 seconds exceeded`.
+  This operational fatal is not guest-catchable and skips shutdown functions
+  and destructors. It bounds execution between hooks, not wall-clock time or
+  blocking host operations; no generic VM instructions are charged.
 - **Statement ticks** (`declare(ticks=N)`, `register_tick_function`) need
   `:line` sites before non-lambda statement nodes. `yang.safepoint` currently
   refuses a selected site that is not a `:lambda` (`site-not-lambda`), and
