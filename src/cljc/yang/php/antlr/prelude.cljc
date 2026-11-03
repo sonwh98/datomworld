@@ -79,6 +79,7 @@
     [yang.core.uast :as u]
     [yang.php.antlr.builtins :as builtins]
     [yang.php.antlr.prelude-module :as module-defs]
+    [yang.php.antlr.prelude-p9 :as p9-defs]
     [yang.php.antlr.quoted :refer [defquoted]]
     [yin.vm.integer :as integer]))
 
@@ -1898,11 +1899,22 @@
                :php/null)))))]
 
     ;; dimension writes: the holder's value is read, updated purely, stored back
-    [php/str-write-error
-     (fn []
-       (php/throw-error
-         "Error"
-         "string offset writes are not supported yet (yang.php known gap G-str-offset-write)"))]
+    [php/string-assign
+     (fn [s k v]
+       (if (= k :php/append)
+         (php/throw-error "Error" "[] operator not supported for strings")
+         (let [i (php/string-offset-int k)
+               text (php/to-string v)
+               n (data/str-length s)
+               j (if (if (nil? i) false (< i 0)) (integer/add n i) i)]
+           (if (nil? i)
+             (php/throw-error "TypeError" "Cannot access offset of this type on string")
+             (if (= (data/str-length text) 0)
+               (php/throw-error "Error" "string offset assignment requires at least one byte")
+               (if (if (>= j 0) (< j n) false)
+                 (data/str-concat (data/substring s 0 j) (data/substring text 0 1)
+                                  (data/substring s (+ j 1) n))
+                 (php/throw-error "Error" "string offset assignment outside the existing string is not supported")))))))]
     [php/assign-into
      ;; the container after `$c[ks...] = v`: a shared instance is separated,
      ;; a marker on the path is written through, a counted value upgrades a
@@ -1938,7 +1950,9 @@
                    (do (php/warn 8192 "Automatic conversion of false to array is deprecated")
                        (php/assign-into (php/empty-array) ks i v)))
                  (if (= kind :string)
-                   (php/str-write-error)
+                   (if (= (+ i 1) (data/count ks))
+                     (php/string-assign c (get ks i) v)
+                     (php/throw-error "Error" "Cannot use a string offset as an array"))
                    (if (= kind :obj)
                      (php/throw-error "Error" "Cannot use object as array")
                      (php/throw-error "Error" "Cannot use a scalar value as an array")))))))))]
@@ -2063,6 +2077,9 @@
      (fn [name]
        (php/warn 2 (data/str-concat "Undefined variable $" name)))]
     [php/global-slot (fn [name] (php/slot-get (cell/get php.rt/globals) name))]
+    [php/globals-read (fn [] (cell/get php.rt/globals))]
+    [php/globals-put!
+     (fn [v] (do (cell/set! php.rt/globals v) v))]
     [php/global-peek
      (fn [name]
        (let [v (php/global-slot name)]
@@ -5286,7 +5303,7 @@
   "The single definition list, `[store-key form]` in definition order: every
    prelude function, the literal state slot, then `php/init!`. Defining them
    runs nothing."
-  (into (into core-definitions module-defs/definitions)
+  (into (into (into core-definitions module-defs/definitions) p9-defs/definitions)
         [['php.rt/state :php/uninit]
          ['php/init! (init-form)]]))
 
