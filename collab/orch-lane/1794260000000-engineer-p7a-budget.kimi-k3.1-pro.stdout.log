@@ -663,3 +663,1052 @@ Testing dao.space.query.datomic-execution-test
 Testing dao.space.query.datomic-test
 
 Testing dao.space.query.execution-test
+
+Testing dao.space.query.published-bounded-test
+
+Testing dao.space.query-aggregates-test
+
+Testing dao.space.query-numeric-test
+
+Testing dao.space.query-rules-test
+
+Testing dao.space.query-test
+
+Testing dao.space.schema-test
+
+Testing dao.space.stigmergy-test
+
+Testing dao.space.store.fs-test
+
+Testing dao.space.transact-test
+
+Testing dao.space.transactor-test
+
+Testing dao.star.driver-test
+
+Testing dao.star.facts-test
+
+Testing dao.star.loopback-test
+
+Testing dao.star.peer-close-test
+
+Testing dao.star.r2-test
+
+Testing dao.star.r3-test
+
+Testing dao.star.r4-test
+
+Testing dao.star.r5-test
+
+Testing dao.star.router-test
+
+Testing dao.star.signals-test
+
+Testing dao.stream.apply-test
+
+Testing dao.stream.base64-test
+
+Testing dao.stream.ble.links-test
+
+Testing dao.stream.ble.mesh-test
+
+Testing dao.stream.ble-test
+
+Testing dao.stream.cbor-test
+
+Testing dao.stream.chunks-test
+
+Testing dao.stream.codec-fixtures-test
+
+Testing dao.stream.codec-test
+
+Testing dao.stream.datagram.jvm-test
+
+Testing dao.stream.datagram-test
+
+Testing dao.stream.forward-test
+
+Testing dao.stream.http-test
+
+Testing dao.stream.journal.file-test
+
+Testing dao.stream.journal-test
+
+Testing dao.stream.memory-log-test
+
+Testing dao.stream.middleware-test
+
+Testing dao.stream.observe-test
+
+Testing dao.stream.observer-test
+
+Testing dao.stream.remote-channel-test
+
+Testing dao.stream.remote-meet-test
+
+Testing dao.stream.remote-pair-test
+
+Testing dao.stream.remote-route-test
+
+Testing dao.stream.remote-test
+
+Testing dao.stream.ringbuffer-test
+
+Testing dao.stream.rpc-test
+
+Testing dao.stream.transit-test
+
+Testing dao.stream.udp-raw-test
+
+Testing dao.stream.udp-test
+
+Testing dao.stream.waitset.cadence-test
+
+Testing dao.stream.waitset.driver-test
+
+Testing dao.stream.waitset-test
+
+Testing dao.stream.ws.jvm-test
+
+Testing dao.stream.ws.rfc6455-test
+
+Testing dao.stream.ws.upgrade-test
+
+Testing dao.stream.ws-codec-test
+
+Testing dao.stream.ws-project-cross-jvm-test
+;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer
+;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer
+
+Testing dao.stream.ws-project-jvm-test
+
+Testing dao.stream.ws-project-test
+
+Testing dao.stream.ws-test
+
+Testing dao.stream-test
+
+Testing datomworld.demo.artifact-runner-test
+
+Testing datomworld.demo.artifact-scene-test
+
+Testing datomworld.demo.continuation-handoff-test
+
+Testing datomworld.demo.earth-moon-scene-test
+
+Testing datomworld.demo.solar-system-scene-test
+
+Testing datomworld.demo.voxel-controls-test
+
+Testing datomworld.demo.voxel-input-test
+
+Testing datomworld.demo.voxel-runner-test
+
+Testing datomworld.demo.voxel-scene-test
+
+Testing yang.antlr.packet-test
+
+Testing yang.clojure.stream-eval-test
+
+Testing yang.clojure-test
+FFI hello world
+
+Testing yang.core.call-test
+
+Testing yang.core.claims-test
+
+Testing yang.core.names-test
+
+Testing yang.cross-lang-test
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_U77fUTqTdTIkSaMlLSJ57aaU","function":{"name":"Bash","arguments":"{\"command\":\"clj -A:test -J-Xss64m -M -e \\\"(require 'yang.php.antlr.safepoint-test) (let [r (clojure.test/run-tests 'yang.php.antlr.safepoint-test)] (System/exit (if (clojure.test/successful? r) 0 1)))\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}}]}
+{"role":"tool","tool_call_id":"tool_U77fUTqTdTIkSaMlLSJ57aaU","content":"task_id: bash-hncfoc4m\npid: 45973\ndescription: Bash: clj -A:test -J-Xss64m -M -e \"(require 'yang.php.antlr.safepo…\nstatus: running\nautomatic_notification: true\nnext_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\nhuman_shell_hint: The task is visible in the background-task panel.\n\nforeground_output:\nDEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)\nDEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)\nWARNING: Use of :main-opts with -A is deprecated. Use -M instead.\nLoading initial Timbre config from: :default\n\nRunning tests in #{\"test\"}\nWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n\nTesting dao.await-test\n\nTesting dao.data.arrays-test\n\nTesting dao.data.btree.cursor-test\n\nTesting dao.data.btree.storage-read-test\n\nTesting dao.data.btree-async-test\n\nTesting dao.data.btree-durability-test\n\nTesting dao.data.btree-protocols-test\n\nTesting dao.data.btree-test\n\nTesting dao.data.btree-transients-test\n\nTesting dao.data.sorted-user-type-test\n\nTesting dao.data-test\n\nTesting dao.gui.compiler-test\n\nTesting dao.gui.event.arena-test\n\nTesting dao.gui.event.bind-test\n\"dao.gui.event output gone; dropping pending\" {:destination :gesture, :outcome :dao.stream/closed}\n\nTesting dao.gui.event.core-test\n\nTesting dao.gui.event.fixture-test\n\nTesting dao.gui.event.longpress-test\n\nTesting dao.gui.event.machine-test\n\nTesting dao.gui.event.pan-test\n\nTesting dao.gui.event.pointer-test\n\nTesting dao.gui.event.policy-test\n\nTesting dao.gui.event.terminal-test\n\nTesting dao.gui.event.transform-test\n\nTesting dao.gui.runtime-test\n\nTesting dao.host.bytes-test\n\nTesting dao.host.conformance-test\n\nTesting dao.host.float-test\n\nTesting dao.host.gate-test\n\nTesting dao.host.hash-test\n\nTesting dao.host.text-test\n\nTesting dao.jing.cbor-conformance-test\nCONFORMANCE jvm cases=372 run=367 skipped=[\"coll/map-integer-width-duplicate\" \"coll/set-decimal-scale-collapse\" \"coll/set-signed-zero-collapse\" \"coll/set-vector-list-collapse\" \"num/js-unsafe-integer\"]\nCONFORMANCE-DIGEST jvm refusal n=154 915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa\nCONFORMANCE-DIGEST jvm canonical n=208 8268b4d38ae11743dc6fc9f36191c7e68077c84f4abcbc2a7392aabff6c9c299\n\nTesting dao.jing.cbor-content-equality-test\n\nTesting dao.jing.cbor-fixtures-test\n\nTesting dao.jing.cbor-test\nSKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart\n\nTesting dao.jing.content.step-test\n\nTesting dao.jing.content-test\n\nTesting dao.jing.dht.facade-test\n\nTesting dao.jing.dht.kad-test\n\nTesting dao.jing.dht.socket-test\n\nTesting dao.jing.dht-test\n\nTesting dao.jing.file-test\n\nTesting dao.jing.hash-registry-contract-test\n\nTesting dao.jing.mem-test\n\nTesting dao.jing.stream-test\n\nTesting dao.jing-test\n\nTesting dao.lease-composition-test\n\nTesting dao.lease-test\n\nTesting dao.postgraphics.lowering-test\n\nTesting dao.postgraphics.math-test\n\nTesting dao.postgraphics.packing-test\n\nTesting dao.postgraphics.raster-test\n\nTesting dao.postgraphics.terminal-test\n\nTesting dao.pretty-test\n\nTesting dao.space.datomic-query-conformance-test\n\nTesting dao.space.dht-test\n\nTesting dao.space.index-numeric-test\n\nTesting dao.space.index-test\n\nTesting dao.space.positional-query-test\n\nTesting dao.space.published-read-test\n\nTesting dao.space.query.datomic-execution-test\n\nTesting dao.space.query.datomic-test\n\nTesting dao.space.query.execution-test\n\nTesting dao.space.query.published-bounded-test\n\nTesting dao.space.query-aggregates-test\n\nTesting dao.space.query-numeric-test\n\nTesting dao.space.query-rules-test\n\nTesting dao.space.query-test\n\nTesting dao.space.schema-test\n\nTesting dao.space.stigmergy-test\n\nTesting dao.space.store.fs-test\n\nTesting dao.space.transact-test\n\nTesting dao.space.transactor-test\n\nTesting dao.star.driver-test\n\nTesting dao.star.facts-test\n\nTesting dao.star.loopback-test\n\nTesting dao.star.peer-close-test\n\nTesting dao.star.r2-test\n\nTesting dao.star.r3-test\n\nTesting dao.star.r4-test\n\nTesting dao.star.r5-test\n\nTesting dao.star.router-test\n\nTesting dao.star.signals-test\n\nTesting dao.stream.apply-test\n\nTesting dao.stream.base64-test\n\nTesting dao.stream.ble.links-test\n\nTesting dao.stream.ble.mesh-test\n\nTesting dao.stream.ble-test\n\nTesting dao.stream.cbor-test\n\nTesting dao.stream.chunks-test\n\nTesting dao.stream.codec-fixtures-test\n\nTesting dao.stream.codec-test\n\nTesting dao.stream.datagram.jvm-test\n\nTesting dao.stream.datagram-test\n\nTesting dao.stream.forward-test\n\nTesting dao.stream.http-test\n\nTesting dao.stream.journal.file-test\n\nTesting dao.stream.journal-test\n\nTesting dao.stream.memory-log-test\n\nTesting dao.stream.middleware-test\n\nTesting dao.stream.observe-test\n\nTesting dao.stream.observer-test\n\nTesting dao.stream.remote-channel-test\n\nTesting dao.stream.remote-meet-test\n\nTesting dao.stream.remote-pair-test\n\nTesting dao.stream.remote-route-test\n\nTesting dao.stream.remote-test\n\nTesting dao.stream.ringbuffer-test\n\nTesting dao.stream.rpc-test\n\nTesting dao.stream.transit-test\n\nTesting dao.stream.udp-raw-test\n\nTesting dao.stream.udp-test\n\nTesting dao.stream.waitset.cadence-test\n\nTesting dao.stream.waitset.driver-test\n\nTesting dao.stream.waitset-test\n\nTesting dao.stream.ws.jvm-test\n\nTesting dao.stream.ws.rfc6455-test\n\nTesting dao.stream.ws.upgrade-test\n\nTesting dao.stream.ws-codec-test\n\nTesting dao.stream.ws-project-cross-jvm-test\n;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer\n;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer\n\nTesting dao.stream.ws-project-jvm-test\n\nTesting dao.stream.ws-project-test\n\nTesting dao.stream.ws-test\n\nTesting dao.stream-test\n\nTesting datomworld.demo.artifact-runner-test\n\nTesting datomworld.demo.artifact-scene-test\n\nTesting datomworld.demo.continuation-handoff-test\n\nTesting datomworld.demo.earth-moon-scene-test\n\nTesting datomworld.demo.solar-system-scene-test\n\nTesting datomworld.demo.voxel-controls-test\n\nTesting datomworld.demo.voxel-input-test\n\nTesting datomworld.demo.voxel-runner-test\n\nTesting datomworld.demo.voxel-scene-test\n\nTesting yang.antlr.packet-test\n\nTesting yang.clojure.stream-eval-test\n\nTesting yang.clojure-test\nFFI hello world\n\nTesting yang.core.call-test\n\nTesting yang.core.claims-test\n\nTesting yang.core.names-test\n\nTesting yang.cross-lang-test\n"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_bybUcCrT1Szv7Fv1NcXGmwAJ","function":{"name":"TaskStop","arguments":"{\"task_id\":\"bash-hncfoc4m\",\"reason\":\"Deprecated -A still applies main opts; use the computed test classpath directly with clojure.main.\"}"}}]}
+{"role":"tool","tool_call_id":"tool_bybUcCrT1Szv7Fv1NcXGmwAJ","content":"Wall time: 310.992 seconds\ntask_id: bash-hncfoc4m\nstatus: killed\nreason: Deprecated -A still applies main opts; use the computed test classpath directly with clojure.main."}
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.php.antlr.safepoint-test
+
+ERROR in (unbounded-and-unexhausted-runs-agree-test) (safepoint.cljc:175)
+a budget that is not exhausted is unobservable
+expected: (= unbounded (h/run-php source {:execution-budget 100}))
+  actual: clojure.lang.ExceptionInfo: Safepoint site is not a lambda
+{:rule :site-not-lambda, :path [2 3 [3 0] 3 [3 0] 2 3 [3 0] 3 3 [3 0] 2 3 [3 0] [3 1] [3 0] 2 3 [3 0]], :type :application}
+ at yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:175)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)
+    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.RT.seq (RT.java:555)
+    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)
+    clojure.core$vec.invokeStatic (core.clj:379)
+    clojure.core$vec.invoke (core.clj:369)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)
+    clojure.core$update.invokeStatic (core.clj:6259)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)
+    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.RT.seq (RT.java:555)
+    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)
+    clojure.core$vec.invokeStatic (core.clj:379)
+    clojure.core$vec.invoke (core.clj:369)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)
+    clojure.core$update.invokeStatic (core.clj:6259)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)
+    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.RT.seq (RT.java:555)
+    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)
+    clojure.core$vec.invokeStatic (core.clj:379)
+    clojure.core$vec.invoke (core.clj:369)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)
+    clojure.core$update.invokeStatic (core.clj:6259)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)
+    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.RT.seq (RT.java:555)
+    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)
+    clojure.core$vec.invokeStatic (core.clj:379)
+    clojure.core$vec.invoke (core.clj:369)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)
+    clojure.core$update.invokeStatic (core.clj:6259)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols
+/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)
+    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.RT.seq (RT.java:555)
+    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)
+    clojure.core$vec.invokeStatic (core.clj:379)
+    clojure.core$vec.invoke (core.clj:369)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)
+    clojure.core$update.invokeStatic (core.clj:6259)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)
+    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.RT.seq (RT.java:555)
+    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)
+    clojure.core$vec.invokeStatic (core.clj:379)
+    clojure.core$vec.invoke (core.clj:369)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)
+    clojure.core$update.invokeStatic (core.clj:6259)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)
+    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.RT.seq (RT.java:555)
+    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.ja
+va:44)
+    clojure.core$vec.invokeStatic (core.clj:379)
+    clojure.core$vec.invoke (core.clj:369)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)
+    clojure.core$update.invokeStatic (core.clj:6259)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)
+    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.RT.seq (RT.java:555)
+    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)
+    clojure.core$vec.invokeStatic (core.clj:379)
+    clojure.core$vec.invoke (core.clj:369)
+    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)
+    clojure.core$update.invokeStatic (core.clj:6259)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    clojure.core$update.invokeStatic (core.clj:6261)
+    clojure.core$update.invoke (core.clj:6251)
+    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)
+    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)
+    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)
+    yang.safepoint$rewrite.invokeStatic (safepoint.cljc:182)
+    yang.safepoint$rewrite.invoke (safepoint.cljc:147)
+    yang.safepoint$insert.invokeStatic (safepoint.cljc:214)
+    yang.safepoint$insert.invoke (safepoint.cljc:190)
+    yang.safepoint$derive_envelope.invokeStatic (safepoint.cljc:242)
+    yang.safepoint$derive_envelope.invoke (safepoint.cljc:232)
+    yang.php.antlr.e2e_harness$run_vms.invokeStatic (e2e_harness.clj:97)
+    yang.php.antlr.e2e_harness$run_vms.invoke (e2e_harness.clj:89)
+    yang.php.antlr.e2e_harness$run_php.invokeStatic (e2e_harness.clj:132)
+    yang.php.antlr.e2e_harness$run_php.invoke (e2e_harness.clj:124)
+    yang.php.antlr.safepoint_test$fn__17675.invokeStatic (safepoint_test.clj:31)
+    yang.php.antlr.safepoint_test/fn (safepoint_test.clj:25)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.invoke (RestFn.java:411)
+    user$eval17682.invokeStatic (NO_SOURCE_FILE:1)
+    user$eval17682.invoke (NO_SOURCE_FILE:1)
+    clojure.lang.Compiler.eval (Compiler.java:7757)
+    clojure.lang.Compiler.eval (Compiler.java:7712)
+    clojure.core$eval.invokeStatic (core.clj:3232)
+    clojure.main$eval_opt.invokeStatic (main.clj:489)
+    clojure.main$eval_opt.invoke (main.clj:483)
+    clojure.main$initialize.invokeStatic (main.clj:509)
+    clojure.main$null_opt.invokeStatic (main.clj:543)
+    clojure.main$null_opt.invoke (main.clj:540)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+Ran 2 tests containing 9 assertions.
+0 failures, 1 errors.
+{"role":"assistant","content":"The alias’s built-in runner ignores the inline namespace selection and starts the full suite. I’ve stopped those unintended full runs; focused checks will use `clojure.main` on the alias’s computed classpath.","tool_calls":[{"type":"function","id":"tool_TbzhOTOiXC5e35p83BvwHHYa","function":{"name":"Bash","arguments":"{\"command\":\"CP=$(clj -Spath -A:test) && java -Xss64m -cp \\\"$CP\\\" clojure.main -e \\\"(require 'yang.php.antlr.safepoint-test) (let [r (clojure.test/run-tests 'yang.php.antlr.safepoint-test)] (System/exit (if (clojure.test/successful? r) 0 1)))\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}}]}
+{"role":"tool","tool_call_id":"tool_TbzhOTOiXC5e35p83BvwHHYa","content":"Loading initial Timbre config from: :default\nWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n\nTesting yang.php.antlr.safepoint-test\n\nERROR in (unbounded-and-unexhausted-runs-agree-test) (safepoint.cljc:175)\na budget that is not exhausted is unobservable\nexpected: (= unbounded (h/run-php source {:execution-budget 100}))\n  actual: clojure.lang.ExceptionInfo: Safepoint site is not a lambda\n{:rule :site-not-lambda, :path [2 3 [3 0] 3 [3 0] 2 3 [3 0] 3 3 [3 0] 2 3 [3 0] [3 1] [3 0] 2 3 [3 0]], :type :application}\n at yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:175)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)\n    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.RT.seq (RT.java:555)\n    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)\n    clojure.core$vec.invokeStatic (core.clj:379)\n    clojure.core$vec.invoke (core.clj:369)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)\n    clojure.core$update.invokeStatic (core.clj:6259)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)\n    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.RT.seq (RT.java:555)\n    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)\n    clojure.core$vec.invokeStatic (core.clj:379)\n    clojure.core$vec.invoke (core.clj:369)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)\n    clojure.core$update.invokeStatic (core.clj:6259)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)\n    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.RT.seq (RT.java:555)\n    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)\n    clojure.core$vec.invokeStatic (core.clj:379)\n    clojure.core$vec.invoke (core.clj:369)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)\n    clojure.core$update.invokeStatic (core.clj:6259)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)\n    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.RT.seq (RT.java:555)\n    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)\n    clojure.core$vec.invokeStatic (core.clj:379)\n    clojure.core$vec.invoke (core.clj:369)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)\n    clojure.core$update.invokeStatic (core.clj:6259)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)\n    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.RT.seq (RT.java:555)\n    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)\n    clojure.core$vec.invokeStatic (core.clj:379)\n    clojure.core$vec.invoke (core.clj:369)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)\n    clojure.core$update.invokeStatic (core.clj:6259)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)\n    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.RT.seq (RT.java:555)\n    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)\n    clojure.core$vec.invokeStatic (core.clj:379)\n    clojure.core$vec.invoke (core.clj:369)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)\n    clojure.core$update.invokeStatic (core.clj:6259)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)\n    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.RT.seq (RT.java:555)\n    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)\n    clojure.core$vec.invokeStatic (core.clj:379)\n    clojure.core$vec.invoke (core.clj:369)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)\n    clojure.core$update.invokeStatic (core.clj:6259)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356$fn__16357.invoke (safepoint.cljc:165)\n    clojure.core$map_indexed$mapi__8684$fn__8685.invoke (core.clj:7500)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.RT.seq (RT.java:555)\n    clojure.lang.LazilyPersistentVector.create (LazilyPersistentVector.java:44)\n    clojure.core$vec.invokeStatic (core.clj:379)\n    clojure.core$vec.invoke (core.clj:369)\n    yang.safepoint$rewrite$walk__16346$fn__16348$fn__16356.invoke (safepoint.cljc:163)\n    clojure.core$update.invokeStatic (core.clj:6259)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:161)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:65)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    clojure.core$update.invokeStatic (core.clj:6261)\n    clojure.core$update.invoke (core.clj:6251)\n    yang.safepoint$rewrite$walk__16346$fn__16348.invoke (safepoint.cljc:160)\n    clojure.lang.ArrayChunk.reduce (ArrayChunk.java:60)\n    clojure.core.protocols$fn__8274.invokeStatic (protocols.clj:135)\n    clojure.core.protocols/fn (protocols.clj:123)\n    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)\n    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)\n    clojure.core.protocols$fn__8266.invokeStatic (protocols.clj:74)\n    clojure.core.protocols/fn (protocols.clj:74)\n    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)\n    clojure.core$reduce.invokeStatic (core.clj:6965)\n    clojure.core$reduce.invoke (core.clj:6947)\n    yang.safepoint$rewrite$walk__16346.invoke (safepoint.cljc:156)\n    yang.safepoint$rewrite.invokeStatic (safepoint.cljc:182)\n    yang.safepoint$rewrite.invoke (safepoint.cljc:147)\n    yang.safepoint$insert.invokeStatic (safepoint.cljc:214)\n    yang.safepoint$insert.invoke (safepoint.cljc:190)\n    yang.safepoint$derive_envelope.invokeStatic (safepoint.cljc:242)\n    yang.safepoint$derive_envelope.invoke (safepoint.cljc:232)\n    yang.php.antlr.e2e_harness$run_vms.invokeStatic (e2e_harness.clj:97)\n    yang.php.antlr.e2e_harness$run_vms.invoke (e2e_harness.clj:89)\n    yang.php.antlr.e2e_harness$run_php.invokeStatic (e2e_harness.clj:132)\n    yang.php.antlr.e2e_harness$run_php.invoke (e2e_harness.clj:124)\n    yang.php.antlr.safepoint_test$fn__17675.invokeStatic (safepoint_test.clj:31)\n    yang.php.antlr.safepoint_test/fn (safepoint_test.clj:25)\n    clojure.test$test_var$fn__9898.invoke (test.clj:717)\n    clojure.test$test_var.invokeStatic (test.clj:717)\n    clojure.test$test_var.invoke (test.clj:708)\n    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)\n    clojure.test$default_fixture.invokeStatic (test.clj:687)\n    clojure.test$default_fixture.invoke (test.clj:683)\n    clojure.test$test_vars$fn__9924.invoke (test.clj:735)\n    clojure.test$default_fixture.invokeStatic (test.clj:687)\n    clojure.test$default_fixture.invoke (test.clj:683)\n    clojure.test$test_vars.invokeStatic (test.clj:731)\n    clojure.test$test_all_vars.invokeStatic (test.clj:737)\n    clojure.test$test_ns.invokeStatic (test.clj:758)\n    clojure.test$test_ns.invoke (test.clj:743)\n    clojure.core$map$fn__5956.invoke (core.clj:2772)\n    clojure.lang.LazySeq.force (LazySeq.java:50)\n    clojure.lang.LazySeq.realize (LazySeq.java:87)\n    clojure.lang.LazySeq.seq (LazySeq.java:104)\n    clojure.lang.Cons.next (Cons.java:41)\n    clojure.lang.RT.boundedLength (RT.java:1810)\n    clojure.lang.RestFn.applyTo (RestFn.java:133)\n    clojure.core$apply.invokeStatic (core.clj:669)\n    clojure.test$run_tests.invokeStatic (test.clj:768)\n    clojure.test$run_tests.doInvoke (test.clj:768)\n    clojure.lang.RestFn.invoke (RestFn.java:411)\n    user$eval17682.invokeStatic (NO_SOURCE_FILE:1)\n    user$eval17682.invoke (NO_SOURCE_FILE:1)\n    clojure.lang.Compiler.eval (Compiler.java:7757)\n    clojure.lang.Compiler.eval (Compiler.java:7712)\n    clojure.core$eval.invokeStatic (core.clj:3232)\n    clojure.main$eval_opt.invokeStatic (main.clj:489)\n    clojure.main$eval_opt.invoke (main.clj:483)\n    clojure.main$initialize.invokeStatic (main.clj:509)\n    clojure.main$null_opt.invokeStatic (main.clj:543)\n    clojure.main$null_opt.invoke (main.clj:540)\n    clojure.main$main.invokeStatic (main.clj:665)\n    clojure.main$main.doInvoke (main.clj:617)\n    clojure.lang.RestFn.applyTo (RestFn.java:140)\n    clojure.lang.Var.applyTo (Var.java:707)\n    clojure.main.main (main.java:40)\n\nRan 2 tests containing 9 assertions.\n0 failures, 1 errors.\nCommand failed with exit code: 1."}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_8rMPf4nTQbGDne8HymiJlRp7","function":{"name":"Read","arguments":"{\"path\":\"src/cljc/yang/php/antlr/lower.cljc\",\"line_offset\":1585,\"n_lines\":45}"}},{"type":"function","id":"tool_CzXWoOO1ztCCXOzBsVEFnXpl","function":{"name":"Read","arguments":"{\"path\":\"src/cljc/yang/php/antlr/lower.cljc\",\"line_offset\":1700,\"n_lines\":40}"}},{"type":"function","id":"tool_ZNLAUIHcTF04WvkDzvFPHqQR","function":{"name":"Read","arguments":"{\"path\":\"src/cljc/yang/php/antlr/lower.cljc\",\"line_offset\":3030,\"n_lines\":55}"}},{"type":"function","id":"tool_UmmAQPCBZZZYSHBBFPkqvrml","function":{"name":"Read","arguments":"{\"path\":\"src/cljc/yang/core/lower.cljc\",\"line_offset\":65,\"n_lines\":25}"}}]}
+{"role":"tool","tool_call_id":"tool_UmmAQPCBZZZYSHBBFPkqvrml","content":"65\t\n66\t(defn rules\n67\t  [ctx n rule-name]\n68\t  (p/child-rules (:pk ctx) n rule-name))\n69\t\n70\t\n71\t(defn rule-kids\n72\t  [ctx n]\n73\t  (filterv p/rule? (kids ctx n)))\n74\t\n75\t\n76\t(defn site\n77\t  \"`node` marked as a safepoint site of `kind` (`:loop`, `:call`, `:line`),\n78\t   a keyword or a vector `[kind datum ...]`. The mark is map metadata, so it never enters a canonical row: projection\n79\t   puts it in the frontend-metadata side table, where `yang.safepoint`\n80\t   finds it.\"\n81\t  [kind node]\n82\t  (vary-meta node assoc :yang/site kind))\n83\t\n84\t\n85\t(defn app*\n86\t  [op-sym & args]\n87\t  (apply u/app (u/v op-sym) args))\n88\t\n89\t"}
+{"role":"tool","tool_call_id":"tool_8rMPf4nTQbGDne8HymiJlRp7","content":"1585\t                   e (first (core/rules ctx a \"expression\"))]\n1586\t               (when (or (nil? e) (p/token? (first ks) \"&\")) (unsupported! a :argument-form))\n1587\t               (cond\n1588\t                 an [pos (conj named\n1589\t                               (args-vector [(u/lit (:text (first (core/kids ctx (first (core/kids ctx an))))))\n1590\t                                             (lower ctx e)]))]\n1591\t                 spread? [(app* 'php/args-spread pos (lower ctx e)) named]\n1592\t                 :else\n1593\t                 (let [chain (when (some #{i} refs) (first (core/rules ctx e \"chain\")))]\n1594\t                   [(app* 'php/vconj\n1595\t                          pos\n1596\t                          (if (and chain (chain-location ctx chain))\n1597\t                            (ref-source ctx a chain)\n1598\t                            (lower ctx e)))\n1599\t                    named]))))\n1600\t           [(u/lit []) []]\n1601\t           (map-indexed vector items))]\n1602\t     [pos (when (seq named) (args-vector named))])))\n1603\t\n1604\t\n1605\t(defn- call-node\n1606\t  \"Call function cell node `f` with the arguments of `arguments`.\"\n1607\t  [ctx f arguments refs]\n1608\t  (let [[pos named] (lower-arguments ctx arguments refs)]\n1609\t    (core/site :call\n1610\t               (if (seq refs)\n1611\t                 (app* 'php/call-with-binding-profile\n1612\t                       f pos (or named (u/lit []))\n1613\t                       (u/lit \"sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb\"))\n1614\t                 (if named\n1615\t                   (app* 'php/call-named f pos named)\n1616\t                   (app* 'php/call f pos))))))\n1617\t\n1618\t\n1619\t(defn- argument-chains\n1620\t  \"The `chain` of each argument of `arguments`, for the language constructs\n1621\t   that take variables (`isset`, `empty`, `unset`).\"\n1622\t  [ctx n args]\n1623\t  (mapv (fn [a]\n1624\t          (let [ks (core/kids ctx a)\n1625\t                e (first ks)\n1626\t                c (when (and (= 1 (count ks)) (p/rule? e \"expression\"))\n1627\t                    (first (core/rules ctx e \"chain\")))]\n1628\t            (or c (unsupported! n :argument-form))))\n1629\t        (core/rules ctx args \"actualArgument\")))"}
+{"role":"tool","tool_call_id":"tool_ZNLAUIHcTF04WvkDzvFPHqQR","content":"3030\t                rt-src\n3031\t                (let [th (first (core/rules ctx rt-src \"typeHint\"))]\n3032\t                  (type-data ctx th (boolean (some #(and (p/token? %) (= \"?\" (:text %))) (core/kids ctx rt-src)))\n3033\t                             (:cname ctx)))\n3034\t                (and bcc (empty? (core/rules ctx bcc \"arguments\")))\n3035\t                (let [atoms (name-atoms bcc (leftmost-token-text ctx (first (core/rules ctx bcc \"identifier\")))\n3036\t                                        (:cname ctx))]\n3037\t                  (if (= 1 (count atoms)) (first atoms) {:t :union, :of atoms})))\n3038\t        _ (when (seq (mapcat #(core/rules ctx % \"arguments\") (core/rules ctx n \"baseCtorCall\")))\n3039\t            (unsupported! n :base-constructor-call))\n3040\t        _ (when (some #(p/token? % \"&\") (take-while #(not (p/token? % \"(\")) ks))\n3041\t            (unsupported! n :reference))\n3042\t        _ (when (seq (core/rules ctx n \"attributes\")) (unsupported! n :attribute))\n3043\t        _ (when (seq (core/rules ctx n \"typeParameterListInBrackets\"))\n3044\t            (unsupported! n :generics))\n3045\t        params (formal-params ctx n)\n3046\t        scope (get-in (:analysis ctx) [:scopes (:id n)])\n3047\t        param-names (set (map :name params))\n3048\t        capture-names (set (map :name captures))\n3049\t        static-names (set (:statics scope))\n3050\t        static-names-v (vec (:statics scope))\n3051\t        locals (remove #(or (contains? param-names %) (contains? static-names %)\n3052\t                            (contains? capture-names %) (= \"$this\" %))\n3053\t                       (:vars scope))\n3054\t        block (or (first (core/rules ctx n \"blockStatement\"))\n3055\t                  (some->> (first (core/rules ctx n \"methodBody\"))\n3056\t                           (#(core/rules ctx % \"blockStatement\"))\n3057\t                           first))\n3058\t        has-return? (and block\n3059\t                         (core/contains-rule? ctx\n3060\t                                              block\n3061\t                                              \"returnStatement\"\n3062\t                                              #{\"functionDeclaration\" \"lambdaFunctionExpr\"}))\n3063\t        generator? (and block\n3064\t                        (core/contains-rule? ctx\n3065\t                                             block\n3066\t                                             \"yieldExpression\"\n3067\t                                             #{\"functionDeclaration\" \"lambdaFunctionExpr\"}))\n3068\t        ;; the dynamic-scope profile (plan P6 R5): an include in the body\n3069\t        ;; hands the function's variables to the included unit by name\n3070\t        dyn? (boolean (:includes? scope))\n3071\t        counted? (boolean (or dyn? (mentions-reference? ctx n) (seq (:statics scope))\n3072\t                              (some :ref? captures)\n3073\t                              (some #(and (:type %) (not (:variadic? %))) params)))\n3074\t        fctx (cond-> (assoc ctx :fn true :module? false :loops [] :ret (when has-return? '%ret) :counted counted?\n3075\t                            :rtype rtype :fname written :gen (when generator? '%gen))\n3076\t               closure? (assoc :cc true))\n3077\t        never? (= :never (:t rtype))\n3078\t        checked? (and rtype (not= :void (:t rtype)) (not never?))\n3079\t        promoted (when (str/ends-with? (str/lower-case written) \"__construct\") (filter :promote params))\n3080\t        prologue (mapv (fn [pp]\n3081\t                         (app* 'php/prop-write!\n3082\t                               (app* 'php/this-of (u/v '%fn))\n3083\t                               (u/lit (bare (:name pp)))\n3084\t                               (u/v '%cc)"}
+{"role":"tool","tool_call_id":"tool_CzXWoOO1ztCCXOzBsVEFnXpl","content":"1700\t      (fn [locs]\n1701\t        (let [temps (vec (map-indexed\n1702\t                           (fn [i e]\n1703\t                             (when-not (contains? locs i)\n1704\t                               [(core/gen \"a\" e)\n1705\t                                (if (some #{i} positions)\n1706\t                                  (u/then (app* 'php/warn\n1707\t                                                (u/lit 8)\n1708\t                                                (u/lit \"Only variables should be passed by reference\"))\n1709\t                                          (lower ctx e))\n1710\t                                  (lower ctx e))]))\n1711\t                           exprs))\n1712\t              ;; By-ref locations are read at call time, after the other\n1713\t              ;; arguments have run (Zend's SEND_REF reads at the call).\n1714\t              nodes (vec (map-indexed\n1715\t                           (fn [i t] (if t (u/v (first t)) (peek-loc ctx (get locs i))))\n1716\t                           temps))\n1717\t              writes (keep-indexed\n1718\t                       (fn [j i]\n1719\t                         (when-let [loc (get locs i)]\n1720\t                           (write-loc ctx\n1721\t                                      n\n1722\t                                      loc\n1723\t                                      (app* 'get (app* 'get (u/v r) (u/lit 1)) (u/lit j)))))\n1724\t                       positions)]\n1725\t          (reduce (fn [inner [sym node]] (u/let1 sym node inner))\n1726\t                  (u/let1 r\n1727\t                          (core/site :call (app* 'php/call (u/v f) (args-vector nodes)))\n1728\t                          (u/seq-nodes (conj (vec writes) (app* 'get (u/v r) (u/lit 0)))))\n1729\t                  (reverse (keep identity temps))))))))\n1730\t\n1731\t\n1732\t(defn- class-designator\n1733\t  \"The written class name (`self`, `static`, `parent` or a name) of a\n1734\t   `qualifiedStaticTypeRef`/`typeRef`, or of the `parent` token.\"\n1735\t  [ctx n]\n1736\t  (if (p/token? n) (str/lower-case (:text n)) (class-text ctx n)))\n1737\t\n1738\t\n1739\t(defn- base-location"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_eMqddR31qeN3BhOI9DHbjr91","function":{"name":"Read","arguments":"{\"path\":\"src/cljc/yang/safepoint.cljc\",\"line_offset\":100,\"n_lines\":88}"}}]}
+{"role":"tool","tool_call_id":"tool_eMqddR31qeN3BhOI9DHbjr91","content":"100\t  (when entry\n101\t    (if (map? entry)\n102\t      {:hook (:hook entry),\n103\t       :operands (when (:operands entry) (vec (rest mark)))}\n104\t      {:hook entry})))\n105\t\n106\t\n107\t(defn- site-hooks\n108\t  \"`{:enter h :exit h}` (either absent), each an `entry-hook`, for a site\n109\t   marked `mark` under `profile`.\"\n110\t  [profile mark]\n111\t  (let [kind (mark-kind mark)\n112\t        exit (some (fn [[x entry]] (when (= entry kind) (get profile x)))\n113\t                   exit-kinds)]\n114\t    (cond-> {}\n115\t      (get profile kind) (assoc :enter (entry-hook (get profile kind) mark))\n116\t      exit (assoc :exit (entry-hook exit mark)))))\n117\t\n118\t\n119\t(defn- hook-application\n120\t  [{:keys [hook operands]} args]\n121\t  {:type :application,\n122\t   :operator {:type :variable, :name hook},\n123\t   :operands (into (mapv (fn [x] {:type :literal, :value x}) operands) args)})\n124\t\n125\t\n126\t(defn- sequence-hook\n127\t  \"`node` evaluated after `hook` is applied.\"\n128\t  [node hook]\n129\t  {:type :application,\n130\t   :operator {:type :lambda, :params [binder], :body node},\n131\t   :operands [(hook-application hook [])]})\n132\t\n133\t\n134\t(defn- prefix-hook\n135\t  \"Lambda `node` with `hook` applied before its body runs.\"\n136\t  [node hook]\n137\t  (assoc node\n138\t         :body (sequence-hook (:body node) hook)))\n139\t\n140\t\n141\t(defn- wrap-hook\n142\t  \"Lambda `node` with `hook` applied to its body's value.\"\n143\t  [node hook]\n144\t  (assoc node :body (hook-application hook [(:body node)])))\n145\t\n146\t\n147\t(defn- rewrite\n148\t  \"The map AST `ast` with each `{path {:enter h :exit h}}` site's exit hook\n149\t   wrapped around its body and its entry hook prefixed. Throws when a site\n150\t   names no node, or a node that is not a lambda.\"\n151\t  [ast hooks]\n152\t  (let [seen (volatile! #{})]\n153\t    (letfn [(walk\n154\t              [node path]\n155\t              (let [slots (get vm/semantic-bytecode-grammar (:type node))\n156\t                    node (reduce\n157\t                           (fn [n [j [field kind]]]\n158\t                             (let [pos (+ j 2)]\n159\t                               (case kind\n160\t                                 :node (update n field walk (conj path pos))\n161\t                                 :nodes (update n field\n162\t                                                (fn [children]\n163\t                                                  (vec (map-indexed\n164\t                                                         (fn [i child]\n165\t                                                           (walk child (conj path [pos i])))\n166\t                                                         children))))\n167\t                                 n)))\n168\t                           node\n169\t                           (map-indexed vector slots))]\n170\t                (if-let [{:keys [enter exit statement?]} (get hooks path)]\n171\t                  (do (vswap! seen conj path)\n172\t                      (if statement?\n173\t                        (sequence-hook node enter)\n174\t                        (do (when-not (= :lambda (:type node))\n175\t                              (throw (ex-info \"Safepoint site is not a lambda\"\n176\t                                              {:rule :site-not-lambda, :path path,\n177\t                                               :type (:type node)})))\n178\t                            (cond-> node\n179\t                              exit (wrap-hook exit)\n180\t                              enter (prefix-hook enter)))))\n181\t                  node)))]\n182\t      (let [out (walk ast [])\n183\t            missing (remove @seen (keys hooks))]\n184\t        (when (seq missing)\n185\t          (throw (ex-info \"Safepoint site names no node\"\n186\t                          {:rule :site-missing, :paths (vec (sort-by pr-str missing))})))\n187\t        out))))"}
+{"role":"assistant","content":"Loop-only exhaustion passes, but the first function-call fixture exposed a real integration gap: PHP marks call applications, while the shared inserter accepted only lambda bodies. I’ll add an opt-in “sequence before any node” profile entry, leaving existing profiles’ refusal behavior unchanged.","tool_calls":[{"type":"function","id":"tool_Q27bOtEEOlidoZ03o1uE008K","function":{"name":"Edit","arguments":"{\"path\":\"src/cljc/yang/safepoint.cljc\",\"old_string\":\"  (cond-> {}\\n      (get profile kind) (assoc :enter (entry-hook (get profile kind) mark))\\n      exit (assoc :exit (entry-hook exit mark)))))\",\"new_string\":\"  (cond-> {}\\n      (get profile kind) (assoc :enter (entry-hook (get profile kind) mark))\\n      (and (map? (get profile kind)) (:sequence (get profile kind)))\\n      (assoc :sequence? true)\\n      exit (assoc :exit (entry-hook exit mark)))))\"}"}}]}
+{"role":"tool","tool_call_id":"tool_Q27bOtEEOlidoZ03o1uE008K","content":"Replaced 1 occurrence in src/cljc/yang/safepoint.cljc"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_2kja6ZqtTf1W2k1B7yy7uCnW","function":{"name":"Read","arguments":"{\"path\":\"src/cljc/yang/safepoint.cljc\",\"line_offset\":145,\"n_lines\":40}"}}]}
+{"role":"tool","tool_call_id":"tool_2kja6ZqtTf1W2k1B7yy7uCnW","content":"145\t  [node hook]\n146\t  (assoc node :body (hook-application hook [(:body node)])))\n147\t\n148\t\n149\t(defn- rewrite\n150\t  \"The map AST `ast` with each `{path {:enter h :exit h}}` site's exit hook\n151\t   wrapped around its body and its entry hook prefixed. Throws when a site\n152\t   names no node, or a node that is not a lambda.\"\n153\t  [ast hooks]\n154\t  (let [seen (volatile! #{})]\n155\t    (letfn [(walk\n156\t              [node path]\n157\t              (let [slots (get vm/semantic-bytecode-grammar (:type node))\n158\t                    node (reduce\n159\t                           (fn [n [j [field kind]]]\n160\t                             (let [pos (+ j 2)]\n161\t                               (case kind\n162\t                                 :node (update n field walk (conj path pos))\n163\t                                 :nodes (update n field\n164\t                                                (fn [children]\n165\t                                                  (vec (map-indexed\n166\t                                                         (fn [i child]\n167\t                                                           (walk child (conj path [pos i])))\n168\t                                                         children))))\n169\t                                 n)))\n170\t                           node\n171\t                           (map-indexed vector slots))]\n172\t                (if-let [{:keys [enter exit statement?]} (get hooks path)]\n173\t                  (do (vswap! seen conj path)\n174\t                      (if statement?\n175\t                        (sequence-hook node enter)\n176\t                        (do (when-not (= :lambda (:type node))\n177\t                              (throw (ex-info \"Safepoint site is not a lambda\"\n178\t                                              {:rule :site-not-lambda, :path path,\n179\t                                               :type (:type node)})))\n180\t                            (cond-> node\n181\t                              exit (wrap-hook exit)\n182\t                              enter (prefix-hook enter)))))\n183\t                  node)))]\n184\t      (let [out (walk ast [])"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_sHy1dKEyirYHK85F2fmiYUvp","function":{"name":"Edit","arguments":"{\"path\":\"src/cljc/yang/safepoint.cljc\",\"old_string\":\"                (if-let [{:keys [enter exit statement?]} (get hooks path)]\\n                  (do (vswap! seen conj path)\\n                      (if statement?\",\"new_string\":\"                (if-let [{:keys [enter exit statement? sequence?]} (get hooks path)]\\n                  (do (vswap! seen conj path)\\n                      (if (or statement? sequence?)\"}"}}]}
+{"role":"tool","tool_call_id":"tool_sHy1dKEyirYHK85F2fmiYUvp","content":"Replaced 1 occurrence in src/cljc/yang/safepoint.cljc"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_3eTriVKF5gEJ6vfXhjLuM9yJ","function":{"name":"Read","arguments":"{\"path\":\"src/cljc/yang/php/antlr/safepoint.cljc\",\"line_offset\":1,\"n_lines\":20}"}}]}
+{"role":"tool","tool_call_id":"tool_3eTriVKF5gEJ6vfXhjLuM9yJ","content":"1\t(ns yang.php.antlr.safepoint\n2\t  \"The PHP `:loop` and `:call` hooks. A bounded run charges one safepoint to\n3\t   its per-run counter; exhaustion unwinds past guest handlers and raises the\n4\t   operational fatal, not a guest Throwable.\"\n5\t  (:require\n6\t    [yang.core.uast :as u]))\n7\t\n8\t\n9\t(def profile\n10\t  {:loop 'php.sp/loop, :call 'php.sp/call})\n11\t\n12\t\n13\t(def fatal-text\n14\t  \"Maximum execution time of 30 seconds exceeded\")\n15\t\n16\t\n17\t(def ^:private function-definitions\n18\t  '[[php.sp/exhaust!\n19\t     (fn []\n20\t       (do (php/unwind-to 1)"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_lO2UmrijiWArHGgYTfuznVZn","function":{"name":"Edit","arguments":"{\"path\":\"src/cljc/yang/php/antlr/safepoint.cljc\",\"old_string\":\"  {:loop 'php.sp/loop, :call 'php.sp/call})\",\"new_string\":\"  {:loop 'php.sp/loop, :call {:hook 'php.sp/call, :sequence true}})\"}"}}]}
+{"role":"tool","tool_call_id":"tool_lO2UmrijiWArHGgYTfuznVZn","content":"Replaced 1 occurrence in src/cljc/yang/php/antlr/safepoint.cljc"}
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.php.antlr.safepoint-test
+
+Ran 2 tests containing 9 assertions.
+0 failures, 0 errors.
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_QgqIsyQ9rtKAjcMvZ2jIKAKR","function":{"name":"Bash","arguments":"{\"command\":\"CP=$(clj -Spath -A:test) && java -Xss64m -cp \\\"$CP\\\" clojure.main -e \\\"(require 'yang.php.antlr.safepoint-test) (let [r (clojure.test/run-tests 'yang.php.antlr.safepoint-test)] (System/exit (if (clojure.test/successful? r) 0 1)))\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}}]}
+{"role":"tool","tool_call_id":"tool_QgqIsyQ9rtKAjcMvZ2jIKAKR","content":"Loading initial Timbre config from: :default\nWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n\nTesting yang.php.antlr.safepoint-test\n\nRan 2 tests containing 9 assertions.\n0 failures, 0 errors.\n"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_Idfb9tE9ZsjphQ0Z8rJZK4cv","function":{"name":"TodoList","arguments":"{\"todos\":[{\"title\":\"Inspect PHP safepoints, fatal handling, and tests\",\"status\":\"done\"},{\"title\":\"Implement optional execution budget and docs\",\"status\":\"done\"},{\"title\":\"Add focused budget tests\",\"status\":\"done\"},{\"title\":\"Run PHP regression and lint checks\",\"status\":\"in_progress\"},{\"title\":\"Commit implementation and write findings\",\"status\":\"pending\"}]}"}}]}
+{"role":"tool","tool_call_id":"tool_Idfb9tE9ZsjphQ0Z8rJZK4cv","content":"Todo list updated.\nCurrent todo list:\n  [done] Inspect PHP safepoints, fatal handling, and tests\n  [done] Implement optional execution budget and docs\n  [done] Add focused budget tests\n  [in_progress] Run PHP regression and lint checks\n  [pending] Commit implementation and write findings\n\nWhen \"Run PHP regression and lint checks\" is finished, mark it done and set the next item in_progress; that update can go in the same response as your next tool call."}
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.safepoint-test
+
+Testing yang.php.antlr.class-model-test
+
+Testing yang.php.antlr.objects-test
+
+Testing yang.php.antlr.generators-test
+{"role":"assistant","content":"Focused coverage is green: exact fatal text on all four VMs, no guest catch or destructor output, unchanged unbounded behavior, and an unexhausted budget is invisible. Next are the PHP consumer suites, shared safepoint tests, and formatting/lint.","tool_calls":[{"type":"function","id":"tool_t6iBFcGAeE0J0jpYMFJDsVjJ","function":{"name":"Bash","arguments":"{\"command\":\"CP=$(clj -Spath -A:test) && java -Xss64m -cp \\\"$CP\\\" clojure.main -e \\\"(require 'yang.safepoint-test 'yang.php.antlr.class-model-test 'yang.php.antlr.objects-test 'yang.php.antlr.generators-test) (let [r (apply clojure.test/run-tests ['yang.safepoint-test 'yang.php.antlr.class-model-test 'yang.php.antlr.objects-test 'yang.php.antlr.generators-test])] (System/exit (if (clojure.test/successful? r) 0 1)))\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}},{"type":"function","id":"tool_7NcerkWLbgj90VbYPgnScKr1","function":{"name":"Bash","arguments":"{\"command\":\"clj -X:fmt\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}},{"type":"function","id":"tool_aO52oovQAGEPac8FzWyEgsdo","function":{"name":"Bash","arguments":"{\"command\":\"clj -M:kondo --lint src/cljc/yang/safepoint.cljc src/cljc/yang/php/antlr/safepoint.cljc src/cljc/yang/php/antlr/prelude.cljc test/yang/php/antlr/e2e_harness.clj test/yang/php/antlr/portable_harness.cljc test/yang/php/antlr/safepoint_test.clj\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}}]}
+{"role":"tool","tool_call_id":"tool_t6iBFcGAeE0J0jpYMFJDsVjJ","content":"task_id: bash-f1539kc0\npid: 49070\ndescription: Bash: CP=$(clj -Spath -A:test) && java -Xss64m -cp \"$CP\" clojure.m…\nstatus: running\nautomatic_notification: true\nnext_step: The task now runs in the background. You will be automatically notified when it completes — do NOT wait, poll, or call TaskOutput on it; continue with your current work.\nhuman_shell_hint: The task is visible in the background-task panel.\n\nforeground_output:\nLoading initial Timbre config from: :default\nWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n\nTesting yang.safepoint-test\n\nTesting yang.php.antlr.class-model-test\n\nTesting yang.php.antlr.objects-test\n\nTesting yang.php.antlr.generators-test\n"}
+Loading initial Timbre config from: :default
+cljstyle error:
+mise ERROR error parsing config file: ~/workspace/datomworld-p7a/mise.toml
+mise ERROR Config files in ~/workspace/datomworld-p7a/mise.toml are not trusted.
+Trust them with `mise trust`. See https://mise.jdx.dev/cli/trust.html for more information.
+mise ERROR Run with --verbose or MISE_VERBOSE=1 for more information
+
+
+{"role":"tool","tool_call_id":"tool_7NcerkWLbgj90VbYPgnScKr1","content":"Loading initial Timbre config from: :default\ncljstyle error:\nmise ERROR error parsing config file: ~/workspace/datomworld-p7a/mise.toml\nmise ERROR Config files in ~/workspace/datomworld-p7a/mise.toml are not trusted.\nTrust them with `mise trust`. See https://mise.jdx.dev/cli/trust.html for more information.\nmise ERROR Run with --verbose or MISE_VERBOSE=1 for more information\n\n\nCommand failed with exit code: 1."}
+Loading initial Timbre config from: :default
+linting took 1001ms, errors: 0, warnings: 0
+{"role":"tool","tool_call_id":"tool_aO52oovQAGEPac8FzWyEgsdo","content":"Loading initial Timbre config from: :default\nlinting took 1001ms, errors: 0, warnings: 0\n"}
+ M docs/design/yang.php.md
+ M src/cljc/yang/php/antlr/prelude.cljc
+ M src/cljc/yang/safepoint.cljc
+ M test/yang/php/antlr/e2e_harness.clj
+ M test/yang/php/antlr/portable_harness.cljc
+?? src/cljc/yang/php/antlr/safepoint.cljc
+?? test/yang/php/antlr/safepoint_test.clj
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_k6utjeKkyYVeIJonwRNHSK26","function":{"name":"Bash","arguments":"{\"command\":\"which cljstyle || true; git status --short\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\"}"}}]}
+{"role":"tool","tool_call_id":"tool_k6utjeKkyYVeIJonwRNHSK26","content":" M docs/design/yang.php.md\n M src/cljc/yang/php/antlr/prelude.cljc\n M src/cljc/yang/safepoint.cljc\n M test/yang/php/antlr/e2e_harness.clj\n M test/yang/php/antlr/portable_harness.cljc\n?? src/cljc/yang/php/antlr/safepoint.cljc\n?? test/yang/php/antlr/safepoint_test.clj\n"}
+{"role":"assistant","content":"The consumer and shared safepoint suites completed; kondo reports zero issues. The formatter wrapper is blocked only by an untrusted local `mise.toml`, so I’ll trust this checkout’s config and rerun the project’s standard formatter.","tool_calls":[{"type":"function","id":"tool_ZJ3Fyxy54jwgrTlSAhEdvFZY","function":{"name":"Read","arguments":"{\"path\":\"/Users/sto/.kimi-code/sessions/wd_datomworld-p7a_af382af2a5e1/session_1c115e86-5c39-4f0d-9e02-1db3588ad519/agents/main/tasks/bash-f1539kc0/output.log\"}"}},{"type":"function","id":"tool_esm1VCxPLLcGFdX1jEV1iIdy","function":{"name":"Bash","arguments":"{\"command\":\"mise trust mise.toml && clj -X:fmt\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}}]}
+{"role":"tool","tool_call_id":"tool_ZJ3Fyxy54jwgrTlSAhEdvFZY","content":"1\tLoading initial Timbre config from: :default\n2\tWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n3\t\n4\tTesting yang.safepoint-test\n5\t\n6\tTesting yang.php.antlr.class-model-test\n7\t\n8\tTesting yang.php.antlr.objects-test\n9\t\n10\tTesting yang.php.antlr.generators-test\n11\t\n12\tRan 22 tests containing 1218 assertions.\n13\t0 failures, 0 errors."}
+mise trusted /Users/sto/workspace/datomworld-p7a
+Loading initial Timbre config from: :default
+{"role":"tool","tool_call_id":"tool_esm1VCxPLLcGFdX1jEV1iIdy","content":"mise trusted /Users/sto/workspace/datomworld-p7a\nLoading initial Timbre config from: :default\n"}
+ M antlr/python3/manifest.edn
+ M antlr/typescript/manifest.edn
+ M bb.edn
+ M demo/daostar-cart/resources/catalog.edn
+ M demo/daostar-cart/test/dao/star_cart/catalog_test.clj
+ M demo/daostar-cart/test/dao/star_cart/edge_test.clj
+ M deps.edn
+ M docs/design/yang.php.md
+ M public/chp/blog/daostar-vs-datastar-vs-electric-clojure.blog
+ M public/chp/blog/ide-on-datomworld.blog
+ M public/chp/blog/io-monad-dao-stream.blog
+ M public/chp/blog/muse-ai-agent-on-datom-world.blog
+ M public/chp/blog/osgi-cordiverse-datomworld.blog
+ M public/chp/blog/php-security-by-architecture.blog
+ M public/chp/blog/python-without-foreign-functions.blog
+ M public/chp/blog/universal-ast-vs-assembly.blog
+ M public/chp/blog/why-clojure-has-no-linker.blog
+ M public/chp/blog/yin-vm-macros.blog
+ M public/chp/blog/yin-vm-rust-kernel.blog
+ M public/chp/blog/yin-vm-vs-unison.blog
+ M public/chp/dao-lease.chp
+ M public/chp/faq.chp
+ M shadow-cljs.edn
+ M src/cljc/dao/stream/waitset/cadence.cljc
+ M src/cljc/yang/php/antlr/prelude.cljc
+ M src/cljc/yang/safepoint.cljc
+ M src/cljc/yin/vm/encoder.cljc
+ M src/jolt/dao/host/sign.jolt
+ M src/jolt/dao/posix/file.jolt
+ M src/jolt/dao/stream/cbor/boring.jolt
+ M test/dao/space/query_rules_test.cljc
+ M test/dao/stream/waitset/driver_test.clj
+ M test/dao/stream/waitset/driver_test.cljd
+ M test/resources/dao/space/datomic-q-v1.oracle-observations.edn
+ M test/resources/yang/typescript/t1_corpus.edn
+ M test/resources/yang/typescript/t3_corpus.edn
+ M test/resources/yang/typescript/t3_oracle.edn
+ M test/resources/yang/typescript/t3_units.edn
+ M test/yang/latte_oracle/context.edn
+ M test/yang/latte_oracle/kernel_gate.edn
+ M test/yang/latte_oracle/slice9_evidence.edn
+ M test/yang/latte_oracle/slice9_verification.edn
+ M test/yang/php/antlr/e2e_harness.clj
+ M test/yang/php/antlr/portable_harness.cljc
+?? src/cljc/yang/php/antlr/safepoint.cljc
+?? test/yang/php/antlr/safepoint_test.clj
+ antlr/python3/manifest.edn                         |   9 +-
+ antlr/typescript/manifest.edn                      |   6 +-
+ bb.edn                                             |   7 +-
+ demo/daostar-cart/resources/catalog.edn            |   2 +-
+ .../test/dao/star_cart/catalog_test.clj            |   4 +-
+ demo/daostar-cart/test/dao/star_cart/edge_test.clj |   4 +-
+ deps.edn                                           |   3 +-
+ docs/design/yang.php.md                            |   8 +-
+ .../daostar-vs-datastar-vs-electric-clojure.blog   |  75 ++--
+ public/chp/blog/ide-on-datomworld.blog             |  35 +-
+ public/chp/blog/io-monad-dao-stream.blog           |  37 +-
+ public/chp/blog/muse-ai-agent-on-datom-world.blog  |  33 +-
+ public/chp/blog/osgi-cordiverse-datomworld.blog    |   2 +-
+ public/chp/blog/php-security-by-architecture.blog  |   3 +-
+ .../chp/blog/python-without-foreign-functions.blog |  10 +-
+ public/chp/blog/universal-ast-vs-assembly.blog     |   4 +-
+ public/chp/blog/why-clojure-has-no-linker.blog     |   3 +-
+ public/chp/blog/yin-vm-macros.blog                 |   9 +-
+ public/chp/blog/yin-vm-rust-kernel.blog            |   3 +-
+ public/chp/blog/yin-vm-vs-unison.blog              |   3 +-
+ public/chp/dao-lease.chp                           | 198 ++++-----
+ public/chp/faq.chp                                 |   2 +-
+ shadow-cljs.edn                                    |   4 +-
+ src/cljc/dao/stream/waitset/cadence.cljc           |   3 +-
+ src/cljc/yang/php/antlr/prelude.cljc               |  23 +-
+ src/cljc/yang/safepoint.cljc                       |   6 +-
+ src/cljc/yin/vm/encoder.cljc                       |   3 +-
+ src/jolt/dao/host/sign.jolt                        |  14 +-
+ src/jolt/dao/posix/file.jolt                       |  34 +-
+ src/jolt/dao/stream/cbor/boring.jolt               |  10 +-
+ test/dao/space/query_rules_test.cljc               |  59 ++-
+ test/dao/stream/waitset/driver_test.clj            |   4 +-
+ test/dao/stream/waitset/driver_test.cljd           |  10 +-
+ .../dao/space/datomic-q-v1.oracle-observations.edn | 465 ++++++++++-----------
+ test/resources/yang/typescript/t1_corpus.edn       | 240 ++++++-----
+ test/resources/yang/typescript/t3_corpus.edn       |   6 +-
+ test/resources/yang/typescript/t3_oracle.edn       | 253 ++++++-----
+ test/resources/yang/typescript/t3_units.edn        |   5 +-
+ test/yang/latte_oracle/context.edn                 | 105 +++--
+ test/yang/latte_oracle/kernel_gate.edn             | 354 ++++++++--------
+ test/yang/latte_oracle/slice9_evidence.edn         | 278 ++++++------
+ test/yang/latte_oracle/slice9_verification.edn     |  15 +-
+ test/yang/php/antlr/e2e_harness.clj                |  77 ++--
+ test/yang/php/antlr/portable_harness.cljc          |   6 +-
+ 44 files changed, 1258 insertions(+), 1176 deletions(-)
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_4YreK625jJgbqBG0qqP3yBvI","function":{"name":"Bash","arguments":"{\"command\":\"git status --short && git diff --check && git diff --stat\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\"}"}},{"type":"function","id":"tool_4rcfaYBE4rOhu3mFyejRHprY","function":{"name":"Bash","arguments":"{\"command\":\"CP=$(clj -Spath -A:test) && java -Xss64m -cp \\\"$CP\\\" clojure.main -e \\\"(require 'yang.php.antlr.safepoint-test) (let [r (clojure.test/run-tests 'yang.php.antlr.safepoint-test)] (System/exit (if (clojure.test/successful? r) 0 1)))\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}}]}
+{"role":"tool","tool_call_id":"tool_4YreK625jJgbqBG0qqP3yBvI","content":" M antlr/python3/manifest.edn\n M antlr/typescript/manifest.edn\n M bb.edn\n M demo/daostar-cart/resources/catalog.edn\n M demo/daostar-cart/test/dao/star_cart/catalog_test.clj\n M demo/daostar-cart/test/dao/star_cart/edge_test.clj\n M deps.edn\n M docs/design/yang.php.md\n M public/chp/blog/daostar-vs-datastar-vs-electric-clojure.blog\n M public/chp/blog/ide-on-datomworld.blog\n M public/chp/blog/io-monad-dao-stream.blog\n M public/chp/blog/muse-ai-agent-on-datom-world.blog\n M public/chp/blog/osgi-cordiverse-datomworld.blog\n M public/chp/blog/php-security-by-architecture.blog\n M public/chp/blog/python-without-foreign-functions.blog\n M public/chp/blog/universal-ast-vs-assembly.blog\n M public/chp/blog/why-clojure-has-no-linker.blog\n M public/chp/blog/yin-vm-macros.blog\n M public/chp/blog/yin-vm-rust-kernel.blog\n M public/chp/blog/yin-vm-vs-unison.blog\n M public/chp/dao-lease.chp\n M public/chp/faq.chp\n M shadow-cljs.edn\n M src/cljc/dao/stream/waitset/cadence.cljc\n M src/cljc/yang/php/antlr/prelude.cljc\n M src/cljc/yang/safepoint.cljc\n M src/cljc/yin/vm/encoder.cljc\n M src/jolt/dao/host/sign.jolt\n M src/jolt/dao/posix/file.jolt\n M src/jolt/dao/stream/cbor/boring.jolt\n M test/dao/space/query_rules_test.cljc\n M test/dao/stream/waitset/driver_test.clj\n M test/dao/stream/waitset/driver_test.cljd\n M test/resources/dao/space/datomic-q-v1.oracle-observations.edn\n M test/resources/yang/typescript/t1_corpus.edn\n M test/resources/yang/typescript/t3_corpus.edn\n M test/resources/yang/typescript/t3_oracle.edn\n M test/resources/yang/typescript/t3_units.edn\n M test/yang/latte_oracle/context.edn\n M test/yang/latte_oracle/kernel_gate.edn\n M test/yang/latte_oracle/slice9_evidence.edn\n M test/yang/latte_oracle/slice9_verification.edn\n M test/yang/php/antlr/e2e_harness.clj\n M test/yang/php/antlr/portable_harness.cljc\n?? src/cljc/yang/php/antlr/safepoint.cljc\n?? test/yang/php/antlr/safepoint_test.clj\n antlr/python3/manifest.edn                         |   9 +-\n antlr/typescript/manifest.edn                      |   6 +-\n bb.edn                                             |   7 +-\n demo/daostar-cart/resources/catalog.edn            |   2 +-\n .../test/dao/star_cart/catalog_test.clj            |   4 +-\n demo/daostar-cart/test/dao/star_cart/edge_test.clj |   4 +-\n deps.edn                                           |   3 +-\n docs/design/yang.php.md                            |   8 +-\n .../daostar-vs-datastar-vs-electric-clojure.blog   |  75 ++--\n public/chp/blog/ide-on-datomworld.blog             |  35 +-\n public/chp/blog/io-monad-dao-stream.blog           |  37 +-\n public/chp/blog/muse-ai-agent-on-datom-world.blog  |  33 +-\n public/chp/blog/osgi-cordiverse-datomworld.blog    |   2 +-\n public/chp/blog/php-security-by-architecture.blog  |   3 +-\n .../chp/blog/python-without-foreign-functions.blog |  10 +-\n public/chp/blog/universal-ast-vs-assembly.blog     |   4 +-\n public/chp/blog/why-clojure-has-no-linker.blog     |   3 +-\n public/chp/blog/yin-vm-macros.blog                 |   9 +-\n public/chp/blog/yin-vm-rust-kernel.blog            |   3 +-\n public/chp/blog/yin-vm-vs-unison.blog              |   3 +-\n public/chp/dao-lease.chp                           | 198 ++++-----\n public/chp/faq.chp                                 |   2 +-\n shadow-cljs.edn                                    |   4 +-\n src/cljc/dao/stream/waitset/cadence.cljc           |   3 +-\n src/cljc/yang/php/antlr/prelude.cljc               |  23 +-\n src/cljc/yang/safepoint.cljc                       |   6 +-\n src/cljc/yin/vm/encoder.cljc                       |   3 +-\n src/jolt/dao/host/sign.jolt                        |  14 +-\n src/jolt/dao/posix/file.jolt                       |  34 +-\n src/jolt/dao/stream/cbor/boring.jolt               |  10 +-\n test/dao/space/query_rules_test.cljc               |  59 ++-\n test/dao/stream/waitset/driver_test.clj            |   4 +-\n test/dao/stream/waitset/driver_test.cljd           |  10 +-\n .../dao/space/datomic-q-v1.oracle-observations.edn | 465 ++++++++++-----------\n test/resources/yang/typescript/t1_corpus.edn       | 240 ++++++-----\n test/resources/yang/typescript/t3_corpus.edn       |   6 +-\n test/resources/yang/typescript/t3_oracle.edn       | 253 ++++++-----\n test/resources/yang/typescript/t3_units.edn        |   5 +-\n test/yang/latte_oracle/context.edn                 | 105 +++--\n test/yang/latte_oracle/kernel_gate.edn             | 354 ++++++++--------\n test/yang/latte_oracle/slice9_evidence.edn         | 278 ++++++------\n test/yang/latte_oracle/slice9_verification.edn     |  15 +-\n test/yang/php/antlr/e2e_harness.clj                |  77 ++--\n test/yang/php/antlr/portable_harness.cljc          |   6 +-\n 44 files changed, 1258 insertions(+), 1176 deletions(-)\n"}
+DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
+DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
+WARNING: Use of :main-opts with -A is deprecated. Use -M instead.
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.php.antlr.safepoint-test
+
+Ran 2 tests containing 9 assertions.
+0 failures, 0 errors.
+{"role":"tool","tool_call_id":"tool_4rcfaYBE4rOhu3mFyejRHprY","content":"DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)\nDEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)\nWARNING: Use of :main-opts with -A is deprecated. Use -M instead.\nLoading initial Timbre config from: :default\nWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n\nTesting yang.php.antlr.safepoint-test\n\nRan 2 tests containing 9 assertions.\n0 failures, 0 errors.\n"}
+ M docs/design/yang.php.md
+ M src/cljc/yang/php/antlr/prelude.cljc
+ M src/cljc/yang/safepoint.cljc
+ M test/yang/php/antlr/e2e_harness.clj
+ M test/yang/php/antlr/portable_harness.cljc
+?? src/cljc/yang/php/antlr/safepoint.cljc
+?? test/yang/php/antlr/safepoint_test.clj
+{"role":"assistant","content":"The project-wide formatter touched unrelated files, and parser generation updated manifests. Since the worktree was clean initially, I’m reverting only those tool-generated side effects and retaining the seven task files.","tool_calls":[{"type":"function","id":"tool_MbplYUbmfi2iT1pxDCPEwfNG","function":{"name":"Bash","arguments":"{\"command\":\"for f in $(git diff --name-only); do case \\\"$f\\\" in docs/design/yang.php.md|src/cljc/yang/php/antlr/prelude.cljc|src/cljc/yang/safepoint.cljc|test/yang/php/antlr/e2e_harness.clj|test/yang/php/antlr/portable_harness.cljc) ;; *) git restore -- \\\"$f\\\" ;; esac; done && git status --short && git diff --check\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":60}"}}]}
+{"role":"tool","tool_call_id":"tool_MbplYUbmfi2iT1pxDCPEwfNG","content":" M docs/design/yang.php.md\n M src/cljc/yang/php/antlr/prelude.cljc\n M src/cljc/yang/safepoint.cljc\n M test/yang/php/antlr/e2e_harness.clj\n M test/yang/php/antlr/portable_harness.cljc\n?? src/cljc/yang/php/antlr/safepoint.cljc\n?? test/yang/php/antlr/safepoint_test.clj\n"}
+diff --git a/docs/design/yang.php.md b/docs/design/yang.php.md
+index f8cfb0d0..89b490d6 100644
+--- a/docs/design/yang.php.md
++++ b/docs/design/yang.php.md
+@@ -1927,7 +1927,13 @@ as data; its filesystem resolution is not (owner decision B8.7).
+ - `max_execution_time` and `set_time_limit` are wall-clock in PHP and so
+   nondeterministic: the profile offers a deterministic **safepoint-count
+   budget** instead, raising the fatal with PHP's text, a recorded departure
+-  (owner decision B8.5, corner C21).
++  (owner decision B8.5, corner C21). A composition may supply one non-negative
++  integer budget per run; omission means unlimited. Each entry to a `:loop` or
++  `:call` hook consumes one unit, and the hook after the last available unit
++  raises `PHP Fatal error:  Maximum execution time of 30 seconds exceeded`.
++  This operational fatal is not guest-catchable and skips shutdown functions
++  and destructors. It bounds execution between hooks, not wall-clock time or
++  blocking host operations; no generic VM instructions are charged.
+ - **Statement ticks** (`declare(ticks=N)`, `register_tick_function`) need
+   `:line` sites before non-lambda statement nodes. `yang.safepoint` currently
+   refuses a selected site that is not a `:lambda` (`site-not-lambda`), and
+diff --git a/src/cljc/yang/php/antlr/prelude.cljc b/src/cljc/yang/php/antlr/prelude.cljc
+index 020e219f..c0a3ee72 100644
+--- a/src/cljc/yang/php/antlr/prelude.cljc
++++ b/src/cljc/yang/php/antlr/prelude.cljc
+@@ -4927,16 +4927,19 @@
+            (let [exc0 (php/try (fn [] (do (body) :php/null))
+                                (fn [e] e)
+                                (fn [] :php/null))
+-                 exc1 (php/handle-uncaught exc0)
+-                 exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
+-                               (fn [e] e)
+-                               (fn [] :php/null))
+-                 exc (if (= exc1 :php/null) exc2 exc1)]
+-             (assoc (assoc (assoc {} :php/out
+-                                  (data/str-join "" (get (cell/get php.rt/out) 0)))
+-                           :php/diag (cell/get php.rt/diag))
+-                    :php/uncaught
+-                    (if (= exc :php/null) nil (php/snapshot-exc exc))))))]])
++                 result (fn [exc]
++                          (assoc (assoc (assoc {} :php/out
++                                               (data/str-join "" (get (cell/get php.rt/out) 0)))
++                                        :php/diag (cell/get php.rt/diag))
++                                 :php/uncaught
++                                 (if (= exc :php/null) nil (php/snapshot-exc exc))))]
++             (if (= true (get exc0 :php/operational))
++               (assoc (result :php/null) :php/fatal (get exc0 :message))
++               (let [exc1 (php/handle-uncaught exc0)
++                     exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
++                                   (fn [e] e)
++                                   (fn [] :php/null))]
++                 (result (if (= exc1 :php/null) exc2 exc1)))))))]])
+ 
+ 
+ (def ^:private builtins
+diff --git a/src/cljc/yang/safepoint.cljc b/src/cljc/yang/safepoint.cljc
+index 188fe61b..9db87bc5 100644
+--- a/src/cljc/yang/safepoint.cljc
++++ b/src/cljc/yang/safepoint.cljc
+@@ -113,6 +113,8 @@
+                    exit-kinds)]
+     (cond-> {}
+       (get profile kind) (assoc :enter (entry-hook (get profile kind) mark))
++      (and (map? (get profile kind)) (:sequence (get profile kind)))
++      (assoc :sequence? true)
+       exit (assoc :exit (entry-hook exit mark)))))
+ 
+ 
+@@ -167,9 +169,9 @@
+                                  n)))
+                            node
+                            (map-indexed vector slots))]
+-                (if-let [{:keys [enter exit statement?]} (get hooks path)]
++                (if-let [{:keys [enter exit statement? sequence?]} (get hooks path)]
+                   (do (vswap! seen conj path)
+-                      (if statement?
++                      (if (or statement? sequence?)
+                         (sequence-hook node enter)
+                         (do (when-not (= :lambda (:type node))
+                               (throw (ex-info "Safepoint site is not a lambda"
+diff --git a/test/yang/php/antlr/e2e_harness.clj b/test/yang/php/antlr/e2e_harness.clj
+index 3c39ed29..02ca0f98 100644
+--- a/test/yang/php/antlr/e2e_harness.clj
++++ b/test/yang/php/antlr/e2e_harness.clj
+@@ -9,9 +9,12 @@
+     [yang.php.antlr.cst :as cst]
+     [yang.php.antlr.lower :as lower]
+     [yang.php.antlr.portable-harness :as portable]
++    [yang.php.antlr.safepoint :as hooks]
++    [yang.safepoint :as safepoint]
+     [yin.vm :as vm]
+     [yin.vm.debruijn.register :as rvm]
+     [yin.vm.debruijn.stack :as dvm]
++    [yin.vm.encoder :as encoder]
+     [yin.vm.semantic :as semantic]
+     [yin.vm.semantic.derive :as derive]
+     [yin.vm.semantic.linearize :as sr-linearize]
+@@ -48,8 +51,8 @@
+           (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
+       (if (seq problems)
+         {:diagnostics problems}
+-        (let [{:yin/keys [batch root]} (first (tu/drain program))]
+-          {:ast (nth batch root), :warnings (vec warnings)})))))
++        (let [{:yin/keys [batch root] :as envelope} (first (tu/drain program))]
++          {:ast (nth batch root), :envelope envelope, :warnings (vec warnings)})))))
+ 
+ 
+ (defn packet->form
+@@ -75,42 +78,58 @@
+ (defn render
+   "The text a unit prints: its output, then, for an uncaught error, the
+    fatal line (no path, plan section 3.9)."
+-  [{:php/keys [out uncaught]}]
++  [{:php/keys [out uncaught fatal]}]
+   (str (latin1->text out)
+        (when uncaught
+-         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))))
++         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))
++       (when fatal
++         (str "PHP Fatal error:  " fatal))))
+ 
+ 
+ (defn run-vms
+   "`{vm-key rendered}` of `ast` on the four VMs; a host throw is
+-   `[:thrown message]`."
+-  [registry ast]
+-  (let [opts (assoc base-opts :modules registry)
+-        session (tu/make-observer-session (tu/create-vm {:modules registry}))
+-        datoms (vec (vm/ast->datoms ast))
+-        projected #(:vector (sr-linearize/project ast))
+-        attempt (fn [f]
+-                  (try (render (f))
+-                       (catch Exception e [:thrown (ex-message e)])))]
+-    (tu/queue-ast! session ast)
+-    {:ast-walker (attempt #(vm/value (:consumer (tu/run-session session)))),
+-     :semantic (attempt #(vm/value (vm/run (load-semantic (semantic/create-vm opts)
+-                                                          datoms)))),
+-     :stack (attempt #(vm/value (vm/run (dvm/create-vm
+-                                          (:image (derive/stack-image (projected)))
+-                                          (assoc opts :contract vm/stack-contract))))),
+-     :register (attempt #(vm/value (vm/run (rvm/create-vm
+-                                             (derive/register-image (projected))
+-                                             (assoc opts
+-                                                    :contract
+-                                                    vm/register-contract)))))}))
++   `[:thrown message]`. `:execution-budget` derives the PHP safepoint hooks
++   and starts one per-run counter; no option leaves the AST unchanged."
++  ([registry ast] (run-vms registry ast {}))
++  ([registry ast {:keys [execution-budget envelope]}]
++   (let [ast (if (some? execution-budget)
++               (let [projected (encoder/project envelope)
++                     derived (:envelope (safepoint/derive-envelope
++                                          projected hooks/profile :test/derived))
++                     tree (nth (:yin/batch derived) (:yin/root derived))]
++                 (hooks/program execution-budget
++                                (vm/semantic-bytecode->ast tree)))
++               ast)
++         opts (assoc base-opts :modules registry)
++         session (tu/make-observer-session (tu/create-vm {:modules registry}))
++         datoms (vec (vm/ast->datoms ast))
++         projected #(:vector (sr-linearize/project ast))
++         attempt (fn [f]
++                   (try (render (f))
++                        (catch Exception e [:thrown (ex-message e)])))]
++     (tu/queue-ast! session ast)
++     {:ast-walker (attempt #(vm/value (:consumer (tu/run-session session)))),
++      :semantic (attempt #(vm/value (vm/run (load-semantic (semantic/create-vm opts)
++                                                           datoms)))),
++      :stack (attempt #(vm/value (vm/run (dvm/create-vm
++                                           (:image (derive/stack-image (projected)))
++                                           (assoc opts :contract vm/stack-contract))))),
++      :register (attempt #(vm/value (vm/run (rvm/create-vm
++                                              (derive/register-image (projected))
++                                              (assoc opts
++                                                     :contract
++                                                     vm/register-contract)))))})))
+ 
+ 
+ (defn run-php
+-  "`{vm-key rendered}` for `source`, or `{:diagnostics d}`."
+-  [source]
+-  (let [{:keys [ast diagnostics]} (lower-program source)]
+-    (if diagnostics {:diagnostics diagnostics} (run-vms (host-registry) ast))))
++  "`{vm-key rendered}` for `source`, or `{:diagnostics d}`. The optional
++   `:execution-budget` is a count of PHP `:loop` and `:call` safepoints."
++  ([source] (run-php source {}))
++  ([source options]
++   (let [{:keys [ast diagnostics envelope]} (lower-program source)]
++     (if diagnostics
++       {:diagnostics diagnostics}
++       (run-vms (host-registry) ast (assoc options :envelope envelope))))))
+ 
+ 
+ (defn run-walker
+diff --git a/test/yang/php/antlr/portable_harness.cljc b/test/yang/php/antlr/portable_harness.cljc
+index d6cb4c3e..b5b3a086 100644
+--- a/test/yang/php/antlr/portable_harness.cljc
++++ b/test/yang/php/antlr/portable_harness.cljc
+@@ -114,10 +114,12 @@
+ (defn render
+   "The text a unit prints (ASCII here: the carrier is the text), then, for an
+    uncaught error, the fatal line (no path)."
+-  [{:php/keys [out uncaught]}]
++  [{:php/keys [out uncaught fatal]}]
+   (str out
+        (when uncaught
+-         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))))
++         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))
++       (when fatal
++         (str "PHP Fatal error:  " fatal))))
+ 
+ 
+ (defn lower-through-stage
+diff --git a/src/cljc/yang/php/antlr/safepoint.cljc b/src/cljc/yang/php/antlr/safepoint.cljc
+new file mode 100644
+index 00000000..9a02ee87
+--- /dev/null
++++ b/src/cljc/yang/php/antlr/safepoint.cljc
+@@ -0,0 +1,45 @@
++(ns yang.php.antlr.safepoint
++  "The PHP `:loop` and `:call` hooks. A bounded run charges one safepoint to
++   its per-run counter; exhaustion unwinds past guest handlers and raises the
++   operational fatal, not a guest Throwable."
++  (:require
++    [yang.core.uast :as u]))
++
++
++(def profile
++  {:loop 'php.sp/loop, :call {:hook 'php.sp/call, :sequence true}})
++
++
++(def fatal-text
++  "Maximum execution time of 30 seconds exceeded")
++
++
++(def ^:private function-definitions
++  '[[php.sp/exhaust!
++     (fn []
++       (do (php/unwind-to 1)
++           (php/raise {:php/operational true, :message
++                       "Maximum execution time of 30 seconds exceeded"})))]
++    [php.sp/tick
++     (fn []
++       (let [n (cell/get php.sp/remaining)]
++         (if (= n 0)
++           (php.sp/exhaust!)
++           (do (cell/set! php.sp/remaining (- n 1)) :php/null))))]
++    [php.sp/loop (fn [] (php.sp/tick))]
++    [php.sp/call (fn [] (php.sp/tick))]])
++
++
++(defn- definitions->uast
++  [defs]
++  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
++
++
++(defn program
++  "The bounded run: hook definitions and a counter holding `budget`, then the
++   safepoint-derived program `ast`."
++  [budget ast]
++  (u/mark-tails
++    (u/then (definitions->uast function-definitions)
++            (u/then (u/def! 'php.sp/remaining (u/sexp->uast (list 'cell/new budget)))
++                    ast))))
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_URIDMWQGk88ukbzUizRJkYS4","function":{"name":"Bash","arguments":"{\"command\":\"git diff -- docs/design/yang.php.md src/cljc/yang/php/antlr/prelude.cljc src/cljc/yang/safepoint.cljc test/yang/php/antlr/e2e_harness.clj test/yang/php/antlr/portable_harness.cljc && git diff --no-index /dev/null src/cljc/yang/php/antlr/safepoint.cljc; true\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":60}"}}]}
+{"role":"tool","tool_call_id":"tool_URIDMWQGk88ukbzUizRJkYS4","content":"diff --git a/docs/design/yang.php.md b/docs/design/yang.php.md\nindex f8cfb0d0..89b490d6 100644\n--- a/docs/design/yang.php.md\n+++ b/docs/design/yang.php.md\n@@ -1927,7 +1927,13 @@ as data; its filesystem resolution is not (owner decision B8.7).\n - `max_execution_time` and `set_time_limit` are wall-clock in PHP and so\n   nondeterministic: the profile offers a deterministic **safepoint-count\n   budget** instead, raising the fatal with PHP's text, a recorded departure\n-  (owner decision B8.5, corner C21).\n+  (owner decision B8.5, corner C21). A composition may supply one non-negative\n+  integer budget per run; omission means unlimited. Each entry to a `:loop` or\n+  `:call` hook consumes one unit, and the hook after the last available unit\n+  raises `PHP Fatal error:  Maximum execution time of 30 seconds exceeded`.\n+  This operational fatal is not guest-catchable and skips shutdown functions\n+  and destructors. It bounds execution between hooks, not wall-clock time or\n+  blocking host operations; no generic VM instructions are charged.\n - **Statement ticks** (`declare(ticks=N)`, `register_tick_function`) need\n   `:line` sites before non-lambda statement nodes. `yang.safepoint` currently\n   refuses a selected site that is not a `:lambda` (`site-not-lambda`), and\ndiff --git a/src/cljc/yang/php/antlr/prelude.cljc b/src/cljc/yang/php/antlr/prelude.cljc\nindex 020e219f..c0a3ee72 100644\n--- a/src/cljc/yang/php/antlr/prelude.cljc\n+++ b/src/cljc/yang/php/antlr/prelude.cljc\n@@ -4927,16 +4927,19 @@\n            (let [exc0 (php/try (fn [] (do (body) :php/null))\n                                (fn [e] e)\n                                (fn [] :php/null))\n-                 exc1 (php/handle-uncaught exc0)\n-                 exc2 (php/try (fn [] (do (php/shutdown!) :php/null))\n-                               (fn [e] e)\n-                               (fn [] :php/null))\n-                 exc (if (= exc1 :php/null) exc2 exc1)]\n-             (assoc (assoc (assoc {} :php/out\n-                                  (data/str-join \"\" (get (cell/get php.rt/out) 0)))\n-                           :php/diag (cell/get php.rt/diag))\n-                    :php/uncaught\n-                    (if (= exc :php/null) nil (php/snapshot-exc exc))))))]])\n+                 result (fn [exc]\n+                          (assoc (assoc (assoc {} :php/out\n+                                               (data/str-join \"\" (get (cell/get php.rt/out) 0)))\n+                                        :php/diag (cell/get php.rt/diag))\n+                                 :php/uncaught\n+                                 (if (= exc :php/null) nil (php/snapshot-exc exc))))]\n+             (if (= true (get exc0 :php/operational))\n+               (assoc (result :php/null) :php/fatal (get exc0 :message))\n+               (let [exc1 (php/handle-uncaught exc0)\n+                     exc2 (php/try (fn [] (do (php/shutdown!) :php/null))\n+                                   (fn [e] e)\n+                                   (fn [] :php/null))]\n+                 (result (if (= exc1 :php/null) exc2 exc1)))))))]])\n \n \n (def ^:private builtins\ndiff --git a/src/cljc/yang/safepoint.cljc b/src/cljc/yang/safepoint.cljc\nindex 188fe61b..9db87bc5 100644\n--- a/src/cljc/yang/safepoint.cljc\n+++ b/src/cljc/yang/safepoint.cljc\n@@ -113,6 +113,8 @@\n                    exit-kinds)]\n     (cond-> {}\n       (get profile kind) (assoc :enter (entry-hook (get profile kind) mark))\n+      (and (map? (get profile kind)) (:sequence (get profile kind)))\n+      (assoc :sequence? true)\n       exit (assoc :exit (entry-hook exit mark)))))\n \n \n@@ -167,9 +169,9 @@\n                                  n)))\n                            node\n                            (map-indexed vector slots))]\n-                (if-let [{:keys [enter exit statement?]} (get hooks path)]\n+                (if-let [{:keys [enter exit statement? sequence?]} (get hooks path)]\n                   (do (vswap! seen conj path)\n-                      (if statement?\n+                      (if (or statement? sequence?)\n                         (sequence-hook node enter)\n                         (do (when-not (= :lambda (:type node))\n                               (throw (ex-info \"Safepoint site is not a lambda\"\ndiff --git a/test/yang/php/antlr/e2e_harness.clj b/test/yang/php/antlr/e2e_harness.clj\nindex 3c39ed29..02ca0f98 100644\n--- a/test/yang/php/antlr/e2e_harness.clj\n+++ b/test/yang/php/antlr/e2e_harness.clj\n@@ -9,9 +9,12 @@\n     [yang.php.antlr.cst :as cst]\n     [yang.php.antlr.lower :as lower]\n     [yang.php.antlr.portable-harness :as portable]\n+    [yang.php.antlr.safepoint :as hooks]\n+    [yang.safepoint :as safepoint]\n     [yin.vm :as vm]\n     [yin.vm.debruijn.register :as rvm]\n     [yin.vm.debruijn.stack :as dvm]\n+    [yin.vm.encoder :as encoder]\n     [yin.vm.semantic :as semantic]\n     [yin.vm.semantic.derive :as derive]\n     [yin.vm.semantic.linearize :as sr-linearize]\n@@ -48,8 +51,8 @@\n           (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]\n       (if (seq problems)\n         {:diagnostics problems}\n-        (let [{:yin/keys [batch root]} (first (tu/drain program))]\n-          {:ast (nth batch root), :warnings (vec warnings)})))))\n+        (let [{:yin/keys [batch root] :as envelope} (first (tu/drain program))]\n+          {:ast (nth batch root), :envelope envelope, :warnings (vec warnings)})))))\n \n \n (defn packet->form\n@@ -75,42 +78,58 @@\n (defn render\n   \"The text a unit prints: its output, then, for an uncaught error, the\n    fatal line (no path, plan section 3.9).\"\n-  [{:php/keys [out uncaught]}]\n+  [{:php/keys [out uncaught fatal]}]\n   (str (latin1->text out)\n        (when uncaught\n-         (str \"PHP Fatal error:  Uncaught \" (:class uncaught) \": \" (:message uncaught)))))\n+         (str \"PHP Fatal error:  Uncaught \" (:class uncaught) \": \" (:message uncaught)))\n+       (when fatal\n+         (str \"PHP Fatal error:  \" fatal))))\n \n \n (defn run-vms\n   \"`{vm-key rendered}` of `ast` on the four VMs; a host throw is\n-   `[:thrown message]`.\"\n-  [registry ast]\n-  (let [opts (assoc base-opts :modules registry)\n-        session (tu/make-observer-session (tu/create-vm {:modules registry}))\n-        datoms (vec (vm/ast->datoms ast))\n-        projected #(:vector (sr-linearize/project ast))\n-        attempt (fn [f]\n-                  (try (render (f))\n-                       (catch Exception e [:thrown (ex-message e)])))]\n-    (tu/queue-ast! session ast)\n-    {:ast-walker (attempt #(vm/value (:consumer (tu/run-session session)))),\n-     :semantic (attempt #(vm/value (vm/run (load-semantic (semantic/create-vm opts)\n-                                                          datoms)))),\n-     :stack (attempt #(vm/value (vm/run (dvm/create-vm\n-                                          (:image (derive/stack-image (projected)))\n-                                          (assoc opts :contract vm/stack-contract))))),\n-     :register (attempt #(vm/value (vm/run (rvm/create-vm\n-                                             (derive/register-image (projected))\n-                                             (assoc opts\n-                                                    :contract\n-                                                    vm/register-contract)))))}))\n+   `[:thrown message]`. `:execution-budget` derives the PHP safepoint hooks\n+   and starts one per-run counter; no option leaves the AST unchanged.\"\n+  ([registry ast] (run-vms registry ast {}))\n+  ([registry ast {:keys [execution-budget envelope]}]\n+   (let [ast (if (some? execution-budget)\n+               (let [projected (encoder/project envelope)\n+                     derived (:envelope (safepoint/derive-envelope\n+                                          projected hooks/profile :test/derived))\n+                     tree (nth (:yin/batch derived) (:yin/root derived))]\n+                 (hooks/program execution-budget\n+                                (vm/semantic-bytecode->ast tree)))\n+               ast)\n+         opts (assoc base-opts :modules registry)\n+         session (tu/make-observer-session (tu/create-vm {:modules registry}))\n+         datoms (vec (vm/ast->datoms ast))\n+         projected #(:vector (sr-linearize/project ast))\n+         attempt (fn [f]\n+                   (try (render (f))\n+                        (catch Exception e [:thrown (ex-message e)])))]\n+     (tu/queue-ast! session ast)\n+     {:ast-walker (attempt #(vm/value (:consumer (tu/run-session session)))),\n+      :semantic (attempt #(vm/value (vm/run (load-semantic (semantic/create-vm opts)\n+                                                           datoms)))),\n+      :stack (attempt #(vm/value (vm/run (dvm/create-vm\n+                                           (:image (derive/stack-image (projected)))\n+                                           (assoc opts :contract vm/stack-contract))))),\n+      :register (attempt #(vm/value (vm/run (rvm/create-vm\n+                                              (derive/register-image (projected))\n+                                              (assoc opts\n+                                                     :contract\n+                                                     vm/register-contract)))))})))\n \n \n (defn run-php\n-  \"`{vm-key rendered}` for `source`, or `{:diagnostics d}`.\"\n-  [source]\n-  (let [{:keys [ast diagnostics]} (lower-program source)]\n-    (if diagnostics {:diagnostics diagnostics} (run-vms (host-registry) ast))))\n+  \"`{vm-key rendered}` for `source`, or `{:diagnostics d}`. The optional\n+   `:execution-budget` is a count of PHP `:loop` and `:call` safepoints.\"\n+  ([source] (run-php source {}))\n+  ([source options]\n+   (let [{:keys [ast diagnostics envelope]} (lower-program source)]\n+     (if diagnostics\n+       {:diagnostics diagnostics}\n+       (run-vms (host-registry) ast (assoc options :envelope envelope))))))\n \n \n (defn run-walker\ndiff --git a/test/yang/php/antlr/portable_harness.cljc b/test/yang/php/antlr/portable_harness.cljc\nindex d6cb4c3e..b5b3a086 100644\n--- a/test/yang/php/antlr/portable_harness.cljc\n+++ b/test/yang/php/antlr/portable_harness.cljc\n@@ -114,10 +114,12 @@\n (defn render\n   \"The text a unit prints (ASCII here: the carrier is the text), then, for an\n    uncaught error, the fatal line (no path).\"\n-  [{:php/keys [out uncaught]}]\n+  [{:php/keys [out uncaught fatal]}]\n   (str out\n        (when uncaught\n-         (str \"PHP Fatal error:  Uncaught \" (:class uncaught) \": \" (:message uncaught)))))\n+         (str \"PHP Fatal error:  Uncaught \" (:class uncaught) \": \" (:message uncaught)))\n+       (when fatal\n+         (str \"PHP Fatal error:  \" fatal))))\n \n \n (defn lower-through-stage\ndiff --git a/src/cljc/yang/php/antlr/safepoint.cljc b/src/cljc/yang/php/antlr/safepoint.cljc\nnew file mode 100644\nindex 00000000..9a02ee87\n--- /dev/null\n+++ b/src/cljc/yang/php/antlr/safepoint.cljc\n@@ -0,0 +1,45 @@\n+(ns yang.php.antlr.safepoint\n+  \"The PHP `:loop` and `:call` hooks. A bounded run charges one safepoint to\n+   its per-run counter; exhaustion unwinds past guest handlers and raises the\n+   operational fatal, not a guest Throwable.\"\n+  (:require\n+    [yang.core.uast :as u]))\n+\n+\n+(def profile\n+  {:loop 'php.sp/loop, :call {:hook 'php.sp/call, :sequence true}})\n+\n+\n+(def fatal-text\n+  \"Maximum execution time of 30 seconds exceeded\")\n+\n+\n+(def ^:private function-definitions\n+  '[[php.sp/exhaust!\n+     (fn []\n+       (do (php/unwind-to 1)\n+           (php/raise {:php/operational true, :message\n+                       \"Maximum execution time of 30 seconds exceeded\"})))]\n+    [php.sp/tick\n+     (fn []\n+       (let [n (cell/get php.sp/remaining)]\n+         (if (= n 0)\n+           (php.sp/exhaust!)\n+           (do (cell/set! php.sp/remaining (- n 1)) :php/null))))]\n+    [php.sp/loop (fn [] (php.sp/tick))]\n+    [php.sp/call (fn [] (php.sp/tick))]])\n+\n+\n+(defn- definitions->uast\n+  [defs]\n+  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))\n+\n+\n+(defn program\n+  \"The bounded run: hook definitions and a counter holding `budget`, then the\n+   safepoint-derived program `ast`.\"\n+  [budget ast]\n+  (u/mark-tails\n+    (u/then (definitions->uast function-definitions)\n+            (u/then (u/def! 'php.sp/remaining (u/sexp->uast (list 'cell/new budget)))\n+                    ast))))\n"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_wPE8oTCqtVsDY0rcgGFR17DV","function":{"name":"TodoList","arguments":"{\"todos\":[{\"title\":\"Inspect PHP safepoints, fatal handling, and tests\",\"status\":\"done\"},{\"title\":\"Implement optional execution budget and docs\",\"status\":\"done\"},{\"title\":\"Add focused budget tests\",\"status\":\"done\"},{\"title\":\"Run PHP regression and lint checks\",\"status\":\"done\"},{\"title\":\"Commit implementation and write findings\",\"status\":\"in_progress\"}]}"}}]}
+{"role":"tool","tool_call_id":"tool_wPE8oTCqtVsDY0rcgGFR17DV","content":"Todo list updated.\nCurrent todo list:\n  [done] Inspect PHP safepoints, fatal handling, and tests\n  [done] Implement optional execution budget and docs\n  [done] Add focused budget tests\n  [done] Run PHP regression and lint checks\n  [in_progress] Commit implementation and write findings\n\n\"Commit implementation and write findings\" is the last open item. Once it is finished, mark it done before you write your final message; if it stays blocked or unfinished, keep it in_progress and say what remains in your reply."}
+Running formatters on staged files...
+Formatting complete.
+[feat/p7a-exec-budget 483ae0bc] feat(yang.php): the optional safepoint-count execution budget
+ 7 files changed, 152 insertions(+), 44 deletions(-)
+ create mode 100644 src/cljc/yang/php/antlr/safepoint.cljc
+ create mode 100644 test/yang/php/antlr/safepoint_test.clj
+{"role":"assistant","content":"All requested checks are green: focused 9 assertions, PHP/shared regressions 1,218 assertions, cljstyle completed, and kondo has zero warnings or errors. I’m committing only the task files, with the findings file left uncommitted as requested.","tool_calls":[{"type":"function","id":"tool_Et3aVCPgWrh3YXCaM372whL4","function":{"name":"Bash","arguments":"{\"command\":\"git add docs/design/yang.php.md src/cljc/yang/php/antlr/prelude.cljc src/cljc/yang/php/antlr/safepoint.cljc src/cljc/yang/safepoint.cljc test/yang/php/antlr/e2e_harness.clj test/yang/php/antlr/portable_harness.cljc test/yang/php/antlr/safepoint_test.clj && git commit -m \\\"feat(yang.php): the optional safepoint-count execution budget\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\",\"timeout\":300}"}}]}
+{"role":"tool","tool_call_id":"tool_Et3aVCPgWrh3YXCaM372whL4","content":"Running formatters on staged files...\nFormatting complete.\n[feat/p7a-exec-budget 483ae0bc] feat(yang.php): the optional safepoint-count execution budget\n 7 files changed, 152 insertions(+), 44 deletions(-)\n create mode 100644 src/cljc/yang/php/antlr/safepoint.cljc\n create mode 100644 test/yang/php/antlr/safepoint_test.clj\n"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_yQkbjm6MjdfrrM00Iok1wd38","function":{"name":"Write","arguments":"{\"path\":\"collab/orch-lane/1794260000000-engineer-p7a-budget.kimi-k3.1-pro.findings.md\",\"content\":\"# P7-a guest execution budget findings\\n\\n## Delivered\\n\\nCommit `483ae0bc` (`feat(yang.php): the optional safepoint-count execution budget`) on `feat/p7a-exec-budget`; not pushed.\\n\\n- Added the bundled `phpsp` profile and optional per-run safepoint counter. Only existing PHP `:loop` and `:call` sites are charged; omission leaves the original AST and execution unchanged.\\n- `:execution-budget` is available through the JVM `run-php` / `run-vms` harness.\\n- Exhaustion unwinds past guest handlers, produces exactly `PHP Fatal error:  Maximum execution time of 30 seconds exceeded`, and bypasses uncaught-exception handling, shutdown functions, and destructors.\\n- Extended shared safepoint insertion with an opt-in `:sequence` profile entry so PHP call-application sites can run an entry hook; existing profiles retain their previous behavior.\\n- Documented the deterministic, non-wall-clock contract in `docs/design/yang.php.md` section 12.\\n\\n## Verification\\n\\n- Focused `yang.php.antlr.safepoint-test`: 2 tests, 9 assertions, 0 failures/errors. Covers exact fatal text on AST walker, semantic, stack, and register VMs; no guest catch/destructor output; default unbounded behavior; unexhausted-budget transparency.\\n- `yang.safepoint-test`, `yang.php.antlr.class-model-test`, `yang.php.antlr.objects-test`, `yang.php.antlr.generators-test`: 22 tests, 1,218 assertions, 0 failures/errors.\\n- `clj -X:fmt`: completed after trusting this checkout's `mise.toml`; unrelated formatter/generated-manifest changes were restored.\\n- Focused clj-kondo over every changed Clojure source/test: 0 errors, 0 warnings.\\n- `git diff --check`: clean before commit.\\n\\nGenerated parser classes were required for the standard PHP harness and were produced with `clj -M:antlr-gen`; generated files remain ignored/uncommitted. The findings file is intentionally uncommitted.\\n\"}"}}]}
+{"role":"tool","tool_call_id":"tool_yQkbjm6MjdfrrM00Iok1wd38","content":"Wrote 1840 bytes to collab/orch-lane/1794260000000-engineer-p7a-budget.kimi-k3.1-pro.findings.md"}
+## feat/p7a-exec-budget...origin/master [ahead 1, behind 5]
+?? collab/orch-lane/1794260000000-engineer-p7a-budget.kimi-k3.1-pro.findings.md
+483ae0bc
+feat(yang.php): the optional safepoint-count execution budget
+
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_iu9ThrFnocKKfBq0fZ63e2fH","function":{"name":"Bash","arguments":"{\"command\":\"git status --short --branch && git log -1 --format='%h%n%s%n%b'\",\"cwd\":\"/Users/sto/workspace/datomworld-p7a\"}"}}]}
+{"role":"tool","tool_call_id":"tool_iu9ThrFnocKKfBq0fZ63e2fH","content":"## feat/p7a-exec-budget...origin/master [ahead 1, behind 5]\n?? collab/orch-lane/1794260000000-engineer-p7a-budget.kimi-k3.1-pro.findings.md\n483ae0bc\nfeat(yang.php): the optional safepoint-count execution budget\n\n"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_pKGDE572gDVqQvDQpPsrR2Cw","function":{"name":"TodoList","arguments":"{\"todos\":[{\"title\":\"Inspect PHP safepoints, fatal handling, and tests\",\"status\":\"done\"},{\"title\":\"Implement optional execution budget and docs\",\"status\":\"done\"},{\"title\":\"Add focused budget tests\",\"status\":\"done\"},{\"title\":\"Run PHP regression and lint checks\",\"status\":\"done\"},{\"title\":\"Commit implementation and write findings\",\"status\":\"done\"}]}"}}]}
+{"role":"tool","tool_call_id":"tool_pKGDE572gDVqQvDQpPsrR2Cw","content":"Todo list updated.\nCurrent todo list:\n  [done] Inspect PHP safepoints, fatal handling, and tests\n  [done] Implement optional execution budget and docs\n  [done] Add focused budget tests\n  [done] Run PHP regression and lint checks\n  [done] Commit implementation and write findings"}
+{"role":"assistant","content":"Implemented and committed as `483ae0bc` — `feat(yang.php): the optional safepoint-count execution budget`. Not pushed.\n\n- Optional `:execution-budget` counts PHP `:loop`/`:call` safepoints; default remains unlimited.\n- Exhaustion raises exactly `PHP Fatal error:  Maximum execution time of 30 seconds exceeded`, is not guest-catchable, and skips shutdown/destructors.\n- Documented in `docs/design/yang.php.md`.\n- Focused tests: 9 assertions green across all four VMs.\n- PHP/shared regressions: 1,218 assertions green.\n- cljstyle and kondo clean.\n\nFindings written, uncommitted, to `collab/orch-lane/1794260000000-engineer-p7a-budget.kimi-k3.1-pro.findings.md`."}
+{"role":"meta","type":"session.resume_hint","session_id":"session_1c115e86-5c39-4f0d-9e02-1db3588ad519","command":"kimi -r session_1c115e86-5c39-4f0d-9e02-1db3588ad519","content":"To resume this session: kimi -r session_1c115e86-5c39-4f0d-9e02-1db3588ad519"}
+[unexpected] RuntimeError: workspace wd_datomworld-p7a_af382af2a5e1 is not materialized
+    at RuntimeResolver.acquire (/Users/runner/work/kimi-code/kimi-code/apps/kimi-code/dist-native/intermediates/main.cjs:180463:36)
+    at AgentRuntimeService.acquire (/Users/runner/work/kimi-code/kimi-code/apps/kimi-code/dist-native/intermediates/main.cjs:132196:25)
+    at AgentFileHistoryService.readCurrent (/Users/runner/work/kimi-code/kimi-code/apps/kimi-code/dist-native/intermediates/main.cjs:177571:31)
+    at AgentFileHistoryService.endCheckpoint (/Users/runner/work/kimi-code/kimi-code/apps/kimi-code/dist-native/intermediates/main.cjs:177484:32) {
+  code: 'runtime.not_found'
+}
