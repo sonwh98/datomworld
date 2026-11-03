@@ -44,9 +44,9 @@ provider's session store (Claude Code: match the custom title in the
 project JSONL within its configuration store — see below for AGY's
 equivalent), record an append-only provenance correction, and resume it.
 
-Codex, AGY, Command Code, and Kimi Code don't accept a caller-selected ID for
+Codex, AGY, and Kimi Code don't accept a caller-selected ID for
 a new run in the installed versions — capture the generated ID immediately.
-Codex, AGY, and Command Code expose it via structured output:
+Codex and AGY expose it via structured output:
 
 ```sh
 # Codex JSONL: first thread.started event
@@ -56,10 +56,6 @@ TASK_SESSION_ID="$(jq -r 'select(.type == "thread.started") | .thread_id' \
 # AGY JSON: top-level conversation_id
 TASK_SESSION_ID="$(jq -r '.conversation_id' \
   collab/<timestamp>-<role>-<task>.<model>.stdout.log)"
-
-# Command Code NDJSON: final result (also present on event.run_start)
-TASK_SESSION_ID="$(jq -r 'select(.type == "result") | .sessionId' \
-  collab/<timestamp>-<role>-<task>.<model>.stdout.log | tail -1)"
 ```
 
 For Kimi Code, record the new session's exact ID from
@@ -67,7 +63,7 @@ For Kimi Code, record the new session's exact ID from
 Sessions are grouped by working directory under `~/.kimi-code/sessions/`.
 
 Fail the handoff if the extracted value is empty or `null`. Never use Codex
-`--ephemeral`, Command Code `--no-session`, or any provider's non-persistent
+`--ephemeral` or any provider's non-persistent
 mode for follow-up-capable work; never substitute `--last`, `--continue`,
 AGY `-c`, or a display name when an exact ID is available. Give every resumed
 turn a new prompt/artifact name (e.g. `<task>-r2...`) — never redirect a
