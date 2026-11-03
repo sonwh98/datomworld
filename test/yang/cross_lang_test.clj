@@ -45,6 +45,51 @@
                      "const stored = phpfn; console.log(stored === phpfn, stored(2, 3));"])))))
 
 
+(deftest python-calls-typescript-closure-test
+  (testing "TS stores and calls the same Python function cell it received"
+    (is (= {:py/out ["22"], :py/exception nil}
+           (xl/call [:typescript
+                     (str "globalThis.ts_apply = f => { globalThis.stored = f; "
+                          "return stored === f ? f(20) + 1 : -1; };")]
+                    ["ts_apply"]
+                    [:python "print(ts_apply(lambda x: x + 1))"])))))
+
+
+(deftest typescript-calls-python-closure-test
+  (testing "Python stores and calls the same TS function cell it received"
+    (is (= {:js/out ["22"], :js/uncaught nil}
+           (xl/call [:python
+                     (str "def py_apply(f):\n"
+                          "    global stored\n"
+                          "    stored = f\n"
+                          "    return f(20) + 1 if stored is f else -1")]
+                    ["py_apply"]
+                    [:typescript
+                     "console.log(py_apply(x => x + 1));"])))))
+
+
+(deftest python-calls-php-closure-test
+  (testing "PHP stores and calls the same Python function cell it received"
+    (is (= {:py/out ["22"], :py/exception nil}
+           (xl/call [:php
+                     (str "<?php function php_apply($f) { global $stored; "
+                          "$stored = $f; return $stored === $f ? $f(20) + 1 : -1; }")]
+                    ["php_apply"]
+                    [:python "print(php_apply(lambda x: x + 1))"])))))
+
+
+(deftest php-calls-python-closure-test
+  (testing "Python stores and calls the same PHP function cell it received"
+    (is (= "22"
+           (xl/call [:python
+                     (str "def py_apply(f):\n"
+                          "    global stored\n"
+                          "    stored = f\n"
+                          "    return f(20) + 1 if stored is f else -1")]
+                    ["py_apply"]
+                    [:php "<?php echo py_apply(function($x) { return $x + 1; });"])))))
+
+
 (deftest limits-test
   (testing "a PHP array returned to TS is an opaque handle, usable in PHP"
     (let [src "<?php function phpfn($a = 7) { return $a === 7 ? [1, 2, 3] : count($a); }"]

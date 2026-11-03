@@ -32,6 +32,10 @@
     [yang.php.antlr.lower :as php-lower]
     [yang.php.antlr.portable-harness :as php-h]
     [yang.php.antlr.prelude :as php-prelude]
+    [yang.python.antlr.lower :as py-lower]
+    [yang.python.antlr.parser :as py-parser]
+    [yang.python.antlr.prelude :as py-prelude]
+    [yang.python.antlr.render :as py-render]
     [yang.typescript.antlr.cst :as ts-cst]
     [yang.typescript.antlr.linked-harness :as h]
     [yang.typescript.antlr.lower :as ts-lower]
@@ -47,6 +51,14 @@
                                     (:call-address @h/published)))))
 
 
+(def ^:private published-py
+  "`py` published beside `js` and `php`, over the same host registry and
+   `yang.call` revision."
+  (delay (h/publish-guest-module!
+           (py-prelude/module-spec (h/registry)
+                                   (:call-address @h/published)))))
+
+
 (defn- parse-ok
   "The CST packet of `source` under `parse`, refused unless the parse is ok."
   [parse source]
@@ -57,26 +69,43 @@
     pk))
 
 
+(defn- python-export-symbol
+  [export]
+  (symbol (str "xlang.python.export." export)))
+
+
+(defn- python-unit
+  [packet exports]
+  (u/lam [py-lower/globals-sym py-lower/globals-fn-sym]
+         (u/seq-nodes
+           (concat (map (fn [export]
+                          (u/sexp->uast
+                            (list 'py/global-set py-lower/globals-sym
+                                  {:py/str export} (python-export-symbol export))))
+                        exports)
+                   [(py-lower/lower-module-body packet)]))))
+
+
 (def frontends
   "Each admitted frontend's profile, as data:
 
    - `:runtime`, `:address`: the runtime module and its published address;
    - `:refusal`: the publication refusal key and reason of its modules;
    - `:parse`: source text to CST packet;
-   - `:unit`: packet to the unmodified lowered unit, the function its
+   - `:unit`: packet and projected exports to the lowered unit its
      `:run-main` entry takes;
    - `:read-export`: export name to the form reading the runtime's global
-     namespace (JS `globalThis`, PHP's named-function table);
+     namespace (JS `globalThis`, PHP's named-function table, Python's main
+     module dictionary);
    - `:project`: name and a value form to the form binding the value where
-     the runtime's source resolves a called name (a JS global, a PHP
-     function);
+     the runtime's source resolves a called name;
    - `:render`: the `:run-main` value as test data."
   {:typescript
    {:runtime 'js,
     :address #(:address @h/published),
     :refusal [:yang.typescript.antlr/refusal :yang.typescript.antlr/undeclared-free],
     :parse #(parse-ok ts-cst/parse-source %),
-    :unit #(names/canonicalize (ts-lower/lower-unit %)),
+    :unit (fn [packet _] (names/canonicalize (ts-lower/lower-unit packet))),
     :run-main 'js/run-main,
     :read-export (fn [export] (list 'js/global-get {:js/str export})),
     :project (fn [name value] (list 'js/define-global! name value)),
@@ -86,13 +115,28 @@
     :address #(:address @published-php),
     :refusal [:yang.php/refusal :yang.php/undeclared-free],
     :parse #(parse-ok php-cst/parse-source %),
-    :unit #(u/lam [] (php-lower/lower-module-body %)),
+    :unit (fn [packet _] (u/lam [] (php-lower/lower-module-body packet))),
     :run-main 'php/run-main,
     :read-export (fn [export]
                    (list 'php/resolve-fn (str/lower-case export) export)),
     :project (fn [name value]
                (list 'php/declare-function! (str/lower-case name) value)),
-    :render php-h/render}})
+    :render php-h/render},
+   :python
+   {:runtime 'py,
+    :address #(:address @published-py),
+    :refusal [:yang.python.antlr/refusal :yang.python.antlr/undeclared-free],
+    :parse #(parse-ok py-parser/parse-source %),
+    :unit python-unit,
+    :run-main 'py/run-main,
+    :read-export (fn [export]
+                   (list 'py/global-get
+                         (list 'py/module-dict
+                               (list 'py/modules-ref {:py/str "__main__"}))
+                         {:py/str export})),
+    :project (fn [name value]
+               (list 'yin/def (list 'quote (python-export-symbol name)) value)),
+    :render py-render/output}})
 
 
 (defn- profile
@@ -115,7 +159,7 @@
                 {:name module,
                  :ast (core-module/module-tree
                         [(core-module/require-node runtime)
-                         (u/def! 'body (unit (parse source)))]),
+                         (u/def! 'body (unit (parse source) []))]),
                  :exports '#{body},
                  :runtime-name runtime,
                  :runtime-address (address)})
@@ -173,7 +217,7 @@
                                  (u/sexp->uast (read-export export))
                                  (u/sexp->uast (project export value)))))
                      exports)
-                [(u/app (u/v run-main) (unit (parse caller-source)))])))))
+                [(u/app (u/v run-main) (unit (parse caller-source) exports))])))))
 
 
 (defn link-source
@@ -182,6 +226,7 @@
   (h/source {'yang.call (:call-address @h/published),
              'js (:address @h/published),
              'php (:address @published-php),
+             'py (:address @published-py),
              module address}))
 
 
