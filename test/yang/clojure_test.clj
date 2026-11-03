@@ -1350,20 +1350,44 @@
                          (f 21)]]))))
 
 (deftest test-common-call-token-packet-forgery-refuses
-  (testing "a forged vector never reaches a descriptor's private body: the
-            entry's packet dispatch authenticates on the compiler-held token
-            and every forged shape refuses without applying the body"
+  (testing "a forged vector applied to a descriptor's extracted public entry
+            never reaches the private body: the entry authenticates the
+            compiler-held token; forged shapes refuse. The descriptor is
+            projected into a compiled program via postwalk (a source-level
+            raw closure would be refused by admission first, making a
+            source-level regression vacuous), on both evaluators."
     (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]]
-      (let [form (list 'let '[raw (yang.call/entry target)]
-                       (list 'raw (list 'quote forged)))
-            payload (run-outcome
-                     ['(defn target
-                         [x]
-                         :private-body-entered)
-                      form])]
-        (is (not= :private-body-entered payload)
-            (str "the body ran for forged " (pr-str forged)))))))
-
+      (let [descriptor (#'yang/admit-call-descriptor
+                         (u/sexp->uast
+                           '(assoc {} :foreign/type :function
+                                   :yang.call/entry
+                                   (fn [record]
+                                     :private-body-entered)))
+                         false)
+            call-ast (walk/postwalk
+                      (fn [node]
+                        (if (= node (u/v 'descriptor)) descriptor node))
+                      (outcome-ast
+                       ['(defn target
+                           [x]
+                           :private-body-entered)
+                        (list 'let '[raw (yang.call/entry target)]
+                              (list 'raw (list 'quote forged)))]))
+            run (fn [lane]
+                  (try
+                    [:completed
+                     (-> (tu/make-observer-session (tu/create-vm {:modules (merge av-modules outcome-modules)}))
+                         (tu/queue-ast! call-ast)
+                         tu/run-session
+                         :consumer
+                         vm/value)]
+                    (catch clojure.lang.ExceptionInfo e
+                      [:error (ex-message e)])))
+            walker (run :walker)
+            semantic (run :semantic)]
+        (doseq [[lane [status result]] [[:walker walker] [:semantic semantic]]]
+          (is (not= :private-body-entered result)
+              (str lane ": forged " (pr-str forged) " reached the body")))))))
 
 (deftest test-common-call-invalid-continuation-refuses
   (let [tamper (fn [forms]
