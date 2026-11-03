@@ -576,6 +576,19 @@ The first run on shiva (2026-10-11) overlapped JVM and Dart in one clone before
 this rule was written down; its results are advisory until repeated with a
 separate Dart clone.
 
+**The nightly driver now enforces this by construction.** `src/dev/nightly.clj`
+(2026-11-03, kimi-reviewed) runs a multi-lane invocation as one concurrent
+future per lane, each in its OWN clone — jvm keeps the primary clone, node
+and dart get `<primary>-node` / `<primary>-dart`. The pinned SHA is resolved
+once and checked out in every lane clone; a cache-warm pass
+(`clojure -P -M:test:cljs:clojuredart:cljd`) runs in the primary before
+fan-out so two clones never fetch into the shared `~/.m2`/`~/.gitlibs`
+concurrently; per-lane summaries are appended serially after the futures
+join. A single-lane invocation (jupiter's `jvm`) is unchanged: one clone,
+one serial lane. Both hosts run the same driver — the lane list on the
+command line (shiva: `node,dart` + `--pin-publish`; jupiter: `jvm` +
+`--pin-read --pin-peer shiva...`) is the only difference.
+
 ### Scratch-clone first-run gaps (two measured sightings)
 
 A fresh scratch clone needs two things the lane runner does not yet set up

@@ -14,6 +14,17 @@
 
      lanes       comma-separated subset of: jvm,node,dart
      parallel    per-lane parallelism (default: 12)
+
+   Per-clone lanes (2026-11-03, kimi-reviewed): when more than one lane is
+   requested, the driver fans the lanes out CONCURRENTLY, each in its own
+   clone — jvm keeps <clone-dir>, node gets <clone-dir>-node, dart gets
+   <clone-dir>-dart. One clone per lane deletes the shared-build-state race
+   class (build:yin-repl-peer, npm ci vs readers, gen:antlr vs cljd compile)
+   by construction instead of gating lane starts. The SHA is resolved once
+   and checked out in every lane clone, and a cache-warm prep pass
+   (clojure -P -M:test: ~/.m2 + ~/.gitlibs) runs in the primary before
+   fan-out so the lanes never fetch into the shared caches concurrently.
+   Per-lane summaries are appended serially after the futures join.
      --now       ignore the 03:00/17:00 Vietnam windows (cron fires hourly)
      --pin-publish   resolve origin/master, publish {run-id, sha, ts} for the
                      other host (the pin authority; shiva)
@@ -141,6 +152,45 @@
   (spit summary (str msg "\n") :append true))
 
 
+(defn- ensure-lane-clone!
+  "Guarantee clone-dir exists at exactly sha (per-clone lane fan-out).
+   A missing clone is created from the primary's origin URL; an existing one
+   fetches. The sha is always checked out detached — never trust a previous
+   HEAD, and a failed checkout is a failure: a lane on stale HEAD must not
+   report ready. Returns 0 or the first failed git step's exit code."
+  [primary clone-dir sha log]
+  (when-not (fs/exists? (str clone-dir "/.git"))
+    (let [url (git-out primary "remote" "get-url" "origin")
+          rc (:exit (psh {:dir home :out :string :err :string :continue true}
+                         "git" "clone" "-q" url clone-dir))]
+      (if (zero? rc)
+        (log (str "lane clone created: " clone-dir))
+        (throw (ex-info (str "lane clone failed: " clone-dir) {:rc rc})))))
+  (let [frc (:exit (psh {:dir clone-dir :continue true} "git" "fetch" "origin"))
+        crc (:exit (psh {:dir clone-dir :continue true}
+                        "git" "checkout" "-q" "--detach" sha))]
+    (when-not (zero? frc) (log (str "FAIL: fetch in " clone-dir)))
+    (when-not (zero? crc) (log (str "FAIL: checkout " sha " in " clone-dir)))
+    (if (zero? frc) crc frc)))
+
+
+(defn- lane-clones
+  "Per-clone lane fan-out map: {lane clone-path}. Single-lane runs always
+   keep the primary clone — the fan-out exists to isolate lanes from each
+   other, and one lane has nothing to be isolated from. Multi-lane runs
+   give each lane its own tree — jvm keeps the primary, node and dart get
+   suffixed clones — so their build states never share a directory."
+  [primary lanes]
+  (if (= 1 (count lanes))
+    (zipmap lanes (repeat primary))
+    (into {}
+          (map (fn [lane]
+                 [lane (case lane
+                         "jvm" primary
+                         (str primary "-" lane))]))
+          lanes)))
+
+
 (defn- lane-jvm
   [clone par out summary]
   (let [subset (assigned-subsystems)
@@ -245,7 +295,11 @@
     ;; pin protocol
     (when-not (zero? (:exit (psh {:dir clone :continue true} "git" "fetch" "origin")))
       (log "FAIL: git fetch"))
-    (let [sha (or pin-sha (git-out clone "rev-parse" "origin/master"))]
+    (let [sha (or pin-sha (git-out clone "rev-parse" "origin/master"))
+          ;; the sha every lane (including the lane clones) must run at; the
+          ;; pin-read branch below rebinds it to the validated pin's sha, so
+          ;; a multi-lane pin-reader never splits lanes across commits
+          run-sha (atom sha)]
       (cond
         publish?
         (let [line (str "run-id=" (vn-date) "-" (vn-hour) " sha=" sha " ts="
@@ -281,31 +335,75 @@
                      (= (subs prid 9 11) slot)
                      (zero? (:exit (psh {:dir clone :continue true} "git" "cat-file" "-e" psha))))
               (do (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" psha)
+                  (reset! run-sha psha)
                   (log (str "pin read: " psha " (run-id " prid ")")))
               (do (reset! rc 1)
                   (log (str "FAIL: pin absent/stale/unverifiable (" (or prid "none") ") — advisory run at " sha))
                   (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha)))))
-        :else (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha)))
-    (log (str "nightly " stamp " at " (git-out clone "log" "--oneline" "-1")
-              " lanes=" (str/join "," (sort lanes)) " par=" par))
-    (doseq [lane ["jvm" "node" "dart"]]
-      (when (contains? lanes lane)
-        (let [t0 (System/currentTimeMillis)]
-          (try
-            ((case lane
-               "jvm" lane-jvm
-               "node" lane-node
-               "dart" lane-dart)
-             clone par out summary)
-            (log (str lane " rc=0 secs="
-                      (quot (- (System/currentTimeMillis) t0) 1000)))
-            (catch Exception e
-              (reset! rc 1)
-              (log (str "FAIL " lane ": [" (some-> e class .getSimpleName) "] "
-                        (ex-message e)
-                        " secs=" (quot (- (System/currentTimeMillis) t0) 1000))))))))
-    (log (str "done rc=" @rc))
-    (System/exit @rc)))
+        :else (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha))
+      (log (str "nightly " stamp " at " (git-out clone "log" "--oneline" "-1")
+                " lanes=" (str/join "," (sort lanes)) " par=" par))
+      ;; ---- per-clone fan-out ----
+      (let [multi? (> (count lanes) 1)
+            clones (lane-clones clone lanes)
+            lane-summary (fn [lane] (str out "/summary-" lane ".txt"))
+            ;; Warm the shared per-host caches (m2, gitlibs) from the primary
+            ;; BEFORE the lanes run, across every alias a lane will resolve:
+            ;; :test (jvm), :cljs (node/shadow), :clojuredart:cljd (dart). Once
+            ;; two clones resolve deps in parallel, a cold shared-cache fetch
+            ;; is the one race per-clone cannot remove.
+            _ (when multi?
+                (let [t0 (System/currentTimeMillis)
+                      wrc (run-cmd! clone (str out "/cache-warm.log")
+                                    ["clojure" "-P" "-M:test:cljs:clojuredart:cljd"])]
+                  (log (str "cache-warm rc=" wrc
+                            " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
+                  (when-not (zero? wrc)
+                    (reset! rc 1)
+                    (log "FAIL: cache-warm"))))
+            ;; every lane clone rides the exact sha resolved once above
+            _ (doseq [[lane lc] (sort-by key clones) :when (not= lc clone)]
+                (try
+                  (let [crc (ensure-lane-clone! clone lc @run-sha log)]
+                    (log (str "lane-clone " lane " rc=" crc " (" lc " @ " @run-sha ")"))
+                    (when-not (zero? crc) (reset! rc 1)))
+                  (catch Exception e
+                    (reset! rc 1)
+                    (log (str "FAIL lane-clone " lane ": [" (some-> e class .getSimpleName)
+                              "] " (ex-message e))))))
+            run-lane (fn [lane]
+                       (let [t0 (System/currentTimeMillis)]
+                         (try
+                           ((case lane
+                              "jvm" lane-jvm
+                              "node" lane-node
+                              "dart" lane-dart)
+                            (clones lane) par out (lane-summary lane))
+                           {:lane lane :lane-rc 0
+                            :secs (quot (- (System/currentTimeMillis) t0) 1000)}
+                           (catch Exception e
+                             {:lane lane :lane-rc 1
+                              :secs (quot (- (System/currentTimeMillis) t0) 1000)
+                              :fail (str "[" (some-> e class .getSimpleName) "] "
+                                         (ex-message e))}))))
+            ordered-lanes (filter clones ["jvm" "node" "dart"])
+            results (if multi?
+                      (->> ordered-lanes
+                           (mapv (fn [l] (future (run-lane l))))
+                           (mapv deref))
+                      (mapv run-lane ordered-lanes))]
+        ;; summary appends are serialized HERE, after the join — concurrent
+        ;; spit :append from lane futures is not one atomic syscall
+        (doseq [{:keys [lane lane-rc secs fail]} results]
+          (let [ls (lane-summary lane)]
+            (when (fs/exists? ls)
+              (spit summary (slurp ls) :append true)))
+          (if fail
+            (do (reset! rc 1)
+                (log (str "FAIL " lane ": " fail " secs=" secs)))
+            (log (str lane " rc=0 secs=" secs))))
+        (log (str "done rc=" @rc))
+        (System/exit @rc)))))
 
 
 (when (= *file* (System/getProperty "babashka.file"))
