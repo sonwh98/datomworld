@@ -87,11 +87,28 @@ metered destination, and add an entry when the owner relays a new status.
 
 ## Artifact protocol
 
-Coordination is through repository artifacts, not hidden context. Keep all
-artifacts flat under `collab/`:
-`<timestamp>-<role>-<task>.prompt.md`, `<timestamp>-<role>-<task>.<sanitized-model>.findings.md`, and `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`.
+Coordination is through repository artifacts, not hidden context. Artifacts
+are named `<timestamp>-<role>-<task>.prompt.md`,
+`<timestamp>-<role>-<task>.<sanitized-model>.findings.md`, and `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`.
 The `<timestamp>` prefix is a UNIX millisecond timestamp (e.g. `1725791234567`) so files sort
 chronologically in Git's untracked view; `<sanitized-model>` prevents parallel reviewers from colliding.
+
+**Decide the topic before writing (2026-11-03 owner ruling).** An artifact
+is written directly into its destination topic subfolder
+(`collab/yang-python/`, `collab/dev/`, … per step 11's folder rules) when
+the subsystem it belongs to is known — which is essentially always, since
+dispatches are issued per track. The flat `collab/` root is reserved for
+artifacts whose track is genuinely undetermined (cross-track orchestration
+rulings, coordination whose destination is being decided), and filing them
+is an explicit orchestrator decision, not a cleanup afterthought. The
+motivating incident: the 2026-11-03 worktree-deletion audit
+(`orchestrator-logs/1793358019`) found that the only work lost when the
+`-orch` worktree was deleted was unfiled flat-root collab logs, while a
+findings file written into `collab/jolt/` from day one survived. Unfiled
+flat-root files are the fragile state; filed topic files are the durable
+one. In-flight vs archived is carried by GIT, not by the directory:
+untracked files (wherever they sit) are in-flight, committed files are the
+record.
 
 Every prompt starts with:
 
@@ -108,12 +125,14 @@ Implementers:
 
 Every report starts with the same header fields. Use actual timestamps; never fabricate them.
 
-`collab/` is append-only and never staged or committed while its artifacts
-are in flight, and must never be added to `.gitignore` or
+`collab/` is append-only: artifacts are never edited after their round
+completes, and `collab/` must never be added to `.gitignore` or
 `.git/info/exclude` so its files stay visible and chronologically sorted in the user's Magit untracked
-view. In-flight artifacts stay untracked; they leave the flat in-flight
-space only through the archive step (Workflow step 11), which files them
-into `collab/`'s git-tracked topic subfolders. The two states live in
+view. Artifacts stay untracked while in flight — whether they sit in the
+flat root (undetermined track) or in their topic subfolder (the normal
+case, since the filing decision happens at write time) — and become the
+record only through the archive step (Workflow step 11), which commits
+them. The two states live in
 different worlds: the committed topic subfolders are on the master
 branch (pushed to origin — master's collab/ subfolders are the durable,
 durable-per-seat-readable record), while an in-flight artifact exists
@@ -121,7 +140,9 @@ only as an untracked file in the checkout that created it — invisible
 from other checkouts and from every branch until it is committed. This
 visibility split is why a merged worktree's collab files must be
 committed before that worktree is deleted (the worktree-deletion rule
-above). Promote final responses to
+above), and why in-flight artifacts belong in their topic subfolder from
+birth: a committed topic file survives checkout deletion, a flat-root
+file does not. Promote final responses to
 `.findings.md`; `.stdout.log` is only
 an intermediate capture.
 
@@ -310,23 +331,26 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
     rule before pushing.
 11. **Archive completed-task artifacts.** When collaboration artifacts are no
     longer needed for active collaboration (their task is committed or its
-    track is otherwise closed), move prompts, findings, and logs from the
-    flat in-flight space of `collab/` into git-tracked, subsystem-organized
-    subfolders of the same directory (e.g. `collab/yang-python/`,
-    `collab/dao-stream/`, `collab/yin-ucf/`, `collab/yin-linker/`) under
-    their exact filenames. There is no separate archive root: `collab/` IS
-    the collaboration record, flat untracked files at its root are the
-    in-flight workspace, and its topic subfolders are the archive
-    (2026-10-31 owner ruling, superseding the 2026-10-17 separate-top-level-
-    archive ruling: the archive and the collaboration directory are one
-    version-controlled location). The archived subfolders are under version
+    track is otherwise closed), commit them. Under the write-time filing
+    rule (Artifact protocol, 2026-11-03) the artifacts already sit in their
+    topic subfolder, so archiving is `git add collab/<topic>/` plus the
+    commit; the only files that need MOVING are flat-root stragglers whose
+    track was undetermined at write time — move those into git-tracked,
+    subsystem-organized subfolders of the same directory (e.g.
+    `collab/yang-python/`, `collab/dao-stream/`, `collab/yin-ucf/`,
+    `collab/yin-linker/`) under their exact filenames. There is no separate
+    archive root: `collab/` IS the collaboration record, its topic
+    subfolders are the archive, and the flat root is only the undetermined-
+    track staging space (2026-10-31 owner ruling, superseding the 2026-10-17
+    separate-top-level-archive ruling; amended 2026-11-03 to move the filing
+    decision to write time). The archived subfolders are under version
     control deliberately — the git history is the historical record of the
     collaboration — so every archive batch is committed (and pushed) as
     `docs(archive):` or `docs(collab):`; an archive that is not committed is
     not an archive. Do not leave archived files untracked, and do not invent
-    intermediate locations. Do not dump them flat into the `collab/` root
-    (that space is for in-flight artifacts, kept untracked and chronologically
-    sorted in the user's Magit untracked view). Organize archived files by
+    intermediate locations. Do not dump files flat into the `collab/` root
+    when their subsystem is known (that space is only for undetermined-track
+    artifacts). Organize archived files by
     design subsystem, not by generic slice codes or temporary folder names:
 
     - **The subsystem is defined by the code, not by the seat.** When the work
