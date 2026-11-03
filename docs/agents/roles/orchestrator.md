@@ -105,9 +105,7 @@ are named `<timestamp>-<role>-<task>.prompt.md`,
 The `<timestamp>` prefix is a UNIX millisecond timestamp (e.g. `1725791234567`) so files sort
 chronologically in Git's untracked view; `<sanitized-model>` prevents parallel reviewers from colliding.
 
-**Decide the topic before writing (2026-11-03 owner ruling; consolidates
-the 2026-10-31 one-record ruling that superseded the 2026-10-17
-separate-top-level-archive ruling).** An artifact
+**Decide the topic before writing.** An artifact
 is written directly into its destination topic subfolder
 (`collab/yang-python/`, `collab/dev/`, … per step 11's folder rules) when
 the subsystem it belongs to is known — which is essentially always, since
