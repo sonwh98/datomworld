@@ -223,16 +223,20 @@ pipe it per run via `muse exec --api-key-stdin` / persist it with
 argv value, so it stays out of shell history). `muse logout` removes the
 saved credential; it never touches `META_API_KEY`.
 Headless dispatch is `muse exec`; the interactive form is `muse [PROMPT]`
-and follow-up is `muse resume <uuid>`. Reasoning effort is
+and follow-up is `muse resume <uuid>`. Every headless `muse exec` needs
+`--trust-workspace` (any root not already in `~/.config/muse/trust.json`
+starts untrusted) and `--approval-mode never` (the default on-request mode
+needs a TTY to answer tool approvals and blocks forever headless — see the
+canonical recipe below for the measured failure modes). Reasoning effort is
 `--reasoning-effort <none|minimal|low|medium|high|xhigh|max|ultra>`
 (default `high`). Approval and the shell sandbox are on by default
 (`--approval-mode on-request`); a read-only review adds `--disable-write`
 (workspace file tools cannot write — keep the default approval/sandbox so
 shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
 `--disable-sandbox` for a delegate dispatch. Check
-[`routing-status.md`](routing-status.md) before dispatching: the last owner
-relay recorded `muse` as geo-restricted/unusable, and this section documents
-the invocation contract, not current availability.
+[`routing-status.md`](routing-status.md) before dispatching: availability
+moves (the muse lane has swung between geo-restricted, windowed, and live
+several times — that file, not this one, is the current authority).
 
 **Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
 The managed 3.x aliases are `kimi-code/k3.1-pro`,
@@ -294,17 +298,14 @@ $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
   --output-format text -p "Read <prompt> and complete it now." < /dev/null \
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
 
-# Muse (Meta) — native CLI; --disable-write is the read-only review form, omit it for implementation
-muse exec --model muse-wonder-1.0 --session-id <uuid> --disable-write \
+# Muse (Meta) — native CLI; --disable-write is the read-only review form, omit it for implementation.
+# Headless form (any host, any root): ALWAYS add --trust-workspace and --approval-mode never.
+muse exec --trust-workspace --approval-mode never --model muse-wonder-1.0 --session-id <uuid> --disable-write \
   "Read <prompt> and complete it now." \
   > collab/<timestamp>-<role>-<task>.muse-wonder-1.0.stdout.log 2>&1
 
 # Muse follow-up: resume the exact recorded UUID interactively (never `muse resume --last`).
-muse resume <uuid>
-
-# Muse headless in an UNTRUSTED directory (any scratch clone): add --trust-workspace,
-# or the run starts untrusted (AGENTS.md rules skipped, agent delegation off).
-# muse exec --trust-workspace --model muse-wonder-1.0 --session-id <uuid> ...
+# Headless failure modes and the server-side verification record: see Known CLI quirks.
 
 # Codex
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
@@ -431,6 +432,30 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   not `--permission-mode` / `--name` / `-p`. Invoke `muse exec` directly per
   the canonical recipe above, mirroring the review/implementation split
   yourself (`--disable-write` for review, omitted for implementation).
+- **Muse headless wedges without two flags (both measured on shiva and
+  jupiter, 2026-11-03, muse 1.4.14):**
+  - **Missing `--trust-workspace` in a root not in the trust list.** Only
+    roots recorded in `~/.config/muse/trust.json` (on the servers:
+    `/home/sto/workspace/datomworld`) start trusted; a scratch clone under
+    `~/ci/` starts UNTRUSTED — AGENTS.md rules are skipped and agent
+    delegation is off ("Agent delegation: auto unavailable: workspace is
+    untrusted"). A trivial "reply OK" probe still succeeds untrusted, so a
+    passing probe does not prove the root is trusted — the flag belongs in
+    every headless invocation.
+  - **Missing `--approval-mode never`.** The default `on-request` mode needs
+    a TTY to answer tool approvals; headless (stdin `</dev/null`) it blocks
+    forever with no API traffic — measured: a tool-using round hung to
+    SIGTERM at 180 s having done zero work. With the flag the same round
+    completes in seconds. This is the headless analog of the `-p` auto
+    permissions every other CLI uses; it is NOT the forbidden escape hatch —
+    `--yolo` / `--disable-sandbox` / `--disable-approval` stay forbidden, and
+    with `--approval-mode never` the OS sandbox stays on and gates shell
+    writes.
+  - The "Linux sandbox uses Bubblewrap..." line printed on every server run
+    is informational: bwrap is installed and user namespaces enabled on both
+    shiva and jupiter, the sandbox works, and the banner is not a failure
+    (the earlier "cannot sandbox on shiva" read was wrong; see
+    `routing-status.md` 2026-11-03).
 - **Muse `not logged in` / geo-restriction is a routing state, not a flag
   problem.** Auth is `muse login` (Meta account) or `META_API_KEY`; check
   allowance with `muse usage` and availability in
