@@ -60,7 +60,7 @@
    :layer 3}
 
   {:name "yang.php"
-   :prefixes ["yang.php"]
+   :prefixes ["yang.php.antlr"]
    :layer 3}
 
   {:name "yang.base"

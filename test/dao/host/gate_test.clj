@@ -685,6 +685,7 @@
    "src/clj/dao/stream/waitset/driver.clj" (entry :seam-driver :stays)
    "src/clj/dao/stream/ws/jvm.clj" (entry :seam-driver :stays)
    "src/clj/yang/antlr/cst.clj" (entry :seam-driver :stays)
+   "src/clj/yang/php/antlr/cst.clj" (entry :seam-driver :stays)
    "src/clj/yin/repl/host/jvm.clj" (entry :seam-driver :stays)
    "src/cljs/dao/stream/datagram/node.cljs" (entry :seam-driver :stays)
    "src/cljs/dao/stream/waitset/driver.cljs" (entry :seam-driver :stays)
@@ -711,6 +712,8 @@
    "src/cljc/dao/space/dht.cljc" (entry :deferred-scope :stays)
    "src/cljc/dao/stream/rpc.cljc" (entry :deferred-scope :stays ":114 rand, deferred entropy (§9.1); H0 finding")
    "src/cljc/yin/repl.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yang/php/antlr/lower.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yang/php/antlr/quoted.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/parser.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/lower.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/prelude.cljc" (entry :deferred-scope :stays)
@@ -754,7 +757,6 @@
    ;; yang.clojure.cljc left the gensym list in slice 7: the library's gensym
    ;; uses an explicit supply and the and/or expansion temps are dsg__-prefixed,
    ;; so the file no longer calls host gensym at all.
-   "src/cljc/yang/php.cljc" {:gensym 1}
    "src/cljc/dao/space/transact.cljc" {:gensym 1}
    ;; §3.2 clocks, ambient reads, printing, timers: the driver and the seams
    "src/cljc/yin/repl/main.cljc" {:ambient 6, :clock 4, :print 14}
@@ -983,12 +985,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after H4, the yang.core L2 regeneration, J6b's ws parser/upgrade and yang.core.call joining the closure: 156 / 154 / 155 files, 148 shared"
+  (testing "§3.1 after P8 installs the PHP ANTLR frontend: 162 / 157 / 160 files, 151 shared"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 156 (count (files :clj))))
-      (is (= 154 (count (files :cljs))))
-      (is (= 155 (count (files :cljd))))
-      (is (= 148 (count (apply set/intersection (vals files)))))
+      (is (= 162 (count (files :clj))))
+      (is (= 157 (count (files :cljs))))
+      (is (= 160 (count (files :cljd))))
+      (is (= 151 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))

@@ -212,7 +212,7 @@
                            [["src/cljc/yang/clojure.cljc"] :foundation]
                            [["src/cljc/yang/python.cljc"] :foundation]
                            [["src/cljc/yang/typescript.cljc"] :foundation]
-                           [["src/cljc/yang/php.cljc"] :foundation]
+                           [["src/cljc/yang/php/antlr/lower.cljc"] :foundation]
                            [["src/cljc/dao/gui/foo.cljc"] :leaf]
                            [["test/resources/example.md"] :unselected]
                            [["unknown.runtime"] :unselected]]]

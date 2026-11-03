@@ -150,13 +150,13 @@
    [:deferred-stage "deferred §9.3"
     '[yang.antlr.cst yang.frontend yang.stage yin.repl.frontends]]
    [:deferred-gensym "deferred §9.1"
-    '[yang.clojure yang.php dao.space.transact]]
+    '[yang.clojure dao.space.transact]]
    [:runtime-prereq "table C, no slice"
     '[dao.data.btree dao.jing.file dao.stream.journal dao.space.transactor
       yin.vm.ucf.authority]]
    ;; r7: the two rows for H0's 16 findings (rpc is in :deferred-entropy)
    [:profile-consumer "H2 (H0 finding: consumers of table A entries)"
-    '[yin.repl.query yin.vm.linker.closure yin.vm.ucf.rows yin.vm yang.php
+    '[yin.repl.query yin.vm.linker.closure yin.vm.ucf.rows yin.vm
       yin.vm.debruijn-register-code yin.vm.debruijn-register-effects
       dao.space.index yang.antlr.packet]]
    [:dialect-arm "none (H0 finding: retained dialect arms)"
