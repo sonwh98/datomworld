@@ -50,14 +50,14 @@
     (is (= {:py/out ["22"], :py/exception nil}
            (xl/call [:typescript
                      (str "globalThis.ts_apply = f => { globalThis.stored = f; "
-                          "return stored === f ? f(20) + 1 : -1; };")]
+                          "return stored === f ? f(20n) + 1n : -1n; };")]
                     ["ts_apply"]
-                    [:python "print(ts_apply(lambda x: x + 1))"])))))
+                    [:python "print(ts_apply(lambda x: x + 1))\n"])))))
 
 
 (deftest typescript-calls-python-closure-test
   (testing "Python stores and calls the same TS function cell it received"
-    (is (= {:js/out ["22"], :js/uncaught nil}
+    (is (= {:js/out ["22n"], :js/uncaught nil}
            (xl/call [:python
                      (str "def py_apply(f):\n"
                           "    global stored\n"
@@ -65,7 +65,7 @@
                           "    return f(20) + 1 if stored is f else -1")]
                     ["py_apply"]
                     [:typescript
-                     "console.log(py_apply(x => x + 1));"])))))
+                     "console.log(py_apply(x => x + 1n));"])))))
 
 
 (deftest python-calls-php-closure-test
@@ -75,7 +75,7 @@
                      (str "<?php function php_apply($f) { global $stored; "
                           "$stored = $f; return $stored === $f ? $f(20) + 1 : -1; }")]
                     ["php_apply"]
-                    [:python "print(php_apply(lambda x: x + 1))"])))))
+                    [:python "print(php_apply(lambda x: x + 1))\n"])))))
 
 
 (deftest php-calls-python-closure-test
@@ -88,6 +88,23 @@
                           "    return f(20) + 1 if stored is f else -1")]
                     ["py_apply"]
                     [:php "<?php echo py_apply(function($x) { return $x + 1; });"])))))
+
+
+;; Named skip: yang.clojure <-> TypeScript, both directions. yang.clojure has
+;; convention-wired application lowering, but no published runtime module,
+;; run-main entry, or runtime global namespace through which the shared helper
+;; can run a donor and project exports. Adding those would be frontend work,
+;; not a test-only composition through this helper. The test below pins the
+;; skip: the helper refuses :clojure as not admitted, so admitting the
+;; frontend turns this test red and the legs must be written for real.
+
+
+(deftest clojure-typescript-cross-lang-skip-test
+  (testing "named skip: yang.clojure <-> TypeScript, both directions"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"frontend not admitted"
+          (xl/call [:clojure "(defn clj-apply [f] (+ (f 20) 1))"]
+                   ["clj_apply"]
+                   [:typescript "console.log(clj_apply);"])))))
 
 
 (deftest limits-test
