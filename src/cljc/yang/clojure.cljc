@@ -1094,14 +1094,24 @@
         ;; nil whenever the program defines its own get.
         packet (u/if-node
                  (u/app (u/v 'data/vector?) (u/v invocation))
+                 ;; the packet is exactly two elements: the arity guard runs
+                 ;; before data/nth so an empty or overlong vector refuses
+                 ;; as an outcome instead of a host-side data refusal
                  (u/if-node
                    (u/app (u/v 'dsg__equal)
-                          (u/app (u/v 'data/nth) (u/v invocation) (u/lit 0))
-                          (u/v 'dsg__call_token))
-                   (u/app (u/v body) (u/app (u/v 'data/nth) (u/v invocation) (u/lit 1)))
-                   ;; a vector without the compiler-held token is NOT the
-                   ;; record path: applying the body here would hand every
-                   ;; forged vector the private lane. Refuse explicitly.
+                          (u/app (u/v 'data/count) (u/v invocation))
+                          (u/lit 2))
+                   (u/if-node
+                     (u/app (u/v 'dsg__equal)
+                            (u/app (u/v 'data/nth) (u/v invocation) (u/lit 0))
+                            (u/v 'dsg__call_token))
+                     (u/app (u/v body) (u/app (u/v 'data/nth) (u/v invocation) (u/lit 1)))
+                     ;; a vector without the compiler-held token is NOT the
+                     ;; record path: applying the body here would hand every
+                     ;; forged vector the private lane. Refuse explicitly.
+                     (u/lit [:yin.k/error
+                             {:yin.k/message "Invocation is neither an authenticated packet nor an invocation record"
+                              :yin.k/data {}}]))
                    (u/lit [:yin.k/error
                            {:yin.k/message "Invocation is neither an authenticated packet nor an invocation record"
                             :yin.k/data {}}]))

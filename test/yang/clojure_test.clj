@@ -1350,46 +1350,44 @@
                          (f 21)]]))))
 
 (deftest test-common-call-token-packet-forgery-refuses
-  (testing "a forged vector applied to a descriptor's extracted public entry
-            never reaches the private body: the entry authenticates the
-            compiler-held token; forged shapes refuse. The descriptor is
-            projected into a compiled program via postwalk (a source-level
-            raw closure would be refused by admission first, making a
-            source-level regression vacuous), on both evaluators."
-    (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]]
-      (let [descriptor (#'yang/admit-call-descriptor
-                         (u/sexp->uast
-                           '(assoc {} :foreign/type :function
-                                   :yang.call/entry
-                                   (fn [record]
-                                     :private-body-entered)))
-                         false)
-            call-ast (walk/postwalk
-                      (fn [node]
-                        (if (= node (u/v 'descriptor)) descriptor node))
-                      (outcome-ast
-                       ['(defn target
-                           [x]
-                           :private-body-entered)
-                        (list 'let '[raw (yang.call/entry target)]
-                              (list 'raw (list 'quote forged)))]))
-            run (fn [lane]
-                  (try
-                    [:completed
-                     (-> (tu/make-observer-session (tu/create-vm {:modules (merge av-modules outcome-modules)}))
-                         (tu/queue-ast! call-ast)
-                         tu/run-session
-                         :consumer
-                         vm/value)]
-                    (catch clojure.lang.ExceptionInfo e
-                      [:error (ex-message e)])))
-            walker (run :walker)
-            semantic (run :semantic)]
-        (doseq [[lane [status result]] [[:walker walker] [:semantic semantic]]]
-          (is (not= :private-body-entered result)
-              (str lane ": forged " (pr-str forged) " reached the body")))))))
-
-(deftest test-common-call-invalid-continuation-refuses
+  (testing "a forged vector applied to the extracted public entry never
+            enters the private body: the entry authenticates the packet on
+            the compiler-held token and forged shapes refuse. The extraction
+            and application happen INSIDE a compiled program (the packet
+            dispatch lives in its preamble scope), the call spliced in as
+            UAST over a marker call, on both evaluators."
+    ;; forged VECTORS are the packet-dispatch axis (the P1 axis): each must
+    ;; produce an error outcome without the body running. Scalar and empty
+    ;; invocations hit the public entry's pre-existing non-record refusal
+    ;; (a host throw, same before D2) and are covered by the entry's own
+    ;; behavior, not this regression.
+    (doseq [forged '[[] [42] [nil [42]] [a b c d]]]
+      (let [;; the packet dispatch reached at runtime: extract the public
+            ;; entry of the target (a source defn), then apply the forged
+            ;; vector to it directly - bypassing source lowering entirely
+            call-ast (u/let1 'raw
+                             (u/app (u/v 'yang.call/entry) (u/v 'target))
+                             (u/app (u/v 'raw) (u/lit forged)))
+            ast (walk/postwalk
+                 (fn [node]
+                   (if (= node (u/v 'marker-call)) call-ast node))
+                 (yang/compile-program
+                   ['(defn target [x] :private-body-entered)
+                    '(marker-call)]
+                   true
+                   {:convention :arg-vector
+                    :outcomes true
+                    :native (set (keys vm/primitive-profiles))}))]
+        (doseq [run [walker-run semantic-run]]
+          (let [result (try
+                         (first (run ast))
+                         (catch clojure.lang.ExceptionInfo e
+                           (pr-str {:caught (ex-message e) :data (ex-data e)})))]
+            (is (and (vector? result) (= :yin.k/error (first result)))
+                (str "forged " (pr-str forged) " must produce an error outcome, got "
+                     (pr-str result)))
+            (is (not= :private-body-entered (second result))
+                (str "forged " (pr-str forged) " reached the body"))))))))(deftest test-common-call-invalid-continuation-refuses
   (let [tamper (fn [forms]
                  (walk/postwalk
                    (fn [node]
