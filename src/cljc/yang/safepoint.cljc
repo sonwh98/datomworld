@@ -113,6 +113,8 @@
                    exit-kinds)]
     (cond-> {}
       (get profile kind) (assoc :enter (entry-hook (get profile kind) mark))
+      (and (map? (get profile kind)) (:sequence (get profile kind)))
+      (assoc :sequence? true)
       exit (assoc :exit (entry-hook exit mark)))))
 
 
@@ -167,9 +169,9 @@
                                  n)))
                            node
                            (map-indexed vector slots))]
-                (if-let [{:keys [enter exit statement?]} (get hooks path)]
+                (if-let [{:keys [enter exit statement? sequence?]} (get hooks path)]
                   (do (vswap! seen conj path)
-                      (if statement?
+                      (if (or statement? sequence?)
                         (sequence-hook node enter)
                         (do (when-not (= :lambda (:type node))
                               (throw (ex-info "Safepoint site is not a lambda"

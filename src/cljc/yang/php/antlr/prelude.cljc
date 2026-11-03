@@ -4927,16 +4927,19 @@
            (let [exc0 (php/try (fn [] (do (body) :php/null))
                                (fn [e] e)
                                (fn [] :php/null))
-                 exc1 (php/handle-uncaught exc0)
-                 exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
-                               (fn [e] e)
-                               (fn [] :php/null))
-                 exc (if (= exc1 :php/null) exc2 exc1)]
-             (assoc (assoc (assoc {} :php/out
-                                  (data/str-join "" (get (cell/get php.rt/out) 0)))
-                           :php/diag (cell/get php.rt/diag))
-                    :php/uncaught
-                    (if (= exc :php/null) nil (php/snapshot-exc exc))))))]])
+                 result (fn [exc]
+                          (assoc (assoc (assoc {} :php/out
+                                               (data/str-join "" (get (cell/get php.rt/out) 0)))
+                                        :php/diag (cell/get php.rt/diag))
+                                 :php/uncaught
+                                 (if (= exc :php/null) nil (php/snapshot-exc exc))))]
+             (if (= true (get exc0 :php/operational))
+               (assoc (result :php/null) :php/fatal (get exc0 :message))
+               (let [exc1 (php/handle-uncaught exc0)
+                     exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
+                                   (fn [e] e)
+                                   (fn [] :php/null))]
+                 (result (if (= exc1 :php/null) exc2 exc1)))))))]])
 
 
 (def ^:private builtins
