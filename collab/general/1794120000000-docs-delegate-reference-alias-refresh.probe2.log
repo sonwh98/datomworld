@@ -1,0 +1,20 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing datomworld.delegate-probe-tmp-test
+
+===== vibe schema: lines naming model aliases =====
+    "active_model": {
+    "catalog_model_aliases": {
+      "description": "An explicit list of model names/patterns to allow. If set, only these models are selectable. An empty list allows all configured models. Supports glob patterns (e.g., 'mistral-*') and regex with 're:' prefix.",
+              "default": "mistral-vibe-cli-with-tools",
+
+===== PROBE: agy display-name form: --model 'Gemini 3.8 Flash (High)' =====
+$ ["/Users/sto/.local/bin/agy" "--model" "Gemini 3.8 Flash (High)" "-p" "Reply exactly: PROBE-OK"]
+--- exit: 0 ---
+PROBE-OK
+
+
+Ran 1 tests containing 0 assertions.
+0 failures, 0 errors.

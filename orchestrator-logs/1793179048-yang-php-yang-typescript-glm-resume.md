@@ -735,3 +735,10 @@ Decisions: P5 fixtures authored with hand-derived expectations where PHP semanti
 Verification: the seat's independent namespace runs for both landings.
 Delegates: kimi k3.1-pro (P7-a and P5, both COMPLETE and landed).
 Next: the P7-b/P8/P9 increments in sequence (kimi, window permitting); the yang.clojure runtime-module work (the xlang skip closure — the clojure track's call); the oracle recording pass for the P5 :pending fixtures.
+## 2026-11-04 0x:xx +0700 — P9 lands (91c5c8cd, merged 439ff42a): the last plan slice of yang.php section 15
+Completed-GMT: 2026-11-03 1x:xx GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Done: P9 landed: the builtin surface slices (strings II, arrays II, JSON, math II), $$ (variable variables), extract/compact and the dynamic scope, $GLOBALS element writes, and the C5/C6/C11/C12/C13 corner behaviors (929 insertions: a new prelude_p9.cljc runtime module, builtins/lower/prelude_module/scope wiring, programs_p9.cljc + builtin_surfaces_test.clj). kimi implemented and committed (91c5c8cd) with 19 JVM tests / 1,330 assertions green; the seat verified independently (builtin-surfaces 2/94/0, class-model + request-context 11/622/0) and merged (439ff42a, pushed). Remaining per kimi's findings: runtime eval stays explicitly REFUSED pending its compiler bridge (a deliberate P9 boundary, not a regression), and some JSON object/Unicode semantics plus further catalogue builtins remain for later slices. The P8 gate is STILL RUNNING (2h56, 99.7% CPU, zero failures — the local stress tail; the shiva equivalent took 45 min; the procedure says live process + CPU = not stalled).
+Decisions: P9's eval refusal recorded as the named boundary; the manifest surgery (102-entry manifest + the gc_023 slow-gap record) rides the P8 landing.
+Delegates: kimi k3.1-pro (P9 COMPLETE, landed); the P8 gate is the seat's own verification run.
+Next: the P8 gate tally -> land P8 (with the manifest fix) -> the yang.php section-15 plan is COMPLETE except P7-b (blocked on safepoint slice 3) and the recorded eval boundary; then the yang.clojure runtime-module work and the P5 oracle-recording pass.

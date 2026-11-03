@@ -1,0 +1,18 @@
+muse: workspace root: /Users/sto/workspace/datomworld-h31 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-h31/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+Done. Two new files in [datomworld-h31](/Users/sto/workspace/datomworld-h31) on `hardening3-h3-1`, uncommitted for the seat to land (per the brief's headless constraints: no shell, no git, no harness/compiler/evidence changes made):
+
+**Deliverables**
+
+- [h3_2_fixture_family.md](/Users/sto/workspace/datomworld-h31/test/yang/latte_oracle/h3_2_fixture_family.md) — the design: call-graph/entry conditions for all 11 arities from pinned `proof.cljc`; 3 positive named integrations (F1 `:check-assume-have-discharge` via `check-proof`, F2† inferred+anonymous `have` via `elab-proof`, F3† authored discharge chain with pinned intermediate states); refusals R1 duplicate definition, R2 invalid declared types (unparseable declare + mismatched have), R3 incorrect discharge (wrong name + empty context); the conservative `update-var-deps` note (all-entries update asserted, never corrected); per-arity witness + credit-prediction tables (all credit named-integration, none direct; F2†/F3† need ID registration at integration); integration sketch and open questions for kimi.
+- [h3_2_a_verify.clj](/Users/sto/workspace/datomworld-h31/test/yang/latte_oracle/h3_2_a_verify.clj) — standalone A script checking every predicted outcome (exact proof terms/types, discharge state transitions, conservative var-deps shapes, helper probes, all refusal messages/data) against pinned upstream, exit 0/1.
+
+**Key finding the design is built on**
+
+On this branch the checked-in [slice9_evidence.edn](/Users/sto/workspace/datomworld-h31/test/yang/latte_oracle/slice9_evidence.edn) already credits all 11 arities via the H3-1-repaired `:check-assume-have-discharge` (145 exercised, not the plan baseline's 107/58). The family therefore adds independent witnesses, inferred/anonymous branch coverage, state assertions, and refusals — marginal arity credit is honestly stated as zero while that fixture passes.
+
+**Verification status**
+
+Nothing was machine-verified this round: all A outcomes are marked "A-verified pending seat run" (F1/F3 values are upstream's own asserted test expectations; F2/R1–R3 are source-derived predictions — R2a's `[:ko …]`-vs-thrown shape is flagged as the most falsifiable). Seat run: `clj -M:test -e "(do (load-file \"test/yang/latte_oracle/h3_2_a_verify.clj\") (yang.latte-oracle.h3-2-a-verify/-main))"` — expected `H3-2-A-VERIFY: PASS`, exit 0; any `FAIL` revises the prediction before integration.
+DISPATCH_RC=0

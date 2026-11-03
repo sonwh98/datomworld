@@ -606,7 +606,28 @@ first lane:
    `yin.repl.frontends`) skips the generation and the shadow build dies on
    the missing `Python3Lexer.js`. Sighted independently on the p4 lane
    (PhpLexer ClassNotFoundException) and the yang.base cljs lane
-   (2026-11-02). A fix round is in flight on `fix/gen-antlr-prereq-heuristic`.
+   (2026-11-02). The lane-runner fix landed 2026-11-03 (eb27fd47).
+
+### Merge verification: run the suite from a fresh clone, not the authoring worktree
+
+A merge whose new code reads a file that was never `git add`ed passes in
+the authoring worktree (the untracked file is still on disk there) and
+breaks everywhere else. Measured: the H3-0 landing (1fd7236b) merged
+`kernel-declarations` — which reads
+`yang/latte_oracle/slice9_declarations.edn` via `io/resource` at load —
+without the file (untracked in the authoring worktree); master's
+yang.latte-oracle-test died at load until the file was restored
+(2026-11-04). Before landing any merge that adds code reading a new
+resource, or after any merge at all when in doubt:
+
+```sh
+git worktree add /tmp/merge-verify <merge-commit>
+cd /tmp/merge-verify && <the touched subsystem's focused test>
+git worktree remove /tmp/merge-verify
+```
+
+A fresh clone/worktree has only committed files — a missing untracked
+resource fails there immediately.
 
 ### Ledger commit hygiene: never commit a conflict marker
 

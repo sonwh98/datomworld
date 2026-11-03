@@ -1611,8 +1611,9 @@ builtin. `use const` resolves the read to its imported fully qualified name.
 |            | `declare(ticks)`               |                                |
 +------------+--------------------------------+--------------------------------+
 | Refused    | `goto`; return by reference;   | `:yang.php/unsupported         |
-|            | `eval` until P9; `$$` outside  | {:construct}`                  |
-|            | the dynamic-profile slice;     |                                |
+|            | `eval` pending its run-time    | {:construct}`                  |
+|            | compiler bridge; `$$`          |                                |
+|            | references;                    |                                |
 |            | `__halt_compiler`;             |                                |
 |            | `declare(encoding)`; nested    |                                |
 |            | destructuring by reference     |                                |
@@ -2260,11 +2261,10 @@ decision B8.11).
 |                     | `$GLOBALS` refused                  |                  |
 +---------------------+-------------------------------------+------------------+
 | G-str-offset-write  | Engine: `$s[0] = 'x'` writes one    | restricted; P9   |
-| (C5, row 3)         | byte. Here: refused at run time     | (strings II)     |
-|                     | with `Error "string offset writes   |                  |
-|                     | are not supported yet"`; reads are  |                  |
-|                     | in, and row 3's single-byte         |                  |
-|                     | in-range writes move with this gap  |                  |
+| (C5, row 3)         | byte. Here: positive and negative   | (strings II)     |
+|                     | in-range writes use the value's     |                  |
+|                     | first byte; append, empty values,   |                  |
+|                     | and out-of-range writes are refused |                  |
 +---------------------+-------------------------------------+------------------+
 | G-sort-flags        | Engine: `SORT_NATURAL`,             | restricted; P9   |
 |                     | `SORT_FLAG_CASE`,                   | (arrays II)      |

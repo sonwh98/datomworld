@@ -1,0 +1,284 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing datomworld.delegate-probe-tmp-test
+
+===== PROBE: vibe config schema (model alias enum) =====
+$ ["/Users/sto/.local/bin/vibe" "config" "schema"]
+--- exit: 0 ---
+{
+  "$defs": {
+    "Backend": {
+      "enum": [
+        "mistral",
+        "generic"
+      ],
+      "title": "Backend",
+      "type": "string"
+    },
+    "ConnectorConfig": {
+      "properties": {
+        "name": {
+          "description": "Normalized connector alias to match against.",
+          "title": "Name",
+          "type": "string"
+        },
+        "disabled": {
+          "default": false,
+          "description": "Disable all tools from this connector. Tools are still discovered but hidden.",
+          "title": "Disabled",
+          "type": "boolean"
+        },
+        "disabled_tools": {
+          "description": "Tool names (without the connector prefix) to disable. E.g. ['search'] to hide 'connector_{name}_search'.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Disabled Tools",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ConnectorConfig",
+      "type": "object"
+    },
+    "ExperimentsConfig": {
+      "properties": {
+        "enable": {
+          "default": true,
+          "title": "Enable",
+          "type": "boolean"
+        },
+        "api_host": {
+          "default": "https://experiments.mistral.services/",
+          "title": "Api Host",
+          "type": "string"
+        },
+        "client_key": {
+          "default": "sdk-OE8yJgTXZY6tj",
+          "title": "Client Key",
+          "type": "string"
+        }
+      },
+      "title": "ExperimentsConfig",
+      "type": "object"
+    },
+    "MCPHttp": {
+      "properties": {
+        "url": {
+          "description": "Base URL of the MCP HTTP server",
+          "title": "Url",
+          "type": "string"
+        },
+        "auth": {
+          "discriminator": {
+            "mapping": {
+              "oauth": "#/$defs/MCPOAuth",
+              "static": "#/$defs/MCPStaticAuth"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/MCPStaticAuth"
+            },
+            {
+              "$ref": "#/$defs/MCPOAuth"
+            }
+          ],
+          "title": "Auth"
+        },
+        "name": {
+          "description": "Short alias used to prefix tool names",
+          "title": "Name",
+          "type": "string"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional usage hint appended to tool descriptions",
+          "title": "Prompt"
+        },
+        "startup_timeout_sec": {
+          "default": 10.0,
+          "description": "Timeout in seconds for the server to start and initialize.",
+          "exclusiveMinimum": 0,
+          "title": "Startup Timeout Sec",
+          "type": "number"
+        },
+        "tool_timeout_sec": {
+          "default": 60.0,
+          "description": "Timeout in seconds for tool execution.",
+          "exclusiveMinimum": 0,
+          "title": "Tool Timeout Sec",
+          "type": "number"
+        },
+        "sampling_enabled": {
+          "default": false,
+          "description": "Opt this MCP server into sampling/createMessage when the host provides a sampling completion.",
+          "title": "Sampling Enabled",
+          "type": "boolean"
+        },
+        "disabled": {
+          "default": false,
+          "description": "Disable all tools from this MCP server. Tools are still discovered but hidden.",
+          "title": "Disabled",
+          "type": "boolean"
+        },
+        "disabled_tools": {
+          "description": "Tool names (without the server prefix) to disable from this server. E.g. ['search', 'read'] to hide '{alias}_search' and '{alias}_read'.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Disabled Tools",
+          "type": "array"
+        },
+        "transport": {
+          "const": "http",
+          "title": "Transport",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "name",
+        "transport"
+      ],
+      "title": "MCPHttp",
+      "type": "object"
+    },
+    "MCPOAuth": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "oauth",
+          "title": "Type",
+          "type": "string"
+        },
+        "scopes": {
+          "description": "OAuth scopes to request. Pass an empty list to accept the AS default.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pre-registered OAuth public client_id (PKCE). Mutually exclusive with client_metadata_url.",
+          "title": "Client Id"
+        },
+        "client_metadata_url": {
+          "anyOf": [
+            {
+              "format": "uri",
+              "maxLength": 2083,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "RFC 9728 client-metadata-document URL. Mutually exclusive with client_id.",
+          "title": "Client Metadata Url"
+        },
+        "redirect_port": {
+          "default": 47823,
+          "description": "Loopback port for the OAuth callback handler.",
+          "maximum": 65535,
+          "minimum": 1024,
+          "title": "Redirect Port",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "type",
+        "scopes"
+      ],
+      "title": "MCPOAuth",
+      "type": "object"
+    },
+    "MCPStaticAuth": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "static",
+          "default":
+
+===== PROBE: mistral devstral =====
+$ ["/Users/sto/.local/bin/mistral" "--agent" "ask" "--model" "devstral" "-p" "Reply exactly: PROBE-OK"]
+--- exit: 2 ---
+Reading API keys from the macOS Keychain (set them as environment variables to skip this)
+Error: API error occurred: Status 400. Body: {"object":"error","message":"Invalid model: devstral","type":"invalid_model","param":null,"code":"1500","raw_status_code":400}
+
+
+===== PROBE: mistral codestral =====
+$ ["/Users/sto/.local/bin/mistral" "--agent" "ask" "--model" "codestral" "-p" "Reply exactly: PROBE-OK"]
+--- exit: 2 ---
+Reading API keys from the macOS Keychain (set them as environment variables to skip this)
+Error: API error occurred: Status 400. Body: {"object":"error","message":"Invalid model: codestral","type":"invalid_model","param":null,"code":"1500","raw_status_code":400}
+
+
+===== PROBE: agy version =====
+$ ["/Users/sto/.local/bin/agy" "--version"]
+--- exit: 0 ---
+1.4.12
+
+
+===== PROBE: agy gemini-3.8-flash-high WITH --effort high (effort vs suffixed model) =====
+$ ["/Users/sto/.local/bin/agy" "--model" "gemini-3.8-flash-high" "--effort" "high" "-p" "Reply exactly: PROBE-OK"]
+--- exit: 0 ---
+PROBE-OK
+
+
+===== PROBE: kimi --agent explore (expect OK) =====
+$ ["/Users/sto/.kimi-code/bin/kimi" "--agent" "explore" "-m" "kimi-code/k3.1-pro" "--output-format" "text" "-p" "Reply exactly: PROBE-OK"]
+--- exit: 0 ---
+kimi version 2.4.0
+• I need respond exactly PROBE-OK. No tools.
+
+• PROBE-OK
+
+To resume this session: kimi -r session_aa25d018-feff-4a18-85f7-d12641318124
+
+
+===== PROBE: kimi --agent code-reviewer (expect profile-not-found) =====
+$ ["/Users/sto/.kimi-code/bin/kimi" "--agent" "code-reviewer" "-m" "kimi-code/k3.1-pro" "--output-format" "text" "-p" "Reply exactly: PROBE-OK"]
+--- exit: 1 ---
+kimi version 2.4.0
+error: failed to run prompt: Unknown agent profile: "code-reviewer". Available profiles: plan, agent, coder, explore
+See log: /Users/sto/.kimi-code/logs/kimi-code.log
+
+
+===== PROBE: muse exec --trust-workspace --approval-mode never (expect OK) =====
+$ ["/Users/sto/.local/bin/muse" "exec" "--trust-workspace" "--approval-mode" "never" "--model" "muse-wonder-1.0" "--session-id" "9b7fc000-4c37-4800-baf4-3cf1033a7c41" "Reply exactly: PROBE-OK"]
+--- exit: 0 ---
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+PROBE-OK
+
+
+Ran 2 tests containing 0 assertions.
+0 failures, 0 errors.

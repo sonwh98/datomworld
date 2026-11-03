@@ -99,8 +99,11 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| mistral — binary `vibe`                      | `~/.vibe`                   | no caller ID; capture from the session journal (`--output-dir` export.json) | `--resume <id>` (or `-c`) |
-|                                              |                             | (`mistral` is an alias for `vibe`; prefer `mistral`)                        |                           |
+| mistral      | `~/.vibe`                   | no caller ID; capture from the   | `--resume <id>` (or `-c`)                |
+| (binary:     |                             | session journal (`--output-dir`  |                                          |
+| `vibe`)      |                             | export.json) (`mistral` is an    |                                          |
+|              |                             | alias for `vibe`; prefer         |                                          |
+|              |                             | `mistral`)                       |                                          |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
@@ -133,6 +136,23 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 > inside it, and merge back into the main tree once verified. If a host tool needs the raw OS PID (e.g.
 > `keep-awake`), get it with `pgrep -f` after launching.
 
+> [!IMPORTANT]
+> **Verify subagent model routing from the child's model-IO records, never from the model
+> list alone.** A subagent dispatched with `subagent_model` naming a provider model that is
+> listed but not wired silently runs EVERY call on the session model instead — no error, the
+> run completes normally, and the named provider's dashboard shows zero usage. Measured
+> 2026-11-03/04 (ZCode host, Agent tool): a subagent dispatched with
+> `subagent_model: new-provider/muse-wonder-1.0` — present in the host's 19-model list, no
+> credentials routed — ran all 62 of its calls on the session model (`GLM-5.3-Flash` /
+> `account:zai-start-plan`) while the muse dashboard stayed flat. The model list proves a
+> provider is *listed*, not that it is *wired*. After dispatching a subagent on a
+> non-default model, count the child's calls from its model-IO rollout records
+> (`~/.zcode/cli/rollout/model-io-<childSessionId>.jsonl`, one JSON record per call — check
+> `.model.modelId` / `.model.providerId`) and confirm they name the intended provider
+> before trusting the lane. Check while the subagent runs: stopping it deletes its rollout
+> file (observed on TaskStop — the 62-call count survived only in the parent's recorded
+> verification trail).
+
 Prompts contain authorized paths, not source text. Headless plan agents must be told to produce the complete
 deliverable without waiting for a human. Never use AGY `invoke_subagent` to delegate; always shell out to the
 listed CLIs.
@@ -148,7 +168,8 @@ listed CLIs.
 |                |                            |                            | *)" "Bash(git status |                            |                      |                    |
 |                |                            |                            | *)"`                 |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `claude-cloud` | Anthropic API (billing lane: **claude-api**) | `--model <model>`          | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+| `claude-cloud` | Anthropic API (billing     | `--model <model>`          | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|                | lane: **claude-api**)      |                            |                      |                            |                      |                    |
 |                | (metered credits); default |                            |                      |                            |                      |                    |
 |                | **claude-sonnet-5-5** /    |                            |                      |                            |                      |                    |
 |                | **claude-opus-5-5**        |                            |                      |                            |                      |                    |

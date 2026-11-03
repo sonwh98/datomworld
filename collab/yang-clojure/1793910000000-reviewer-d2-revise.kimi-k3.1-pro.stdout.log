@@ -1,0 +1,512 @@
+{"role":"meta","type":"system.version","version":"2.4.0"}
+## hardening3-h3-1...origin/hardening3-h3-1
+?? BRIEF-h3-1-fix.md
+?? BRIEF-h3-1.md
+?? REVIEW-d2.diff
+?? REVIEW-h3-1-fix.diff
+358e2f1b2 (HEAD -> hardening3-h3-1, origin/hardening3-h3-1) fix(yang.clojure): D2 revise — forged vectors refuse, authenticity and assoc branches restored, exact counts recorded
+4ca4f23f8 fix(yang.clojure): D2 token-packet lane — the packet operand is a node; one sibling frame under the machine-data bound
+0dc542894 fix(yang.clojure): the intra-unit call lane — both blocked kernel fixtures complete inside the 2M budget
+ src/cljc/yang/clojure.cljc | 41 ++++++++++++++++++++++++++++-------------
+ test/yang/clojure_test.clj | 15 +++++++++++++++
+ 2 files changed, 43 insertions(+), 13 deletions(-)
+{"role":"assistant","content":"I’ll verify that the refusal is total, the forgery test actually reaches the public entry rather than being refused earlier, and the two helper restorations are exact.","tool_calls":[{"type":"function","id":"tool_dN64XJjWgL3nEjdDKI2glFqx","function":{"name":"Bash","arguments":"{\"command\":\"git status --short --branch && git log -3 --oneline --decorate && git diff --stat 4ca4f23f..358e2f1b && git diff --check 4ca4f23f..358e2f1b\",\"cwd\":\"/Users/sto/workspace/datomworld-h31\"}"}},{"type":"function","id":"tool_Tajvkbr3jeSBzYXK9pTsKbXf","function":{"name":"Bash","arguments":"{\"command\":\"git diff 4ca4f23f..358e2f1b -- src/cljc/yang/clojure.cljc test/yang/clojure_test.clj test/yang/latte_oracle_test.clj\",\"cwd\":\"/Users/sto/workspace/datomworld-h31\"}"}},{"type":"function","id":"tool_dElJ2XUNhYCjJtxVvaIRvIMx","function":{"name":"Read","arguments":"{\"path\":\"/Users/sto/workspace/datomworld-h31/src/cljc/yang/clojure.cljc\",\"line_offset\":1050,\"n_lines\":85}"}},{"type":"function","id":"tool_qo48Y2Di6MwbiG0QfXUbcMHJ","function":{"name":"Grep","arguments":"{\"pattern\":\"test-common-call-token-packet-forgery-refuses\",\"path\":\"/Users/sto/workspace/datomworld-h31/test/yang/clojure_test.clj\",\"output_mode\":\"content\",\"-A\":100,\"-B\":10,\"head_limit\":140}"}},{"type":"function","id":"tool_Mj4I15z6VD0CdclgmI7uOjq4","function":{"name":"Read","arguments":"{\"path\":\"/Users/sto/workspace/datomworld-h31/src/cljc/yang/clojure.cljc\",\"line_offset\":2160,\"n_lines\":100}"}},{"type":"function","id":"tool_tfVXMjUjmQ4PK8whyHQslyjh","function":{"name":"Bash","arguments":"{\"command\":\"git show --format=fuller --stat 358e2f1b\",\"cwd\":\"/Users/sto/workspace/datomworld-h31\"}"}}]}
+{"role":"tool","tool_call_id":"tool_dN64XJjWgL3nEjdDKI2glFqx","content":"## hardening3-h3-1...origin/hardening3-h3-1\n?? BRIEF-h3-1-fix.md\n?? BRIEF-h3-1.md\n?? REVIEW-d2.diff\n?? REVIEW-h3-1-fix.diff\n358e2f1b2 (HEAD -> hardening3-h3-1, origin/hardening3-h3-1) fix(yang.clojure): D2 revise — forged vectors refuse, authenticity and assoc branches restored, exact counts recorded\n4ca4f23f8 fix(yang.clojure): D2 token-packet lane — the packet operand is a node; one sibling frame under the machine-data bound\n0dc542894 fix(yang.clojure): the intra-unit call lane — both blocked kernel fixtures complete inside the 2M budget\n src/cljc/yang/clojure.cljc | 41 ++++++++++++++++++++++++++++-------------\n test/yang/clojure_test.clj | 15 +++++++++++++++\n 2 files changed, 43 insertions(+), 13 deletions(-)\n"}
+diff --git a/src/cljc/yang/clojure.cljc b/src/cljc/yang/clojure.cljc
+index f9c6f01f..cb45ff9e 100644
+--- a/src/cljc/yang/clojure.cljc
++++ b/src/cljc/yang/clojure.cljc
+@@ -1099,7 +1099,12 @@
+                           (u/app (u/v 'data/nth) (u/v invocation) (u/lit 0))
+                           (u/v 'dsg__call_token))
+                    (u/app (u/v body) (u/app (u/v 'data/nth) (u/v invocation) (u/lit 1)))
+-                   (u/app (u/v body) (u/v invocation)))
++                   ;; a vector without the compiler-held token is NOT the
++                   ;; record path: applying the body here would hand every
++                   ;; forged vector the private lane. Refuse explicitly.
++                   (u/lit [:yin.k/error
++                           {:yin.k/message "Invocation is neither an authenticated packet nor an invocation record"
++                            :yin.k/data {}}]))
+                  (u/if-node
+                    (u/app (u/v 'dsg__equal)
+                           (u/app (u/v 'dsg__get) (u/v invocation)
+@@ -2171,10 +2176,12 @@
+                                     (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
+                                           dsg__witness (dsg__get dsg__candidate :clj/admission)]
+                                       (if (data/callable? dsg__entry)
+-                                        (dsg__equal
+-                                          dsg__witness
+-                                          (dsg__make_admission
+-                                            (dsg__assoc dsg__candidate :clj/admission nil)))
++                                        (if (data/callable? dsg__witness)
++                                          (dsg__equal
++                                            dsg__witness
++                                            (dsg__make_admission
++                                              (dsg__assoc dsg__candidate :clj/admission nil)))
++                                          false)
+                                         false))
+                                     false)))
+                              ;; The intra-unit dispatcher: resolve the unit's public entry,
+@@ -2234,15 +2241,23 @@
+                                       nil)))
+                                (u/sexp->uast '(fn [m k] (get m k))))
+                              (u/sexp->uast '(fn [a b] (data/content= a b)))
+-                             (u/sexp->uast
+-                               '(fn [m k v k2 v2 k3 v3]
+-                                  (let [one (conj m (conj [] k v))]
++                             (if (contains? (::defined env) 'assoc)
++                               (u/sexp->uast
++                                 '(fn [m k v k2 v2 k3 v3]
++                                    (let [one (conj m (conj [] k v))]
++                                      (if (data/content= k2 nil)
++                                        one
++                                        (let [two (conj one (conj [] k2 v2))]
++                                          (if (data/content= k3 nil)
++                                            two
++                                            (conj two (conj [] k3 v3))))))))
++                               (u/sexp->uast
++                                 '(fn [m k v k2 v2 k3 v3]
+                                     (if (data/content= k2 nil)
+-                                      one
+-                                      (let [two (conj one (conj [] k2 v2))]
+-                                        (if (data/content= k3 nil)
+-                                          two
+-                                          (conj two (conj [] k3 v3))))))))
++                                      (assoc m k v)
++                                      (if (data/content= k3 nil)
++                                        (assoc m k v k2 v2)
++                                        (assoc m k v k2 v2 k3 v3))))))
+                              (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
+          (outcomes? env) u/mark-tails)))))
+ 
+diff --git a/test/yang/clojure_test.clj b/test/yang/clojure_test.clj
+index ecd6e241..e35a1b58 100644
+--- a/test/yang/clojure_test.clj
++++ b/test/yang/clojure_test.clj
+@@ -1349,6 +1349,21 @@
+                          (yang.call/eligible? f)
+                          (f 21)]]))))
+ 
++(deftest test-common-call-token-packet-forgery-refuses
++  (testing "a forged vector never reaches a descriptor's private body: the
++            entry's packet dispatch authenticates on the compiler-held token
++            and every forged shape refuses without applying the body"
++    (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]]
++      (let [form (list 'let '[raw (yang.call/entry target)]
++                       (list 'raw (list 'quote forged)))
++            payload (run-outcome
++                     ['(defn target
++                         [x]
++                         :private-body-entered)
++                      form])]
++        (is (not= :private-body-entered payload)
++            (str "the body ran for forged " (pr-str forged)))))))
++
+ 
+ (deftest test-common-call-invalid-continuation-refuses
+   (let [tamper (fn [forms]
+{"role":"tool","tool_call_id":"tool_Tajvkbr3jeSBzYXK9pTsKbXf","content":"diff --git a/src/cljc/yang/clojure.cljc b/src/cljc/yang/clojure.cljc\nindex f9c6f01f..cb45ff9e 100644\n--- a/src/cljc/yang/clojure.cljc\n+++ b/src/cljc/yang/clojure.cljc\n@@ -1099,7 +1099,12 @@\n                           (u/app (u/v 'data/nth) (u/v invocation) (u/lit 0))\n                           (u/v 'dsg__call_token))\n                    (u/app (u/v body) (u/app (u/v 'data/nth) (u/v invocation) (u/lit 1)))\n-                   (u/app (u/v body) (u/v invocation)))\n+                   ;; a vector without the compiler-held token is NOT the\n+                   ;; record path: applying the body here would hand every\n+                   ;; forged vector the private lane. Refuse explicitly.\n+                   (u/lit [:yin.k/error\n+                           {:yin.k/message \"Invocation is neither an authenticated packet nor an invocation record\"\n+                            :yin.k/data {}}]))\n                  (u/if-node\n                    (u/app (u/v 'dsg__equal)\n                           (u/app (u/v 'dsg__get) (u/v invocation)\n@@ -2171,10 +2176,12 @@\n                                     (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)\n                                           dsg__witness (dsg__get dsg__candidate :clj/admission)]\n                                       (if (data/callable? dsg__entry)\n-                                        (dsg__equal\n-                                          dsg__witness\n-                                          (dsg__make_admission\n-                                            (dsg__assoc dsg__candidate :clj/admission nil)))\n+                                        (if (data/callable? dsg__witness)\n+                                          (dsg__equal\n+                                            dsg__witness\n+                                            (dsg__make_admission\n+                                              (dsg__assoc dsg__candidate :clj/admission nil)))\n+                                          false)\n                                         false))\n                                     false)))\n                              ;; The intra-unit dispatcher: resolve the unit's public entry,\n@@ -2234,15 +2241,23 @@\n                                       nil)))\n                                (u/sexp->uast '(fn [m k] (get m k))))\n                              (u/sexp->uast '(fn [a b] (data/content= a b)))\n-                             (u/sexp->uast\n-                               '(fn [m k v k2 v2 k3 v3]\n-                                  (let [one (conj m (conj [] k v))]\n+                             (if (contains? (::defined env) 'assoc)\n+                               (u/sexp->uast\n+                                 '(fn [m k v k2 v2 k3 v3]\n+                                    (let [one (conj m (conj [] k v))]\n+                                      (if (data/content= k2 nil)\n+                                        one\n+                                        (let [two (conj one (conj [] k2 v2))]\n+                                          (if (data/content= k3 nil)\n+                                            two\n+                                            (conj two (conj [] k3 v3))))))))\n+                               (u/sexp->uast\n+                                 '(fn [m k v k2 v2 k3 v3]\n                                     (if (data/content= k2 nil)\n-                                      one\n-                                      (let [two (conj one (conj [] k2 v2))]\n-                                        (if (data/content= k3 nil)\n-                                          two\n-                                          (conj two (conj [] k3 v3))))))))\n+                                      (assoc m k v)\n+                                      (if (data/content= k3 nil)\n+                                        (assoc m k v k2 v2)\n+                                        (assoc m k v k2 v2 k3 v3))))))\n                              (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))\n          (outcomes? env) u/mark-tails)))))\n \ndiff --git a/test/yang/clojure_test.clj b/test/yang/clojure_test.clj\nindex ecd6e241..e35a1b58 100644\n--- a/test/yang/clojure_test.clj\n+++ b/test/yang/clojure_test.clj\n@@ -1349,6 +1349,21 @@\n                          (yang.call/eligible? f)\n                          (f 21)]]))))\n \n+(deftest test-common-call-token-packet-forgery-refuses\n+  (testing \"a forged vector never reaches a descriptor's private body: the\n+            entry's packet dispatch authenticates on the compiler-held token\n+            and every forged shape refuses without applying the body\"\n+    (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]]\n+      (let [form (list 'let '[raw (yang.call/entry target)]\n+                       (list 'raw (list 'quote forged)))\n+            payload (run-outcome\n+                     ['(defn target\n+                         [x]\n+                         :private-body-entered)\n+                      form])]\n+        (is (not= :private-body-entered payload)\n+            (str \"the body ran for forged \" (pr-str forged)))))))\n+\n \n (deftest test-common-call-invalid-continuation-refuses\n   (let [tamper (fn [forms]\n"}
+{"role":"tool","tool_call_id":"tool_dElJ2XUNhYCjJtxVvaIRvIMx","content":"1050\t(defn- outcome-node\n1051\t  [tag value]\n1052\t  (u/app (u/v 'conj) (u/app (u/v 'conj) (u/lit []) (u/lit tag)) value))\n1053\t\n1054\t\n1055\t(defn- call-entry\n1056\t  \"The unary public entry, closed over a private argument-vector body.\"\n1057\t  []\n1058\t  (let [body (symbol (str reserved-prefix \"body\"))\n1059\t        invocation (symbol (str reserved-prefix \"invocation\"))\n1060\t        outcome (symbol (str reserved-prefix \"entry_outcome\"))\n1061\t        positional (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/positional))\n1062\t        named (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/named))\n1063\t        raise (u/app (u/v 'dsg__get) (u/v invocation) (u/lit :yang.call/raise))\n1064\t        binding-error (outcome-node\n1065\t                        error-tag\n1066\t                        (u/app (u/v 'dsg__assoc) (u/lit {})\n1067\t                               (u/lit :yin.k/message)\n1068\t                               (u/lit \"Clojure functions do not accept named arguments\")\n1069\t                               (u/lit :yin.k/data)\n1070\t                               (u/app (u/v 'dsg__assoc) (u/lit {})\n1071\t                                      (u/lit :yang.call/named) named)))\n1072\t        entry-body (u/let1\n1073\t                     outcome\n1074\t                     (u/if-node (u/app (u/v 'dsg__empty) named)\n1075\t                                (u/app (u/v body) positional)\n1076\t                                binding-error)\n1077\t                     (u/if-node (u/app (u/v 'dsg__equal)\n1078\t                                       (u/app (u/v 'data/nth) (u/v outcome) (u/lit 0))\n1079\t                                       (u/lit ok-tag))\n1080\t                                (u/app (u/v 'data/nth) (u/v outcome) (u/lit 1))\n1081\t                                (u/app raise\n1082\t                                       (u/app (u/v 'yang.call/thrown)\n1083\t                                              (u/app (u/v 'data/nth)\n1084\t                                                     (u/v outcome) (u/lit 1))))))\n1085\t        ;; The private lane forwards the body's outcome in tail position.\n1086\t        ;; The public entry still converts outcomes to value/raise normally.\n1087\t        ;; The compiler's token packet - a two-element vector whose first\n1088\t        ;; element is the compiler-held token - selects the private tail\n1089\t        ;; lane on the SAME unary entry: no record unwrap, no map lookups.\n1090\t        ;; A guest cannot forge it: the token is compiler-held and the\n1091\t        ;; reserved-prefix regime refuses binding or shadowing it. Maps\n1092\t        ;; keep the ordinary record path. The vector guard is required:\n1093\t        ;; data/nth refuses non-vectors, and dsg__get reads vectors as\n1094\t        ;; nil whenever the program defines its own get.\n1095\t        packet (u/if-node\n1096\t                 (u/app (u/v 'data/vector?) (u/v invocation))\n1097\t                 (u/if-node\n1098\t                   (u/app (u/v 'dsg__equal)\n1099\t                          (u/app (u/v 'data/nth) (u/v invocation) (u/lit 0))\n1100\t                          (u/v 'dsg__call_token))\n1101\t                   (u/app (u/v body) (u/app (u/v 'data/nth) (u/v invocation) (u/lit 1)))\n1102\t                   ;; a vector without the compiler-held token is NOT the\n1103\t                   ;; record path: applying the body here would hand every\n1104\t                   ;; forged vector the private lane. Refuse explicitly.\n1105\t                   (u/lit [:yin.k/error\n1106\t                           {:yin.k/message \"Invocation is neither an authenticated packet nor an invocation record\"\n1107\t                            :yin.k/data {}}]))\n1108\t                 (u/if-node\n1109\t                   (u/app (u/v 'dsg__equal)\n1110\t                          (u/app (u/v 'dsg__get) (u/v invocation)\n1111\t                                 (u/lit :clj/outcome-token))\n1112\t                          (u/v 'dsg__call_token))\n1113\t                   (u/if-node (u/app (u/v 'dsg__empty) named)\n1114\t                              (u/app (u/v body) positional)\n1115\t                              binding-error)\n1116\t                   entry-body))\n1117\t        entry (u/lam [invocation] packet)]\n1118\t    (u/lam [body] entry)))\n1119\t\n1120\t\n1121\t(defn- admit-call-descriptor\n1122\t  \"Admit a descriptor constructed by trusted UAST/profile code. This is not\n1123\t   a source form: entry-spelled source maps never pass through this constructor.\"\n1124\t  [descriptor-ast tail?]\n1125\t  (let [descriptor-name 'dsg__descriptor\n1126\t        canonical (u/app (u/v 'dsg__assoc) descriptor-ast\n1127\t                         (u/lit :clj/admission) (u/lit nil))\n1128\t        ;; The factory closure captures the canonical descriptor and private\n1129\t        ;; token. Projection reconstructs and compares that opaque closure;\n1130\t        ;; it never applies a source-supplied predicate. An equal immutable\n1131\t        ;; reconstruction is the same value, not admission of different data.\n1132\t        witness (u/app (u/v 'dsg__make_admission) (u/v descriptor-name))\n1133\t        published (u/let1 descriptor-name canonical\n1134\t                          (u/app (u/v 'dsg__assoc) (u/v descriptor-name)"}
+{"role":"tool","tool_call_id":"tool_qo48Y2Di6MwbiG0QfXUbcMHJ","content":"test/yang/clojure_test.clj-1342-            (pr-str form)))))\ntest/yang/clojure_test.clj-1343-  (is (= [:yin.k/ok [false false true 21]]\ntest/yang/clojure_test.clj-1344-         (run-outcome '[(defn f\ntest/yang/clojure_test.clj-1345-                          [x]\ntest/yang/clojure_test.clj-1346-                          x)\ntest/yang/clojure_test.clj-1347-                        [(yang.call/eligible? {:yang.call/entry (yang.call/entry f)})\ntest/yang/clojure_test.clj-1348-                         (yang.call/eligible? (assoc f :extra :forged))\ntest/yang/clojure_test.clj-1349-                         (yang.call/eligible? f)\ntest/yang/clojure_test.clj-1350-                         (f 21)]]))))\ntest/yang/clojure_test.clj-1351-\ntest/yang/clojure_test.clj:1352:(deftest test-common-call-token-packet-forgery-refuses\ntest/yang/clojure_test.clj-1353-  (testing \"a forged vector never reaches a descriptor's private body: the\ntest/yang/clojure_test.clj-1354-            entry's packet dispatch authenticates on the compiler-held token\ntest/yang/clojure_test.clj-1355-            and every forged shape refuses without applying the body\"\ntest/yang/clojure_test.clj-1356-    (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]]\ntest/yang/clojure_test.clj-1357-      (let [form (list 'let '[raw (yang.call/entry target)]\ntest/yang/clojure_test.clj-1358-                       (list 'raw (list 'quote forged)))\ntest/yang/clojure_test.clj-1359-            payload (run-outcome\ntest/yang/clojure_test.clj-1360-                     ['(defn target\ntest/yang/clojure_test.clj-1361-                         [x]\ntest/yang/clojure_test.clj-1362-                         :private-body-entered)\ntest/yang/clojure_test.clj-1363-                      form])]\ntest/yang/clojure_test.clj-1364-        (is (not= :private-body-entered payload)\ntest/yang/clojure_test.clj-1365-            (str \"the body ran for forged \" (pr-str forged)))))))\ntest/yang/clojure_test.clj-1366-\ntest/yang/clojure_test.clj-1367-\ntest/yang/clojure_test.clj-1368-(deftest test-common-call-invalid-continuation-refuses\ntest/yang/clojure_test.clj-1369-  (let [tamper (fn [forms]\ntest/yang/clojure_test.clj-1370-                 (walk/postwalk\ntest/yang/clojure_test.clj-1371-                   (fn [node]\ntest/yang/clojure_test.clj-1372-                     (if (= node u/capture) (u/lit :invalid-continuation) node))\ntest/yang/clojure_test.clj-1373-                   (outcome-ast forms)))]\ntest/yang/clojure_test.clj-1374-    (doseq [run [walker-run semantic-run]]\ntest/yang/clojure_test.clj-1375-      (let [result (first (run (tamper '[(defn f\ntest/yang/clojure_test.clj-1376-                                           []\ntest/yang/clojure_test.clj-1377-                                           1)\ntest/yang/clojure_test.clj-1378-                                         (let [g f] (+ 1 (g)))])))]\ntest/yang/clojure_test.clj-1379-        (is (= :yin.k/error (first result)))\ntest/yang/clojure_test.clj-1380-        (is (= {:yang.call/reason :yang.call/invalid-invocation\ntest/yang/clojure_test.clj-1381-                :yang.call/data {:yang.call/reason :missing-raise-exit}}\ntest/yang/clojure_test.clj-1382-               (second result))))\ntest/yang/clojure_test.clj-1383-      (is (= [:yin.k/ok 2]\ntest/yang/clojure_test.clj-1384-             (first (run (tamper '[(defn f\ntest/yang/clojure_test.clj-1385-                                     []\ntest/yang/clojure_test.clj-1386-                                     1)\ntest/yang/clojure_test.clj-1387-                                   (+ 1 (f))]))))\ntest/yang/clojure_test.clj-1388-          \"statically intra-unit calls do not capture a bridge continuation\"))))\ntest/yang/clojure_test.clj-1389-\ntest/yang/clojure_test.clj-1390-\ntest/yang/clojure_test.clj-1391-(deftest test-common-call-rejects-named-arguments\ntest/yang/clojure_test.clj-1392-  (let [forms '[(defn f\ntest/yang/clojure_test.clj-1393-                  [x]\ntest/yang/clojure_test.clj-1394-                  x)\ntest/yang/clojure_test.clj-1395-                (let [condition (yang.call/invoke f [] [[\"x\" 1]] profile-raise)\ntest/yang/clojure_test.clj-1396-                      value (get condition :yang.call/value)]\ntest/yang/clojure_test.clj-1397-                  [(get condition :yang.call/reason)\ntest/yang/clojure_test.clj-1398-                   (get value :yin.k/message)\ntest/yang/clojure_test.clj-1399-                   (get (get value :yin.k/data) :yang.call/named)])]\ntest/yang/clojure_test.clj-1400-        raw-raise (fn [node]\ntest/yang/clojure_test.clj-1401-                    (if (= node (u/v 'profile-raise)) (u/v 'probe/note) node))\ntest/yang/clojure_test.clj-1402-        ast (walk/postwalk raw-raise (outcome-ast forms))\ntest/yang/clojure_test.clj-1403-        result (-> (tu/make-observer-session (tu/create-vm {:modules outcome-modules}))\ntest/yang/clojure_test.clj-1404-                   (tu/queue-ast! ast)\ntest/yang/clojure_test.clj-1405-                   tu/run-session\ntest/yang/clojure_test.clj-1406-                   :consumer\ntest/yang/clojure_test.clj-1407-                   vm/value)]\ntest/yang/clojure_test.clj-1408-    (is (= [:yin.k/ok\ntest/yang/clojure_test.clj-1409-            [:yang.call/thrown\ntest/yang/clojure_test.clj-1410-             \"Clojure functions do not accept named arguments\"\ntest/yang/clojure_test.clj-1411-             [[\"x\" 1]]]]\ntest/yang/clojure_test.clj-1412-           result))))\ntest/yang/clojure_test.clj-1413-\ntest/yang/clojure_test.clj-1414-\ntest/yang/clojure_test.clj-1415-(deftest test-outcome-safe-get\ntest/yang/clojure_test.clj-1416-  (let [forms '[(defn safe-get\ntest/yang/clojure_test.clj-1417-                  [coll key]\ntest/yang/clojure_test.clj-1418-                  (let [val (get coll key)]\ntest/yang/clojure_test.clj-1419-                    (if val val (throw (ex-info \"No such value in collection\" {:coll coll, :key key})))))]]\ntest/yang/clojure_test.clj-1420-    (is (= [:yin.k/ok 1] (run-outcome (conj forms '(safe-get {:a 1} :a)))))\ntest/yang/clojure_test.clj-1421-    (is (= [:yin.k/error {:yin.k/message \"No such value in collection\"\ntest/yang/clojure_test.clj-1422-                          :yin.k/data {:coll {:a 1}, :key :b}}]\ntest/yang/clojure_test.clj-1423-           (run-outcome (conj forms '(safe-get {:a 1} :b)))))))\ntest/yang/clojure_test.clj-1424-\ntest/yang/clojure_test.clj-1425-\ntest/yang/clojure_test.clj-1426-(deftest test-outcome-nested-call-operand\ntest/yang/clojure_test.clj-1427-  (let [defs '[(defn g\ntest/yang/clojure_test.clj-1428-                 [x]\ntest/yang/clojure_test.clj-1429-                 (if x x (throw (ex-info \"g failed\" {:x x}))))\ntest/yang/clojure_test.clj-1430-               (defn h\ntest/yang/clojure_test.clj-1431-                 [x]\ntest/yang/clojure_test.clj-1432-                 x)]\ntest/yang/clojure_test.clj-1433-        failed [:yin.k/error {:yin.k/message \"g failed\", :yin.k/data {:x nil}}]]\ntest/yang/clojure_test.clj-1434-    (testing \"an error in an operand of a nested call ends the caller\"\ntest/yang/clojure_test.clj-1435-      (is (= failed (run-outcome (into defs '[(defn f\ntest/yang/clojure_test.clj-1436-                                                [x]\ntest/yang/clojure_test.clj-1437-                                                (+ 1 (g x))) (f nil)]))))\ntest/yang/clojure_test.clj-1438-      (is (= [:yin.k/ok 6] (run-outcome (into defs '[(defn f\ntest/yang/clojure_test.clj-1439-                                                       [x]\ntest/yang/clojure_test.clj-1440-                                                       (+ 1 (g x))) (f 5)]))))\ntest/yang/clojure_test.clj-1441-      (is (= failed (run-outcome (into defs '[(defn f\ntest/yang/clojure_test.clj-1442-                                                [x]\ntest/yang/clojure_test.clj-1443-                                                (h (h (g x)))) (f nil)])))\ntest/yang/clojure_test.clj-1444-          \"through two enclosing calls\"))\ntest/yang/clojure_test.clj-1445-    (testing \"operands evaluate left to right and stop at the first failure\"\ntest/yang/clojure_test.clj-1446-      (is (= [failed [:a]]\ntest/yang/clojure_test.clj-1447-             [(run-outcome (into defs '[(defn f\ntest/yang/clojure_test.clj-1448-                                          [x]\ntest/yang/clojure_test.clj-1449-                                          [(probe/note :a) (g x) (probe/note :b)])\ntest/yang/clojure_test.clj-1450-                                        (f nil)]))\ntest/yang/clojure_test.clj-1451-              @effect-log])))))\ntest/yang/clojure_test.clj-1452-"}
+{"role":"tool","tool_call_id":"tool_Mj4I15z6VD0CdclgmI7uOjq4","content":"2160\t                     (cond-> {:type     :application\n2161\t                              :operator {:type :lambda, :params ['_]\n2162\t                                         :body (go rest-forms macro-env)}\n2163\t                              :operands [(discard-result\n2164\t                                           (compile-form head false\n2165\t                                                         (assoc env ::top-level true) macro-env))]}\n2166\t                       tail? (assoc :tail? true))))))]\n2167\t       (cond->> (go forms initial-macro-env)\n2168\t         ;; The two sibling closures share one frame: separate bindings would\n2169\t         ;; retain one extra helper environment in every closure a guest\n2170\t         ;; captures (the machine-data validation bound notices).\n2171\t         (outcomes? env) (#(u/app\n2172\t                             (u/lam '[dsg__admitted? dsg__intra_call] %)\n2173\t                             (u/sexp->uast\n2174\t                               '(fn [dsg__candidate]\n2175\t                                  (if (data/map? dsg__candidate)\n2176\t                                    (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)\n2177\t                                          dsg__witness (dsg__get dsg__candidate :clj/admission)]\n2178\t                                      (if (data/callable? dsg__entry)\n2179\t                                        (if (data/callable? dsg__witness)\n2180\t                                          (dsg__equal\n2181\t                                            dsg__witness\n2182\t                                            (dsg__make_admission\n2183\t                                              (dsg__assoc dsg__candidate :clj/admission nil)))\n2184\t                                          false)\n2185\t                                        false))\n2186\t                                    false)))\n2187\t                             ;; The intra-unit dispatcher: resolve the unit's public entry,\n2188\t                             ;; apply it with the compiler's token packet [token args] - one\n2189\t                             ;; variadic conj and one application, no record construction.\n2190\t                             ;; Non-map callees refuse.\n2191\t                             (u/sexp->uast\n2192\t                               (list 'fn '[dsg__callee dsg__args]\n2193\t                                     (list 'if '(data/map? dsg__callee)\n2194\t                                           (list (list (if (contains? (::defined env) 'get)\n2195\t                                                         'dsg__get\n2196\t                                                         'get)\n2197\t                                                       'dsg__callee\n2198\t                                                       :yang.call/entry)\n2199\t                                                 (list 'conj '[]\n2200\t                                                       'dsg__call_token\n2201\t                                                       'dsg__args))\n2202\t                                           '(conj (conj [] :yin.k/error)\n2203\t                                                  (yang.call/condition\n2204\t                                                    :yang.call/not-callable\n2205\t                                                    (dsg__assoc {} :yang.call/callee dsg__callee))))))))\n2206\t         (outcomes? env) (u/let1 'dsg__make_entry (call-entry))\n2207\t         (outcomes? env) (u/let1\n2208\t                           'dsg__make_admission\n2209\t                           (u/sexp->uast\n2210\t                             '(fn [dsg__descriptor]\n2211\t                                (fn [dsg__candidate]\n2212\t                                  (if (data/callable? dsg__call_token)\n2213\t                                    (dsg__get dsg__descriptor :yang.call/entry)\n2214\t                                    nil)))))\n2215\t         (outcomes? env) (u/then\n2216\t                           (discard-result\n2217\t                             (u/app (u/lam '[get = assoc empty?] call/uast)\n2218\t                                    (u/v 'dsg__get) (u/v 'dsg__equal)\n2219\t                                    (u/v 'dsg__assoc) (u/v 'dsg__empty))))\n2220\t         (outcomes? env) (u/let1 'dsg__call_token (u/lam [] (u/lit nil)))\n2221\t         ;; Guest closures keep captured environments portable: binding host\n2222\t         ;; primitive values here would make UCF machine-data validation fail.\n2223\t         ;; These helpers cover generated map lookups/writes and comparisons;\n2224\t         ;; conj/vec are already protected by the convention's binder checks.\n2225\t         ;; Evaluate siblings outside each other's bindings to avoid retaining\n2226\t         ;; a chain of redundant helper environments.\n2227\t         (outcomes? env) (#(u/app\n2228\t                             (u/lam '[dsg__get dsg__equal dsg__assoc dsg__empty] %)\n2229\t                             (if (contains? (::defined env) 'get)\n2230\t                               (u/sexp->uast\n2231\t                                 '(fn [m k]\n2232\t                                    (if (data/map? m)\n2233\t                                      (let [find (fn [self entries]\n2234\t                                                   (if (data/content= 0 (data/count entries))\n2235\t                                                     nil\n2236\t                                                     (let [pair (data/nth entries 0)]\n2237\t                                                       (if (data/content= k (data/nth pair 0))\n2238\t                                                         (data/nth pair 1)\n2239\t                                                         (self self (data/subvec entries 1))))))]\n2240\t                                        (find find (vec m)))\n2241\t                                      nil)))\n2242\t                               (u/sexp->uast '(fn [m k] (get m k))))\n2243\t                             (u/sexp->uast '(fn [a b] (data/content= a b)))\n2244\t                             (if (contains? (::defined env) 'assoc)\n2245\t                               (u/sexp->uast\n2246\t                                 '(fn [m k v k2 v2 k3 v3]\n2247\t                                    (let [one (conj m (conj [] k v))]\n2248\t                                      (if (data/content= k2 nil)\n2249\t                                        one\n2250\t                                        (let [two (conj one (conj [] k2 v2))]\n2251\t                                          (if (data/content= k3 nil)\n2252\t                                            two\n2253\t                                            (conj two (conj [] k3 v3))))))))\n2254\t                               (u/sexp->uast\n2255\t                                 '(fn [m k v k2 v2 k3 v3]\n2256\t                                    (if (data/content= k2 nil)\n2257\t                                      (assoc m k v)\n2258\t                                      (if (data/content= k3 nil)\n2259\t                                        (assoc m k v k2 v2)"}
+commit 358e2f1b2b3c33b795890ab1977115df3be9cb8d
+Author:     Sonny To <son.c.to@gmail.com>
+AuthorDate: Tue Nov 3 06:08:33 2026 +0700
+Commit:     Sonny To <son.c.to@gmail.com>
+CommitDate: Tue Nov 3 06:08:33 2026 +0700
+
+    fix(yang.clojure): D2 revise — forged vectors refuse, authenticity and assoc branches restored, exact counts recorded
+    
+    The quality gate's four items, addressed: (1) the packet dispatch's
+    alternate branch no longer applies the private body to a forged vector -
+    it returns an explicit refusal outcome, so [42], [nil [42]], [], and
+    overlong vectors never reach the body; (2) adversarial regressions on
+    both evaluators: five forged shapes against a side-effecting marker body,
+    each asserted not to run it; (3) the dsg__witness callable? guard
+    restored (dropped in transit); (4) the native-assoc implementation of
+    dsg__assoc restored verbatim for programs that don't shadow assoc.
+    Exact instruction counts at the unchanged 2M budget: check-accepted
+    walker/semantic well under budget; check-assume-have-discharge walker
+    1,837,052 / semantic 1,002,469 - both complete inside 2M with headroom.
+    Focused gate: counts {pass 102, recorded-upstream-failure 2,
+    recorded-deviation 2, blocked 0}, exactly the by-design assertion
+    failing; forgery regressions 5/5 green; kondo 0/0.
+
+ src/cljc/yang/clojure.cljc | 41 ++++++++++++++++++++++++++++-------------
+ test/yang/clojure_test.clj | 15 +++++++++++++++
+ 2 files changed, 43 insertions(+), 13 deletions(-)
+{"role":"tool","tool_call_id":"tool_tfVXMjUjmQ4PK8whyHQslyjh","content":"commit 358e2f1b2b3c33b795890ab1977115df3be9cb8d\nAuthor:     Sonny To <son.c.to@gmail.com>\nAuthorDate: Tue Nov 3 06:08:33 2026 +0700\nCommit:     Sonny To <son.c.to@gmail.com>\nCommitDate: Tue Nov 3 06:08:33 2026 +0700\n\n    fix(yang.clojure): D2 revise — forged vectors refuse, authenticity and assoc branches restored, exact counts recorded\n    \n    The quality gate's four items, addressed: (1) the packet dispatch's\n    alternate branch no longer applies the private body to a forged vector -\n    it returns an explicit refusal outcome, so [42], [nil [42]], [], and\n    overlong vectors never reach the body; (2) adversarial regressions on\n    both evaluators: five forged shapes against a side-effecting marker body,\n    each asserted not to run it; (3) the dsg__witness callable? guard\n    restored (dropped in transit); (4) the native-assoc implementation of\n    dsg__assoc restored verbatim for programs that don't shadow assoc.\n    Exact instruction counts at the unchanged 2M budget: check-accepted\n    walker/semantic well under budget; check-assume-have-discharge walker\n    1,837,052 / semantic 1,002,469 - both complete inside 2M with headroom.\n    Focused gate: counts {pass 102, recorded-upstream-failure 2,\n    recorded-deviation 2, blocked 0}, exactly the by-design assertion\n    failing; forgery regressions 5/5 green; kondo 0/0.\n\n src/cljc/yang/clojure.cljc | 41 ++++++++++++++++++++++++++++-------------\n test/yang/clojure_test.clj | 15 +++++++++++++++\n 2 files changed, 43 insertions(+), 13 deletions(-)\n"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_4T6WGLuURcnZqteQFYzJbca1","function":{"name":"Read","arguments":"{\"path\":\"/Users/sto/workspace/datomworld-h31/test/yang/clojure_test.clj\",\"line_offset\":1100,\"n_lines\":80}"}}]}
+{"role":"tool","tool_call_id":"tool_4T6WGLuURcnZqteQFYzJbca1","content":"1100\t\n1101\t;; =============================================================================\n1102\t;; Slice 5: the outcome model\n1103\t;; =============================================================================\n1104\t\n1105\t(def ^:private effect-log (atom []))\n1106\t\n1107\t\n1108\t(def ^:private outcome-modules\n1109\t  (let [host (fn [name entries]\n1110\t               (fn [registry]\n1111\t                 (module/register-host-module\n1112\t                   registry name\n1113\t                   (into {} (map (fn [[op f _]] [op f])) entries)\n1114\t                   (into {} (map (fn [[op _ p]] [op p])) entries))))]\n1115\t    (-> av-modules\n1116\t        ((host 'portable\n1117\t               [['nth\n1118\t                 (yang/outcome-adapter data/refusal-message (get data/data-module 'nth))\n1119\t                 (get data/data-profiles 'nth)]]))\n1120\t        ((host 'probe\n1121\t               [['note\n1122\t                 (fn [x] (swap! effect-log conj x) x)\n1123\t                 (vm/primitive-profile 'note :pure [1] #{} :none)]])))))\n1124\t\n1125\t\n1126\t(def ^:private outcome-opts\n1127\t  {:convention :arg-vector, :outcomes true\n1128\t   :native (set (keys vm/primitives))\n1129\t   :adapters {'data/nth 'portable/nth}})\n1130\t\n1131\t\n1132\t(defn- outcome-ast\n1133\t  [forms]\n1134\t  (yang/compile-program forms true outcome-opts))\n1135\t\n1136\t\n1137\t(defn- run-outcome\n1138\t  \"The raw outcome the last form of `forms` returns.\"\n1139\t  [forms]\n1140\t  (reset! effect-log [])\n1141\t  (-> (tu/make-observer-session (tu/create-vm {:modules outcome-modules}))\n1142\t      (tu/queue-ast! (outcome-ast forms))\n1143\t      tu/run-session\n1144\t      :consumer\n1145\t      vm/value))\n1146\t\n1147\t\n1148\t(defn- run-profile-outcome\n1149\t  [forms]\n1150\t  (reset! effect-log [])\n1151\t  (let [ast (walk/postwalk\n1152\t              (fn [node]\n1153\t                (if (= node (u/v 'profile-raise)) (u/v 'probe/note) node))\n1154\t              (outcome-ast forms))]\n1155\t    (-> (tu/make-observer-session (tu/create-vm {:modules outcome-modules}))\n1156\t        (tu/queue-ast! ast)\n1157\t        tu/run-session\n1158\t        :consumer\n1159\t        vm/value)))\n1160\t\n1161\t\n1162\t(deftest test-outcome-success-and-throw\n1163\t  (is (= [:yin.k/ok 2] (run-outcome '[(defn f\n1164\t                                        [x]\n1165\t                                        (+ x 1)) (f 1)])))\n1166\t  (is (= [:yin.k/ok [:ok 1]] (run-outcome '[(defn f\n1167\t                                              [x]\n1168\t                                              [:ok x]) (f 1)]))\n1169\t      \"LaTTe's own [:ok ...] stays an ordinary value inside the payload\")\n1170\t  (is (= [:yin.k/error {:yin.k/message \"boom\", :yin.k/data {:x 1}}]\n1171\t         (run-outcome '[(defn f\n1172\t                          [x]\n1173\t                          (throw (ex-info \"boom\" {:x x}))) (f 1)])))\n1174\t  (testing \"an untaken throw branch leaves the success outcome\"\n1175\t    (is (= [:yin.k/ok :survived]\n1176\t           (run-outcome '[(defn f\n1177\t                            [x]\n1178\t                            (if x (throw (ex-info \"t\" {})) :survived))\n1179\t                          (f false)])))))"}
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing dao.await-test
+
+Testing dao.data.arrays-test
+
+Testing dao.data.btree.cursor-test
+
+Testing dao.data.btree.storage-read-test
+
+Testing dao.data.btree-async-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.data.sorted-user-type-test
+
+Testing dao.data-test
+
+Testing dao.gui.compiler-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.gui.runtime-test
+
+Testing dao.host.bytes-test
+
+Testing dao.host.conformance-test
+
+Testing dao.host.float-test
+
+Testing dao.host.gate-test
+
+Testing dao.host.hash-test
+
+Testing dao.host.text-test
+
+Testing dao.jing.cbor-conformance-test
+CONFORMANCE jvm cases=372 run=367 skipped=["coll/map-integer-width-duplicate" "coll/set-decimal-scale-collapse" "coll/set-signed-zero-collapse" "coll/set-vector-list-collapse" "num/js-unsafe-integer"]
+CONFORMANCE-DIGEST jvm refusal n=154 915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa
+CONFORMANCE-DIGEST jvm canonical n=208 8268b4d38ae11743dc6fc9f36191c7e68077c84f4abcbc2a7392aabff6c9c299
+
+Testing dao.jing.cbor-content-equality-test
+
+Testing dao.jing.cbor-fixtures-test
+
+Testing dao.jing.cbor-test
+SKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart
+
+Testing dao.jing.content.step-test
+
+Testing dao.jing.content-test
+
+Testing dao.jing.dht.facade-test
+
+Testing dao.jing.dht.kad-test
+
+Testing dao.jing.dht.socket-test
+
+Testing dao.jing.dht-test
+
+Testing dao.jing.file-test
+
+Testing dao.jing.hash-registry-contract-test
+
+Testing dao.jing.mem-test
+
+Testing dao.jing.stream-test
+
+Testing dao.jing-test
+
+Testing dao.lease-composition-test
+
+Testing dao.lease-test
+
+Testing dao.postgraphics.lowering-test
+
+Testing dao.postgraphics.math-test
+
+Testing dao.postgraphics.packing-test
+
+Testing dao.postgraphics.raster-test
+
+Testing dao.postgraphics.terminal-test
+
+Testing dao.pretty-test
+
+Testing dao.space.datomic-query-conformance-test
+
+Testing dao.space.dht-test
+
+Testing dao.space.index-numeric-test
+
+Testing dao.space.index-test
+
+Testing dao.space.positional-query-test
+
+Testing dao.space.published-read-test
+
+Testing dao.space.query.datomic-execution-test
+
+Testing dao.space.query.datomic-test
+
+Testing dao.space.query.execution-test
+
+Testing dao.space.query.published-bounded-test
+
+Testing dao.space.query-aggregates-test
+
+Testing dao.space.query-numeric-test
+
+Testing dao.space.query-rules-test
+
+Testing dao.space.query-test
+
+Testing dao.space.schema-test
+
+Testing dao.space.stigmergy-test
+
+Testing dao.space.store.fs-test
+
+Testing dao.space.transact-test
+
+Testing dao.space.transactor-test
+
+Testing dao.star.driver-test
+
+Testing dao.star.facts-test
+
+Testing dao.star.loopback-test
+
+Testing dao.star.peer-close-test
+
+Testing dao.star.r2-test
+
+Testing dao.star.r3-test
+
+Testing dao.star.r4-test
+
+Testing dao.star.r5-test
+
+Testing dao.star.router-test
+
+Testing dao.star.signals-test
+
+Testing dao.stream.apply-test
+
+Testing dao.stream.base64-test
+
+Testing dao.stream.cbor-test
+
+Testing dao.stream.chunks-test
+
+Testing dao.stream.codec-fixtures-test
+
+Testing dao.stream.codec-test
+
+Testing dao.stream.datagram.jvm-test
+
+Testing dao.stream.datagram-test
+
+Testing dao.stream.forward-test
+
+Testing dao.stream.http-test
+
+Testing dao.stream.journal.file-test
+{"role":"assistant","content":"The new test is not yet decisive: `run-outcome` uses only the walker, and its raw-closure call may be refused by admission before reaching packet dispatch. I’m checking the actual payload to distinguish those paths.","tool_calls":[{"type":"function","id":"tool_1zq60jW6C2FViDTUyKl8pOfE","function":{"name":"Bash","arguments":"{\"command\":\"clojure -M:test -e \\\"(require '[yang.clojure-test :as t]) (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]] (let [form (list 'let '[raw (yang.call/entry target)] (list 'raw (list 'quote forged)))] (prn forged (#'t/run-outcome ['(defn target [x] :private-body-entered) form]))))\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-h31\",\"timeout\":120}"}}]}
+{"role":"tool","tool_call_id":"tool_1zq60jW6C2FViDTUyKl8pOfE","content":"Loading initial Timbre config from: :default\n\nRunning tests in #{\"test\"}\nWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n\nTesting dao.await-test\n\nTesting dao.data.arrays-test\n\nTesting dao.data.btree.cursor-test\n\nTesting dao.data.btree.storage-read-test\n\nTesting dao.data.btree-async-test\n\nTesting dao.data.btree-durability-test\n\nTesting dao.data.btree-protocols-test\n\nTesting dao.data.btree-test\n\nTesting dao.data.btree-transients-test\n\nTesting dao.data.sorted-user-type-test\n\nTesting dao.data-test\n\nTesting dao.gui.compiler-test\n\nTesting dao.gui.event.arena-test\n\nTesting dao.gui.event.bind-test\n\"dao.gui.event output gone; dropping pending\" {:destination :gesture, :outcome :dao.stream/closed}\n\nTesting dao.gui.event.core-test\n\nTesting dao.gui.event.fixture-test\n\nTesting dao.gui.event.longpress-test\n\nTesting dao.gui.event.machine-test\n\nTesting dao.gui.event.pan-test\n\nTesting dao.gui.event.pointer-test\n\nTesting dao.gui.event.policy-test\n\nTesting dao.gui.event.terminal-test\n\nTesting dao.gui.event.transform-test\n\nTesting dao.gui.runtime-test\n\nTesting dao.host.bytes-test\n\nTesting dao.host.conformance-test\n\nTesting dao.host.float-test\n\nTesting dao.host.gate-test\n\nTesting dao.host.hash-test\n\nTesting dao.host.text-test\n\nTesting dao.jing.cbor-conformance-test\nCONFORMANCE jvm cases=372 run=367 skipped=[\"coll/map-integer-width-duplicate\" \"coll/set-decimal-scale-collapse\" \"coll/set-signed-zero-collapse\" \"coll/set-vector-list-collapse\" \"num/js-unsafe-integer\"]\nCONFORMANCE-DIGEST jvm refusal n=154 915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa\nCONFORMANCE-DIGEST jvm canonical n=208 8268b4d38ae11743dc6fc9f36191c7e68077c84f4abcbc2a7392aabff6c9c299\n\nTesting dao.jing.cbor-content-equality-test\n\nTesting dao.jing.cbor-fixtures-test\n\nTesting dao.jing.cbor-test\nSKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart\n\nTesting dao.jing.content.step-test\n\nTesting dao.jing.content-test\n\nTesting dao.jing.dht.facade-test\n\nTesting dao.jing.dht.kad-test\n\nTesting dao.jing.dht.socket-test\n\nTesting dao.jing.dht-test\n\nTesting dao.jing.file-test\n\nTesting dao.jing.hash-registry-contract-test\n\nTesting dao.jing.mem-test\n\nTesting dao.jing.stream-test\n\nTesting dao.jing-test\n\nTesting dao.lease-composition-test\n\nTesting dao.lease-test\n\nTesting dao.postgraphics.lowering-test\n\nTesting dao.postgraphics.math-test\n\nTesting dao.postgraphics.packing-test\n\nTesting dao.postgraphics.raster-test\n\nTesting dao.postgraphics.terminal-test\n\nTesting dao.pretty-test\n\nTesting dao.space.datomic-query-conformance-test\n\nTesting dao.space.dht-test\n\nTesting dao.space.index-numeric-test\n\nTesting dao.space.index-test\n\nTesting dao.space.positional-query-test\n\nTesting dao.space.published-read-test\n\nTesting dao.space.query.datomic-execution-test\n\nTesting dao.space.query.datomic-test\n\nTesting dao.space.query.execution-test\n\nTesting dao.space.query.published-bounded-test\n\nTesting dao.space.query-aggregates-test\n\nTesting dao.space.query-numeric-test\n\nTesting dao.space.query-rules-test\n\nTesting dao.space.query-test\n\nTesting dao.space.schema-test\n\nTesting dao.space.stigmergy-test\n\nTesting dao.space.store.fs-test\n\nTesting dao.space.transact-test\n\nTesting dao.space.transactor-test\n\nTesting dao.star.driver-test\n\nTesting dao.star.facts-test\n\nTesting dao.star.loopback-test\n\nTesting dao.star.peer-close-test\n\nTesting dao.star.r2-test\n\nTesting dao.star.r3-test\n\nTesting dao.star.r4-test\n\nTesting dao.star.r5-test\n\nTesting dao.star.router-test\n\nTesting dao.star.signals-test\n\nTesting dao.stream.apply-test\n\nTesting dao.stream.base64-test\n\nTesting dao.stream.cbor-test\n\nTesting dao.stream.chunks-test\n\nTesting dao.stream.codec-fixtures-test\n\nTesting dao.stream.codec-test\n\nTesting dao.stream.datagram.jvm-test\n\nTesting dao.stream.datagram-test\n\nTesting dao.stream.forward-test\n\nTesting dao.stream.http-test\n\nTesting dao.stream.journal.file-test\nCommand killed by timeout (120s)"}
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_yldhL4EFwvrPOI07qonq43ea","function":{"name":"Grep","arguments":"{\"pattern\":\":test|test-runner|cognitect\",\"path\":\"/Users/sto/workspace/datomworld-h31/deps.edn\",\"output_mode\":\"content\",\"-A\":20,\"-B\":3,\"head_limit\":80}"}}]}
+{"role":"tool","tool_call_id":"tool_yldhL4EFwvrPOI07qonq43ea","content":"deps.edn-1-{:deps {org.clojure/core.async {:mvn/version \"1.8.741\"}\ndeps.edn-2-        org.clojure/tools.reader {:mvn/version \"1.5.0\"}\ndeps.edn-3-        ring/ring {:mvn/version \"1.14.1\"}\ndeps.edn:4:        com.cognitect/transit-clj {:mvn/version \"1.0.333\"}\ndeps.edn-5-        org.replikativ/boring {:mvn/version \"0.1.30\"}\ndeps.edn-6-        com.datomic/peer {:mvn/version \"1.0.7364\"}\ndeps.edn-7-        org.postgresql/postgresql {:mvn/version \"42.7.3\"}\ndeps.edn-8-        org.clojure/data.json {:mvn/version \"2.5.0\"}\ndeps.edn-9-        http-kit/http-kit {:mvn/version \"2.8.0\"}\ndeps.edn-10-        org.jsoup/jsoup {:mvn/version \"1.18.3\"}\ndeps.edn-11-        instaparse/instaparse {:mvn/version \"1.5.0\"}\ndeps.edn-12-        ;; yang.python.antlr: the runtime the generated Python3 parser runs\ndeps.edn-13-        ;; on; pinned to the tool version in :antlr-gen (they are one release)\ndeps.edn-14-        org.antlr/antlr4-runtime {:mvn/version \"4.13.2\"}\ndeps.edn-15-        criterium/criterium {:mvn/version \"0.4.6\"}\ndeps.edn-16-        io.github.rctcwyvrn/blake3 {:mvn/version \"1.3\"}\ndeps.edn-17-        stigmergy/chp {:mvn/version \"0.1.0-SNAPSHOT\"\ndeps.edn-18-                       :exclusions [refactor-nrepl/refactor-nrepl]}}\ndeps.edn-19- :cljd/opts {}\ndeps.edn-20- ;; build/antlr/python3/classes: the generated Python3 parser, produced by\ndeps.edn-21- ;; `clj -M:antlr-gen` (antlr/python3/manifest.edn); absent until generated\ndeps.edn-22- :paths [\"src/clj\" \"src/cljc\" \"src/cljs\" \"src/cljd\"\ndeps.edn-23-         \"build/antlr/python3/classes\" \"build/antlr/php/classes\"\ndeps.edn-24-         \"build/antlr/typescript/classes\"]\n--\ndeps.edn-28-                           :extra-deps {persistent-sorted-set/persistent-sorted-set\ndeps.edn-29-                                        {:mvn/version \"0.3.0\"}}\ndeps.edn-30-                           :main-opts [\"-m\" \"btree-bench\"]}\ndeps.edn:31:           :test {:extra-paths [\"test\"]\ndeps.edn:32:                  :extra-deps {io.github.cognitect-labs/test-runner\ndeps.edn-33-                               {:git/tag \"v0.5.1\" :git/sha \"dfb30dd\"}\ndeps.edn-34-                               ;; latte-kernel: the LaTTe proof assistant's kernel,\ndeps.edn-35-                               ;; the differential oracle for the yang.clojure gap\ndeps.edn-36-                               ;; program (pinned; MIT; dependency-free)\ndeps.edn-37-                               latte-kernel/latte-kernel\ndeps.edn-38-                               {:git/url \"https://github.com/latte-central/latte-kernel\"\ndeps.edn-39-                                :git/sha \"86fca0d1d054af005cb37395eae04500d45e6279\"}}\ndeps.edn-40-                  ;; The guest recursion limit allows depth that needs more than the\ndeps.edn-41-                  ;; JVM's platform default thread stack (1024 KB on Linux, 2048 KB on\ndeps.edn-42-                  ;; macOS): under 1 MB the guard loses to a JVM StackOverflowError\ndeps.edn-43-                  ;; before it can raise Python's RecursionError, so the same tests\ndeps.edn-44-                  ;; pass on macOS and fail on Linux. 4 MB is twice the measured\ndeps.edn-45-                  ;; macOS-default minimum, leaving headroom as the prelude grows.\ndeps.edn-46-                  ;; Evidence: docs/agents/known-gaps.md (the recursion rows).\ndeps.edn-47-                  ;; merged stack policy: -Xss64m supersedes the earlier -Xss4m —\ndeps.edn-48-                  ;; deep assertion payloads (the PHPT selection diagnostics and\ndeps.edn-49-                  ;; the conformance compositions) overflow smaller stacks in\ndeps.edn-50-                  ;; clojure.test's printer on shiva (verified green at -Xss64m;\ndeps.edn-51-                  ;; the 4m minimum for the prelude recursion rows still holds)\ndeps.edn-52-                  :jvm-opts [\"-Xss64m\"]\ndeps.edn:53:                  :main-opts [\"-m\" \"cognitect.test-runner\"]\ndeps.edn:54:                  :exec-fn cognitect.test-runner.api/test}\ndeps.edn-55-           :nREPL {:extra-paths [\"test\"]\ndeps.edn-56-                   :extra-deps {nrepl/nrepl {:mvn/version \"1.0.0\"}\ndeps.edn-57-                                cider/cider-nrepl {:mvn/version \"0.58.0\"}}\ndeps.edn-58-                   :main-opts [\"-m\" \"nrepl.cmdline\" \"--middleware\" \"[cider.nrepl/cider-middleware]\"]}\ndeps.edn-59-           :cljs {:extra-paths [\"test\" \"src/dev\" \"build/antlr/python3/js\"]\ndeps.edn-60-                  :extra-deps {thheller/shadow-cljs {:mvn/version \"3.3.5\"}\ndeps.edn-61-                               reagent/reagent {:mvn/version \"2.0.1\"}\ndeps.edn:62:                               com.cognitect/transit-cljs {:mvn/version \"0.8.280\"}}}\ndeps.edn-63-           :dev {:extra-paths [\"src/dev\"]\ndeps.edn-64-                 :extra-deps {thheller/shadow-cljs {:mvn/version \"3.3.5\"}\ndeps.edn-65-                              cider/cider-nrepl {:mvn/version \"0.58.0\"}\ndeps.edn-66-                              reagent/reagent {:mvn/version \"2.0.1\"}\ndeps.edn:67:                              com.cognitect/transit-cljs {:mvn/version \"0.8.280\"}\ndeps.edn-68-                              ;; benchmark baseline + psset-fixtures\ndeps.edn-69-                              ;; generator only; production uses\ndeps.edn-70-                              ;; dao.data.btree\ndeps.edn-71-                              persistent-sorted-set/persistent-sorted-set\ndeps.edn-72-                              {:mvn/version \"0.3.0\"}}\ndeps.edn-73-                 :jvm-opts [\"-Dconfig=config.clj\"]}\ndeps.edn-74-           ;; The one ClojureDart pin. Compose it with the build aliases:\ndeps.edn-75-           ;; clj -M:clojuredart:cljd ..., clj -M:clojuredart:cljd-yin-repl-build ...\ndeps.edn-76-           :clojuredart {:extra-deps {sonwh98/clojuredart\ndeps.edn-77-                                      {:git/url \"https://github.com/sonwh98/ClojureDart.git\"\ndeps.edn-78-                                       :sha \"7d00ee2aa7fa9d990581e78ebc4a66b93cb70a31\"}\ndeps.edn-79-                                      }}\ndeps.edn-80-           :cljd {:extra-paths [\"test\"]\ndeps.edn-81-                  :main-opts [\"-m\" \"cljd.build\"]\ndeps.edn-82-                  :cljd/opts {:kind :flutter :main datomworld.demo.main}}\nResults truncated to 80 lines (total: 140). Use offset=80 to see more."}
+DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
+DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
+WARNING: Use of :main-opts with -A is deprecated. Use -M instead.
+WARNING: Implicit use of clojure.main with options is deprecated, use -M -e (require '[yang.clojure-test :as t]) (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]] (let [form (list 'let '[raw (yang.call/entry target)] (list 'raw (list 'quote forged)))] (prn forged (#'t/run-outcome ['(defn target [x] :private-body-entered) form]))))
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing dao.await-test
+
+Testing dao.data.arrays-test
+
+Testing dao.data.btree.cursor-test
+
+Testing dao.data.btree.storage-read-test
+
+Testing dao.data.btree-async-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.data.sorted-user-type-test
+
+Testing dao.data-test
+
+Testing dao.gui.compiler-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.gui.runtime-test
+
+Testing dao.host.bytes-test
+
+Testing dao.host.conformance-test
+
+Testing dao.host.float-test
+
+Testing dao.host.gate-test
+
+Testing dao.host.hash-test
+
+Testing dao.host.text-test
+
+Testing dao.jing.cbor-conformance-test
+CONFORMANCE jvm cases=372 run=367 skipped=["coll/map-integer-width-duplicate" "coll/set-decimal-scale-collapse" "coll/set-signed-zero-collapse" "coll/set-vector-list-collapse" "num/js-unsafe-integer"]
+CONFORMANCE-DIGEST jvm refusal n=154 915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa
+CONFORMANCE-DIGEST jvm canonical n=208 8268b4d38ae11743dc6fc9f36191c7e68077c84f4abcbc2a7392aabff6c9c299
+
+Testing dao.jing.cbor-content-equality-test
+
+Testing dao.jing.cbor-fixtures-test
+
+Testing dao.jing.cbor-test
+SKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart
+
+Testing dao.jing.content.step-test
+
+Testing dao.jing.content-test
+
+Testing dao.jing.dht.facade-test
+
+Testing dao.jing.dht.kad-test
+
+Testing dao.jing.dht.socket-test
+
+Testing dao.jing.dht-test
+
+Testing dao.jing.file-test
+
+Testing dao.jing.hash-registry-contract-test
+
+Testing dao.jing.mem-test
+
+Testing dao.jing.stream-test
+
+Testing dao.jing-test
+
+Testing dao.lease-composition-test
+
+Testing dao.lease-test
+
+Testing dao.postgraphics.lowering-test
+
+Testing dao.postgraphics.math-test
+
+Testing dao.postgraphics.packing-test
+
+Testing dao.postgraphics.raster-test
+
+Testing dao.postgraphics.terminal-test
+
+Testing dao.pretty-test
+
+Testing dao.space.datomic-query-conformance-test
+
+Testing dao.space.dht-test
+
+Testing dao.space.index-numeric-test
+
+Testing dao.space.index-test
+
+Testing dao.space.positional-query-test
+
+Testing dao.space.published-read-test
+
+Testing dao.space.query.datomic-execution-test
+
+Testing dao.space.query.datomic-test
+
+Testing dao.space.query.execution-test
+
+Testing dao.space.query.published-bounded-test
+
+Testing dao.space.query-aggregates-test
+
+Testing dao.space.query-numeric-test
+
+Testing dao.space.query-rules-test
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_uuwYQECLvPXHHzmEDFf4xHbU","function":{"name":"Bash","arguments":"{\"command\":\"clojure -A:test -e \\\"(require '[yang.clojure-test :as t]) (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]] (let [form (list 'let '[raw (yang.call/entry target)] (list 'raw (list 'quote forged)))] (prn forged (#'t/run-outcome ['(defn target [x] :private-body-entered) form]))))\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-h31\",\"timeout\":120}"}}]}
+{"role":"tool","tool_call_id":"tool_uuwYQECLvPXHHzmEDFf4xHbU","content":"DEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)\nDEPRECATED: Libs must be qualified, change codox => codox/codox (/Users/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)\nWARNING: Use of :main-opts with -A is deprecated. Use -M instead.\nWARNING: Implicit use of clojure.main with options is deprecated, use -M -e (require '[yang.clojure-test :as t]) (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]] (let [form (list 'let '[raw (yang.call/entry target)] (list 'raw (list 'quote forged)))] (prn forged (#'t/run-outcome ['(defn target [x] :private-body-entered) form]))))\nLoading initial Timbre config from: :default\n\nRunning tests in #{\"test\"}\nWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n\nTesting dao.await-test\n\nTesting dao.data.arrays-test\n\nTesting dao.data.btree.cursor-test\n\nTesting dao.data.btree.storage-read-test\n\nTesting dao.data.btree-async-test\n\nTesting dao.data.btree-durability-test\n\nTesting dao.data.btree-protocols-test\n\nTesting dao.data.btree-test\n\nTesting dao.data.btree-transients-test\n\nTesting dao.data.sorted-user-type-test\n\nTesting dao.data-test\n\nTesting dao.gui.compiler-test\n\nTesting dao.gui.event.arena-test\n\nTesting dao.gui.event.bind-test\n\"dao.gui.event output gone; dropping pending\" {:destination :gesture, :outcome :dao.stream/closed}\n\nTesting dao.gui.event.core-test\n\nTesting dao.gui.event.fixture-test\n\nTesting dao.gui.event.longpress-test\n\nTesting dao.gui.event.machine-test\n\nTesting dao.gui.event.pan-test\n\nTesting dao.gui.event.pointer-test\n\nTesting dao.gui.event.policy-test\n\nTesting dao.gui.event.terminal-test\n\nTesting dao.gui.event.transform-test\n\nTesting dao.gui.runtime-test\n\nTesting dao.host.bytes-test\n\nTesting dao.host.conformance-test\n\nTesting dao.host.float-test\n\nTesting dao.host.gate-test\n\nTesting dao.host.hash-test\n\nTesting dao.host.text-test\n\nTesting dao.jing.cbor-conformance-test\nCONFORMANCE jvm cases=372 run=367 skipped=[\"coll/map-integer-width-duplicate\" \"coll/set-decimal-scale-collapse\" \"coll/set-signed-zero-collapse\" \"coll/set-vector-list-collapse\" \"num/js-unsafe-integer\"]\nCONFORMANCE-DIGEST jvm refusal n=154 915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa\nCONFORMANCE-DIGEST jvm canonical n=208 8268b4d38ae11743dc6fc9f36191c7e68077c84f4abcbc2a7392aabff6c9c299\n\nTesting dao.jing.cbor-content-equality-test\n\nTesting dao.jing.cbor-fixtures-test\n\nTesting dao.jing.cbor-test\nSKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)\nSKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart\n\nTesting dao.jing.content.step-test\n\nTesting dao.jing.content-test\n\nTesting dao.jing.dht.facade-test\n\nTesting dao.jing.dht.kad-test\n\nTesting dao.jing.dht.socket-test\n\nTesting dao.jing.dht-test\n\nTesting dao.jing.file-test\n\nTesting dao.jing.hash-registry-contract-test\n\nTesting dao.jing.mem-test\n\nTesting dao.jing.stream-test\n\nTesting dao.jing-test\n\nTesting dao.lease-composition-test\n\nTesting dao.lease-test\n\nTesting dao.postgraphics.lowering-test\n\nTesting dao.postgraphics.math-test\n\nTesting dao.postgraphics.packing-test\n\nTesting dao.postgraphics.raster-test\n\nTesting dao.postgraphics.terminal-test\n\nTesting dao.pretty-test\n\nTesting dao.space.datomic-query-conformance-test\n\nTesting dao.space.dht-test\n\nTesting dao.space.index-numeric-test\n\nTesting dao.space.index-test\n\nTesting dao.space.positional-query-test\n\nTesting dao.space.published-read-test\n\nTesting dao.space.query.datomic-execution-test\n\nTesting dao.space.query.datomic-test\n\nTesting dao.space.query.execution-test\n\nTesting dao.space.query.published-bounded-test\n\nTesting dao.space.query-aggregates-test\n\nTesting dao.space.query-numeric-test\n\nTesting dao.space.query-rules-test\nCommand killed by timeout (120s)"}
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+42 [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]
+[42] [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]
+[nil [42]] [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]
+[] [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]
+[a b c d] [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]
+{"role":"assistant","tool_calls":[{"type":"function","id":"tool_h1oGx2azNVP9Ts2pVUcgrmK3","function":{"name":"Bash","arguments":"{\"command\":\"java -Xss64m -cp \\\"$(clojure -Spath -A:test)\\\" clojure.main -e \\\"(require '[yang.clojure-test :as t]) (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]] (let [form (list 'let '[raw (yang.call/entry target)] (list 'raw (list 'quote forged)))] (prn forged (#'t/run-outcome ['(defn target [x] :private-body-entered) form]))))\\\"\",\"cwd\":\"/Users/sto/workspace/datomworld-h31\",\"timeout\":120}"}}]}
+{"role":"tool","tool_call_id":"tool_h1oGx2azNVP9Ts2pVUcgrmK3","content":"Loading initial Timbre config from: :default\nWARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load\n42 [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]\n[42] [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]\n[nil [42]] [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]\n[] [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]\n[a b c d] [:yin.k/error #:yang.call{:reason :yang.call/not-callable, :data #:yang.call{:callee {:type :closure}}}]\n"}
+?? BRIEF-h3-1-fix.md
+?? BRIEF-h3-1.md
+?? REVIEW-d2.diff
+?? REVIEW-h3-1-fix.diff
+{"role":"assistant","content":"The actual payloads confirm the new regression never reaches packet dispatch: every case fails earlier with `:yang.call/not-callable` on the raw closure. The production branch is fixed, but the required adversarial proof is still vacuous.","tool_calls":[{"type":"function","id":"tool_Pwpe3RyeNPv0Xbc0X3JUfj1I","function":{"name":"Bash","arguments":"{\"command\":\"git status --short\",\"cwd\":\"/Users/sto/workspace/datomworld-h31\"}"}}]}
+{"role":"tool","tool_call_id":"tool_Pwpe3RyeNPv0Xbc0X3JUfj1I","content":"?? BRIEF-h3-1-fix.md\n?? BRIEF-h3-1.md\n?? REVIEW-d2.diff\n?? REVIEW-h3-1-fix.diff\n"}
+{"role":"assistant","content":"## Verdict: **REJECT — the implementation is repaired, but its adversarial regression is vacuous**\n\n### P1: the test refuses before reaching packet dispatch\n\n`test-common-call-token-packet-forgery-refuses` calls the extracted raw entry through ordinary source lowering (`test/yang/clojure_test.clj:1356-1364`). Dynamic admission rejects that raw closure before the entry executes.\n\nI ran the five forms and every one returned:\n\n```clojure\n[:yin.k/error\n {:yang.call/reason :yang.call/not-callable\n  :yang.call/data {:yang.call/callee {:type :closure}}}]\n```\n\nTherefore these tests would also pass against the rejected implementation whose forged-vector alternate applied the body.\n\nTwo further test defects:\n\n- `run-outcome` uses only `tu/create-vm`, i.e. the walker (`test/yang/clojure_test.clj:1137-1145`); it does not test both evaluators.\n- `(not= :private-body-entered payload)` is too weak: a successful body invocation would ordinarily be wrapped as `[:yin.k/ok :private-body-entered]`, which also satisfies the assertion.\n\nConstruct a **direct UAST application** of the extracted entry, run that same AST through both `walker-run` and `semantic-run`, and assert:\n\n- an error outcome, not success;\n- the body’s observable marker never occurs;\n- ideally the exact refusal for nonempty forged vectors.\n\nUsing `probe/note` in the body and checking `effect-log` would prove non-entry directly. The existing intra-unit tests already exercise the authenticated positive path.\n\n### Confirmed repaired\n\n- The production forged-vector alternate now returns an error and no longer applies `body` (`src/cljc/yang/clojure.cljc:1095-1116`).\n- The `dsg__witness` callable guard is restored.\n- Both `dsg__assoc` implementations are restored.\n- The discharge counts—walker **1,837,052**, semantic **1,002,469**—are within 2M.\n\n### Still outstanding\n\nThe ruling requested exact counts for **both** formerly blocked fixtures. `check-accepted` is still reported only as “well under”; supply its walker and semantic counts.\n\nLanding remains blocked on a real both-evaluator packet-dispatch regression and those two counts. The production authenticity fix itself looks correct."}
+{"role":"meta","type":"session.resume_hint","session_id":"session_12e44768-63c8-4ac5-b83b-b52b09f415d3","command":"kimi -r session_12e44768-63c8-4ac5-b83b-b52b09f415d3","content":"To resume this session: kimi -r session_12e44768-63c8-4ac5-b83b-b52b09f415d3"}
+RC=0
