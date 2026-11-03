@@ -1,0 +1,378 @@
+(ns dao.stream.ble.dart
+  "The Flutter host seam of docs/design/dao.stream.ble.md 8: one radio
+   node over flutter_blue_plus 1.36.x (BSD-3; the central role -- scan,
+   connect, subscribe, write) and flutter_ble_peripheral (BSD-3; the
+   peripheral role -- advertise, serve GATT, receive writes, notify
+   subscribers). The adapter holds no policy: it maps plugin callbacks
+   into radio events, hands them to the host-free machine
+   dao.stream.ble.links, appends the returned deposits in order,
+   performs the returned actions, and exposes the seam contract
+   {:send! f :close! f} that dao.stream.ble/writer consumes.
+
+   Platform facts this seam classifies rather than hides:
+
+   - A central-side peer address is the remote id the plugin reports --
+     stable per pairing, opaque here. A peripheral-side connection has
+     no address a Flutter plugin exposes: flutter_ble_peripheral's
+     GattWrite carries no central identity, so the whole peripheral
+     role is ONE logical link at one synthetic peer address,
+     `peripheral-peer` -- writes from any subscribed central arrive
+     there, and sendData notifies every subscriber. The mesh's dedup
+     eats the copies; the :max-links ceiling governs central connects.
+   - iOS cannot advertise manufacturer data, so the advertisement
+     carries the service UUID alone and every in-band identity travels
+     in frames.
+   - Every future is caught: a platform refusal the composition should
+     see as data (:bind-failed, :send-fail, :radio-down, :link-failed)
+     is deposited or fed to the machine, never thrown across the seam.
+
+   This seam is explicitly local and non-migratable (datom.world.md,
+   Host Boundaries): it is the one piece of the stack that needs a
+   radio, and it is why the plugin pins are exact -- flutter_blue_plus
+   2.x changed to a license that is not free for for-profit use, and
+   this repository is GPL-2.0-only with a linking exception.
+
+   A function whose body awaits is an async fn on this host and answers
+   a Future; `bind!` itself holds no await and answers the seam at
+   once, the design's two moves intact -- the radio's first facts land
+   on the traffic stream as data whenever the platform answers."
+  (:require ["package:flutter_blue_plus/flutter_blue_plus.dart" :as fbp]
+            ["package:flutter_ble_peripheral/flutter_ble_peripheral.dart" :as periph]
+            ["dart:async" :as async]
+            ["dart:core" :as core]
+            [dao.stream.ble :as ble]
+            [dao.stream.ble.links :as links])
+  (:import ["dart:typed_data" Uint8List]))
+
+
+(def peripheral-peer
+  "The one synthetic peer address of the peripheral role: every central
+   that wrote or subscribed, seen through one address the plugin cannot
+   distinguish. Opaque like any other peer address."
+  "peripheral")
+
+
+(defn- bytes->uint8
+  ^Uint8List [bs]
+  (if (instance? Uint8List bs)
+    bs
+    (Uint8List.fromList (vec bs))))
+
+
+(defn- listen!
+  "One subscription on a plugin stream, the error path routed: an
+   errored plugin stream is a radio fact, never an unhandled zone
+   event."
+  [s on-data on-error]
+  (.listen ^async/Stream s on-data .onError on-error))
+
+
+;; =============================================================================
+;; The central role (flutter_blue_plus 1.36.x)
+;; =============================================================================
+
+
+(defn- scan-events!
+  "Every scan result matching the service UUID is one [:adv peer rssi]
+   radio event. flutter_blue_plus answers each advertisement batch as a
+   list; the machine's discovery throttle owns the repetition. Answers
+   the subscription, for the seam's !subs registry."
+  [radio!]
+  (listen!
+    fbp/FlutterBluePlus.scanResults
+    (fn [results]
+      (doseq [r (vec results)]
+        (let [^fbp/ScanResult sr r
+              ^fbp/BluetoothDevice d (.-device sr)]
+          (radio! [:adv (.-str (.-remoteId d)) (.-rssi sr)]))))
+    (fn [e] (radio! [:radio-down (str "scan: " e)]))
+    ;; the answer: the subscription, for the seam's !subs registry
+    ))
+
+
+(defn- adapter-events!
+  "The adapter going off -- unavailable, unauthorized, turning off, off
+   -- is the radio stopping on its own. The stream starts at :unknown
+   and passes through :turningOn on the way up; neither is a stop, and
+   treating them as one tears the node down at bind. Answers the
+   subscription, for the seam's !subs registry."
+  [radio!]
+  (listen!
+    fbp/FlutterBluePlus.adapterState
+    (fn [state]
+      (when (contains? #{fbp/BluetoothAdapterState.unavailable
+                         fbp/BluetoothAdapterState.unauthorized
+                         fbp/BluetoothAdapterState.turningOff
+                         fbp/BluetoothAdapterState.off}
+                       state)
+        (radio! [:radio-down (str "adapter state: " state)])))
+    (fn [e] (radio! [:radio-down (str "adapter: " e)]))
+    ;; the answer: the subscription, for the seam's !subs registry
+    ))
+
+
+(defn- watch-central!
+  "One connectionState watcher per dialed device, installed once -- the
+   subscription kept in !subs so a stop tears it down: the link going
+   down is a radio event, whatever the cause. Installed only after the
+   connection is live: the stream emits its current value on listen, so
+   a pre-connect watcher would announce a disconnected that never was."
+  [radio! !watched !subs peer device]
+  (when-not (contains? @!watched peer)
+    (swap! !watched conj peer)
+    (swap! !subs conj
+           (listen!
+             (.-connectionState ^fbp/BluetoothDevice device)
+             (fn [state]
+               (when (= state fbp/BluetoothConnectionState.disconnected)
+                 (radio! [:link-down peer])))
+             (fn [_] (radio! [:link-down peer]))))))
+
+
+(defn- mesh-characteristics
+  "The mesh service's TX and RX characteristics on `device`,
+   discovered: {:tx c :rx c}, nil until the platform answers, a side
+   nil when the peer does not speak that half of the profile."
+  [device service-uuid tx-uuid rx-uuid]
+  (let [services (await (.discoverServices ^fbp/BluetoothDevice device))
+        ^fbp/BluetoothService svc (some (fn [^fbp/BluetoothService s]
+                                          (when (= (.-str (.-uuid s)) service-uuid) s))
+                                        (vec services))]
+    (when svc
+      {:tx (some (fn [^fbp/BluetoothCharacteristic c]
+                   (when (= (.-str (.-uuid c)) tx-uuid) c))
+                 (vec (.-characteristics svc)))
+       :rx (some (fn [^fbp/BluetoothCharacteristic c]
+                   (when (= (.-str (.-uuid c)) rx-uuid) c))
+                 (vec (.-characteristics svc)))})))
+
+
+(defn- connect-central!
+  "One central connection to `peer`, per the [:connect ...] action: dial,
+   discover the mesh service, subscribe to its TX characteristic, and
+   route what arrives. Every late fact is a radio event: the
+   connection's frames, its failure, its end. A peer that connects but
+   serves no mesh profile is a failed dial -- the device is released,
+   the dial's slot freed with [:link-failed ...], and the next
+   advertisement window may try again -- never a silent connection the
+   seam holds but cannot use."
+  [radio! !links !subs peer service-uuid tx-uuid rx-uuid !watched]
+  (let [release! (fn [d]
+                   (-> (.disconnect ^fbp/BluetoothDevice d)
+                       (.catchError (fn [_] nil))))]
+    (try
+      (let [d (fbp/BluetoothDevice.fromId peer)
+            _ (await (.connect ^fbp/BluetoothDevice d
+                               .timeout (core/Duration .seconds 15)
+                               .autoConnect false))
+            {:keys [tx rx]} (await (mesh-characteristics
+                                     d service-uuid tx-uuid rx-uuid))]
+        (if tx
+          (do (await (.setNotifyValue ^fbp/BluetoothCharacteristic tx true))
+              (swap! !links assoc peer {:device d :tx tx :rx rx})
+              (watch-central! radio! !watched !subs peer d)
+              (swap! !subs conj
+                     (listen!
+                       (.-onValueReceived ^fbp/BluetoothCharacteristic tx)
+                       (fn [v] (radio! [:frame peer (bytes->uint8 v)]))
+                       (fn [e] (radio! [:send-fail peer (str "notify: " e)]))))
+              (radio! [:link-up peer :central]))
+          (do (release! d)
+              (radio! [:link-failed peer]))))
+      (catch Object _
+        (radio! [:link-failed peer])))))
+
+
+;; =============================================================================
+;; The peripheral role (flutter_ble_peripheral)
+;; =============================================================================
+
+
+(defn- start-peripheral!
+  "Advertise the service UUID and serve its GATT profile: the TX
+   characteristic notified out, the RX one written in. GattWrite
+   carries no central identity, so every write arrives at the one
+   synthetic peer address. Subscription events are filtered by the TX
+   characteristic: a subscription to a write characteristic is not a
+   mesh link."
+  [radio! service-uuid tx-uuid rx-uuid !subs]
+  (let [p (periph/FlutterBlePeripheral)]
+    (try
+      (await (.start ^periph/FlutterBlePeripheral p
+                     .advertiseData
+                     (periph/AdvertiseDataCore .serviceUuid service-uuid)
+                     .gattServer
+                     (periph/GattServerSettings
+                       .serviceUuid service-uuid
+                       .txCharacteristicUuid tx-uuid
+                       .rxCharacteristicUuid rx-uuid)))
+      (swap! !subs conj
+             (listen!
+               (.-onGattWrite ^periph/FlutterBlePeripheral p)
+               (fn [w]
+                 (let [^periph/GattWrite gw w]
+                   (when (= (.-characteristicUuid gw) rx-uuid)
+                     (radio! [:frame peripheral-peer
+                              (bytes->uint8 (.-data gw))]))))
+               (fn [e] (radio! [:send-fail peripheral-peer (str "gatt: " e)]))))
+      (swap! !subs conj
+             (listen!
+               (.-onCharacteristicSubscriptionChanged
+                 ^periph/FlutterBlePeripheral p)
+               (fn [s]
+                 (let [^periph/GattSubscription gs s]
+                   (when (= (.-characteristicUuid gs) tx-uuid)
+                     (if (.-subscribed gs)
+                       (radio! [:link-up peripheral-peer :peripheral])
+                       (radio! [:link-down peripheral-peer])))))
+               (fn [_] (radio! [:link-down peripheral-peer]))))
+      (catch Object e
+        ;; A refused peripheral start propagates: start-radio!'s catch
+        ;; deposits bind-failed exactly once, and no bound is ever
+        ;; deposited for a node missing a role (design 3).
+        (throw e)))
+    p))
+
+
+;; =============================================================================
+;; The seam: bind! and its radio map
+;; =============================================================================
+
+
+(defn- perform-connect!
+  "The [:connect peer] action: dial through the central plugin. A peer
+   the scan never reported is dialed by address anyway -- fromId does
+   not need the advertisement."
+  [{:keys [radio! !links !subs !watched service-uuid tx-uuid rx-uuid]} peer]
+  (connect-central! radio! !links !subs peer service-uuid tx-uuid rx-uuid !watched))
+
+
+(defn- perform-send-frame!
+  "The [:send-frame peer bytes] action: over the central link's RX
+   characteristic, or -- for the peripheral role's one synthetic peer --
+   sendData, which notifies every subscribed central at once. A failure
+   the host reports later arrives as the send-failed channel of
+   design 4. A link whose peer spoke only half the profile sends
+   nothing: the [:send-fail ...] for a write the host cannot serve is
+   the honest answer, and the mesh's redundancy is the recovery."
+  [{:keys [radio! !links tx-uuid]} peer ^Uint8List bs]
+  (if (= peer peripheral-peer)
+    (when-some [p (:peripheral (get @!links peripheral-peer))]
+      (-> (.sendData ^periph/FlutterBlePeripheral p bs
+                     .characteristicUuid tx-uuid)
+          (.catchError
+            (fn [e] (radio! [:send-fail peripheral-peer (str "send: " e)])))))
+    (when-some [{:keys [rx]} (get @!links peer)]
+      (if rx
+        (-> (.write ^fbp/BluetoothCharacteristic rx (vec bs) .withoutResponse false)
+            (.catchError
+              (fn [e] (radio! [:send-fail peer (str "write: " e)]))))
+        ;; The peer connected but speaks only the notify half of the
+        ;; profile: there is no characteristic to write, and the send
+        ;; the machine answered ok for failed at the only step it could
+        ;; -- the send-failed channel of design 4, not a silent ok.
+        (radio! [:send-fail peer "no rx characteristic"]))))
+  nil)
+
+
+(defn- perform-stop-radio!
+  "The [:stop-radio] action: the scan stops, every central device
+   disconnects, the advertisement stops, and every plugin subscription
+   is cancelled. Idempotent by the plugins' own contracts."
+  [{:keys [!links !subs]}]
+  ;; Every teardown future is caught: a platform refusal during stop is
+  ;; nobody's outcome (close! already answered ok), so it is dropped,
+  ;; never an unhandled zone error.
+  (-> (fbp/FlutterBluePlus.stopScan) (.catchError (fn [_] nil)))
+  (doseq [{:keys [device]} (vals @!links)]
+    (when device
+      (-> (.disconnect ^fbp/BluetoothDevice device)
+          (.catchError (fn [_] nil)))))
+  (when-some [p (:peripheral (get @!links peripheral-peer))]
+    (-> (.stop ^periph/FlutterBlePeripheral p)
+        (.catchError (fn [_] nil))))
+  (doseq [s @!subs]
+    ;; A sync throw is caught here; an async one is caught on the
+    ;; future -- a cancellation the platform refuses is nobody's
+    ;; outcome (close! already answered ok).
+    (try (-> (.cancel ^async/StreamSubscription s)
+             (.catchError (fn [_] nil)))
+         (catch Object _ nil)))
+  (reset! !links {})
+  nil)
+
+
+(defn- start-radio!
+  "The scan, started once per bind: every advertisement of the service
+   UUID delivered one by one, the machine's discovery throttle owning
+   the repetition; then the peripheral role serving the same profile.
+   The machine is told the radio is up only once both roles answered
+   -- [:radio-up self] is what deposits :bound, the event the design's
+   second move composes the writer from. A platform refusal anywhere is
+   :bind-failed, as data, and no bound is ever deposited."
+  [radio! identity service-uuid tx-uuid rx-uuid !subs !links]
+  (try
+    (await (fbp/FlutterBluePlus.startScan
+             .withServices [(fbp/Guid service-uuid)]
+             .continuousUpdates true
+             .oneByOne true))
+    ;; start-peripheral! awaits internally, so it is an async fn
+    ;; answering a Future: the value stored as the peripheral -- and the
+    ;; [:radio-up ...] that deposits bound -- wait for it. A refusal
+    ;; inside deposits bind-failed; the catch below never fires for it,
+    ;; and no bound is deposited for a failed start.
+    (let [p (await (start-peripheral! radio! service-uuid tx-uuid rx-uuid !subs))]
+      (swap! !links assoc peripheral-peer {:peripheral p})
+      (radio! [:radio-up identity]))
+    (catch Object e
+      (radio! [:bind-failed (str e)]))))
+
+
+(defn bind!
+  "The bind move of design 3 over the Flutter plugins: the bind data of
+   section 3 in, the seam contract's {:send! f :close! f} out at once
+   (with :radio! and :state exposed) -- the radio starts underneath,
+   and its first facts (:bound or :bind-failed) arrive on the traffic
+   stream as data. `:now-ms` defaults to the host clock; every other
+   key is composition data with the design's defaults. `:radio!` stays
+   exposed for a composition that must feed the machine platform facts
+   the plugins do not report (a suspension, a permission revocation)."
+  [{:keys [identity deposit service-uuid max-frame-bytes max-links
+           announce-window-ms now-ms]}]
+  (let [service-uuid (or service-uuid ble/default-service-uuid)
+        tx-uuid ble/default-tx-uuid
+        rx-uuid ble/default-rx-uuid
+        !links (atom {})
+        !watched (atom #{})
+        !subs (atom [])
+        !machine! (atom nil)
+        ;; Forwarding reference: the machine is wired below, but the
+        ;; plugin streams are wired before it answers -- a radio fact
+        ;; arriving in between finds the atom nil and is dropped, and
+        ;; the plugins deliver nothing before their futures resolve.
+        radio! (fn [ev] (when-some [f @!machine!] (f ev)))
+        ctx {:radio! radio! :!links !links :!watched !watched :!subs !subs
+             :service-uuid service-uuid :tx-uuid tx-uuid :rx-uuid rx-uuid}
+        perform! (fn [action]
+                   (let [[kind peer arg] action]
+                     (case kind
+                       :connect (perform-connect! ctx peer)
+                       :send-frame (perform-send-frame! ctx peer (bytes->uint8 arg))
+                       :stop-radio (perform-stop-radio! ctx)
+                       nil)))
+        seam (links/seam
+               {:identity identity
+                :deposit deposit
+                :max-frame-bytes max-frame-bytes
+                :max-links max-links
+                :announce-window-ms announce-window-ms
+                :now-ms (or now-ms
+                            #(.-millisecondsSinceEpoch (core/DateTime.now)))
+                :radio {:perform! perform!}})]
+    (reset! !machine! (:radio! seam))
+    ;; The adapter and scan subscriptions join !subs so a stop tears
+    ;; the whole radio -- not just its links -- down.
+    (swap! !subs conj (adapter-events! radio!))
+    (swap! !subs conj (scan-events! radio!))
+    (start-radio! radio! identity service-uuid tx-uuid rx-uuid !subs !links)
+    seam))

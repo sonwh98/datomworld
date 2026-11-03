@@ -1611,8 +1611,9 @@ builtin. `use const` resolves the read to its imported fully qualified name.
 |            | `declare(ticks)`               |                                |
 +------------+--------------------------------+--------------------------------+
 | Refused    | `goto`; return by reference;   | `:yang.php/unsupported         |
-|            | `eval` until P9; `$$` outside  | {:construct}`                  |
-|            | the dynamic-profile slice;     |                                |
+|            | `eval` pending its run-time    | {:construct}`                  |
+|            | compiler bridge; `$$`          |                                |
+|            | references;                    |                                |
 |            | `__halt_compiler`;             |                                |
 |            | `declare(encoding)`; nested    |                                |
 |            | destructuring by reference     |                                |
@@ -1927,7 +1928,13 @@ as data; its filesystem resolution is not (owner decision B8.7).
 - `max_execution_time` and `set_time_limit` are wall-clock in PHP and so
   nondeterministic: the profile offers a deterministic **safepoint-count
   budget** instead, raising the fatal with PHP's text, a recorded departure
-  (owner decision B8.5, corner C21).
+  (owner decision B8.5, corner C21). A composition may supply one non-negative
+  integer budget per run; omission means unlimited. Each entry to a `:loop` or
+  `:call` hook consumes one unit, and the hook after the last available unit
+  raises `PHP Fatal error:  Maximum execution time of 30 seconds exceeded`.
+  This operational fatal is not guest-catchable and skips shutdown functions
+  and destructors. It bounds execution between hooks, not wall-clock time or
+  blocking host operations; no generic VM instructions are charged.
 - **Statement ticks** (`declare(ticks=N)`, `register_tick_function`) need
   `:line` sites before non-lambda statement nodes. `yang.safepoint` currently
   refuses a selected site that is not a `:lambda` (`site-not-lambda`), and
@@ -2254,11 +2261,10 @@ decision B8.11).
 |                     | `$GLOBALS` refused                  |                  |
 +---------------------+-------------------------------------+------------------+
 | G-str-offset-write  | Engine: `$s[0] = 'x'` writes one    | restricted; P9   |
-| (C5, row 3)         | byte. Here: refused at run time     | (strings II)     |
-|                     | with `Error "string offset writes   |                  |
-|                     | are not supported yet"`; reads are  |                  |
-|                     | in, and row 3's single-byte         |                  |
-|                     | in-range writes move with this gap  |                  |
+| (C5, row 3)         | byte. Here: positive and negative   | (strings II)     |
+|                     | in-range writes use the value's     |                  |
+|                     | first byte; append, empty values,   |                  |
+|                     | and out-of-range writes are refused |                  |
 +---------------------+-------------------------------------+------------------+
 | G-sort-flags        | Engine: `SORT_NATURAL`,             | restricted; P9   |
 |                     | `SORT_FLAG_CASE`,                   | (arrays II)      |

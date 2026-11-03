@@ -101,7 +101,6 @@
   "Expression forms led by a keyword or operator token."
   {"Clone" :clone,
    "New" :new,
-   "Exit" :exit,
    "Eval" :eval,
    "Include" :include,
    "IncludeOnce" :include,
@@ -660,51 +659,78 @@
     (apply app* (symbol "php" (str "global-" op)) (u/lit (bare name)) more)))
 
 
+(defn- dynamic-var?
+  [name]
+  (and (map? name) (contains? name :dynamic-name)))
+
+
+(defn- dynamic-scope-node
+  [ctx]
+  (if (or (:fn ctx) (:module? ctx)) (u/v '%scope) (u/lit :php/globals)))
+
+
+(defn- dynamic-op
+  [ctx op name & more]
+  (apply app* (symbol "php" (str "dict-" op)) (dynamic-scope-node ctx)
+         (app* 'php/to-string (:dynamic-name name)) more))
+
+
 (defn- read-var
   [ctx name]
-  (if (this-var? name)
-    (this-node ctx)
-    (if-let [cv (cv-node ctx name)]
-      (app* 'php/local-get cv (u/lit (display-name name)))
-      (scope-op ctx "get" name))))
+  (cond
+    (dynamic-var? name) (dynamic-op ctx "get" name)
+    (= "$GLOBALS" name) (app* 'php/globals-read)
+    (this-var? name) (this-node ctx)
+    :else (if-let [cv (cv-node ctx name)]
+            (app* 'php/local-get cv (u/lit (display-name name)))
+            (scope-op ctx "get" name))))
 
 
 (defn- peek-var
   "The variable's value, null when unset, with no warning."
   [ctx name]
-  (if (this-var? name)
-    (cond
-      (:fn ctx) (app* 'php/this-or-null (u/v '%fn))
-      (:module? ctx) (app* 'php/ctx-this-or-null (u/v '%ctx))
-      :else (u/lit :php/null))
-    (if-let [cv (cv-node ctx name)]
-      (app* 'php/local-peek cv)
-      (scope-op ctx "peek" name))))
+  (cond
+    (dynamic-var? name) (dynamic-op ctx "peek" name)
+    (= "$GLOBALS" name) (app* 'php/globals-read)
+    (this-var? name) (cond
+                       (:fn ctx) (app* 'php/this-or-null (u/v '%fn))
+                       (:module? ctx) (app* 'php/ctx-this-or-null (u/v '%ctx))
+                       :else (u/lit :php/null))
+    :else (if-let [cv (cv-node ctx name)]
+            (app* 'php/local-peek cv)
+            (scope-op ctx "peek" name))))
 
 
 (defn- write-var
   "Assign `node` to the variable; the expression's value is the value."
   [ctx name node]
   (when (this-var? name) (compile-error! {} "Cannot re-assign $this"))
-  (if-let [cv (cv-node ctx name)]
-    (app* 'php/local-set! cv node)
-    (scope-op ctx "set!" name node)))
+  (when (= "$GLOBALS" name) (compile-error! {} "Cannot assign to $GLOBALS"))
+  (if (dynamic-var? name)
+    (dynamic-op ctx "set!" name node)
+    (if-let [cv (cv-node ctx name)]
+      (app* 'php/local-set! cv node)
+      (scope-op ctx "set!" name node))))
 
 
 (defn- put-var
   "Write back a container the variable already owns: through a marker, with
    no counting."
   [ctx name node]
-  (if (this-var? name)
-    node
-    (if-let [cv (cv-node ctx name)]
-      (app* 'php/local-put! cv node)
-      (scope-op ctx "put!" name node))))
+  (cond
+    (this-var? name) node
+    (dynamic-var? name) (dynamic-op ctx "put!" name node)
+    (= "$GLOBALS" name) (app* 'php/globals-put! node)
+    :else (if-let [cv (cv-node ctx name)]
+            (app* 'php/local-put! cv node)
+            (scope-op ctx "put!" name node))))
 
 
 (defn- make-ref-var
   "The reference marker of the variable, made on first use."
   [ctx name]
+  (when (dynamic-var? name) (unsupported! {} :dynamic-reference))
+  (when (= "$GLOBALS" name) (compile-error! {} "Cannot acquire a reference to $GLOBALS"))
   (if-let [cv (cv-node ctx name)]
     (if (static-var? name)
       (let [[cls prop] (static-parts name)]
@@ -716,6 +742,8 @@
 (defn- bind-var
   "Bind the variable to the marker `m` (`$x =& ...`)."
   [ctx name m]
+  (when (dynamic-var? name) (unsupported! {} :dynamic-reference))
+  (when (= "$GLOBALS" name) (compile-error! {} "Cannot assign to $GLOBALS"))
   (if-let [cv (cv-node ctx name)]
     (app* 'php/bind-marker cv m)
     (scope-op ctx "bind!" name m)))
@@ -723,22 +751,27 @@
 
 (defn- isset-var
   [ctx name]
-  (if (this-var? name)
-    (cond
-      (:fn ctx) (app* 'php/has-this? (u/v '%fn))
-      (:module? ctx) (app* 'php/ctx-has-this? (u/v '%ctx))
-      :else (u/lit false))
-    (if-let [cv (cv-node ctx name)]
-      (app* 'php/local-isset? cv)
-      (scope-op ctx "isset?" name))))
+  (cond
+    (dynamic-var? name) (dynamic-op ctx "isset?" name)
+    (= "$GLOBALS" name) (u/lit true)
+    (this-var? name) (cond
+                       (:fn ctx) (app* 'php/has-this? (u/v '%fn))
+                       (:module? ctx) (app* 'php/ctx-has-this? (u/v '%ctx))
+                       :else (u/lit false))
+    :else (if-let [cv (cv-node ctx name)]
+            (app* 'php/local-isset? cv)
+            (scope-op ctx "isset?" name))))
 
 
 (defn- unset-var
   [ctx name]
   (when (this-var? name) (compile-error! {} "Cannot unset $this"))
-  (if-let [cv (cv-node ctx name)]
-    (app* 'php/local-unset! cv)
-    (scope-op ctx "unset!" name)))
+  (when (= "$GLOBALS" name) (compile-error! {} "Cannot unset $GLOBALS"))
+  (if (dynamic-var? name)
+    (dynamic-op ctx "unset!" name)
+    (if-let [cv (cv-node ctx name)]
+      (app* 'php/local-unset! cv)
+      (scope-op ctx "unset!" name))))
 
 
 ;; =============================================================================
@@ -1264,6 +1297,7 @@
       "Empty" (lower-empty ctx n (nth ks 2))
       "Print" (u/then (app* 'php/echo (app* 'php/to-string (lower ctx operand)))
                       (u/lit 1))
+      "Exit" (app* 'php/exit (if operand (lower ctx operand) (u/lit 0)))
       "OpenRoundBracket" (lower-cast ctx n ks)
       "Throw" (app* 'php/throw-value (lower ctx operand))
       "Clone" (app* 'php/clone-obj (lower ctx operand) (cc-node ctx))
@@ -1744,8 +1778,14 @@
     (cond
       (and (= 1 (count bks)) (p/rule? (first bks) "keyedVariable"))
       (let [[v & offsets] (core/kids ctx (first bks))]
-        (when (and (p/token? v) (= "VarName" (:type v)))
-          {:var (:text v), :path (offset-keys ctx offsets)}))
+        (cond
+          (and (p/token? v) (= "VarName" (:type v)))
+          {:var (:text v), :path (offset-keys ctx offsets)}
+          (and (p/token? v) (= "Dollar" (:type v))
+               (p/token? (first offsets)) (= "VarName" (:type (first offsets))))
+          {:var {:dynamic-name (read-var ctx (:text (first offsets)))},
+           :path (offset-keys ctx (rest offsets))}
+          :else nil))
       (and (= 3 (count bks)) (p/rule? (first bks) "qualifiedStaticTypeRef")
            (p/rule? (nth bks 2) "keyedVariable"))
       (let [[v & offsets] (core/kids ctx (nth bks 2))]
@@ -1804,6 +1844,21 @@
           "empty" (let [cs (argument-chains ctx n arguments)]
                     (when (not= 1 (count cs)) (unsupported! n :argument-form))
                     (lower-empty ctx n (first cs)))
+          ("exit" "die") (let [as (core/rules ctx arguments "actualArgument")]
+                           (when (> (count as) 1) (unsupported! n :argument-form))
+                           (app* 'php/exit
+                                 (if (seq as)
+                                   (lower ctx (first (core/kids ctx (first as))))
+                                   (u/lit 0))))
+          "extract" (app* 'php/bi-extract
+                          (args-vector (map #(lower ctx (first (core/rules ctx % "expression")))
+                                            (core/rules ctx arguments "actualArgument")))
+                          (dynamic-scope-node ctx))
+          "compact" (app* 'php/bi-compact
+                          (args-vector (map #(lower ctx (first (core/rules ctx % "expression")))
+                                            (core/rules ctx arguments "actualArgument")))
+                          (dynamic-scope-node ctx))
+          "eval" (unsupported! n :eval)
           (let [f (core/gen "f" n)
                 by-ref (when-not user-lc
                          (:by-ref (get builtins/supported lc)))]
@@ -3065,9 +3120,8 @@
                                              block
                                              "yieldExpression"
                                              #{"functionDeclaration" "lambdaFunctionExpr"}))
-        ;; the dynamic-scope profile (plan P6 R5): an include in the body
-        ;; hands the function's variables to the included unit by name
-        dyn? (boolean (:includes? scope))
+        ;; includes and name-driven variable operations share one cell dictionary
+        dyn? (boolean (or (:includes? scope) (:dynamic? scope)))
         counted? (boolean (or dyn? (mentions-reference? ctx n) (seq (:statics scope))
                               (some :ref? captures)
                               (some #(and (:type %) (not (:variadic? %))) params)))
