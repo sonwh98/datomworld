@@ -37,6 +37,12 @@
    datom t otherwise. A malformed history throws. The scan is the causality
    boundary; a caller-supplied next-t is never accepted.
 
+   A composition can keep this writer authority across publications with
+   with-intake-pool, detaching an old intake with nil and installing the
+   next round's fresh intake without rescanning history. This is live
+   derived state only: recovery always calls create! over authoritative
+   history; no serialized watermark is accepted.
+
    Operational outcomes are data; argument defects keep throwing. The
    watermark advances if and only if the local append answered
    :dao.stream/ok, so retrying the identical call re-attempts the identical
@@ -204,6 +210,33 @@
        :name (or name "transactor")
        :next-t (atom t)
        :state (atom {:closed false})})))
+
+
+(defn with-intake-pool
+  "Retarget an existing allocator's publication intake without reopening
+   history or accepting a caller's clock. Nil detaches the intake between
+   publications; publish! requires a non-empty pool again. The successor
+   shares this transactor's allocation lock, watermark and closed state,
+   so it is the same writer authority, never an independent writer. On
+   recovery use create! over authoritative history, not a saved allocator."
+  [log intake-pool]
+  (when-not (:dao.space/transactor log)
+    (throw (ex-info "with-intake-pool requires a transactor" {})))
+  (when (some? intake-pool)
+    (when-not (and (coll? intake-pool) (seq intake-pool)
+                   (every? stream/writer? intake-pool))
+      (throw (ex-info "transactor intake pool must be non-empty and writable"
+                      {:intake-pool intake-pool}))))
+  (assoc log :intake-pool intake-pool))
+
+
+(defn watermark
+  "The allocator's next transaction time, derived by create! and advanced
+   only by successful authoritative appends. A diagnostic/coverage value,
+   never an argument with which to recreate an allocator."
+  [log]
+  (let [next-t (:next-t log)]
+    (with-write-lock next-t (fn [] @next-t))))
 
 
 (defn append!

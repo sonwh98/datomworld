@@ -12,21 +12,19 @@
    materialized into the `dao.jing` store in the same round, so its
    `:yin/address` facts name content the store holds (yin.vm.linker.dht.md
    5.1, rows every round).  After a round that committed, the covered
-   indexes are published through `transactor/publish!` into that round's
+   indexes are published through `dao.space.index` into that round's
    own fresh intake, the intake is drained into the `dao.jing` store, the
-   manifest is read back, and the intake is dropped: between rounds the
-   indexer retains its local transaction log and nothing of any
-   publication.
+   manifest is read back, and the intake is dropped. Between rounds the
+   composition retains the transactor's allocator and a verified covered
+   frontier: its log cursor, manifest and transaction count. Each fresh
+   publication folds only the committed suffix into the previous covered
+   roots and emits their dirty subgraph through `dao.space.index`.
 
-   Cost, accepted as the price of the owner's every-round cadence
-   (2026-09-28): each publication rebuilds the covered indexes over the
-   whole retained history, and opening the round's transactor rescans
-   that history to derive `t`, so a round's index time grows linearly with
-   the session's committed code and a session's total grows
-   quadratically.  Memory does not: at most one publication is held, and
-   only during its round.  An incremental publish in `dao.space.index`
-   would remove the time growth; nothing here would need to change but
-   the call.
+   Publication still completes synchronously every evaluation. Initial
+   publication and recovery reconstruct the full authoritative history;
+   no saved process cursor or allocator is trusted on restart. Incremental
+   tree mutation removes repeated prefix construction, but does not promise
+   a fixed wall-time bound on hashing, storage or other round work.
 
    Every `e` is a transactor-local entity id; the only durable name in the
    projection is the `:yin/address` fact each node occurrence carries back
@@ -153,11 +151,11 @@
    round durably published (docs/design/yin.repl.dao.space-index.md).
    Nil — the memory store — publishes exactly as before.
 
-   Between rounds that is all it holds.  A round that has code to commit
-   opens its `:publication` — a transactor over `:local` whose intake pool
-   is one fresh complete-retention intake — and drops it when the round
-   ends, so no earlier publication's payloads stay reachable from the
-   indexer (see `step`)."
+   `:allocator` retains only the transactor authority, with its intake
+   detached. `:materialization` retains verified coverage as plain data:
+   `{:cursor c :transactions n :manifest-address a :manifest m :max-t t}`.
+   A round's fresh `:publication` intake, pool and tree builder are dropped
+   at its end; no earlier publication payload is retained."
   [{:keys [observer session-token content-store publish-opts after-publish]}]
   {:observer observer
    :local (memory-log)
@@ -170,6 +168,8 @@
    :published 0
    :published-payloads 0
    :manifest-address nil
+   :allocator nil
+   :materialization nil
    :lost? false
    :failure nil})
 
@@ -192,16 +192,19 @@
    evaluation is admitted.  Its log becomes a fresh complete-retention
    memory log holding the recovered datoms as transaction records, one
    per original `t` in ascending order, each datom and its `t` preserved,
-   so the round's transactor keeps deriving the next `t` from it.  Entity
+   so a new transactor derives the next `t` from it. Entity
    allocation resumes one past the greatest restored entity or metadata
    id.  The manifest is the published one, covering every restored
    transaction, so `q` answers from it before anything new is evaluated.
    Restored facts keep their original session tokens and round metadata:
    they are the datoms as committed.  A recovery without a manifest is an
-   empty index and leaves the indexer as it is."
+   empty index. Live allocation and publication successors are always
+   discarded, including any stale or foreign cursor: the first subsequent
+   publication takes the full reconstruction path and derives a new cursor
+   from this log, never from a saved process checkpoint."
   [indexer {:keys [manifest datoms]}]
   (if (nil? manifest)
-    indexer
+    (assoc indexer :allocator nil :materialization nil)
     (let [log (memory-log)
           by-t (group-by index/datom-t datoms)
           ts (sort (keys by-t))]
@@ -216,12 +219,15 @@
              :next-e (next-entity-id datoms)
              :transactions (count ts)
              :published (count ts)
+             :allocator nil
+             :materialization nil
              :manifest-address manifest))))
 
 
 (defn carry-over
   "A rebuilt session's fresh `indexer`, continuing `previous`'s index: its
-   transaction log, entity allocation, counts, and published manifest.
+   transaction log, entity allocation, counts, published manifest, and
+   live allocator/verified materialization successors.
    `(reset)` and VM selection over a durable store use it, so a rebuild
    never resets `t` or entity allocation and `q` keeps answering the
    published index; the observer is the new session's, and a lost or
@@ -230,13 +236,14 @@
   (merge indexer
          (select-keys previous [:local :next-e :transactions :published
                                 :published-payloads :manifest-address
-                                :unwritten])))
+                                :allocator :materialization :unwritten])))
 
 
 (defn- open-publication
   "The round's transactor and the `dao.jing` pool observer over its intake.
-   `transactor/create!` derives the next `t` from `:local`'s retained
-   history, so transaction time continues across rounds.  The intake is
+   The retained allocator remains the transactor's authority; when absent
+   or bound to another log, create! derives it from authoritative history.
+   No caller-supplied clock is accepted. The intake is
    complete-retention: `publish-index!` appends every node blob before the
    manifest and the round drains only after it returns, so an evicting
    intake would lose the head of any publication larger than its capacity
@@ -244,12 +251,19 @@
   [ix]
   (if (:publication ix)
     ix
-    (let [intake (memory-log)]
+    (let [intake (memory-log)
+          allocator (:allocator ix)
+          tx (if (and allocator
+                      (identical? (:local ix) (:local-stream allocator)))
+               (transactor/with-intake-pool allocator [intake])
+               (transactor/create! {:local-stream (:local ix)
+                                    :intake-pool [intake]
+                                    :name "yin.repl.index"}))]
       (assoc ix
+             :allocator (transactor/with-intake-pool tx nil)
              :publication
-             {:transactor (transactor/create! {:local-stream (:local ix)
-                                               :intake-pool [intake]
-                                               :name "yin.repl.index"})
+             {:transactor tx
+              :intake intake
               :pool (jing/observer-state
                       [{:stream intake
                         :cursor (:dao.stream/cursor
@@ -326,14 +340,85 @@
          n 0]
     (let [{:keys [signal], :as r} (jing/observe-step! content-store pool)]
       (case signal
-        :dao.stream/ok (recur (:state r) (inc n))
+        :dao.stream/ok
+        (let [missing #?(:cljd (Object.) :clj (Object.) :cljs (js-obj))]
+          ;; Every emitted dirty node reads back before HEAD moves. The
+          ;; unchanged subgraphs were verified by earlier publications;
+          ;; immutable retained content makes that verification reusable.
+          (when (identical? missing (jing/get content-store (:address r) missing))
+            (throw (ex-info "published content could not be read back"
+                            {:address (:address r)})))
+          (recur (:state r) (inc n)))
         :dao.stream/blocked [n nil]
         [n signal]))))
 
 
+(defn- suffix-state
+  "Restore verified roots and fold only records after their cursor. The
+   expected record count independently validates the cursor against this
+   composition's one-record-per-transaction log. A stale/foreign cursor,
+   mismatched frontier or rejected record returns nil: the caller must
+   reconstruct in full, never publish an uncertain suffix."
+  [ix intake]
+  (let [{:keys [cursor transactions manifest-address manifest max-t]}
+        (:materialization ix)]
+    (when (and manifest-address
+               (= manifest-address (:manifest-address ix))
+               (= transactions (:published ix))
+               (= (:branching-factor manifest)
+                  (:branching-factor (:publish-opts ix) 512)))
+      (try
+        (let [candidate {:manifest-address manifest-address
+                         :mode :resolved :schema-address (jing/segment-key {})
+                         :ids nil :batch transactions :max-t max-t :rejected 0}
+              consumer (index/restore candidate
+                                      {:content-store (:content-store ix)
+                                       :intake intake :mode :resolved :schema {}})
+              expected (- (:transactions ix) transactions)]
+          (loop [cursor cursor, consumer consumer, n 0]
+            (let [r (stream/next (:local ix) cursor)]
+              (when (stream/valid-outcome? :next r)
+                (case (:dao.stream/outcome r)
+                  :dao.stream/ok
+                  (when (< n expected)
+                    (let [consumer' (index/fold-batch consumer (:dao.stream/value r))]
+                      (when (zero? (:rejected consumer'))
+                        (recur (:dao.stream/cursor r) consumer' (inc n)))))
+                  (:dao.stream/blocked :dao.stream/end)
+                  (when (= n expected) {:cursor cursor :consumer consumer})
+                  nil)))))
+        (catch #?(:cljd Object :clj Exception :cljs js/Error) _
+          nil)))))
+
+
+(defn- enqueue-publication
+  "Full reconstruction when no validated frontier is available; otherwise
+   publication of the suffix-folded trees through the existing indexer."
+  [ix]
+  (let [{:keys [transactor intake]} (:publication ix)]
+    (if-let [{:keys [cursor consumer]} (suffix-state ix intake)]
+      (let [;; A fresh round has exactly one intake; still honor the
+            ;; caller's selection function and its pool-membership rule.
+            select-stream (:select-stream (:publish-opts ix) first)
+            selected (when (fn? select-stream) (select-stream [intake]))
+            _ (when-not (identical? selected intake)
+                (throw (ex-info "publication must select its round's intake" {})))
+            {:keys [status state]} (index/publish! consumer)
+            manifest (get-in state [:publish :manifest])]
+        (when-not (= :ok status)
+          (throw (ex-info "complete-retention publication intake refused" {:status status})))
+        {:cursor cursor :manifest manifest :manifest-address (jing/segment-key manifest)})
+      (let [result (transactor/publish! transactor (:publish-opts ix))
+            tail (stream/cursor (:local ix) :dao.stream/newest)]
+        (when-not (and (stream/valid-outcome? :cursor tail)
+                       (= :dao.stream/ok (:dao.stream/outcome tail)))
+          (throw (ex-info "published log frontier could not be read" {:result tail})))
+        (assoc result :cursor (:dao.stream/cursor tail))))))
+
+
 (defn- publish
-  "Publish the covered indexes over every committed transaction through
-   the round's transactor, drain its intake into the store, and read the
+  "Publish the covered indexes over every committed transaction, using
+   the retained frontier when valid, drain the intake, and read the
    manifest back from it.  Only a publication whose manifest the store
    answers becomes the reported one, covering `:published` transactions;
    in durable mode the HEAD pointer moves — `after-publish` — only after
@@ -342,19 +427,24 @@
    unpublished."
   [ix round]
   (try
-    (let [{:keys [transactor pool]} (:publication ix)
-          {:keys [manifest-address]} (transactor/publish! transactor
-                                                          (:publish-opts ix))
+    (let [{:keys [pool]} (:publication ix)
+          {:keys [manifest-address manifest cursor]} (enqueue-publication ix)
           [n defect] (materialize (:content-store ix) pool)]
       (if defect
         (assoc ix :failure {:round round :stage :materialize :outcome defect})
         (do (index/read-manifest (:content-store ix) manifest-address)
             (when-some [write-head! (:after-publish ix)]
               (write-head! manifest-address))
-            (assoc ix
-                   :manifest-address manifest-address
-                   :published (:transactions ix)
-                   :published-payloads n))))
+            (cond-> (assoc ix
+                           :manifest-address manifest-address
+                           :published (:transactions ix)
+                           :published-payloads n
+                           :materialization {:cursor cursor
+                                             :transactions (:transactions ix)
+                                             :manifest-address manifest-address
+                                             :manifest manifest
+                                             :max-t (dec (transactor/watermark (:allocator ix)))})
+              (= :publish (:stage (:failure ix))) (assoc :failure nil)))))
     (catch #?(:cljd Object :clj Exception :cljs js/Error) e
       (assoc ix
              :failure {:round round :stage :publish :message (ex-message e)}))))
@@ -378,9 +468,9 @@
 (defn step
   "The round's index step: observe every packet `program-out` still holds
    for this observer, commit each through the round's publication, publish
-   when any was committed, then drop the publication — its transactor,
-   intake, and pool — so the indexer carries none of this round's payloads
-   into the next.  A gap is recovered across, counted on the observer's
+   when any was committed, then drop the publication's intake, pool and
+   temporary trees. Only the detached allocator and verified covered
+   frontier continue into the next round. A gap is counted on the observer's
    `:ingress-gaps`, and marks the indexer lost: the missing packet and
    every later one are never called indexed."
   [indexer round]

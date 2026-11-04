@@ -723,6 +723,41 @@
 ;; publish!
 ;; ---------------------------------------------------------------------------
 
+(deftest an-allocator-can-outlive-its-publication-intake
+  (let [local (open-local)
+        first-intake (open-intake 1024)
+        tx (open-with-intake local first-intake)
+        first-receipt (transactor/append! tx [16 :test/value 1])
+        retained (transactor/with-intake-pool tx nil)
+        next-intake (open-intake 1024)
+        successor (transactor/with-intake-pool retained [next-intake])]
+    (is (= 0 (:dao.space/t first-receipt)))
+    (is (nil? (:intake-pool retained)))
+    (is (identical? (:next-t tx) (:next-t successor)))
+    (is (= 1 (:dao.space/t (transactor/append! successor [16 :test/value 2]))))
+    (is (= 2 (transactor/watermark retained)))
+    (transactor/publish! successor)
+    (is (empty? (intake-values first-intake)))
+    (is (seq (intake-values next-intake)))
+    (transactor/close! successor)
+    (is (= :dao.stream/closed
+           (:dao.stream/outcome (transactor/append! retained [16 :test/value 3]))))))
+
+
+(deftest retargeting-preserves-a-refused-appends-transaction-time
+  (let [inner (open-local)
+        local (->FailingAppendStream inner (atom 2))
+        tx (open-with-intake local)
+        refused (transactor/append! tx [16 :test/value 1])
+        detached (transactor/with-intake-pool tx nil)
+        successor (transactor/with-intake-pool detached [(open-intake 1024)])]
+    (is (= :dao.stream/full (:dao.stream/outcome refused)))
+    (is (= 0 (transactor/watermark detached)))
+    (is (= 0 (:dao.space/t (transactor/append! successor [16 :test/value 1]))))
+    (is (= 1 (transactor/watermark tx)))
+    (is (= 1 (count (stream-values inner))))))
+
+
 (deftest publish-enqueues-indexes-into-the-pool
   (let [local (open-local)
         a (open-intake 1024)

@@ -520,6 +520,7 @@
                       (println "W-PROGRESS"
                                (pr-str {:rounds @owner-round-count, :loop-results @repl-step-count,
                                         :transactions (get-in @repl-state [:repl :indexer :transactions]),
+                                        :index-cursor (get-in @repl-state [:repl :indexer :materialization :cursor]),
                                         :b-sent @b-req-seq, :b-completed @b-completed,
                                         :b-outstanding (count @b-outstanding), :a-window @a-window}))
                       (flush)))
