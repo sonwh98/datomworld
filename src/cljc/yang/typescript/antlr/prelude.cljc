@@ -100,14 +100,7 @@
 (defquoted ^:private core-definitions
   "Pure definitions: lambdas only, so defining them runs nothing."
   '[;; ----------------------------------------------------------------- kinds
-    [js/cell?
-     ;; A JS object/function IS a heap cell, but the shape alone never
-     ;; decides that (ruling of record, rule 2): the heap answers
-     ;; `cell/authentic?`, so a map imitating the reference language is
-     ;; data, not a cell, and every `cell/get` behind this test is
-     ;; reached only with a reference the issuer minted.
-     (fn [x]
-       (if (= (get x :type) :cell-ref) (cell/authentic? x) false))]
+    [js/cell? (fn [x] (= (get x :type) :cell-ref))]
     [js/symbol?
      (fn [x]
        (if (js/cell? x) (= (get (cell/get x) :js/type) :symbol) false))]
