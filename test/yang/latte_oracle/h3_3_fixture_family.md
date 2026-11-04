@@ -5,8 +5,9 @@ the 20 admitted-but-unexercised kernel function/arities and predicts its
 A/B/C outcomes. It changes no harness, compiler, corpus, or evidence file.
 The companion A-verification script is
 [`h3_3_a_verify.clj`](h3_3_a_verify.clj). Harness integration (new rows in
-`kernel_gate.edn`, registration of new integration IDs, the one conditional
-trace-name registration in §7, evidence refresh) is a later reviewed round.
+`kernel_gate.edn`, registration of new integration IDs, evidence refresh)
+is a later reviewed round. No trace-name registration is proposed in this
+preparation (§7 withdraws the one an earlier draft sketched).
 
 Upstream pin: `latte-kernel/latte-kernel` at
 `86fca0d1d054af005cb37395eae04500d45e6279` (the `deps.edn` `:test` alias).
@@ -28,7 +29,7 @@ are the section to re-check first.
 | Claim class | Status |
 |---|---|
 | Call graph, branch conditions, refusal messages/data (§3, §5) | Source-derived: read directly from pinned `defenv.cljc` / `nbe.cljc` / `norm.cljc` / `presyntax.cljc` / `syntax.cljc` / `unparser.cljc` in this round |
-| Every predicted A outcome in §4–§5 | **A-verified in this round**: [`h3_3_a_verify.clj`](h3_3_a_verify.clj) was run against pinned upstream `86fca0d1`; result `H3-3-A-VERIFY: PASS (43/43)`, exit 0 (see §8 for the exact command actually run) |
+| Every predicted A outcome in §4–§5 | **A-verified**: [`h3_3_a_verify.clj`](h3_3_a_verify.clj) was run against pinned upstream `86fca0d1` in the preparation round and re-run unmodified in the credit-rule revision round; both runs `H3-3-A-VERIFY: PASS (43/43)`, exit 0 (see §8 for the exact commands actually run) |
 | Canonical expected values (beta-reduction, norm/instantiate-def, mk-fresh) | Cross-checked against upstream's own tests at the same sha (`norm_test.cljc:test-beta-reduction`, `test-instantiate-def`, `syntax_test.cljc:test-mk-fresh`); the fixture terms are upstream's own test terms where they exist |
 | Predicted B/C outcomes and C-lane trace records (§4, §7) | Source-derived from [`context.edn`](context.edn) and the harness's `kernel-rewrite` / `kernel-trace-form` / `kernel-executed-arity?` rules; **not executed** — executing B/C requires harness integration, which is the next round. Nothing here claims B/C agreement has been observed |
 | Current credit state (§1) | Read from the checked-in [`slice9_evidence.edn`](slice9_evidence.edn) `:coverage :entries` and [`slice9_unexercised.edn`](slice9_unexercised.edn) on this branch in this round |
@@ -57,17 +58,25 @@ the corpus:
   function with the exact argument count, the fixture is a direct row and
   needs no registration. 16 of the 20 take this shape.
 - **Named integration only where direct is impossible**, with the reason
-  stated per case (§7): a private var (`readable-term-`), a side-effecting
-  sequence whose head is `let` (`unregister-unparser!`), and one arity
-  the context adaptation collapses (`registered-definition?/1`).
-- **Refusal companions confer no credit** (only `:pass` rows contribute),
-  exactly as in H3-2. They exist so the integration round records honest
-  negative rows rather than manufacturing pass shapes.
+  stated per case (§7): a private var (`readable-term-`) and a
+  side-effecting sequence whose head is `let` (`unregister-unparser!`).
+  One further arity (`registered-definition?/1`) can be credited by
+  neither route under the harness as it stands; its fixture (F2) is an
+  honest non-crediting pass and the gate stays `:blocked` on it (§7).
+- **Refusal companions are `:negative?` rows, but negativity does not
+  withhold credit** under the harness as it stands (§2, audit in §5.1).
+  They exist so the integration round records honest negative rows
+  rather than manufacturing pass shapes. Whether their predicted credit
+  stands or the harness is tightened to exclude them is an integration
+  decision, presented without a recommendation in §8.
 - **One primary witness per arity** (§7). Incidental traces a fixture
   also produces are listed as redundant witnesses; they are predicted
   from the call graph and must be confirmed from both C-lane traces at
   integration, but no arity's credit may rest on an incidental trace
-  alone in this design's accounting.
+  alone in this design's accounting. This is the design's accounting,
+  not a harness guarantee: under the current credit rule a passing
+  refusal companion can also appear as a direct creditor for its head
+  arity (§5.1), and integration must publish the actual creditor sets.
 
 ## 2. The executed-arity rule, and what each fixture must trace
 
@@ -85,20 +94,43 @@ Credit follows `kernel-exercise-entries` /
 - Otherwise credit is **named-integration** only: the fixture ID must be
   registered in `kernel-named-integrations`, the row must be `:pass`, and
   again the exact record must appear in both C lanes.
-- `:negative?` rows never credit anything, whatever they trace.
+- **`:negative?` is not consulted by the credit rule.** Neither branch
+  of `kernel-exercise-entries` (`latte_oracle_test.clj:1931`) tests it:
+  the direct branch tests `:pass` status, `kernel-executed-arity?`, and
+  the fixture's `:call` head/argument count; the integration branch
+  tests `:pass` status, named-integration membership, and
+  `kernel-executed-arity?`. The flag is carried on each result row
+  (`kernel-row`, `latte_oracle_test.clj:2247`) but unused there. A
+  `:negative?` row whose A/B/C outcomes agree is `:pass` like any other
+  (its A outcome must still be a genuine rejection — thrown, `false`,
+  or `:ko`-headed — under the gate's separate negative check), and
+  because traces are appended at body entry, a refusal that is entered
+  and then throws has still recorded its head's trace. A passing
+  negative direct fixture therefore **can** receive direct credit for
+  its `:call` head at the exact arity, and a registered negative can
+  contribute named-integration credit. This is not hypothetical: the
+  checked-in [`slice9_evidence.edn`](slice9_evidence.edn) already lists
+  a `:negative?` fixture among the credited fixture IDs of 51 admitted
+  arities, two of them — `latte-kernel.norm/beta-eq? 2` (sole creditor
+  `:beta-eq-false`) and `latte-kernel.typing/type-of 3` (sole creditor
+  `:type-of-invalid`) — credited **solely** by a negative row. §5.1
+  audits this family's refusal companions against this actual rule;
+  §8 presents, without deciding, whether integration accepts the
+  behavior or tightens the harness to exclude `:negative?` rows.
 - Context-adapted functions trace under their bare context name with the
   explicit context argument counted: `kernel-context-integration-names`
   maps the upstream symbol to the bare name, and
   `kernel-context-extra-arguments` adds 1. Today that table already
   contains `unregister-unparser → 1`; it contains **no** defenv predicate
-  entry (see §7 for the consequence).
+  entry, and none is proposed (§7: a global +1 offset there would not
+  be arity-safe for a multi-arity predicate).
 
 The trace record each H3-3 primary fixture must produce in both C lanes:
 
 | Target arity | Guest trace record | Why that name |
 |---|---|---|
 | `defenv/axiom? 1` | `[gate-defenv-axiom? 1]` | context-adapter wrapper delegates to the bare context predicate of the same arity |
-| `defenv/registered-definition? 1` | `[registered-definition? 2]` (conditional, §7) | bare context name + 1 explicit context argument; requires the integration-round registration |
+| `defenv/registered-definition? 1` | none — non-crediting (§7) | F2's guest call is predicted to trace `[registered-definition? 2]` and, by the context body's self-delegation, `[registered-definition? 3]` in both C lanes, but no harness mapping turns either record into credit for upstream `/1`, and none is proposed |
 | `nbe/evaluation 1` | `[gate-nbe-evaluation 1]` | direct guest compilation of the upstream body |
 | `nbe/instantiate-def 3` | `[gate-nbe-instantiate-def 3]` | direct |
 | `norm/beta-reduction 1` | `[gate-norm-beta-reduction 1]` | direct |
@@ -131,8 +163,13 @@ From the pinned sources:
   `/1` means `(registered-definition? empty-env dname false)` — the
   ambient environment. The context adaptation
   (`context.edn:56`) has no ambient form; its arities are
-  `[kernel dname]` and `[kernel dname local?]`, i.e. upstream `/2` and
-  `/3` shifted by the explicit context. The gate wrapper the harness
+  `[kernel dname]` and `[kernel dname local?]`. The `[kernel dname]`
+  shape is identical for an explicit-environment upstream `/2` call and
+  for upstream `/1` with its ambient environment made explicit — the
+  bare trace therefore does not preserve which upstream arity or call
+  origin produced it, and the `[kernel dname]` body self-delegates to
+  the 3-arity, so one such call traces both `[registered-definition? 2]`
+  and `[registered-definition? 3]` (§7). The gate wrapper the harness
   generates for `/1` therefore delegates `(registered-definition? p0)`
   to a context function that requires the context first — an arity
   error on B/C (§7). Upstream `/1` itself never throws for a symbol: an
@@ -252,10 +289,12 @@ F1† `:h3-3-axiom-true` — primary witness for `axiom?/1` (direct):
 
 Expected A/B/C: `true`. Required trace: `[gate-defenv-axiom? 1]` in both
 C lanes. The two false companions are refusal rows in §5 (R1); they trace
-the same record but, as `:negative?` rows, confer nothing.
+the same record and, negativity notwithstanding, would also credit
+`axiom?/1` under the harness as it stands if they pass (§5.1). F1
+remains the designated primary witness in this design's accounting.
 
-F2† `:h3-3-registered-definition-ambient` — primary witness for
-`registered-definition?/1`, **conditional** (§7):
+F2† `:h3-3-registered-definition-ambient` — designed witness for
+`registered-definition?/1`, **non-crediting** (§7):
 
 ```clojure
 {:id :h3-3-registered-definition-ambient,
@@ -267,13 +306,17 @@ Expected A: `false` — the name is in neither the ambient `empty-env`
 nor any namespace the A leg can resolve (the name is chosen to resolve
 nowhere; if a future namespace interns it, this prediction breaks and
 the fixture must be renamed, never re-expected). Expected B/C: `false`
-(context fetch on the initial context misses both maps). Required trace
-for credit: `[registered-definition? 2]` in both C lanes — creditable
-**only** if the integration round adds the trace-name registration of
-§7; under the harness as it stands this row is an honest pass that
-credits nothing (the gate-wrapper `/1` it would otherwise use is
-arity-broken against the context signature, §3). The non-symbol refusal
-companion is R2 in §5. A `true` case for `/1` is deliberately **not**
+(context fetch on the initial context misses both maps). There is no
+required trace for credit, because this row credits nothing: its guest
+call is predicted to trace `[registered-definition? 2]` and
+`[registered-definition? 3]` in both C lanes (§3), but
+`kernel-executed-arity?` for upstream `/1` seeks
+`[gate-defenv-registered-definition? 1]`, no bare-name mapping exists,
+and §7 withdraws the +1 trace-table mapping an earlier draft proposed
+(it is not arity-safe). The gate-wrapper `/1` the direct route would
+otherwise use is arity-broken against the context signature (§3), so
+no ordinary fixture credits this arity; the gate stays honestly
+`:blocked` on it. The non-symbol refusal companion is R2 in §5. A `true` case for `/1` is deliberately **not**
 designed: on A it could only be produced by namespace resolution (the
 ambient env is empty by definition), which B/C expressly do not have —
 such a row would be a manufactured mismatch, not a fixture.
@@ -589,10 +632,11 @@ absent-ident refusal is R10.
 
 ## 5. Refusal and edge companions (all `:negative? true` when integrated)
 
-None of these confers credit. Expected A outcomes are A-verified;
-B/C are predicted to agree (thrown ex-info message+data, or the false
-value — the gate's negative check accepts thrown, `false`, or
-`:ko`-headed A outcomes).
+Expected A outcomes are A-verified; B/C are predicted to agree (thrown
+ex-info message+data, or the false value — the gate's negative check
+accepts thrown, `false`, or `:ko`-headed A outcomes). Under the harness
+as it stands these rows are **not** credit-free: §5.1 audits each one
+against the actual credit rule of §2.
 
 | ID | Fixture `:call` (guest form where it differs) | Expected A |
 |---|---|---|
@@ -614,6 +658,48 @@ R4 vs R7 is the pair most likely to be mis-transcribed at integration:
 same message, different `:args` payload shape (original vector vs
 remaining sequence, §3). Both are pinned exactly by the verification
 script.
+
+### 5.1 Refusal-companion credit audit (under the harness as it stands)
+
+Each row below is judged by the actual rule of §2: direct credit iff
+the row lands `:pass`, its `:call` head is the credited symbol with the
+exact argument count, and the exact trace record appears in both C
+lanes. Traces are appended at body entry, so a refusal entered and then
+thrown has still recorded its head's trace. All traces are predicted
+from §3's call graph, not executed (§0); every verdict is conditional
+on the row passing with the predicted traces at integration.
+
+| Row | `:call` head / argc | Predicted C-lane traces (both lanes) | Would it credit anything? |
+|---|---|---|---|
+| R1 `:h3-3-axiom-definition` | `latte-kernel.defenv/axiom?` / 1 | `[gate-defenv-axiom? 1]` | **Yes** — direct `defenv/axiom? 1` (F1's arity) |
+| R1 `:h3-3-axiom-map` | `latte-kernel.defenv/axiom?` / 1 | `[gate-defenv-axiom? 1]` | **Yes** — direct `defenv/axiom? 1` (F1's arity) |
+| R2 `:h3-3-registered-definition-nonsymbol` | `latte-kernel.defenv/registered-definition?` / 1 (guest: bare context call) | `[registered-definition? 2]`, `[registered-definition? 3]` | **No** — `kernel-executed-arity?` for `/1` seeks `[gate-defenv-registered-definition? 1]`; the guest call bypasses the gate wrapper and no bare-name mapping exists (§7) |
+| R3 `:h3-3-nbe-evaluation-missing` | `latte-kernel.nbe/evaluation` / 1 | `[gate-nbe-evaluation 1]` (plus redundant `[gate-nbe-evaluation 4]`) | **Yes** — direct `nbe/evaluation 1` (F3's arity) |
+| R4 `:h3-3-nbe-instantiate-def-too-many` | `latte-kernel.nbe/instantiate-def` / 3 | `[gate-nbe-instantiate-def 3]` (incidental `[gate-syntax-binderify 3]` has no credit path: head mismatch, ID unregistered) | **Yes** — direct `nbe/instantiate-def 3` (F4's arity) |
+| R5 `:h3-3-redex-application` | `latte-kernel.norm/redex?` / 1 | `[gate-norm-redex? 1]` | **Yes** — direct `norm/redex? 1` (F5's arity) |
+| R5 `:h3-3-redex-variable` | `latte-kernel.norm/redex?` / 1 | `[gate-norm-redex? 1]` | **Yes** — direct `norm/redex? 1` (F5's arity) |
+| R6 `:h3-3-beta-reduction-nonredex` | `latte-kernel.norm/beta-reduction` / 1 | `[gate-norm-beta-reduction 1]` (incidental guard trace `[gate-norm-redex? 1]`, no credit path) | **Yes** — direct `norm/beta-reduction 1` (F6's arity) |
+| R7 `:h3-3-norm-instantiate-def-too-many` | `latte-kernel.norm/instantiate-def` / 3 | `[gate-norm-instantiate-def 3]` (incidental `subst` traces, no credit path) | **Yes** — direct `norm/instantiate-def 3` (F10's arity) |
+| R8 `:h3-3-delta-step-missing` | `latte-kernel.norm/delta-step` / 4 | `[gate-norm-delta-step 4]` | **Yes** — direct `norm/delta-step 4` (F11's arity) |
+| R9 `:h3-3-parse-one-empty` | `latte-kernel.presyntax/parse` / 1 | `[gate-presyntax-parse 1]` (plus redundant `[gate-presyntax-parse 2]`) | **Yes** — direct `presyntax/parse 1` (F13's arity) |
+| R9 `:h3-3-parse-one-reserved` | `latte-kernel.presyntax/parse` / 1 | `[gate-presyntax-parse 1]` (plus redundant `[gate-presyntax-parse 2]`) | **Yes** — direct `presyntax/parse 1` (F13's arity) |
+| R10 `:h3-3-unregister-unparser-absent` | `latte-kernel.unparser/unregister-unparser!` / 1 (guest: bare context call) | `[unregister-unparser 2]` | **Yes** — direct `unparser/unregister-unparser! 1` (F20's arity), via the bare-name mapping already in the harness tables; unlike F20, this row's `:call` head is the symbol itself, so the route is direct, not named-integration |
+
+Summary: 12 of the 13 §5 rows would receive direct credit for their
+head arity under the current harness, covering 9 of the 20 target
+arities (`axiom?/1`, `evaluation/1`, `nbe/instantiate-def/3`,
+`redex?/1`, `beta-reduction/1`, `norm/instantiate-def/3`,
+`delta-step/4`, `parse/1`, `unregister-unparser!/1`). Only R2 credits
+nothing. No refusal row credits an arity outside §7's table, and none
+credits `registered-definition?/1`. Every would-credit verdict
+duplicates its primary fixture's arity: the §7 primaries remain the
+designated witnesses, but the harness's `:direct-fixture-ids` would
+list the refusal IDs alongside them, so an arity's exercised status
+could in principle rest on a refusal row if its primary blocked or
+mismatched (the gate would still block on the primary row's own
+status). If integration instead adopts the tightening option of §8,
+every verdict above becomes "no credit" and this table is the list of
+rows whose behavior changes.
 
 ## 6. Conservative-upstream notes (binding for integration)
 
@@ -642,16 +728,21 @@ script.
 
 ## 7. Credit prediction and honest accounting
 
-Exactly one **primary** credited fixture per arity. "Credit kind"
-follows §2: direct needs no registration; named-integration needs the
-ID added to `kernel-named-integrations`; conditional needs that plus
-the trace-name registration below. Redundant witnesses trace the arity
-too (predicted, §4) but no credit in this accounting rests on them.
+Exactly one **primary** credited fixture per arity, except
+`registered-definition?/1`, which has none. "Credit kind" follows §2:
+direct needs no registration; named-integration needs the ID added to
+`kernel-named-integrations`; none means the designed fixture is an
+honest non-crediting pass. Redundant witnesses trace the arity too
+(predicted, §4) but no credit in this accounting rests on them. Under
+the harness as it stands, passing §5 refusal companions would also be
+listed as direct creditors for 9 of these arities (§5.1); the table
+records the designated primaries, and integration must publish the
+actual creditor sets (§8).
 
 | Arity | Primary fixture | Credit kind | Required trace (both C lanes) |
 |---|---|---|---|
 | `defenv/axiom? 1` | F1 `:h3-3-axiom-true` | direct | `[gate-defenv-axiom? 1]` |
-| `defenv/registered-definition? 1` | F2 `:h3-3-registered-definition-ambient` | **conditional** | `[registered-definition? 2]` |
+| `defenv/registered-definition? 1` | F2 `:h3-3-registered-definition-ambient` | **none (non-crediting)** | — (predicted `[registered-definition? 2]`/`[3]` map to no arity) |
 | `nbe/evaluation 1` | F3 `:h3-3-nbe-evaluation-one` | direct | `[gate-nbe-evaluation 1]` |
 | `nbe/instantiate-def 3` | F4 `:h3-3-nbe-instantiate-def` | direct | `[gate-nbe-instantiate-def 3]` |
 | `norm/redex? 1` | F5 `:h3-3-redex-true` | direct | `[gate-norm-redex? 1]` |
@@ -690,20 +781,29 @@ Honest accounting, by credit kind:
   so (a) the generated gate wrapper for `/1` delegates one argument to
   a context function whose first argument is the context — an arity
   error on B/C, hence `:blocked`, never `:pass`; and (b) the bare
-  context trace `[registered-definition? 2]` that F2's `:guest-call`
-  does produce is not mapped to this symbol in
+  context traces `[registered-definition? 2]`/`[3]` that F2's
+  `:guest-call` does produce are not mapped to this symbol in
   `kernel-context-integration-names` / `kernel-context-extra-arguments`
-  as the harness stands. The remedy is small and precedented — add
-  `'latte-kernel.defenv/registered-definition? 'registered-definition?`
-  to `kernel-context-integration-names` and `'registered-definition? 1`
-  to `kernel-context-extra-arguments`, exactly the treatment
-  `unregister-unparser!` already has — but it is a harness-table change,
-  so it belongs to the reviewed integration round, not to an ordinary
-  fixture. **Until that registration lands, F2 is an honest passing row
-  that credits nothing, and the gate stays `:blocked` on this one
-  arity.** This is the only one of the 20 in that position.
+  as the harness stands. An earlier draft of this preparation proposed
+  adding exactly that mapping (`registered-definition?` with a global
+  +1 in `kernel-context-extra-arguments`, on the `unregister-unparser!`
+  precedent). **That proposal is withdrawn**: a global +1 offset
+  applies to every upstream arity, so a bare `[registered-definition? 2]`
+  trace from an explicit-environment `/2` call would be misattributed
+  to upstream `/1`, and `[registered-definition? 3]` is ambiguous for
+  `/2` (F2's own call traces both records, §3). The
+  `unregister-unparser!` precedent does not carry over: it is a
+  single-arity function whose +1 shift is injective, and it establishes
+  no identity preservation for a multi-arity mapping. The draft also
+  missed that, once such a mapping exists, F2's `:call` head and
+  argument count meet the **direct** criterion on their own — the
+  credit would land as `:direct` without any named-integration
+  registration of F2 ever being consulted. **F2 therefore stays an
+  honest passing row that credits nothing, and the gate stays
+  `:blocked` on this one arity** pending a separately reviewed
+  treatment (§8). This is the only one of the 20 in that position.
 - No arity is left without a designed fixture or an explicit note:
-  16 direct + 3 named-integration + 1 conditional = 20.
+  16 direct + 3 named-integration + 1 non-crediting = 20.
 - Preparation contributes **zero** coverage until reviewed and
   integrated: nothing in this round changes the checked-in evidence,
   and the gate remains `:blocked` with 20 unexercised arities.
@@ -726,17 +826,22 @@ clj -M:test -e "(do (load-file \"test/yang/latte_oracle/h3_3_a_verify.clj\") (ya
 
 Expected: `H3-3-A-VERIFY: PASS (43/43)`, exit 0. Any `FAIL` revises the
 matching prediction above first (document + script together), never the
-other way round. This round ran the script with the equivalent
-explicit-classpath invocation
-(`clj -Sdeps '{:paths ["test" "src/clj" "src/cljc"] :deps
-{latte-kernel/latte-kernel {:git/url
+other way round. On this laptop the `:test` alias's test-runner main
+also loads every test namespace and fails on the ungenerated ANTLR
+parser classes (`yang.python.antlr.gen.Python3Lexer`) before reaching
+the script — an environment gap, not a script failure — so the script
+is run on an explicit classpath instead. The preparation round ran it
+via `clj -Sdeps … -M -e "…"`; the credit-rule revision round re-ran it
+via `java -cp` (classpath from `clj -Sdeps '{:paths ["test" "src/clj"
+"src/cljc"] :deps {latte-kernel/latte-kernel {:git/url
 "https://github.com/latte-central/latte-kernel" :git/sha
-"86fca0d1d054af005cb37395eae04500d45e6279"}}}' -M -e "…"`), because on
-this laptop the `:test` alias's test-runner main also loads every test
-namespace and fails on the ungenerated ANTLR parser classes
-(`yang.python.antlr.gen.Python3Lexer`) before reaching the script —
-an environment gap, not a script failure. Observed output: 43 `PASS`
-lines and `H3-3-A-VERIFY: PASS (43/43)`, exit 0.
+"86fca0d1d054af005cb37395eae04500d45e6279"}}}' -Spath`, then
+`java -cp "$CP" clojure.main -e "(do (load-file
+\"test/yang/latte_oracle/h3_3_a_verify.clj\")
+(yang.latte-oracle.h3-3-a-verify/-main))"`). Observed output in the
+revision round: 43 `PASS` lines and `H3-3-A-VERIFY: PASS (43/43)`,
+exit 0. The A-side predictions are unchanged by the credit-rule
+revision, and [`h3_3_a_verify.clj`](h3_3_a_verify.clj) is unmodified.
 
 Integration (after design review; exact harness edits for the
 integration engineer):
@@ -746,13 +851,11 @@ integration engineer):
    where a group above lists two calls).
 2. Register `:h3-3-readable-term-2`, `:h3-3-readable-term-3`, and
    `:h3-3-unregister-unparser` in `kernel-named-integrations`.
-3. Decide the conditional (§7): either add the two
-   `registered-definition?` entries to
-   `kernel-context-integration-names` / `kernel-context-extra-arguments`
-   (recommended — precedented by `unregister-unparser`, and it is the
-   only path that can ever credit this arity), or land F2 as a
-   non-crediting pass and keep the gate honestly `:blocked` on
-   `registered-definition?/1` with the reason recorded here.
+3. Land F2 as a non-crediting pass and keep the gate honestly
+   `:blocked` on `registered-definition?/1` with the reason recorded
+   in §7. Do **not** add any `registered-definition?` entry to
+   `kernel-context-integration-names` or `kernel-context-extra-arguments`:
+   the +1 trace-table mapping is withdrawn (§7), not deferred.
 4. No declarations change is expected: no fixture here is a recorded
    deviation or upstream failure — every row is an ordinary `:pass` or
    `:negative?` row — so `slice9_declarations.edn` should carry forward
@@ -761,10 +864,67 @@ integration engineer):
 5. Run the focused gate test, refresh evidence with
    `write-kernel-gate-evidence!`, and audit that every §7 primary
    re-derives from both C-lane traces; publish credited/withdrawn/
-   remaining sets with fixture IDs. Expected after state if all rows
-   pass and step 3 lands: 165/165 exercised and the gate's
-   `:gate-status` assertion becomes satisfiable — that claim belongs
-   to the integration round's measured evidence, not to this document.
+   remaining sets with fixture IDs, including any §5 refusal IDs the
+   harness lists as direct creditors (§5.1) and the integration gate's
+   ruling on decision D1 below. Expected after state if all rows pass:
+   164/165 exercised, the sole remainder
+   `latte-kernel.defenv/registered-definition?/1`, and the gate still
+   honestly `:blocked` on it — that claim belongs to the integration
+   round's measured evidence, not to this document. (Under decision
+   D1(b) the exercised count drops by the two solely-negative-credited
+   arities named there unless completion witnesses are added for them.)
+
+### Integration decisions this preparation does not make
+
+**D1 — negative-row credit (from Finding 1).** The harness as it
+stands credits passing `:negative?` rows (§2, §5.1). The integration
+gate must choose; this preparation presents both options and takes no
+position, and it changes no harness code either way.
+
+- **(a) Accept the current behavior.** Consequences: the exercise is
+  physically genuine — the target body is entered at the exact arity
+  in both C lanes and the refusal outcomes agree on A/B/C — so a
+  passing negative still traces the head at the exact arity it
+  refuses. The behavior is already the de facto rule in the checked-in
+  evidence (51 admitted arities list a negative creditor; 2 rest
+  solely on one), so accepting it ratifies existing coverage without
+  re-derivation. The costs are accounting costs: `:direct-fixture-ids`
+  will list refusal IDs alongside (or, if a primary blocks, instead
+  of) the §7 primaries for 9 of this family's arities (§5.1), so
+  "exercised" no longer by itself proves a completion witness ran;
+  integration must publish the full creditor sets and state whether a
+  primary is required to be among them.
+- **(b) Tighten `kernel-exercise-entries` to exclude `:negative?`
+  rows** (a `(not (:negative? …))` condition in both the direct and
+  the named-integration branches). Consequences: refusal companions
+  become pure branch/refusal evidence, as this design originally
+  assumed, and exercised status always rests on a completion or
+  registered integration witness. The costs are corpus-wide: the two
+  arities currently credited **solely** by a negative row
+  (`latte-kernel.norm/beta-eq? 2` via `:beta-eq-false`,
+  `latte-kernel.typing/type-of 3` via `:type-of-invalid`) revert to
+  unexercised — 145 → 143 exercised on the current corpus, and
+  162/165 after this family lands (remainders: those two plus
+  `registered-definition?/1`) unless completion witnesses are added
+  for them; the credited-ID lists of the other 49 arities shrink and
+  all evidence must be re-derived and re-published; the
+  acceptance-counting tests need explicit negative-row cases so the
+  exclusion is itself tested. This is a harness change requiring its
+  own review, separate from landing the fixtures.
+
+**D2 — safe treatment for `registered-definition?/1` (requirement
+sketch only).** The gate stays `:blocked` on this arity (step 3, §7).
+Any future treatment that credits it must, at minimum: discriminate
+by **arity and call origin**, distinguishing an
+ambient-environment `/1` call made explicit from
+explicit-environment `/2` and `/3` calls that produce identical bare
+traces (§3); use **no global offset** — no blanket entry in
+`kernel-context-extra-arguments` applied across a multi-arity
+function; and be reviewed separately as a harness/trace-design
+change, with the single-arity `unregister-unparser!` mapping treated
+as no precedent for identity preservation. This sketch states
+requirements only; it proposes no mechanism and authorizes no
+implementation in the integration round.
 
 Risks flagged for integration (predicted, not observed):
 
@@ -784,10 +944,14 @@ Risks flagged for integration (predicted, not observed):
 
 Open questions for the design reviewer:
 
-- Is the §7 conditional registration (step 3) acceptable as a harness
-  table change in the integration round, or should
-  `registered-definition?/1` be recorded as a permanent honest
-  `:blocked` remainder with F2 landed as a non-crediting pass?
+- Decision D1 (§8): does the integration gate accept negative-row
+  credit as the harness stands, or tighten `kernel-exercise-entries`
+  to exclude `:negative?` rows? (Either ruling is consistent with
+  this preparation; the §5.1 audit tabulates what changes.)
+- Decision D2 (§8): is the arity- and call-origin-preserving
+  requirement sketch the right basis for a separately reviewed
+  treatment of `registered-definition?/1`, with the gate remaining
+  honestly `:blocked` on that arity until such a review lands?
 - Should F20's registry-shape consequence (§6.1) also be pinned as a
   B/C state assertion at integration (the slice-8 registry-replay
   already snapshots it), or is A-side pinning plus the `unparse`
