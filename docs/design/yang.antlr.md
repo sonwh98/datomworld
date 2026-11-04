@@ -4105,10 +4105,19 @@ value. It is in the heap. Only the issuer can answer.
   admission/apply machinery); not authentic → ordinary data semantics
   (map lookup). The shape remains a cheap pre-filter for WHEN to ask;
   it never decides meaning. The shared descriptor projection
-  (`yang.call/_descriptor`) consults the same way, as do the kind
-  predicates that route on a `:type :cell-ref` tag before
-  dereferencing (`js/cell?`, `py/cell?`), so a map imitating the
-  reference language is data in every frontend, not an abort.
+  (`yang.call/_descriptor`) consults the same way.
+- **Interim asymmetry (agreed across the four seats).** The frontend
+  kind predicates that route on a `:type :cell-ref` tag before
+  dereferencing — TypeScript's `js/cell?` and Python's `py/cell?` —
+  still test SHAPE alone at this landing; their owning seats sweep
+  them onto `cell/authentic?` in-lane after this merge (TypeScript:
+  the `typeof` path and member-call lowering; Python: the three deref
+  sites — `py/content-type`, type resolution, `py/eq-objects`). Until
+  those sweeps land, a map imitating the reference language is data
+  at Clojure positions and at the shared descriptor projection, but
+  can still abort at the unswept frontend predicates. Nothing
+  currently-correct changes behavior (the widening property holds);
+  all-frontends consistency completes at the owning seats' landings.
 - **Authentication is not authorization.** An authentic reference
   whose cell lacks an admitted callable entry is not callable; the
   existing not-callable refusal stands. Explicit dereference at a
