@@ -137,8 +137,16 @@
                        :function
                        (if (= (get (cell/get x) :js/type) :symbol)
                          :symbol
-                         :object))
-                     :number))))))))]
+                         ;; A cell-backed foreign callable (a python
+                         ;; or PHP function: a cell whose contents
+                         ;; carry a call entry, no :js/type) is a
+                         ;; function too, not an object.
+                         (if (yang.call/eligible? x) :function :object)))
+                     ;; An admitted foreign callable that is not a JS
+                     ;; cell (a clojure descriptor, a bound method) is
+                     ;; still a function; only a value no profile admits
+                     ;; keeps the bare-number fallback.
+                     (if (yang.call/eligible? x) :function :number)))))))))]
     [js/ty (fn [k] (if (= k :function) :object k))]
     [js/prim-type?
      (fn [t]
