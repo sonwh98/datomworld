@@ -1969,8 +1969,13 @@
 ;; =============================================================================
 
 (def ^:private library-modules
-  "The library's whole host surface: the `kind` module and the `portable`
-   adapters of the data exports the collection predicates read."
+  "The library's whole host surface: the `kind` module, the `portable`
+   adapters of the data exports the collection predicates read, and the
+   `cell` module. Every outcome-model program's emitted call routing reads
+   `cell/authentic?` once a callee passes the cell-ref shape pre-filter,
+   and a spliced `cell/new` mints genuine references (the engine seals
+   them under the test composition's capability secret), so the lane's
+   registry supplies the cell host as the linked compositions' do."
   (let [host (fn [registry module-name fns arities]
                (module/register-host-module
                  registry module-name fns
@@ -1984,6 +1989,7 @@
                                                           (get data/data-module op))])))
                        yang/library-adapters)]
     (-> av-modules
+        (module/register-cell-module)
         (host 'kind yang/kind-module yang/kind-arities)
         (host 'portable portable
               (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))
@@ -2053,43 +2059,43 @@
     (if (= :yin.k/ok tag) payload [tag payload])))
 
 
-(def ^:private cell-modules
-  "The library lane's host surface with the `cell` module registered, so a
-   spliced `cell/new` can mint genuine references (the engine seals them
-   under the test composition's capability secret)."
-  (module/register-cell-module library-modules))
-
-
-(defn- run-cell-probe
-  "The value of running the compiled probe program with `node` spliced into
-   the marker operand — `(probe <node>)` keeps its call-site routing — on
-   one lane, or the thrown refusal's ex-data."
-  [node lane]
+(defn- run-cell-program
+  "The value of running the compiled `program` (quoted forms) with `node`
+   spliced into the marker operand, on one lane — every call keeps its
+   call-site routing — or the thrown refusal's ex-data."
+  [program node lane]
   (let [ast (walk/postwalk
               (fn [n] (if (= n (u/v 'marker-operand)) node n))
               (yang/compile-program
-                (into (yang/library-for '[(defn probe
-                                            [m]
-                                            (m :type))])
-                      '[(defn probe
-                          [m]
-                          (m :type))
-                        (probe marker-operand)])
+                (into (yang/library-for program) program)
                 true
                 library-opts))]
     (try
-      (run-guest-ast ast cell-modules lane 1000000)
+      (run-guest-ast ast library-modules lane 1000000)
       (catch clojure.lang.ExceptionInfo e
         [:thrown (select-keys (ex-data e) [:reason :effect])]))))
+
+
+(defn- run-cell-probe
+  "The value of running the compiled probe program — `(probe <node>)`, so
+   the spliced `node` sits at a call's callee position — on one lane, or
+   the thrown refusal's ex-data."
+  [node lane]
+  (run-cell-program
+    '[(defn probe
+        [m]
+        (m :type))
+      (probe marker-operand)]
+    node lane))
 
 
 (deftest test-common-call-cell-ref-map-invocation
   (testing "a full-shape data map with a 64-character seal is ordinary invocable data"
     ;; The map spells every key of an issued reference and the seal has the
-    ;; issued format; its :id names nothing in the engine's heap id language
-    ;; (:cell-N), so it can never be genuine and its invocation is the map
-    ;; lookup, on both evaluators, where the previous rounds' shape gates
-    ;; routed it to admission and the dereference refused it.
+    ;; issued format; the call site asks the heap (cell/authentic?), the
+    ;; heap does not authenticate it, and the invocation is the map lookup,
+    ;; on both evaluators — the ruling of record replaces the r4 id-language
+    ;; gate: no id spelling is consulted, the issuer answers.
     (is (= [:yin.k/ok :cell-ref]
            (run-library '[(let [m {:type :cell-ref :id :some-key :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]
                             (m :type))])))
@@ -2127,19 +2133,59 @@
         (is (and (= :yin.k/error tag)
                  (= :yang.call/not-callable (:yang.call/reason payload)))
             (str lane " genuine dead: " (pr-str result))))))
-  (testing "the residual, pinned: a forged id inside the heap language fails closed in the VM"
-    ;; A map whose :id is a :cell-N keyword and whose seal has the issued
-    ;; format but not the issued content: it is a dereference candidate the
-    ;; VM's heap+seal check rejects — a host-level refusal, the same fate
-    ;; any forged reference meets anywhere in the system. No in-language
-    ;; authenticity probe exists (check-ref! throws past every guest catch),
-    ;; so this class stays fail-closed until yin.vm publishes one.
+  (testing "the gate's collision literal: an id inside the heap language answers as data"
+    ;; The r4 reviewer's literal — a map whose :id is a :cell-N keyword and
+    ;; whose seal has the issued format but not the issued content. Under
+    ;; the ruling of record the call site asks the heap and routes by the
+    ;; answer, so the invocation is the map lookup and answers :cell-7,
+    ;; where r4's id-language gate still sent it to the dereference and the
+    ;; VM aborted it as dead-or-forged.
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok :cell-7]
+             (run-cell-program
+               '[(defn probe
+                   [m]
+                   (m :id))
+                 (probe marker-operand)]
+               (u/lit {:type :cell-ref :id :cell-7
+                       :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+               lane))
+          (str lane " collision literal answers as data"))))
+  (testing "an exact copy of a genuine reference still resolves as a reference"
+    ;; Rule 4, the bearer policy: authentication is by value — seal and id
+    ;; against the heap — with no construction-history promises, so a copy
+    ;; reconstructed field-for-field authenticates and its call reaches the
+    ;; cell's entry. Reading the fields uses explicit lookup at data
+    ;; positions (get), never a call of the reference.
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok :called]
+             (run-cell-program
+               '[(defn probe
+                   [m]
+                   (let [copy {:type (get m :type), :id (get m :id), :seal (get m :seal)}]
+                     (copy nil)))
+                 (probe marker-operand)]
+               (u/app (u/v 'cell/new)
+                      (u/app (u/v 'assoc) (u/lit {})
+                             (u/lit :yang.call/entry)
+                             (u/lam ['invocation] (u/lit :called))))
+               lane))
+          (str lane " bearer copy resolves"))))
+  (testing "explicit dereference of a forged reference stays strict"
+    ;; Astra rule 1: cell/get at a reference position keeps the existing
+    ;; validation boundary — the data fallback lives in call routing, not in
+    ;; the dereference itself.
     (doseq [lane [:walker :semantic]]
       (is (= [:thrown {:reason :dead-or-forged-reference, :effect :cell/get}]
-             (run-cell-probe (u/lit {:type :cell-ref :id :cell-7
-                                     :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
-                             lane))
-          (str lane " forged in-language id")))))
+             (run-cell-program
+               '[(defn probe
+                   [m]
+                   (cell/get m))
+                 (probe marker-operand)]
+               (u/lit {:type :cell-ref :id :cell-7
+                       :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+               lane))
+          (str lane " explicit deref refuses")))))
 
 
 (deftest test-library-closes-over-its-own-names

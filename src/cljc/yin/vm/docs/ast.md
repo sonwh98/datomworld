@@ -675,7 +675,7 @@ Store operations are VM-level primitives that interact directly with the global 
 
 ### 5. Cells and the Task Heap
 
-Runtime-allocated mutable locations are not AST nodes. They are the `cell` host module's `cell/new`, `cell/get` and `cell/set!`, ordinary applications whose effects the engine interprets on all four VMs. `cell/new` answers a sealed `{:type :cell-ref :id :cell-N :seal s}`; the content lives in the task's `:heap` (see `state.md`), never in the named store.
+Runtime-allocated mutable locations are not AST nodes. They are the `cell` host module's `cell/new`, `cell/get`, `cell/set!` and `cell/authentic?`, ordinary applications whose effects the engine interprets on all four VMs. `cell/new` answers a sealed `{:type :cell-ref :id :cell-N :seal s}`; the content lives in the task's `:heap` (see `state.md`), never in the named store. `cell/authentic?` is the ruling-of-record pure query (yang.antlr.md 8.10.12): the heap's own yes-or-no on a candidate reference, answered as data where `cell/get` would fail closed.
 
 **Reclamation.** The heap is collected (Architect heap-reclamation design, slice 1; this supersedes the cell ruling's "heap reclamation can wait"). The `:cell/new` effect counts allocations, and when the count reaches the threshold it runs a deterministic, stop-the-world mark-sweep before allocating:
 

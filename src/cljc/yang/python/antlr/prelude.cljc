@@ -219,7 +219,14 @@
 (defquoted ^:private core-definitions
   "Pure definitions: lambdas only, so defining them runs nothing."
   '[;; ---------------------------------------------------------------- kinds
-    [py/cell? (fn [x] (= (get x :type) :cell-ref))]
+    [py/cell?
+     ;; A Python object IS a heap cell, but the shape alone never decides
+     ;; that (ruling of record, rule 2): the heap answers
+     ;; `cell/authentic?`, so a map imitating the reference language is
+     ;; data, not a cell, and every `cell/get` behind this test is
+     ;; reached only with a reference the issuer minted.
+     (fn [x]
+       (if (= (get x :type) :cell-ref) (cell/authentic? x) false))]
     [py/str? (fn [x] (not (nil? (get x :py/str))))]
     [py/str (fn [s] (assoc {} :py/str s))]
     [py/float? (fn [x] (not (nil? (get x :py/float))))]

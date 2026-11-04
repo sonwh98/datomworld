@@ -13,17 +13,24 @@
 
 (def host-names
   "Host module names read by the guest definitions."
-  '#{cell/get data/callable? data/contains? data/count data/map? data/nth
-     data/string? data/vector?})
+  '#{cell/get cell/authentic? data/callable? data/contains? data/count
+     data/map? data/nth data/string? data/vector?})
 
 
 (def definitions
   "The one ordered definition list used by both emitters."
-  '[;; Descriptor projection remains structural after callable admission.
+  '[;; Descriptor projection remains structural after callable admission,
+    ;; with one ruling-of-record refinement: a `:cell-ref`-shaped map is
+    ;; dereferenced only when the heap authenticates it (`cell/authentic?`,
+    ;; the issuer's own answer). A map that imitates the reference language
+    ;; is data, so it projects to itself and its fate follows the ordinary
+    ;; descriptor rules, exactly as any other map's would.
     [yang.call/_descriptor
      (fn [callable]
        (if (data/map? callable)
-         (if (= (get callable :type) :cell-ref)
+         (if (if (= (get callable :type) :cell-ref)
+               (cell/authentic? callable)
+               false)
            (cell/get callable)
            callable)
          nil))]

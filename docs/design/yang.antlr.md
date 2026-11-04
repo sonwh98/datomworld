@@ -1142,7 +1142,9 @@ ruling Q1 to Q5):
 - Mutable guest locations are cells. A cell is an ordinary sealed
   reference value `{:type :cell-ref :id :cell-N :seal s}` into a
   task-scoped `:heap` field of the VM value, reached through the `cell`
-  host module: `cell/new`, `cell/get`, and `cell/set!`. A write yields a
+  host module: `cell/new`, `cell/get`, `cell/set!`, and the pure
+  `cell/authentic?` query (8.10.12) compiled call routing asks before
+  dereferencing a cell-ref-shaped callee. A write yields a
   new VM value; nothing host-mutable is introduced. No AST tag is added,
   and `yin/def`, Rule R, `:vm/store-put`, and the canonical grammar are
   unchanged.
@@ -3573,7 +3575,11 @@ A cell-backed callable stores the entry in its cell contents. An
 immutable callable descriptor, such as a bound method, may carry it
 directly in its map. The common prelude projects the entry structurally:
 read an existing sealed cell reference through `cell/get`, or inspect
-the immutable descriptor, then obtain `:yang.call/entry`. It must not
+the immutable descriptor, then obtain `:yang.call/entry`. A
+cell-ref-shaped map is dereferenced only when the heap authenticates it
+(`cell/authentic?`, section 8.10.12); an unauthenticated shape projects
+to itself and follows the ordinary descriptor rules, so data imitating
+the reference language stays data. The projection must not
 dispatch on `:py/type`, `:js/type`, `:php/type`, language names, or a
 registry of languages.
 
@@ -4071,6 +4077,64 @@ Report callable kinds, binding/value extensions, actual host/VM
 coverage as an explicit host-by-VM matrix, refusals, and remaining gaps
 per frontend revision. A scalar example or common UAST grammar alone
 does not establish conformance.
+
+#### 8.10.12 Cell-reference call routing and authenticity
+
+Ruling of record (2026-11-04, owner-approved). A cross-language
+reference is a cell-ref map the VM issues (`{:type :cell-ref :id
+:cell-N :seal s}`). In Clojure a map is callable, so the call lowering
+must route a callee between reference semantics and data semantics.
+Three rounds routed by value shape at call time (key presence,
+exact shape, minted-id language) and each left the same defect class:
+innocent data whose shape imitates the reference language aborted at
+`cell/get` instead of answering as data. The defect is structural — a
+genuine reference and a perfect imitation are field-identical maps,
+and the distinguishing fact (did the heap issue this?) is not in the
+value. It is in the heap. Only the issuer can answer.
+
+- **Vocabulary.** The `cell` host module's published effect vocabulary
+  is `{new, get, set!, authentic?}`. `cell/authentic?` is a pure
+  query: the engine answers the same heap+seal predicate `check-ref!`
+  consults, as a boolean, non-fatally, state unchanged. The engine
+  learns no frontend semantics; it answers a generic fact about its
+  own state (the no-collapse invariant holds — the invoke-vs-lookup
+  decision remains in compiled guest code).
+- **Routing asks the heap, never the shape.** Where the callee value
+  has the cell-ref shape, compiled code consults `cell/authentic?`:
+  authentic → the reference path (`cell/get` plus the existing
+  admission/apply machinery); not authentic → ordinary data semantics
+  (map lookup). The shape remains a cheap pre-filter for WHEN to ask;
+  it never decides meaning. The shared descriptor projection
+  (`yang.call/_descriptor`) consults the same way, as do the kind
+  predicates that route on a `:type :cell-ref` tag before
+  dereferencing (`js/cell?`, `py/cell?`), so a map imitating the
+  reference language is data in every frontend, not an abort.
+- **Authentication is not authorization.** An authentic reference
+  whose cell lacks an admitted callable entry is not callable; the
+  existing not-callable refusal stands. Explicit dereference at a
+  reference position (`cell/get`) likewise keeps the strict
+  validation boundary — the data fallback lives in call routing.
+- **Bearer policy.** An exact copy of a valid reference retains
+  bearer behavior: it authenticates, therefore it resolves. No
+  construction-history promises are made for identical values. A
+  program wanting such a map's fields as data uses explicit lookup at
+  a data position.
+- **Bag clarification.** A reference stored in data remains a
+  reference: storage changes nothing about the value, and what
+  decides is the authentication query at the eventual call, not where
+  the callee travelled. Equality survives while callability follows
+  the heap's answer.
+- **Entry-key exception.** "Ordinary map application always remains
+  data" is true for the cell-ref language, not universally: a map
+  carrying `:yang.call/entry` is convention territory whether it
+  admits or forges one, and the D2 admission policy (the unadmitted
+  entry-shaped map refuses) governs it. That policy is the one
+  declared shape-routed exception and is unchanged by this ruling.
+- **Static specialization** (a projected-name fast path, say)
+  remains an optimization requiring proof of equivalence under
+  shadowing and higher-order use, never the routing default: the
+  calling contract's pass/return/store/recurse/callback obligations
+  (8.10.11) bind every specialization.
 
 ### 8.11 Mutable objects and collections over cells
 

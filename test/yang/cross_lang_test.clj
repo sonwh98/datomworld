@@ -169,15 +169,28 @@
                     [:typescript "console.log(probe());"]))))
   (testing "a full-shape three-entry map with a valid-format 64-char seal is ordinary invocable data"
     ;; The exact issued format — three entries, a seal string of the issued
-    ;; length — with an :id the engine's heap could never have minted (heap
-    ;; ids are :cell-N keywords): the map can never be a reference, so the
-    ;; invocation is the map lookup and answers the stored seal string,
-    ;; where the shape gates of the previous rounds routed it to admission
-    ;; and the dereference refused the VM.
+    ;; length — with an :id the engine's heap never minted: the call site
+    ;; asks the heap (cell/authentic?), the heap does not authenticate the
+    ;; map, and the invocation is the map lookup answering the stored seal
+    ;; string, where the shape gates of the previous rounds routed it to
+    ;; admission and the dereference refused the VM.
     (is (= {:js/out [(str "\"" (apply str (repeat 64 "a")) "\"")], :js/uncaught nil}
            (xl/call [:clojure
                      (str "(defn probe [] ({:type :cell-ref :id :some-key "
                           ":seal \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"} :seal))")]
+                    ["probe"]
+                    [:typescript "console.log(probe());"]))))
+  (testing "the gate's collision literal: an :id in the heap's own language answers as data"
+    ;; The r4 reviewer's literal — :id :cell-7, an id spelling the heap
+    ;; itself could have minted, with a well-formed but wrong seal. The
+    ;; ruling of record routes by the issuer's answer, not the id
+    ;; language: the heap does not authenticate it, so the lookup answers
+    ;; :cell-7 where r4's gate still handed it to the dereference and the
+    ;; VM aborted it as dead-or-forged.
+    (is (= {:js/out [":cell-7"], :js/uncaught nil}
+           (xl/call [:clojure
+                     (str "(defn probe [] ({:type :cell-ref :id :cell-7 "
+                          ":seal \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"} :id))")]
                     ["probe"]
                     [:typescript "console.log(probe());"]))))
   (testing "a runtime-built full-shape map (assoc-constructed, not a bound literal) invokes as data"

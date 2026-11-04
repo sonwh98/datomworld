@@ -1243,37 +1243,20 @@
 
 
 (defn- cell-ref-shaped-node
-  "The UAST test that the callee node could be a cell reference the
-   VM issued: `:type :cell-ref` with the `:id` and `:seal` every
-   issued reference carries, no other entries, a seal of the issued
-   form (a 64-character string), and an `:id` in the engine's heap
-   id language — every cell id is a `:cell-N` keyword (engine
-   `gen-id` mints them all from one counter), so an `:id` that is
-   not such a keyword names no cell the task could ever have
-   minted and the map is data, whatever its other entries spell.
-   A map that fails this test is never dereferenced: it routes to
-   ordinary map invocation, which grants no cell capability. A map
-   that passes it is a dereference *candidate*, not a proven
-   reference — authenticity is the VM's heap+seal check at the
-   dereference, which this frontend cannot observe (a failed
-   check is a host-level refusal, outside every guest catch), so
-   the candidate is offered to admission and the VM governs:
-   genuine references dereference to their cell's entry, and a
-   forged candidate fails closed in the VM exactly as any forged
-   reference must."
+  "The UAST pre-filter for WHEN to ask the heap about a callee: the
+   callee could be a cell reference the VM issued — `:type :cell-ref`
+   with the `:id` and `:seal` every issued reference carries, no other
+   entries, a seal of the issued form (a 64-character string). The
+   shape never decides meaning (ruling of record, rule 2): a map
+   passing it is only worth asking about, and the `cell/authentic?`
+   query emitted beside it answers. Any `:id` spelling may name a
+   cell, so the r4 heap-id-language discriminator is retired — the
+   minted `:cell-N` restriction was itself a value-shape guess the
+   issuer never certified. A map that fails this pre-filter is never
+   asked and never dereferenced: it routes to ordinary map
+   invocation, which grants no cell capability."
   [callee]
-  (let [seal (u/app (u/v 'dsg__get) callee (u/lit :seal))
-        id (u/app (u/v 'dsg__get) callee (u/lit :id))
-        id-names-cell?
-        (u/if-node (u/app (u/v 'kind/keyword?) id)
-                   (u/if-node (u/app (u/v 'dsg__equal)
-                                     (u/app (u/v 'data/str-index-of)
-                                            (u/app (u/v 'kind/name) id)
-                                            (u/lit "cell-"))
-                                     (u/lit 0))
-                              (u/lit true)
-                              (u/lit false))
-                   (u/lit false))]
+  (let [seal (u/app (u/v 'dsg__get) callee (u/lit :seal))]
     (u/if-node (u/app (u/v 'dsg__equal)
                       (u/app (u/v 'dsg__get) callee (u/lit :type))
                       (u/lit :cell-ref))
@@ -1286,7 +1269,7 @@
                                                            (u/if-node (u/app (u/v 'dsg__equal)
                                                                              (u/app (u/v 'data/str-length) seal)
                                                                              (u/lit 64))
-                                                                      id-names-cell?
+                                                                      (u/lit true)
                                                                       (u/lit false))
                                                            (u/lit false))
                                                 (u/lit false))
@@ -1405,7 +1388,13 @@
                      (u/if-node (u/app (u/v 'data/map?) (u/v callee))
                                 (u/if-node (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
                                            (u/lit true)
-                                           (cell-ref-shaped-node (u/v callee)))
+                                           ;; the shape is only WHEN to ask (ruling of
+                                           ;; record, rule 2): the heap answers
+                                           ;; `cell/authentic?`, and an unauthenticated
+                                           ;; shape takes ordinary map invocation
+                                           (u/if-node (cell-ref-shaped-node (u/v callee))
+                                                      (u/app (u/v 'cell/authentic?) (u/v callee))
+                                                      (u/lit false)))
                                 (u/lit false))
                      admitted
                      value-call)
@@ -2242,29 +2231,34 @@
                                '(fn [dsg__candidate]
                                   (if (data/map? dsg__candidate)
                                     ;; A map is offered to the dereference
-                                    ;; only when it could be a reference
-                                    ;; the VM issued, as the descriptor
-                                    ;; projection treats a cell-backed
-                                    ;; callable (yang.antlr.md 8.10.2),
-                                    ;; whose entry lives in the cell
-                                    ;; contents: the issued format
-                                    ;; (`:type :cell-ref`, `:id`, `:seal`,
-                                    ;; no other entries, a 64-character
-                                    ;; string seal) AND an `:id` in the
-                                    ;; engine's heap id language — every
-                                    ;; cell id is a `:cell-N` keyword, so
-                                    ;; any other `:id` names no cell the
-                                    ;; task could have minted and the map
-                                    ;; is data. Data falls to the witness
+                                    ;; only when the heap authenticates it
+                                    ;; (ruling of record, rule 2), as the
+                                    ;; descriptor projection treats a
+                                    ;; cell-backed callable
+                                    ;; (yang.antlr.md 8.10.2), whose entry
+                                    ;; lives in the cell contents. The
+                                    ;; issued format (`:type :cell-ref`,
+                                    ;; `:id`, `:seal`, no other entries, a
+                                    ;; 64-character string seal) is only
+                                    ;; the pre-filter for WHEN to ask;
+                                    ;; `cell/authentic?` — the issuer's
+                                    ;; own heap+seal answer — decides, so
+                                    ;; any `:id` spelling may be asked
+                                    ;; about and the r4 heap-id-language
+                                    ;; discriminator is retired. A shape
+                                    ;; the heap does not authenticate is
+                                    ;; data: it falls to the witness
                                     ;; branch and, entryless, is no more
                                     ;; admitted than any other source map,
                                     ;; so its invocation stays ordinary
-                                    ;; map data. A candidate that passes
-                                    ;; with a wrong seal is a capability
-                                    ;; counterfeit: `cell/get` fails
-                                    ;; closed in the VM and grants
-                                    ;; nothing — authenticity is the VM's
-                                    ;; heap+seal check, never a shape.
+                                    ;; map data. An authenticated
+                                    ;; reference dereferences; an
+                                    ;; authenticated cell whose contents
+                                    ;; carry no callable entry is not
+                                    ;; admitted (authentication is not
+                                    ;; authorization, rule 3), and the
+                                    ;; call-site routing that consulted
+                                    ;; here refuses it as not-callable.
                                     (let [dsg__cell-ref?
                                           (if (dsg__equal
                                                 (dsg__get dsg__candidate :type)
@@ -2284,17 +2278,7 @@
                                                             (dsg__get dsg__candidate
                                                                       :seal))
                                                           64)
-                                                      (if (kind/keyword?
-                                                            (dsg__get dsg__candidate
-                                                                      :id))
-                                                        (dsg__equal
-                                                          (data/str-index-of
-                                                            (kind/name
-                                                              (dsg__get dsg__candidate
-                                                                        :id))
-                                                            "cell-")
-                                                          0)
-                                                        false)
+                                                      true
                                                       false)
                                                     false)
                                                   false)
@@ -2302,12 +2286,14 @@
                                               false)
                                             false)]
                                       (if dsg__cell-ref?
-                                        (let [dsg__descriptor
-                                              (cell/get dsg__candidate)
-                                              dsg__entry
-                                              (dsg__get dsg__descriptor
-                                                        :yang.call/entry)]
-                                          (data/callable? dsg__entry))
+                                        (if (cell/authentic? dsg__candidate)
+                                          (let [dsg__descriptor
+                                                (cell/get dsg__candidate)
+                                                dsg__entry
+                                                (dsg__get dsg__descriptor
+                                                          :yang.call/entry)]
+                                            (data/callable? dsg__entry))
+                                          false)
                                         (let [dsg__entry
                                               (dsg__get dsg__candidate
                                                         :yang.call/entry)
