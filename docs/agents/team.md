@@ -51,12 +51,15 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +=================+========================================+=============================================================================================================+
 | agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| qwen            | Token Plan subscription                | The `qwen` CLI is Alibaba's own coding agent (`@qwen-code/qwen-code@0.17.0`, npm-global under nvm node        |
-|                 | (Alibaba Cloud Model Studio,           | v26.1.0) — NOT a Claude Code wrapper. Headless form measured (2026-11-04): `qwen -p "..." < /dev/null` OK.   |
-|                 | ap-southeast-1)                        | Config `~/.qwen/settings.json`: Token Plan key at https://token-plan.ap-southeast-1.maas.aliyuncs.com          |
-|                 |                                        | /compatible-mode/v1 (the key 403s at cn-beijing). Measured catalog: `qwen3.8-max` (default),                 |
-|                 |                                        | `qwen3.8-flash`, `qwen3.7-max`, `qwen3.6-flash`, `deepseek-v4-pro`; all others denied or absent.              |
-|                 |                                        | Session-ID mechanics not yet measured. Routing status: available NOW (probe OK rc=0).                        |
+| qwen            | Token Plan subscription (Alibaba Cloud | The `qwen` CLI is Alibaba's own coding agent (`@qwen-code/qwen-code@0.17.0`, npm-global under nvm node      |
+|                 | Model Studio, ap-southeast-1)          | v26.1.0), not a Claude Code wrapper. Headless dispatch and session mechanics measured (2026-11-04): caller  |
+|                 |                                        | `--session-id <uuid>`, follow-up `qwen --resume <uuid>` (round-trip verified; chats stored per project      |
+|                 |                                        | under ~/.qwen/projects/). Implementation requires `--approval-mode auto-edit`: the default mode silently    |
+|                 |                                        | no-ops tools headless. Config `~/.qwen/settings.json`: key in env `BAILIAN_TOKEN_PLAN_API_KEY`; gateway     |
+|                 |                                        | https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1 (the key 403s at cn-beijing).        |
+|                 |                                        | Measured catalog: `qwen3.8-max` (default), `qwen3.8-flash`, `qwen3.7-max`, `qwen3.6-flash`,                 |
+|                 |                                        | `deepseek-v4-pro`; all others denied or absent. Routing status: available NOW (coding round-trip passed:    |
+|                 |                                        | files written, assertions passed, resume verified).                                                         |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude          | Inactive / Cancelled                   | Subscription stopped by owner. Do not route tasks here.                                                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
@@ -209,23 +212,23 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | sessions. **Best for:** Scoped subagent work, bounded searches,    | security sign-offs, or subtle invariant proofs; escalate to         |
 |                             | routine QA, extraction, and fast iteration.                        | `muse-wonder-1.0`.                                                  |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `qwen3.8-max`               | Qwen (Alibaba) flagship on the `qwen` CLI's Token Plan (serving    | Capability not benchmarked from this fleet yet (availability         |
-|                             | model, probed live 2026-11-04); latest generation. **Best for:**   | measured only) — treat early dispatches as candidates for the       |
-|                             | Implementation and review rounds on the qwen lane, pending         | standing kimi quality gate before trusting verdicts. **Avoid for:** |
-|                             | in-repo evaluation.                                                | long-context jobs: context size not probe-verified.                 |
+| `qwen3.8-max`               | Qwen (Alibaba) flagship on the `qwen` CLI's Token Plan (serving    | Capability not benchmarked from this fleet yet (availability        |
+|                             | model, probed live 2026-11-04); latest generation. **Best for:**   | measured only); treat early dispatches as candidates for the        |
+|                             | Implementation and review rounds on the qwen lane, pending in-repo | standing kimi quality gate before trusting verdicts. **Avoid for:** |
+|                             | evaluation.                                                        | Long-context jobs: context size not probe-verified.                 |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `qwen3.8-flash`             | Qwen fast tier on the same plan (probed live 2026-11-04). **Best   | Lighter tier than 3.8-max. **Avoid for:** Hardest reasoning or       |
-|                             | for:** Latency-sensitive iteration, QA spot-checks, extraction,    | disputed findings; use `qwen3.8-max` or escalate per the ladder.     |
-|                             | and this seat's own interactive runs.                              |                                                                    |
+| `qwen3.8-flash`             | Qwen fast tier on the same plan (probed live 2026-11-04). **Best   | Lighter tier than 3.8-max. **Avoid for:** Hardest reasoning or      |
+|                             | for:** Latency-sensitive iteration, QA spot-checks, extraction,    | disputed findings; use `qwen3.8-max` or escalate per the ladder.    |
+|                             | and this seat's own interactive runs.                              |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `qwen3.7-max`               | Prior-generation Qwen flagship, still served on the plan (probed   | Superseded within the lane by `qwen3.8-max`. **Avoid for:** any     |
-|                             | live). Second choice when 3.8 capacity is throttled.               | work 3.8 can take; no measured advantage over it.                  |
+| `qwen3.7-max`               | Prior-generation Qwen flagship, still served on the plan (probed   | Superseded within the lane by `qwen3.8-max`. **Avoid for:** Any     |
+|                             | live). Second choice when 3.8 capacity is throttled.               | work 3.8 can take; no measured advantage over it.                   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `qwen3.6-flash`             | Prior-generation Qwen fast tier (probed live).                     | Two generations old; lighter reasoning than either 3.8 tier.        |
-|                             |                                                                    | **Avoid for:** anything the 3.8 lane can serve.                    |
+|                             |                                                                    | **Avoid for:** Anything the 3.8 lane can serve.                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `deepseek-v4-pro` (qwen     | NOTE: the `qwen` lane's Token Plan ALSO serves `deepseek-v4-pro`  | Same-family collision: a deepseek-v4-pro author on the qwen lane     |
-|  lane note)                 | (probed live 2026-11-04), in addition to the Qwen tiers.           | must NOT be reviewed by the DeepSeek lane — same family.            |
+| `deepseek-v4-pro` (qwen     | NOTE: the `qwen` lane's Token Plan ALSO serves `deepseek-v4-pro`   | Same-family collision: a deepseek-v4-pro author on the qwen lane    |
+| lane note)                  | (probed live 2026-11-04), in addition to the Qwen tiers.           | must NOT be reviewed by the DeepSeek lane (same family).            |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 ## Role Selection & Reviewer Independence
 
