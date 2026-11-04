@@ -1386,8 +1386,20 @@
             (is (and (vector? result) (= :yin.k/error (first result)))
                 (str "forged " (pr-str forged) " must produce an error outcome, got "
                      (pr-str result)))
-            (is (not= :private-body-entered (second result))
-                (str "forged " (pr-str forged) " reached the body"))))))))(deftest test-common-call-invalid-continuation-refuses
+            ;; The sentinel must appear NOWHERE in the outcome. The codex
+            ;; mutation gate (2026-11-04) showed the previous top-level
+            ;; (not= sentinel (second result)) check passing vacuously: with
+            ;; the token check disabled the body runs and its return value
+            ;; nests inside a not-callable error payload, so the outer error
+            ;; tag satisfies assertion 1 and (second result) is the error
+            ;; map, not the sentinel. A whole-outcome traversal fails under
+            ;; that mutation and passes only when the body never ran.
+            (is (not (some #{:private-body-entered}
+                           (tree-seq coll? seq result)))
+                (str "forged " (pr-str forged) " reached the body; the sentinel nests in the outcome: "
+                     (pr-str result)))))))))
+
+(deftest test-common-call-invalid-continuation-refuses
   (let [tamper (fn [forms]
                  (walk/postwalk
                    (fn [node]
