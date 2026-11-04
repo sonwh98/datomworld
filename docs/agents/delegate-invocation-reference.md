@@ -107,9 +107,7 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| bailian      | `~/.bailian` (config.json)  | not yet measured (no session     | not yet measured                         |
-|              |                             | store observed; auth is          |                                          |
-|              |                             | `~/.bailian/config.json`)        |                                          |
+| bailian      | `~/.bailian` (auth/config); `~/.claude-qwen` (wrapper's Claude store) | caller UUID via `--session-id` (through the `qwen` wrapper) | `--resume <uuid>` |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
@@ -237,7 +235,7 @@ listed CLIs.
 |                | `muse-spark-1.3`           | <effort>`                  |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 
-Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`) configure provider endpoints and credentials, then execute
+Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`, `qwen`) configure provider endpoints and credentials, then execute
 `claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek` share one CLI base: none needs a PTY, all
 accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and their startup warning
 `claude-code:unrecognized_model` is expected and benign. `claude-cloud` scrubs wrapper routing overrides (`ANTHROPIC_BASE_URL`,
@@ -288,19 +286,35 @@ shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
 moves (the muse lane has swung between geo-restricted, windowed, and live
 several times — that file, not this one, is the current authority).
 
-**Bailian routing (install-only; dispatch recipe pending):** `bl` (alias
-`bailian`) is Alibaba Cloud Model Studio's CLI — npm `bailian-cli`, v2.8.2,
-installed 2026-11-04 (Node ≥ 18.17.0 required; 12 `bailian-*` skills
-installed via `bl skill init`). Auth is NOT yet configured: the owner logs
-in with `bl auth login --console` (browser) or `bl auth login --api-key
-<key>`; check with `bl auth status --output json` (machine-readable;
-`NO_COLOR=1` for plain text). Capabilities per its own docs: image/video
-generation, Managed Agents, model-usage/quota inspection, model
-recommendation; billing is metered pay-per-token with a free-quota tier.
-**No model catalog, dispatch flags, or session mechanics have been
-measured** — no authenticated dispatch has run. Do not invent `-p`/exec
-equivalents or model IDs for it; run a cheap authenticated probe first and
-record the real invocation here, same as was done for muse and kimi.
+**Bailian routing:** `bl` (alias `bailian`) is Alibaba Cloud Model Studio's
+CLI — npm `bailian-cli`, v2.8.2, installed 2026-11-04 (Node ≥ 18.17.0; 12
+`bailian-*` skills via `bl skill init`). Auth: the owner's **Token Plan**
+key (`sk-sp-…`, ap-southeast-1) is validated and stored via
+`bl auth login --config token-plan --api-key <key>`; check with
+`bl auth status --output json`. Measured dispatch form (2026-11-04, OK
+rc=0 end to end): the **`qwen` wrapper** (`~/.local/bin/qwen`, same family
+as `claude-cloud`/`glm`/`deepseek`) — it points Claude Code at the
+Token Plan's Anthropic-compatible endpoint
+`https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`
+via per-invocation `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` with an
+isolated `CLAUDE_CONFIG_DIR=~/.claude-qwen`, so plain `claude` defaults
+are untouched. Invoke it with the claude-family conventions
+(`--session-id <uuid>`, `--resume <uuid>`, `-p` with redirected stdin).
+Measured model catalog on this plan (anything else returns "Model not
+exist"): **`qwen3.8-max`** (flagship) and **`qwen3.8-flash`** (fast tier)
+— no coder variants; tier mapping is opus→3.8-max, sonnet/haiku/subagent
+→3.8-flash. Gateway region matters: cn-beijing returns 403 invalid
+api-key for this key; only the key's own region works.
+
+> [!CAUTION]
+> **`bl config agent --agent claude-code` is a global takeover — do not
+> use it.** It rewrites `~/.claude/settings.json`'s `env` with
+> `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` AND forces
+> `ANTHROPIC_MODEL` + all three `ANTHROPIC_DEFAULT_*_MODEL` tiers +
+> `CLAUDE_CODE_SUBAGENT_MODEL` to one Qwen model, for every session in
+> every project. The `qwen` wrapper is the non-overriding alternative.
+> (The codex/opencode/openclaw targets are safer: they add a separate
+> `bailian-cli` provider block rather than replacing defaults.)
 
 **Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
 The managed 3.x aliases are `kimi-code/k3.1-pro`,
