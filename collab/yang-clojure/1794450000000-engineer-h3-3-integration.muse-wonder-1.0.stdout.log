@@ -1,0 +1,34 @@
+muse: workspace root: /Users/sto/workspace/datomworld-h32 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-h32/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. The 20-arity family is integrated, committed as `f2d7df87` on `h3-3-prep`, and pushed. No merge.
+
+**What landed**
+
+- 42 rows in [kernel_gate.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/kernel_gate.edn): F1–F20 primaries plus 9 companions, then R1–R10 (13 rows) as `:negative? true`. Calls match the family doc verbatim.
+- [latte_oracle_test.clj](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle_test.clj): `:h3-3-readable-term-2`, `:h3-3-readable-term-3`, `:h3-3-unregister-unparser` registered; new `test-h3-3-twenty-arity-family` in the H3-2 pattern. `kernel-exercise-entries` untouched — the accept side (D1a) holds, so passing negatives credit their heads.
+- [slice9_declarations.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/slice9_declarations.edn): version 3 at `004246b48ddac39e0ecd3631a16f4e74b05cab7a`. The four historical declarations are byte-identical; only the header, version, and provenance changed. Validator updated to match.
+- [slice9_evidence.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/slice9_evidence.edn) and [slice9_unexercised.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/slice9_unexercised.edn) refreshed via the real `write-kernel-gate-evidence!`.
+
+**Before / after (measured)**
+
+- Pass 109 → 151 (+42). Fixture count 113 → 155. Exercised 145/165 → 164/165. Blocked 0.
+- Unexercised 20 → 1: only `latte-kernel.defenv/registered-definition?/1`. Gate stays honestly `:blocked`.
+- Actual classification of the 20: 17 `:direct`, 2 `:named-integration` (`readable-term-/2`, `/3`), 1 `:unexercised`. `unregister-unparser!/1` classifies `:direct` via R10 under the precedence rule, with F20 retained in `:integration-fixture-ids` — exactly the dual accounting predicted. Refusal IDs appear as direct creditors alongside primaries on 9 arities; no primary was forced or stopped.
+
+**Verification (run locally, real output)**
+
+- A-verify: `H3-3-A-VERIFY: PASS (43/43)`.
+- New H3-3 deftest: `{:test 1, :pass 63, :fail 0, :error 0}`.
+- Gate + round-trip + counting tests after refresh: `{:test 4, :pass 1334, :fail 1, :error 0}`. The sole failure is the retained `(= :pass (:gate-status evidence))` — by design on the one arity.
+- Kondo: 0 errors, 0 warnings.
+
+**For the seat on jupiter**
+
+Run the full namespace: `clj -M:test -n yang.latte-oracle-test`. Expect the same single by-design failure, `KERNEL-GATE` counts `{:pass 151, :recorded-upstream-failure 2, :recorded-deviation 2}`, and unexercised = 1.
+
+On D2: no safe treatment for `registered-definition?/1` was found or implemented — no trace-table mapping was added. The requirement sketch in the doc's §8 stands for a future gate ruling.
+DISPATCH_RC=0
