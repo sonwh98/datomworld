@@ -330,17 +330,25 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
      log with their artifact trails and escalate to the user with the
      evidence. A third model is chosen only on user instruction — an
      unbounded retry loop is the failure mode this rule exists to end.
-6. **Verify locally.** Inspect the actual artifact and diff and run the focused
-   checks in the orchestrator's environment. Delegated test claims are untrusted.
-   User-run results count as evidence only when the exact command, output, and
-   tested revision are available; otherwise run the checks. Tell later reviewers
-   which checks already passed so they spend their budget on static analysis
-   instead of redundant suites, except when security review requires a rerun.
-   Heavy verification and implementation legs need not run on the
-   orchestrator's own machine: delegate agents (`claude`, `codex`, `glm`) can
-   execute on the remote test hosts directly — see
+6. **Verify — tests run remotely (owner ruling 2026-11-04).** Inspect the
+   actual artifact and diff in the orchestrator's environment, but run the
+   test checks on the remote hosts (shiva/jupiter), not on the laptop: the
+   suite has outgrown the laptop, and local runs are too slow and load the
+   machine the owner is using. Delegate agents (`claude`, `codex`, `glm`,
+   …) can execute on the remote test hosts directly — see
    [`build-n-test.md`](../build-n-test.md), section "Remote agent execution"
-   (the laptop-unload rule: bookkeeping locally, execution remotely).
+   (the laptop-unload rule: bookkeeping locally, execution remotely) and
+   "Remote test servers" for the host recipes (scratch clones under
+   `~/ci/`, mise activation order, per-host lane overlap limits). This
+   applies from the smallest focused reproduction upward — never the slow
+   tier or full suites locally, and prefer remote even for single-namespace
+   runs. Delegated test claims are untrusted: the orchestrator reads the
+   remote run's actual output (log paths on the host), not the delegate's
+   summary. User-run results count as evidence only when the exact command,
+   output, and tested revision are available; otherwise run the checks.
+   Tell later reviewers which checks already passed so they spend their
+   budget on static analysis instead of redundant suites, except when
+   security review requires a rerun.
 7. **Review and reconcile.** Give the verified diff to an independent reviewer
    before committing (exceptions: the coordination contract's user waiver and
    trivial-edit exemption). Weigh findings on their merits, fix accepted
@@ -487,7 +495,7 @@ Log section requires of any successor.
 Required workflow:
 - Follow `docs/agents/roles/orchestrator.md#workflow` in order.
 - Create a new session log at `orchestrator-logs/<unix-time-stamp>-<coding-agent>-<model>-<brief-description>.md`; never append to the prior session's log.
-- Run <focused-test-command> and <lint-command> locally.
+- Run <focused-test-command> on the remote test hosts (shiva/jupiter) per Workflow step 6; <lint-command> may run locally.
 
 Do not broaden scope; do not stage, commit, or merge without an Architect
 sign-off, an explicit user instruction, or the trivial-edit exemption
