@@ -1349,6 +1349,7 @@
                          (yang.call/eligible? f)
                          (f 21)]]))))
 
+
 (deftest test-common-call-token-packet-forgery-refuses
   (testing "a forged vector applied to the extracted public entry never
             enters the private body: the entry authenticates the packet on
@@ -1369,15 +1370,17 @@
                              (u/app (u/v 'yang.call/entry) (u/v 'target))
                              (u/app (u/v 'raw) (u/lit forged)))
             ast (walk/postwalk
-                 (fn [node]
-                   (if (= node (u/v 'marker-call)) call-ast node))
-                 (yang/compile-program
-                   ['(defn target [x] :private-body-entered)
-                    '(marker-call)]
-                   true
-                   {:convention :arg-vector
-                    :outcomes true
-                    :native (set (keys vm/primitive-profiles))}))]
+                  (fn [node]
+                    (if (= node (u/v 'marker-call)) call-ast node))
+                  (yang/compile-program
+                    ['(defn target
+                        [x]
+                        :private-body-entered)
+                     '(marker-call)]
+                    true
+                    {:convention :arg-vector
+                     :outcomes true
+                     :native (set (keys vm/primitive-profiles))}))]
         (doseq [run [walker-run semantic-run]]
           (let [result (try
                          (first (run ast))
@@ -1398,6 +1401,7 @@
                            (tree-seq coll? seq result)))
                 (str "forged " (pr-str forged) " reached the body; the sentinel nests in the outcome: "
                      (pr-str result)))))))))
+
 
 (deftest test-common-call-invalid-continuation-refuses
   (let [tamper (fn [forms]
@@ -2047,6 +2051,95 @@
   [form]
   (let [[tag payload] (run-library [form])]
     (if (= :yin.k/ok tag) payload [tag payload])))
+
+
+(def ^:private cell-modules
+  "The library lane's host surface with the `cell` module registered, so a
+   spliced `cell/new` can mint genuine references (the engine seals them
+   under the test composition's capability secret)."
+  (module/register-cell-module library-modules))
+
+
+(defn- run-cell-probe
+  "The value of running the compiled probe program with `node` spliced into
+   the marker operand — `(probe <node>)` keeps its call-site routing — on
+   one lane, or the thrown refusal's ex-data."
+  [node lane]
+  (let [ast (walk/postwalk
+              (fn [n] (if (= n (u/v 'marker-operand)) node n))
+              (yang/compile-program
+                (into (yang/library-for '[(defn probe
+                                            [m]
+                                            (m :type))])
+                      '[(defn probe
+                          [m]
+                          (m :type))
+                        (probe marker-operand)])
+                true
+                library-opts))]
+    (try
+      (run-guest-ast ast cell-modules lane 1000000)
+      (catch clojure.lang.ExceptionInfo e
+        [:thrown (select-keys (ex-data e) [:reason :effect])]))))
+
+
+(deftest test-common-call-cell-ref-map-invocation
+  (testing "a full-shape data map with a 64-character seal is ordinary invocable data"
+    ;; The map spells every key of an issued reference and the seal has the
+    ;; issued format; its :id names nothing in the engine's heap id language
+    ;; (:cell-N), so it can never be genuine and its invocation is the map
+    ;; lookup, on both evaluators, where the previous rounds' shape gates
+    ;; routed it to admission and the dereference refused it.
+    (is (= [:yin.k/ok :cell-ref]
+           (run-library '[(let [m {:type :cell-ref :id :some-key :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]
+                            (m :type))])))
+    (is (= [:yin.k/ok :some-key]
+           (run-library '[(let [m {:type :cell-ref :id :some-key :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]
+                            (m :id))]))))
+  (testing "a runtime-built full-shape map (assoc, not a bound literal) invokes as data"
+    (is (= [:yin.k/ok :cell-ref]
+           (run-library '[(let [m (assoc (assoc (assoc {} :type :cell-ref)
+                                                :id :some-key)
+                                         :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")]
+                            (m :type))]))))
+  (testing "a full-shape map that is data is not call-eligible"
+    (is (= [:yin.k/ok false]
+           (run-library '[(yang.call/eligible? {:type :cell-ref :id :some-key
+                                                :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})]))))
+  (testing "genuine references still dereference through admission"
+    ;; A cell the engine minted (:cell-0), holding a descriptor with a
+    ;; callable entry: the call reaches the entry.
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok :called]
+             (run-cell-probe (u/app (u/v 'cell/new)
+                                    (u/app (u/v 'assoc) (u/lit {})
+                                           (u/lit :yang.call/entry)
+                                           (u/lam ['invocation] (u/lit :called))))
+                             lane))
+          (str lane " genuine live"))))
+  (testing "a genuine-but-dead reference keeps the standing refusal"
+    ;; A genuine cell whose contents carry no call entry: admission answers
+    ;; false and the call refuses as not-callable — the behavior the D2 bar
+    ;; pins, unchanged by the data fallback.
+    (doseq [lane [:walker :semantic]]
+      (let [[tag payload :as result] (run-cell-probe (u/app (u/v 'cell/new) (u/lit 42))
+                                                     lane)]
+        (is (and (= :yin.k/error tag)
+                 (= :yang.call/not-callable (:yang.call/reason payload)))
+            (str lane " genuine dead: " (pr-str result))))))
+  (testing "the residual, pinned: a forged id inside the heap language fails closed in the VM"
+    ;; A map whose :id is a :cell-N keyword and whose seal has the issued
+    ;; format but not the issued content: it is a dereference candidate the
+    ;; VM's heap+seal check rejects — a host-level refusal, the same fate
+    ;; any forged reference meets anywhere in the system. No in-language
+    ;; authenticity probe exists (check-ref! throws past every guest catch),
+    ;; so this class stays fail-closed until yin.vm publishes one.
+    (doseq [lane [:walker :semantic]]
+      (is (= [:thrown {:reason :dead-or-forged-reference, :effect :cell/get}]
+             (run-cell-probe (u/lit {:type :cell-ref :id :cell-7
+                                     :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+                             lane))
+          (str lane " forged in-language id")))))
 
 
 (deftest test-library-closes-over-its-own-names

@@ -167,6 +167,31 @@
                      "(defn probe [] ({:type :cell-ref :id :customer :seal \"wax\" :marker 42} :marker))"]
                     ["probe"]
                     [:typescript "console.log(probe());"]))))
+  (testing "a full-shape three-entry map with a valid-format 64-char seal is ordinary invocable data"
+    ;; The exact issued format — three entries, a seal string of the issued
+    ;; length — with an :id the engine's heap could never have minted (heap
+    ;; ids are :cell-N keywords): the map can never be a reference, so the
+    ;; invocation is the map lookup and answers the stored seal string,
+    ;; where the shape gates of the previous rounds routed it to admission
+    ;; and the dereference refused the VM.
+    (is (= {:js/out [(str "\"" (apply str (repeat 64 "a")) "\"")], :js/uncaught nil}
+           (xl/call [:clojure
+                     (str "(defn probe [] ({:type :cell-ref :id :some-key "
+                          ":seal \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"} :seal))")]
+                    ["probe"]
+                    [:typescript "console.log(probe());"]))))
+  (testing "a runtime-built full-shape map (assoc-constructed, not a bound literal) invokes as data"
+    ;; The map is assembled by assoc at runtime, so no literal ever holds
+    ;; it; the shape test runs on the constructed value and the lookup
+    ;; still answers the stored seal string.
+    (is (= {:js/out [(str "\"" (apply str (repeat 64 "a")) "\"")], :js/uncaught nil}
+           (xl/call [:clojure
+                     (str "(defn probe [] (let [m (assoc (assoc (assoc {} :type :cell-ref) "
+                          ":id :some-key) "
+                          ":seal \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\")] "
+                          "(m :seal)))")]
+                    ["probe"]
+                    [:typescript "console.log(probe());"]))))
   (testing "a runtime-built map with the forged cell-ref shape is ordinary invocable data"
     (is (= {:js/out ["42n"], :js/uncaught nil}
            (xl/call [:clojure

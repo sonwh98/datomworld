@@ -1243,21 +1243,37 @@
 
 
 (defn- cell-ref-shaped-node
-  "The UAST test that the callee node carries a genuine cell
-   reference's format: `:type :cell-ref` with the `:id` and `:seal`
-   every issued reference carries, no other entries, and a seal of
-   the issued form (a 64-character string; the seal's content is
-   the VM's blake3 over the task secret and is checked only by the
-   dereference). This gate is the admission-failure fallback's
-   front door: a map that fails it — a source map spelling those
-   keys among its own entries, like
-   `{:type :cell-ref :id :customer :seal \"wax\" :marker 42}` — is
-   never dereferenced and routes to ordinary map invocation, which
-   grants no cell capability. A map that passes the gate with a
-   wrong seal is a capability counterfeit: its dereference fails
-   closed in the VM, as a forged reference must."
+  "The UAST test that the callee node could be a cell reference the
+   VM issued: `:type :cell-ref` with the `:id` and `:seal` every
+   issued reference carries, no other entries, a seal of the issued
+   form (a 64-character string), and an `:id` in the engine's heap
+   id language — every cell id is a `:cell-N` keyword (engine
+   `gen-id` mints them all from one counter), so an `:id` that is
+   not such a keyword names no cell the task could ever have
+   minted and the map is data, whatever its other entries spell.
+   A map that fails this test is never dereferenced: it routes to
+   ordinary map invocation, which grants no cell capability. A map
+   that passes it is a dereference *candidate*, not a proven
+   reference — authenticity is the VM's heap+seal check at the
+   dereference, which this frontend cannot observe (a failed
+   check is a host-level refusal, outside every guest catch), so
+   the candidate is offered to admission and the VM governs:
+   genuine references dereference to their cell's entry, and a
+   forged candidate fails closed in the VM exactly as any forged
+   reference must."
   [callee]
-  (let [seal (u/app (u/v 'dsg__get) callee (u/lit :seal))]
+  (let [seal (u/app (u/v 'dsg__get) callee (u/lit :seal))
+        id (u/app (u/v 'dsg__get) callee (u/lit :id))
+        id-names-cell?
+        (u/if-node (u/app (u/v 'kind/keyword?) id)
+                   (u/if-node (u/app (u/v 'dsg__equal)
+                                     (u/app (u/v 'data/str-index-of)
+                                            (u/app (u/v 'kind/name) id)
+                                            (u/lit "cell-"))
+                                     (u/lit 0))
+                              (u/lit true)
+                              (u/lit false))
+                   (u/lit false))]
     (u/if-node (u/app (u/v 'dsg__equal)
                       (u/app (u/v 'dsg__get) callee (u/lit :type))
                       (u/lit :cell-ref))
@@ -1267,9 +1283,11 @@
                                                        (u/app (u/v 'data/count) callee)
                                                        (u/lit 3))
                                                 (u/if-node (u/app (u/v 'data/string?) seal)
-                                                           (u/app (u/v 'dsg__equal)
-                                                                  (u/app (u/v 'data/str-length) seal)
-                                                                  (u/lit 64))
+                                                           (u/if-node (u/app (u/v 'dsg__equal)
+                                                                             (u/app (u/v 'data/str-length) seal)
+                                                                             (u/lit 64))
+                                                                      id-names-cell?
+                                                                      (u/lit false))
                                                            (u/lit false))
                                                 (u/lit false))
                                      (u/lit false))
@@ -2223,27 +2241,30 @@
                              (u/sexp->uast
                                '(fn [dsg__candidate]
                                   (if (data/map? dsg__candidate)
-                                    ;; Only a genuine cell reference is
-                                    ;; dereferenced, as the descriptor
-                                    ;; projection does for a cell-backed
+                                    ;; A map is offered to the dereference
+                                    ;; only when it could be a reference
+                                    ;; the VM issued, as the descriptor
+                                    ;; projection treats a cell-backed
                                     ;; callable (yang.antlr.md 8.10.2),
                                     ;; whose entry lives in the cell
-                                    ;; contents. Genuine means the issued
-                                    ;; format: `:type :cell-ref` with
-                                    ;; `:id` and `:seal` and no other
-                                    ;; entries, the seal a 64-character
-                                    ;; string. Any other map — a source
-                                    ;; map spelling those keys among its
-                                    ;; own entries — is never
-                                    ;; dereferenced: it falls to the
-                                    ;; witness branch and, entryless, is
-                                    ;; no more admitted than any other
-                                    ;; source map, so its invocation
-                                    ;; stays ordinary map data. A
-                                    ;; format-perfect map with a wrong
-                                    ;; seal is a capability counterfeit:
-                                    ;; `cell/get` fails closed in the VM
-                                    ;; and grants nothing.
+                                    ;; contents: the issued format
+                                    ;; (`:type :cell-ref`, `:id`, `:seal`,
+                                    ;; no other entries, a 64-character
+                                    ;; string seal) AND an `:id` in the
+                                    ;; engine's heap id language — every
+                                    ;; cell id is a `:cell-N` keyword, so
+                                    ;; any other `:id` names no cell the
+                                    ;; task could have minted and the map
+                                    ;; is data. Data falls to the witness
+                                    ;; branch and, entryless, is no more
+                                    ;; admitted than any other source map,
+                                    ;; so its invocation stays ordinary
+                                    ;; map data. A candidate that passes
+                                    ;; with a wrong seal is a capability
+                                    ;; counterfeit: `cell/get` fails
+                                    ;; closed in the VM and grants
+                                    ;; nothing — authenticity is the VM's
+                                    ;; heap+seal check, never a shape.
                                     (let [dsg__cell-ref?
                                           (if (dsg__equal
                                                 (dsg__get dsg__candidate :type)
@@ -2258,11 +2279,23 @@
                                                   (if (data/string?
                                                         (dsg__get dsg__candidate
                                                                   :seal))
-                                                    (dsg__equal
-                                                      (data/str-length
-                                                        (dsg__get dsg__candidate
-                                                                  :seal))
-                                                      64)
+                                                    (if (dsg__equal
+                                                          (data/str-length
+                                                            (dsg__get dsg__candidate
+                                                                      :seal))
+                                                          64)
+                                                      (if (kind/keyword?
+                                                            (dsg__get dsg__candidate
+                                                                      :id))
+                                                        (dsg__equal
+                                                          (data/str-index-of
+                                                            (kind/name
+                                                              (dsg__get dsg__candidate
+                                                                        :id))
+                                                            "cell-")
+                                                          0)
+                                                        false)
+                                                      false)
                                                     false)
                                                   false)
                                                 false)
