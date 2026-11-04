@@ -107,6 +107,8 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
+| qwen         | `~/.qwen/projects/<cwd-slug>/chats/<id>.jsonl` | caller UUID via `--session-id` | `qwen --resume <uuid>`                   |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
 > **Don't probe before delegating.** Never run throwaway commands (`echo ok`, `--version`, `--help`) to
@@ -288,10 +290,8 @@ several times — that file, not this one, is the current authority).
 (`@qwen-code/qwen-code@0.17.0`, npm-global under nvm node v26.1.0) — a
 first-class agent like `kimi` or `muse`, NOT a Claude Code wrapper (the
 withdrawn `~/.local/bin/qwen` wrapper is gone; the name collision it
-caused is why only this CLI answers to `qwen` now). Headless form
-measured 2026-11-04, OK rc=0: `qwen -p "<prompt>" < /dev/null`
-(the settings file `$version: 4` schema is read by 0.17.0 without issue).
-Config `~/.qwen/settings.json`: the key lives in `env` as
+caused is why only this CLI answers to `qwen` now). Config
+`~/.qwen/settings.json`: the key lives in `env` as
 `BAILIAN_TOKEN_PLAN_API_KEY`; providers at
 `https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`
 (the key 403s at cn-beijing — region-bound, same as the Anthropic
@@ -301,10 +301,31 @@ endpoint); default model `qwen3.8-max`. Measured usable catalog:
 bl-side auto-setup that also guessed the wrong region) returns
 "Access to model denied" or "Model not exist". A pre-edit backup of the
 auto-written config sits at `~/.qwen/settings.json.bak.1793811000`.
-Session-ID capture/resume mechanics are NOT yet measured — do not
-invent them; a follow-up must re-probe with a fresh session per dispatch
-until recorded. Account management runs through the separate `bl` CLI —
-`bl` is NOT a coding lane.
+Account management runs through the separate `bl` CLI — `bl` is NOT a
+coding lane.
+
+Measured session mechanics (2026-11-04, all round-trips verified — a
+caller-UUID agent like the Claude family and Muse):
+- **Start with your own ID:** `qwen --session-id <uuid> "<prompt>"`
+  (`-p/--prompt` is deprecated; the positional query is the canonical
+  one-shot headless form, stdin allowed).
+- **Resume:** `qwen --resume <uuid> "<follow-up>"` — verified to restore
+  context twice, including WITHOUT `--chat-recording` on both runs: chat
+  recording is on by default, and the help text's "…or resume will not
+  work" applies only if recording has been disabled in settings.
+  `-c/--continue` resumes the most recent session for the current
+  project directory; prefer the exact `--resume <id>`.
+- **Store:** sessions persist as JSONL under
+  `~/.qwen/projects/<cwd-path-slug>/chats/<session-id>.jsonl` (grouped
+  by working directory — run follow-ups from the SAME directory), with
+  debug transcripts under `~/.qwen/debug/<session-id>.txt`.
+- **Headless approvals (the important one):** `--approval-mode default`
+  in a headless run SILENTLY ENDS THE TURN WITHOUT TOOLS — measured: it
+  replies "approve the agent tool…" and writes nothing (the AGY-class
+  no-deliverable trap). Implementation rounds must pass
+  `--approval-mode auto-edit` (measured: file writes complete, DONE,
+  rc=0) or `auto` (LLM-classifier approval); read-only review uses
+  `plan`. Never `yolo` — same rule as every delegate.
 
 > [!CAUTION]
 > **`bl config agent --agent claude-code` is a global takeover — do not
@@ -389,6 +410,17 @@ muse exec --trust-workspace --approval-mode never --model muse-wonder-1.0 --sess
 
 # Muse follow-up: resume the exact recorded UUID interactively (never `muse resume --last`).
 # Headless failure modes and the server-side verification record: see Known CLI quirks.
+
+# Qwen Code (Alibaba) — native CLI; positional prompt is the headless form (-p is deprecated).
+# Implementation: --approval-mode auto-edit (default mode silently no-ops tools headless).
+# Read-only review: --approval-mode plan.
+qwen --session-id <uuid> --approval-mode auto-edit "<prompt>" < /dev/null \
+  > collab/<topic>/<timestamp>-<role>-<task>.qwen3.8-max.stdout.log 2>&1
+
+# Qwen follow-up: resume the same caller UUID from the SAME working directory
+# (chats are stored per project path under ~/.qwen/projects/).
+qwen --resume <uuid> --approval-mode auto-edit "<follow-up prompt>" < /dev/null \
+  > collab/<topic>/<timestamp>-<role>-<task>-r2.qwen3.8-max.stdout.log 2>&1
 
 # Codex
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
