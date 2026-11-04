@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Round complete — committed `1d710430` and pushed to origin/master. Report:
+
+## The four fixes (all verified firsthand before writing)
+
+**1. team.md:71 subscription row** — now names `mistral-4.0` as the working large-model alias and marks the bare `mistral-large` alias DEAD at the API (CLI parses it, API answers 400 invalid_model), with `mistral-medium-3.5` as the other API-live alias.
+
+**2. team.md capability rows** — the stale `mistral-large` (128K) / `mistral-small` (32K) rows replaced with the live family: `mistral-4.0`, `mistral-medium-3.5`, `codestral`, `devstral`, `magistral-medium-latest`. Dispatchability is probe-verified per row; model-card details are marked source-derived. No context size is claimed for mistral-4.0 — the reachable provider docs predate the 4.0 generation, so the row says exactly that and advises probing before long-document work.
+
+**3. claude-cloud row** — wrapped to the 172-char border (was 190, +18 as measured; content unchanged).
+
+**4. subagent_model fallback quirk** — new `> [!IMPORTANT]` block in the dispatch cluster of delegate-invocation-reference.md: listed-but-unwired provider (`new-provider/muse-wonder-1.0`) silently ran all 62 calls on the session model; rule = verify routing from `~/.zcode/cli/rollout/model-io-<childSessionId>.jsonl`, never from the model list alone.
+
+## The probes (2026-11-04, all firsthand; raw log: `collab/1794230000000-docs-team-md-alias-refresh.probe.log`, untracked scratch)
+
+| Alias | Result |
+|---|---|
+| `mistral-4.0` | exit 0, PROBE-OK — API-live |
+| `mistral-medium-3.5` | exit 0, PROBE-OK — API-live |
+| `mistral-large` / `devstral` / `codestral` | exit 2, API 400 `invalid_model` — parse client-side, API rejects |
+| `magistral-medium-latest` / `mistral-small` / `mixtral-8x7b` | exit 1, `Unknown model. Available: codestral, devstral, mistral-4.0, mistral-large, mistral-medium-3.5` — not even CLI-recognized; that error also confirms the CLI's five-alias list from the brief |
+
+The 62/62 claim: the child session's rollout file (`model-io-sess_subagent_agent_724081e1-….jsonl`) no longer exists — TaskStop deleted it (a trap now noted in the quirk itself). I verified instead from the durable trail: the agents metadata (`childSessionId`, parent `session_ff8aebe…`, "Clojure runtime-module round", status stopped), the host model list (19 models, `new-provider/muse-wonder-1.0 — Muse` present), and the parent's recorded tool result: `{"{'modelId': 'GLM-5.3-Flash', 'providerId': 'account:zai-start-plan'}": 62}` — zero calls on the named provider.
+
+## Beyond the list
+
+Fixed en route (content unchanged, all disclosed in the commit): the kimi subscription row and one claude-sonnet line ran 171 chars against the 170 border; the gpt-5.4-mini/gpt-6-astra row separator was missing; the mistral session-store row in the reference doc (184 chars vs the 124 border — introduced by the previous alias round) was re-wrapped. Both files now pass a programmatic uniform-width check on every table (0 problems).
+
+Reported only, left in place: the `mixtral-8x7b` capability row is dead twice over (provider retired it 2025-03-30 per the reachable docs; the CLI doesn't recognize the alias) — row removal is an owner call. Also note the previous round's `vibe config schema` probe didn't find the model enum in the schema; today's `Unknown model` error is the cleaner enumeration source.
+
+The temporary ProcessBuilder probe namespace was deleted before commit; only the two boundary files are in `1d710430` (52 insertions, 11 deletions).
+DISPATCH_RC=0

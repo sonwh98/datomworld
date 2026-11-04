@@ -1,0 +1,37 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cljrt (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cljrt/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+Fixes applied so far; verification is still running.
+
+Kept from the draft: the `clj` prelude module, `lower-unit`/`read-forms`, the `:clojure` profile shape, and the two-leg structure.
+
+Fixed: the `:project` double `sexp->uast` conversion, `clj/init!` ready-flag ordering, BigInt (`1n`/`20n`) number crossing with stored-identity in both legs, donor publication over the admitted `kind`/`portable` registry, and cell-backed foreign admission in [clojure.cljc](/Users/sto/workspace/datomworld-cljrt/src/cljc/yang/clojure.cljc) (structural `cell/get` projection; forged source maps still require the witness).
+
+Observed: admission tests (56 assertions) pass; clj-kondo on the four touched files reports 0 errors, 0 warnings.Still verifying — the linked leg is executing on the three vector VMs.
+Linked lowering fixed to publish through the globals cell; re-running the clj→TS leg on the three VMs.Still verifying — the clj→TS linked leg is running.Still verifying — the linked leg has not finished yet.Both new legs pass on semantic; full matrix and lint are in progress.Full matrix still running on the three VMs.Full matrix still running; commit and push follow its terminal result.Matrix verification still in progress.
+Done locally on branch `yang-clojure-runtime-module`: committed as [e267bcf3](https://github.com/sonwh98/datomworld/commit/e267bcf3129dd43e9b4cdb7c48f2b66e048a7d24), not merged.
+
+Push was attempted and blocked: `git push origin yang-clojure-runtime-module` failed with `No user exists for uid 501 / Could not read from remote repository`, and the unsandboxed retry was denied because approval prompts are disabled. The commit still needs a push from a network-enabled shell. [BRIEF-cljrt.md](/Users/sto/workspace/datomworld-cljrt/BRIEF-cljrt.md) was left untracked, as required.
+
+**What shipped**
+
+- New published module [yang/clojure/prelude.cljc](/Users/sto/workspace/datomworld-cljrt/src/cljc/yang/clojure/prelude.cljc): `clj` runtime module at the §8.10 call address, with `clj/run-main`, plus task-local `clj/define-global!` and `clj/global-get` over `clj.rt/globals`.
+- Linked lowering in [yang/clojure.cljc](/Users/sto/workspace/datomworld-cljrt/src/cljc/yang/clojure.cljc): reader as parser, and `lower-unit` published through the runtime globals so donor definitions discharge at link time. No calls were rewritten and no foreign `:code` was extracted.
+- Foreign admission in the same compiler file: cell-backed callables are now read structurally through their cell contents. Forged source maps still need the existing witness, so admission was not weakened to “any map with an entry.”
+- JS classification in [yang/typescript/antlr/prelude.cljc](/Users/sto/workspace/datomworld-cljrt/src/cljc/yang/typescript/antlr/prelude.cljc): an admitted non-cell callable (a clojure descriptor or bound method) now has kind `:function` instead of falling through to `:number`.
+- Profile and registry wiring in [yang/call/conformance.clj](/Users/sto/workspace/datomworld-cljrt/test/yang/call/conformance.clj): full `:clojure` profile, donor publication over the admitted `kind`/`portable` registry, and a pinned `yang.call` requirement for qualified convention reads.
+- Matrix legs in [yang/cross_lang_test.clj](/Users/sto/workspace/datomworld-cljrt/test/yang/cross_lang_test.clj): named skip replaced by clojure→typescript and typescript→clojure same-cell legs. Integer crossing uses JS BigInt spelling (`20n`/`1n`), which is the same bare-int value Clojure uses.
+
+**Draft review**
+
+Kept: the prelude module shape, `lower-unit`/`read-forms` intent, `:clojure` profile shape, and the two-leg structure.
+
+Fixed: the `:project` double `sexp->uast` conversion, `clj/init!` ready-flag ordering, the plain-number JS crossing (`22` → correct `22n` behavior), donor publication over the runtime registry, the donor `undeclared-free` on `clj_apply`, and JS unwrapping a clojure descriptor as a float.
+
+**Observed verification**
+
+- Full matrix: `clojure -M:test -n yang.cross-lang-test` → 9 tests, 11 assertions, 0 failures, 0 errors. This covers both new legs and the pre-existing legs on the three vector VMs via the helper’s backend agreement check.
+- Base suite: `bb test:sub:clj yang.base` (via `mise exec`) → 7 namespaces, 122 tests, 0 failures, pass.
+- Focused admission checks passed with 56 assertions, and the admission suite is also covered by the `yang.base` run.
+- Lint: `clojure -M:kondo` on all five touched code files → 0 errors, 0 warnings.
+DISPATCH_RC=0
