@@ -42,8 +42,35 @@ solo, options are a raised timeout or pool-size awareness — the seat's
 call; do NOT raise the budget reflexively without a solo measurement
 first (build-n-test.md's measure-then-pin rule).
 
+## Failure 3 — Node lane: recursion-limit emulation leaks the JS stack
+overflow (shiva run, pin `ab3839b5`)
+
+Shiva's completed Node lane (run `node-shards-20261102-1650`, 14 lanes,
+wall 36,904 s) had exactly one red: `yang.python`, 6 failures —
+`linked-recursion-error-test` (linked_safepoint_test.cljc:372, on
+:semantic and :register) and `recursion-error-test` /
+`generator-rebase-test` (safepoint_test.cljc:156). Signature: the guest
+RecursionError emulation at the 1000-frame default limit does not fire on
+Node before the JS engine's own stack exhausts —
+
+    expected: [true false {:py/out ["0" "rec" "1000"], :py/exception nil}]
+    actual:   [:thrown "Maximum call stack size exceeded"]
+
+i.e. f(1000) must raise a catchable guest RecursionError; instead the
+host stack overflow escapes as an uncaught JS RangeError. This is the
+SAME safepoint territory as Failure 1's `safepoint-test` red on the JVM
+lane — treat as one cross-host investigation of the recursion-limit
+safepoint, not two unrelated flakes. Reproduce per lane with only the
+failing namespaces: Node `node target/node-tests.js
+--test=yang.python.antlr.safepoint-test,yang.python.antlr.linked-safepoint-test`;
+JVM `clojure -M:test -i :slow -n yang.python.antlr.safepoint-test`.
+Logs: shiva `~/ci/datomworld-ts3/target-ci/node-shards-20261102-1650/yang.python.log`
+(failures at lines 81-284).
+
 ## Context (not yang.python's)
 
-The same run's other reds belong elsewhere and are handed off separately:
-yang.php golden-pin drift after the P5 merge (collab/yang-php note
-1793765688000) and the known hardening3-h3-1 latte kernel gate.
+The same runs' other reds belong elsewhere and are handed off separately:
+yang.php golden-pin drift after the P5 merge + the include-test hang
+(collab/yang-php note 1793765688000) and the known hardening3-h3-1 latte
+kernel gate. Shiva's Dart lane completed fully green (4,508 assertions,
+wall 25,806 s, done rc=0).
