@@ -25,7 +25,7 @@
    (clojure -P -M:test: ~/.m2 + ~/.gitlibs) runs in the primary before
    fan-out so the lanes never fetch into the shared caches concurrently.
    Per-lane summaries are appended serially after the futures join.
-     --now       ignore the 03:00/17:00 Vietnam windows (cron fires hourly)
+     --now       ignore the 04:00 Vietnam window (cron fires hourly)
      --pin-publish   resolve origin/master, publish {run-id, sha, ts} for the
                      other host (the pin authority; shiva)
      --pin-read      check out the pinned SHA, refusing a pin whose Vietnam
@@ -276,12 +276,12 @@
         summary (str out "/summary.txt")
         rc (atom 0)
         log (fn [s] (println s) (spit summary (str s "\n") :append true))]
-    ;; Owner ruling 2026-11-01: the full suite runs exactly twice a day,
-    ;; 03:00 and 17:00 Vietnam time — 03:00 catches the day's work before the
-    ;; owner stops coding, 17:00 gives a result they can act on before sleep.
-    ;; Everything else (the pre-merge gate) runs the affected tests only.
-    (when-not (or now? (contains? #{"03" "17"} (vn-hour)))
-      (println "outside the 03:00/17:00 Vietnam windows; pass --now to force")
+    ;; Owner ruling 2026-11-05: the full suite runs once a day, 04:00 Vietnam
+    ;; time, as a disjoint lane pair: jupiter the jvm lane, shiva the node and
+    ;; dart lanes (shiva publishes the pin, jupiter reads it). Everything else
+    ;; (the pre-merge gate) runs the affected tests only.
+    (when-not (or now? (= "04" (vn-hour)))
+      (println "outside the 04:00 Vietnam window; pass --now to force")
       (System/exit 0))
     (fs/create-dirs out)
     ;; mise owns the toolchain on the hosts; the nightly container ships the
@@ -311,8 +311,8 @@
         read-pin?
         (let [;; R4 fix (codex re-review): the reader requires the pin whose
               ;; run-id carries TODAY's VN date AND the window hour it is
-              ;; currently inside (03 or 17). Yesterday's pin, or the morning
-              ;; pin read at the 17:00 slot, is refused — no cross-slot pairing.
+              ;; currently inside (04). Yesterday's pin, or the morning
+              ;; pin read at a later slot, is refused — no cross-slot pairing.
               slot (vn-hour)
               line (loop [tries 15]
                      (let [l (if pin-peer

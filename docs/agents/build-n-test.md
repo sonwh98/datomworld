@@ -54,7 +54,7 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # the suite has outgrown the laptop (owner ruling 2026-11-04).
 # At slice checkpoints, run G1 (`bb test:sub <own>`). Before landing a slice, run
 # G2 (`bb test:changed` in the worktree across all three lanes).
-# Full repo-wide `bb test` runs twice daily on the remote hosts (03:00/17:00 VN);
+# Full repo-wide `bb test` runs once daily on the remote hosts (04:00 VN);
 # a MERGE needs only the affected tests (bb test:changed) -- owner ruling 2026-11-01.
 # Cross-host bugs show only on Node or Dart, so tri-host verification is mandatory
 # for every gate from G1 upward. Run one lane set at a time per machine to avoid
@@ -367,16 +367,20 @@ The suite has two tiers so that slow tests run less often than quick ones
   `:clj` reader-conditional branches). Those 22 namespaces now hold **168 slow tests**
   in all (some were already tagged). Per-test times are not in the repo: measure again
   with the method below before changing the cut.
-- **Cadence (owner ruling 2026-11-01):** a merge needs only the tests that cover the
+- **Cadence (owner ruling 2026-11-05):** a merge needs only the tests that cover the
   feature being built — the affected/dependent set from `bb test:changed` (or
   `bb test:sub <own> --slow` when the change touches slow-tagged code). The FULL suite,
-  including the slow tier, runs **twice a day: 03:00 and 17:00 Asia/Ho_Chi_Minh** on the
-  remote hosts (`src/dev/nightly.clj`; 03:00 catches the day's work before the owner
-  stops coding, 17:00 gives a result they can act on before sleeping). The measured long
-  set is ~400 minutes of serial slow-tier work, so it cannot be a per-merge cost; a
-  break is instead caught by the next scheduled run, at most ~12 hours later.
-  The schedule is expressed as an hourly cron plus a Vietnam-time guard inside the
-  driver, so it is immune to the DST shifts of either host's local timezone.
+  including the slow tier, runs **once a day at 04:00 Asia/Ho_Chi_Minh** as a
+  disjoint lane pair (`src/dev/nightly.clj`): **jupiter takes the jvm lane, shiva
+  takes node and dart** (each lane in its own clone; shiva publishes the run pin,
+  jupiter reads it and falls back to its own current master as an advisory run).
+  The measured long set is ~400 minutes of serial slow-tier work, so it cannot be
+  a per-merge cost; a break is instead caught by the next scheduled run.
+  The schedule is an **hourly cron plus a Vietnam-time guard** in
+  `~/ci/nightly-cron.sh` on each host (the guard fires only at the 04 VN hour and
+  `flock` skips a slot whose previous run is still active), so it is immune to the
+  DST shifts of either host's local timezone. Logs: `~/ci/nightly-cron.log`;
+  results: `~/ci/nightly-results/<stamp>/summary.txt`.
 
 Measured (2026-10-12, origin master plus the tags, Linux servers; see "Remote test
 servers" for how to run them):
@@ -771,11 +775,12 @@ only a worktree/branch. the nightly complete test should be for master."
 
 Two tiers, by target and purpose:
 
-- **The nightly full suite runs MASTER ONLY** (`~/ci/nightly-full.sh` on
-  shiva, tmux session `nightly`, scheduled 03:00 daily through the
-  orchestrator's automation; it fetches and checks out origin/master
-  before anything runs). Every lane, every host target: the JVM full
-  suite, the full Node suite, the full Dart suite. Its results are a
+- **The nightly full suite runs MASTER ONLY** (`~/ci/nightly-cron.sh` on
+  shiva and jupiter, hourly cron plus a 04:00 Vietnam guard and flock,
+  documented under "Cadence" above; the driver fetches and checks out
+  origin/master before anything runs). Every lane, across the host pair:
+  the JVM full suite on jupiter, the full Node and Dart suites on shiva.
+  Its results are a
   post-hoc integrity net for master, NOT a landing gate. Failures it
   finds route to fix rounds the next morning.
 - **Branch/worktree testing runs only the namespaces that target the
