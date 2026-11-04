@@ -1243,20 +1243,38 @@
 
 
 (defn- cell-ref-shaped-node
-  "The UAST test that the callee node carries an authentic cell
-   reference's shape: `:type :cell-ref` with the `:id` and `:seal`
-   every issued reference carries. A source map spelled
-   `{:type :cell-ref}` carries neither and is ordinary data; a map
-   spelling the full shape with a forged id or seal still reaches
-   `cell/get`, where the VM's seal refuses it."
+  "The UAST test that the callee node carries a genuine cell
+   reference's format: `:type :cell-ref` with the `:id` and `:seal`
+   every issued reference carries, no other entries, and a seal of
+   the issued form (a 64-character string; the seal's content is
+   the VM's blake3 over the task secret and is checked only by the
+   dereference). This gate is the admission-failure fallback's
+   front door: a map that fails it — a source map spelling those
+   keys among its own entries, like
+   `{:type :cell-ref :id :customer :seal \"wax\" :marker 42}` — is
+   never dereferenced and routes to ordinary map invocation, which
+   grants no cell capability. A map that passes the gate with a
+   wrong seal is a capability counterfeit: its dereference fails
+   closed in the VM, as a forged reference must."
   [callee]
-  (u/if-node (u/app (u/v 'dsg__equal)
-                    (u/app (u/v 'dsg__get) callee (u/lit :type))
-                    (u/lit :cell-ref))
-             (u/if-node (u/app (u/v 'data/contains?) callee (u/lit :id))
-                        (u/app (u/v 'data/contains?) callee (u/lit :seal))
-                        (u/lit false))
-             (u/lit false)))
+  (let [seal (u/app (u/v 'dsg__get) callee (u/lit :seal))]
+    (u/if-node (u/app (u/v 'dsg__equal)
+                      (u/app (u/v 'dsg__get) callee (u/lit :type))
+                      (u/lit :cell-ref))
+               (u/if-node (u/app (u/v 'data/contains?) callee (u/lit :id))
+                          (u/if-node (u/app (u/v 'data/contains?) callee (u/lit :seal))
+                                     (u/if-node (u/app (u/v 'dsg__equal)
+                                                       (u/app (u/v 'data/count) callee)
+                                                       (u/lit 3))
+                                                (u/if-node (u/app (u/v 'data/string?) seal)
+                                                           (u/app (u/v 'dsg__equal)
+                                                                  (u/app (u/v 'data/str-length) seal)
+                                                                  (u/lit 64))
+                                                           (u/lit false))
+                                                (u/lit false))
+                                     (u/lit false))
+                          (u/lit false))
+               (u/lit false))))
 
 
 (defn- compile-guest-call
@@ -2205,29 +2223,74 @@
                              (u/sexp->uast
                                '(fn [dsg__candidate]
                                   (if (data/map? dsg__candidate)
-                                    (if (dsg__equal (dsg__get dsg__candidate :type)
-                                                    :cell-ref)
-                                      ;; A cell-backed callable stores its entry
-                                      ;; in the cell contents (yang.antlr.md
-                                      ;; 8.10.2); projection is structural, as
-                                      ;; `yang.call/_descriptor` projects it.
-                                      ;; Only the cell case dereferences, so a
-                                      ;; source map with an entry spelling
-                                      ;; still needs the witness below.
-                                      (let [dsg__descriptor (cell/get dsg__candidate)
-                                            dsg__entry (dsg__get dsg__descriptor
-                                                                 :yang.call/entry)]
-                                        (data/callable? dsg__entry))
-                                      (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
-                                            dsg__witness (dsg__get dsg__candidate :clj/admission)]
-                                        (if (data/callable? dsg__entry)
-                                          (if (data/callable? dsg__witness)
-                                            (dsg__equal
+                                    ;; Only a genuine cell reference is
+                                    ;; dereferenced, as the descriptor
+                                    ;; projection does for a cell-backed
+                                    ;; callable (yang.antlr.md 8.10.2),
+                                    ;; whose entry lives in the cell
+                                    ;; contents. Genuine means the issued
+                                    ;; format: `:type :cell-ref` with
+                                    ;; `:id` and `:seal` and no other
+                                    ;; entries, the seal a 64-character
+                                    ;; string. Any other map — a source
+                                    ;; map spelling those keys among its
+                                    ;; own entries — is never
+                                    ;; dereferenced: it falls to the
+                                    ;; witness branch and, entryless, is
+                                    ;; no more admitted than any other
+                                    ;; source map, so its invocation
+                                    ;; stays ordinary map data. A
+                                    ;; format-perfect map with a wrong
+                                    ;; seal is a capability counterfeit:
+                                    ;; `cell/get` fails closed in the VM
+                                    ;; and grants nothing.
+                                    (let [dsg__cell-ref?
+                                          (if (dsg__equal
+                                                (dsg__get dsg__candidate :type)
+                                                :cell-ref)
+                                            (if (data/contains? dsg__candidate
+                                                                :id)
+                                              (if (data/contains? dsg__candidate
+                                                                  :seal)
+                                                (if (dsg__equal
+                                                      (data/count dsg__candidate)
+                                                      3)
+                                                  (if (data/string?
+                                                        (dsg__get dsg__candidate
+                                                                  :seal))
+                                                    (dsg__equal
+                                                      (data/str-length
+                                                        (dsg__get dsg__candidate
+                                                                  :seal))
+                                                      64)
+                                                    false)
+                                                  false)
+                                                false)
+                                              false)
+                                            false)]
+                                      (if dsg__cell-ref?
+                                        (let [dsg__descriptor
+                                              (cell/get dsg__candidate)
+                                              dsg__entry
+                                              (dsg__get dsg__descriptor
+                                                        :yang.call/entry)]
+                                          (data/callable? dsg__entry))
+                                        (let [dsg__entry
+                                              (dsg__get dsg__candidate
+                                                        :yang.call/entry)
                                               dsg__witness
-                                              (dsg__make_admission
-                                                (dsg__assoc dsg__candidate :clj/admission nil)))
-                                            false)
-                                          false)))
+                                              (dsg__get dsg__candidate
+                                                        :clj/admission)]
+                                          (if (data/callable? dsg__entry)
+                                            (if (data/callable? dsg__witness)
+                                              (dsg__equal
+                                                dsg__witness
+                                                (dsg__make_admission
+                                                  (dsg__assoc dsg__candidate
+                                                              :clj/admission
+                                                              nil)))
+                                              false)
+                                            false))))
                                     false)))
                              ;; The intra-unit dispatcher: resolve the unit's public entry,
                              ;; apply it with the compiler's token packet [token args] - one

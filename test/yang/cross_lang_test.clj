@@ -157,6 +157,21 @@
            (xl/call [:clojure
                      "(defn probe [] ({:type :cell-ref :marker 42} :marker))"]
                     ["probe"]
+                    [:typescript "console.log(probe());"]))))
+  (testing "a source map with the full forged cell-ref shape is ordinary invocable data"
+    ;; The map spells every key of an issued reference among its own
+    ;; entries; it is still data, so the lookup answers 42 where key
+    ;; presence alone used to dereference it and fail the VM.
+    (is (= {:js/out ["42n"], :js/uncaught nil}
+           (xl/call [:clojure
+                     "(defn probe [] ({:type :cell-ref :id :customer :seal \"wax\" :marker 42} :marker))"]
+                    ["probe"]
+                    [:typescript "console.log(probe());"]))))
+  (testing "a runtime-built map with the forged cell-ref shape is ordinary invocable data"
+    (is (= {:js/out ["42n"], :js/uncaught nil}
+           (xl/call [:clojure
+                     "(defn probe [] (let [m {:type :cell-ref :id :customer :seal \"wax\" :marker 42}] (m :marker)))"]
+                    ["probe"]
                     [:typescript "console.log(probe());"])))))
 
 
