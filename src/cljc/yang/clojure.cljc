@@ -1242,6 +1242,23 @@
        (contains? (::defined-fns env) operator)))
 
 
+(defn- cell-ref-shaped-node
+  "The UAST test that the callee node carries an authentic cell
+   reference's shape: `:type :cell-ref` with the `:id` and `:seal`
+   every issued reference carries. A source map spelled
+   `{:type :cell-ref}` carries neither and is ordinary data; a map
+   spelling the full shape with a forged id or seal still reaches
+   `cell/get`, where the VM's seal refuses it."
+  [callee]
+  (u/if-node (u/app (u/v 'dsg__equal)
+                    (u/app (u/v 'dsg__get) callee (u/lit :type))
+                    (u/lit :cell-ref))
+             (u/if-node (u/app (u/v 'data/contains?) callee (u/lit :id))
+                        (u/app (u/v 'data/contains?) callee (u/lit :seal))
+                        (u/lit false))
+             (u/lit false)))
+
+
 (defn- compile-guest-call
   "Admit a source operator before common invocation. Only generated UAST
    implementation calls apply private closures directly."
@@ -1352,9 +1369,7 @@
                      (u/if-node (u/app (u/v 'data/map?) (u/v callee))
                                 (u/if-node (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
                                            (u/lit true)
-                                           (u/app (u/v 'dsg__equal)
-                                                  (u/app (u/v 'dsg__get) (u/v callee) (u/lit :type))
-                                                  (u/lit :cell-ref)))
+                                           (cell-ref-shaped-node (u/v callee)))
                                 (u/lit false))
                      admitted
                      value-call)
@@ -2828,13 +2843,18 @@
   "Rewrite the compiled `node` for the linked unit: a top-level
    definition in `names` becomes a `clj/define-global!` write and a free
    read of one becomes a `clj/global-get`, both under the name's string.
-   A store definition inside the unit thunk is conditional to the
-   linker, so no body read of it discharges (the runtime preludes avoid
-   this by keeping every definition at module level); the runtime
-   global namespace is the linked unit's definition table instead, as
-   a Python module body writes its dictionary. Lexically bound names,
-   quoted literals and macro definitions keep their store shape: a
-   macro is not a runtime value."
+   The `names` a unit is lowered with are its own top-level definitions,
+   its guest library's and the projected names the composition bound in
+   the runtime global namespace, so a projected export and a definition
+   read through the one binding: a definition the unit itself runs
+   publishes after the projection and shadows it. A store definition
+   inside the unit thunk is conditional to the linker, so no body read
+   of it discharges (the runtime preludes avoid this by keeping every
+   definition at module level); the runtime global namespace is the
+   linked unit's definition table instead, as a Python module body
+   writes its dictionary. Lexically bound names, quoted literals and
+   macro definitions keep their store shape: a macro is not a runtime
+   value."
   [node names bound]
   (case (:type node)
     :literal node
@@ -2878,24 +2898,29 @@
    the guest library they need, compiled unmodified under `unit-opts`
    and published to the runtime global namespace by
    `publish-to-globals` — so the helper's export projection can read
-   each top-level definition. The program's own `yang.call` call sites
-   need no free-name declaration: the convention preamble
-   `compile-program` emits defines those names locally, and the donor
-   publication pins the `yang.call` module for the qualified reads
-   that remain."
-  [forms]
-  (let [source (vec forms)
-        library (library-for source)
-        program (compile-program (concat source library) true unit-opts)
-        macros (into #{}
-                     (comp (filter #(and (seq? %) (= 'defmacro (first %))))
-                           (map (comp strip-symbol-meta second)))
-                     (concat source library))
-        names (reduce disj
-                      (into (set (top-level-names source))
-                            (map (comp strip-symbol-meta second) library))
-                      macros)]
-    (u/lam [] (publish-to-globals program names #{}))))
+   each top-level definition. The two-argument form also takes the
+   projected `exports` (names the composition already bound in the
+   runtime global namespace): their free reads publish the same way, so
+   the projection is the caller's binding for them. The program's own
+   `yang.call` call sites need no free-name declaration: the convention
+   preamble `compile-program` emits defines those names locally, and
+   the donor publication pins the `yang.call` module for the qualified
+   reads that remain."
+  ([forms] (lower-unit forms []))
+  ([forms exports]
+   (let [source (vec forms)
+         library (library-for source)
+         program (compile-program (concat source library) true unit-opts)
+         macros (into #{}
+                      (comp (filter #(and (seq? %) (= 'defmacro (first %))))
+                            (map (comp strip-symbol-meta second)))
+                      (concat source library))
+         names (reduce disj
+                       (into (set (top-level-names source))
+                             (concat (map (comp strip-symbol-meta second) library)
+                                     (map symbol exports)))
+                       macros)]
+     (u/lam [] (publish-to-globals program names #{})))))
 
 
 (defn output

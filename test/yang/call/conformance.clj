@@ -157,17 +157,17 @@
     :refusal [:yang.clojure/refusal :yang.clojure/undeclared-free],
     :deps (fn [] {'yang.call (:call-address @h/published)}),
     :parse clj-comp/read-forms,
-    :unit (fn [packet _] (clj-comp/lower-unit packet)),
+    :unit (fn [packet exports] (clj-comp/lower-unit packet exports)),
     :run-main 'clj/run-main,
     :read-export (fn [export] (list 'clj/global-get export)),
     :project (fn [name value]
-               ;; the runtime global namespace holds the projection (as
-               ;; `js/define-global!` does for a JS caller), and the
-               ;; `yin/def` under the same name is how clojure source
-               ;; resolves it: a free name resolves the task's store
-               (list 'do
-                     (list 'clj/define-global! name value)
-                     (list 'yin/def (list 'quote (symbol name)) value))),
+               ;; The runtime global namespace is the one binding (as
+               ;; `js/define-global!` is for a JS caller): `lower-unit`
+               ;; reads each projected name through `clj/global-get`, so
+               ;; no task-store binding duplicates it. A caller top-level
+               ;; definition of the same name publishes after the
+               ;; projection and shadows it.
+               (list 'clj/define-global! name value)),
     :render clj-comp/output}})
 
 

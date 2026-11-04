@@ -7,18 +7,25 @@
 
    Three surfaces, mirroring the other runtimes:
 
-   - the entry, `clj/run-main`: initialize the runtime state, reset the
-     global namespace (it is task-local), run the unit — the thunk
-     `yang.clojure/lower-unit` lowered — and answer the program's value
-     with the outcome model's `[:yin.k/ok value]` wrapper removed, since
-     that wrapper is frontend-internal;
+   - the entry, `clj/run-main`: initialize the runtime state, run the
+     unit — the thunk `yang.clojure/lower-unit` lowered — and answer the
+     program's value with the outcome model's `[:yin.k/ok value]`
+     wrapper removed, since that wrapper is frontend-internal. The
+     entry does not reset the global namespace: the namespace lives for
+     the task, so a projection the composition bound between two
+     entries and a definition an earlier unit published both survive
+     into the next unit's run (as `js/run-main` leaves `globalThis`
+     standing);
    - the runtime global namespace, `clj/define-global!` and
      `clj/global-get`: a task-local map in a cell (`clj.rt/globals`,
      allocated once per task by `clj/init!`), keyed by export name. A
      program's top-level definitions land here through its unit's own
-     publishing, and the conformance helper's export projection reads and
-     writes it — the JS `globalThis` table, the PHP named-function table
-     and the Python module dictionary are the same seam;
+     publishing, and the conformance helper's export projection reads
+     and writes it — the one binding a linked unit reads a projected or
+     defined name through. A definition a unit runs publishes after
+     any projection of the same name and shadows it. The JS
+     `globalThis` table, the PHP named-function table and the Python
+     module dictionary are the same seam;
    - admission, `admit`: the registry surface a linked clojure composition
      needs beside the others — the `kind` module and the `portable`
      adapters of the data exports the guest library's collection
@@ -84,10 +91,11 @@
            (data/nth value 1)
            value)
          value))]
+    ;; The global namespace is the task's, not the entry's: no reset
+    ;; here, so projections and earlier units' definitions survive.
     [clj/run-main
      (fn [body]
        (do (clj/init!)
-           (cell/set! clj.rt/globals {})
            (clj/unwrap-outcome (body))))]])
 
 

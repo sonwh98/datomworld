@@ -119,6 +119,55 @@
                     [:clojure "(ts_apply (fn [x] (+ x 1)))"])))))
 
 
+(deftest clojure-projection-through-runtime-globals-test
+  (testing "the projected value is read via clj/global-get inside the caller's run"
+    ;; `ts_apply` is no top-level definition of the caller, so its read
+    ;; inside `apply-it` reaches the runtime global namespace the helper
+    ;; projected into, not a task-store binding.
+    (is (= "22"
+           (xl/call [:typescript
+                     (str "globalThis.ts_apply = f => { globalThis.stored = f; "
+                          "return stored === f ? f(20n) + 1n : -1n; };")]
+                    ["ts_apply"]
+                    [:clojure
+                     "(defn apply-it [] (ts_apply (fn [x] (+ x 1)))) (apply-it)"]))))
+  (testing "a second clj/run-main entry still sees the earlier unit's globals"
+    (is (= "42"
+           (xl/call [:clojure "(def answer 42)"]
+                    ["answer"]
+                    [:clojure "(defn get-answer [] answer) (get-answer)"])))))
+
+
+(deftest clojure-caller-shadows-projected-global-test
+  (testing "a caller-defined name shadows the projected one"
+    ;; The caller's own `shared` runs: its definition publishes after the
+    ;; projection, so the runtime global holds the caller's function.
+    (is (= "21"
+           (xl/call [:clojure "(defn shared [x] (+ x 100))"]
+                    ["shared"]
+                    [:clojure "(defn shared [x] (+ x 1)) (shared 20)"])))))
+
+
+(deftest clojure-source-cell-ref-map-invocation-test
+  (testing "a source map {:type :cell-ref} is ordinary invocable data"
+    ;; The donor's exported function invokes its own source map literal:
+    ;; the map lookup answers 42, where the structural cell test used to
+    ;; dereference the map as a cell and fail the VM.
+    (is (= {:js/out ["42n"], :js/uncaught nil}
+           (xl/call [:clojure
+                     "(defn probe [] ({:type :cell-ref :marker 42} :marker))"]
+                    ["probe"]
+                    [:typescript "console.log(probe());"])))))
+
+
+(deftest python-function-kind-of-in-typescript-test
+  (testing "js/kind-of over a cell-backed foreign callable is :function"
+    (is (= {:js/out ["function"], :js/uncaught nil}
+           (xl/call [:python "def py_fn(x):\n    return x + 1\n"]
+                    ["py_fn"]
+                    [:typescript "console.log(typeof py_fn);"])))))
+
+
 (deftest limits-test
   (testing "a PHP array returned to TS is an opaque handle, usable in PHP"
     (let [src "<?php function phpfn($a = 7) { return $a === 7 ? [1, 2, 3] : count($a); }"]
