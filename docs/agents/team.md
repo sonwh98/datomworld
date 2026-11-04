@@ -51,6 +51,12 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +=================+========================================+=============================================================================================================+
 | agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| bailian         | Metered: Alibaba Cloud Model Studio    | Invoke via the `bl` CLI (npm `bailian-cli`, v2.8.2, installed 2026-11-04). Auth: `bl auth login --console`   |
+|                 | (pay-per-token with a free quota       | (owner browser login) or `bl auth login --api-key <key>`; check with `bl auth status --output json`.         |
+|                 | tier; pricing not yet measured)        | Strengths: image/video generation, Managed Agents, model-usage/quota inspection, model recommendation.       |
+|                 |                                        | Model catalog and dispatch flags are NOT yet measured — no authenticated dispatch has run; do not route      |
+|                 |                                        | work here until the first authenticated probe is recorded (see delegate-invocation-reference.md).            |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude          | Inactive / Cancelled                   | Subscription stopped by owner. Do not route tasks here.                                                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude-api      | Inactive / Cancelled                   | Anthropic API access stopped by owner. Do not route tasks here.                                             |

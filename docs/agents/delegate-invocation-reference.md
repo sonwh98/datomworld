@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe, bailian)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -106,6 +106,10 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 |              |                             | `mistral`)                       |                                          |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| bailian      | `~/.bailian` (config.json)  | not yet measured (no session     | not yet measured                         |
+|              |                             | store observed; auth is          |                                          |
+|              |                             | `~/.bailian/config.json`)        |                                          |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
@@ -283,6 +287,20 @@ shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
 [`routing-status.md`](routing-status.md) before dispatching: availability
 moves (the muse lane has swung between geo-restricted, windowed, and live
 several times — that file, not this one, is the current authority).
+
+**Bailian routing (install-only; dispatch recipe pending):** `bl` (alias
+`bailian`) is Alibaba Cloud Model Studio's CLI — npm `bailian-cli`, v2.8.2,
+installed 2026-11-04 (Node ≥ 18.17.0 required; 12 `bailian-*` skills
+installed via `bl skill init`). Auth is NOT yet configured: the owner logs
+in with `bl auth login --console` (browser) or `bl auth login --api-key
+<key>`; check with `bl auth status --output json` (machine-readable;
+`NO_COLOR=1` for plain text). Capabilities per its own docs: image/video
+generation, Managed Agents, model-usage/quota inspection, model
+recommendation; billing is metered pay-per-token with a free-quota tier.
+**No model catalog, dispatch flags, or session mechanics have been
+measured** — no authenticated dispatch has run. Do not invent `-p`/exec
+equivalents or model IDs for it; run a cheap authenticated probe first and
+record the real invocation here, same as was done for muse and kimi.
 
 **Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
 The managed 3.x aliases are `kimi-code/k3.1-pro`,
