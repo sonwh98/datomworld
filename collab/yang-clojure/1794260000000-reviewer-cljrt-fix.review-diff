@@ -1,0 +1,345 @@
+diff --git a/src/cljc/yang/clojure.cljc b/src/cljc/yang/clojure.cljc
+index 4f0d9e74..f24c14eb 100644
+--- a/src/cljc/yang/clojure.cljc
++++ b/src/cljc/yang/clojure.cljc
+@@ -1200,6 +1200,23 @@
+        (not (contains? (::defined env) operator))))
+ 
+ 
++(defn- cell-ref-shaped-node
++  "The UAST test that the callee node carries an authentic cell
++   reference's shape: `:type :cell-ref` with the `:id` and `:seal`
++   every issued reference carries. A source map spelled
++   `{:type :cell-ref}` carries neither and is ordinary data; a map
++   spelling the full shape with a forged id or seal still reaches
++   `cell/get`, where the VM's seal refuses it."
++  [callee]
++  (u/if-node (u/app (u/v 'dsg__equal)
++                    (u/app (u/v 'dsg__get) callee (u/lit :type))
++                    (u/lit :cell-ref))
++             (u/if-node (u/app (u/v 'data/contains?) callee (u/lit :id))
++                        (u/app (u/v 'data/contains?) callee (u/lit :seal))
++                        (u/lit false))
++             (u/lit false)))
++
++
+ (defn- compile-guest-call
+   "Admit a source operator before common invocation. Only generated UAST
+    implementation calls apply private closures directly."
+@@ -1310,9 +1327,7 @@
+                      (u/if-node (u/app (u/v 'data/map?) (u/v callee))
+                                 (u/if-node (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
+                                            (u/lit true)
+-                                           (u/app (u/v 'dsg__equal)
+-                                                  (u/app (u/v 'dsg__get) (u/v callee) (u/lit :type))
+-                                                  (u/lit :cell-ref)))
++                                           (cell-ref-shaped-node (u/v callee)))
+                                 (u/lit false))
+                      admitted
+                      value-call)
+@@ -2103,27 +2118,52 @@
+                            (u/sexp->uast
+                              '(fn [dsg__candidate]
+                                 (if (data/map? dsg__candidate)
+-                                  (if (dsg__equal (dsg__get dsg__candidate :type)
+-                                                  :cell-ref)
+-                                    ;; A cell-backed callable stores its entry
+-                                    ;; in the cell contents (yang.antlr.md
+-                                    ;; 8.10.2); projection is structural, as
+-                                    ;; `yang.call/_descriptor` projects it.
+-                                    ;; Only the cell case dereferences, so a
+-                                    ;; source map with an entry spelling
+-                                    ;; still needs the witness below.
+-                                    (let [dsg__descriptor (cell/get dsg__candidate)
+-                                          dsg__entry (dsg__get dsg__descriptor
+-                                                               :yang.call/entry)]
+-                                      (data/callable? dsg__entry))
+-                                    (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
+-                                          dsg__witness (dsg__get dsg__candidate :clj/admission)]
+-                                      (if (data/callable? dsg__entry)
+-                                        (dsg__equal
+-                                          dsg__witness
+-                                          (dsg__make_admission
+-                                            (dsg__assoc dsg__candidate :clj/admission nil)))
+-                                        false)))
++                                  ;; An authentic cell reference carries
++                                  ;; the `:id` and `:seal` the VM issued
++                                  ;; it with; only that shape is
++                                  ;; dereferenced, as the descriptor
++                                  ;; projection does for a cell-backed
++                                  ;; callable (yang.antlr.md 8.10.2),
++                                  ;; whose entry lives in the cell
++                                  ;; contents. A source map spelled
++                                  ;; `{:type :cell-ref}` carries
++                                  ;; neither: it falls to the witness
++                                  ;; branch and, entryless, is no more
++                                  ;; admitted than any other source
++                                  ;; map. A forged full shape still
++                                  ;; reaches `cell/get`, where the VM
++                                  ;; seal refuses it.
++                                  (let [dsg__cell-ref?
++                                        (if (dsg__equal
++                                              (dsg__get dsg__candidate :type)
++                                              :cell-ref)
++                                          (if (data/contains? dsg__candidate
++                                                              :id)
++                                            (data/contains? dsg__candidate
++                                                            :seal)
++                                            false)
++                                          false)]
++                                    (if dsg__cell-ref?
++                                      (let [dsg__descriptor
++                                            (cell/get dsg__candidate)
++                                            dsg__entry
++                                            (dsg__get dsg__descriptor
++                                                      :yang.call/entry)]
++                                        (data/callable? dsg__entry))
++                                      (let [dsg__entry
++                                            (dsg__get dsg__candidate
++                                                      :yang.call/entry)
++                                            dsg__witness
++                                            (dsg__get dsg__candidate
++                                                      :clj/admission)]
++                                        (if (data/callable? dsg__entry)
++                                          (dsg__equal
++                                            dsg__witness
++                                            (dsg__make_admission
++                                              (dsg__assoc dsg__candidate
++                                                          :clj/admission
++                                                          nil)))
++                                          false))))
+                                   false))))
+          (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
+          (outcomes? env) (u/let1
+@@ -2712,13 +2752,18 @@
+   "Rewrite the compiled `node` for the linked unit: a top-level
+    definition in `names` becomes a `clj/define-global!` write and a free
+    read of one becomes a `clj/global-get`, both under the name's string.
+-   A store definition inside the unit thunk is conditional to the
+-   linker, so no body read of it discharges (the runtime preludes avoid
+-   this by keeping every definition at module level); the runtime
+-   global namespace is the linked unit's definition table instead, as
+-   a Python module body writes its dictionary. Lexically bound names,
+-   quoted literals and macro definitions keep their store shape: a
+-   macro is not a runtime value."
++   The `names` a unit is lowered with are its own top-level definitions,
++   its guest library's and the projected names the composition bound in
++   the runtime global namespace, so a projected export and a definition
++   read through the one binding: a definition the unit itself runs
++   publishes after the projection and shadows it. A store definition
++   inside the unit thunk is conditional to the linker, so no body read
++   of it discharges (the runtime preludes avoid this by keeping every
++   definition at module level); the runtime global namespace is the
++   linked unit's definition table instead, as a Python module body
++   writes its dictionary. Lexically bound names, quoted literals and
++   macro definitions keep their store shape: a macro is not a runtime
++   value."
+   [node names bound]
+   (case (:type node)
+     :literal node
+@@ -2762,24 +2807,29 @@
+    the guest library they need, compiled unmodified under `unit-opts`
+    and published to the runtime global namespace by
+    `publish-to-globals` — so the helper's export projection can read
+-   each top-level definition. The program's own `yang.call` call sites
+-   need no free-name declaration: the convention preamble
+-   `compile-program` emits defines those names locally, and the donor
+-   publication pins the `yang.call` module for the qualified reads
+-   that remain."
+-  [forms]
+-  (let [source (vec forms)
+-        library (library-for source)
+-        program (compile-program (concat source library) true unit-opts)
+-        macros (into #{}
+-                     (comp (filter #(and (seq? %) (= 'defmacro (first %))))
+-                           (map (comp strip-symbol-meta second)))
+-                     (concat source library))
+-        names (reduce disj
+-                      (into (set (top-level-names source))
+-                            (map (comp strip-symbol-meta second) library))
+-                      macros)]
+-    (u/lam [] (publish-to-globals program names #{}))))
++   each top-level definition. The two-argument form also takes the
++   projected `exports` (names the composition already bound in the
++   runtime global namespace): their free reads publish the same way, so
++   the projection is the caller's binding for them. The program's own
++   `yang.call` call sites need no free-name declaration: the convention
++   preamble `compile-program` emits defines those names locally, and
++   the donor publication pins the `yang.call` module for the qualified
++   reads that remain."
++  ([forms] (lower-unit forms []))
++  ([forms exports]
++   (let [source (vec forms)
++         library (library-for source)
++         program (compile-program (concat source library) true unit-opts)
++         macros (into #{}
++                      (comp (filter #(and (seq? %) (= 'defmacro (first %))))
++                            (map (comp strip-symbol-meta second)))
++                      (concat source library))
++         names (reduce disj
++                       (into (set (top-level-names source))
++                             (concat (map (comp strip-symbol-meta second) library)
++                                     (map symbol exports)))
++                       macros)]
++     (u/lam [] (publish-to-globals program names #{})))))
+ 
+ 
+ (defn output
+diff --git a/src/cljc/yang/clojure/prelude.cljc b/src/cljc/yang/clojure/prelude.cljc
+index ca8556dd..42a3bead 100644
+--- a/src/cljc/yang/clojure/prelude.cljc
++++ b/src/cljc/yang/clojure/prelude.cljc
+@@ -7,18 +7,25 @@
+ 
+    Three surfaces, mirroring the other runtimes:
+ 
+-   - the entry, `clj/run-main`: initialize the runtime state, reset the
+-     global namespace (it is task-local), run the unit — the thunk
+-     `yang.clojure/lower-unit` lowered — and answer the program's value
+-     with the outcome model's `[:yin.k/ok value]` wrapper removed, since
+-     that wrapper is frontend-internal;
++   - the entry, `clj/run-main`: initialize the runtime state, run the
++     unit — the thunk `yang.clojure/lower-unit` lowered — and answer the
++     program's value with the outcome model's `[:yin.k/ok value]`
++     wrapper removed, since that wrapper is frontend-internal. The
++     entry does not reset the global namespace: the namespace lives for
++     the task, so a projection the composition bound between two
++     entries and a definition an earlier unit published both survive
++     into the next unit's run (as `js/run-main` leaves `globalThis`
++     standing);
+    - the runtime global namespace, `clj/define-global!` and
+      `clj/global-get`: a task-local map in a cell (`clj.rt/globals`,
+      allocated once per task by `clj/init!`), keyed by export name. A
+      program's top-level definitions land here through its unit's own
+-     publishing, and the conformance helper's export projection reads and
+-     writes it — the JS `globalThis` table, the PHP named-function table
+-     and the Python module dictionary are the same seam;
++     publishing, and the conformance helper's export projection reads
++     and writes it — the one binding a linked unit reads a projected or
++     defined name through. A definition a unit runs publishes after
++     any projection of the same name and shadows it. The JS
++     `globalThis` table, the PHP named-function table and the Python
++     module dictionary are the same seam;
+    - admission, `admit`: the registry surface a linked clojure composition
+      needs beside the others — the `kind` module and the `portable`
+      adapters of the data exports the guest library's collection
+@@ -84,10 +91,11 @@
+            (data/nth value 1)
+            value)
+          value))]
++    ;; The global namespace is the task's, not the entry's: no reset
++    ;; here, so projections and earlier units' definitions survive.
+     [clj/run-main
+      (fn [body]
+        (do (clj/init!)
+-           (cell/set! clj.rt/globals {})
+            (clj/unwrap-outcome (body))))]])
+ 
+ 
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index d820bb60..22d34b8f 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -137,7 +137,11 @@
+                        :function
+                        (if (= (get (cell/get x) :js/type) :symbol)
+                          :symbol
+-                         :object))
++                         ;; A cell-backed foreign callable (a python
++                         ;; or PHP function: a cell whose contents
++                         ;; carry a call entry, no :js/type) is a
++                         ;; function too, not an object.
++                         (if (yang.call/eligible? x) :function :object)))
+                      ;; An admitted foreign callable that is not a JS
+                      ;; cell (a clojure descriptor, a bound method) is
+                      ;; still a function; only a value no profile admits
+diff --git a/test/yang/call/conformance.clj b/test/yang/call/conformance.clj
+index 7e569bfc..aa5d1245 100644
+--- a/test/yang/call/conformance.clj
++++ b/test/yang/call/conformance.clj
+@@ -157,17 +157,17 @@
+     :refusal [:yang.clojure/refusal :yang.clojure/undeclared-free],
+     :deps (fn [] {'yang.call (:call-address @h/published)}),
+     :parse clj-comp/read-forms,
+-    :unit (fn [packet _] (clj-comp/lower-unit packet)),
++    :unit (fn [packet exports] (clj-comp/lower-unit packet exports)),
+     :run-main 'clj/run-main,
+     :read-export (fn [export] (list 'clj/global-get export)),
+     :project (fn [name value]
+-               ;; the runtime global namespace holds the projection (as
+-               ;; `js/define-global!` does for a JS caller), and the
+-               ;; `yin/def` under the same name is how clojure source
+-               ;; resolves it: a free name resolves the task's store
+-               (list 'do
+-                     (list 'clj/define-global! name value)
+-                     (list 'yin/def (list 'quote (symbol name)) value))),
++               ;; The runtime global namespace is the one binding (as
++               ;; `js/define-global!` is for a JS caller): `lower-unit`
++               ;; reads each projected name through `clj/global-get`, so
++               ;; no task-store binding duplicates it. A caller top-level
++               ;; definition of the same name publishes after the
++               ;; projection and shadows it.
++               (list 'clj/define-global! name value)),
+     :render clj-comp/output}})
+ 
+ 
+diff --git a/test/yang/cross_lang_test.clj b/test/yang/cross_lang_test.clj
+index dd66a08c..9539a4ac 100644
+--- a/test/yang/cross_lang_test.clj
++++ b/test/yang/cross_lang_test.clj
+@@ -119,6 +119,55 @@
+                     [:clojure "(ts_apply (fn [x] (+ x 1)))"])))))
+ 
+ 
++(deftest clojure-projection-through-runtime-globals-test
++  (testing "the projected value is read via clj/global-get inside the caller's run"
++    ;; `ts_apply` is no top-level definition of the caller, so its read
++    ;; inside `apply-it` reaches the runtime global namespace the helper
++    ;; projected into, not a task-store binding.
++    (is (= "22"
++           (xl/call [:typescript
++                     (str "globalThis.ts_apply = f => { globalThis.stored = f; "
++                          "return stored === f ? f(20n) + 1n : -1n; };")]
++                    ["ts_apply"]
++                    [:clojure
++                     "(defn apply-it [] (ts_apply (fn [x] (+ x 1)))) (apply-it)"]))))
++  (testing "a second clj/run-main entry still sees the earlier unit's globals"
++    (is (= "42"
++           (xl/call [:clojure "(def answer 42)"]
++                    ["answer"]
++                    [:clojure "(defn get-answer [] answer) (get-answer)"])))))
++
++
++(deftest clojure-caller-shadows-projected-global-test
++  (testing "a caller-defined name shadows the projected one"
++    ;; The caller's own `shared` runs: its definition publishes after the
++    ;; projection, so the runtime global holds the caller's function.
++    (is (= "21"
++           (xl/call [:clojure "(defn shared [x] (+ x 100))"]
++                    ["shared"]
++                    [:clojure "(defn shared [x] (+ x 1)) (shared 20)"])))))
++
++
++(deftest clojure-source-cell-ref-map-invocation-test
++  (testing "a source map {:type :cell-ref} is ordinary invocable data"
++    ;; The donor's exported function invokes its own source map literal:
++    ;; the map lookup answers 42, where the structural cell test used to
++    ;; dereference the map as a cell and fail the VM.
++    (is (= {:js/out ["42n"], :js/uncaught nil}
++           (xl/call [:clojure
++                     "(defn probe [] ({:type :cell-ref :marker 42} :marker))"]
++                    ["probe"]
++                    [:typescript "console.log(probe());"])))))
++
++
++(deftest python-function-kind-of-in-typescript-test
++  (testing "js/kind-of over a cell-backed foreign callable is :function"
++    (is (= {:js/out ["function"], :js/uncaught nil}
++           (xl/call [:python "def py_fn(x):\n    return x + 1\n"]
++                    ["py_fn"]
++                    [:typescript "console.log(typeof py_fn);"])))))
++
++
+ (deftest limits-test
+   (testing "a PHP array returned to TS is an opaque handle, usable in PHP"
+     (let [src "<?php function phpfn($a = 7) { return $a === 7 ? [1, 2, 3] : count($a); }"]
