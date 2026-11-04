@@ -102,6 +102,33 @@
      (into {} (map (fn [[k run]] [k (attempt run)])) runners))))
 
 
+(deftest cell-reference-authenticity-at-python-derefs-test
+  (let [results
+        (run-with-prelude
+          prelude/uast
+          '(let [lookalike {:type :cell-ref
+                            :id 7
+                            :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+                 other-lookalike {:type :cell-ref
+                                  :id 8
+                                  :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+                 genuine (cell/new {:py/type :genuine})
+                 left (cell/new {:py/type :list :items []})
+                 right (cell/new {:py/type :list :items []})]
+             (py/vconj
+               (py/vconj
+                 (py/vconj
+                   (py/vconj
+                     (py/vconj [] (py/content-type lookalike))
+                     (py/kind lookalike))
+                   (py/eq lookalike other-lookalike))
+                 (py/content-type genuine))
+               (py/eq left right))))]
+    (doseq [[backend result] results]
+      (testing (str backend)
+        (is (= [nil nil false :genuine true] result))))))
+
+
 (defn- with-float64
   "`form` with every `{:py/float x}` payload as float64 content, as the
    lowering and the prelude build it (on JS, Jing's carrier: a bare 1.0

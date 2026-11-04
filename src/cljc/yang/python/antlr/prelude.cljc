@@ -219,6 +219,7 @@
 (defquoted ^:private core-definitions
   "Pure definitions: lambdas only, so defining them runs nothing."
   '[;; ---------------------------------------------------------------- kinds
+    ;; Shape selects when to ask; authentic? decides meaning. Never deref an inauthentic shape.
     [py/cell? (fn [x] (= (get x :type) :cell-ref))]
     [py/str? (fn [x] (not (nil? (get x :py/str))))]
     [py/str (fn [s] (assoc {} :py/str s))]
@@ -242,7 +243,11 @@
     [py/zero?
      (fn [x]
        (let [v (py/num x)] (if (= v 0) true (= v (data/float-value 0)))))]
-    [py/content-type (fn [x] (if (py/cell? x) (get (cell/get x) :py/type) nil))]
+    [py/content-type
+     (fn [x]
+       (if (py/cell? x)
+         (if (cell/authentic? x) (get (cell/get x) :py/type) nil)
+         nil))]
     [py/function? (fn [x] (= (py/content-type x) :function))]
 
     ;; ---------------------------------------------------------- escapes
@@ -1239,7 +1244,10 @@
          (py/type-error {:py/str "comparison not supported"})))]
     [py/kind
      ;; the type tag of any guest value that carries one
-     (fn [x] (if (py/cell? x) (get (cell/get x) :py/type) (get x :py/type)))]
+     (fn [x]
+       (if (py/cell? x)
+         (if (cell/authentic? x) (get (cell/get x) :py/type) (get x :py/type))
+         (get x :py/type)))]
     [py/add
      (fn [a b]
        (if (py/str? a)
@@ -1622,7 +1630,15 @@
            (= (py/num-compare a b) 0)
            false)
          (if (py/cell? a)
-           (if (py/cell? b) (py/eq-objects a b) false)
+           (if (cell/authentic? a)
+             (if (py/cell? b)
+               (if (cell/authentic? b) (py/eq-objects a b) false)
+               false)
+             (if (= (py/kind a) :tuple)
+               (if (= (py/kind b) :tuple)
+                 (py/eq-items (get a :items) (get b :items) 0)
+                 false)
+               (= a b)))
            (if (= (py/kind a) :tuple)
              (if (= (py/kind b) :tuple)
                (py/eq-items (get a :items) (get b :items) 0)
