@@ -209,6 +209,24 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | sessions. **Best for:** Scoped subagent work, bounded searches,    | security sign-offs, or subtle invariant proofs; escalate to         |
 |                             | routine QA, extraction, and fast iteration.                        | `muse-wonder-1.0`.                                                  |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `qwen3.8-max`               | Qwen (Alibaba) flagship on the `qwen` CLI's Token Plan (serving    | Capability not benchmarked from this fleet yet (availability         |
+|                             | model, probed live 2026-11-04); latest generation. **Best for:**   | measured only) — treat early dispatches as candidates for the       |
+|                             | Implementation and review rounds on the qwen lane, pending         | standing kimi quality gate before trusting verdicts. **Avoid for:** |
+|                             | in-repo evaluation.                                                | long-context jobs: context size not probe-verified.                 |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `qwen3.8-flash`             | Qwen fast tier on the same plan (probed live 2026-11-04). **Best   | Lighter tier than 3.8-max. **Avoid for:** Hardest reasoning or       |
+|                             | for:** Latency-sensitive iteration, QA spot-checks, extraction,    | disputed findings; use `qwen3.8-max` or escalate per the ladder.     |
+|                             | and this seat's own interactive runs.                              |                                                                    |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `qwen3.7-max`               | Prior-generation Qwen flagship, still served on the plan (probed   | Superseded within the lane by `qwen3.8-max`. **Avoid for:** any     |
+|                             | live). Second choice when 3.8 capacity is throttled.               | work 3.8 can take; no measured advantage over it.                  |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `qwen3.6-flash`             | Prior-generation Qwen fast tier (probed live).                     | Two generations old; lighter reasoning than either 3.8 tier.        |
+|                             |                                                                    | **Avoid for:** anything the 3.8 lane can serve.                    |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `deepseek-v4-pro` (qwen     | NOTE: the `qwen` lane's Token Plan ALSO serves `deepseek-v4-pro`  | Same-family collision: a deepseek-v4-pro author on the qwen lane     |
+|  lane note)                 | (probed live 2026-11-04), in addition to the Qwen tiers.           | must NOT be reviewed by the DeepSeek lane — same family.            |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 ## Role Selection & Reviewer Independence
 
 The Orchestrator is completely responsible for selecting the implementer for a given role. It dynamically
@@ -220,8 +238,11 @@ cost align with the task.
 Every change must be reviewed by a model from a **different family** to ensure
 independent defect discovery. Never silently substitute a same-family reviewer.
 The families represented in the Model Strengths table are: **Claude**,
-**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, **Mistral**, and
-**Muse** (Meta).
+**DeepSeek**, **Gemini**, **GLM**, **GPT**, **Kimi**, **Mistral**,
+**Muse** (Meta), and **Qwen** (Alibaba). Family, not CLI, decides
+independence: the `qwen` lane's `deepseek-v4-pro` is a **DeepSeek**
+author for review purposes, and Qwen-authored work (including anything
+by this interactive seat) must be reviewed by a different family.
 Any author from one family must be reviewed by a model from a different family.
 
 Routine review applies only when independent; architectural or security review
