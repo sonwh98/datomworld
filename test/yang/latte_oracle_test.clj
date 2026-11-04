@@ -1921,6 +1921,7 @@
   #{:unparser-guest-closure :implicit-typed-closure :implicit-throwing-closure
     :check-assume-have-discharge :parse-to-normalize-to-type
     :h3-2-elab-inferred-anonymous :h3-2-elab-discharge-states
+    :h3-3-readable-term-2 :h3-3-readable-term-3 :h3-3-unregister-unparser
     :fundamental-install-use :unfold-install-use :opacity-install-use})
 
 
@@ -1969,8 +1970,8 @@
         complete? (fn [d required] (every? d required))
         portability-required [:call :script :message :boundary :upstream-value :reason]
         upstream-required [:call :boundary :reason :upstream-revision]]
-    (assert (and (= 2 (:version parsed))
-                 (= "088c498e56109f5002342bbd19120b124fff62d3" (:provenance parsed)))
+    (assert (and (= 3 (:version parsed))
+                 (= "004246b48ddac39e0ecd3631a16f4e74b05cab7a" (:provenance parsed)))
             "the declarations file's version/provenance are part of its contract")
     (doseq [[id d] (:portability parsed)]
       (assert (and (complete? d portability-required)
@@ -2344,6 +2345,65 @@
         (is (kernel-executed-arity? f2 sym n) (str "F2 witnesses " sym "/" n)))
       ;; Discharge credit belongs to F1/F3 only: F2 has no discharge step.
       (is (not (kernel-executed-arity? f2 'latte-kernel.proof/elab-discharge 6))))))
+
+
+(deftest test-h3-3-twenty-arity-family
+  (testing "registration: private/side-effecting primaries are named integrations, refusals are negatives"
+    (is (contains? kernel-named-integrations :h3-3-readable-term-2))
+    (is (contains? kernel-named-integrations :h3-3-readable-term-3))
+    (is (contains? kernel-named-integrations :h3-3-unregister-unparser))
+    ;; F2 stays honestly non-crediting: no registration, no trace-table mapping.
+    (is (not (contains? kernel-named-integrations :h3-3-registered-definition-ambient)))
+    (doseq [id [:h3-3-axiom-definition :h3-3-axiom-map
+                :h3-3-registered-definition-nonsymbol :h3-3-nbe-evaluation-missing
+                :h3-3-nbe-instantiate-def-too-many :h3-3-redex-application
+                :h3-3-redex-variable :h3-3-beta-reduction-nonredex
+                :h3-3-norm-instantiate-def-too-many :h3-3-delta-step-missing
+                :h3-3-parse-one-empty :h3-3-parse-one-reserved
+                :h3-3-unregister-unparser-absent]]
+      (is (:negative? (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus)))) id)))
+  (testing "each credited primary passes and records its exact arity in both C lanes"
+    (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))]
+      (doseq [[id sym n] [[:h3-3-axiom-true 'latte-kernel.defenv/axiom? 1]
+                          [:h3-3-nbe-evaluation-one 'latte-kernel.nbe/evaluation 1]
+                          [:h3-3-nbe-instantiate-def 'latte-kernel.nbe/instantiate-def 3]
+                          [:h3-3-redex-true 'latte-kernel.norm/redex? 1]
+                          [:h3-3-beta-reduction 'latte-kernel.norm/beta-reduction 1]
+                          [:h3-3-beta-step-one 'latte-kernel.norm/beta-step 1]
+                          [:h3-3-beta-step-two 'latte-kernel.norm/beta-step 2]
+                          [:h3-3-beta-step-args 'latte-kernel.norm/beta-step-args 2]
+                          [:h3-3-norm-instantiate-def 'latte-kernel.norm/instantiate-def 3]
+                          [:h3-3-delta-step-four-local 'latte-kernel.norm/delta-step 4]
+                          [:h3-3-delta-step-args 'latte-kernel.norm/delta-step-args 5]
+                          [:h3-3-parse-one 'latte-kernel.presyntax/parse 1]
+                          [:h3-3-binderify 'latte-kernel.syntax/binderify 3]
+                          [:h3-3-mk-fresh-two 'latte-kernel.syntax/mk-fresh 2]
+                          [:h3-3-mk-fresh-three 'latte-kernel.syntax/mk-fresh 3]
+                          [:h3-3-readable-term 'latte-kernel.syntax/readable-term 1]
+                          [:h3-3-readable-term-2 'latte-kernel.syntax/readable-term- 2]
+                          [:h3-3-readable-term-3 'latte-kernel.syntax/readable-term- 3]
+                          [:h3-3-unregister-unparser 'latte-kernel.unparser/unregister-unparser! 1]]
+              :let [row (kernel-row (by-id id))]]
+        (is (= :pass (:status row)) (str id " passes"))
+        (is (kernel-executed-arity? row sym n) (str id " witnesses " sym "/" n)))))
+  (testing "F2 passes but credits nothing; negative credit follows the accepted rule"
+    (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
+          f2 (kernel-row (by-id :h3-3-registered-definition-ambient))
+          r2 (kernel-row (by-id :h3-3-registered-definition-nonsymbol))
+          r10 (kernel-row (by-id :h3-3-unregister-unparser-absent))]
+      (is (= :pass (:status f2)))
+      (is (not (kernel-executed-arity? f2 'latte-kernel.defenv/registered-definition? 1))
+          "no mapping turns F2's bare traces into upstream /1 credit")
+      (doseq [lane [:c-walker :c-semantic]]
+        (is (contains? (set (get-in f2 [lane :executed-calls])) '[registered-definition? 2])
+            (str "F2 still traces the bare context predicate: " lane)))
+      (is (= :pass (:status r2)))
+      (is (not (kernel-executed-arity? r2 'latte-kernel.defenv/registered-definition? 1))
+          "R2 likewise credits nothing")
+      ;; D1(a) accepted: a passing negative traces its head and credits directly.
+      (is (= :pass (:status r10)))
+      (is (kernel-executed-arity? r10 'latte-kernel.unparser/unregister-unparser! 1)
+          "R10's refusal still enters unregister-unparser! at the credited arity"))))
 
 
 (defn kernel-gate-evidence
