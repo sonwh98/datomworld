@@ -187,4 +187,51 @@
  :guest-call (let [installed (latte-kernel.proof/install-opacity-function
                               (install-opacity-function env missing-opacity-policy) definition-opacity)]
                (latte-kernel.proof/elab-proof installed [] (quote [[:opaque d] [:opaque d]])))}
+;; H3-3 fixture family (h3_3_fixture_family.md, A-verified on pinned
+;; upstream 86fca0d1): completion shapes first (F1-F20 primaries and
+;; companions), then the refusal companions R1-R10 as :negative? rows.
+;; F2 is an honest non-crediting pass for registered-definition?/1;
+;; F18/F19/F20 credit only as named integrations.
+{:id :h3-3-axiom-true, :call (latte-kernel.defenv/axiom? (latte-kernel.defenv/->Axiom (quote a) [] 0 (quote T)))}
+{:id :h3-3-registered-definition-ambient, :call (latte-kernel.defenv/registered-definition? (quote gate-no-such-definition)), :guest-call (registered-definition? env (quote gate-no-such-definition))}
+{:id :h3-3-nbe-evaluation-one, :call (latte-kernel.nbe/evaluation (quote [(λ [a ✳] a) b]))}
+{:id :h3-3-nbe-evaluation-var, :call (latte-kernel.nbe/evaluation (quote a))}
+{:id :h3-3-nbe-instantiate-def, :call (latte-kernel.nbe/instantiate-def (quote [[x ✳] [y ✳]]) (quote [x y]) (quote [a b]))}
+{:id :h3-3-redex-true, :call (latte-kernel.norm/redex? (quote [(λ [x ✳] x) y]))}
+{:id :h3-3-beta-reduction, :call (latte-kernel.norm/beta-reduction (quote [(λ [x ✳] [x x]) y]))}
+{:id :h3-3-beta-step-one, :call (latte-kernel.norm/beta-step (quote [(λ [x ✳] x) y]))}
+{:id :h3-3-beta-step-binder, :call (latte-kernel.norm/beta-step (quote (λ [x ✳] [(λ [y ✳] y) x])))}
+{:id :h3-3-beta-step-no-redex, :call (latte-kernel.norm/beta-step (quote x))}
+{:id :h3-3-beta-step-two, :call (latte-kernel.norm/beta-step (quote [(λ [x ✳] x) y]) 5)}
+{:id :h3-3-beta-step-args, :call (latte-kernel.norm/beta-step-args (quote ([(λ [x ✳] x) y] z)) 0)}
+{:id :h3-3-norm-instantiate-def, :call (latte-kernel.norm/instantiate-def (quote [[x ✳] [y ✳] [z ✳]]) (quote [[x y] [z x]]) (quote ((λ [t ✳] t) t1 [t2 t3])))}
+{:id :h3-3-norm-instantiate-def-partial, :call (latte-kernel.norm/instantiate-def (quote [[x ✳] [y ✳] [z ✳] [t ✳]]) (quote [[x y] [z t]]) (quote ((λ [t ✳] t) t1 [t2 t3])))}
+{:id :h3-3-delta-step-four-local, :call (latte-kernel.norm/delta-step (latte-kernel.defenv/register-definition env (latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {}) true) [] (quote (d)) true)}
+{:id :h3-3-delta-step-four-global, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.norm/delta-step env [] (quote (d)) false)}
+{:id :h3-3-delta-step-args, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.norm/delta-step-args env [] (quote ((d) [(λ [x ✳] x) y])) false 0)}
+{:id :h3-3-parse-one, :call (latte-kernel.presyntax/parse (quote (lambda [x :type] x)))}
+{:id :h3-3-binderify, :call (latte-kernel.syntax/binderify (quote λ) (quote [[x ✳] [y A]]) (quote [x y]))}
+{:id :h3-3-binderify-empty, :call (latte-kernel.syntax/binderify (quote Π) (quote []) (quote B))}
+{:id :h3-3-mk-fresh-two, :call (latte-kernel.syntax/mk-fresh (quote x) (quote #{x x'}))}
+{:id :h3-3-mk-fresh-two-empty, :call (latte-kernel.syntax/mk-fresh (quote x) (quote #{}))}
+{:id :h3-3-mk-fresh-three, :call (latte-kernel.syntax/mk-fresh (quote x) 3 (quote #{x x' x'' x'''}))}
+{:id :h3-3-mk-fresh-three-level-zero, :call (latte-kernel.syntax/mk-fresh (quote x) 0 (quote #{x}))}
+{:id :h3-3-readable-term, :call (latte-kernel.syntax/readable-term (quote [(λ [x ✳] x) x]))}
+{:id :h3-3-readable-term-var, :call (latte-kernel.syntax/readable-term (quote x))}
+{:id :h3-3-readable-term-2, :call ((var latte-kernel.syntax/readable-term-) (quote #{x}) (quote (λ [x ✳] x))), :guest-call (latte-kernel.syntax/readable-term- (quote #{x}) (quote (λ [x ✳] x)))}
+{:id :h3-3-readable-term-3, :call ((var latte-kernel.syntax/readable-term-) (quote #{x}) (quote {}) (quote (λ [x ✳] [x y]))), :guest-call (latte-kernel.syntax/readable-term- (quote #{x}) (quote {}) (quote (λ [x ✳] [x y])))}
+{:id :h3-3-unregister-unparser, :mode :unparser-install, :call (let [_ (latte-kernel.unparser/register-unparser! :gate (fn [t] (if (= t (quote x)) [(quote shown) true] [t false])))] [(latte-kernel.unparser/unparse (quote x)) (do (latte-kernel.unparser/unregister-unparser! :gate) (latte-kernel.unparser/unparse (quote x)))]), :guest-call (let [k1 (register-unparser env :gate (fn [t] (if (= t (quote x)) [(quote shown) true] [t false])))] [(unparse k1 (quote x)) (unparse (unregister-unparser k1 :gate) (quote x))])}
+{:id :h3-3-axiom-definition, :negative? true, :call (latte-kernel.defenv/axiom? (latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {}))}
+{:id :h3-3-axiom-map, :negative? true, :call (latte-kernel.defenv/axiom? {})}
+{:id :h3-3-registered-definition-nonsymbol, :negative? true, :call (latte-kernel.defenv/registered-definition? 5), :guest-call (registered-definition? env 5)}
+{:id :h3-3-nbe-evaluation-missing, :negative? true, :call (latte-kernel.nbe/evaluation (quote (gate-missing)))}
+{:id :h3-3-nbe-instantiate-def-too-many, :negative? true, :call (latte-kernel.nbe/instantiate-def (quote [[x ✳]]) (quote x) (quote [a b]))}
+{:id :h3-3-redex-application, :negative? true, :call (latte-kernel.norm/redex? (quote [x y]))}
+{:id :h3-3-redex-variable, :negative? true, :call (latte-kernel.norm/redex? (quote x))}
+{:id :h3-3-beta-reduction-nonredex, :negative? true, :call (latte-kernel.norm/beta-reduction (quote [x y]))}
+{:id :h3-3-norm-instantiate-def-too-many, :negative? true, :call (latte-kernel.norm/instantiate-def (quote [[x ✳]]) (quote x) (quote [a b]))}
+{:id :h3-3-delta-step-missing, :negative? true, :call (latte-kernel.norm/delta-step env [] (quote (gate-missing)) false)}
+{:id :h3-3-parse-one-empty, :negative? true, :call (latte-kernel.presyntax/parse (quote ()))}
+{:id :h3-3-parse-one-reserved, :negative? true, :call (latte-kernel.presyntax/parse (quote lambda))}
+{:id :h3-3-unregister-unparser-absent, :negative? true, :mode :unparser-install, :call (latte-kernel.unparser/unregister-unparser! :absent), :guest-call (unregister-unparser env :absent)}
 ]}
