@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe, qwen)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -106,8 +106,6 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 |              |                             | `mistral`)                       |                                          |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
-+--------------+-----------------------------+----------------------------------+------------------------------------------+
-| qwen         | `~/.claude-qwen` (wrapper's Claude store); account config in `~/.bailian` | caller UUID via `--session-id` | `--resume <uuid>` |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
@@ -235,7 +233,7 @@ listed CLIs.
 |                | `muse-spark-1.3`           | <effort>`                  |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 
-Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`, `qwen`) configure provider endpoints and credentials, then execute
+Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`) configure provider endpoints and credentials, then execute
 `claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek` share one CLI base: none needs a PTY, all
 accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and their startup warning
 `claude-code:unrecognized_model` is expected and benign. `claude-cloud` scrubs wrapper routing overrides (`ANTHROPIC_BASE_URL`,
@@ -286,24 +284,23 @@ shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
 moves (the muse lane has swung between geo-restricted, windowed, and live
 several times — that file, not this one, is the current authority).
 
-**Qwen routing:** the `qwen` wrapper (`~/.local/bin/qwen`, same family as
-`claude-cloud`/`glm`/`deepseek`) points Claude Code at Alibaba Cloud Model
-Studio's Anthropic-compatible endpoint on the owner's **Token Plan**
-`https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`
-via per-invocation `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` with an
-isolated `CLAUDE_CONFIG_DIR=~/.claude-qwen`, so plain `claude` defaults
-are untouched. Invoke it with the claude-family conventions
-(`--session-id <uuid>`, `--resume <uuid>`, `-p` with redirected stdin).
-Measured model catalog on this plan (anything else returns "Model not
-exist"): **`qwen3.8-max`** (flagship) and **`qwen3.8-flash`** (fast tier)
-— no coder variants; tier mapping is opus→3.8-max, sonnet/haiku/subagent
-→3.8-flash. Override the default model with `MODEL=<name> qwen …`.
-Gateway region matters: cn-beijing returns 403 invalid api-key for this
-key; only the key's own region works. Account management (auth, usage,
-image/video, knowledge bases) runs through the separate `bl` CLI
-(npm `bailian-cli`, key registered via `bl auth login --config token-plan
---api-key <key>`, status via `bl auth status --output json`) — `bl` is
-NOT a coding-delegate lane; the `qwen` wrapper is the only coding path.
+**Qwen routing (lane WITHDRAWN 2026-11-04):** there is no qwen dispatch
+lane installed. The `~/.local/bin/qwen` wrapper was removed the same day
+it was measured: its name collides with Alibaba's separate `qwen-code`
+coding agent, making "qwen" ambiguous as a delegate name. What was
+measured before withdrawal (for whoever re-creates a lane under a
+non-colliding name, e.g. alongside the other wrapper scripts): the
+owner's Model Studio **Token Plan** (`sk-sp-…` key, registered via
+`bl auth login --config token-plan --api-key <key>`, status via
+`bl auth status --output json`) serves an Anthropic-compatible endpoint
+at `https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`
+(region-bound: cn-beijing 403s this key), with Claude Code driving it
+through per-invocation `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` and an
+isolated `CLAUDE_CONFIG_DIR` — claude-family conventions
+(`--session-id`, `--resume`, `-p`) all worked; probe returned OK rc=0.
+Measured catalog (anything else returns "Model not exist"):
+**`qwen3.8-max`** (flagship) and **`qwen3.8-flash`** (fast tier) — no
+coder variants; tier mapping opus→3.8-max, sonnet/haiku/subagent→3.8-flash.
 
 > [!CAUTION]
 > **`bl config agent --agent claude-code` is a global takeover — do not
@@ -311,7 +308,7 @@ NOT a coding-delegate lane; the `qwen` wrapper is the only coding path.
 > `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` AND forces
 > `ANTHROPIC_MODEL` + all three `ANTHROPIC_DEFAULT_*_MODEL` tiers +
 > `CLAUDE_CODE_SUBAGENT_MODEL` to one Qwen model, for every session in
-> every project. The `qwen` wrapper is the non-overriding alternative.
+> every project — regardless of what the wrapper lane is named.
 > (The codex/opencode/openclaw targets are safer: they add a separate
 > `bailian-cli` provider block rather than replacing defaults.)
 

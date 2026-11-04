@@ -51,10 +51,11 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +=================+========================================+=============================================================================================================+
 | agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| qwen            | Token Plan subscription                | Invoke via the `qwen` wrapper (`~/.local/bin/qwen`; claude-family conventions — `--session-id`, `-p`).       |
-|                 | (Alibaba Cloud Model Studio,           | Measured catalog (2026-11-04, ap-southeast-1): `qwen3.8-max` (flagship) and `qwen3.8-flash` (fast tier);     |
-|                 | ap-southeast-1)                        | no coder variants. Strengths: coding rounds through Claude Code on Qwen. Routing status: available NOW       |
-|                 |                                        | (end-to-end probe OK rc=0). Account management runs through the `bl` CLI, which is not a delegate lane.      |
+| qwen            | Token Plan subscription                | NO dispatch lane currently installed: the `qwen` wrapper was withdrawn 2026-11-04 (name collides with        |
+|                 | (Alibaba Cloud Model Studio,           | Alibaba's separate `qwen-code` coding agent). Measured catalog (ap-southeast-1): `qwen3.8-max` +             |
+|                 | ap-southeast-1)                        | `qwen3.8-flash`, reachable via Claude Code on the Token Plan Anthropic endpoint — a wrapper can be           |
+|                 |                                        | re-created under a non-colliding name on request. Account management runs through the `bl` CLI, which        |
+|                 |                                        | is not a delegate lane. See delegate-invocation-reference.md.                                               |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude          | Inactive / Cancelled                   | Subscription stopped by owner. Do not route tasks here.                                                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
