@@ -51,6 +51,12 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +=================+========================================+=============================================================================================================+
 | agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| qwen            | Token Plan subscription                | NO dispatch lane currently installed: the `qwen` wrapper was withdrawn 2026-11-04 (name collides with        |
+|                 | (Alibaba Cloud Model Studio,           | Alibaba's separate `qwen-code` coding agent). Measured catalog (ap-southeast-1): `qwen3.8-max` +             |
+|                 | ap-southeast-1)                        | `qwen3.8-flash`, reachable via Claude Code on the Token Plan Anthropic endpoint — a wrapper can be           |
+|                 |                                        | re-created under a non-colliding name on request. Account management runs through the `bl` CLI, which        |
+|                 |                                        | is not a delegate lane. See delegate-invocation-reference.md.                                               |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude          | Inactive / Cancelled                   | Subscription stopped by owner. Do not route tasks here.                                                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude-api      | Inactive / Cancelled                   | Anthropic API access stopped by owner. Do not route tasks here.                                             |

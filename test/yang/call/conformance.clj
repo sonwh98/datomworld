@@ -6,13 +6,14 @@
    A donor is real source of any admitted frontend, lowered unmodified and
    published as an ordinary linker module whose one export, `body`, is the
    lowered unit. A caller task requires that module, runs its body under the
-   donor runtime's own entry (`js/run-main`, `php/run-main`), reads each
-   named export from the donor runtime's global namespace, and projects it
-   into the caller runtime's namespace under the same name; then the caller
-   source, lowered unmodified, runs under its own entry. The composition is
-   a sequence of top-level nodes: no call node is rewritten, no foreign
-   `:code` is extracted, no language-pair wrapper is inserted, and the
-   projected value is the donor's own function cell (identity survives).
+   donor runtime's own entry (`js/run-main`, `php/run-main`, `py/run-main`,
+   `clj/run-main`), reads each named export from the donor runtime's global
+   namespace, and projects it into the caller runtime's namespace under the
+   same name; then the caller source, lowered unmodified, runs under its own
+   entry. The composition is a sequence of top-level nodes: no call node is
+   rewritten, no foreign `:code` is extracted, no language-pair wrapper is
+   inserted, and the projected value is the donor's own callable value
+   (identity survives).
 
    A callable value is task-local (a function is a cell, and cells are
    task-local, section 8.11), so the export is answered as a node evaluated
@@ -21,10 +22,13 @@
 
    Every program runs linked on the three vector VMs (`semantic`, `stack`,
    `register`) over the TypeScript linked harness's content store, where
-   `yang.call` and `js` already live and `php` is published beside them.
-   The AST walker is not a backend: its links are refused until L-b."
+   `yang.call` and `js` already live and `php`, `py` and `clj` are
+   published beside them. The AST walker is not a backend: its links are
+   refused until L-b."
   (:require
     [clojure.string :as str]
+    [yang.clojure :as clj-comp]
+    [yang.clojure.prelude :as clj-prelude]
     [yang.core.module :as core-module]
     [yang.core.names :as names]
     [yang.core.uast :as u]
@@ -59,6 +63,14 @@
                                    (:call-address @h/published)))))
 
 
+(def ^:private published-clj
+  "`clj` published beside `js`, `php` and `py`, over the same host registry
+   and `yang.call` revision."
+  (delay (h/publish-guest-module!
+           (clj-prelude/module-spec (h/registry)
+                                    (:call-address @h/published)))))
+
+
 (defn- parse-ok
   "The CST packet of `source` under `parse`, refused unless the parse is ok."
   [parse source]
@@ -91,12 +103,14 @@
 
    - `:runtime`, `:address`: the runtime module and its published address;
    - `:refusal`: the publication refusal key and reason of its modules;
+   - `:deps` (optional): pinned requirements beyond the runtime its
+     lowered units read directly (the clojure unit's `yang.call` reads);
    - `:parse`: source text to CST packet;
    - `:unit`: packet and projected exports to the lowered unit its
      `:run-main` entry takes;
    - `:read-export`: export name to the form reading the runtime's global
      namespace (JS `globalThis`, PHP's named-function table, Python's main
-     module dictionary);
+     module dictionary, the clojure runtime's task-local namespace cell);
    - `:project`: name and a value form to the form binding the value where
      the runtime's source resolves a called name;
    - `:render`: the `:run-main` value as test data."
@@ -136,13 +150,41 @@
                          {:py/str export})),
     :project (fn [name value]
                (list 'yin/def (list 'quote (python-export-symbol name)) value)),
-    :render py-render/output}})
+    :render py-render/output},
+   :clojure
+   {:runtime 'clj,
+    :address #(:address @published-clj),
+    :refusal [:yang.clojure/refusal :yang.clojure/undeclared-free],
+    :deps (fn [] {'yang.call (:call-address @h/published)}),
+    :parse clj-comp/read-forms,
+    :unit (fn [packet exports] (clj-comp/lower-unit packet exports)),
+    :run-main 'clj/run-main,
+    :read-export (fn [export] (list 'clj/global-get export)),
+    :project (fn [name value]
+               ;; The runtime global namespace is the one binding (as
+               ;; `js/define-global!` is for a JS caller): `lower-unit`
+               ;; reads each projected name through `clj/global-get`, so
+               ;; no task-store binding duplicates it. A caller top-level
+               ;; definition of the same name publishes after the
+               ;; projection and shadows it.
+               (list 'clj/define-global! name value)),
+    :render clj-comp/output}})
 
 
 (defn- profile
   [frontend]
   (or (get frontends frontend)
       (throw (ex-info "frontend not admitted" {:frontend frontend}))))
+
+
+(defn- modules
+  "The host registry, admitted by every runtime profile that checks it,
+   with the clojure guest library's host surface installed beside them.
+   Donor publication declares free names over this same registry, so a
+   clojure donor using the guest library (its `kind` and `portable`
+   hosts) publishes like it runs."
+  []
+  (clj-prelude/admit (php-prelude/admit (h/registry))))
 
 
 (defn publish-donor!
@@ -152,17 +194,18 @@
   ([frontend source]
    (publish-donor! frontend source (symbol (str "xlang.donor." (name frontend)))))
   ([frontend source module]
-   (let [{:keys [runtime address refusal parse unit]} (profile frontend)
+   (let [{:keys [runtime address refusal parse unit deps]} (profile frontend)
          [refusal-key reason] refusal
          spec (core-module/module-spec
-                refusal-key reason (h/registry)
+                refusal-key reason (modules)
                 {:name module,
                  :ast (core-module/module-tree
                         [(core-module/require-node runtime)
                          (u/def! 'body (unit (parse source) []))]),
                  :exports '#{body},
                  :runtime-name runtime,
-                 :runtime-address (address)})
+                 :runtime-address (address),
+                 :deps (if deps (deps) {})})
          result (h/publish-guest-module! spec)]
      {:frontend frontend,
       :module module,
@@ -227,13 +270,8 @@
              'js (:address @h/published),
              'php (:address @published-php),
              'py (:address @published-py),
+             'clj (:address @published-clj),
              module address}))
-
-
-(defn- modules
-  "The host registry, admitted by every runtime profile that checks it."
-  []
-  (php-prelude/admit (h/registry)))
 
 
 (defn run-program

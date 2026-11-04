@@ -284,6 +284,34 @@ shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
 moves (the muse lane has swung between geo-restricted, windowed, and live
 several times — that file, not this one, is the current authority).
 
+**Qwen routing (lane WITHDRAWN 2026-11-04):** there is no qwen dispatch
+lane installed. The `~/.local/bin/qwen` wrapper was removed the same day
+it was measured: its name collides with Alibaba's separate `qwen-code`
+coding agent, making "qwen" ambiguous as a delegate name. What was
+measured before withdrawal (for whoever re-creates a lane under a
+non-colliding name, e.g. alongside the other wrapper scripts): the
+owner's Model Studio **Token Plan** (`sk-sp-…` key, registered via
+`bl auth login --config token-plan --api-key <key>`, status via
+`bl auth status --output json`) serves an Anthropic-compatible endpoint
+at `https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`
+(region-bound: cn-beijing 403s this key), with Claude Code driving it
+through per-invocation `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` and an
+isolated `CLAUDE_CONFIG_DIR` — claude-family conventions
+(`--session-id`, `--resume`, `-p`) all worked; probe returned OK rc=0.
+Measured catalog (anything else returns "Model not exist"):
+**`qwen3.8-max`** (flagship) and **`qwen3.8-flash`** (fast tier) — no
+coder variants; tier mapping opus→3.8-max, sonnet/haiku/subagent→3.8-flash.
+
+> [!CAUTION]
+> **`bl config agent --agent claude-code` is a global takeover — do not
+> use it.** It rewrites `~/.claude/settings.json`'s `env` with
+> `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` AND forces
+> `ANTHROPIC_MODEL` + all three `ANTHROPIC_DEFAULT_*_MODEL` tiers +
+> `CLAUDE_CODE_SUBAGENT_MODEL` to one Qwen model, for every session in
+> every project — regardless of what the wrapper lane is named.
+> (The codex/opencode/openclaw targets are safer: they add a separate
+> `bailian-cli` provider block rather than replacing defaults.)
+
 **Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
 The managed 3.x aliases are `kimi-code/k3.1-pro`,
 `kimi-code/k3.1-pro-highspeed`, `kimi-code/k3`, and `kimi-code/k3-256k`; `-m`

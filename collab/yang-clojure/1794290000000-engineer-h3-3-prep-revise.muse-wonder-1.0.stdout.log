@@ -1,0 +1,13 @@
+muse: workspace root: /Users/sto/workspace/datomworld-h32 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-h32/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+Done. Pushed `af560d07` to `h3-3-prep` (not merged); only [h3_3_fixture_family.md](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/h3_3_fixture_family.md) changed — [h3_3_a_verify.clj](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/h3_3_a_verify.clj) is unmodified, as the brief predicted.
+
+**Finding 1 — fixed.** Verified against [latte_oracle_test.clj:1931](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle_test.clj:1931): `kernel-exercise-entries` tests `:pass`, call head/argc, and both-lane traces; `:negative?` appears nowhere in either branch. Corroborated in checked-in evidence: 51 admitted arities already list a negative creditor, and `beta-eq?/2` / `type-of/3` rest **solely** on negative rows. §2 now states the actual rule; §8 D1 presents accept-vs-tighten with full consequences (including 145→143 and 162/165 arithmetic for the tighten option) and takes no position. No harness code was touched.
+
+**Finding 2 — fixed.** The `registered-definition?` +1 mapping is withdrawn everywhere it appeared, with the reviewer's reasons (global offset misattributes explicit-env `/2` traces to `/1`; `/3` ambiguous for `/2`; single-arity `unregister-unparser!` precedent is injective and proves nothing multi-arity; F2 would have met the **direct** criterion and bypassed named-integration registration). F2 is now honestly non-crediting; the §7 credit table still covers all 20 arities (16 direct + 3 named-integration + 1 non-crediting), the gate stays `:blocked` on `registered-definition?/1`, and §8 D2 gives the arity- and call-origin-preserving requirement sketch only.
+
+**Refusal audit (§5.1, new).** One discrepancy: the brief says "5 refusal-companion fixtures," but §5 defines 13 rows (R1–R10) — I audited all 13. Result: 12 would directly credit their head arity under the current harness, covering 9 of the 20 arities; only R2 credits nothing (bare traces map to no arity). R10 notably would credit `unregister-unparser!/1` **directly**, unlike F20's named-integration route.
+
+**Verification.** Re-ran the A-verify via `java -cp` (classpath from `clj -Sdeps … -Spath`): 43 `PASS` lines, `H3-3-A-VERIFY: PASS (43/43)`, exit 0 — recorded in §8.
+DISPATCH_RC=0
