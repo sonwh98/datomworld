@@ -1,5 +1,11 @@
-{:version 1
- :provenance "ea18c8e4^"
+;; Version 2 (H3-2 integration): provenance is the master revision this
+;; corpus state was integrated on. The four historical declarations below
+;; are carried forward byte-identical; the H3-2 proof-elaboration fixtures
+;; needed no recorded deviation or upstream failure - their completion and
+;; refusal shapes are ordinary :pass / :negative? corpus rows, so no
+;; per-fixture boundary is declared for them here.
+{:version 2
+ :provenance "088c498e56109f5002342bbd19120b124fff62d3"
  :portability
  {:elab-after-qed
   {:call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))

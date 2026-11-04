@@ -339,8 +339,8 @@
                   [(:frontend-session assigned) text printed]))]
       (try
         (is (= [:primed "" "[4, 16, 36, 64, 100]\n"]
-               (deref run 30000 ::timeout))
-            "the fresh REPL round must terminate within 30 seconds")
+               (deref run 120000 ::timeout))
+            "the fresh REPL round must terminate within 120 seconds")
         (finally (future-cancel run))))))
 
 

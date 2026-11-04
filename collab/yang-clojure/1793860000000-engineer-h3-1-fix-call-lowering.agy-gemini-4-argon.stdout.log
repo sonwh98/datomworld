@@ -1,0 +1,16 @@
+root agent idle; waiting up to 30m0s for 1 background task(s)
+Launched `yang.clojure-test` and `yin.vm.store-write-audit-test`; waiting for the test run to finish.
+Running `yang.latte-oracle-test/test-kernel-differential-gate` across all 106 fixtures; waiting for completion.
+Measuring exact post-fix step counts for `:check-accepted` and `:check-assume-have-discharge` on both lanes; waiting for completion.
+Generating ANTLR parsers (`clojure -M:antlr-gen`) so the full `yang.base` suite and bare gate test runner can load all test namespaces; waiting for completion.
+Running all 7 `yang.base` JVM test namespaces; waiting for completion.
+Running the exact gate command `clojure -M:test -v yang.latte-oracle-test/test-kernel-differential-gate`; waiting for completion.
+Waiting for `clojure -M:test -v yang.latte-oracle-test/test-kernel-differential-gate` to finish.
+Running `bb test:sub:clj yang.base`; waiting for completion.
+Waiting for `bb test:sub:clj yang.base` to finish.
+Running the remaining 25 `deftest`s in `yang.latte-oracle-test`; waiting for completion.
+Waiting for the remaining `yang.latte-oracle-test` suite to finish.
+Still running `yang.latte-oracle-test`; waiting for reactive completion notification.
+error: Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 165h53m39s. (response may be truncated)
+AGY_ERROR: {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 165h53m39s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true,"error_id":"cbb0b159-ca02-4741-ae03-99fc0294d6c6-353"}
+DISPATCH_RC=3

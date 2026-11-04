@@ -1,0 +1,12 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing d2-wedge-probe2
+:PIN {:commit 8ea857c1+probe2, :fixture :check-assume-have-discharge, :lane :semantic, :budget 2M instrumented steps, :jvm 17.0.18}
+:STAGE-A :round-1-probe-reproduction {:medium :empty-at-start, :queue :absent-as-in-round-1}
+:STAGE-A-RESULT {:steps 0, :loads 0, :halted true, :blocked false, :verdict :VACUOUS-no-program-ever-loaded}
+:STAGE-B :real-kernel-c-semantic-path {:driver yang.clojure-test/run-guest-machine, :fixture :check-assume-have-discharge, :step-limit 2000000, :wall-cap-ms 1800000}
+:STEP-STARTED
+:WORKER-DONE {:kind :returned, :machine {:blocked? false, :wait-set 0, :window-size 0, :value [:yin.k/ok [:ok [(<a>) (Π [A ✳] (Π [B ✳] (Π [f (Π [⇧ A] B)] (Π [x A] (Π [⇧ A] B)))))]]], :control-inst {:segment nil, :pc nil, :image true}, :cont-depth nil, :control nil, :halted? true, :top-frame nil, :ready-queue 0}, :value [:yin.k/ok [:ok [(<a>) (Π [A ✳] (Π [B ✳] (Π [f (Π [⇧ A] B)] (Π [x A] (Π [⇧ A] B)))))]]], :steps 1105792, :in-step-ms 2535, :loads 1, :ready-checks 3, :runs [{:entry-steps 0, :exit-steps 1105792, :threw false}]}

@@ -1,0 +1,35 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Task complete and pushed. Report for the seat:
+
+## Probes run (all on the laptop, 2026-11-03, via `clojure -M:test` + ProcessBuilder — the permission-gated lane; raw logs in `collab/1794120000000-docs-delegate-reference-alias-refresh.probe*.log`)
+
+**agy 1.4.12**
+| Command | Result |
+|---|---|
+| `agy models` | 13 models: `gemini-4-argon-{low,medium,high}`, `gemini-3.8-flash-{l,m,h}`, `claude-opus-5-5-{l,m,h}`, `claude-sonnet-5-5-{l,m,h}`, `gpt-oss-120b-medium`; displayed as "Gemini 4 Argon (High)" etc. |
+| `--model gemini-3.1-pro-high -p "Reply exactly: PROBE-OK"` | exit 1 — `model gemini-3.1-pro-high is not recognized as a known model or custom model in settings` + "Available models:" list |
+| `--model "Gemini 3.8 Flash (High)"` (display name) | exit 0, `PROBE-OK` |
+| `--model gemini-3.8-flash-high` | exit 0, `PROBE-OK` |
+| `--model gemini-3.8-flash-high --effort high` | exit 0, `PROBE-OK` — flag accepted but redundant |
+| `--model gemini-4-argon-high --effort high` | exit 3 — `RESOURCE_EXHAUSTED … resets in 142h5m41s` **while flash served seconds earlier** → per-model quota windows confirmed firsthand |
+
+**mistral/vibe 3.0.4** — `mistral-4.0` → exit 0 `PROBE-OK`; `mistral-medium-3.5` → exit 0 `PROBE-OK`; `mistral-large`, `devstral`, `codestral` → exit 2, API 400 `{"message":"Invalid model: …","type":"invalid_model"}` (all three parse client-side — the alias list is CLI-accurate but only two route). `vibe config schema` has no alias enum; the five-alias list is not published anywhere in the CLI.
+
+**kimi 2.4.0** — `--agent explore` → exit 0 `PROBE-OK`, no tools; `--agent code-reviewer` → exit 1 `Unknown agent profile: "code-reviewer". Available profiles: plan, agent, coder, explore` (the authoritative enumeration).
+
+**muse** — `muse exec --trust-workspace --approval-mode never --model muse-wonder-1.0 --session-id <uuid>` → exit 0 `PROBE-OK`, `workspace trust: trusted source=run-flag`.
+
+## The diff (commit `30f43423`, pushed to origin/master; 76+/28−, docs only)
+
+- **agy row + quirk + recipe**: catalog replaced with the live 13-model list; effort-is-part-of-the-name stated; `--model` takes ID *or* display name (both probed); `--effort` marked redundant and dropped from the recipe; quirk adds the per-model-quota rule with the routing-status 0x:xx/04:0x pointers.
+- **mistral row + recipe comment**: "Live model aliases (probed 2026-11-03): `mistral-4.0` (the current large generation — use it, NOT `mistral-large`) and `mistral-medium-3.5`; the rest … parse but the live API rejects them (400 invalid_model)". `vibe 3.0.4` version claim re-verified current.
+- **kimi row + routing paragraph + recipe**: `--agent explore` named as the read-only choice; the real profile set (`plan, agent, coder, explore`) stated with the measured `code-reviewer` rejection.
+- **muse routing paragraph**: one added line — both flags required together on non-laptop roots (shiva/jupiter, muse 1.4.14), sandbox stays on, pointing at routing-status 07:5x, plus the laptop re-verification. Note: most of item 4 had already landed in `7cbf4659`/`ca6dd750`; I added the non-laptop scoping + routing-status pointer rather than duplicating.
+
+## Stale beyond the brief (reported only — outside this round's boundary)
+
+1. `docs/agents/team.md:71` still lists all five mistral aliases as working, and `:167` has a `mistral-large` capability row — same staleness class, unfixable under the "only the reference may change" boundary.
+2. The `claude-cloud` row in the reference table itself overflows the table border by 18 chars (pre-existing formatting defect; left untouched).
+
+One process note: the doc's own "don't probe before delegating" rule is dispatch-time guidance; this round's brief explicitly required re-measuring, so every claim above is firsthand. Two intermediate harness mistakes (a table-splice bug) were corrected via `git checkout` of the doc before any commit — the pushed diff contains only the intended changes, and the temp probe namespace was deleted (committed tree is docs-only).
+DISPATCH_RC=0

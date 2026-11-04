@@ -1,0 +1,43 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+D2 is complete and committed as `4ca4f23f` on `hardening3-h3-1` (no push). Report follows.
+
+## The node shape, verbatim
+
+Instrumenting the scanner's rejection (the stash's `select-keys` crashed on it — that was the old `find not supported on type: clojure.lang.Symbol`) reported, for fixture `:constructor-mkenv`:
+
+```clojure
+{:type nil,
+ :node "dsg__invocation",
+ :parent "{:type :application, :operator {:type :variable, :name dsg__body}, :operands [dsg__invocation], :tail? true}"}
+```
+
+The rejected node was a **bare symbol operand** inside an `:application`. It came from `call-entry`'s plain-vector lane — `src/cljc/yang/clojure.cljc:1100` read `(u/app (u/v body) invocation)`, passing the raw symbol where every sibling passes `(u/v invocation)`. The walker throws `Unknown AST node type` for any operand whose `:type` is nil, so this was task-item-3 territory — the compiler emitting something unrunnable — not a scanner gap. Fixed with one token: `(u/v invocation)`.
+
+**The scanner needed no new case.** Once the operand is a node, the D2 lowering emits only the canonical six shapes (`u/let1` is an application of a lambda; no `:let` node type exists anywhere in `src/`). The speculative `:let` case is dropped. The landed scanner diff is diagnostic only:
+
+```clojure
+(throw (ex-info "Unexpected AST in context admission"
+                {:type (:type node)
+                 :node (binding [*print-length* 40 *print-level* 8]
+                         (pr-str node))}))
+```
+
+## Two consequences of the D2 ruling the verification forced into the open
+
+**1. Per-call walker cost (guard recalibrated 120k → 160k).** Measured by binary-searching the exact completing budget, old lane vs D2: **101,988 → 140,142 walker steps** per 1000 intra-unit calls (102 → 140/call; semantic 55,791 → 75,881). The packet build and token check are dispatch the old `direct?` flag never executed; ~130/call is the floor under the ruling. I tried a cheaper dispatch (reading element 0 through `dsg__get`) and **refused it**: in the program-defined-`get` regime `dsg__get` reads vectors as `nil`, which would silently miscompile — the `data/vector?` guard stays. I kept one unconditional win (the packet is a single variadic `conj`, legal per the primitive's `[1 2 :variadic]` profile) and recalibrated the guard to 160k with the measurement recorded in the assertion message. **The seat should know the "no record unwrap, no map lookups" rationale does not make the lane cheaper than what it replaced** — if 120/call is a hard contract, the ruling needs revisiting, not the guard.
+
+**2. Machine-data bound held at 100,000 by an emission fix, not by touching the bound.** The stash split `[dsg__admitted? dsg__intra_call]` into nested `let1`s; the extra retained environment frame pushed `test-oracle-slice8-context-reconstruction`'s walk to **100,001 visits** (bound: 100,000). Re-merging them into one shared frame (semantics unchanged — both are pure closure literals) brought it back under with the bound untouched.
+
+## Verification (final state, commit `4ca4f23f`)
+
+| Check | Result |
+|---|---|
+| `test-kernel-differential-gate` (focused) | counts `{pass 102, recorded-upstream-failure 2, recorded-deviation 2}`, **0 blocked**, 859 assertions, only the by-design unexercised-arity assertion failing |
+| `bb test:sub:clj yang.base` (replicated exactly — bb isn't reachable from this shell; see below) | **124 tests / 1144 assertions / 0 failures / 0 errors** |
+| Full `yang.latte-oracle-test` namespace | 26 tests / 1895 assertions / **0 errors**, 1 by-design failure |
+| `test-intra-unit-call-lowering-guards-and-budget` | 22 assertions, green at 160k |
+| clj-kondo on all three touched files | 0 errors, 0 warnings |
+| Acceptance budget / machine-data bound | 2,000,000 and 100,000 — both untouched, as are `yin.vm`, `yang.call`, the evidence files, and narrative |
+
+One disclosure for kimi's review: **cljs/cljd lanes were not run** (JVM verification is what the dispatch specified; those lanes need shadow-cljs/flutter and are the seat's usual pre-landing step). Also, cljstyle flags three spots in `latte_oracle_test.clj` — I verified all three exist identically at HEAD (version drift, none in my edit regions), so I left them alone. The stash was applied via `stash apply` and dropped only after hunk-by-hunk confirmation that its content is fully contained in the commit.
+DISPATCH_RC=0

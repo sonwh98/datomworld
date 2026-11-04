@@ -1349,20 +1349,77 @@
                          (yang.call/eligible? f)
                          (f 21)]]))))
 
+(deftest test-common-call-token-packet-forgery-refuses
+  (testing "a forged vector applied to the extracted public entry never
+            enters the private body: the entry authenticates the packet on
+            the compiler-held token and forged shapes refuse. The extraction
+            and application happen INSIDE a compiled program (the packet
+            dispatch lives in its preamble scope), the call spliced in as
+            UAST over a marker call, on both evaluators."
+    ;; forged VECTORS are the packet-dispatch axis (the P1 axis): each must
+    ;; produce an error outcome without the body running. Scalar and empty
+    ;; invocations hit the public entry's pre-existing non-record refusal
+    ;; (a host throw, same before D2) and are covered by the entry's own
+    ;; behavior, not this regression.
+    (doseq [forged '[[] [42] [nil [42]] [a b c d]]]
+      (let [;; the packet dispatch reached at runtime: extract the public
+            ;; entry of the target (a source defn), then apply the forged
+            ;; vector to it directly - bypassing source lowering entirely
+            call-ast (u/let1 'raw
+                             (u/app (u/v 'yang.call/entry) (u/v 'target))
+                             (u/app (u/v 'raw) (u/lit forged)))
+            ast (walk/postwalk
+                 (fn [node]
+                   (if (= node (u/v 'marker-call)) call-ast node))
+                 (yang/compile-program
+                   ['(defn target [x] :private-body-entered)
+                    '(marker-call)]
+                   true
+                   {:convention :arg-vector
+                    :outcomes true
+                    :native (set (keys vm/primitive-profiles))}))]
+        (doseq [run [walker-run semantic-run]]
+          (let [result (try
+                         (first (run ast))
+                         (catch clojure.lang.ExceptionInfo e
+                           (pr-str {:caught (ex-message e) :data (ex-data e)})))]
+            (is (and (vector? result) (= :yin.k/error (first result)))
+                (str "forged " (pr-str forged) " must produce an error outcome, got "
+                     (pr-str result)))
+            ;; The sentinel must appear NOWHERE in the outcome. The codex
+            ;; mutation gate (2026-11-04) showed the previous top-level
+            ;; (not= sentinel (second result)) check passing vacuously: with
+            ;; the token check disabled the body runs and its return value
+            ;; nests inside a not-callable error payload, so the outer error
+            ;; tag satisfies assertion 1 and (second result) is the error
+            ;; map, not the sentinel. A whole-outcome traversal fails under
+            ;; that mutation and passes only when the body never ran.
+            (is (not (some #{:private-body-entered}
+                           (tree-seq coll? seq result)))
+                (str "forged " (pr-str forged) " reached the body; the sentinel nests in the outcome: "
+                     (pr-str result)))))))))
 
 (deftest test-common-call-invalid-continuation-refuses
-  (let [ast (walk/postwalk
-              (fn [node]
-                (if (= node u/capture) (u/lit :invalid-continuation) node))
-              (outcome-ast '[(defn f
-                               []
-                               1) (+ 1 (f))]))]
+  (let [tamper (fn [forms]
+                 (walk/postwalk
+                   (fn [node]
+                     (if (= node u/capture) (u/lit :invalid-continuation) node))
+                   (outcome-ast forms)))]
     (doseq [run [walker-run semantic-run]]
-      (let [result (first (run ast))]
+      (let [result (first (run (tamper '[(defn f
+                                           []
+                                           1)
+                                         (let [g f] (+ 1 (g)))])))]
         (is (= :yin.k/error (first result)))
         (is (= {:yang.call/reason :yang.call/invalid-invocation
                 :yang.call/data {:yang.call/reason :missing-raise-exit}}
-               (second result)))))))
+               (second result))))
+      (is (= [:yin.k/ok 2]
+             (first (run (tamper '[(defn f
+                                     []
+                                     1)
+                                   (+ 1 (f))]))))
+          "statically intra-unit calls do not capture a bridge continuation"))))
 
 
 (deftest test-common-call-rejects-named-arguments
@@ -1944,7 +2001,7 @@
                         (cond
                           (or (vm/halted? v) (vm/blocked? v)) v
                           (= n step-limit) (throw (ex-info "Guest instruction budget exhausted"
-                                                           {:lane lane :steps n}))
+                                                           {:lane lane :steps n :consumer v}))
                           :else (recur (vm/step v) (inc n)))))
         semantic? (= lane :semantic)
         machine (if semantic?
@@ -2339,3 +2396,178 @@
           (is (= :yin.k/error tag) (str "operand " where " errors before the refusal"))
           (is (= "boom" (:yin.k/message payload))
               (str "operand " where " is evaluated before the callee check")))))))
+
+
+(deftest test-run-guest-machine-budget-exhaustion-carries-advanced-consumer
+  (let [ast (yang/compile-program
+              '[(def progressed 42)
+                (loop [i 0]
+                  (if (< i 20)
+                    (recur (+ i 1))
+                    (+ progressed i)))])]
+    (doseq [lane [:walker :semantic]]
+      (let [full-steps (loop [m (if (= lane :semantic)
+                                  (let [vm0 (semantic/create-vm {:make-stream tu/make-stream
+                                                                 :capability-secret tu/secret
+                                                                 :modules library-modules})
+                                        sess (tu/queue-rows! (tu/make-observer-session vm0) ast)]
+                                    (:consumer
+                                      (observer/run-on-stream
+                                        sess engine/ready-for-ingress?
+                                        (vm/fresh-code-loader
+                                          (fn [v rows stamp]
+                                            (vm/check-contract! vm/ast-contract stamp)
+                                            (semantic/load-vector v (:vector (linearize/project-rows rows))
+                                                                  vm/semantic-contract))
+                                          vm/ast-contract)
+                                        identity)))
+                                  (let [vm0 (tu/create-vm {:modules library-modules})
+                                        sess (tu/queue-ast! (tu/make-observer-session vm0) ast)]
+                                    (:consumer
+                                      (observer/run-on-stream
+                                        sess engine/ready-for-ingress?
+                                        (vm/fresh-code-loader ast-walker/vm-load-program vm/ast-contract)
+                                        identity))))
+                              n 0]
+                         (when (zero? n)
+                           (is (nil? (get (:store m) 'progressed))
+                               (str lane ": pre-run loaded VM has not executed def yet")))
+                         (if (vm/halted? m)
+                           n
+                           (recur (vm/step m) (inc n))))
+            budget 25
+            caught (try
+                     (run-guest-machine ast library-modules lane budget)
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))
+            data (ex-data caught)
+            carried (:consumer data)]
+        (is (some? caught) (str lane ": budget exhaustion throws"))
+        (is (< budget full-steps) (str lane ": chosen budget stops mid-execution"))
+        (is (= {:lane lane :steps budget} (select-keys data [:lane :steps])))
+        (is (some? carried) (str lane ": ex-data carries :consumer"))
+        (is (= carried (get-in data [:session :consumer]))
+            (str lane ": observer session carries the same advanced consumer"))
+        (is (not (vm/halted? carried)) (str lane ": carried consumer is mid-flight"))
+        (is (= 42 (get (:store carried) 'progressed))
+            (str lane ": carried consumer reflects executed store writes, not step-0 VM"))
+        (let [[terminal rem-steps] (loop [m carried, k 0]
+                                     (if (vm/halted? m)
+                                       [m k]
+                                       (recur (vm/step m) (inc k))))]
+          (is (= 62 (vm/value terminal)))
+          (is (= (- full-steps budget) rem-steps)
+              (str lane ": resuming carried consumer completes in exact remaining steps")))))))
+
+
+(deftest test-intra-unit-call-lowering-guards-and-budget
+  (testing "tight per-call step budget holds across non-tail and tail intra-unit calls"
+    (let [forms '[(defn inc1
+                    [x]
+                    (+ x 1))
+                  (defn sum-calls
+                    [n acc]
+                    (if (= n 0)
+                      acc
+                      (sum-calls (- n 1) (inc1 acc))))
+                  (sum-calls 500 0)]
+          ast (yang/compile-program forms true outcome-opts)]
+      (doseq [lane [:walker :semantic]]
+        (is (= [:yin.k/ok 500]
+               (run-guest-ast ast outcome-modules lane 185000))
+            (str lane ": 1000 intra-unit calls fit comfortably inside 185k steps.
+                      The unary-entry token-packet lane (D2) with the final arity guard
+                      measures 160,046 walker steps (86,822 semantic) for these 1000
+                      calls - the guard's invocation-shape count check moved the walker
+                      cost from the pre-guard 140,142 (140/call) to ~160/call. The
+                      budget keeps ~15% headroom over the measured cost, recalibrated
+                      2026-11-04 by direct step-count measurement.")))))
+  (testing "local shadowing of a top-level defn preserves dynamic admission and routing"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
+                            :yang.call/data {:yang.call/callee 5}}]
+             (run-library '[(defn f
+                              [x]
+                              (+ x 100))
+                            (let [f 5 v [f]] (f 1))]
+                          library-opts lane 200000)))
+      (is (= [:yin.k/ok 42]
+             (run-library '[(defn f
+                              [x]
+                              (+ x 100))
+                            (let [f (fn [y] (* y 2))] (f 21))]
+                          library-opts lane 200000)))
+      (is (= [:yin.k/ok 9]
+             (run-library '[(defn f
+                              [x]
+                              (+ x 100))
+                            (let [f {:k 9} v [f]] (f :k))]
+                          library-opts lane 200000))
+          "entry-absent local map routes to invoke-value")
+      (let [[tag payload] (run-library
+                            '[(defn f
+                                [x]
+                                (+ x 100))
+                              (let [f {:yang.call/entry (yang.call/entry f)} v [f]]
+                                (f 1))]
+                            library-opts lane 200000)]
+        (is (= :yin.k/error tag))
+        (is (= :yang.call/not-callable (:yang.call/reason payload))
+            "entry-present forged local map routes to admission and refuses"))
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
+                            :yang.call/data {:yang.call/callee 5}}]
+             (run-library '[(defn f
+                              [[f]]
+                              (f 1))
+                            (f [5])]
+                          library-opts lane 200000))
+          "destructured parameter shadows enclosing defn")
+      (is (= [:yin.k/ok 7]
+             (run-library '[(defn f
+                              [x]
+                              99)
+                            (try
+                              (throw (ex-info "boom" {:k 7}))
+                              (catch Exception f
+                                (let [d (get f :yin.k/data) v [d]]
+                                  (d :k))))]
+                          library-opts lane 200000))
+          "catch binder shadows top-level defn")))
+  (testing "top-level def/defn interactions, error outcomes, and operand order"
+    (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
+                          :yang.call/data {:yang.call/callee 5}}]
+           (run-outcome '[(defn f
+                            [x]
+                            1) (def f 5) (f 1)])))
+    (is (= [:yin.k/ok 42]
+           (run-outcome '[(def f 5) (defn f
+                                      [x]
+                                      (+ x 1)) (f 41)])))
+    (is (= [:yin.k/ok 42]
+           (run-outcome '[(defn f
+                            [x]
+                            1) (defn f
+                                 [x]
+                                 (+ x 41)) (f 1)])))
+    (is (= [:yin.k/ok [:yin.k/error 99]]
+           (run-outcome '[(def early (yin.k/outcome-of (first [10 20])))
+                          (defn first
+                            [xs]
+                            99)
+                          [(data/nth early 0) (first [10 20])]])))
+    (is (= [:yin.k/ok 42]
+           (run-outcome '[(defn f
+                            [x]
+                            (+ x 1))
+                          (let [get 5 assoc 6 = 7 empty? 8]
+                            (f 41))])))
+    (reset! effect-log [])
+    (is (= [[:yin.k/error {:yin.k/message "boom", :yin.k/data {}}] [:a]]
+           [(run-outcome '[(defn boom
+                             []
+                             (throw (ex-info "boom" {})))
+                           (defn f
+                             [x y z]
+                             (+ x z))
+                           (f (probe/note :a) (boom) (probe/note :b))])
+            @effect-log]))))

@@ -99,8 +99,11 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| mistral — binary `vibe`                      | `~/.vibe`                   | no caller ID; capture from the session journal (`--output-dir` export.json) | `--resume <id>` (or `-c`) |
-|                                              |                             | (`mistral` is an alias for `vibe`; prefer `mistral`)                        |                           |
+| mistral      | `~/.vibe`                   | no caller ID; capture from the   | `--resume <id>` (or `-c`)                |
+| (binary:     |                             | session journal (`--output-dir`  |                                          |
+| `vibe`)      |                             | export.json) (`mistral` is an    |                                          |
+|              |                             | alias for `vibe`; prefer         |                                          |
+|              |                             | `mistral`)                       |                                          |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
@@ -133,6 +136,23 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 > inside it, and merge back into the main tree once verified. If a host tool needs the raw OS PID (e.g.
 > `keep-awake`), get it with `pgrep -f` after launching.
 
+> [!IMPORTANT]
+> **Verify subagent model routing from the child's model-IO records, never from the model
+> list alone.** A subagent dispatched with `subagent_model` naming a provider model that is
+> listed but not wired silently runs EVERY call on the session model instead — no error, the
+> run completes normally, and the named provider's dashboard shows zero usage. Measured
+> 2026-11-03/04 (ZCode host, Agent tool): a subagent dispatched with
+> `subagent_model: new-provider/muse-wonder-1.0` — present in the host's 19-model list, no
+> credentials routed — ran all 62 of its calls on the session model (`GLM-5.3-Flash` /
+> `account:zai-start-plan`) while the muse dashboard stayed flat. The model list proves a
+> provider is *listed*, not that it is *wired*. After dispatching a subagent on a
+> non-default model, count the child's calls from its model-IO rollout records
+> (`~/.zcode/cli/rollout/model-io-<childSessionId>.jsonl`, one JSON record per call — check
+> `.model.modelId` / `.model.providerId`) and confirm they name the intended provider
+> before trusting the lane. Check while the subagent runs: stopping it deletes its rollout
+> file (observed on TaskStop — the 62-call count survived only in the parent's recorded
+> verification trail).
+
 Prompts contain authorized paths, not source text. Headless plan agents must be told to produce the complete
 deliverable without waiting for a human. Never use AGY `invoke_subagent` to delegate; always shell out to the
 listed CLIs.
@@ -148,7 +168,8 @@ listed CLIs.
 |                |                            |                            | *)" "Bash(git status |                            |                      |                    |
 |                |                            |                            | *)"`                 |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `claude-cloud` | Anthropic API (billing lane: **claude-api**) | `--model <model>`          | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+| `claude-cloud` | Anthropic API (billing     | `--model <model>`          | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|                | lane: **claude-api**)      |                            |                      |                            |                      |                    |
 |                | (metered credits); default |                            |                      |                            |                      |                    |
 |                | **claude-sonnet-5-5** /    |                            |                      |                            |                      |                    |
 |                | **claude-opus-5-5**        |                            |                      |                            |                      |                    |
@@ -169,26 +190,44 @@ listed CLIs.
 |                | `gpt-6-luna`,              |                            |                      |                            |                      |                    |
 |                | `gpt-5.4-mini`             |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `kimi`         | Moonshot AI; native Kimi   | `-m <model-alias>`         | `--agent <agent>` or | `-p` (auto permissions)    | no caller ID;        | `--session <id>`   |
-|                | K3.1 Pro / K3 families     |                            | `--agent-file        |                            | capture session ID   |                    |
-|                |                            |                            | <path>` (read-only)  |                            | from session index   |                    |
+| `kimi`         | Moonshot AI; native Kimi   | `-m <model-alias>`         | `--agent explore`    | `-p` (auto permissions)    | no caller ID;        | `--session <id>`   |
+|                | K3.1 Pro / K3 families     |                            | (read-only) or       |                            | capture session ID   |                    |
+|                |                            |                            | `--agent-file        |                            | from session index   |                    |
+|                |                            |                            | <path>` — profiles:  |                            |                      |                    |
+|                |                            |                            | plan, agent, coder,  |                            |                      |                    |
+|                |                            |                            | explore              |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `mistral`      | Mistral AI CLI; the binary | `--model <model>`          | `--agent ask`         | `--agent accept-edits`     | no caller ID;        | `--resume <id>`    |
+| `mistral`      | Mistral AI CLI; the binary | `--model <model>`          | `--agent ask`        | `--agent accept-edits`     | no caller ID;        | `--resume <id>`    |
 |                | is named `vibe` and        |                            | (read-only)          | (edit)                     | capture from         | (or `-c`)          |
 |                | `mistral` is an alias for  |                            |                      |                            | session journal      |                    |
 |                | it; either name invokes    |                            |                      |                            |                      |                    |
 |                | the same CLI (vibe 3.0.4). |                            |                      |                            |                      |                    |
-|                | Model aliases:             |                            |                      |                            |                      |                    |
-|                | `mistral-large`,           |                            |                      |                            |                      |                    |
-|                | `mistral-medium-3.5`,      |                            |                      |                            |                      |                    |
-|                | `mistral-4.0`, `devstral`, |                            |                      |                            |                      |                    |
-|                | `codestral`                |                            |                      |                            |                      |                    |
+|                | Live model aliases         |                            |                      |                            |                      |                    |
+|                | (probed 2026-11-03):       |                            |                      |                            |                      |                    |
+|                | `mistral-4.0` (the current |                            |                      |                            |                      |                    |
+|                | large generation — use it, |                            |                      |                            |                      |                    |
+|                | NOT `mistral-large`) and   |                            |                      |                            |                      |                    |
+|                | `mistral-medium-3.5`; the  |                            |                      |                            |                      |                    |
+|                | rest (`mistral-large`,     |                            |                      |                            |                      |                    |
+|                | `devstral`, `codestral`)   |                            |                      |                            |                      |                    |
+|                | parse but the live API     |                            |                      |                            |                      |                    |
+|                | rejects them (400          |                            |                      |                            |                      |                    |
+|                | invalid_model)             |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `agy`          | Gemini, flat-rate;         | `--model <model> --effort  | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
-|                | `gemini-3.1-ultra`,        | <effort>`                  | --sandbox`           | --sandbox`                 | capture              | <id>`              |
-|                | `gemini-3.1-pro-high`,     |                            |                      |                            | `conversation_id`    |                    |
-|                | `gemini-3.8-flash`         |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `agy`          | Gemini, Claude, GPT-OSS;   | `--model <model>` (the     | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
+|                | flat-rate. Effort is part  | ID or display name pins    | --sandbox`           | --sandbox`                 | capture              | <id>`              |
+|                | of the model name —        | the effort; `--effort` is  |                      |                            | `conversation_id`    |                    |
+|                | `gemini-4-argon-{low,      | redundant)                 |                      |                            |                      |                    |
+|                | medium,high}`,             |                            |                      |                            |                      |                    |
+|                | `gemini-3.8-flash-{low,    |                            |                      |                            |                      |                    |
+|                | medium,high}`,             |                            |                      |                            |                      |                    |
+|                | `claude-opus-5-5-{low,     |                            |                      |                            |                      |                    |
+|                | medium,high}`,             |                            |                      |                            |                      |                    |
+|                | `claude-sonnet-5-5-{low,   |                            |                      |                            |                      |                    |
+|                | medium,high}`,             |                            |                      |                            |                      |                    |
+|                | `gpt-oss-120b-medium`      |                            |                      |                            |                      |                    |
+|                | (catalog is per-host —     |                            |                      |                            |                      |                    |
+|                | `agy models`)              |                            |                      |                            |                      |                    |
 | `muse`         | Meta (Muse Code);          | `--model <model>`          | `--disable-write`    | default approval +         | `exec --session-id   | `muse resume       |
 |                | **muse-wonder-1.0**,       | `--reasoning-effort        |                      | sandbox (on)               | <uuid>`              | <uuid>`            |
 |                | `muse-spark-1.3`           | <effort>`                  |                      |                            |                      |                    |
@@ -207,7 +246,12 @@ Claude Code wrapper and shares no flags with the `claude` family beyond
 `--model` / `--session-id`. Invoke it directly (as with `kimi`), with its own
 flags, never through the Claude Code wrapper conventions (`MODEL=<model> muse`,
 `--permission-mode`, `--name`, `-p`). Auth is `muse login` (Meta account;
-`META_API_KEY` takes priority); allowance is shown by `muse usage`.
+`META_API_KEY` takes priority); allowance is shown by `muse usage`. Model IDs:
+besides `muse-wonder-1.0` and `muse-spark-1.3`, the explicit contributor
+variant `muse-spark-1.3-contributor` is also valid (measured 2026-11-04, both
+forms return OK on the API-key lane); with `contributor_mode_enabled` in
+`~/.config/muse/settings.json` the plain alias inherits contributor mode, and
+`--contributor-mode on|off` overrides it per run.
 
 **Muse billing lane (interactive and `muse exec`):** `META_API_KEY` in the
 environment always wins over the saved `muse login` account, so billing is
@@ -223,7 +267,13 @@ and follow-up is `muse resume <uuid>`. Every headless `muse exec` needs
 `--trust-workspace` (any root not already in `~/.config/muse/trust.json`
 starts untrusted) and `--approval-mode never` (the default on-request mode
 needs a TTY to answer tool approvals and blocks forever headless — see the
-canonical recipe below for the measured failure modes). Reasoning effort is
+canonical recipe below for the measured failure modes). Both flags are
+required together on the non-laptop roots (shiva and jupiter, muse 1.4.14,
+measured 2026-11-03 — with `--approval-mode never` the OS sandbox stays on);
+the failure modes are recorded in [`routing-status.md`](routing-status.md)
+2026-11-03 07:5x, and the recipe re-verified end-to-end on the laptop the
+same day (probe OK, `workspace trust: trusted source=run-flag`).
+Reasoning effort is
 `--reasoning-effort <none|minimal|low|medium|high|xhigh|max|ultra>`
 (default `high`). Approval and the shell sandbox are on by default
 (`--approval-mode on-request`); a read-only review adds `--disable-write`
@@ -248,8 +298,13 @@ so they are safe sanity checks; there is no trivial-prompt warm-up that avoids
 consuming a session slot. Headless `-p` uses
 `auto` permissions by default and cannot be combined with `--plan`, `--yolo`,
 or `--auto`. For a read-only review, bind a read-only agent at session creation
-with `--agent <read-only-agent>` or `--agent-file <path>`; for implementation,
-omit those flags. Resume with `--session <id>` (equivalently `-S <id>`) and the
+with `--agent explore` or `--agent-file <path>`; for implementation,
+omit those flags. kimi 2.4.0's builtin agent profiles are exactly
+`plan`, `agent`, `coder`, `explore` — `explore` is the read-only review choice,
+and a `code-reviewer` profile does not exist (`error: failed to run prompt:
+Unknown agent profile: "code-reviewer". Available profiles: plan, agent,
+coder, explore`; measured 2026-11-03). Resume with `--session <id>`
+(equivalently `-S <id>`) and the
 original `-m` alias;
 the bound agent is restored, so do not pass agent-selection flags on resume.
 Start a fresh session when changing models or thinking effort. K3.1 Pro models
@@ -308,7 +363,8 @@ codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
   > collab/<topic>/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 
 # Kimi Code — native CLI for every Kimi model
-# New implementation session; for a read-only review, add --agent <read-only-agent>.
+# New implementation session; for a read-only review, add --agent explore
+# (builtin profiles: plan, agent, coder, explore).
 kimi -m kimi-code/k3.1-pro -p "Read <prompt> and complete it now." \
   --output-format stream-json < /dev/null \
   > collab/<topic>/<timestamp>-<role>-<task>.kimi-k3.1-pro.stdout.log 2>&1
@@ -320,7 +376,10 @@ kimi --session <session-id> -m kimi-code/k3.1-pro \
 
 # Mistral — the Mistral AI CLI. The binary is named `vibe`; `mistral` is an
 # alias for it and is the preferred invocation name. Either works.
-# (model takes aliases: mistral-large, mistral-medium-3.5, mistral-4.0, devstral, codestral)
+# (model takes CLI aliases; API-live, probed 2026-11-03: mistral-4.0 — the
+#  current large generation — and mistral-medium-3.5; mistral-large,
+#  devstral, and codestral parse client-side but the live API rejects them
+#  with 400 invalid_model)
 mistral --agent ask --model mistral-4.0 \
   -p "Read <prompt> and complete it now." < /dev/null \
   > collab/<topic>/<timestamp>-<role>-<task>.mistral-<model>.stdout.log 2>&1
@@ -330,11 +389,13 @@ mistral --resume <session-id> --model mistral-4.0 \
   -p "Read <follow-up-prompt> and complete it now." < /dev/null \
   > collab/<topic>/<timestamp>-<role>-<task>-r2.mistral-<model>.stdout.log 2>&1
 
-# Gemini / AGY
+# Gemini / AGY — the model name itself pins the effort (e.g.
+# `gemini-3.8-flash-high` or the display name "Gemini 3.8 Flash (High)");
+# `--effort` is redundant and omitted (see quirks).
 # No --print-timeout: it is optional and defaults to 0 (wait until the turn
 # completes). Setting a short value truncates long turns mid-review (observed
 # 2026-10-18: a 5m limit killed an architecture review mid-turn; see quirks).
-agy --model <model> --effort <effort> <review-or-implementation-flags> \
+agy --model <model> <review-or-implementation-flags> \
   --output-format json -p "Read <prompt> and complete it now." \
   > collab/<topic>/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 ```
@@ -391,13 +452,26 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   background/nohup tracking, poll the log and the worktree's status, and
   never assume a silent first minutes means failure; the JSON status line
   (`"status":"SUCCESS"`/`"ERROR"`) lands only at the turn's end.
-- **AGY's model catalog is per-host** (observed 2026-11-03: shiva offers
-  `gemini-4-argon-{low,medium,high}`, `gemini-3.8-flash-{low,medium,high}`,
-  `claude-opus/sonnet-5-5-*`; the reference's `gemini-3.1-pro-high` alias is
-  invalid there, and `--effort` is unsupported for pro-high entries). Run
-  `agy models` on the dispatch host before writing the model name into a
-  brief; the routing split (flash implements, argon for hard problems and
-  architectural review) selects within the host's list.
+- **AGY's model catalog is per-host and every model name carries its effort
+  suffix** (measured 2026-11-03 on the laptop, agy 1.4.12: `agy models`
+  offers `gemini-4-argon-{low,medium,high}`,
+  `gemini-3.8-flash-{low,medium,high}`, `claude-opus-5-5-{low,medium,high}`,
+  `claude-sonnet-5-5-{low,medium,high}`, `gpt-oss-120b-medium`, displayed as
+  "Gemini 4 Argon (High)" etc.; shiva offers the same shape). `--model`
+  accepts the ID or the display name — `gemini-3.8-flash-high` and
+  `"Gemini 3.8 Flash (High)"` both probe OK — while the pre-4.0 aliases
+  (`gemini-3.1-ultra`, `gemini-3.1-pro-high`) are rejected ("model … is not
+  recognized as a known model or custom model in settings"). `--effort` is
+  accepted but redundant with the suffixed names (shiva observed it outright
+  unsupported for some entries), so the canonical dispatch omits it.
+  **AGY quota windows are per model and independent**: in one probe set argon
+  answered `RESOURCE_EXHAUSTED … resets in 142h` while `gemini-3.8-flash-high`
+  completed a real turn seconds later — probe per model before dispatch and
+  record each model's window as measured (see
+  [`routing-status.md`](routing-status.md) 2026-11-03 0x:xx and 04:0x
+  entries). Run `agy models` on the dispatch host before writing the model
+  name into a brief; the routing split (flash implements, argon for hard
+  problems and architectural review) selects within the host's list.
 - **AGY auto-denial and interruption recovery**: an interrupted turn is
   resumable by `--conversation <id>` with a "continue to completion" prompt;
   the resumed turn re-derives its state from the conversation and completes

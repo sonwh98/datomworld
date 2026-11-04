@@ -1,0 +1,556 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing d2-wedge-probe2
+:STAGE-C :full-differential-gate {:test yang.latte-oracle-test/test-kernel-differential-gate, :freeze-ticks 30, :wall-cap-ms 5400000}
+:LEG :a {:wall-ms 4, :steps 0, :arg0 {:id :minimal-last, :dependency-of latte-kernel.nbe/evaluation, :call (last (quote [1 2]))}}
+:LEG :b {:wall-ms 9, :steps 0, :arg0 {:id :minimal-last, :dependency-of latte-kernel.nbe/evaluation, :call (last (quote [1 2]))}}
+:LEG :compile {:wall-ms 24, :steps 0, :arg0 {:id :minimal-last, :dependency-of latte-kernel.nbe/evaluation, :call (last (quote [1 2]))}}
+:C-ENTER {:lane :walker, :at-steps 0, :total-s 0}
+:STEP-STARTED
+:C-EXIT {:lane :walker, :wall-ms 103, :steps 2686, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 2686, :total-s 0}
+:C-EXIT {:lane :semantic, :wall-ms 291, :steps 1499, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 446, :steps 4185, :arg0 {:id :minimal-last, :dependency-of latte-kernel.nbe/evaluation, :call (last (quote [1 2]))}}
+KERNEL-FIXTURE :minimal-last :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :minimal-with-meta, :dependency-of latte-kernel.nbe/quotation-, :call (with-meta (quote x) {:name (quote source)})}}
+:LEG :b {:wall-ms 12, :steps 0, :arg0 {:id :minimal-with-meta, :dependency-of latte-kernel.nbe/quotation-, :call (with-meta (quote x) {:name (quote source)})}}
+:LEG :compile {:wall-ms 15, :steps 0, :arg0 {:id :minimal-with-meta, :dependency-of latte-kernel.nbe/quotation-, :call (with-meta (quote x) {:name (quote source)})}}
+:C-ENTER {:lane :walker, :at-steps 4185, :total-s 0}
+:C-EXIT {:lane :walker, :wall-ms 23, :steps 1058, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 5243, :total-s 0}
+:C-EXIT {:lane :semantic, :wall-ms 108, :steps 606, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 158, :steps 1664, :arg0 {:id :minimal-with-meta, :dependency-of latte-kernel.nbe/quotation-, :call (with-meta (quote x) {:name (quote source)})}}
+KERNEL-FIXTURE :minimal-with-meta :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :minimal-nth, :dependency-of latte-kernel.presyntax/parse-binder-term, :call (nth (quote [a b]) 1)}}
+:LEG :b {:wall-ms 3, :steps 0, :arg0 {:id :minimal-nth, :dependency-of latte-kernel.presyntax/parse-binder-term, :call (nth (quote [a b]) 1)}}
+:LEG :compile {:wall-ms 14, :steps 0, :arg0 {:id :minimal-nth, :dependency-of latte-kernel.presyntax/parse-binder-term, :call (nth (quote [a b]) 1)}}
+:C-ENTER {:lane :walker, :at-steps 5849, :total-s 0}
+:C-EXIT {:lane :walker, :wall-ms 32, :steps 2361, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 8210, :total-s 0}
+:C-EXIT {:lane :semantic, :wall-ms 240, :steps 1348, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 292, :steps 3709, :arg0 {:id :minimal-nth, :dependency-of latte-kernel.presyntax/parse-binder-term, :call (nth (quote [a b]) 1)}}
+KERNEL-FIXTURE :minimal-nth :pass
+:LEG :a {:wall-ms 2, :steps 0, :arg0 {:id :minimal-var, :dependency-of latte-kernel.presyntax/parse-compound-term, :call (var? (quote x))}}
+:LEG :b {:wall-ms 8, :steps 0, :arg0 {:id :minimal-var, :dependency-of latte-kernel.presyntax/parse-compound-term, :call (var? (quote x))}}
+:LEG :compile {:wall-ms 4, :steps 0, :arg0 {:id :minimal-var, :dependency-of latte-kernel.presyntax/parse-compound-term, :call (var? (quote x))}}
+:C-ENTER {:lane :walker, :at-steps 9558, :total-s 0}
+:C-EXIT {:lane :walker, :wall-ms 21, :steps 1035, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 10593, :total-s 0}
+:C-EXIT {:lane :semantic, :wall-ms 87, :steps 594, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 122, :steps 1629, :arg0 {:id :minimal-var, :dependency-of latte-kernel.presyntax/parse-compound-term, :call (var? (quote x))}}
+KERNEL-FIXTURE :minimal-var :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :minimal-gensym-freshness, :guest-call (let [[a supply] (gensym {:counter 0} "fresh") [b supply] (gensym supply "fresh")] (= a b)), :dependency-of latte-kernel.typing/rebuild-type, :call (let [a (gensym "fresh") b (gensym "fresh")] (= …}
+:LEG :b {:wall-ms 4, :steps 0, :arg0 {:id :minimal-gensym-freshness, :guest-call (let [[a supply] (gensym {:counter 0} "fresh") [b supply] (gensym supply "fresh")] (= a b)), :dependency-of latte-kernel.typing/rebuild-type, :call (let [a (gensym "fresh") b (gensym "fresh")] (= …}
+:LEG :compile {:wall-ms 8, :steps 0, :arg0 {:id :minimal-gensym-freshness, :guest-call (let [[a supply] (gensym {:counter 0} "fresh") [b supply] (gensym supply "fresh")] (= a b)), :dependency-of latte-kernel.typing/rebuild-type, :call (let [a (gensym "fresh") b (gensym "fresh")] (= …}
+:C-ENTER {:lane :walker, :at-steps 11187, :total-s 1}
+:C-EXIT {:lane :walker, :wall-ms 61, :steps 3648, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 14835, :total-s 1}
+:C-EXIT {:lane :semantic, :wall-ms 215, :steps 2050, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 291, :steps 5698, :arg0 {:id :minimal-gensym-freshness, :guest-call (let [[a supply] (gensym {:counter 0} "fresh") [b supply] (gensym supply "fresh")] (= a b)), :dependency-of latte-kernel.typing/rebuild-type, :call (let [a (gensym "fresh") b (gensym "fresh")] (= …}
+KERNEL-FIXTURE :minimal-gensym-freshness :pass
+:LEG :a {:wall-ms 2, :steps 0, :arg0 {:id :rebuild-type-explicit-supply, :call (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)), :guest-call (first (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)))}}
+:LEG :b {:wall-ms 79, :steps 0, :arg0 {:id :rebuild-type-explicit-supply, :call (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)), :guest-call (first (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)))}}
+:LEG :compile {:wall-ms 90, :steps 0, :arg0 {:id :rebuild-type-explicit-supply, :call (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)), :guest-call (first (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)))}}
+:C-ENTER {:lane :walker, :at-steps 16885, :total-s 1}
+:C-EXIT {:lane :walker, :wall-ms 439, :steps 41094, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 57979, :total-s 1}
+:C-EXIT {:lane :semantic, :wall-ms 2350, :steps 22767, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2965, :steps 63861, :arg0 {:id :rebuild-type-explicit-supply, :call (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)), :guest-call (first (latte-kernel.typing/rebuild-type env (quote [[A ✳]]) (quote A)))}}
+KERNEL-FIXTURE :rebuild-type-explicit-supply :pass
+:LEG :a {:wall-ms 2, :steps 0, :arg0 {:id :parse-binder, :call (latte-kernel.presyntax/parse env (quote (lambda [x :type] x)))}}
+:LEG :b {:wall-ms 24, :steps 0, :arg0 {:id :parse-binder, :call (latte-kernel.presyntax/parse env (quote (lambda [x :type] x)))}}
+:LEG :compile {:wall-ms 28, :steps 0, :arg0 {:id :parse-binder, :call (latte-kernel.presyntax/parse env (quote (lambda [x :type] x)))}}
+:C-ENTER {:lane :walker, :at-steps 80746, :total-s 4}
+:C-EXIT {:lane :walker, :wall-ms 197, :steps 30246, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 110992, :total-s 4}
+:C-EXIT {:lane :semantic, :wall-ms 854, :steps 16740, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1107, :steps 46986, :arg0 {:id :parse-binder, :call (latte-kernel.presyntax/parse env (quote (lambda [x :type] x)))}}
+KERNEL-FIXTURE :parse-binder :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :parse-application, :call (latte-kernel.presyntax/parse env (quote (f x y)))}}
+:LEG :b {:wall-ms 20, :steps 0, :arg0 {:id :parse-application, :call (latte-kernel.presyntax/parse env (quote (f x y)))}}
+:LEG :compile {:wall-ms 20, :steps 0, :arg0 {:id :parse-application, :call (latte-kernel.presyntax/parse env (quote (f x y)))}}
+:C-ENTER {:lane :walker, :at-steps 127732, :total-s 5}
+:C-EXIT {:lane :walker, :wall-ms 206, :steps 34734, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 162466, :total-s 5}
+:C-EXIT {:lane :semantic, :wall-ms 869, :steps 19201, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1119, :steps 53935, :arg0 {:id :parse-application, :call (latte-kernel.presyntax/parse env (quote (f x y)))}}
+KERNEL-FIXTURE :parse-application :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :parse-empty, :negative? true, :call (latte-kernel.presyntax/parse env (quote ()))}}
+:LEG :b {:wall-ms 21, :steps 0, :arg0 {:id :parse-empty, :negative? true, :call (latte-kernel.presyntax/parse env (quote ()))}}
+:LEG :compile {:wall-ms 23, :steps 0, :arg0 {:id :parse-empty, :negative? true, :call (latte-kernel.presyntax/parse env (quote ()))}}
+:C-ENTER {:lane :walker, :at-steps 181667, :total-s 6}
+:C-EXIT {:lane :walker, :wall-ms 94, :steps 12117, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 193784, :total-s 6}
+:C-EXIT {:lane :semantic, :wall-ms 834, :steps 6850, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 977, :steps 18967, :arg0 {:id :parse-empty, :negative? true, :call (latte-kernel.presyntax/parse env (quote ()))}}
+KERNEL-FIXTURE :parse-empty :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :parse-bad-binding, :negative? true, :call (latte-kernel.presyntax/parse env (quote (lambda [x x :type] x)))}}
+:LEG :b {:wall-ms 19, :steps 0, :arg0 {:id :parse-bad-binding, :negative? true, :call (latte-kernel.presyntax/parse env (quote (lambda [x x :type] x)))}}
+:LEG :compile {:wall-ms 19, :steps 0, :arg0 {:id :parse-bad-binding, :negative? true, :call (latte-kernel.presyntax/parse env (quote (lambda [x x :type] x)))}}
+:C-ENTER {:lane :walker, :at-steps 200634, :total-s 7}
+:C-EXIT {:lane :walker, :wall-ms 178, :steps 28988, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 229622, :total-s 7}
+:C-EXIT {:lane :semantic, :wall-ms 845, :steps 16003, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 1064, :steps 44991, :arg0 {:id :parse-bad-binding, :negative? true, :call (latte-kernel.presyntax/parse env (quote (lambda [x x :type] x)))}}
+KERNEL-FIXTURE :parse-bad-binding :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :parse-reserved, :negative? true, :call (latte-kernel.presyntax/parse env (quote lambda))}}
+:LEG :b {:wall-ms 20, :steps 0, :arg0 {:id :parse-reserved, :negative? true, :call (latte-kernel.presyntax/parse env (quote lambda))}}
+:LEG :compile {:wall-ms 17, :steps 0, :arg0 {:id :parse-reserved, :negative? true, :call (latte-kernel.presyntax/parse env (quote lambda))}}
+:C-ENTER {:lane :walker, :at-steps 245625, :total-s 8}
+:C-EXIT {:lane :walker, :wall-ms 86, :steps 12216, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 257841, :total-s 8}
+:C-EXIT {:lane :semantic, :wall-ms 799, :steps 6906, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 926, :steps 19122, :arg0 {:id :parse-reserved, :negative? true, :call (latte-kernel.presyntax/parse env (quote lambda))}}
+KERNEL-FIXTURE :parse-reserved :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :parse-short-arrow, :negative? true, :call (latte-kernel.presyntax/parse env (quote (==> A)))}}
+:LEG :b {:wall-ms 18, :steps 0, :arg0 {:id :parse-short-arrow, :negative? true, :call (latte-kernel.presyntax/parse env (quote (==> A)))}}
+:LEG :compile {:wall-ms 16, :steps 0, :arg0 {:id :parse-short-arrow, :negative? true, :call (latte-kernel.presyntax/parse env (quote (==> A)))}}
+:C-ENTER {:lane :walker, :at-steps 264747, :total-s 9}
+:C-EXIT {:lane :walker, :wall-ms 93, :steps 13701, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 278448, :total-s 9}
+:TICK {:s 10, :steps 278448, :in-step-ms 1237, :steps-per-s-last-tick :first-tick, :step-ns {:n 64, :min-ns 3416, :p50-ns 4083, :max-ns 60334}, :cont-depth nil, :loads 24, :runs 23}
+:C-EXIT {:lane :semantic, :wall-ms 804, :steps 7710, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 933, :steps 21411, :arg0 {:id :parse-short-arrow, :negative? true, :call (latte-kernel.presyntax/parse env (quote (==> A)))}}
+KERNEL-FIXTURE :parse-short-arrow :pass
+:LEG :a {:wall-ms 2, :steps 0, :arg0 {:id :subst-capture, :call (latte-kernel.syntax/subst (quote (λ [x A] [x y])) (quote {y x}))}}
+:LEG :b {:wall-ms 10, :steps 0, :arg0 {:id :subst-capture, :call (latte-kernel.syntax/subst (quote (λ [x A] [x y])) (quote {y x}))}}
+:LEG :compile {:wall-ms 15, :steps 0, :arg0 {:id :subst-capture, :call (latte-kernel.syntax/subst (quote (λ [x A] [x y])) (quote {y x}))}}
+:C-ENTER {:lane :walker, :at-steps 286158, :total-s 10}
+:C-EXIT {:lane :walker, :wall-ms 205, :steps 36906, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 323064, :total-s 10}
+:C-EXIT {:lane :semantic, :wall-ms 757, :steps 20319, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 991, :steps 57225, :arg0 {:id :subst-capture, :call (latte-kernel.syntax/subst (quote (λ [x A] [x y])) (quote {y x}))}}
+KERNEL-FIXTURE :subst-capture :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :subst-shadow, :call (latte-kernel.syntax/subst (quote (λ [x A] (λ [x A] x))) (quote {x z}))}}
+:LEG :b {:wall-ms 9, :steps 0, :arg0 {:id :subst-shadow, :call (latte-kernel.syntax/subst (quote (λ [x A] (λ [x A] x))) (quote {x z}))}}
+:LEG :compile {:wall-ms 13, :steps 0, :arg0 {:id :subst-shadow, :call (latte-kernel.syntax/subst (quote (λ [x A] (λ [x A] x))) (quote {x z}))}}
+:C-ENTER {:lane :walker, :at-steps 343383, :total-s 11}
+:C-EXIT {:lane :walker, :wall-ms 210, :steps 37711, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 381094, :total-s 11}
+:C-EXIT {:lane :semantic, :wall-ms 755, :steps 20760, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 989, :steps 58471, :arg0 {:id :subst-shadow, :call (latte-kernel.syntax/subst (quote (λ [x A] (λ [x A] x))) (quote {x z}))}}
+KERNEL-FIXTURE :subst-shadow :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :subst-three-arity, :call (latte-kernel.syntax/subst (quote (Π [x A] [x z])) (quote {z x}) (quote #{x x'}))}}
+:LEG :b {:wall-ms 9, :steps 0, :arg0 {:id :subst-three-arity, :call (latte-kernel.syntax/subst (quote (Π [x A] [x z])) (quote {z x}) (quote #{x x'}))}}
+:LEG :compile {:wall-ms 12, :steps 0, :arg0 {:id :subst-three-arity, :call (latte-kernel.syntax/subst (quote (Π [x A] [x z])) (quote {z x}) (quote #{x x'}))}}
+:C-ENTER {:lane :walker, :at-steps 401854, :total-s 12}
+:C-EXIT {:lane :walker, :wall-ms 211, :steps 37554, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 439408, :total-s 12}
+:C-EXIT {:lane :semantic, :wall-ms 764, :steps 20672, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 998, :steps 58226, :arg0 {:id :subst-three-arity, :call (latte-kernel.syntax/subst (quote (Π [x A] [x z])) (quote {z x}) (quote #{x x'}))}}
+KERNEL-FIXTURE :subst-three-arity :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :free-vars-local-capture, :call (latte-kernel.syntax/free-vars (latte-kernel.defenv/register-definition env (latte-kernel.defenv/->Definition (quote d) [] 0 (quote x) (quote #{x}) (quote A) {}) true) (quote (d)))}}
+:LEG :b {:wall-ms 6, :steps 0, :arg0 {:id :free-vars-local-capture, :call (latte-kernel.syntax/free-vars (latte-kernel.defenv/register-definition env (latte-kernel.defenv/->Definition (quote d) [] 0 (quote x) (quote #{x}) (quote A) {}) true) (quote (d)))}}
+:LEG :compile {:wall-ms 8, :steps 0, :arg0 {:id :free-vars-local-capture, :call (latte-kernel.syntax/free-vars (latte-kernel.defenv/register-definition env (latte-kernel.defenv/->Definition (quote d) [] 0 (quote x) (quote #{x}) (quote A) {}) true) (quote (d)))}}
+:C-ENTER {:lane :walker, :at-steps 460080, :total-s 13}
+:C-EXIT {:lane :walker, :wall-ms 88, :steps 13925, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 474005, :total-s 13}
+:C-EXIT {:lane :semantic, :wall-ms 513, :steps 7720, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 617, :steps 21645, :arg0 {:id :free-vars-local-capture, :call (latte-kernel.syntax/free-vars (latte-kernel.defenv/register-definition env (latte-kernel.defenv/->Definition (quote d) [] 0 (quote x) (quote #{x}) (quote A) {}) true) (quote (d)))}}
+KERNEL-FIXTURE :free-vars-local-capture :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :nbe-beta, :call (latte-kernel.nbe/norm env [] (quote [(λ [x ✳] x) y]))}}
+:LEG :b {:wall-ms 12, :steps 0, :arg0 {:id :nbe-beta, :call (latte-kernel.nbe/norm env [] (quote [(λ [x ✳] x) y]))}}
+:LEG :compile {:wall-ms 12, :steps 0, :arg0 {:id :nbe-beta, :call (latte-kernel.nbe/norm env [] (quote [(λ [x ✳] x) y]))}}
+:C-ENTER {:lane :walker, :at-steps 481725, :total-s 14}
+:C-EXIT {:lane :walker, :wall-ms 199, :steps 34588, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 516313, :total-s 14}
+:C-EXIT {:lane :semantic, :wall-ms 834, :steps 19178, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1060, :steps 53766, :arg0 {:id :nbe-beta, :call (latte-kernel.nbe/norm env [] (quote [(λ [x ✳] x) y]))}}
+KERNEL-FIXTURE :nbe-beta :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :nbe-binder, :call (latte-kernel.nbe/norm (quote (λ [x ✳] x)))}}
+:LEG :b {:wall-ms 12, :steps 0, :arg0 {:id :nbe-binder, :call (latte-kernel.nbe/norm (quote (λ [x ✳] x)))}}
+:LEG :compile {:wall-ms 14, :steps 0, :arg0 {:id :nbe-binder, :call (latte-kernel.nbe/norm (quote (λ [x ✳] x)))}}
+:C-ENTER {:lane :walker, :at-steps 535491, :total-s 15}
+:C-EXIT {:lane :walker, :wall-ms 202, :steps 35185, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 570676, :total-s 15}
+:C-EXIT {:lane :semantic, :wall-ms 835, :steps 19462, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1067, :steps 54647, :arg0 {:id :nbe-binder, :call (latte-kernel.nbe/norm (quote (λ [x ✳] x)))}}
+KERNEL-FIXTURE :nbe-binder :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :normalize-beta, :call (latte-kernel.norm/normalize env [] (quote [(λ [x ✳] x) y]))}}
+:LEG :b {:wall-ms 33, :steps 0, :arg0 {:id :normalize-beta, :call (latte-kernel.norm/normalize env [] (quote [(λ [x ✳] x) y]))}}
+:LEG :compile {:wall-ms 25, :steps 0, :arg0 {:id :normalize-beta, :call (latte-kernel.norm/normalize env [] (quote [(λ [x ✳] x) y]))}}
+:C-ENTER {:lane :walker, :at-steps 590138, :total-s 16}
+:C-EXIT {:lane :walker, :wall-ms 241, :steps 38860, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 628998, :total-s 16}
+:C-EXIT {:lane :semantic, :wall-ms 1517, :steps 21602, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1819, :steps 60462, :arg0 {:id :normalize-beta, :call (latte-kernel.norm/normalize env [] (quote [(λ [x ✳] x) y]))}}
+KERNEL-FIXTURE :normalize-beta :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :normalize-one-arity, :call (latte-kernel.norm/normalize (quote [(λ [x ✳] x) y]))}}
+:LEG :b {:wall-ms 30, :steps 0, :arg0 {:id :normalize-one-arity, :call (latte-kernel.norm/normalize (quote [(λ [x ✳] x) y]))}}
+:LEG :compile {:wall-ms 24, :steps 0, :arg0 {:id :normalize-one-arity, :call (latte-kernel.norm/normalize (quote [(λ [x ✳] x) y]))}}
+:C-ENTER {:lane :walker, :at-steps 650600, :total-s 17}
+:C-EXIT {:lane :walker, :wall-ms 242, :steps 39212, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 689812, :total-s 18}
+:C-EXIT {:lane :semantic, :wall-ms 1518, :steps 21792, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1818, :steps 61004, :arg0 {:id :normalize-one-arity, :call (latte-kernel.norm/normalize (quote [(λ [x ✳] x) y]))}}
+KERNEL-FIXTURE :normalize-one-arity :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :normalize-two-arity, :call (latte-kernel.norm/normalize env (quote [(λ [x ✳] x) y]))}}
+:LEG :b {:wall-ms 30, :steps 0, :arg0 {:id :normalize-two-arity, :call (latte-kernel.norm/normalize env (quote [(λ [x ✳] x) y]))}}
+:LEG :compile {:wall-ms 24, :steps 0, :arg0 {:id :normalize-two-arity, :call (latte-kernel.norm/normalize env (quote [(λ [x ✳] x) y]))}}
+:C-ENTER {:lane :walker, :at-steps 711604, :total-s 19}
+:TICK {:s 20, :steps 740336, :in-step-ms 2847, :steps-per-s-last-tick 46188, :step-ns {:n 64, :min-ns 3417, :p50-ns 3875, :max-ns 5791}, :cont-depth nil, :loads 41, :runs 40}
+:C-EXIT {:lane :walker, :wall-ms 242, :steps 39020, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 750624, :total-s 20}
+:C-EXIT {:lane :semantic, :wall-ms 1526, :steps 21689, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1825, :steps 60709, :arg0 {:id :normalize-two-arity, :call (latte-kernel.norm/normalize env (quote [(λ [x ✳] x) y]))}}
+KERNEL-FIXTURE :normalize-two-arity :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :nbe-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.nbe/norm env [] (quote (d)))}}
+:LEG :b {:wall-ms 14, :steps 0, :arg0 {:id :nbe-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.nbe/norm env [] (quote (d)))}}
+:LEG :compile {:wall-ms 16, :steps 0, :arg0 {:id :nbe-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.nbe/norm env [] (quote (d)))}}
+:C-ENTER {:lane :walker, :at-steps 772313, :total-s 21}
+:C-EXIT {:lane :walker, :wall-ms 145, :steps 23649, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 795962, :total-s 21}
+:C-EXIT {:lane :semantic, :wall-ms 834, :steps 13085, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1012, :steps 36734, :arg0 {:id :nbe-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.nbe/norm env [] (quote (d)))}}
+KERNEL-FIXTURE :nbe-delta :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :normalize-opaque, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {:opaque true})], :call (latte-kernel.norm/normalize env [] (quote (d)))}}
+:LEG :b {:wall-ms 30, :steps 0, :arg0 {:id :normalize-opaque, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {:opaque true})], :call (latte-kernel.norm/normalize env [] (quote (d)))}}
+:LEG :compile {:wall-ms 24, :steps 0, :arg0 {:id :normalize-opaque, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {:opaque true})], :call (latte-kernel.norm/normalize env [] (quote (d)))}}
+:C-ENTER {:lane :walker, :at-steps 809047, :total-s 22}
+:C-EXIT {:lane :walker, :wall-ms 190, :steps 28163, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 837210, :total-s 22}
+:C-EXIT {:lane :semantic, :wall-ms 1515, :steps 15625, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1763, :steps 43788, :arg0 {:id :normalize-opaque, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {:opaque true})], :call (latte-kernel.norm/normalize env [] (quote (d)))}}
+KERNEL-FIXTURE :normalize-opaque :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :normalize-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.norm/normalize env [] (quote (d)))}}
+:LEG :b {:wall-ms 30, :steps 0, :arg0 {:id :normalize-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.norm/normalize env [] (quote (d)))}}
+:LEG :compile {:wall-ms 24, :steps 0, :arg0 {:id :normalize-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.norm/normalize env [] (quote (d)))}}
+:C-ENTER {:lane :walker, :at-steps 852835, :total-s 24}
+:C-EXIT {:lane :walker, :wall-ms 192, :steps 27921, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 880756, :total-s 24}
+:C-EXIT {:lane :semantic, :wall-ms 1521, :steps 15509, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1770, :steps 43430, :arg0 {:id :normalize-delta, :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote ✳) #{} (quote □) {})], :call (latte-kernel.norm/normalize env [] (quote (d)))}}
+KERNEL-FIXTURE :normalize-delta :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :beta-eq-true, :call (latte-kernel.norm/beta-eq? env [] (quote [(λ [x ✳] x) y]) (quote y))}}
+:LEG :b {:wall-ms 30, :steps 0, :arg0 {:id :beta-eq-true, :call (latte-kernel.norm/beta-eq? env [] (quote [(λ [x ✳] x) y]) (quote y))}}
+:LEG :compile {:wall-ms 24, :steps 0, :arg0 {:id :beta-eq-true, :call (latte-kernel.norm/beta-eq? env [] (quote [(λ [x ✳] x) y]) (quote y))}}
+:C-ENTER {:lane :walker, :at-steps 896265, :total-s 26}
+:C-EXIT {:lane :walker, :wall-ms 279, :steps 46970, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 943235, :total-s 26}
+:C-EXIT {:lane :semantic, :wall-ms 1550, :steps 26023, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1886, :steps 72993, :arg0 {:id :beta-eq-true, :call (latte-kernel.norm/beta-eq? env [] (quote [(λ [x ✳] x) y]) (quote y))}}
+KERNEL-FIXTURE :beta-eq-true :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :beta-eq-false, :negative? true, :call (latte-kernel.norm/beta-eq? (quote x) (quote y))}}
+:LEG :b {:wall-ms 28, :steps 0, :arg0 {:id :beta-eq-false, :negative? true, :call (latte-kernel.norm/beta-eq? (quote x) (quote y))}}
+:LEG :compile {:wall-ms 23, :steps 0, :arg0 {:id :beta-eq-false, :negative? true, :call (latte-kernel.norm/beta-eq? (quote x) (quote y))}}
+:C-ENTER {:lane :walker, :at-steps 969258, :total-s 28}
+:C-EXIT {:lane :walker, :wall-ms 183, :steps 26840, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 996098, :total-s 28}
+:C-EXIT {:lane :semantic, :wall-ms 1510, :steps 14928, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1750, :steps 41768, :arg0 {:id :beta-eq-false, :negative? true, :call (latte-kernel.norm/beta-eq? (quote x) (quote y))}}
+KERNEL-FIXTURE :beta-eq-false :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :beta-eq-three-arity, :call (latte-kernel.norm/beta-eq? env (quote x) (quote x))}}
+:LEG :b {:wall-ms 30, :steps 0, :arg0 {:id :beta-eq-three-arity, :call (latte-kernel.norm/beta-eq? env (quote x) (quote x))}}
+:LEG :compile {:wall-ms 24, :steps 0, :arg0 {:id :beta-eq-three-arity, :call (latte-kernel.norm/beta-eq? env (quote x) (quote x))}}
+:C-ENTER {:lane :walker, :at-steps 1011026, :total-s 29}
+:C-EXIT {:lane :walker, :wall-ms 181, :steps 26482, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1037508, :total-s 30}
+:TICK {:s 30, :steps 1037508, :in-step-ms 3877, :steps-per-s-last-tick 29717, :step-ns {:n 64, :min-ns 3250, :p50-ns 3833, :max-ns 6875}, :cont-depth nil, :loads 53, :runs 53}
+:C-EXIT {:lane :semantic, :wall-ms 1515, :steps 14736, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 1753, :steps 41218, :arg0 {:id :beta-eq-three-arity, :call (latte-kernel.norm/beta-eq? env (quote x) (quote x))}}
+KERNEL-FIXTURE :beta-eq-three-arity :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :typing-type, :call (latte-kernel.typing/type-of-term env [] (quote ✳))}}
+:LEG :b {:wall-ms 43, :steps 0, :arg0 {:id :typing-type, :call (latte-kernel.typing/type-of-term env [] (quote ✳))}}
+:LEG :compile {:wall-ms 44, :steps 0, :arg0 {:id :typing-type, :call (latte-kernel.typing/type-of-term env [] (quote ✳))}}
+:C-ENTER {:lane :walker, :at-steps 1052244, :total-s 31}
+:C-EXIT {:lane :walker, :wall-ms 142, :steps 16501, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1068745, :total-s 31}
+:C-EXIT {:lane :semantic, :wall-ms 1982, :steps 9382, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2217, :steps 25883, :arg0 {:id :typing-type, :call (latte-kernel.typing/type-of-term env [] (quote ✳))}}
+KERNEL-FIXTURE :typing-type :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :typing-lambda, :call (latte-kernel.typing/type-of-term env (quote [[A ✳]]) (quote (λ [x A] x)))}}
+:LEG :b {:wall-ms 45, :steps 0, :arg0 {:id :typing-lambda, :call (latte-kernel.typing/type-of-term env (quote [[A ✳]]) (quote (λ [x A] x)))}}
+:LEG :compile {:wall-ms 33, :steps 0, :arg0 {:id :typing-lambda, :call (latte-kernel.typing/type-of-term env (quote [[A ✳]]) (quote (λ [x A] x)))}}
+:C-ENTER {:lane :walker, :at-steps 1078127, :total-s 33}
+:C-EXIT {:lane :walker, :wall-ms 603, :steps 106155, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1184282, :total-s 34}
+:C-EXIT {:lane :semantic, :wall-ms 2128, :steps 58182, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2814, :steps 164337, :arg0 {:id :typing-lambda, :call (latte-kernel.typing/type-of-term env (quote [[A ✳]]) (quote (λ [x A] x)))}}
+KERNEL-FIXTURE :typing-lambda :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :typing-unknown, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote x))}}
+:LEG :b {:wall-ms 44, :steps 0, :arg0 {:id :typing-unknown, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote x))}}
+:LEG :compile {:wall-ms 32, :steps 0, :arg0 {:id :typing-unknown, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote x))}}
+:C-ENTER {:lane :walker, :at-steps 1242464, :total-s 36}
+:C-EXIT {:lane :walker, :wall-ms 152, :steps 17430, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1259894, :total-s 36}
+:C-EXIT {:lane :semantic, :wall-ms 1965, :steps 9890, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2197, :steps 27320, :arg0 {:id :typing-unknown, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote x))}}
+KERNEL-FIXTURE :typing-unknown :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :typing-kind, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote □))}}
+:LEG :b {:wall-ms 44, :steps 0, :arg0 {:id :typing-kind, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote □))}}
+:LEG :compile {:wall-ms 31, :steps 0, :arg0 {:id :typing-kind, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote □))}}
+:C-ENTER {:lane :walker, :at-steps 1269784, :total-s 38}
+:C-EXIT {:lane :walker, :wall-ms 151, :steps 16219, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1286003, :total-s 38}
+:TICK {:s 40, :steps 1286003, :in-step-ms 4747, :steps-per-s-last-tick 24849, :step-ns {:n 64, :min-ns 3250, :p50-ns 3833, :max-ns 12375}, :cont-depth nil, :loads 62, :runs 61}
+:C-EXIT {:lane :semantic, :wall-ms 1962, :steps 9228, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2193, :steps 25447, :arg0 {:id :typing-kind, :negative? true, :call (latte-kernel.typing/type-of-term env [] (quote □))}}
+KERNEL-FIXTURE :typing-kind :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :typing-ascription, :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (:latte-kernel.syntax/ascribe x A)))}}
+:LEG :b {:wall-ms 43, :steps 0, :arg0 {:id :typing-ascription, :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (:latte-kernel.syntax/ascribe x A)))}}
+:LEG :compile {:wall-ms 41, :steps 0, :arg0 {:id :typing-ascription, :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (:latte-kernel.syntax/ascribe x A)))}}
+:C-ENTER {:lane :walker, :at-steps 1295231, :total-s 41}
+:C-EXIT {:lane :walker, :wall-ms 164, :steps 21175, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 1316406, :total-s 41}
+:C-EXIT {:lane :semantic, :wall-ms 1971, :steps 11916, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 2223, :steps 33091, :arg0 {:id :typing-ascription, :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (:latte-kernel.syntax/ascribe x A)))}}
+KERNEL-FIXTURE :typing-ascription :recorded-upstream-failure
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :type-of-valid, :call (latte-kernel.typing/type-of (quote ✳))}}
+:LEG :b {:wall-ms 43, :steps 0, :arg0 {:id :type-of-valid, :call (latte-kernel.typing/type-of (quote ✳))}}
+:LEG :compile {:wall-ms 30, :steps 0, :arg0 {:id :type-of-valid, :call (latte-kernel.typing/type-of (quote ✳))}}
+:C-ENTER {:lane :walker, :at-steps 1328322, :total-s 43}
+:C-EXIT {:lane :walker, :wall-ms 152, :steps 17288, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1345610, :total-s 43}
+:C-EXIT {:lane :semantic, :wall-ms 1972, :steps 9812, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2201, :steps 27100, :arg0 {:id :type-of-valid, :call (latte-kernel.typing/type-of (quote ✳))}}
+KERNEL-FIXTURE :type-of-valid :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :type-of-context, :call (latte-kernel.typing/type-of (quote [[A ✳] [x A]]) (quote x))}}
+:LEG :b {:wall-ms 43, :steps 0, :arg0 {:id :type-of-context, :call (latte-kernel.typing/type-of (quote [[A ✳] [x A]]) (quote x))}}
+:LEG :compile {:wall-ms 38, :steps 0, :arg0 {:id :type-of-context, :call (latte-kernel.typing/type-of (quote [[A ✳] [x A]]) (quote x))}}
+:C-ENTER {:lane :walker, :at-steps 1355422, :total-s 45}
+:C-EXIT {:lane :walker, :wall-ms 283, :steps 44232, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1399654, :total-s 45}
+:C-EXIT {:lane :semantic, :wall-ms 2032, :steps 24475, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2400, :steps 68707, :arg0 {:id :type-of-context, :call (latte-kernel.typing/type-of (quote [[A ✳] [x A]]) (quote x))}}
+KERNEL-FIXTURE :type-of-context :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :type-of-invalid, :negative? true, :call (latte-kernel.typing/type-of env [] (quote x))}}
+:LEG :b {:wall-ms 45, :steps 0, :arg0 {:id :type-of-invalid, :negative? true, :call (latte-kernel.typing/type-of env [] (quote x))}}
+:LEG :compile {:wall-ms 30, :steps 0, :arg0 {:id :type-of-invalid, :negative? true, :call (latte-kernel.typing/type-of env [] (quote x))}}
+:C-ENTER {:lane :walker, :at-steps 1424129, :total-s 47}
+:C-EXIT {:lane :walker, :wall-ms 150, :steps 17877, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 1442006, :total-s 47}
+:C-EXIT {:lane :semantic, :wall-ms 1994, :steps 10136, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 2224, :steps 28013, :arg0 {:id :type-of-invalid, :negative? true, :call (latte-kernel.typing/type-of env [] (quote x))}}
+KERNEL-FIXTURE :type-of-invalid :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :type-check-valid, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote A))}}
+:TICK {:s 50, :steps 1452142, :in-step-ms 5306, :steps-per-s-last-tick 16613, :step-ns {:n 64, :min-ns 1250, :p50-ns 1958, :max-ns 3792}, :cont-depth nil, :loads 70, :runs 70}
+:LEG :b {:wall-ms 44, :steps 0, :arg0 {:id :type-check-valid, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote A))}}
+:LEG :compile {:wall-ms 31, :steps 0, :arg0 {:id :type-check-valid, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote A))}}
+:C-ENTER {:lane :walker, :at-steps 1452142, :total-s 50}
+:C-EXIT {:lane :walker, :wall-ms 365, :steps 57799, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1509941, :total-s 50}
+:C-EXIT {:lane :semantic, :wall-ms 2016, :steps 31869, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2461, :steps 89668, :arg0 {:id :type-check-valid, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote A))}}
+KERNEL-FIXTURE :type-check-valid :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :type-check-wrong, :negative? true, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote ✳))}}
+:LEG :b {:wall-ms 51, :steps 0, :arg0 {:id :type-check-wrong, :negative? true, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote ✳))}}
+:LEG :compile {:wall-ms 30, :steps 0, :arg0 {:id :type-check-wrong, :negative? true, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote ✳))}}
+:C-ENTER {:lane :walker, :at-steps 1541810, :total-s 52}
+:C-EXIT {:lane :walker, :wall-ms 349, :steps 57799, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1599609, :total-s 52}
+:C-EXIT {:lane :semantic, :wall-ms 2039, :steps 31869, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 2475, :steps 89668, :arg0 {:id :type-check-wrong, :negative? true, :call (latte-kernel.typing/type-check? env (quote [[A ✳] [x A]]) (quote x) (quote ✳))}}
+KERNEL-FIXTURE :type-check-wrong :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :type-check-unbound, :negative? true, :call (latte-kernel.typing/type-check? env [] (quote x) (quote ✳))}}
+:LEG :b {:wall-ms 45, :steps 0, :arg0 {:id :type-check-unbound, :negative? true, :call (latte-kernel.typing/type-check? env [] (quote x) (quote ✳))}}
+:LEG :compile {:wall-ms 31, :steps 0, :arg0 {:id :type-check-unbound, :negative? true, :call (latte-kernel.typing/type-check? env [] (quote x) (quote ✳))}}
+:C-ENTER {:lane :walker, :at-steps 1631478, :total-s 55}
+:C-EXIT {:lane :walker, :wall-ms 154, :steps 17746, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 1649224, :total-s 55}
+:C-EXIT {:lane :semantic, :wall-ms 1959, :steps 10061, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 2194, :steps 27807, :arg0 {:id :type-check-unbound, :negative? true, :call (latte-kernel.typing/type-check? env [] (quote x) (quote ✳))}}
+KERNEL-FIXTURE :type-check-unbound :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :compile-proof, :call (latte-kernel.proof/compile-proof (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:LEG :b {:wall-ms 6, :steps 0, :arg0 {:id :compile-proof, :call (latte-kernel.proof/compile-proof (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:LEG :compile {:wall-ms 8, :steps 0, :arg0 {:id :compile-proof, :call (latte-kernel.proof/compile-proof (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:C-ENTER {:lane :walker, :at-steps 1659285, :total-s 57}
+:C-EXIT {:lane :walker, :wall-ms 88, :steps 15744, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1675029, :total-s 57}
+:C-EXIT {:lane :semantic, :wall-ms 345, :steps 8672, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 448, :steps 24416, :arg0 {:id :compile-proof, :call (latte-kernel.proof/compile-proof (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+KERNEL-FIXTURE :compile-proof :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :compile-assume, :call (latte-kernel.proof/compile-proof (quote [:type]) (quote [[:assume {} [A _] [:have p _ (lambda [x A] x) {}]] [:qed p {}]]))}}
+:LEG :b {:wall-ms 5, :steps 0, :arg0 {:id :compile-assume, :call (latte-kernel.proof/compile-proof (quote [:type]) (quote [[:assume {} [A _] [:have p _ (lambda [x A] x) {}]] [:qed p {}]]))}}
+:LEG :compile {:wall-ms 9, :steps 0, :arg0 {:id :compile-assume, :call (latte-kernel.proof/compile-proof (quote [:type]) (quote [[:assume {} [A _] [:have p _ (lambda [x A] x) {}]] [:qed p {}]]))}}
+:C-ENTER {:lane :walker, :at-steps 1683701, :total-s 57}
+:C-EXIT {:lane :walker, :wall-ms 320, :steps 63711, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 1747412, :total-s 57}
+:C-EXIT {:lane :semantic, :wall-ms 417, :steps 34756, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 754, :steps 98467, :arg0 {:id :compile-assume, :call (latte-kernel.proof/compile-proof (quote [:type]) (quote [[:assume {} [A _] [:have p _ (lambda [x A] x) {}]] [:qed p {}]]))}}
+KERNEL-FIXTURE :compile-assume :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :compile-malformed, :negative? true, :call (latte-kernel.proof/compile-proof (quote [42]))}}
+:LEG :b {:wall-ms 4, :steps 0, :arg0 {:id :compile-malformed, :negative? true, :call (latte-kernel.proof/compile-proof (quote [42]))}}
+:LEG :compile {:wall-ms 6, :steps 0, :arg0 {:id :compile-malformed, :negative? true, :call (latte-kernel.proof/compile-proof (quote [42]))}}
+:C-ENTER {:lane :walker, :at-steps 1782168, :total-s 58}
+:C-EXIT {:lane :walker, :wall-ms 51, :steps 8359, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 1790527, :total-s 58}
+:C-EXIT {:lane :semantic, :wall-ms 333, :steps 4667, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 395, :steps 13026, :arg0 {:id :compile-malformed, :negative? true, :call (latte-kernel.proof/compile-proof (quote [42]))}}
+KERNEL-FIXTURE :compile-malformed :recorded-upstream-failure
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :compile-unknown, :negative? true, :call (latte-kernel.proof/compile-proof (quote [[:unknown {}]]))}}
+:LEG :b {:wall-ms 5, :steps 0, :arg0 {:id :compile-unknown, :negative? true, :call (latte-kernel.proof/compile-proof (quote [[:unknown {}]]))}}
+:LEG :compile {:wall-ms 7, :steps 0, :arg0 {:id :compile-unknown, :negative? true, :call (latte-kernel.proof/compile-proof (quote [[:unknown {}]]))}}
+:C-ENTER {:lane :walker, :at-steps 1795194, :total-s 58}
+:C-EXIT {:lane :walker, :wall-ms 69, :steps 11880, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 1807074, :total-s 58}
+:C-EXIT {:lane :semantic, :wall-ms 339, :steps 6570, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 422, :steps 18450, :arg0 {:id :compile-unknown, :negative? true, :call (latte-kernel.proof/compile-proof (quote [[:unknown {}]]))}}
+KERNEL-FIXTURE :compile-unknown :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :opacity-context-proof, :mode :opacity-proof, :script [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]], :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})], :projec…}
+:LEG :b {:wall-ms 80, :steps 0, :arg0 {:id :opacity-context-proof, :mode :opacity-proof, :script [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]], :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})], :projec…}
+:LEG :compile {:wall-ms 53, :steps 0, :arg0 {:id :opacity-context-proof, :mode :opacity-proof, :script [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]], :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})], :projec…}
+:C-ENTER {:lane :walker, :at-steps 1813644, :total-s 59}
+:TICK {:s 60, :steps 1944849, :in-step-ms 7086, :steps-per-s-last-tick 49270, :step-ns {:n 64, :min-ns 3250, :p50-ns 3917, :max-ns 5541}, :cont-depth nil, :loads 85, :runs 84}
+:C-EXIT {:lane :walker, :wall-ms 1310, :steps 245944, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 2059588, :total-s 60}
+:C-EXIT {:lane :semantic, :wall-ms 3561, :steps 134591, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 5011, :steps 380535, :arg0 {:id :opacity-context-proof, :mode :opacity-proof, :script [[:opaque d] [:transparent d] [:qed (lambda [A :type] (lambda [x A] x)) {}]], :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})], :projec…}
+KERNEL-FIXTURE :opacity-context-proof :pass
+:LEG :a {:wall-ms 0, :steps 0, :arg0 {:id :opacity-context-refusal, :mode :opacity-proof, :negative? true, :script [[:opaque d] [:opaque d]], :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})], :call (latte-kernel.proof/elab-proof en…}
+:LEG :b {:wall-ms 79, :steps 0, :arg0 {:id :opacity-context-refusal, :mode :opacity-proof, :negative? true, :script [[:opaque d] [:opaque d]], :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})], :call (latte-kernel.proof/elab-proof en…}
+:LEG :compile {:wall-ms 52, :steps 0, :arg0 {:id :opacity-context-refusal, :mode :opacity-proof, :negative? true, :script [[:opaque d] [:opaque d]], :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})], :call (latte-kernel.proof/elab-proof en…}
+:C-ENTER {:lane :walker, :at-steps 2194179, :total-s 64}
+:C-EXIT {:lane :walker, :wall-ms 302, :steps 39381, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 2233560, :total-s 64}
+:C-EXIT {:lane :semantic, :wall-ms 3203, :steps 22117, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 3643, :steps 61498, :arg0 {:id :opacity-context-refusal, :mode :opacity-proof, :negative? true, :script [[:opaque d] [:opaque d]], :definitions [(latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {})], :call (latte-kernel.proof/elab-proof en…}
+KERNEL-FIXTURE :opacity-context-refusal :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :elab-accepted, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:LEG :b {:wall-ms 94, :steps 0, :arg0 {:id :elab-accepted, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:LEG :compile {:wall-ms 47, :steps 0, :arg0 {:id :elab-accepted, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:C-ENTER {:lane :walker, :at-steps 2255677, :total-s 67}
+:C-EXIT {:lane :walker, :wall-ms 1244, :steps 228049, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 2483726, :total-s 69}
+:TICK {:s 70, :steps 2483726, :in-step-ms 9042, :steps-per-s-last-tick 53887, :step-ns {:n 64, :min-ns 3250, :p50-ns 3833, :max-ns 7375}, :cont-depth nil, :loads 89, :runs 89}
+:C-EXIT {:lane :semantic, :wall-ms 3492, :steps 124778, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 4884, :steps 352827, :arg0 {:id :elab-accepted, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+KERNEL-FIXTURE :elab-accepted :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :elab-rejected, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed missing {}]]))}}
+:LEG :b {:wall-ms 86, :steps 0, :arg0 {:id :elab-rejected, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed missing {}]]))}}
+:LEG :compile {:wall-ms 50, :steps 0, :arg0 {:id :elab-rejected, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed missing {}]]))}}
+:C-ENTER {:lane :walker, :at-steps 2608504, :total-s 72}
+:C-EXIT {:lane :walker, :wall-ms 254, :steps 32824, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 2641328, :total-s 73}
+:C-EXIT {:lane :semantic, :wall-ms 3179, :steps 18474, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 3576, :steps 51298, :arg0 {:id :elab-rejected, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed missing {}]]))}}
+KERNEL-FIXTURE :elab-rejected :pass
+:LEG :a {:wall-ms 1, :steps 0, :arg0 {:id :elab-incomplete, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote []))}}
+:LEG :b {:wall-ms 79, :steps 0, :arg0 {:id :elab-incomplete, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote []))}}
+:LEG :compile {:wall-ms 47, :steps 0, :arg0 {:id :elab-incomplete, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote []))}}
+:C-ENTER {:lane :walker, :at-steps 2659802, :total-s 76}
+:C-EXIT {:lane :walker, :wall-ms 231, :steps 24702, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 2684504, :total-s 76}
+:C-EXIT {:lane :semantic, :wall-ms 3186, :steps 14060, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 3551, :steps 38762, :arg0 {:id :elab-incomplete, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote []))}}
+KERNEL-FIXTURE :elab-incomplete :pass
+:LEG :a {:wall-ms 2, :steps 0, :arg0 {:id :elab-after-qed, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))}}
+:LEG :b {:wall-ms 78, :steps 0, :arg0 {:id :elab-after-qed, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))}}
+:LEG :compile {:wall-ms 46, :steps 0, :arg0 {:id :elab-after-qed, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))}}
+:C-ENTER {:lane :walker, :at-steps 2698564, :total-s 79}
+:TICK {:s 80, :steps 2698564, :in-step-ms 9634, :steps-per-s-last-tick 21483, :step-ns {:n 64, :min-ns 1333, :p50-ns 2041, :max-ns 4625}, :cont-depth nil, :loads 95, :runs 94}
+:C-EXIT {:lane :walker, :wall-ms 1240, :steps 228970, :status :completed, :outcome-tag :yin.k/error}
+:C-ENTER {:lane :semantic, :at-steps 2927534, :total-s 81}
+:C-EXIT {:lane :semantic, :wall-ms 3542, :steps 125276, :status :completed, :outcome-tag :yin.k/error}
+:LEG :row {:wall-ms 4915, :steps 354246, :arg0 {:id :elab-after-qed, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))}}
+KERNEL-FIXTURE :elab-after-qed :recorded-deviation
+:LEG :a {:wall-ms 2, :steps 0, :arg0 {:id :check-accepted, :call (latte-kernel.proof/check-proof env [] (quote identity) (quote (Π [A ✳] (Π [x A] A))) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:LEG :b {:wall-ms 84, :steps 0, :arg0 {:id :check-accepted, :call (latte-kernel.proof/check-proof env [] (quote identity) (quote (Π [A ✳] (Π [x A] A))) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:LEG :compile {:wall-ms 54, :steps 0, :arg0 {:id :check-accepted, :call (latte-kernel.proof/check-proof env [] (quote identity) (quote (Π [A ✳] (Π [x A] A))) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+:C-ENTER {:lane :walker, :at-steps 3052810, :total-s 84}
+:C-EXIT {:lane :walker, :wall-ms 2449, :steps 474327, :status :completed, :outcome-tag :yin.k/ok}
+:C-ENTER {:lane :semantic, :at-steps 3527137, :total-s 87}
+:TICK {:s 90, :steps 3527137, :in-step-ms 12830, :steps-per-s-last-tick 82857, :step-ns {:n 64, :min-ns 3291, :p50-ns 3875, :max-ns 7666}, :cont-depth nil, :loads 98, :runs 97}
+:C-EXIT {:lane :semantic, :wall-ms 4070, :steps 259394, :status :completed, :outcome-tag :yin.k/ok}
+:LEG :row {:wall-ms 6667, :steps 733721, :arg0 {:id :check-accepted, :call (latte-kernel.proof/check-proof env [] (quote identity) (quote (Π [A ✳] (Π [x A] A))) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}}
+KERNEL-FIXTURE :check-accepted :pass
+:LEG :a {:wall-ms 5, :steps 0, :arg0 {:id :check-assume-have-discharge, :call (latte-kernel.proof/check-proof env [] (quote composition) (latte-kernel.presyntax/parse env (quote (forall [A B :type] (==> (==> A B) (==> A A B))))) (quote [[:assume {:line 1} [A :type B :type f (=…}
+:LEG :b {:wall-ms 89, :steps 0, :arg0 {:id :check-assume-have-discharge, :call (latte-kernel.proof/check-proof env [] (quote composition) (latte-kernel.presyntax/parse env (quote (forall [A B :type] (==> (==> A B) (==> A A B))))) (quote [[:assume {:line 1} [A :type B :type f (=…}
+:LEG :compile {:wall-ms 51, :steps 0, :arg0 {:id :check-assume-have-discharge, :call (latte-kernel.proof/check-proof env [] (quote composition) (latte-kernel.presyntax/parse env (quote (forall [A B :type] (==> (==> A B) (==> A A B))))) (quote [[:assume {:line 1} [A :type B :type f (=…}
+:C-ENTER {:lane :walker, :at-steps 3786531, :total-s 91}
+:TICK {:s 100, :steps 5528318, :in-step-ms 20496, :steps-per-s-last-tick 200118, :step-ns {:n 64, :min-ns 3292, :p50-ns 3875, :max-ns 4959}, :cont-depth nil, :loads 99, :runs 98}
+:TICK {:s 110, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 25821, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 120, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 130, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 140, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 150, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 160, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 170, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 180, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 190, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 200, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 210, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 220, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 230, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 240, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 250, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 260, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 270, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 280, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 290, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 300, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 310, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 320, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 330, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 340, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 350, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 360, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 370, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 380, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 390, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 400, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:TICK {:s 410, :steps 5786531, :in-step-ms 21542, :steps-per-s-last-tick 0, :step-ns {:n 64, :min-ns 3333, :p50-ns 3917, :max-ns 8209}, :cont-depth nil, :loads 99, :runs 99}
+:GATE-FROZEN-5MIN {:steps 5786531, :in-step-ms 21542, :loads 99, :ready-checks 295, :runs [{:entry-steps 0, :exit-steps 2686, :threw false} {:entry-steps 2686, :exit-steps 4185, :threw false} {:entry-steps 4185, :exit-steps 5243, :threw false} {:entry-steps 5243, :exit-steps 5849, :threw false} {:entry-steps 5849, :exit-steps 8210, :threw false} {:entry-steps 8210, :exit-steps 9558, :threw false} {:entry-steps 9558, :exit-steps 10593, :threw false} {:entry-steps 10593, :exit-steps 11187, :threw false} {:entry-steps 11187, :exit-steps 14835, :threw false} {:entry-steps 14835, :exit-steps 16885, :threw false} {:entry-steps 16885, :exit-steps 57979, :threw false} {:entry-steps 57979, :exit-steps 80746, :threw false} {:entry-steps 80746, :exit-steps 110992, :threw false} {:entry-steps 110992, :exit-steps 127732, :threw false} {:entry-steps 127732, :exit-steps 162466, :threw false} {:entry-steps 162466, :exit-steps 181667, :threw false} {:entry-steps 181667, :exit-steps 193784, :threw false} {:entry-steps 193784, :exit-steps 200634, :threw false} {:entry-steps 200634, :exit-steps 229622, :threw false} {:entry-steps 229622, :exit-steps 245625, :threw false} {:entry-steps 245625, :exit-steps 257841, :threw false} {:entry-steps 257841, :exit-steps 264747, :threw false} {:entry-steps 264747, :exit-steps 278448, :threw false} {:entry-steps 278448, :exit-steps 286158, :threw false} {:entry-steps 286158, :exit-steps 323064, :threw false} {:entry-steps 323064, :exit-steps 343383, :threw false} {:entry-steps 343383, :exit-steps 381094, :threw false} {:entry-steps 381094, :exit-steps 401854, :threw false} {:entry-steps 401854, :exit-steps 439408, :threw false} {:entry-steps 439408, :exit-steps 460080, :threw false} {:entry-steps 460080, :exit-steps 474005, :threw false} {:entry-steps 474005, :exit-steps 481725, :threw false} {:entry-steps 481725, :exit-steps 516313, :threw false} {:entry-steps 516313, :exit-steps 535491, :threw false} {:entry-steps 535491, :exit-steps 570676, :threw false} {:entry-steps 570676, :exit-steps 590138, :threw false} {:entry-steps 590138, :exit-steps 628998, :threw false} {:entry-steps 628998, :exit-steps 650600, :threw false} {:entry-steps 650600, :exit-steps 689812, :threw false} {:entry-steps 689812, :exit-steps 711604, :threw false} {:entry-steps 711604, :exit-steps 750624, :threw false} {:entry-steps 750624, :exit-steps 772313, :threw false} {:entry-steps 772313, :exit-steps 795962, :threw false} {:entry-steps 795962, :exit-steps 809047, :threw false} {:entry-steps 809047, :exit-steps 837210, :threw false} {:entry-steps 837210, :exit-steps 852835, :threw false} {:entry-steps 852835, :exit-steps 880756, :threw false} {:entry-steps 880756, :exit-steps 896265, :threw false} {:entry-steps 896265, :exit-steps 943235, :threw false} {:entry-steps 943235, :exit-steps 969258, :threw false} {:entry-steps 969258, :exit-steps 996098, :threw false} {:entry-steps 996098, :exit-steps 1011026, :threw false} {:entry-steps 1011026, :exit-steps 1037508, :threw false} {:entry-steps 1037508, :exit-steps 1052244, :threw false} {:entry-steps 1052244, :exit-steps 1068745, :threw false} {:entry-steps 1068745, :exit-steps 1078127, :threw false} {:entry-steps 1078127, :exit-steps 1184282, :threw false} {:entry-steps 1184282, :exit-steps 1242464, :threw false} {:entry-steps 1242464, :exit-steps 1259894, :threw false} {:entry-steps 1259894, :exit-steps 1269784, :threw false} {:entry-steps 1269784, :exit-steps 1286003, :threw false} {:entry-steps 1286003, :exit-steps 1295231, :threw false} {:entry-steps 1295231, :exit-steps 1316406, :threw false} {:entry-steps 1316406, :exit-steps 1328322, :threw false} {:entry-steps 1328322, :exit-steps 1345610, :threw false} {:entry-steps 1345610, :exit-steps 1355422, :threw false} {:entry-steps 1355422, :exit-steps 1399654, :threw false} {:entry-steps 1399654, :exit-steps 1424129, :threw false} {:entry-steps 1424129, :exit-steps 1442006, :threw false} {:entry-steps 1442006, :exit-steps 1452142, :threw false} {:entry-steps 1452142, :exit-steps 1509941, :threw false} {:entry-steps 1509941, :exit-steps 1541810, :threw false} {:entry-steps 1541810, :exit-steps 1599609, :threw false} {:entry-steps 1599609, :exit-steps 1631478, :threw false} {:entry-steps 1631478, :exit-steps 1649224, :threw false} {:entry-steps 1649224, :exit-steps 1659285, :threw false} {:entry-steps 1659285, :exit-steps 1675029, :threw false} {:entry-steps 1675029, :exit-steps 1683701, :threw false} {:entry-steps 1683701, :exit-steps 1747412, :threw false} {:entry-steps 1747412, :exit-steps 1782168, :threw false} {:entry-steps 1782168, :exit-steps 1790527, :threw false} {:entry-steps 1790527, :exit-steps 1795194, :threw false} {:entry-steps 1795194, :exit-steps 1807074, :threw false} {:entry-steps 1807074, :exit-steps 1813644, :threw false} {:entry-steps 1813644, :exit-steps 2059588, :threw false} {:entry-steps 2059588, :exit-steps 2194179, :threw false} {:entry-steps 2194179, :exit-steps 2233560, :threw false} {:entry-steps 2233560, :exit-steps 2255677, :threw false} {:entry-steps 2255677, :exit-steps 2483726, :threw false} {:entry-steps 2483726, :exit-steps 2608504, :threw false} {:entry-steps 2608504, :exit-steps 2641328, :threw false} {:entry-steps 2641328, :exit-steps 2659802, :threw false} {:entry-steps 2659802, :exit-steps 2684504, :threw false} {:entry-steps 2684504, :exit-steps 2698564, :threw false} {:entry-steps 2698564, :exit-steps 2927534, :threw false} {:entry-steps 2927534, :exit-steps 3052810, :threw false} {:entry-steps 3052810, :exit-steps 3527137, :threw false} {:entry-steps 3527137, :exit-steps 3786531, :threw false} {:entry-steps 3786531, :exit-steps 5786531, :threw Guest instruction budget exhausted}], :entering-machine {:blocked? false, :wait-set 0, :window-size 0, :value ["_" 6], :control-inst {:segment nil, :pc nil, :image true}, :cont-depth 1, :control {}, :halted? false, :top-frame nil, :ready-queue 0}}
+:WORKER-STACK
+   app//clojure.lang.Var.getThreadBinding(Var.java:362)
+   app//clojure.lang.Var.deref(Var.java:202)
+   app//clojure.lang.Var.get(Var.java:198)
+   app//clojure.core$resolve.invokeStatic(core.clj:4398)
+   app//clojure.core$requiring_resolve.invokeStatic(core.clj:6150)
+   app//clojure.core$requiring_resolve.invoke(core.clj:6145)
+   yang.latte_oracle_test$upstream_fn.invokeStatic(latte_oracle_test.clj:286)
+   yang.latte_oracle_test$upstream_fn.invoke(latte_oracle_test.clj:284)
+   yang.latte_oracle_test$upstream_record_data$fn__24432$fn__24434.invoke(latte_oracle_test.clj:1025)
+   app//clojure.core$some.invokeStatic(core.clj:2718)
+   app//clojure.core$some.invoke(core.clj:2709)
+   yang.latte_oracle_test$upstream_record_data$fn__24432.invoke(latte_oracle_test.clj:1025)
+   app//clojure.walk$walk.invokeStatic(walk.clj:46)
+   app//clojure.walk$postwalk.invokeStatic(walk.clj:53)
+   app//clojure.walk$postwalk.invoke(walk.clj:53)
+   app//clojure.core$partial$fn__5929.invoke(core.clj:2641)
+   app//clojure.core$map$fn__5956.invoke(core.clj:2772)
+   app//clojure.lang.LazySeq.force(LazySeq.java:50)
+   app//clojure.lang.LazySeq.realize(LazySeq.java:87)
+   app//clojure.lang.LazySeq.seq(LazySeq.java:104)
+   app//clojure.lang.RT.seq(RT.java:555)
+   app//clojure.core$seq__5488.invokeStatic(core.clj:139)
+   app//clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:24)
+   app//clojure.core.protocols$fn__8266.invokeStatic(protocols.clj:74)
+   app//clojure.core.protocols$fn__8266.invoke(protocols.clj:74)
+   app//clojure.core.protocols$fn__8207$G__8202__8220.invoke(protocols.clj:13)
+   app//clojure.core$reduce.invokeStatic(core.clj:6965)
+   app//clojure.core$into.invokeStatic(core.clj:7038)
+   app//clojure.walk$walk.invokeStatic(walk.clj:50)
+   app//clojure.walk$postwalk.invokeStatic(walk.clj:53)
+   app//clojure.walk$postwalk.invoke(walk.clj:53)
+   app//clojure.core$partial$fn__5929.invoke(core.clj:2641)
+   app//clojure.walk$walk.invokeStatic(walk.clj:46)
+   app//clojure.walk$postwalk.invokeStatic(walk.clj:53)
+   app//clojure.walk$postwalk.invoke(walk.clj:53)
+   app//clojure.core$partial$fn__5929.invoke(core.clj:2641)
+   app//clojure.core$map$fn__5956.invoke(core.clj:2772)
+   app//clojure.lang.LazySeq.force(LazySeq.java:50)
+   app//clojure.lang.LazySeq.realize(LazySeq.java:87)
+   app//clojure.lang.LazySeq.seq(LazySeq.java:104)
+   app//clojure.lang.Cons.next(Cons.java:41)
+   app//clojure.lang.RT.next(RT.java:733)
+   app//clojure.core$next__5472.invokeStatic(core.clj:64)
+   app//clojure.core.protocols$fn__8279.invokeStatic(protocols.clj:168)
+   app//clojure.core.protocols$fn__8279.invoke(protocols.clj:123)
+   app//clojure.core.protocols$fn__8233$G__8228__8242.invoke(protocols.clj:19)
+   app//clojure.core.protocols$seq_reduce.invokeStatic(protocols.clj:31)
+   app//clojure.core.protocols$fn__8266.invokeStatic(protocols.clj:74)
+   app//clojure.core.protocols$fn__8266.invoke(protocols.clj:74)
+   app//clojure.core.protocols$fn__8207$G__8202__8220.invoke(protocols.clj:13)
+   app//clojure.core$reduce.invokeStatic(core.clj:6965)
+   app//clojure.core$into.invokeStatic(core.clj:7038)
+   app//clojure.walk$walk.invokeStatic(walk.clj:50)
+   app//clojure.walk$postwalk.invokeStatic(walk.clj:53)
+   app//clojure.walk$postwalk.invoke(walk.clj:53)
+   app//clojure.core$partial$fn__5929.invoke(core.clj:2641)
+   app//clojure.walk$walk.invokeStatic(walk.clj:46)
+   app//clojure.walk$postwalk.invokeStatic(walk.clj:53)
+   app//clojure.walk$postwalk.invoke(walk.clj:53)
+   app//clojure.core$partial$fn__5929.invoke(core.clj:2641)

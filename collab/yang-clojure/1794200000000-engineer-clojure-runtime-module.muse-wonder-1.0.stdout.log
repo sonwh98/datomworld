@@ -1,0 +1,5 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cljrt (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cljrt/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+agent loop failed: model failed: API error 429 [request_id=3801997a-a590-41bf-881a-9c63c0a87896]: Subscription quota exhausted. Your usage window resets at 2026-11-09T00:00:00Z. (rate_limit_error)
+DISPATCH_RC=1

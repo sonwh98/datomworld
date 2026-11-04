@@ -224,7 +224,12 @@
                                    (mapcat #(scan % bound)) (:operands node))
                 :if (into #{} (mapcat #(scan (get node %) bound))
                           [:test :consequent :alternate])
-                (throw (ex-info "Unexpected AST in context admission" {:type (:type node)}))))]
+                ;; The rejection carries the node itself (print-bounded): a
+                ;; bare symbol or unknown shape names its emitter directly.
+                (throw (ex-info "Unexpected AST in context admission"
+                                {:type (:type node)
+                                 :node (binding [*print-length* 40 *print-level* 8]
+                                         (pr-str node))}))))]
       (scan ast #{}))))
 
 
@@ -1656,14 +1661,37 @@
   (try (f)
        (catch Exception e
          {:status :blocked :message (ex-message e)
-          ;; Observer exceptions attach the entire host VM as :session. It is
-          ;; diagnostic machinery, not a portable domain payload; recursively
-          ;; expanding its closure environments duplicates the whole program.
-          :data (evidence-data (dissoc (ex-data e) :session))
+          ;; The session and consumer are host VM recovery machinery, not
+          ;; portable domain payloads. Walking their closure environments can
+          ;; repeatedly expand the entire program.
+          :data (evidence-data (dissoc (ex-data e) :session :consumer))
           :host-session-attached? (contains? (ex-data e) :session)
           :causes (mapv (fn [cause] {:class (str (class cause)) :message (ex-message cause)})
                         (take-while some? (iterate ex-cause e)))
           :exception (str (class e))})))
+
+
+(deftest test-kernel-exhaustion-evidence-is-bounded
+  (let [ast (yang/compile-program '[((fn [x] x) 1)] true arg-vector-opts)
+        task (future
+               (kernel-attempt
+                 #(try
+                    (compiler-test/run-guest-machine ast (oracle-registry) :walker 1)
+                    (catch Exception e
+                      ;; Some runners attach the advanced consumer directly;
+                      ;; this runner carries it in the observer session.
+                      (throw (ex-info (ex-message e)
+                                      (assoc (ex-data e) :consumer (get-in (ex-data e) [:session :consumer]))
+                                      e))))))
+        result (deref task 5000 ::timeout)]
+    (when (= ::timeout result) (future-cancel task))
+    (is (not= ::timeout result) "Exhaustion evidence finishes within five seconds")
+    (is (= :blocked (:status result)))
+    (is (= "Guest instruction budget exhausted" (:message result)))
+    (is (= {:lane :walker :steps 1} (:data result)))
+    (is (true? (:host-session-attached? result)))
+    (is (seq (:causes result)))
+    (is (every? #(= "Guest instruction budget exhausted" (:message %)) (:causes result)))))
 
 
 (defn- kernel-a
@@ -1816,7 +1844,7 @@
   (if (= :compiled (:status compiled))
     (assoc (kernel-attempt
              #(let [machine (compiler-test/run-guest-machine
-                              (:ast compiled) (oracle-registry yang/kind-module) lane 2000000)
+                              (:ast compiled) (oracle-registry yang/kind-module) lane 4000000)
                     v (vm/value machine)
                     ref (get-in machine [:store 'gate-execution-trace])
                     handle (get-in machine [:resources (:id ref)])]
@@ -1892,6 +1920,7 @@
   ;; Static dependencies never establish execution of any arity.
   #{:unparser-guest-closure :implicit-typed-closure :implicit-throwing-closure
     :check-assume-have-discharge :parse-to-normalize-to-type
+    :h3-2-elab-inferred-anonymous :h3-2-elab-discharge-states
     :fundamental-install-use :unfold-install-use :opacity-install-use})
 
 
@@ -1940,7 +1969,8 @@
         complete? (fn [d required] (every? d required))
         portability-required [:call :script :message :boundary :upstream-value :reason]
         upstream-required [:call :boundary :reason :upstream-revision]]
-    (assert (and (= 1 (:version parsed)) (= "ea18c8e4^" (:provenance parsed)))
+    (assert (and (= 2 (:version parsed))
+                 (= "088c498e56109f5002342bbd19120b124fff62d3" (:provenance parsed)))
             "the declarations file's version/provenance are part of its contract")
     (doseq [[id d] (:portability parsed)]
       (assert (and (complete? d portability-required)
@@ -2254,6 +2284,68 @@
     (is (empty? (:integration-fixture-ids (first entries))))))
 
 
+(deftest test-h3-2-proof-elaboration-family
+  (testing "registration: completions are named integrations, refusals are negatives"
+    (is (contains? kernel-named-integrations :h3-2-elab-inferred-anonymous))
+    (is (contains? kernel-named-integrations :h3-2-elab-discharge-states))
+    (doseq [id [:h3-2-have-duplicate :h3-2-declare-invalid :h3-2-have-mismatched-type
+                :h3-2-discharge-incorrect :h3-2-discharge-empty-context]]
+      (is (:negative? (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus)))) id)))
+  (testing "A-side F3 discharge states (upstream-asserted, conservative deps)"
+    (let [empty-env @(upstream-fn 'latte-kernel.defenv/empty-env)
+          declare (upstream-fn 'latte-kernel.proof/elab-declare)
+          have (upstream-fn 'latte-kernel.proof/elab-have)
+          discharge (upstream-fn 'latte-kernel.proof/elab-discharge)
+          parsed (fn [env expr] (second ((upstream-fn 'latte-kernel.presyntax/parse-term) env expr)))
+          fetched (fn [env dname]
+                    (select-keys (second ((upstream-fn 'latte-kernel.defenv/fetch-definition) env dname true))
+                                 [:name :params :arity :parsed-term :term-free-vars :type]))
+          st (fn [f & args] (second (apply f args)))
+          s1 (st declare empty-env [] [] {} 'A '✳ {})
+          s2 (st declare empty-env (nth s1 1) (nth s1 2) {} 'B '✳ {})
+          s3 (st declare empty-env (nth s2 1) (nth s2 2) {} 'f (parsed empty-env '(==> A B)) {})
+          s4 (st declare empty-env (nth s3 1) (nth s3 2) {} 'x 'A {})
+          sa (st have empty-env (nth s4 1) (nth s4 2) {} '<a> (parsed empty-env '(==> A B)) 'f {})
+          sb (st have (nth sa 0) (nth sa 1) (nth sa 2) (nth sa 3)
+                 '<b> 'B (parsed (nth sa 0) '(<a> x)) {})]
+      (is (= '([x A] [f (Π [⇧ A] B)] [B ✳] [A ✳]) (nth s4 1)))
+      ;; Conservative upstream update: every live entry gains the have name.
+      (is (= '[[x #{<a> <b>}] [f #{<a> <b>}] [B #{<a> <b>}] [A #{<a> <b>}]] (nth sb 2)))
+      (is (= '{<a> #{<b>} <b> #{}} (nth sb 3)))
+      (let [s5 (discharge (nth sb 0) (nth sb 1) (nth sb 2) (nth sb 3) 'x {})]
+        ;; <a> is abstracted over x although its term never mentions x.
+        (is (= {:name '<a> :params '[[x A]] :arity 1 :parsed-term 'f
+                :term-free-vars '#{f} :type '(Π [⇧ A] B)} (fetched (nth s5 0) '<a>)))
+        (is (= '[(<a> x) x] (:parsed-term (fetched (nth s5 0) '<b>)))))))
+  (testing "A-side F2: inferred type recorded, anonymous have registers nothing"
+    (let [empty-env @(upstream-fn 'latte-kernel.defenv/empty-env)
+          [_ [def-env term ty]] ((upstream-fn 'latte-kernel.proof/elab-proof)
+                                  empty-env []
+                                  '[[:declare A :type {}] [:declare x A {}]
+                                    [:have <a> _ x {}] [:have _ A x {}] [:qed <a> {}]])]
+      (is (= ['(<a>) 'A] [term ty]))
+      (is (= '#{<a>} (set (keys (second def-env)))))))
+  (testing "both C lanes record the predicted arities of the passing integrations"
+    (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
+          f3 (kernel-row (by-id :h3-2-elab-discharge-states))
+          f2 (kernel-row (by-id :h3-2-elab-inferred-anonymous))]
+      (is (= :pass (:status f3)))
+      (is (= :pass (:status f2)))
+      (doseq [[sym n] '[[latte-kernel.proof/elab-declare 7] [latte-kernel.proof/elab-have 8]
+                        [latte-kernel.proof/elab-have-impl 8] [latte-kernel.proof/elab-discharge 6]
+                        [latte-kernel.proof/elab-discharge-impl 6] [latte-kernel.proof/abstract-local-def 4]
+                        [latte-kernel.proof/abstract-local-calls 4] [latte-kernel.proof/gen-local-calls 3]
+                        [latte-kernel.proof/update-var-deps 3] [latte-kernel.proof/update-def-uses 3]
+                        [latte-kernel.proof/ref-uses-in-term 1]]]
+        (is (kernel-executed-arity? f3 sym n) (str "F3 witnesses " sym "/" n)))
+      (doseq [[sym n] '[[latte-kernel.proof/elab-declare 7] [latte-kernel.proof/elab-have 8]
+                        [latte-kernel.proof/elab-have-impl 8] [latte-kernel.proof/update-var-deps 3]
+                        [latte-kernel.proof/update-def-uses 3] [latte-kernel.proof/ref-uses-in-term 1]]]
+        (is (kernel-executed-arity? f2 sym n) (str "F2 witnesses " sym "/" n)))
+      ;; Discharge credit belongs to F1/F3 only: F2 has no discharge step.
+      (is (not (kernel-executed-arity? f2 'latte-kernel.proof/elab-discharge 6))))))
+
+
 (defn kernel-gate-evidence
   "Run every fixture in A and independently in both C lanes. Compilation or
    VM errors are blockers, never successful LaTTe rejections. Exact arities
@@ -2298,8 +2390,8 @@
       :rebuild-type-result '[original-result next-context]
       :ambient-prefix-only :refused}
      :runtime {:clojure (clojure-version) :java (System/getProperty "java.version")}
-     :instruction-budget-per-lane 2000000
-     :instruction-budget-note "The original uninstrumented fixtures used 1,000,000 instructions. Body-entry stream writes add guest instructions; traced fixtures have a 2,000,000 instruction bound. The harness drains only after halt."
+     :instruction-budget-per-lane 4000000
+     :instruction-budget-note "The original uninstrumented fixtures used 1,000,000 instructions. Body-entry stream writes add guest instructions; traced fixtures have a 2,000,000 instruction bound. The harness drains only after halt. Under the D2 record lane the binding fixture's walker cell needs 2,024,912 steps (1.2% over 2M; semantic 1,105,792); the architect's 2026-11-04 ruling approves a uniform 4,000,000 acceptance budget (~1.98x headroom on the binding lane, measurement-supported, no per-fixture table)."
      :manifest-bindings (count manifest) :function-arity-candidates (count all-arities)
      :manifest-functions (count (filter :arities kernel-entries))
      :admitted-function-arity-count (count admitted-arities)
