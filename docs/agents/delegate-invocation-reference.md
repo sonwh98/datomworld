@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe, qwen)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -284,23 +284,27 @@ shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
 moves (the muse lane has swung between geo-restricted, windowed, and live
 several times — that file, not this one, is the current authority).
 
-**Qwen routing (lane WITHDRAWN 2026-11-04):** there is no qwen dispatch
-lane installed. The `~/.local/bin/qwen` wrapper was removed the same day
-it was measured: its name collides with Alibaba's separate `qwen-code`
-coding agent, making "qwen" ambiguous as a delegate name. What was
-measured before withdrawal (for whoever re-creates a lane under a
-non-colliding name, e.g. alongside the other wrapper scripts): the
-owner's Model Studio **Token Plan** (`sk-sp-…` key, registered via
-`bl auth login --config token-plan --api-key <key>`, status via
-`bl auth status --output json`) serves an Anthropic-compatible endpoint
-at `https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`
-(region-bound: cn-beijing 403s this key), with Claude Code driving it
-through per-invocation `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` and an
-isolated `CLAUDE_CONFIG_DIR` — claude-family conventions
-(`--session-id`, `--resume`, `-p`) all worked; probe returned OK rc=0.
-Measured catalog (anything else returns "Model not exist"):
-**`qwen3.8-max`** (flagship) and **`qwen3.8-flash`** (fast tier) — no
-coder variants; tier mapping opus→3.8-max, sonnet/haiku/subagent→3.8-flash.
+**Qwen-code routing:** the `qwen` CLI is Alibaba's own coding agent
+(`@qwen-code/qwen-code@0.17.0`, npm-global under nvm node v26.1.0) — a
+first-class agent like `kimi` or `muse`, NOT a Claude Code wrapper (the
+withdrawn `~/.local/bin/qwen` wrapper is gone; the name collision it
+caused is why only this CLI answers to `qwen` now). Headless form
+measured 2026-11-04, OK rc=0: `qwen -p "<prompt>" < /dev/null`
+(the settings file `$version: 4` schema is read by 0.17.0 without issue).
+Config `~/.qwen/settings.json`: the key lives in `env` as
+`BAILIAN_TOKEN_PLAN_API_KEY`; providers at
+`https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`
+(the key 403s at cn-beijing — region-bound, same as the Anthropic
+endpoint); default model `qwen3.8-max`. Measured usable catalog:
+`qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-max`, `qwen3.6-flash`,
+`deepseek-v4-pro` — everything else the config previously listed (from a
+bl-side auto-setup that also guessed the wrong region) returns
+"Access to model denied" or "Model not exist". A pre-edit backup of the
+auto-written config sits at `~/.qwen/settings.json.bak.1793811000`.
+Session-ID capture/resume mechanics are NOT yet measured — do not
+invent them; a follow-up must re-probe with a fresh session per dispatch
+until recorded. Account management runs through the separate `bl` CLI —
+`bl` is NOT a coding lane.
 
 > [!CAUTION]
 > **`bl config agent --agent claude-code` is a global takeover — do not

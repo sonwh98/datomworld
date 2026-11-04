@@ -51,11 +51,12 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +=================+========================================+=============================================================================================================+
 | agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| qwen            | Token Plan subscription                | NO dispatch lane currently installed: the `qwen` wrapper was withdrawn 2026-11-04 (name collides with        |
-|                 | (Alibaba Cloud Model Studio,           | Alibaba's separate `qwen-code` coding agent). Measured catalog (ap-southeast-1): `qwen3.8-max` +             |
-|                 | ap-southeast-1)                        | `qwen3.8-flash`, reachable via Claude Code on the Token Plan Anthropic endpoint — a wrapper can be           |
-|                 |                                        | re-created under a non-colliding name on request. Account management runs through the `bl` CLI, which        |
-|                 |                                        | is not a delegate lane. See delegate-invocation-reference.md.                                               |
+| qwen            | Token Plan subscription                | The `qwen` CLI is Alibaba's own coding agent (`@qwen-code/qwen-code@0.17.0`, npm-global under nvm node        |
+|                 | (Alibaba Cloud Model Studio,           | v26.1.0) — NOT a Claude Code wrapper. Headless form measured (2026-11-04): `qwen -p "..." < /dev/null` OK.   |
+|                 | ap-southeast-1)                        | Config `~/.qwen/settings.json`: Token Plan key at https://token-plan.ap-southeast-1.maas.aliyuncs.com          |
+|                 |                                        | /compatible-mode/v1 (the key 403s at cn-beijing). Measured catalog: `qwen3.8-max` (default),                 |
+|                 |                                        | `qwen3.8-flash`, `qwen3.7-max`, `qwen3.6-flash`, `deepseek-v4-pro`; all others denied or absent.              |
+|                 |                                        | Session-ID mechanics not yet measured. Routing status: available NOW (probe OK rc=0).                        |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude          | Inactive / Cancelled                   | Subscription stopped by owner. Do not route tasks here.                                                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
