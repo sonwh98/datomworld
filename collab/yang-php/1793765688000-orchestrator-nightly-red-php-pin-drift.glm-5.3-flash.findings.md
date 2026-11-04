@@ -50,17 +50,46 @@ function gc_collect_cycles()"; it was not in the previous fail set, so
 either the manifest needs gc_collect_cycles accounted (unsupported?) or
 the PHPT selection pin needs regeneration.
 
-## Cluster 2 — JVM died mid-test, no summary (infra/transient suspect)
+## Cluster 2 — `include-test` HANGS on master (corrected: not a JVM death)
 
-`slow-yang.php.antlr.include-test.log` is 6 lines, ending at
-"Testing yang.php.antlr.include-test" with no results and no exception —
-the JVM exited mid-run. Same namespace was GREEN in the prior run
-(20261102-1651: "Ran 3 tests containing 293 assertions. 0 failures").
-No OOM evidence on the host (62 GB, dmesg clean-readable output none).
-Isolated reproduction (`clojure -M:test -i :slow -n
-yang.php.antlr.include-test`, single JVM, jupiter) was still running when
-this note was written; result will be appended or reported separately. If
-it passes solo, treat as a 12-way-pool transient, not a code defect.
+UPDATE (same day, isolated reproduction): `slow-yang.php.antlr.include-test.log`
+ending at "Testing yang.php.antlr.include-test" is NOT a crashed JVM — the
+namespace never finishes. Solo reproduction on jupiter
+(`clojure -M:test -i :slow -n yang.php.antlr.include-test`, single JVM,
+quiet host) ran to a 900 s timeout: exit=124, zero output past the
+"Testing" line, no hs_err file, no OOM. An earlier solo attempt was
+equally killed by its own 1800 s timeout (the pipe masked the kill).
+So: an infinite loop (or unbounded work) inside `p6-fixtures-linked-on-
+every-vm-test`'s fixture walk on master `2ec867d2`. The same namespace
+was GREEN at `ab3839b5` (run 20261102-1651: "Ran 3 tests containing 293
+assertions. 0 failures") — the regression window is exactly the two
+yang.php merges in between: P5 (`93aa039b`, request context incl. exit /
+error handler / task isolation) and P9 (`91c5c8cd`, builtin surface
+slices incl. `$$`, dynamic scope, eval-refusal). A bisect run at both
+merge points was in flight when this note was updated; result to be
+appended. Note the nightly's slow pool has no per-namespace timeout, so
+this hang will wedge future nightly runs until fixed — treat as
+track-blocking. No `System/exit`/halt exists in the new source; this is a
+loop, not an exit path.
+
+Bisect attempt (inconclusive — do not trust it): solo runs at P5
+(`93aa039b`), P9 (`91c5c8cd`) AND the yesterday-green baseline
+(`ab3839b5`) ALL hung (exit=124) in fresh `/tmp` clones of the nightly
+checkout with a 600 s timeout. Since the baseline was green inside
+`~/ci/datomworld-nightly` yesterday, either the fresh-clone environment
+differs (missing warm state the linked harness needs) or 600-900 s is
+simply shorter than this namespace's legitimate solo runtime (yesterday's
+green duration was not recorded). The track should re-measure inside the
+nightly clone (or its own worktree with full prereqs: gen:antlr,
+build:yin-repl-node, build:yin-repl-peer) with a generous timeout before
+attributing the hang to any commit. What IS solid: in tonight's nightly
+(12-way pool, warm clone) the namespace never finished and its JVM ended
+with no output — while yesterday's run of the same clone completed it
+green — and the solo run in the warm nightly clone at `2ec867d2` hung
+past 900 s.
+
+Original (superseded) read: infra/transient JVM death — wrong; the
+12-way-pool transient theory is dead because the solo run hangs too.
 
 ## What we are NOT asking
 
