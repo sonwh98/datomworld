@@ -224,7 +224,12 @@
                                    (mapcat #(scan % bound)) (:operands node))
                 :if (into #{} (mapcat #(scan (get node %) bound))
                           [:test :consequent :alternate])
-                (throw (ex-info "Unexpected AST in context admission" {:type (:type node)}))))]
+                ;; The rejection carries the node itself (print-bounded): a
+                ;; bare symbol or unknown shape names its emitter directly.
+                (throw (ex-info "Unexpected AST in context admission"
+                                {:type (:type node)
+                                 :node (binding [*print-length* 40 *print-level* 8]
+                                         (pr-str node))}))))]
       (scan ast #{}))))
 
 
@@ -1839,7 +1844,7 @@
   (if (= :compiled (:status compiled))
     (assoc (kernel-attempt
              #(let [machine (compiler-test/run-guest-machine
-                              (:ast compiled) (oracle-registry yang/kind-module) lane 2000000)
+                              (:ast compiled) (oracle-registry yang/kind-module) lane 4000000)
                     v (vm/value machine)
                     ref (get-in machine [:store 'gate-execution-trace])
                     handle (get-in machine [:resources (:id ref)])]
@@ -2321,8 +2326,8 @@
       :rebuild-type-result '[original-result next-context]
       :ambient-prefix-only :refused}
      :runtime {:clojure (clojure-version) :java (System/getProperty "java.version")}
-     :instruction-budget-per-lane 2000000
-     :instruction-budget-note "The original uninstrumented fixtures used 1,000,000 instructions. Body-entry stream writes add guest instructions; traced fixtures have a 2,000,000 instruction bound. The harness drains only after halt."
+     :instruction-budget-per-lane 4000000
+     :instruction-budget-note "The original uninstrumented fixtures used 1,000,000 instructions. Body-entry stream writes add guest instructions; traced fixtures have a 2,000,000 instruction bound. The harness drains only after halt. Under the D2 record lane the binding fixture's walker cell needs 2,024,912 steps (1.2% over 2M; semantic 1,105,792); the architect's 2026-11-04 ruling approves a uniform 4,000,000 acceptance budget (~1.98x headroom on the binding lane, measurement-supported, no per-fixture table)."
      :manifest-bindings (count manifest) :function-arity-candidates (count all-arities)
      :manifest-functions (count (filter :arities kernel-entries))
      :admitted-function-arity-count (count admitted-arities)

@@ -1,0 +1,10 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing d2-wedge-probe2
+:STAGE-F :walker-cell-8m-trial {:driver yang.clojure-test/run-guest-machine, :fixture :check-assume-have-discharge, :step-limit 8000000}
+:STEP-STARTED
+:TICK {:s 10, :steps 1329311, :in-step-ms 8114, :steps-per-s-last-tick :first-tick, :step-ns {:n 64, :min-ns 2542, :p50-ns 4458, :max-ns 61417}, :cont-depth nil, :loads 1, :runs 0}
+:WORKER-DONE {:kind :returned, :steps 2024912, :machine {:blocked? false, :wait-set 0, :window-size 0, :value [:yin.k/ok [:ok [(<a>) (Π [A ✳] (Π [B ✳] (Π [f (Π [⇧ A] B)] (Π [x A] (Π [⇧ A] B)))))]]], :control-inst {:segment nil, :pc nil, :image true}, :cont-depth nil, :control nil, :halted? true, :top-frame nil, :ready-queue 0}, :value [:yin.k/ok [:ok [(<a>) (Π [A ✳] (Π [B ✳] (Π [f (Π [⇧ A] B)] (Π [x A] (Π [⇧ A] B)))))]]], :in-step-ms 11779, :loads 1, :runs [{:entry-steps 0, :exit-steps 2024912, :threw false}]}
