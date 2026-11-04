@@ -93,7 +93,13 @@ Credit follows `kernel-exercise-entries` /
   (`:c-walker` and `:c-semantic`).
 - Otherwise credit is **named-integration** only: the fixture ID must be
   registered in `kernel-named-integrations`, the row must be `:pass`, and
-  again the exact record must appear in both C lanes.
+  again the exact record must appear in both C lanes. Precisely: the
+  harness computes the direct-creditor and integration-creditor lists
+  INDEPENDENTLY — a registered fixture can satisfy both criteria and then
+  appears in both lists — and the resulting `:exercise` classification
+  gives the nonempty direct list precedence while the fixture ID is still
+  retained in `:integration-fixture-ids`. A row's designated route and
+  its classification can therefore differ (see §7's dual accounting).
 - **`:negative?` is not consulted by the credit rule.** Neither branch
   of `kernel-exercise-entries` (`latte_oracle_test.clj:1931`) tests it:
   the direct branch tests `:pass` status, `kernel-executed-arity?`, and
@@ -802,8 +808,16 @@ Honest accounting, by credit kind:
   honest passing row that credits nothing, and the gate stays
   `:blocked` on this one arity** pending a separately reviewed
   treatment (§8). This is the only one of the 20 in that position.
-- No arity is left without a designed fixture or an explicit note:
-  16 direct + 3 named-integration + 1 non-crediting = 20.
+- No arity is left without a designed fixture or an explicit note. The
+  16 direct + 3 named-integration + 1 non-crediting = 20 is the accounting
+  of **designated primary routes**. The predicted ACTUAL `:exercise`
+  classification (per §2's precedence rule) differs on one arity: R10's
+  passing row traces `unregister-unparser!` at the direct criterion, so
+  that arity classifies `:direct` even though F20's named-integration
+  route remains designated and its ID stays in `:integration-fixture-ids`.
+  Predicted actual categories therefore: 17 :direct, 2 :named-integration,
+  1 :unexercised — same 19 credited arities, one classification moved by
+  the precedence rule, no double-counting.
 - Preparation contributes **zero** coverage until reviewed and
   integrated: nothing in this round changes the checked-in evidence,
   and the gate remains `:blocked` with 20 unexercised arities.
