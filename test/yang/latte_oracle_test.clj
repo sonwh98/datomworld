@@ -1656,14 +1656,37 @@
   (try (f)
        (catch Exception e
          {:status :blocked :message (ex-message e)
-          ;; Observer exceptions attach the entire host VM as :session. It is
-          ;; diagnostic machinery, not a portable domain payload; recursively
-          ;; expanding its closure environments duplicates the whole program.
-          :data (evidence-data (dissoc (ex-data e) :session))
+          ;; The session and consumer are host VM recovery machinery, not
+          ;; portable domain payloads. Walking their closure environments can
+          ;; repeatedly expand the entire program.
+          :data (evidence-data (dissoc (ex-data e) :session :consumer))
           :host-session-attached? (contains? (ex-data e) :session)
           :causes (mapv (fn [cause] {:class (str (class cause)) :message (ex-message cause)})
                         (take-while some? (iterate ex-cause e)))
           :exception (str (class e))})))
+
+
+(deftest test-kernel-exhaustion-evidence-is-bounded
+  (let [ast (yang/compile-program '[((fn [x] x) 1)] true arg-vector-opts)
+        task (future
+               (kernel-attempt
+                 #(try
+                    (compiler-test/run-guest-machine ast (oracle-registry) :walker 1)
+                    (catch Exception e
+                      ;; Some runners attach the advanced consumer directly;
+                      ;; this runner carries it in the observer session.
+                      (throw (ex-info (ex-message e)
+                                      (assoc (ex-data e) :consumer (get-in (ex-data e) [:session :consumer]))
+                                      e))))))
+        result (deref task 5000 ::timeout)]
+    (when (= ::timeout result) (future-cancel task))
+    (is (not= ::timeout result) "Exhaustion evidence finishes within five seconds")
+    (is (= :blocked (:status result)))
+    (is (= "Guest instruction budget exhausted" (:message result)))
+    (is (= {:lane :walker :steps 1} (:data result)))
+    (is (true? (:host-session-attached? result)))
+    (is (seq (:causes result)))
+    (is (every? #(= "Guest instruction budget exhausted" (:message %)) (:causes result)))))
 
 
 (defn- kernel-a
