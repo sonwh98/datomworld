@@ -5,7 +5,7 @@
        "(println \"hi\" 1)" "(def j3x 101)" "(+ j3x 1)"
        "(def inc100 (fn [x] (+ x 100)))" "(inc100 1)"
        "(defn sum-to [n] (if (= n 0) 0 (+ n (sum-to (- n 1)))))" "(sum-to 10)"
-       "(do (println \"before\") 42)" "(lang :yang/php)" "1 + 2;"
+       "(do (println \"before\") 42)" "(lang :yang/php)" "<?php echo 1 + 2;"
        "(lang :yang/clojure)" "(reset)" "(+ 2 3)"]
   :out ["<host>" "3" "49" "6" ":yes" "hi 1\nnil" "101" "102"
         "{:type :closure}" "101" "{:type :closure}" "55"

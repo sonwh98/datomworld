@@ -340,7 +340,7 @@
                        "(lang :python)"
                        "1 + 2"
                        "(lang :yang/php)"
-                       "1 + 2;"
+                       "<?php echo 1 + 2;"
                        "(lang :yang/clojure)"
                        "1 + 2"
                        "(+ 1 2)"])]
