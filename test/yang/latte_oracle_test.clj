@@ -1920,6 +1920,7 @@
   ;; Static dependencies never establish execution of any arity.
   #{:unparser-guest-closure :implicit-typed-closure :implicit-throwing-closure
     :check-assume-have-discharge :parse-to-normalize-to-type
+    :h3-2-elab-inferred-anonymous :h3-2-elab-discharge-states
     :fundamental-install-use :unfold-install-use :opacity-install-use})
 
 
@@ -1968,7 +1969,8 @@
         complete? (fn [d required] (every? d required))
         portability-required [:call :script :message :boundary :upstream-value :reason]
         upstream-required [:call :boundary :reason :upstream-revision]]
-    (assert (and (= 1 (:version parsed)) (= "ea18c8e4^" (:provenance parsed)))
+    (assert (and (= 2 (:version parsed))
+                 (= "088c498e56109f5002342bbd19120b124fff62d3" (:provenance parsed)))
             "the declarations file's version/provenance are part of its contract")
     (doseq [[id d] (:portability parsed)]
       (assert (and (complete? d portability-required)
@@ -2280,6 +2282,68 @@
       (is (not-any? #{[fname 1]} (get-in row [lane :executed-calls]))))
     (is (= [:unexercised :named-integration] (mapv :exercise entries)))
     (is (empty? (:integration-fixture-ids (first entries))))))
+
+
+(deftest test-h3-2-proof-elaboration-family
+  (testing "registration: completions are named integrations, refusals are negatives"
+    (is (contains? kernel-named-integrations :h3-2-elab-inferred-anonymous))
+    (is (contains? kernel-named-integrations :h3-2-elab-discharge-states))
+    (doseq [id [:h3-2-have-duplicate :h3-2-declare-invalid :h3-2-have-mismatched-type
+                :h3-2-discharge-incorrect :h3-2-discharge-empty-context]]
+      (is (:negative? (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus)))) id)))
+  (testing "A-side F3 discharge states (upstream-asserted, conservative deps)"
+    (let [empty-env @(upstream-fn 'latte-kernel.defenv/empty-env)
+          declare (upstream-fn 'latte-kernel.proof/elab-declare)
+          have (upstream-fn 'latte-kernel.proof/elab-have)
+          discharge (upstream-fn 'latte-kernel.proof/elab-discharge)
+          parsed (fn [env expr] (second ((upstream-fn 'latte-kernel.presyntax/parse-term) env expr)))
+          fetched (fn [env dname]
+                    (select-keys (second ((upstream-fn 'latte-kernel.defenv/fetch-definition) env dname true))
+                                 [:name :params :arity :parsed-term :term-free-vars :type]))
+          st (fn [f & args] (second (apply f args)))
+          s1 (st declare empty-env [] [] {} 'A '✳ {})
+          s2 (st declare empty-env (nth s1 1) (nth s1 2) {} 'B '✳ {})
+          s3 (st declare empty-env (nth s2 1) (nth s2 2) {} 'f (parsed empty-env '(==> A B)) {})
+          s4 (st declare empty-env (nth s3 1) (nth s3 2) {} 'x 'A {})
+          sa (st have empty-env (nth s4 1) (nth s4 2) {} '<a> (parsed empty-env '(==> A B)) 'f {})
+          sb (st have (nth sa 0) (nth sa 1) (nth sa 2) (nth sa 3)
+                 '<b> 'B (parsed (nth sa 0) '(<a> x)) {})]
+      (is (= '([x A] [f (Π [⇧ A] B)] [B ✳] [A ✳]) (nth s4 1)))
+      ;; Conservative upstream update: every live entry gains the have name.
+      (is (= '[[x #{<a> <b>}] [f #{<a> <b>}] [B #{<a> <b>}] [A #{<a> <b>}]] (nth sb 2)))
+      (is (= '{<a> #{<b>} <b> #{}} (nth sb 3)))
+      (let [s5 (discharge (nth sb 0) (nth sb 1) (nth sb 2) (nth sb 3) 'x {})]
+        ;; <a> is abstracted over x although its term never mentions x.
+        (is (= {:name '<a> :params '[[x A]] :arity 1 :parsed-term 'f
+                :term-free-vars '#{f} :type '(Π [⇧ A] B)} (fetched (nth s5 0) '<a>)))
+        (is (= '[(<a> x) x] (:parsed-term (fetched (nth s5 0) '<b>)))))))
+  (testing "A-side F2: inferred type recorded, anonymous have registers nothing"
+    (let [empty-env @(upstream-fn 'latte-kernel.defenv/empty-env)
+          [_ [def-env term ty]] ((upstream-fn 'latte-kernel.proof/elab-proof)
+                                  empty-env []
+                                  '[[:declare A :type {}] [:declare x A {}]
+                                    [:have <a> _ x {}] [:have _ A x {}] [:qed <a> {}]])]
+      (is (= ['(<a>) 'A] [term ty]))
+      (is (= '#{<a>} (set (keys (second def-env)))))))
+  (testing "both C lanes record the predicted arities of the passing integrations"
+    (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
+          f3 (kernel-row (by-id :h3-2-elab-discharge-states))
+          f2 (kernel-row (by-id :h3-2-elab-inferred-anonymous))]
+      (is (= :pass (:status f3)))
+      (is (= :pass (:status f2)))
+      (doseq [[sym n] '[[latte-kernel.proof/elab-declare 7] [latte-kernel.proof/elab-have 8]
+                        [latte-kernel.proof/elab-have-impl 8] [latte-kernel.proof/elab-discharge 6]
+                        [latte-kernel.proof/elab-discharge-impl 6] [latte-kernel.proof/abstract-local-def 4]
+                        [latte-kernel.proof/abstract-local-calls 4] [latte-kernel.proof/gen-local-calls 3]
+                        [latte-kernel.proof/update-var-deps 3] [latte-kernel.proof/update-def-uses 3]
+                        [latte-kernel.proof/ref-uses-in-term 1]]]
+        (is (kernel-executed-arity? f3 sym n) (str "F3 witnesses " sym "/" n)))
+      (doseq [[sym n] '[[latte-kernel.proof/elab-declare 7] [latte-kernel.proof/elab-have 8]
+                        [latte-kernel.proof/elab-have-impl 8] [latte-kernel.proof/update-var-deps 3]
+                        [latte-kernel.proof/update-def-uses 3] [latte-kernel.proof/ref-uses-in-term 1]]]
+        (is (kernel-executed-arity? f2 sym n) (str "F2 witnesses " sym "/" n)))
+      ;; Discharge credit belongs to F1/F3 only: F2 has no discharge step.
+      (is (not (kernel-executed-arity? f2 'latte-kernel.proof/elab-discharge 6))))))
 
 
 (defn kernel-gate-evidence

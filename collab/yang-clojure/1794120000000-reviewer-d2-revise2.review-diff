@@ -1,0 +1,117 @@
+diff --git a/src/cljc/yang/clojure.cljc b/src/cljc/yang/clojure.cljc
+index f9c6f01f..cb45ff9e 100644
+--- a/src/cljc/yang/clojure.cljc
++++ b/src/cljc/yang/clojure.cljc
+@@ -1099,7 +1099,12 @@
+                           (u/app (u/v 'data/nth) (u/v invocation) (u/lit 0))
+                           (u/v 'dsg__call_token))
+                    (u/app (u/v body) (u/app (u/v 'data/nth) (u/v invocation) (u/lit 1)))
+-                   (u/app (u/v body) (u/v invocation)))
++                   ;; a vector without the compiler-held token is NOT the
++                   ;; record path: applying the body here would hand every
++                   ;; forged vector the private lane. Refuse explicitly.
++                   (u/lit [:yin.k/error
++                           {:yin.k/message "Invocation is neither an authenticated packet nor an invocation record"
++                            :yin.k/data {}}]))
+                  (u/if-node
+                    (u/app (u/v 'dsg__equal)
+                           (u/app (u/v 'dsg__get) (u/v invocation)
+@@ -2171,10 +2176,12 @@
+                                     (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
+                                           dsg__witness (dsg__get dsg__candidate :clj/admission)]
+                                       (if (data/callable? dsg__entry)
+-                                        (dsg__equal
+-                                          dsg__witness
+-                                          (dsg__make_admission
+-                                            (dsg__assoc dsg__candidate :clj/admission nil)))
++                                        (if (data/callable? dsg__witness)
++                                          (dsg__equal
++                                            dsg__witness
++                                            (dsg__make_admission
++                                              (dsg__assoc dsg__candidate :clj/admission nil)))
++                                          false)
+                                         false))
+                                     false)))
+                              ;; The intra-unit dispatcher: resolve the unit's public entry,
+@@ -2234,15 +2241,23 @@
+                                       nil)))
+                                (u/sexp->uast '(fn [m k] (get m k))))
+                              (u/sexp->uast '(fn [a b] (data/content= a b)))
+-                             (u/sexp->uast
+-                               '(fn [m k v k2 v2 k3 v3]
+-                                  (let [one (conj m (conj [] k v))]
++                             (if (contains? (::defined env) 'assoc)
++                               (u/sexp->uast
++                                 '(fn [m k v k2 v2 k3 v3]
++                                    (let [one (conj m (conj [] k v))]
++                                      (if (data/content= k2 nil)
++                                        one
++                                        (let [two (conj one (conj [] k2 v2))]
++                                          (if (data/content= k3 nil)
++                                            two
++                                            (conj two (conj [] k3 v3))))))))
++                               (u/sexp->uast
++                                 '(fn [m k v k2 v2 k3 v3]
+                                     (if (data/content= k2 nil)
+-                                      one
+-                                      (let [two (conj one (conj [] k2 v2))]
+-                                        (if (data/content= k3 nil)
+-                                          two
+-                                          (conj two (conj [] k3 v3))))))))
++                                      (assoc m k v)
++                                      (if (data/content= k3 nil)
++                                        (assoc m k v k2 v2)
++                                        (assoc m k v k2 v2 k3 v3))))))
+                              (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
+          (outcomes? env) u/mark-tails)))))
+ 
+diff --git a/test/yang/clojure_test.clj b/test/yang/clojure_test.clj
+index ecd6e241..65deef66 100644
+--- a/test/yang/clojure_test.clj
++++ b/test/yang/clojure_test.clj
+@@ -1349,6 +1349,45 @@
+                          (yang.call/eligible? f)
+                          (f 21)]]))))
+ 
++(deftest test-common-call-token-packet-forgery-refuses
++  (testing "a forged vector applied to a descriptor's extracted public entry
++            never reaches the private body: the entry authenticates the
++            compiler-held token; forged shapes refuse. The descriptor is
++            projected into a compiled program via postwalk (a source-level
++            raw closure would be refused by admission first, making a
++            source-level regression vacuous), on both evaluators."
++    (doseq [forged '[42 [42] [nil [42]] [] [a b c d]]]
++      (let [descriptor (#'yang/admit-call-descriptor
++                         (u/sexp->uast
++                           '(assoc {} :foreign/type :function
++                                   :yang.call/entry
++                                   (fn [record]
++                                     :private-body-entered)))
++                         false)
++            call-ast (walk/postwalk
++                      (fn [node]
++                        (if (= node (u/v 'descriptor)) descriptor node))
++                      (outcome-ast
++                       ['(defn target
++                           [x]
++                           :private-body-entered)
++                        (list 'let '[raw (yang.call/entry target)]
++                              (list 'raw (list 'quote forged)))]))
++            run (fn [lane]
++                  (try
++                    [:completed
++                     (-> (tu/make-observer-session (tu/create-vm {:modules (merge av-modules outcome-modules)}))
++                         (tu/queue-ast! call-ast)
++                         tu/run-session
++                         :consumer
++                         vm/value)]
++                    (catch clojure.lang.ExceptionInfo e
++                      [:error (ex-message e)])))
++            walker (run :walker)
++            semantic (run :semantic)]
++        (doseq [[lane [status result]] [[:walker walker] [:semantic semantic]]]
++          (is (not= :private-body-entered result)
++              (str lane ": forged " (pr-str forged) " reached the body")))))))
+ 
+ (deftest test-common-call-invalid-continuation-refuses
+   (let [tamper (fn [forms]

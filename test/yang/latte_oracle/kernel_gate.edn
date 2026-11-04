@@ -66,6 +66,16 @@
 {:id :check-rejected, :negative? true, :call (latte-kernel.proof/check-proof env [] (quote wrong) (quote (Π [A ✳] A)) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}]]))}
 {:id :check-incomplete, :negative? true, :call (latte-kernel.proof/check-proof env [] (quote unfinished) (quote ✳) (quote []))}
 {:id :check-after-qed, :negative? true, :call (latte-kernel.proof/check-proof env [] (quote late) (quote ✳) (quote [[:qed (lambda [A :type] (lambda [x A] x)) {}] [:qed missing {}]]))}
+;; H3-2 proof-elaboration family (h3_2_fixture_family.md, A-verified on
+;; pinned upstream 86fca0d1): completion-shape rows first, then the
+;; refusal companions. F1 is :check-assume-have-discharge above.
+{:id :h3-2-elab-inferred-anonymous, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:declare A :type {}] [:declare x A {}] [:have <a> _ x {}] [:have _ A x {}] [:qed <a> {}]]))}
+{:id :h3-2-elab-discharge-states, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:declare A :type {}] [:declare B :type {}] [:declare f (==> A B) {}] [:declare x A {}] [:have <a> (==> A B) f {}] [:have <b> B (<a> x) {}] [:discharge x {}] [:discharge f {}] [:discharge B {}] [:discharge A {}] [:qed <a> {}]]))}
+{:id :h3-2-have-duplicate, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:declare A :type {}] [:declare x A {}] [:have <a> A x {}] [:have <a> A x {}]]))}
+{:id :h3-2-declare-invalid, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:declare y (==> A) {}]]))}
+{:id :h3-2-have-mismatched-type, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:declare A :type {}] [:declare x A {}] [:have <a> :type x {}]]))}
+{:id :h3-2-discharge-incorrect, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:declare A :type {}] [:declare x A {}] [:discharge y {}]]))}
+{:id :h3-2-discharge-empty-context, :negative? true, :project-proof? true, :call (latte-kernel.proof/elab-proof env [] (quote [[:discharge x {}]]))}
 {:id :implicit-typed-closure, :definitions [(latte-kernel.defenv/->Implicit (quote i) (fn [kernel ctx typed] (first typed)))], :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (i x)))}
 {:id :implicit-throwing-closure, :negative? true, :definitions [(latte-kernel.defenv/->Implicit (quote i) (fn [kernel ctx typed] (throw (ex-info "extension failed" {:extra 7}))))], :call (latte-kernel.typing/type-of-term env (quote [[A ✳] [x A]]) (quote (i x)))}
 {:id :parse-to-normalize-to-type, :call (let [t (latte-kernel.presyntax/parse env (quote ((lambda [x :type] x) :type))) n (latte-kernel.norm/normalize env [] t)] [n (latte-kernel.typing/type-of-term env [] n)])}

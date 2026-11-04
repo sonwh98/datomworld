@@ -1,0 +1,69 @@
+muse: workspace root: /Users/sto/workspace/datomworld-h32 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-h32/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+Done locally, with one honest deviation from the brief's expectation. Committed as `874d8595` on `h3-2-integration`; push is blocked (see below). Not merged.
+
+**Top finding:** the unexercised count does **not** drop — and cannot from this family. All 11 proof arities were already credited via `:check-assume-have-discharge` (checked-in evidence and family doc §1/§5 agree). The remaining 20 are non-proof arities (`parse/1`, `mk-fresh/2,3`, `beta-step*`, `readable-term*`, etc.). The family adds independent witnesses, branch coverage, and refusals — exactly the value the family doc claims.
+
+**Before → after (both run locally, single gate deftest):**
+
+| Measure | Before | After |
+|---|---|---|
+| Fixtures | 106 | 113 |
+| `:pass` | 102 | 109 |
+| Recorded deviation / upstream-failure | 2 / 2 | 2 / 2 (unchanged) |
+| Blocked / mismatch | 0 / 0 | 0 / 0 |
+| Unexercised arities | 20 | **20** |
+| Gate | `:blocked` | `:blocked` (sole failure: retained `(= :pass :blocked)` assertion) |
+
+**What changed:**
+
+- [kernel_gate.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/kernel_gate.edn): F2 `:h3-2-elab-inferred-anonymous` and F3 `:h3-2-elab-discharge-states` (`:project-proof? true`), plus refusals `:h3-2-have-duplicate`, `:h3-2-declare-invalid`, `:h3-2-have-mismatched-type`, `:h3-2-discharge-incorrect`, `:h3-2-discharge-empty-context` (all `:negative? true`). All 7 pass on A/B/both C lanes. No new recorded boundary was needed, so none was invented.
+- [latte_oracle_test.clj](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle_test.clj): F2/F3 registered in `kernel-named-integrations`; declarations validator now expects version 2; new `test-h3-2-proof-elaboration-family` (34 assertions, passing) pins the F3 conservative discharge states, F2 inferred/anonymous behavior, and re-derives every predicted arity from both C-lane traces. `kernel-attempt`, `evidence-data`, and the classifiers are untouched.
+- [slice9_declarations.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/slice9_declarations.edn): version 1→2, provenance `088c498e56109f5002342bbd19120b124fff62d3`; the four historical declarations carried forward byte-identical. Load-time validation passes (every test run loads it).
+- Evidence refreshed via `write-kernel-gate-evidence!`: F3 now co-witnesses all 11 proof arities, F2 co-witnesses the 6 have/declare ones, discharge credit stays F1/F3-only. Refreshed [slice9_evidence.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/slice9_evidence.edn) is committed; `slice9_unexercised.edn` is unchanged.
+- On `outcomes?`: corpus fixtures carry no such key in this harness's shape; every new fixture compiles through `kernel-compile` under the outcomes-enabled arg-vector path like all siblings, with no admission weakening.
+
+**Verified locally:** A-verify script `H3-2-A-VERIFY: PASS` (32/32 checks); gate deftest 1171/1172 (sole failure above); new deftest 34/34; writer round-trip 4/4; acceptance-counting 28/28; kondo on the touched test file: 0 errors, 0 warnings.
+
+**For the seat to run remotely:**
+
+```sh
+clj -M:test -n yang.latte-oracle-test   # expect: all pass except the one retained gate assertion (1 failure, 0 errors)
+clj -M:kondo --lint test/yang/latte_oracle_test.clj   # expect: errors: 0, warnings: 0
+```
+
+**Blocker:** `git push origin h3-2-integration` fails in this sandbox (`No user exists for uid 501`, SSH remote unreadable; escalated retry was denied). The commit is ready — please push `874d8595` from a seat with GitHub SSH access.Push retried — still blocked by the sandbox transport. The committed integration work is intact and ready. Full task summary below.
+
+**Push blocker (concrete):** `git push origin h3-2-integration` → `No user exists for uid 501` / `fatal: Could not read from remote repository.` Root cause: the sandbox shell runs as uid 501 with no passwd entry, and the `ssh` binary aborts on `getpwuid(501)` at startup — before config or key loading. Retried with explicit HOME, `-F` config, and `-i /Users/sto/.ssh/id_rsa`; all fail identically. Unsandboxed retry was denied (approval prompts off). From any seat with GitHub SSH access: `git push origin h3-2-integration` (commit `874d8595`, 4 files). Do not merge.
+
+**Outcome:** H3-2 proof-elaboration family integrated into the kernel-gate corpus on branch `h3-2-integration` (base `088c498e`), with one honest deviation: the unexercised count does not drop, because all 11 proof arities were already credited via `:check-assume-have-discharge`; the remaining 20 are non-proof arities. The family adds independent witnesses, branch coverage, and refusals — the value its design doc claims.
+
+**Before → after:**
+
+| Measure | Before | After |
+|---|---|---|
+| Fixtures | 106 | 113 |
+| `:pass` | 102 | 109 |
+| Recorded deviation / upstream-failure | 2 / 2 | 2 / 2 |
+| Blocked / mismatch | 0 / 0 | 0 / 0 |
+| Unexercised arities | 20 | 20 |
+| Gate | `:blocked` | `:blocked` (sole failure: retained gate-pass assertion) |
+
+**Changes (commit `874d8595`, test/yang only):**
+
+- [kernel_gate.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/kernel_gate.edn): completion fixtures `:h3-2-elab-inferred-anonymous` (F2) and `:h3-2-elab-discharge-states` (F3), plus negative companions `:h3-2-have-duplicate`, `:h3-2-declare-invalid`, `:h3-2-have-mismatched-type`, `:h3-2-discharge-incorrect`, `:h3-2-discharge-empty-context`. All 7 pass on A/B/both C lanes; no recorded boundary was needed.
+- [latte_oracle_test.clj](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle_test.clj): F2/F3 registered in `kernel-named-integrations`; declarations validator expects version 2; new `test-h3-2-proof-elaboration-family` (34/34) pins F3 conservative discharge states, F2 inferred/anonymous behavior, and re-derives predicted arities from both C-lane traces. `kernel-attempt`/`evidence-data`/classifier code untouched.
+- [slice9_declarations.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/slice9_declarations.edn): version 2, provenance `088c498e56109f5002342bbd19120b124fff62d3`, historical declarations byte-identical; load-time validation passes.
+- [slice9_evidence.edn](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/slice9_evidence.edn) refreshed via `write-kernel-gate-evidence!` (F3 co-witnesses all 11 proof arities; F2 the 6 have/declare ones).
+
+**Verified locally:** A-verify `H3-2-A-VERIFY: PASS` (32/32); gate deftest 1171/1172 (sole failure above); new deftest 34/34; writer round-trip 4/4; acceptance-counting 28/28; kondo 0 errors / 0 warnings.
+
+**For the seat remotely:**
+
+```sh
+git push origin h3-2-integration
+clj -M:test -n yang.latte-oracle-test   # expect: all pass except the one retained gate assertion
+clj -M:kondo --lint test/yang/latte_oracle_test.clj   # expect: errors: 0, warnings: 0
+```
+DISPATCH_RC=0
