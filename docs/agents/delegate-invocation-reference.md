@@ -246,7 +246,12 @@ Claude Code wrapper and shares no flags with the `claude` family beyond
 `--model` / `--session-id`. Invoke it directly (as with `kimi`), with its own
 flags, never through the Claude Code wrapper conventions (`MODEL=<model> muse`,
 `--permission-mode`, `--name`, `-p`). Auth is `muse login` (Meta account;
-`META_API_KEY` takes priority); allowance is shown by `muse usage`.
+`META_API_KEY` takes priority); allowance is shown by `muse usage`. Model IDs:
+besides `muse-wonder-1.0` and `muse-spark-1.3`, the explicit contributor
+variant `muse-spark-1.3-contributor` is also valid (measured 2026-11-04, both
+forms return OK on the API-key lane); with `contributor_mode_enabled` in
+`~/.config/muse/settings.json` the plain alias inherits contributor mode, and
+`--contributor-mode on|off` overrides it per run.
 
 **Muse billing lane (interactive and `muse exec`):** `META_API_KEY` in the
 environment always wins over the saved `muse login` account, so billing is
