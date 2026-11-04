@@ -5,6 +5,9 @@ pom.xml.asc
 /lib/
 /classes/
 /target/
+# target-ci/: nightly shard-run output, host-local evidence (ci_gc rotates
+# it after 30 days); never versioned
+/target-ci/
 /checkouts/
 .lein-deps-sum
 .lein-repl-history

@@ -501,6 +501,32 @@ To test another branch later, fetch and check it out in the scratch clone with
 `git fetch origin` then `git checkout --detach origin/<branch>`. A branch that
 was never pushed cannot be tested remotely.
 
+### A clone is only current if it updated from real master
+
+A scratch clone's `origin/master` ref is only as fresh as the place it fetches
+from — and a clone made from another scratch clone inherits that clone's *stale*
+refs. Measured on shiva 2026-11-02: the `dg` clone was created from the `p4`
+scratch clone, whose local `master` ref had not moved since October 26 because
+every lane on it ran detached off fetched branches; the `dg` lane's
+`checkout origin/master` therefore produced a commit 436 commits behind real
+master, and the G3 Dart leg honestly reported failures (the datagram fix) for a
+tree that did not contain them.
+
+Before any lane runs in a clone — every time, not just the first:
+
+```sh
+cd ~/ci/datomworld-<name>
+git remote get-url origin          # must be the GitHub URL, never another scratch clone
+git fetch -q origin "+refs/heads/*:refs/remotes/origin/*"
+git checkout -q --detach origin/master   # or the lane's branch
+git merge-base --is-ancestor <the-commit-hash-you-pushed> HEAD && echo CURRENT
+```
+
+If `origin` is not GitHub, repoint it (`git remote set-url origin "$URL"`). If
+the `merge-base` check fails, the clone's bookkeeping lies: refetch, or delete
+and recreate the clone from GitHub directly. Never trust a hash the clone
+reports without comparing it to the hash your push from the laptop printed.
+
 ### Activate the toolchain in the right order
 
 A non-interactive `ssh host cmd` does not load the shell profile, so `mise` and its
@@ -550,6 +576,19 @@ The first run on shiva (2026-10-11) overlapped JVM and Dart in one clone before
 this rule was written down; its results are advisory until repeated with a
 separate Dart clone.
 
+**The nightly driver now enforces this by construction.** `src/dev/nightly.clj`
+(2026-11-03, kimi-reviewed) runs a multi-lane invocation as one concurrent
+future per lane, each in its OWN clone — jvm keeps the primary clone, node
+and dart get `<primary>-node` / `<primary>-dart`. The pinned SHA is resolved
+once and checked out in every lane clone; a cache-warm pass
+(`clojure -P -M:test:cljs:clojuredart:cljd`) runs in the primary before
+fan-out so two clones never fetch into the shared `~/.m2`/`~/.gitlibs`
+concurrently; per-lane summaries are appended serially after the futures
+join. A single-lane invocation (jupiter's `jvm`) is unchanged: one clone,
+one serial lane. Both hosts run the same driver — the lane list on the
+command line (shiva: `node,dart` + `--pin-publish`; jupiter: `jvm` +
+`--pin-read --pin-peer shiva...`) is the only difference.
+
 ### Scratch-clone first-run gaps (two measured sightings)
 
 A fresh scratch clone needs two things the lane runner does not yet set up
@@ -567,7 +606,28 @@ first lane:
    `yin.repl.frontends`) skips the generation and the shadow build dies on
    the missing `Python3Lexer.js`. Sighted independently on the p4 lane
    (PhpLexer ClassNotFoundException) and the yang.base cljs lane
-   (2026-11-02). A fix round is in flight on `fix/gen-antlr-prereq-heuristic`.
+   (2026-11-02). The lane-runner fix landed 2026-11-03 (eb27fd47).
+
+### Merge verification: run the suite from a fresh clone, not the authoring worktree
+
+A merge whose new code reads a file that was never `git add`ed passes in
+the authoring worktree (the untracked file is still on disk there) and
+breaks everywhere else. Measured: the H3-0 landing (1fd7236b) merged
+`kernel-declarations` — which reads
+`yang/latte_oracle/slice9_declarations.edn` via `io/resource` at load —
+without the file (untracked in the authoring worktree); master's
+yang.latte-oracle-test died at load until the file was restored
+(2026-11-04). Before landing any merge that adds code reading a new
+resource, or after any merge at all when in doubt:
+
+```sh
+git worktree add /tmp/merge-verify <merge-commit>
+cd /tmp/merge-verify && <the touched subsystem's focused test>
+git worktree remove /tmp/merge-verify
+```
+
+A fresh clone/worktree has only committed files — a missing untracked
+resource fails there immediately.
 
 ### Ledger commit hygiene: never commit a conflict marker
 

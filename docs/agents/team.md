@@ -65,10 +65,13 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | glm             | Flat: Pro yearly plan ($672/yr)        | Peak hours: weekdays 14:00-18:00 UTC+8. Schedule large jobs off-peak (50% rate).                            |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| kimi            | Flat: Kimi membership (Plus+)          | Invoke only through the dedicated `kimi` CLI. Monthly quotas apply.                                          |
-|                 |                                        | Pro unlocks Highspeed and 1M context for K3.x.                                                               |
+| kimi            | Flat: Kimi membership (Plus+)          | Invoke only through the dedicated `kimi` CLI. Monthly quotas apply.                                         |
+|                 |                                        | Pro unlocks Highspeed and 1M context for K3.x.                                                              |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| mistral         | Flat: Mistral Pro ($20/mo)             | Invoke via `vibe` CLI. Model aliases: mistral-large, mistral-medium-3.5, mistral-4.0, devstral, codestral.   |
+| mistral         | Flat: Mistral Pro ($20/mo)             | Invoke via `vibe` CLI. API-live aliases (probed 2026-11-04): `mistral-4.0` (the current large-4 generation; |
+|                 |                                        | use it for large-model work) and `mistral-medium-3.5`. The bare `mistral-large` alias is DEAD at the API:   |
+|                 |                                        | the CLI parses it but the live API answers 400 invalid_model (same for `devstral` and `codestral`);         |
+|                 |                                        | anything else (`mistral-small`, `magistral-*`, `mixtral-*`) is not even CLI-recognized.                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | muse            | Meta login / `META_API_KEY`            | Invoke via `muse` CLI; headless form is `muse exec`. Models:                                                |
 |                 |                                        | `muse-wonder-1.0` (flagship) and `muse-spark-1.3` (fast lane).                                              |
@@ -91,7 +94,7 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | software optimization, and complex agentic coding.                 |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `claude-sonnet-5-5`         | Frontier agentic workhorse; substantial gains in reasoning depth,  | Can struggle with high-order axiomatic proofs or subtle security    |
-|                             | instruction following, and rigorous code audits. Low latency and    | capability proofs vs Fable 5.1 / Astra. **Avoid for:** Final        |
+|                             | instruction following, and rigorous code audits. Low latency and   | capability proofs vs Fable 5.1 / Astra. **Avoid for:** Final        |
 |                             | high cost-efficiency. **Best for:** Core implementation, deep QA   | architectural sign-offs on high-risk cryptographic or consensus     |
 |                             | adversarial code reviews, multi-file refactors, and test suites.   | boundaries where Opus 5.5 / Fable 5.1 / Astra is mandated.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
@@ -125,6 +128,7 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `gpt-5.4-mini`              | Fast, lower-cost model for bounded, repetitive work with explicit  | Do not use as the sole judge of subtle invariants or broad design.  |
 |                             | acceptance criteria. **Best for:** TDD loops, simple linting,      | Escalate multi-step refactors and disputed findings to Terra, Sol,  |
 |                             | extraction, and scoped text edits.                                 | or Astra.                                                           |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gpt-6-astra`               | Most capable end-to-end model. **Best for:** Hardest architecture, | Highest cost. Reserve for the highest-risk or most difficult work   |
 |                             | security, research, coding, computer-use, and long-horizon tasks.  | under the subscription policy.                                      |
 |                             | Capability includes implementation across any role.                |                                                                     |
@@ -164,11 +168,27 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | REPL fixes, features, and small/medium refactors. **Best for:**    | compiler, VM, and invariant work; use K3.1 Pro for those instead.   |
 |                             | routine coding, code completion, Q&A, and small edits.             |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `mistral-large`             | Strong reasoning and code generation; 128K context.                | **Avoid for:** Deep invariant proofs; use Fable 5.1/Opus 5.5 for   |
-|                             | **Best for:** General implementation, refactors, code review.     | highest-stakes cryptographic boundaries.                           |
+| `mistral-4.0`               | The current large-4 generation and this lane's API-live large      | Context window not probe-verified from this seat (the reachable     |
+|                             | alias (probed 2026-11-04). Strong general reasoning and code       | provider docs predate the 4.0 generation); probe before             |
+|                             | generation. **Best for:** General implementation, refactors, and   | long-document work. **Avoid for:** Deep invariant proofs; use Fable |
+|                             | code review on the mistral lane.                                   | 5.1/Opus 5.5 on the highest-stakes cryptographic boundaries.        |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `mistral-small`             | Fast, cost-efficient; 32K context.                                   | Lower reasoning depth. **Avoid for:** Complex architecture,         |
-|                             | **Best for:** Routine coding, QA, small edits, and extraction.      | multi-file refactors, or deep invariant reasoning.                  |
+| `mistral-medium-3.5`        | API-live via `vibe` (probed 2026-11-04); the lane's efficient      | Lighter reasoning than the mistral-4.0 generation (tier             |
+|                             | mid-tier. **Best for:** Routine coding, QA, extraction, and scoped | positioning; not benchmarked here). **Avoid for:** Complex          |
+|                             | edits where the mistral family fits.                               | architecture or deep invariant reasoning.                           |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `codestral`                 | Low-latency code specialist: fill-in-the-middle, code correction,  | NOT dispatchable on this lane: the CLI parses `codestral` but the   |
+|                             | test generation; 256K context per the provider's 25.01 model card  | API answers 400 invalid_model (probed 2026-11-03 and 11-04).        |
+|                             | (source-derived, not probe-verified).                              | **Avoid for:** all routing until the lane revives it; narrow code   |
+|                             |                                                                    | focus, not a reviewer.                                              |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `devstral`                  | The family's agentic software-engineering specialist (public       | NOT dispatchable on this lane: parses client-side, API 400          |
+|                             | positioning; source-derived, not measured here). **Best for:**     | invalid_model (probed 2026-11-03 and 11-04). **Avoid for:** all     |
+|                             | repo-level agentic coding sweeps if the lane ever revives it.      | routing today.                                                      |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `magistral-medium-latest`   | The family's reasoning-tuned medium line (source-derived, not      | NOT dispatchable via `vibe` at all: not in the CLI alias list       |
+|                             | measured here). **Best for:** deliberative reasoning chains if a   | (Unknown model, probed 2026-11-04). **Avoid for:** all routing      |
+|                             | lane ever wires it.                                                | today.                                                              |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `mixtral-8x7b`              | Sparse Mixture of Experts; strong coding at lower cost.            | **Avoid for:** Tasks requiring dense attention across very long     |
 |                             | **Best for:** Implementation, debugging, and moderate complexity.   | contexts or fine-grained invariant verification.                   |

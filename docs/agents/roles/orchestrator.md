@@ -76,7 +76,11 @@ Local verification (step 6) is never a substitute for any of these. History
 rewrites (amend, revert, reset) are outside all three, with one exception: an
 unauthorized pre-review commit that is local, unpushed, and unmerged is
 soft-reset and the work goes through review, never reviewed after the fact.
-Any other rewrite needs the user.
+Any other rewrite needs the user. That includes pushed work: a commit that
+has reached origin and then fails verification is reported to the user
+immediately with the evidence, and only the user authorizes its revert,
+forward-fix, or force-push — the orchestrator never rewrites pushed history
+on its own authority.
 
 For cost constraints and CLI routing caveats, see [`team.md`](../team.md)'s
 **Available Subscriptions & Cost Constraints** table. For current, session-
@@ -85,13 +89,42 @@ narrowed authorization, a near-empty quota), see
 [`routing-status.md`](../routing-status.md) — check it before routing to a
 metered destination, and add an entry when the owner relays a new status.
 
+**Delegate dispatches run locally by default (2026-11-03 owner ruling).**
+A delegate CLI is invoked on THIS machine — the laptop — unless the work
+itself must run elsewhere: test/nightly lanes on the remote hosts, or a
+CLI that is genuinely missing locally (checked with `which <cli>` /
+`<cli> models` first, never assumed). Never route a dispatch to a remote
+host because a previous round ran there, because the per-host model
+catalog was measured there, or for convenience: per-host catalogs are a
+reason to run `<cli> models` wherever you dispatch, including locally,
+before writing a model name into a brief. Remote dispatch adds scp and
+ssh round-trips to every turn and resume of the session, with no benefit
+when the local checkout is current (push master first and it always is).
+
 ## Artifact protocol
 
-Coordination is through repository artifacts, not hidden context. Keep all
-artifacts flat under `collab/`:
-`<timestamp>-<role>-<task>.prompt.md`, `<timestamp>-<role>-<task>.<sanitized-model>.findings.md`, and `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`.
+Coordination is through repository artifacts, not hidden context. Artifacts
+are named `<timestamp>-<role>-<task>.prompt.md`,
+`<timestamp>-<role>-<task>.<sanitized-model>.findings.md`, and `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`.
 The `<timestamp>` prefix is a UNIX millisecond timestamp (e.g. `1725791234567`) so files sort
 chronologically in Git's untracked view; `<sanitized-model>` prevents parallel reviewers from colliding.
+
+**Decide the topic before writing.** An artifact
+is written directly into its destination topic subfolder
+(`collab/yang-python/`, `collab/dev/`, … per step 11's folder rules) when
+the subsystem it belongs to is known — which is essentially always, since
+dispatches are issued per track. The flat `collab/` root is reserved for
+artifacts whose track is genuinely undetermined (cross-track orchestration
+rulings, coordination whose destination is being decided), and filing them
+is an explicit orchestrator decision, not a cleanup afterthought. The
+motivating incident: the 2026-11-03 worktree-deletion audit
+(`orchestrator-logs/1793358019`) found that the only work lost when the
+`-orch` worktree was deleted was unfiled flat-root collab logs, while a
+findings file written into `collab/jolt/` from day one survived. Unfiled
+flat-root files are the fragile state; filed topic files are the durable
+one. In-flight vs archived is carried by GIT, not by the directory:
+untracked files (wherever they sit) are in-flight, committed files are the
+record.
 
 Every prompt starts with:
 
@@ -108,20 +141,25 @@ Implementers:
 
 Every report starts with the same header fields. Use actual timestamps; never fabricate them.
 
-`collab/` is append-only and never staged or committed while its artifacts
-are in flight, and must never be added to `.gitignore` or
+`collab/` is append-only: artifacts are never edited after their round
+completes, and `collab/` must never be added to `.gitignore` or
 `.git/info/exclude` so its files stay visible and chronologically sorted in the user's Magit untracked
-view. In-flight artifacts stay untracked; they leave the flat in-flight
-space only through the archive step (Workflow step 11), which files them
-into `collab/`'s git-tracked topic subfolders. The two states live in
+view. Artifacts stay untracked while in flight — whether they sit in the
+flat root (undetermined track) or in their topic subfolder (the normal
+case, since the filing decision happens at write time) — and become the
+record only through the archive step (Workflow step 11), which commits
+them. The two states live in
 different worlds: the committed topic subfolders are on the master
 branch (pushed to origin — master's collab/ subfolders are the durable,
 durable-per-seat-readable record), while an in-flight artifact exists
 only as an untracked file in the checkout that created it — invisible
 from other checkouts and from every branch until it is committed. This
 visibility split is why a merged worktree's collab files must be
-committed before that worktree is deleted (the worktree-deletion rule
-above). Promote final responses to
+committed before that worktree is deleted (the worktree-deletion rule in
+the Worktree section below), and why in-flight artifacts belong in their
+topic subfolder from
+birth: a committed topic file survives checkout deletion, a flat-root
+file does not. Promote final responses to
 `.findings.md`; `.stdout.log` is only
 an intermediate capture.
 
@@ -139,15 +177,17 @@ not be inferred from a missing final report.
 
 Read-only reviewers may share the main tree. Concurrent editors use separate
 worktrees from a committed base; uncommitted bases require serialization or
-explicit disjoint ownership. Only one process owns the CLJD lane because
-`bb test:cljd` writes shared generated output. Auxiliary worktrees lack
+explicit disjoint ownership (lane-sharing limits like "only one process owns
+the CLJD lane" are test-execution constraints owned by
+[`build-n-test.md`](../build-n-test.md), not artifact rules). Auxiliary
+worktrees lack
 `collab/`, so briefs use absolute paths, and delegates there often stage
-their own reference copies of prompts/findings in a local `collab/`. Before
-removing a worktree, diff its `collab/` against the main tree's and copy
-over anything unique — a worktree merge moves only committed content.
-Under the one-record `collab/` regime this is not a copy-out burden:
-collab files generated in a worktree are added to git there (step 11's
-`docs(collab):` commit) and reach master through the merge. A worktree
+their own reference copies of prompts/findings in a local `collab/`. The
+canonical procedure makes copy-out unnecessary: collab files generated in a
+worktree are committed there (step 11's `docs(collab):` commit) and reach
+master through the merge. Before removing a worktree, diff its `collab/`
+against the main tree's only as a safety check that no untracked file is
+being lost — a worktree merge moves only committed content. A worktree
 is deleted only after its work has been successfully merged to master
 under that authority — or on user instruction, which is a deliberate
 discard. Because deletion follows the merge, the merged content is
@@ -170,7 +210,9 @@ the repository root as
 using the actual Unix timestamp (`date +%s`) and a short lowercase,
 hyphen-separated description. Each orchestration is independent: never append
 to `docs/orchestrator-log.md` or to another session's file, even when the new
-session continues an earlier task. When continuing a task, reference the prior
+session continues an earlier task. `docs/orchestrator-log.md` is the frozen
+legacy record from before per-session logs existed — readable as historical
+claims only, never extended. When continuing a task, reference the prior
 session's log path in the new log's first entry and final handoff instead of
 sharing or copying the file.
 
@@ -179,7 +221,11 @@ only: one per coherent unit (a delegated round, a fix, a review reconciliation,
 a readiness report), an unfinished-work entry when work stops before the next
 unit finishes, and a final handoff entry when the seat is passed on. It records
 completed and stopped units only; in-flight state lives in `collab/`,
-referenced by filename and session ID rather than duplicated.
+referenced by filename and session ID rather than duplicated. The
+unfinished-work entry uses the same header schema, with the fields filled
+for what IS true: `Completed-GMT` timestamps the stop, `Done` names exactly
+what landed and what did not, and the body ends with the remaining steps so
+a successor can continue from the artifact trail alone.
 
 Start every entry with actual timestamps and identity fields (never fabricate
 them), then state what `git log` alone cannot re-derive:
@@ -213,7 +259,13 @@ authorization for the exact payload and destination. Invoke from the authorized
 agent; consent does not carry over. Pass prompt paths or stdin, never private
 diffs or credentials in arguments. Use read-only/plan review and minimum write
 scope; never bypass permission checks. Preserve unrelated changes and never
-expose or commit tokens or configuration.
+expose or commit tokens or configuration. The same rule binds delegates: a
+delegate that requests a credential gets the requirement escalated to the
+user — never satisfied by pasting a secret into a prompt file or environment
+the orchestrator controls. Before an archive commit, scan the batch for
+credential-shaped strings (keys, tokens, `sk-`, bearer values); a stdout log
+that captured a secret is redacted or left uncommitted and the incident
+recorded in the work log.
 
 ## Workflow
 
@@ -263,6 +315,21 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
    output is not failure; wait for completion or an explicit error. Do not
    terminate a healthy agent merely because it is quiet for several minutes
    (especially true for DeepSeek).
+   - **Quiet vs. stalled is a procedure, not a judgment.** A delegate is
+     stalled only when, for 15 minutes, its stdout log has not grown AND no
+     live process matches it (`pgrep -f <cli>`); check the CLI's quirk entry
+     in [`delegate-invocation-reference.md`](../delegate-invocation-reference.md)
+     before concluding (some quiet runs are healthy, some "session in use"
+     messages mean the first run is still alive). A stalled run is killed,
+     its artifact inspected for partial work, and the round recovered by
+     resume-by-state or fresh session — never silently re-dispatched as if
+     nothing happened.
+   - **Delegate death has a terminal state.** After two failed rounds on the
+     same unit (different sessions, and at least two different models where
+     the roster allows), stop dispatching: record both failures in the work
+     log with their artifact trails and escalate to the user with the
+     evidence. A third model is chosen only on user instruction — an
+     unbounded retry loop is the failure mode this rule exists to end.
 6. **Verify locally.** Inspect the actual artifact and diff and run the focused
    checks in the orchestrator's environment. Delegated test claims are untrusted.
    User-run results count as evidence only when the exact command, output, and
@@ -278,7 +345,12 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
    before committing (exceptions: the coordination contract's user waiver and
    trivial-edit exemption). Weigh findings on their merits, fix accepted
    defects, and resume the same reviewer to confirm the correction. Preserve
-   every round.
+   every round. Findings are reconciled when every one carries a recorded
+   disposition: fixed and reviewer-confirmed, rejected with evidence, or
+   deferred with user approval. A reviewer–architect dispute is terminated by
+   one architect adjudication per unit: the ruling is final for that unit,
+   and residual disagreement is recorded as an unresolved risk in the step 8
+   readiness report — never re-litigated by re-dispatching review rounds.
 8. **Report readiness.** Report exact commands, assertion counts, reviewer
    sign-off, unrun checks, unreviewed changes, unresolved risks, and any tool or
    hook noise. Do not let the summary outrun the evidence. Append the unit's
@@ -287,7 +359,12 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
    contract's commit authority. Stage only the authorized work, inspect the
    staged diff immediately before committing, and commit only that diff.
    Use the commit message format in
-   [`format.md`](../format.md#git-commit-messages).
+   [`format.md`](../format.md#git-commit-messages). Before staging in the
+   shared main tree, re-run `git status` and compare against the state
+   derived in step 2: any working-tree change not attributable to this
+   seat's units (another seat's or the user's in-flight work) freezes the
+   commit — escalate, never stage around it, and never `git add -A` in the
+   main tree.
 10. **Verify what landed.** Compare the commit's diff with the authorized
     staged diff. If hooks or formatters changed what landed, review that delta and
     rerun its affected checks — the pre-commit formatter hook can stage files
@@ -310,24 +387,20 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
     rule before pushing.
 11. **Archive completed-task artifacts.** When collaboration artifacts are no
     longer needed for active collaboration (their task is committed or its
-    track is otherwise closed), move prompts, findings, and logs from the
-    flat in-flight space of `collab/` into git-tracked, subsystem-organized
-    subfolders of the same directory (e.g. `collab/yang-python/`,
-    `collab/dao-stream/`, `collab/yin-ucf/`, `collab/yin-linker/`) under
-    their exact filenames. There is no separate archive root: `collab/` IS
-    the collaboration record, flat untracked files at its root are the
-    in-flight workspace, and its topic subfolders are the archive
-    (2026-10-31 owner ruling, superseding the 2026-10-17 separate-top-level-
-    archive ruling: the archive and the collaboration directory are one
-    version-controlled location). The archived subfolders are under version
-    control deliberately — the git history is the historical record of the
-    collaboration — so every archive batch is committed (and pushed) as
-    `docs(archive):` or `docs(collab):`; an archive that is not committed is
-    not an archive. Do not leave archived files untracked, and do not invent
-    intermediate locations. Do not dump them flat into the `collab/` root
-    (that space is for in-flight artifacts, kept untracked and chronologically
-    sorted in the user's Magit untracked view). Organize archived files by
-    design subsystem, not by generic slice codes or temporary folder names:
+    track is otherwise closed), commit them — the storage model, the
+    write-time filing rule, and the ruling history are canonical in the
+    Artifact protocol; this step is only the mechanical procedure.
+    Artifacts filed at write time are archived by `git add collab/<topic>/`
+    plus the commit; the only files that need MOVING are flat-root
+    stragglers whose track was undetermined at write time — move those into
+    git-tracked, subsystem-organized subfolders of the same directory (e.g.
+    `collab/yang-python/`, `collab/dao-stream/`, `collab/yin-ucf/`,
+    `collab/yin-linker/`) under their exact filenames. Every archive batch
+    is committed (and pushed) as `docs(archive):` or `docs(collab):`; an
+    archive that is not committed is not an archive. Do not leave archived
+    files untracked, and do not invent intermediate locations. Organize
+    archived files by design subsystem, not by generic slice codes or
+    temporary folder names:
 
     - **The subsystem is defined by the code, not by the seat.** When the work
       belongs to a subsystem in [`src/dev/subsystems.edn`](../../../src/dev/subsystems.edn)
@@ -342,21 +415,38 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
       categories like `collab/dao-star/`, `collab/jolt/`). A new folder is
       created only when no existing subfolder fits; name it after the
       subsystem when there is one, otherwise after the durable track or topic
-      (never a date, a slice code, or a seat name).
+      (never a date, a slice code, or a seat name). When neither the registry
+      nor an existing folder fits, propose the new folder name in the step 8
+      readiness report for user or architect confirmation instead of creating
+      it unilaterally — folder names are durable, and naming is a shared
+      convention, not a per-seat choice.
     - **One artifact, one destination.** Same-named collisions resolve by
       content comparison, never by size or ending heuristics: identical bytes
       drop the duplicate; differing same-name artifacts are kept as suffixed
       variants (the `-b`, `-r2` convention) — neither copy dies.
 
-    Never delete, truncate, rename, or overwrite an artifact;
-    use `mv -n` and leave collisions in the flat in-flight space until the
-    reused task name is resolved. Archive only committed work and only when
+    Never delete, truncate, rename, or overwrite an artifact. Same-named
+    collisions (in whatever folder they meet) resolve by the rule above;
+    a `mv` that would land on an existing file leaves the collision in
+    place for that resolution. Archive only committed work and only when
     no uncommitted tracked changes could make task ownership ambiguous.
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
 readable and record incomplete work in the findings rather than leaving a
 half-applied edit, and append the unfinished-work entry naming what remains
-so a successor can continue it.
+so a successor can continue it. The trigger is explicit: when the seat
+estimates its remaining budget is less than one more coherent unit requires,
+it writes the unfinished-work entry and issues the Seat Handoff Template
+(below) before attempting further work — it does not start a unit it cannot
+finish.
+
+**Blocked on the user: park, don't poll.** When progress requires a user
+answer (authorization, scope, an adjudication this doc reserves to the
+user), stop the work: park every delegate (no session left running or
+metered while idle — the 144-minute idle-session incident is the cost this
+rule exists to end), record the blocker and the pending question in the
+work log's unfinished-work entry, and end the turn. The seat resumes only
+when the user's answer arrives.
 
 ## Orchestrator Seat Handoff Template
 
@@ -400,7 +490,8 @@ Required workflow:
 - Run <focused-test-command> and <lint-command> locally.
 
 Do not broaden scope; do not stage, commit, or merge without an Architect
-sign-off or explicit user instruction; do not trust
+sign-off, an explicit user instruction, or the trivial-edit exemption
+(see the Coordination contract above); do not trust
 delegated test claims without local evidence, or terminate a healthy agent
 merely because it is slow or temporarily quiet.
 
@@ -424,3 +515,7 @@ CLI flags, canonical recipes, and known quirks for every delegate CLI
 not here — read it before shelling out to any delegate CLI. It is reference
 material needed at the moment of dispatch, not on every orchestrator turn,
 which is why it is kept separate from this role's core identity and workflow.
+Dispatch is always by direct CLI invocation per that reference's canonical
+recipes; the legacy `dispatch.sh` helper predates several CLIs, does not
+know them, and carries stale cases (its muse case, for example, still uses
+Claude Code wrapper conventions) — never route through it.

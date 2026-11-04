@@ -110,6 +110,18 @@
          (contains? #{"Include" "IncludeOnce" "Require" "RequireOnce"} (:type (first kids))))))
 
 
+(defn- dynamic-call?
+  "True for a call whose unqualified builtin name needs the caller's symbol table."
+  [pk n]
+  (letfn [(text
+            [x]
+            (if (p/rule? x)
+              (some text (p/children pk x))
+              (when (contains? #{"Label" "Eval"} (:type x)) (:text x))))]
+    (contains? #{"extract" "compact" "eval"}
+               (some-> (text n) .toLowerCase))))
+
+
 (declare analyze-fn)
 
 
@@ -178,8 +190,9 @@
                               scope
                               (foreach-targets pk k))
                       scope)
-              scope (if (and (p/rule? k "keyedVariable")
-                             (some #(p/token? % "$") (p/children pk k)))
+              scope (if (or (and (p/rule? k "keyedVariable")
+                                 (some #(p/token? % "$") (p/children pk k)))
+                            (and (p/rule? k "functionCallName") (dynamic-call? pk k)))
                       (assoc scope :dynamic? true)
                       scope)
               scope (if (some #(p/token? % "$this") (p/children pk k))

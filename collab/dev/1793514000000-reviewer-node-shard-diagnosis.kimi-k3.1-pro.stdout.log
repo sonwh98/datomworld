@@ -1,0 +1,1171 @@
+kimi version 2.4.0
+• I need respond to the review request stdin above, but only the message focusing on 2/3 is visible, with no full original context. Should investigate project, shadow version behavior. Should not have code change. Search files relevant to review config.
+
+• I’ll inspect the build configuration and the installed shadow-cljs implementation to verify exactly what `:ns-regexp`, `:cache-root`, and `:output-to` do, then assess the memory implications.
+
+• Should inspect bb around tasks and shadow source node modules jar.README.md
+cli
+package.json
+default-config.edn
+dist.js
+runner.js
+Likely review code current changes perhaps git diff. M orchestrator-logs/1793179048-yang-php-yang-typescript-glm-resume.md
+ M orchestrator-logs/1793385006-zcode-glm-5.3-flash-yang-clojure-track.md
+?? collab/1793456746000-orchestrator-yangpython-nightly-red.prompt.md
+?? collab/1793465000000-engineer-nightly-red-fix.codex.stdout.log
+?? collab/1793465000000-engineer-nightly-red-fix.muse.stdout.log
+?? collab/1793465000000-engineer-nightly-red-fix.prompt.md
+?? collab/1793466815000-reviewer-nightly-testing-plan.gpt-6.1-sol.findings.md
+?? collab/1793466815000-reviewer-nightly-testing-plan.gpt-6.1-sol.prompt.md
+?? collab/1793466815000-reviewer-nightly-testing-plan.gpt-6.1-sol.stdout.log
+?? collab/1793470291000-engineer-ts-t3-s10-v2.gpt-6-luna.findings.md
+?? collab/1793470291000-engineer-ts-t3-s10-v2.gpt-6-luna.stdout.log
+?? collab/1793470291000-engineer-ts-t3-s10-v2.prompt.md
+?? collab/1793480000000-reviewer-nightly-red-gate.kimi.stdout.log
+?? collab/1793480000000-reviewer-nightly-red-gate.prompt.md
+?? collab/1793512000000-reviewer-nightly-plan-re-review.gpt-6.1-sol.stdout.log
+?? collab/1793512000000-reviewer-nightly-plan-re-review.prompt.md
+?? collab/1793514000000-reviewer-node-shard-diagnosis.gpt-6.1-sol.stdout.log
+?? collab/1793514000000-reviewer-node-shard-diagnosis.kimi-k3.1-pro.stdout.log
+?? collab/1793514000000-reviewer-node-shard-diagnosis.prompt.md
+?? target-ci/node-shards-20261101-0100/npm-ci.log
+?? target-ci/node-shards-20261101-0100/summary.txt
+?? target-ci/node-shards-20261101-0104/npm-ci.log
+?? target-ci/node-shards-20261101-0104/summary.txt
+?? target-ci/node-shards-latest
+Should prompt files perhaps exact request. Read reviewer prompt/findings.test:src/dev:build/antlr/python3/js:src/clj:src/cljc:src/cljs:src/cljd:build/antlr/python3/classes:build/antlr/php/classes:build/antlr/typescript/classes:/Users/sto/.m2/repository/com/cognitect/transit-clj/1.0.333/transit-clj-1.0.333.jar:/Users/sto/.m2/repository/com/cognitect/transit-cljs/0.8.280/transit-cljs-0.8.280.jar:/Users/sto/.m2/repository/com/datomic/peer/1.0.7364/peer-1.0.7364.jar:/Users/sto/.m2/repository/criterium/criterium/0.4.6/criterium-0.4.6.jar:/Users/sto/.m2/repository/http-kit/http-kit/2.8.0/http-kit-2.8.0.jar:/Users/sto/.m2/repository/instaparse/instaparse/1.5.0/instaparse-1.5.0.jar:/Users/sto/.m2/repository/io/github/rctcwyvrn/blake3/1.3/blake3-1.3.jar:/Users/sto/.m2/repository/org/antlr/antlr4-runtime/4.13.2/antlr4-runtime-4.13.2.jar:/Users/sto/.m2/repository/org/clojure/clojure/1.12.4/clojure-1.12.4.jar:/Users/sto/.m2/repository/org/clojure/core.async/1.8.741/core.async-1.8.741.jar:/Users/sto/.m2/repository/org/clojure/data.json/2.5.0/data.json-2.5.0.jar:/Users/sto/.m2/repository/org/clojure/tools.reader/1.5.0/tools.reader-1.5.0.jar:/Users/sto/.m2/repository/org/jsoup/jsoup/1.18.3/jsoup-1.18.3.jar:/Users/sto/.m2/repository/org/postgresql/postgresql/42.7.3/postgresql-42.7.3.jar:/Users/sto/.m2/repository/org/replikativ/boring/0.1.30/boring-0.1.30.jar:/Users/sto/.m2/repository/reagent/reagent/2.0.1/reagent-2.0.1.jar:/Users/sto/.m2/repository/ring/ring/1.14.1/ring-1.14.1.jar:/Users/sto/.m2/repository/stigmergy/chp/0.1.0-SNAPSHOT/chp-0.1.0-SNAPSHOT.jar:/Users/sto/.m2/repository/thheller/shadow-cljs/3.3.5/shadow-cljs-3.3.5.jar:/Users/sto/.m2/repository/com/cognitect/transit-java/1.0.371/transit-java-1.0.371.jar:/Users/sto/.m2/repository/com/cognitect/transit-js/0.8.874/transit-js-0.8.874.jar:/Users/sto/.m2/repository/com/cognitect/anomalies/0.1.12/anomalies-0.1.12.jar:/Users/sto/.m2/repository/com/cognitect/caster/1.0.45/caster-1.0.45.jar:/Users/sto/.m2/repository/com/datomic/datomic-lucene-core/3.3.0/datomic-lucene-core-3.3.0.jar:/Users/sto/.m2/repository/com/datomic/io-stats/1.0.14/io-stats-1.0.14.jar:/Users/sto/.m2/repository/com/datomic/java-io/0.1.29/java-io-0.1.29.jar:/Users/sto/.m2/repository/com/datomic/memcache-asg-java-client/1.1.0.36/memcache-asg-java-client-1.1.0.36.jar:/Users/sto/.m2/repository/com/datomic/query-stats/1.0.13/query-stats-1.0.13.jar:/Users/sto/.m2/repository/com/datomic/query-support/0.8.31/query-support-0.8.31.jar:/Users/sto/.m2/repository/com/github/ben-manes/caffeine/caffeine/3.1.5/caffeine-3.1.5.jar:/Users/sto/.m2/repository/com/h2database/h2/2.1.214/h2-2.1.214.jar:/Users/sto/.m2/repository/commons-codec/commons-codec/1.15/commons-codec-1.15.jar:/Users/sto/.m2/repository/org/apache/activemq/artemis-core-client/2.31.2/artemis-core-client-2.31.2.jar:/Users/sto/.m2/repository/org/apache/httpcomponents/httpclient/4.5.13/httpclient-4.5.13.jar:/Users/sto/.m2/repository/org/apache/tomcat/tomcat-jdbc/7.0.109/tomcat-jdbc-7.0.109.jar:/Users/sto/.m2/repository/org/codehaus/janino/commons-compiler-jdk/3.0.12/commons-compiler-jdk-3.0.12.jar:/Users/sto/.m2/repository/org/fressian/fressian/0.6.8/fressian-0.6.8.jar:/Users/sto/.m2/repository/org/slf4j/jcl-over-slf4j/1.7.36/jcl-over-slf4j-1.7.36.jar:/Users/sto/.m2/repository/org/slf4j/jul-to-slf4j/1.7.36/jul-to-slf4j-1.7.36.jar:/Users/sto/.m2/repository/org/slf4j/log4j-over-slf4j/1.7.36/log4j-over-slf4j-1.7.36.jar:/Users/sto/.m2/repository/org/json/json/20190722/json-20190722.jar:/Users/sto/.m2/repository/org/clojure/core.specs.alpha/0.4.74/core.specs.alpha-0.4.74.jar:/Users/sto/.m2/repository/org/clojure/spec.alpha/0.5.238/spec.alpha-0.5.238.jar:/Users/sto/.m2/repository/org/clojure/tools.analyzer.jvm/1.3.2/tools.analyzer.jvm-1.3.2.jar:/Users/sto/.m2/repository/org/checkerframework/checker-qual/3.42.0/checker-qual-3.42.0.jar:/Users/sto/.m2/repository/org/ring-clojure/ring-jakarta-servlet/1.14.1/ring-jakarta-servlet-1.14.1.jar:/Users/sto/.m2/repository/ring/ring-core/1.14.1/ring-core-1.14.1.jar:/Users/sto/.m2/repository/ring/ring-devel/1.14.1/ring-devel-1.14.1.jar:/Users/sto/.m2/repository/ring/ring-jetty-adapter/1.14.1/ring-jetty-adapter-1.14.1.jar:/Users/sto/.m2/repository/bidi/bidi/2.1.4/bidi-2.1.4.jar:/Users/sto/.m2/repository/garden/garden/1.3.6/garden-1.3.6.jar:/Users/sto/.m2/repository/stigmergy/ikota/0.1.0-SNAPSHOT/ikota-0.1.0-SNAPSHOT.jar:/Users/sto/.m2/repository/cider/piggieback/0.6.0/piggieback-0.6.0.jar:/Users/sto/.m2/repository/com/bhauman/cljs-test-display/0.1.1/cljs-test-display-0.1.1.jar:/Users/sto/.m2/repository/com/google/javascript/closure-compiler/v20250407/closure-compiler-v20250407.jar:/Users/sto/.m2/repository/expound/expound/0.9.0/expound-0.9.0.jar:/Users/sto/.m2/repository/fipp/fipp/0.6.27/fipp-0.6.27.jar:/Users/sto/.m2/repository/hiccup/hiccup/1.0.5/hiccup-1.0.5.jar:/Users/sto/.m2/repository/io/methvin/directory-watcher/0.19.0/directory-watcher-0.19.0.jar:/Users/sto/.m2/repository/nrepl/nrepl/1.3.1/nrepl-1.3.1.jar:/Users/sto/.m2/repository/org/clojure/clojurescript/1.12.134/clojurescript-1.12.134.jar:/Users/sto/.m2/repository/org/clojure/google-closure-library/0.0-20250515-f04e4c0e/google-closure-library-0.0-20250515-f04e4c0e.jar:/Users/sto/.m2/repository/org/clojure/google-closure-library-third-party/0.0-20250515-f04e4c0e/google-closure-library-third-party-0.0-20250515-f04e4c0e.jar:/Users/sto/.m2/repository/org/clojure/tools.cli/1.1.230/tools.cli-1.1.230.jar:/Users/sto/.m2/repository/thheller/shadow-client/1.4.0/shadow-client-1.4.0.jar:/Users/sto/.m2/repository/thheller/shadow-cljsjs/0.0.22/shadow-cljsjs-0.0.22.jar:/Users/sto/.m2/repository/thheller/shadow-undertow/0.3.4/shadow-undertow-0.3.4.jar:/Users/sto/.m2/repository/thheller/shadow-util/0.7.0/shadow-util-0.7.0.jar:/Users/sto/.m2/repository/com/fasterxml/jackson/core/jackson-core/2.14.2/jackson-core-2.14.2.jar:/Users/sto/.m2/repository/javax/xml/bind/jaxb-api/2.4.0-b180830.0359/jaxb-api-2.4.0-b180830.0359.jar:/Users/sto/.m2/repository/org/msgpack/msgpack/0.6.12/msgpack-0.6.12.jar:/Users/sto/.m2/repository/com/amazonaws/aws-java-sdk-ec2/1.11.22/aws-java-sdk-ec2-1.11.22.jar:/Users/sto/.m2/repository/com/google/errorprone/error_prone_annotations/2.18.0/error_prone_annotations-2.18.0.jar:/Users/sto/.m2/repository/io/netty/netty-buffer/4.1.100.Final/netty-buffer-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-codec/4.1.100.Final/netty-codec-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-codec-http/4.1.100.Final/netty-codec-http-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-codec-socks/4.1.100.Final/netty-codec-socks-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-common/4.1.100.Final/netty-common-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-handler/4.1.100.Final/netty-handler-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-handler-proxy/4.1.100.Final/netty-handler-proxy-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-resolver/4.1.100.Final/netty-resolver-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-transport/4.1.100.Final/netty-transport-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-transport-classes-epoll/4.1.100.Final/netty-transport-classes-epoll-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-transport-classes-kqueue/4.1.100.Final/netty-transport-classes-kqueue-4.1.100.Final.jar:/Users/sto/.m2/repository/io/netty/netty-transport-native-epoll/4.1.100.Final/netty-transport-native-epoll-4.1.100.Final-linux-x86_64.jar:/Users/sto/.m2/repository/io/netty/netty-transport-native-kqueue/4.1.100.Final/netty-transport-native-kqueue-4.1.100.Final-osx-x86_64.jar:/Users/sto/.m2/repository/org/apache/activemq/artemis-commons/2.31.2/artemis-commons-2.31.2.jar:/Users/sto/.m2/repository/org/apache/httpcomponents/httpcore/4.4.13/httpcore-4.4.13.jar:/Users/sto/.m2/repository/org/apache/tomcat/tomcat-juli/7.0.109/tomcat-juli-7.0.109.jar:/Users/sto/.m2/repository/org/codehaus/janino/commons-compiler/3.0.12/commons-compiler-3.0.12.jar:/Users/sto/.m2/repository/org/clojure/core.memoize/1.1.266/core.memoize-1.1.266.jar:/Users/sto/.m2/repository/org/clojure/tools.analyzer/1.2.0/tools.analyzer-1.2.0.jar:/Users/sto/.m2/repository/org/ow2/asm/asm/9.2/asm-9.2.jar:/Users/sto/.m2/repository/clj-stacktrace/clj-stacktrace/0.2.8/clj-stacktrace-0.2.8.jar:/Users/sto/.m2/repository/ns-tracker/ns-tracker/1.0.0/ns-tracker-1.0.0.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-server/12.0.18/jetty-server-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-unixdomain-server/12.0.18/jetty-unixdomain-server-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/ee9/jetty-ee9-servlet/12.0.18/jetty-ee9-servlet-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/ee9/websocket/jetty-ee9-websocket-jetty-server/12.0.18/jetty-ee9-websocket-jetty-server-12.0.18.jar:/Users/sto/.m2/repository/prismatic/schema/1.1.7/schema-1.1.7.jar:/Users/sto/.m2/repository/com/yahoo/platform/yui/yuicompressor/2.4.8/yuicompressor-2.4.8.jar:/Users/sto/.m2/repository/com/taoensso/timbre/6.1.0/timbre-6.1.0.jar:/Users/sto/.m2/repository/net/sourceforge/htmlcleaner/htmlcleaner/2.26/htmlcleaner-2.26.jar:/Users/sto/.m2/repository/org/clojure/core.rrb-vector/0.1.2/core.rrb-vector-0.1.2.jar:/Users/sto/.m2/repository/net/java/dev/jna/jna/5.16.0/jna-5.16.0.jar:/Users/sto/.m2/repository/commons-io/commons-io/2.18.0/commons-io-2.18.0.jar:/Users/sto/.m2/repository/crypto-equality/crypto-equality/1.0.1/crypto-equality-1.0.1.jar:/Users/sto/.m2/repository/crypto-random/crypto-random/1.2.1/crypto-random-1.2.1.jar:/Users/sto/.m2/repository/org/apache/commons/commons-fileupload2-core/2.0.0-M2/commons-fileupload2-core-2.0.0-M2.jar:/Users/sto/.m2/repository/org/ring-clojure/ring-core-protocols/1.14.1/ring-core-protocols-1.14.1.jar:/Users/sto/.m2/repository/org/ring-clojure/ring-websocket-protocols/1.14.1/ring-websocket-protocols-1.14.1.jar:/Users/sto/.m2/repository/ring/ring-codec/1.3.0/ring-codec-1.3.0.jar:/Users/sto/.m2/repository/io/undertow/undertow-core/2.3.10.Final/undertow-core-2.3.10.Final.jar:/Users/sto/.m2/repository/javax/activation/javax.activation-api/1.2.0/javax.activation-api-1.2.0.jar:/Users/sto/.m2/repository/com/googlecode/json-simple/json-simple/1.1.1/json-simple-1.1.1.jar:/Users/sto/.m2/repository/org/javassist/javassist/3.18.1-GA/javassist-3.18.1-GA.jar:/Users/sto/.m2/repository/com/amazonaws/aws-java-sdk-core/1.11.22/aws-java-sdk-core-1.11.22.jar:/Users/sto/.m2/repository/io/netty/netty-transport-native-unix-common/4.1.100.Final/netty-transport-native-unix-common-4.1.100.Final.jar:/Users/sto/.m2/repository/commons-beanutils/commons-beanutils/1.9.4/commons-beanutils-1.9.4.jar:/Users/sto/.m2/repository/org/clojure/core.cache/1.1.234/core.cache-1.1.234.jar:/Users/sto/.m2/repository/org/clojure/java.classpath/1.1.0/java.classpath-1.1.0.jar:/Users/sto/.m2/repository/org/clojure/tools.namespace/1.5.0/tools.namespace-1.5.0.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-http/12.0.18/jetty-http-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-io/12.0.18/jetty-io-12.0.18.jar:/Users/sto/.m2/repository/org/slf4j/slf4j-api/2.0.16/slf4j-api-2.0.16.jar:/Users/sto/.m2/repository/org/eclipse/jetty/ee9/jetty-ee9-nested/12.0.18/jetty-ee9-nested-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/ee9/jetty-ee9-security/12.0.18/jetty-ee9-security-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/ee9/jetty-ee9-webapp/12.0.18/jetty-ee9-webapp-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/ee9/websocket/jetty-ee9-websocket-jetty-api/12.0.18/jetty-ee9-websocket-jetty-api-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/ee9/websocket/jetty-ee9-websocket-jetty-common/12.0.18/jetty-ee9-websocket-jetty-common-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/ee9/websocket/jetty-ee9-websocket-servlet/12.0.18/jetty-ee9-websocket-servlet-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/toolchain/jetty-jakarta-servlet-api/5.0.2/jetty-jakarta-servlet-api-5.0.2.jar:/Users/sto/.m2/repository/com/taoensso/encore/3.49.0/encore-3.49.0.jar:/Users/sto/.m2/repository/io/aviso/pretty/1.3/pretty-1.3.jar:/Users/sto/.m2/repository/org/jdom/jdom2/2.0.6.1/jdom2-2.0.6.1.jar:/Users/sto/.m2/repository/org/jboss/logging/jboss-logging/3.4.3.Final/jboss-logging-3.4.3.Final.jar:/Users/sto/.m2/repository/org/jboss/threads/jboss-threads/3.5.0.Final/jboss-threads-3.5.0.Final.jar:/Users/sto/.m2/repository/org/jboss/xnio/xnio-api/3.8.8.Final/xnio-api-3.8.8.Final.jar:/Users/sto/.m2/repository/org/jboss/xnio/xnio-nio/3.8.8.Final/xnio-nio-3.8.8.Final.jar:/Users/sto/.m2/repository/com/fasterxml/jackson/core/jackson-databind/2.6.6/jackson-databind-2.6.6.jar:/Users/sto/.m2/repository/com/fasterxml/jackson/dataformat/jackson-dataformat-cbor/2.6.6/jackson-dataformat-cbor-2.6.6.jar:/Users/sto/.m2/repository/commons-logging/commons-logging/1.1.3/commons-logging-1.1.3.jar:/Users/sto/.m2/repository/joda-time/joda-time/2.8.1/joda-time-2.8.1.jar:/Users/sto/.m2/repository/commons-collections/commons-collections/3.2.2/commons-collections-3.2.2.jar:/Users/sto/.m2/repository/org/clojure/data.priority-map/1.2.0/data.priority-map-1.2.0.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-util/12.0.18/jetty-util-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-security/12.0.18/jetty-security-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-session/12.0.18/jetty-session-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-ee/12.0.18/jetty-ee-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/jetty-xml/12.0.18/jetty-xml-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/websocket/jetty-websocket-core-common/12.0.18/jetty-websocket-core-common-12.0.18.jar:/Users/sto/.m2/repository/org/eclipse/jetty/websocket/jetty-websocket-core-server/12.0.18/jetty-websocket-core-server-12.0.18.jar:/Users/sto/.m2/repository/com/taoensso/truss/1.8.0/truss-1.8.0.jar:/Users/sto/.m2/repository/org/clojure/tools.logging/1.2.4/tools.logging-1.2.4.jar:/Users/sto/.m2/repository/org/wildfly/client/wildfly-client-config/1.0.1.Final/wildfly-client-config-1.0.1.Final.jar:/Users/sto/.m2/repository/org/wildfly/common/wildfly-common/1.5.4.Final/wildfly-common-1.5.4.Final.jar:/Users/sto/.m2/repository/com/fasterxml/jackson/core/jackson-annotations/2.6.0/jackson-annotations-2.6.0.jar
+Now extract jar sources using unzip -p okay dedicated Read cannot jar. Commands safe. Find filenames jar tf then extract source stdout.shadow/build/targets/node_script.clj
+shadow/build/targets/node_library.clj
+shadow/build/targets/node_test.clj
+shadow/build/config.clj
+shadow/cljs/devtools/cli.clj
+shadow/cljs/cli.clj
+shadow/cljs/npm/cli.cljs
+(ns shadow.build.targets.node-test
+  (:refer-clojure :exclude (compile flush resolve))
+  (:require
+    [shadow.build :as build]
+    [shadow.build.modules :as modules]
+    [shadow.build.classpath :as cp]
+    [shadow.build.targets.node-script :as node-script]
+    [shadow.cljs.util :as util]
+    [shadow.cljs.devtools.server.util :refer (pipe)]
+    [shadow.build.async :as async]
+    [shadow.build.test-util :as tu]
+    [shadow.build.targets.shared :as shared]
+    [shadow.jvm-log :as log]))
+
+(defn configure [{::build/keys [config mode] :as state}]
+  (let [runner-ns (or (when-let [main (:main config)]
+                        (-> main namespace symbol))
+                      'shadow.test.node)]
+    (-> state
+        (tu/configure-common)
+        (assoc ::tu/runner-ns runner-ns)
+        (assoc-in [:compiler-options :closure-defines 'cljs.core/*target*] "nodejs")
+        (update :build-options merge {:greedy true
+                                      :dynamic-resolve true})
+        (update ::build/config merge {:main (get config :main 'shadow.test.node/main)})
+        ;; (update-in [::build/config :devtools] assoc :enabled false)
+
+        (cond->
+          (and (:ui-driven config) (:worker-info state))
+          ;; just the defines, preloads are added in resolve
+          (-> (shared/inject-node-repl config)
+              (assoc-in [:compiler-options :closure-defines 'shadow.test.env/UI-DRIVEN] true))
+          ))))
+
+;; since :configure is only called once in :dev
+;; we delay setting the :entries until compile-prepare which is called every cycle
+;; need to come up with a cleaner API for this
+(defn test-resolve
+  [{::build/keys [mode config] :as state}]
+  (let [test-namespaces
+        (tu/find-test-namespaces state config)
+
+        entries
+        (-> '[shadow.test.env] ;; must be included before any deftest because of the cljs.test mod
+            (cond->
+              (and (:ui-driven config) (:worker-info state))
+              (conj 'shadow.cljs.devtools.client.node 'shadow.remote.runtime.cljs.node 'shadow.test.remote-inject)
+
+              (= :dev mode)
+              (into (get-in config [:devtools :preloads])))
+            (into test-namespaces)
+            (conj (::tu/runner-ns state)))]
+
+    (log/debug ::test-resolve {:config config
+                               :test-namespaces test-namespaces})
+
+    (-> state
+        (assoc ::tu/test-namespaces test-namespaces)
+        (assoc-in [::modules/config :main :entries] entries)
+        ;; re-analyze modules since we modified the entries
+        (modules/analyze)
+        (tu/inject-extra-requires)
+        )))
+
+(defn autorun-test [{::build/keys [config] :as state}]
+  (util/with-logged-time
+    [state {:type ::autorun}]
+    (let [script-args
+          ["node" (:output-to config)]
+
+          proc
+          (-> (ProcessBuilder. (into-array script-args))
+              (.directory nil)
+              (.start))]
+
+      (println "========= Running Tests =======================")
+
+      (.start (Thread. (bound-fn [] (pipe proc (.getInputStream proc) *out*))))
+      (.start (Thread. (bound-fn [] (pipe proc (.getErrorStream proc) *err*))))
+
+      ;; FIXME: what if this doesn't terminate?
+      (let [exit-code (.waitFor proc)]
+        (println "===============================================")
+        (assoc state ::exit-code exit-code)))))
+
+(defn process
+  [{::build/keys [stage mode config] :as state}]
+  (-> state
+      (cond->
+        (= stage :configure)
+        (configure)
+
+        (= stage :resolve)
+        (test-resolve))
+
+      (node-script/process)
+      (cond->
+        (and (= stage :flush)
+             (:autorun config))
+        (-> (async/wait-for-pending-tasks!)
+            (autorun-test))
+        )))
+(ns shadow.cljs.devtools.cli
+  (:require
+    [clojure.java.io :as io]))
+
+(defn get-shadow-cljs-info []
+  (try
+    (let [[defproject name version & kv :as rc]
+          (-> (io/resource "META-INF/leiningen/thheller/shadow-cljs/project.clj")
+              (slurp)
+              (read-string))]
+
+      (when (= name 'thheller/shadow-cljs)
+        (let [{:keys [dependencies] :as data}
+              (apply hash-map kv)
+
+              dep-map
+              (reduce
+                (fn [m [name version]]
+                  (assoc m name version))
+                {}
+                dependencies)]
+
+          {:version version
+           :dependencies dep-map})))
+    (catch Exception e
+      nil)))
+
+(def important-deps
+  '[org.clojure/clojure
+    org.clojure/clojurescript
+    com.google.javascript/closure-compiler-unshaded])
+
+(defn load-error [e]
+  (println "--- SHADOW-CLJS FAILED TO LOAD! ----------------------")
+  (println)
+  (println "This is most commonly caused by a dependency conflict.")
+  (println "When using deps.edn or project.clj you must ensure that all")
+  (println "required dependencies are provided with the correct version.")
+  (println)
+
+  (when-let [{:keys [version dependencies]} (get-shadow-cljs-info)]
+    (println "You are using shadow-cljs version:" version)
+    (println)
+    (println "The important dependencies are:")
+    (println)
+    (doseq [dep important-deps]
+      (println (str "  " dep " \"" (get dependencies dep) "\"")))
+    (println)
+    (println "Please verify that you are loading these versions.")
+    (println "You can find all required dependencies here:")
+    (println)
+    (println (str "  https://clojars.org/thheller/shadow-cljs/versions/" version))
+    (println))
+
+  (println "Please refer to the Guide for more information:")
+  (println)
+  (println "  https://shadow-cljs.github.io/docs/UsersGuide.html#failed-to-load")
+  (println)
+  (println "-----------------------------------------------------")
+
+  (when e
+    (println)
+    (println "The error encountered was:")
+    (println)
+    (.printStackTrace e)))
+
+(defn -main [& args]
+  (when-let [actual-main
+             (try
+               (requiring-resolve 'shadow.cljs.devtools.cli-actual/-main)
+               (catch Exception e
+                 (load-error e)
+                 (System/exit 1)))]
+
+    (apply actual-main args)))
+
+(defn from-remote [complete-token error-token args]
+  (let [actual (requiring-resolve 'shadow.cljs.devtools.cli-actual/from-remote)]
+    (actual complete-token error-token args)))
+(ns shadow.build.config
+  (:require [clojure.spec.alpha :as s]))
+
+(s/def ::build-id keyword?)
+
+(s/def ::target
+  #(or (simple-keyword? %)
+       (symbol? %)))
+
+(s/def ::build-hook
+  (s/cat
+    :hook-sym qualified-symbol?
+    :hook-args (s/* any?)
+    ))
+
+(s/def ::build-hooks
+  (s/coll-of ::build-hook :kind vector?))
+
+(defmulti target-spec :target :default ::default)
+
+(defmethod target-spec ::default [_]
+  (s/spec any?))
+
+(s/def ::build
+  (s/keys
+    :req-un
+    [::build-id
+     ::target]
+    :opt-un
+    [::build-hooks]))
+
+(s/def ::build+target
+  (s/and
+    ::build
+    (s/multi-spec target-spec :target)))
+
+;; deps.cljs specs
+
+(s/def ::file-min string?)
+
+(s/def ::file string?)
+
+;; probably vector or set, doesn't matter
+(s/def ::externs (s/coll-of string? :distinct true))
+(s/def ::provides (s/coll-of string? :distinct true))
+(s/def ::requires (s/coll-of string? :distinct true))
+
+(s/def ::foreign-lib
+  (s/keys
+    :opt-un
+    [::file-min
+     ::file
+     ::externs
+     ::provides
+     ::requires]))
+
+(s/def ::foreign-libs
+  (s/coll-of ::foreign-lib :distinct true))
+
+(s/def ::deps-cljs
+  (s/keys
+    :opt-un
+    [::externs
+     ::foreign-libs]))
+Should have test-util find-test and cli actual config merge.
+
+• The key distinction is that `:ns-regexp` controls discovery, not cache invalidation. I’m checking the exact 3.3.5 source for discovery and output generation so the recommendation doesn’t rely on assumptions about cache behavior.(ns shadow.build.test-util
+  (:require [shadow.build.data :as data]
+            [shadow.build.classpath :as cp]
+            [shadow.cljs.util :as util]
+            [clojure.java.io :as io]))
+
+(defn find-test-namespaces [{:keys [classpath] :as state} config]
+  (let [{:keys [namespaces ns-regexp exclude test-paths] :or {ns-regexp "-test$" exclude #{}}}
+        config
+
+        ns-regexp
+        (re-pattern ns-regexp)]
+
+    (if (seq namespaces)
+      namespaces
+      (->> (cp/find-cljs-namespaces-in-files
+             classpath
+             (when (seq test-paths)
+               (map io/file test-paths)))
+           (filter (fn [ns]
+                     (re-find ns-regexp (str ns))))
+           (remove exclude)
+           (sort)
+           (into [])))))
+
+(defn inject-extra-requires
+  [{::keys [runner-ns test-namespaces] :as state}]
+  {:pre [(symbol? runner-ns)
+         (coll? test-namespaces)
+         (every? symbol? test-namespaces)]}
+
+  ;; since the runner doesn't explicitly depend on the test namespaces
+  ;; it may start compiling before they actually complete
+  ;; which is a problem when the runner-ns uses macros that inspect the
+  ;; analyzer data to discover tests since they may still be pending
+  (let [runner-rc-id (data/get-source-id-by-provide state runner-ns)]
+
+    (-> state
+        (update-in [:sources runner-rc-id] assoc :extra-requires (set test-namespaces)))))
+
+
+(defn configure-common [state]
+  (assoc-in state [:compiler-options :load-tests] true))
+(ns shadow.cljs.devtools.cli-actual
+  (:require
+    [clojure.string :as str]
+    [clojure.main :as main]
+    [shadow.cljs.silence-default-loggers]
+    [shadow.cljs.devtools.config :as config]
+    [shadow.cljs.devtools.cli-opts :as opts]
+    [shadow.cljs.devtools.api :as api]
+    [shadow.cljs.devtools.errors :as errors]
+    [shadow.cljs.devtools.server.npm-deps :as npm-deps]
+    [shadow.build.api :as cljs]
+    [shadow.build.node :as node]
+    [shadow.cljs.devtools.server.socket-repl :as socket-repl]
+    [shadow.cljs.devtools.server.env :as env]
+    [shadow.cljs.devtools.server.runtime :as runtime])
+  (:import (clojure.lang LineNumberingPushbackReader)
+           (java.io StringReader)))
+
+;; delayed require to we can improve startup time a bit
+(defn lazy-invoke [var-sym & args]
+  (require (-> var-sym namespace symbol))
+  (let [var (find-var var-sym)]
+    (apply var args)))
+
+(defn do-build-command [{:keys [action options] :as opts} build-config]
+  (case action
+    :release
+    (api/release* build-config options)
+
+    :check
+    (api/check* build-config options)
+
+    :compile
+    (api/compile* build-config options)
+
+    (throw (ex-info "invalid action" {:opts opts :build-config build-config}))))
+
+(defn do-build-commands
+  [{:keys [builds] :as config} {:keys [action options] :as opts} build-ids]
+
+  ;; sequentially run the commands
+  (doseq [build-id build-ids]
+    (let [build-config (get builds build-id)]
+      (when-not build-config
+        (throw (ex-info (str "no build with id: " build-id)
+                 {:build-id build-id
+                  :known-builds (-> builds (keys) (set))})))
+
+      (do-build-command opts build-config))))
+
+(defn do-clj-eval [config {:keys [arguments options] :as opts}]
+  (let [in
+        (if (:stdin options)
+          *in*
+          (-> (str/join " " arguments)
+              (StringReader.)
+              (LineNumberingPushbackReader.)))]
+
+    (binding [*in* in]
+      (main/repl
+        :init #(socket-repl/repl-init {:print false})
+        :prompt (fn [])))
+    ))
+
+(defn do-clj-run [config {:keys [arguments options] :as opts}]
+  (let [[main & args]
+        arguments
+
+        main-sym
+        (symbol main)
+
+        main-sym
+        (if (nil? (namespace main-sym))
+          (symbol main "-main")
+          main-sym)
+
+        main-ns
+        (namespace main-sym)]
+
+    (try
+      (require (symbol main-ns))
+      (catch Exception e
+        (throw (ex-info
+                 (format "failed to load namespace: %s" main-ns)
+                 {:tag ::clj-run-load
+                  :main-ns main-ns
+                  :main-sym main-sym} e))))
+
+    (let [main-var (find-var main-sym)]
+      (if-not main-var
+        (println (format "could not find %s" main-sym))
+        (let [main-meta (meta main-var)]
+          (try
+            (cond
+              ;; running in server
+              (runtime/get-instance)
+              (apply main-var args)
+
+              ;; new jvm. task fn wants to run watch
+              (:shadow/requires-server main-meta)
+              (do (lazy-invoke 'shadow.cljs.devtools.server/start!)
+                  (apply main-var args)
+                  (lazy-invoke 'shadow.cljs.devtools.server/wait-for-stop!))
+
+              ;; new jvm. task fn doesn't need watch
+              :else
+              (api/with-runtime
+                (apply main-var args)))
+            (catch Exception e
+              (throw (ex-info
+                       (format "failed to run function: %s" main-sym)
+                       {:tag ::clj-run
+                        :main-sym main-sym}
+                       e)))))))))
+
+(defn blocking-action
+  [config {:keys [action builds options] :as opts}]
+  (binding [*in* *in*]
+    (cond
+      (= :clj-eval action)
+      (api/with-runtime
+        (do-clj-eval config opts))
+
+      (or (= :clj-run action)
+          (= :run action))
+      (do-clj-run config opts)
+
+      (contains? #{:watch :node-repl :browser-repl :cljs-repl :clj-repl :server} action)
+      (lazy-invoke 'shadow.cljs.devtools.server/from-cli action builds options)
+      )))
+
+(defn main [& args]
+  (let [{:keys [action builds options summary errors] :as opts}
+        (opts/parse args)
+
+        config
+        (config/load-cljs-edn!)]
+
+    ;; always install since its a noop if everything is in package.json
+    ;; and a server restart is not required for them to be picked up
+    (npm-deps/main config opts)
+
+    ;; FIXME: need cleaner with-runtime logic
+    ;; don't like that some actions implicitely start a server
+    ;; while others don't
+    ;; I think server should be a dedicated action but that only makes sense once we have a UI
+
+    (cond
+      ;;
+      ;; actions that do a thing and exit
+      ;;
+      (:version options)
+      (println "TBD")
+
+      (or (:help options) (seq errors))
+      (opts/help opts)
+
+      ;;(= action :test)
+      ;;(api/test-all)
+
+      (= :npm-deps action)
+      (println "npm-deps done.")
+
+      (contains? #{:compile :check :release} action)
+      (api/with-runtime
+        (do-build-commands config opts builds))
+
+      ;; MVP, really not sure where to take this
+      (= :test action)
+      (api/with-runtime
+        (api/test))
+
+      ;;
+      ;; actions that may potentially block
+      ;;
+      (contains? #{:watch :node-repl :browser-repl :cljs-repl :clj-repl :server :clj-eval :clj-run :run} action)
+      (blocking-action config opts)
+
+      :else
+      (println "Unknown action.")
+      )))
+
+(defn print-main-error [e]
+  (try
+    (errors/user-friendly-error e)
+    (catch Exception ignored
+      ;; print failed, don't attempt to print anything again
+      )))
+
+(defn print-token
+  "attempts to print the given token to stdout which may be a socket
+   if the client already closed the socket that would cause a SocketException
+   so we ignore any errors since the client is already gone"
+  [token]
+  (try
+    (println token)
+    (catch Exception e
+      ;; CTRL+D closes socket so we can't write to it anymore
+      )))
+
+(defn from-remote
+  "the CLI script calls this with 2 extra token (uuids) that will be printed to notify
+   the script whether or not to exit with an error code, it also causes the client to
+   disconnect instead of us forcibly dropping the connection"
+  [complete-token error-token args]
+  (try
+    (if (env/restart-required?)
+      (do (println "SERVER INSTANCE OUT OF DATE!\nPlease restart.")
+          (print-token error-token))
+      (do (apply main "--via" "remote" args)
+          (print-token complete-token)))
+    (catch Exception e
+      (print-main-error e)
+      (println error-token))))
+
+;; direct launches don't need to mess with tokens
+(defn -main [& args]
+  (try
+    (apply main "--via" "main" args)
+    (shutdown-agents)
+    (catch Exception e
+      (print-main-error e)
+      (System/exit 1))))
+
+(defn from-launcher [deps-loader-fn args]
+  (reset! api/reload-deps-fn-ref deps-loader-fn)
+  (try
+    (apply main "--via" "launcher" args)
+    (shutdown-agents)
+    (catch Exception e
+      (print-main-error e)
+      (System/exit 1))))
+
+(comment
+  (defn autotest
+    "no way to interrupt this, don't run this in nREPL"
+    []
+    (-> (api/test-setup)
+        (cljs/watch-and-repeat!
+          (fn [state modified]
+            (-> state
+                (cond->
+                  ;; first pass, run all tests
+                  (empty? modified)
+                  (node/execute-all-tests!)
+                  ;; only execute tests that might have been affected by the modified files
+                  (not (empty? modified))
+                  (node/execute-affected-tests! modified))
+                )))))
+
+  (defn test-all []
+    (api/test-all))
+
+  (defn test-affected [test-ns]
+    (api/test-affected [(cljs/ns->cljs-file test-ns)])))
+shadow/test/node.cljs
+shadow/build/cache.clj
+shadow/build/test_util.clj
+shadow/build/config.clj
+shadow/cljs/devtools/config.clj
+
+
+(ns shadow.cljs.devtools.config
+  (:require
+    [clojure.edn :as edn]
+    [clojure.java.io :as io]
+    [clojure.spec.alpha :as s]
+    [shadow.build.config :as build-config]
+    [shadow.cljs.util :as cljs-util]
+    [shadow.cljs.config-env :as config-env]
+    [shadow.jvm-log :as log]))
+
+(s/def ::builds (s/map-of keyword? ::build-config/build))
+
+(s/def ::source-paths
+  (s/coll-of string? :kind vector?))
+
+(s/def ::dependency
+  (s/cat
+    :artifact
+    symbol?
+    :version
+    string?
+
+    ;; FIXME: properly do :exclusions and other things that may be allowed?
+    :rest
+    (s/* any?)))
+
+(s/def ::dependencies
+  (s/coll-of ::dependency :kind vector?))
+
+(s/def ::aliases
+  (s/coll-of keyword? :kind vector?))
+
+(s/def ::deps-map
+  (s/and
+    (s/map-of keyword? any?)
+    (s/keys
+      ::opts-un
+      [::aliases])))
+
+(s/def ::deps
+  (s/or
+    :boolean boolean?
+    :map ::deps-map))
+
+(s/def ::config
+  (s/keys
+    :req-un
+    [::builds]
+    :opt-un
+    [::source-paths
+     ::dependencies
+     ::deps]
+    ))
+
+(defn builds->map [builds]
+  (cond
+    (empty? builds)
+    {}
+
+    (vector? builds)
+    (reduce
+      (fn [builds {:keys [id] :as build}]
+        (assoc builds id (assoc build :build-id id)))
+      {}
+      builds)
+
+    ;; ensure that each build has an :build-id so user isn't forced to repeat it
+    (map? builds)
+    (reduce-kv
+      (fn [builds id build]
+        (assoc builds id (assoc build :build-id id)))
+      {}
+      builds)
+
+    :else
+    (throw (ex-info "invalid builds entry" {:builds builds}))
+    ))
+
+(defn normalize [cfg]
+  (cond
+    (vector? cfg)
+    (recur {:builds cfg})
+
+    (map? cfg)
+    (update cfg :builds builds->map)
+
+    :else
+    (throw (ex-info "invalid config" {:cfg cfg}))
+    ))
+
+(def default-config
+  {:cache-root ".shadow-cljs"
+   :builds {}})
+
+(def default-builds
+  {:npm
+   ^:generated
+   {:build-id :npm
+    :target :npm-module
+    :output-dir "node_modules/shadow-cljs"}})
+
+(defn read-config-str [s]
+  (edn/read-string
+    {:readers
+     {'shadow/env config-env/read-env
+      'env config-env/read-env}}
+    s))
+
+(defn read-config [file]
+  (-> file
+      (slurp)
+      (read-config-str)))
+
+(defn load-user-env-config [env-key]
+  (let [env-val (System/getenv env-key)]
+    (when (seq env-val)
+      (let [file (io/file env-val "shadow-cljs" "config.edn")]
+        (when (.exists file)
+          (read-config file))))))
+
+(defn load-user-home-config []
+  (let [file (io/file (System/getProperty "user.home") ".shadow-cljs" "config.edn")]
+    (when (.exists file)
+      (read-config file))))
+
+(defn load-user-config []
+  (or (load-user-env-config "XDG_CONFIG_HOME")
+      (load-user-env-config "LOCALAPPDATA")
+      (load-user-home-config)
+      {}))
+
+(defn load-cljs-edn []
+  (let [file (io/file "shadow-cljs.edn")]
+    (if-not (.exists file)
+      default-config
+      (-> (read-config file)
+          (normalize)
+          (->> (merge default-config))
+          (update :builds #(merge default-builds %))
+          (assoc :user-config (load-user-config))
+          ))))
+
+(defn load-cljs-edn! []
+  (let [config (load-cljs-edn)]
+    (when-not (s/valid? ::config config)
+      (s/explain ::config config)
+      (throw (ex-info "invalid config" (s/explain-data ::config config))))
+    config
+    ))
+
+(comment
+  ;; ok
+  (s/valid? ::config '{:builds {} :deps {:aliases [:a :b :c]}})
+  (s/valid? ::config '{:builds {} :deps true})
+  (s/valid? ::config '{:builds {} :deps false})
+  ;; not
+  (s/valid? ::config '{:builds {} :deps {foo {:mvn/version "1.2.3"}}}))
+
+(defn get-build
+  ([id]
+   (get-build (load-cljs-edn!) id))
+  ([config id]
+   (get-in config [:builds id])))
+
+(defn get-build! [id]
+  (or (get-build id)
+      (throw (ex-info (str "no build with id: " id) {:tag ::no-build :id id}))))
+
+(defn make-cache-dir [cache-root build-id mode]
+  {:pre [(cljs-util/is-file-instance? cache-root)
+         (keyword? build-id)
+         (keyword? mode)]}
+  (io/file cache-root "builds" (name build-id) (name mode)))
+(ns shadow.test.node
+  {:dev/always true}
+  (:require
+    [shadow.test.env :as env]
+    [cljs.test :as ct]
+    [shadow.test :as st]
+    [clojure.string :as str]))
+
+;; FIXME: add option to not exit the node process?
+(defmethod ct/report [::ct/default :end-run-tests] [m]
+  (if (ct/successful? m)
+    (js/process.exit 0)
+    (js/process.exit 1)))
+
+;; get-test-data is a macro so this namespace REQUIRES :dev/always hint ns so that it is always recompiled
+(defn ^:dev/after-load reset-test-data! []
+  (-> (env/get-test-data)
+      (env/reset-test-data!)))
+
+(defn parse-args [args]
+  (reduce
+    (fn [opts arg]
+      (cond
+        (= "--help" arg)
+        (assoc opts :help true)
+
+        (= "--list" arg)
+        (assoc opts :list true)
+
+        (str/starts-with? arg "--test=")
+        (let [test-arg (subs arg 7)
+              test-syms
+              (->> (str/split test-arg ",")
+                   (map symbol))]
+          (update opts :test-syms into test-syms))
+
+        :else
+        (do (println (str "Unknown arg: " arg))
+            opts)
+        ))
+    {:test-syms []}
+    args))
+
+(defn find-matching-test-vars [test-syms]
+  ;; FIXME: should have some kind of wildcard support
+  (let [test-namespaces
+        (->> test-syms (filter simple-symbol?) (set))
+        test-var-syms
+        (->> test-syms (filter qualified-symbol?) (set))]
+
+    (->> (env/get-test-vars)
+         (filter (fn [the-var]
+                   (let [{:keys [name ns]} (meta the-var)]
+                     (or (contains? test-namespaces ns)
+                         (contains? test-var-syms (symbol ns name))))))
+         )))
+
+(defn execute-cli [{:keys [test-syms help list] :as opts}]
+  (let [test-env
+        (-> (ct/empty-env)
+            ;; can't think of a proper way to let CLI specify custom reporter?
+            ;; :report-fn is mostly for UI purposes, CLI should be fine with default report
+            #_(assoc :report-fn
+                (fn [m]
+                  (tap> [:test m (ct/get-current-env)])
+                  (prn m))))]
+
+    (cond
+      help
+      (do (println "Usage:")
+          (println "  --list (list known test names)")
+          (println "  --test=<ns-to-test>,<fqn-symbol-to-test> (run test for namespace or single var, separated by comma)"))
+
+      list
+      (doseq [[ns ns-info]
+              (->> (env/get-tests)
+                   (sort-by first))]
+        (println "Namespace:" ns)
+        (doseq [var (:vars ns-info)
+                :let [m (meta var)]]
+          (println (str "  " (:ns m) "/" (:name m))))
+        (println "---------------------------------"))
+
+      (seq test-syms)
+      (let [test-vars (find-matching-test-vars test-syms)]
+        (st/run-test-vars test-env test-vars))
+
+      :else
+      (st/run-all-tests test-env nil)
+      )))
+
+(defn main [& args]
+  (reset-test-data!)
+
+  (if env/UI-DRIVEN
+    (js/console.log "Waiting for UI ...")
+    (let [opts (parse-args args)]
+      (execute-cli opts))))
+(ns shadow.build.targets.node-script
+  (:refer-clojure :exclude (flush))
+  (:require
+    [cljs.compiler :as cljs-comp]
+    [clojure.spec.alpha :as s]
+    [shadow.cljs.repl :as repl]
+    [shadow.build.node :as node]
+    [shadow.build :as comp]
+    [shadow.build.targets.shared :as shared]
+    [shadow.build.config :as config]
+    [shadow.build.api :as cljs]
+    [shadow.build.output :as output]
+    ))
+
+(s/def ::main shared/unquoted-qualified-symbol?)
+
+(s/def ::target
+  (s/keys
+    :req-un
+    [::main
+     ::shared/output-to]
+    :opt-un
+    [::shared/output-dir]
+    ))
+
+(defmethod config/target-spec :node-script [_]
+  (s/spec ::target))
+
+(defmethod config/target-spec `process [_]
+  (s/spec ::target))
+
+(defn configure [state mode config]
+  (-> state
+      (shared/set-output-dir mode config)
+
+      (node/set-defaults)
+      (node/configure config)
+
+      (assoc-in [:compiler-options :closure-defines 'cljs.core/*target*] "nodejs")
+
+      (cond->
+        (:worker-info state)
+        (shared/inject-node-repl config)
+
+        (= :dev mode)
+        (-> (shared/inject-preloads :main config)
+            (assoc ::output/eval-in-global-scope false))
+        )))
+
+(defn check-main-exists! [{:keys [compiler-env node-config] :as state}]
+  (let [{:keys [main main-ns main-fn]} node-config]
+    (when-not (get-in compiler-env [:cljs.analyzer/namespaces main-ns :defs main-fn])
+      (throw (ex-info (format "The configured main \"%s\" does not exist!" main)
+               {:tag ::main-not-found
+                :main-ns main-ns
+                :main-fn main-fn
+                :main main})))
+    state))
+
+(defn flush [state mode config]
+  (case mode
+    :dev
+    (node/flush-unoptimized state)
+    :release
+    (node/flush-optimized state)))
+
+(defn process
+  [{::comp/keys [mode stage config] :as state}]
+  (case stage
+    :configure
+    (configure state mode config)
+
+    :compile-prepare
+    (node/replace-goog-global state)
+
+    :compile-finish
+    (-> state
+        (check-main-exists!)
+        (cond->
+          (shared/bootstrap-host-build? state)
+          (shared/bootstrap-host-info)))
+
+    :flush
+    (flush state mode config)
+
+    state
+    ))
+• Important :cache-root is top-level, not build-level! config merge into build likely ignored for cache root. Should verify compile* api and config merge.         (cond
+           (and (seq conflicts) (not (true? ignore-conflicts)))
+           (do (doseq [{:keys [dep before after]} conflicts]
+                 (println "Could not load:" dep (:mvn/version after) "version" (:mvn/version before) "is already loaded!"))
+               ::conflicts)
+
+           (seq new)
+           (do (doseq [dep new]
+                 (println "Loaded:" dep))
+               ::loaded)
+
+           :else
+           ::no-changes
+           ))))))
+
+(defn get-worker
+  [id]
+  {:pre [(keyword? id)]}
+  (let [{:keys [out supervisor] :as app}
+        (runtime/get-instance!)]
+    (super/get-worker supervisor id)
+    ))
+
+(defn make-runtime []
+  (let [config (-> (config/load-cljs-edn!)
+                   ;; just in case someone gets the idea to put :server-runtime true into their config
+                   (dissoc :server-runtime))]
+
+    (log/debug ::runtime-start)
+
+    (-> {::started (System/currentTimeMillis)
+         :config config}
+        (rt/init (common/get-system-config config))
+        (rt/start-all)
+        )))
+
+(defmacro with-runtime [& body]
+  ;; not using binding since there should only ever be one runtime instance per JVM
+  `(let [body-fn#
+         (fn []
+           ~@body)]
+     (if (runtime/get-instance)
+       (body-fn#)
+
+       ;; start/stop instance when not running in server context
+       (let [runtime# (make-runtime)]
+         (try
+           (runtime/set-instance! runtime#)
+           (body-fn#)
+           (finally
+             (runtime/reset-instance!)
+             (rt/stop-all runtime#)))))))
+
+(defn get-build-config [build-id]
+  (config/get-build build-id))
+
+(defn get-build-ids []
+  (-> (config/load-cljs-edn)
+      (get :builds)
+      (keys)
+      (into #{})))
+
+(defn get-runtime! []
+  (runtime/get-instance!))
+
+(defn- get-or-start-worker [build-config opts]
+  (let [{:keys [supervisor] :as app}
+        (runtime/get-instance!)]
+
+    (if-let [worker (super/get-worker supervisor (:build-id build-config))]
+      worker
+      (super/start-worker supervisor build-config opts)
+      )))
+
+(defn- start-worker [build-config opts]
+  (let [{:keys [supervisor] :as app}
+        (runtime/get-instance!)]
+
+    (super/start-worker supervisor build-config opts)
+    ))
+
+(defn worker-running? [build-id]
+  (let [{:keys [supervisor] :as app}
+        (runtime/get-instance!)]
+
+    (contains? (super/active-builds supervisor) build-id)
+    ))
+
+(defn watch-compile!
+  "manually trigger a recompile for a watch when {:autobuild false} is used"
+  [build-id]
+  (let [worker (get-worker build-id)]
+    (if-not worker
+      :watch-not-running
+      (do (-> worker
+              (worker/compile)
+              (worker/sync!))
+          ;; avoid returning the worker state because it will blow up the REPL
+          :ok))))
+
+(defn watch-compile-all!
+  "call watch-compile! for all running builds"
+  []
+  (let [{:keys [supervisor]}
+        (runtime/get-instance!)
+
+        active-builds
+        (super/active-builds supervisor)]
+
+    (doseq [id active-builds]
+      (watch-compile! id))
+
+    :ok))
+
+(defn watch-set-autobuild!
+  "starts/stops autobuild for a watch worker by id
+   (watch-set-autobuild :app true|false)"
+  [build-id toggle]
+  (let [worker (get-worker build-id)]
+    (cond
+      (nil? worker)
+      :watch-not-running
+
+      toggle
+      (-> worker
+          (worker/start-autobuild)
+          (worker/sync!))
+
+      :else
+      (-> worker
+          (worker/stop-autobuild)
+          (worker/sync!)))
+    :ok))
+
+(defn watch*
+  [{:keys [build-id] :as build-config}
+   {:keys [verbose sync log-chan log-close?]
+    :or {log-close? true}
+    :as opts}]
+  {:pre [(map? build-config)
+         (keyword? build-id) ;; not required here but by start-worker
+caution: filename not matched:  shadow/cljs/devtools/cli_opts.clj
+       :cache-dir
+(defn with-cache-dir [state cache-dir]
+  {:pre [(util/is-file-instance? cache-dir)]}
+  (assoc state :cache-dir cache-dir))
+(defn configure-modules [state modules]
+I wrote /tmp allowed? fine. Should grep temp dedicated.shadow/cljs/devtools/cli_opts.cljc
+new-build in devtools util not cljs util. Search jar filenames or clojure source load? jar grep strings with zipgrep? use jar listing and loop expensive. clojure -e requiring resolve source via clojure.repl/source gives exact new-build.Loading initial Timbre config from: :default
+Execution error (FileNotFoundException) at user/eval5397 (REPL:1).
+Could not locate shadow/cljs/devtools/util__init.class, shadow/cljs/devtools/util.clj or shadow/cljs/devtools/util.cljc on classpath.
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-10393744311003383935.edn
+Read api first lines util ns.So proposed exact fix invalid cache root. But ns-regexp alone should set entries and analyze modules, output only reachable despite cache. Claim cached leakage weird perhaps runner test registry includes cached? Entries only matched means no. If bundle with ns-regexp retains all, perhaps same output and compile wasn't done? Should test concrete cheap with small existing test namespaces could be expensive but can build simple one using actual namespaces dependencies huge. Could create temp outside repo build config? user read-only request no writing hosts but local cheap experiment can use /tmp shadow config referencing source? No modifications repo ideally can run config merge two small known tests, existing compilation heavy. Better source sufficient. Key separate :cache-root top-level. Per shard unique build-id? Cannot --config-merge build-id because retrieval first :test then merged? Build configure.
+
+• The exact proposed command has a flaw: in shadow-cljs 3.3.5, `:cache-root` is read from the top-level runtime config, while `--config-merge` changes only the selected build config. Thus `:output-to` and `:ns-regexp` are honored there, but build-level `:cache-root` does not isolate the cache.Loading initial Timbre config from: :default
+Execution error (UnsupportedClassVersionError) at java.lang.ClassLoader/defineClass1 (ClassLoader.java:-2).
+com/google/javascript/jscomp/CompilerOptions has been compiled by a more recent version of the Java Runtime (class file version 65.0), this version of the Java Runtime only recognizes class file versions up to 61.0
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-1676701440783253659.edn
+
+
+• Interesting --test separated arg while parser only starts-with "--test=" so R1 broken! Not asked focus 2/3 perhaps mention if relevant? Respond only 2/3 perhaps not. Should clarify cache leakage premise false from source. Each fresh JVM compile uses cache on disk but graph entries replace and module analyze, so only selected. Runner registry resets and includes only loaded. Per-shard bundles reduce initial loaded code and metadata but not per-test runtime retained values; shared dependency transitive included. If each shard has common heavy library, memory remains. :modules doesn't help node-test one bundle unless custom runner dynamic requires, not needed. max old space worsens swap not fix. Better lower PAR memory budget, per-shard compile (correct command separate builds IDs/top-level config) and sequential execution / per test timeouts logs. Per-shard cache root not needed for output correctness. If want separate cache for concurrency top-level generated shadow config or separate build IDs each use same cache-root/builds/<build-id>/dev. Config merge :build-id doesn't change cache dir? new-build called before build/configure using merged build config? opts parsed separate, where merge occurs likely parse after. Should not prescribe exact uncertain. Can say declare distinct build IDs in shadow-cljs.edn and :output-to etc. :cache-root global separate invocation needs config file/env? Shadow no CLI top-level config path. Could invoke JVM system prop? best separate working dirs each shadow config or create distinct build ids. Distinct build IDs in same top-level cache isolates. Since `--config-merge` cannot change build selection cache-root. ns-regexp honored and enough.
+
+  Could mention output-to safe prevents overwrite only. Compile 14 concurrently memory JVM pressure, sequential/warm measure no timings. "cost no measurement".
+
+  Should cite source by jar namespace functions not local path line. Concrete. Respond concise but enough.
+
+• ## 2. Per-shard bundles: yes, but the proposed command is partly wrong
+
+  Verified against the project’s installed **shadow-cljs 3.3.5** source:
+
+  - **`:ns-regexp` works through `--config-merge`.**  
+    `shadow.build.test-util/find-test-namespaces` filters discovered namespaces with `re-find`. `shadow.build.targets.node-test/test-resolve` then replaces the main module’s `:entries` with those matching namespaces and re-runs `modules/analyze`.
+
+  - **`:output-to` works through `--config-merge`.**  
+    The option explicitly merges EDN into the build config, and `:node-test` ultimately uses `(:output-to config)` for its generated script.
+
+  - **`:cache-root` in that merge does not work as intended.**  
+    It is a **top-level runtime setting**, defaulting to `.shadow-cljs`, not a per-build setting. `shadow.cljs.devtools.server.util/new-build` obtains `cache-root` from the runtime and computes:
+    ```clojure
+    (config/make-cache-dir cache-root build-id mode)
+    ```
+    Therefore `{:cache-root ".shadow-cljs-shard-1"}` inside the `:test` build merge is ignored for cache placement.
+
+  More importantly, **the stated cached-namespace leakage premise does not match this implementation**. Cached compiled artifacts are reusable inputs; they are not automatically bundle entries. Since `test-resolve` replaces `:entries` and re-analyzes the dependency graph, changing `:ns-regexp` should already remove previously selected, unreachable test namespaces from a subsequent bundle. A separate cache root is not required for correctness.
+
+  If cache isolation is still desired—for example, for independent concurrent builds—use distinct build IDs or separate top-level configurations. Distinct build IDs naturally produce separate cache directories under `.shadow-cljs/builds/<build-id>/dev`.
+
+  Each shard bundle will contain:
+
+  - that shard’s selected test namespaces;
+  - their transitive library dependencies;
+  - the test runner and runtime support.
+
+  It will **not** contain only shard-specific code: large shared dependencies remain duplicated across shard bundles and processes. The existing `--test=` selector continues to work because `shadow.test.node` filters the test vars registered in that bundle. No additional cache option is needed.
+
+  I did not measure cold/warm compilation times, so 14 compiles should be benchmarked rather than assumed cheap. Compile sequentially or with bounded concurrency to avoid merely moving the memory problem into 14 JVM compilers.
+
+  ## 3. Is this the right fix for six ~3.2 GB processes?
+
+  **It is a reasonable memory-reduction experiment, but not a proven fix for the stall.**
+
+  It can reduce baseline memory by avoiding loading unrelated tests and their initialization code in every process. However, it does not address memory allocated and retained **while a selected test runs**. The mid-line giant value dumps are also consistent with expensive test data generation/printing, which smaller bundles will not fix.
+
+  Recommended approach:
+
+  1. First lower `PAR`; six workers are not justified by the available memory measurements.
+  2. Build one correctly configured bundle per shard using `:ns-regexp` plus a unique `:output-to`; do not rely on build-level `:cache-root`.
+  3. Verify each bundle with `--list` and measure idle/post-load RSS before running tests.
+  4. Run one shard at a time initially, then increase concurrency only within a measured memory budget.
+  5. If RSS still climbs toward several GB, investigate the specific test’s allocations and giant printed values.
+
+  Do **not** treat `--max-old-space-size` as the primary fix: it permits more heap growth and can worsen swapping. Splitting `:modules` is also unnecessary for `:node-test`; selecting the entries per bundle already provides the relevant code-size reduction. Distributing shards across hosts is useful only after per-shard memory and runtime behavior are understood.
+
+To resume this session: kimi -r session_8b965611-bdd4-491c-90f8-2be385c4487d

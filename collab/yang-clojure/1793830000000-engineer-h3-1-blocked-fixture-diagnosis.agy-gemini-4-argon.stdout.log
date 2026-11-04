@@ -1,0 +1,36 @@
+root agent idle; waiting up to 30m0s for 1 background task(s)
+Baseline verification of [`test-kernel-differential-gate`](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle_test.clj#L2362-L2441) completed with the expected 661 assertions and 1 failure (`{:pass 100, :recorded-upstream-failure 2, :recorded-deviation 2, :blocked 2}`, 58 unexercised arities).
+
+I have launched the bounded H3-1 diagnostic runner (background task `task-165`) to collect the four-cell measurements, phase boundaries, observer step-counter behavior, exhaustion snapshots, instrumented vs. uninstrumented overhead, and finite 2M / 4M / 8M trials. Waiting for it to finish.
+Running a quick bytecode-owner decode (`task-248`) to attach exact compiler/protocol helper names to the semantic PC hotspot table before assembling the H3-1 diagnostic packet.
+Running the post-check focused kernel differential gate test (`task-287`) to confirm the baseline failure count (`1` failure, `0` errors) is unchanged before committing and pushing `hardening3-h3-1`.
+Completed **H3-1** on branch `hardening3-h3-1` (commit `8a1ca4b7`, pushed to `origin/hardening3-h3-1`, not merged).
+
+### Deliverable
+- Diagnostic packet: [slice9-h3-1-blocked-fixtures.md](file:///Users/sto/workspace/datomworld-h31/docs/slice9-h3-1-blocked-fixtures.md)
+- Restored H3-0 declarations resource omitted from `git add` in `1fd7236be`: [slice9_declarations.edn](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle/slice9_declarations.edn) (verified against [`kernel-declarations`](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle_test.clj#L1934-L1956), [`test-kernel-acceptance-counting`](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle_test.clj#L2064-L2186), and [`test-kernel-gate-evidence-writer-round-trip`](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle_test.clj#L2446-L2471))
+- Zero edits to `src/cljc/`, [kernel_gate.edn](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle/kernel_gate.edn), [slice9_evidence.edn](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle/slice9_evidence.edn), or [latte_oracle_test.clj](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle_test.clj); zero coverage credit claimed from diagnostic runs.
+
+### Key Findings Summary
+
+1. **Four-Cell Comparison & Authorized `2M / 4M / 8M` Trials**
+   - **`:check-accepted`** (`720` traced kernel calls, `2,292` total §8.10 guest calls):
+     - `:c-semantic` **completes at `1,207,270` steps** (`20,715` setup + `1,186,555` exec) under `2M` and agrees with `A` and `B`.
+     - `:c-walker` reaches **`693 / 720` calls (`96.25%`)** at `2,000,000` steps (inside the final NbE quotation of `gate-norm-beta-eq?`) and **completes at `2,086,120` steps** (`+4.31%` over `2M`) under the `4M` trial, agreeing with `A`, `B`, and `:c-semantic`.
+   - **`:check-assume-have-discharge`** (`2,360` traced kernel calls, `9,598` total §8.10 guest calls):
+     - `:c-semantic` advances monotonically (`927` calls at `2M` -> `1,924` at `4M`) and **completes at `5,030,283` steps** (`20,824` setup + `5,009,459` exec) under the `8M` trial, agreeing with `A` and `B`.
+     - `:c-walker` advances monotonically (`459` calls at `2M` -> `1,120` at `4M` -> **`2,219 / 2,360` calls [`94.03%`]** at `8M`, already inside the 4th/final `gate-norm-beta-eq?`). Using the invariant `1.7280x` walker-to-semantic step ratio across completing fixtures, `:c-walker` completion projects to **`~8,692,000` steps**.
+
+2. **Ranked Root Causes**
+   - **H1 — Primary (`95.1%–95.7%` of execution steps): §8.10 Common-Call + Outcome Lowering Amplification** in [`compile-guest-call`](file:///Users/sto/workspace/datomworld-h31/src/cljc/yang/clojure.cljc#L1200-L1315), [`call-entry`](file:///Users/sto/workspace/datomworld-h31/src/cljc/yang/clojure.cljc#L1055-L1098), [`dsg__admitted?`](file:///Users/sto/workspace/datomworld-h31/src/cljc/yang/clojure.cljc#L2095-L2107), [`dsg__assoc`](file:///Users/sto/workspace/datomworld-h31/src/cljc/yang/clojure.cljc#L2146-L2154), and [`yang.call/invoke`](file:///Users/sto/workspace/datomworld-h31/src/cljc/yang/core/call.cljc#L109-L119) / [`yang.call/valid-invocation?`](file:///Users/sto/workspace/datomworld-h31/src/cljc/yang/core/call.cljc#L67-L84). Marginal cost per guest call rose from **`36.0 -> 538.0` semantic steps (`14.94x`)** and **`65.0 -> 934.0` walker steps (`14.37x`)** on non-tail calls (`37.0 -> 499.0` / `69.0 -> 860.0` on tail calls). In `:check-assume-have-discharge`, actual LaTTe kernel `defn` entry bodies consume only **`32,700` semantic instructions (`0.65%`)**, whereas the static `PC 0..850` `dsg__*` + `yang.call/*` prelude alone consumes **`4,083,545` instructions (`81.52%`)** plus `~681k` (`13.60%`) in per-call-site bridges.
+   - **H2 — Secondary (`:check-accepted` lane split): `1.7280x` Walker-vs-Semantic Step Granularity** between [`cesk-transition`](file:///Users/sto/workspace/datomworld-h31/src/cljc/yin/vm/ast_walker.cljc#L102-L210) and [`vm-hot*`](file:///Users/sto/workspace/datomworld-h31/src/cljc/yin/vm/semantic.cljc#L455-L535) on identical UAST.
+   - **H3 — Observer & Harness Audit**: [`run-bounded`](file:///Users/sto/workspace/datomworld-h31/test/yang/clojure_test.clj#L1942-L1948) resets `n = 0` per `(run consumer)` invocation in [`run-on-stream`](file:///Users/sto/workspace/datomworld-h31/src/cljc/dao/stream/observer.cljc#L199-L247), but [`kernel-c`](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle_test.clj#L1893-L1931) queues one batch (`:run-calls = 1`), with setup taking only `1.04%–1.79%` of `2M`. Separately, [`run-bounded`](file:///Users/sto/workspace/datomworld-h31/test/yang/clojure_test.clj#L1946) omits `:consumer v` on exhaustion, causing [`consumer-left-by-run`](file:///Users/sto/workspace/datomworld-h31/src/cljc/dao/stream/observer.cljc#L192-L196) to fall back to step `0`.
+   - **H4 — Falsified**: Trace instrumentation overhead is only `6.00` semantic / `11.00` walker steps per traced call (`+0.28%` to `+0.38%`), changing zero dispositions.
+
+3. **Recommended Next Round**
+   - **`compiler fix`** targeting intra-unit / admitted Clojure call lowering in [clojure.cljc](file:///Users/sto/workspace/datomworld-h31/src/cljc/yang/clojure.cljc) (paired with a 1-line **`harness fix`** adding `:consumer v` at [clojure_test.clj:1946](file:///Users/sto/workspace/datomworld-h31/test/yang/clojure_test.clj#L1946)), bringing all 106 fixtures well inside the existing `2,000,000` budget on both lanes. Full contingent **`budget proposal`** calculations (`12,000,000` uniform bound = `1.38x` worst-case walker headroom) are included in §6.2 of [slice9-h3-1-blocked-fixtures.md](file:///Users/sto/workspace/datomworld-h31/docs/slice9-h3-1-blocked-fixtures.md#L406-L420) for architect review.
+
+### Verification
+- Pre-check & post-check [`test-kernel-differential-gate`](file:///Users/sto/workspace/datomworld-h31/test/yang/latte_oracle_test.clj#L2400-L2444): `Ran 1 tests containing 661 assertions. 1 failures, 0 errors` (the expected `:blocked` gate assertion).
+- `clojure -M:kondo --lint test/yang/latte_oracle/slice9_declarations.edn test/yang/latte_oracle_test.clj`: `0 errors, 0 warnings`.
+DISPATCH_RC=0

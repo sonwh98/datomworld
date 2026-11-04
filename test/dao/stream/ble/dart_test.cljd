@@ -1,0 +1,62 @@
+(ns dao.stream.ble.dart-test
+  "The Flutter seam (dao.stream.ble/dart) in the flutter_test sandbox,
+   where every plugin method channel is unregistered: each platform
+   call completes with null or fails, and none of it is a device. What
+   the sandbox can prove is the seam contract's shape and the laws that
+   hold without a radio -- send with no link, close idempotent, every
+   deposited event inside the declared set. The compile of this
+   namespace is also the compile check of the plugin interop; scans,
+   links and frames need real radios and are the seam's device-test
+   plan."
+
+  (:require [clojure.test :refer [deftest is testing]]
+            ["dart:core" :as core]
+            [dao.stream :as stream]
+            [dao.stream.ble :as ble]
+            [dao.stream.ble.dart :as dart]
+            [dao.stream.ringbuffer :as ringbuffer])
+  (:import ["dart:typed_data" Uint8List]))
+
+
+(defn- ring
+  [capacity]
+  (:dao.stream/handle
+    (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type
+                         ringbuffer/capacity-key capacity})))
+
+
+(defn- values
+  [h]
+  (loop [c (:dao.stream/cursor (stream/cursor h stream/anchor-oldest))
+         acc []]
+    (let [r (stream/next h c)]
+      (if (= :dao.stream/ok (:dao.stream/outcome r))
+        (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
+        acc))))
+
+
+(deftest the-seam-contract-holds-without-a-radio
+  (let [traffic (ring 64)
+        seam (dart/bind! {:identity "ble-test-node"
+                          :deposit traffic
+                          :now-ms #(.-millisecondsSinceEpoch
+                                     (core/DateTime.now))})]
+    (testing "the bind move answers the seam contract at once"
+      (is (fn? (:send! seam)))
+      (is (fn? (:close! seam)))
+      (is (fn? (:radio! seam)))
+      (is (fn? (:state seam))))
+    (testing "a send with no link is the clean transport-error"
+      (is (= :dao.stream/transport-error
+             (:dao.stream/outcome
+               ((:send! seam) "peer-nowhere" (Uint8List.fromList [1]))))))
+    (testing "every deposited event is one of the declared lifecycle events"
+      (is (every? #(contains? ble/lifecycle-events %)
+                  (->> (values traffic)
+                       (filter ble/lifecycle-event?)
+                       (mapv :dao.stream.ble/event)))))
+    (testing "close answers ok and is idempotent, and deposits closed"
+      ((:close! seam))
+      ((:close! seam))
+      (is (= :dao.stream.ble/closed
+             (:dao.stream.ble/event (last (values traffic))))))))

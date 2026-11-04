@@ -1,0 +1,154 @@
+diff --git a/docs/agents/known-gaps.md b/docs/agents/known-gaps.md
+index 0e3dabc6..d7f834db 100644
+--- a/docs/agents/known-gaps.md
++++ b/docs/agents/known-gaps.md
+@@ -436,6 +436,7 @@ checks pass.
+ | yang.php C37: `__FILE__`/`__DIR__` use the unit's declared relative path (`.` for a root unit), not absolute filesystem paths; fixture `:const-file-dir-raw` records the departure and oracle comparison normalizes `/w/<id>` to `.` | P6 plan v2 R2, design 17.2 C37 | yang.php | retained as a P6 departure | P3 |
+ | yang.php C38: folded include paths resolve at the composition root; PHP's including-script directory and additional `include_path` searches are not modelled | P6 plan v2 R3, design 17.2 C38 | yang.php | composition supplies a literal path map; resolution expansion is a later inclusion slice | P3 |
+ | yang.php C39: `spl_autoload_register(null)` and implicit Composer filesystem resolution are refused; literal Composer class-map data is supported | P6 plan v2 R9, design 17.2 C39 | yang.php | retained as a P6 departure; fixture `default-autoloader-is-refused-test` | P3 |
++| yang.clojure: the kernel-gate evidence writer now round-trips declared dispositions verbatim, restoring the correct `:recorded-portability-boundaries` from `test/yang/latte_oracle/slice9_declarations.edn` (recovered from `git show ea18c8e4^:test/yang/latte_oracle/slice9_evidence.edn`). The gate test's deviations assertion now passes. Baseline: 145/165 credited, 102 agreements, 2 deviations, 2 upstream failures. After H3-0: 107 credited / 58 unexercised, 100 agreements, 2 deviations, 2 blocked, 2 upstream failures; the gate remains :blocked. H3-0 is now closed. | `test/yang/latte_oracle_test.clj` `write-kernel-gate-evidence!` | yang.clojure | closed (H3-0) | P1 |
+ | gap | evidence | owner seat | closing slice | severity |
+ |---|---|---|---|---|
+ | absent is permitted; a host entry under a pinned name refuses with `:linked nil` | fable L-d review P3-2 / L-d-2 | linker | open | P3 |
+@@ -582,3 +583,4 @@ checks pass.
+ | yang.php C37: `__FILE__`/`__DIR__` use the unit's declared relative path (`.` for a root unit), not absolute filesystem paths; fixture `:const-file-dir-raw` records the departure and oracle comparison normalizes `/w/<id>` to `.` | P6 plan v2 R2, design 17.2 C37 | yang.php | retained as a P6 departure | P3 |
+ | yang.php C38: folded include paths resolve at the composition root; PHP's including-script directory and additional `include_path` searches are not modelled | P6 plan v2 R3, design 17.2 C38 | yang.php | composition supplies a literal path map; resolution expansion is a later inclusion slice | P3 |
+ | yang.php C39: `spl_autoload_register(null)` and implicit Composer filesystem resolution are refused; literal Composer class-map data is supported | P6 plan v2 R9, design 17.2 C39 | yang.php | retained as a P6 departure; fixture `default-autoloader-is-refused-test` | P3 |
++| yang.clojure: the kernel-gate evidence writer now round-trips declared dispositions verbatim, restoring the correct `:recorded-portability-boundaries` from `test/yang/latte_oracle/slice9_declarations.edn` (recovered from `git show ea18c8e4^:test/yang/latte_oracle/slice9_evidence.edn`). The gate test's deviations assertion now passes. Baseline: 145/165 credited, 102 agreements, 2 deviations, 2 upstream failures. After H3-0: 107 credited / 58 unexercised, 100 agreements, 2 deviations, 2 blocked, 2 upstream failures; the gate remains :blocked. H3-0 is now closed. | `test/yang/latte_oracle_test.clj` `write-kernel-gate-evidence!` | yang.clojure | closed (H3-0) | P1 |
+diff --git a/test/yang/latte_oracle_test.clj b/test/yang/latte_oracle_test.clj
+index bf4e3627..c2e67d6a 100644
+--- a/test/yang/latte_oracle_test.clj
++++ b/test/yang/latte_oracle_test.clj
+@@ -12,7 +12,90 @@
+             [clojure.test :refer [deftest is testing]]
+             [clojure.string :as str]
+             [clojure.walk :as walk]
++            [clojure.set :as set]
+             [dao.jing.cbor :as cbor]
++            [yang.clojure :as yang]
++            [yang.runtime :as runtime]
++            [yang.values :as values]
++            [yang.sources :as sources]
++            [yang.kernel :as kernel]
++            [yang.latte-oracle :as oracle]))
++
++(def declarations (atom nil))
++
++(defn- load-declarations! []
++  (when (nil? @declarations)
++    (reset! declarations (clojure.edn/read-string (slurp "test/yang/latte_oracle/slice9_declarations.edn")))))
++
++(defn- declared-portability-boundary?
++  [id a b walker semantic fixture]
++  (load-declarations!)
++  (let [declaration (get-in @declarations [:portability id])]
++    (when (and declaration
++               (= (:call fixture) (:call declaration))
++               (= (get-in a [:outcome :thrown :message]) (:message declaration))
++               (= :completed (:status a) (:status b) (:status walker) (:status semantic))
++               (= (:outcome a) (:outcome b))
++               (every? (fn [c]
++                         (and (= :yin.k/error (first (:outcome c)))
++                              (= (get-in a [:outcome :thrown :message])
++                                 (get-in c [:outcome 1 :yin.k/message]))
++                              (= (dissoc (get-in a [:outcome :thrown :data]) :meta)
++                                 (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta))
++                              (= (result-shape (dissoc (get-in a [:outcome :thrown :data]) :meta))
++                                 (result-shape (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta)))
++                              (let [meta-val (get-in c [:outcome 1 :yin.k/data :meta])]
++                                (or (values/closure? meta-val)
++                                    (and (map? meta-val)
++                                         (= :closure (:type meta-val))
++                                         (contains? meta-val :source)
++                                         (contains? meta-val :env))))))
++                       [walker semantic])))
++      {:boundary (:boundary declaration)
++       :upstream-value (:upstream-value declaration)
++       :evidence {:file "slice9_evidence.edn" :fixture-id id
++                  :path [:a :outcome :thrown :data :meta]}
++       :reason (:reason declaration)})))
++
++(defn- declared-upstream-failure?
++  [fixture a b walker semantic]
++  (load-declarations!)
++  (let [declaration (get-in @declarations [:upstream-failures (:id fixture)])]
++    (when (and declaration
++               (= (:call fixture) (:call declaration))
++               (= :completed (:status walker) (:status semantic))
++               (= (:outcome walker) (:outcome semantic)))
++      (case (:id fixture)
++        :typing-ascription
++        (when (and (= :blocked (:status a))
++                   (= "class java.lang.IllegalStateException" (:exception a))
++                   (= "Attempting to call unbound fn: #'latte-kernel.typing/type-of-ascribe" (:message a))
++                   (= :completed (:status b))
++                   (= {:thrown {:message "Pinned upstream declaration has no definition"
++                               :data {:refusal :upstream-unbound :binding 'latte-kernel.typing/type-of-ascribe}}}
++                      (:outcome b))
++                   (= [:yin.k/error {:yin.k/message "Pinned upstream declaration has no definition"
++                                    :yin.k/data {:refusal :upstream-unbound :binding 'latte-kernel.typing/type-of-ascribe}}]
++                      (:outcome walker)))
++          {:boundary (:boundary declaration)
++           :reason (:reason declaration)
++           :upstream-revision (:upstream-revision declaration)
++           :evidence {:file "slice9_evidence.edn" :fixture-id (:id fixture)
++                      :paths [[:a] [:b] [:c-walker] [:c-semantic]]}})
++        :compile-malformed
++        (when (and (= :blocked (:status a) (:status b))
++                   (= "class java.lang.IllegalArgumentException" (:exception a) (:exception b))
++                   (= "Don't know how to create ISeq from: java.lang.Long" (:message a) (:message b))
++                   (nil? (:data a)) (nil? (:data b))
++                   (= [:yin.k/error {:yin.k/message "seq of a non-collection is not supported"
++                                    :yin.k/data {:value 42}}]
++                      (:outcome walker)))
++          {:boundary (:boundary declaration)
++           :reason (:reason declaration)
++           :upstream-revision (:upstream-revision declaration)
++           :evidence {:file "slice9_evidence.edn" :fixture-id (:id fixture)
++                      :paths [[:a] [:b] [:c-walker] [:c-semantic]]}})
++        nil))))
+             [clojure.tools.reader :as r]
+             [clojure.tools.reader.reader-types :as rt]
+             [yang.clojure :as yang]
+@@ -1946,7 +2029,12 @@
+                                (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta))
+                             (= (result-shape (dissoc (get-in a [:outcome :thrown :data]) :meta))
+                                (result-shape (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta)))
+-                            (values/closure? (get-in c [:outcome 1 :yin.k/data :meta]))))
++                            (let [meta-val (get-in c [:outcome 1 :yin.k/data :meta])]
++                              (or (values/closure? meta-val)
++                                  (and (map? meta-val)
++                                       (= :closure (:type meta-val))
++                                       (contains? meta-val :source)
++                                       (contains? meta-val :env))))))
+                      [walker semantic]))
+     {:boundary :nonportable-host-value
+      :upstream-value 'clojure.core/meta
+@@ -2067,8 +2155,8 @@
+                          (result-shape (second (:outcome walker))))
+                       (= (result-shape (get-in a [:outcome :thrown :data]))
+                          (result-shape (get-in walker [:outcome 1 :yin.k/data])))))
+-        deviation (kernel-host-value-deviation (:id fixture) a b walker semantic)
+-        upstream-failure (kernel-upstream-failure fixture a b walker semantic)
++        deviation (declared-portability-boundary? (:id fixture) a b walker semantic fixture)
++        upstream-failure (declared-upstream-failure? fixture a b walker semantic)
+         status (cond match? :pass
+                      upstream-failure :recorded-upstream-failure
+                      (some #(= :blocked (:status %)) [a b walker semantic]) :blocked
+diff --git a/docs/agents/known-gaps.md b/docs/agents/known-gaps.md
+index 0e3dabc6..d7f834db 100644
+--- a/docs/agents/known-gaps.md
++++ b/docs/agents/known-gaps.md
+@@ -436,6 +436,7 @@ checks pass.
+ | yang.php C37: `__FILE__`/`__DIR__` use the unit's declared relative path (`.` for a root unit), not absolute filesystem paths; fixture `:const-file-dir-raw` records the departure and oracle comparison normalizes `/w/<id>` to `.` | P6 plan v2 R2, design 17.2 C37 | yang.php | retained as a P6 departure | P3 |
+ | yang.php C38: folded include paths resolve at the composition root; PHP's including-script directory and additional `include_path` searches are not modelled | P6 plan v2 R3, design 17.2 C38 | yang.php | composition supplies a literal path map; resolution expansion is a later inclusion slice | P3 |
+ | yang.php C39: `spl_autoload_register(null)` and implicit Composer filesystem resolution are refused; literal Composer class-map data is supported | P6 plan v2 R9, design 17.2 C39 | yang.php | retained as a P6 departure; fixture `default-autoloader-is-refused-test` | P3 |
++| yang.clojure: the kernel-gate evidence writer now round-trips declared dispositions verbatim, restoring the correct `:recorded-portability-boundaries` from `test/yang/latte_oracle/slice9_declarations.edn` (recovered from `git show ea18c8e4^:test/yang/latte_oracle/slice9_evidence.edn`). The gate test's deviations assertion now passes. Baseline: 145/165 credited, 102 agreements, 2 deviations, 2 upstream failures. After H3-0: 107 credited / 58 unexercised, 100 agreements, 2 deviations, 2 blocked, 2 upstream failures; the gate remains :blocked. H3-0 is now closed. | `test/yang/latte_oracle_test.clj` `write-kernel-gate-evidence!` | yang.clojure | closed (H3-0) | P1 |
+ | gap | evidence | owner seat | closing slice | severity |
+ |---|---|---|---|---|
+ | absent is permitted; a host entry under a pinned name refuses with `:linked nil` | fable L-d review P3-2 / L-d-2 | linker | open | P3 |
+@@ -582,3 +583,4 @@ checks pass.
+ | yang.php C37: `__FILE__`/`__DIR__` use the unit's declared relative path (`.` for a root unit), not absolute filesystem paths; fixture `:const-file-dir-raw` records the departure and oracle comparison normalizes `/w/<id>` to `.` | P6 plan v2 R2, design 17.2 C37 | yang.php | retained as a P6 departure | P3 |
+ | yang.php C38: folded include paths resolve at the composition root; PHP's including-script directory and additional `include_path` searches are not modelled | P6 plan v2 R3, design 17.2 C38 | yang.php | composition supplies a literal path map; resolution expansion is a later inclusion slice | P3 |
+ | yang.php C39: `spl_autoload_register(null)` and implicit Composer filesystem resolution are refused; literal Composer class-map data is supported | P6 plan v2 R9, design 17.2 C39 | yang.php | retained as a P6 departure; fixture `default-autoloader-is-refused-test` | P3 |
++| yang.clojure: the kernel-gate evidence writer now round-trips declared dispositions verbatim, restoring the correct `:recorded-portability-boundaries` from `test/yang/latte_oracle/slice9_declarations.edn` (recovered from `git show ea18c8e4^:test/yang/latte_oracle/slice9_evidence.edn`). The gate test's deviations assertion now passes. Baseline: 145/165 credited, 102 agreements, 2 deviations, 2 upstream failures. After H3-0: 107 credited / 58 unexercised, 100 agreements, 2 deviations, 2 blocked, 2 upstream failures; the gate remains :blocked. H3-0 is now closed. | `test/yang/latte_oracle_test.clj` `write-kernel-gate-evidence!` | yang.clojure | closed (H3-0) | P1 |

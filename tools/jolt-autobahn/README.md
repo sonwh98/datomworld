@@ -1,8 +1,10 @@
 # J6 Autobahn harness preparation
 
-Status: executable harness preparation; **not a WebSocket adapter and not a
-conformance claim**. Gate policy below is an owner-review proposal dated
-2026-10-27. Neither this directory nor a green smoke report closes J6.
+Status: executable harness plus the J6f launcher; **not a WebSocket adapter of
+its own and not a conformance claim**. The gate policy below was proposed
+2026-10-27, re-pinned 2026-10-28 (J6a), and is ratified by the Architect under
+owner delegation (2026-10-28); the owner may overrule. Neither this directory
+nor a green smoke report closes J6.
 
 Authorities: [jolt implementation plan](../../docs/design/yin.repl-jolt-implementation.md)
 §9.6/§10.1 and [dao.stream.ws](../../docs/design/dao.stream.ws.md).
@@ -100,13 +102,13 @@ and runner refuse to knowingly use this stub for the proposed full gate.
 The driver cannot detect a renamed/disguised stub: real gate provenance and
 production-closure inspection remain mandatory.
 
-## 3. Case inventory, exceptions and report threshold (proposal)
+## 3. Case inventory, exceptions and report threshold (ratified 2026-10-28)
 
 [triage.md](triage.md) has **every one of the 517 case IDs**, its class,
 description and reason. `cases.json` is the corresponding machine policy.
 No wildcard selection or silent skip is used.
 
-| Group | Count | Proposed treatment, both roles |
+| Group | Count | Treatment, both roles |
 |---|---:|---|
 | 1 framing | 16 | Must pass |
 | 2 ping/pong | 11 | Must pass |
@@ -151,8 +153,8 @@ present in the pinned per-case report, keyed by received opcode (JSON string
 keys, so `"10"`); a missing field fails. Whether the pre-close echo completes
 or is cut is not asserted.
 
-Six rows cover the three cases in both roles. These exceptions are **not
-owner-approved yet**.
+Six rows cover the three cases in both roles. The exception policy is ratified
+by the Architect under owner delegation (2026-10-28); the owner may overrule.
 
 Strict threshold: every selected case present exactly once, correct agent and
 role, every ordinary `behavior` and `behaviorClose` exactly `OK`; only the
@@ -191,17 +193,36 @@ evidence fails. The exception path is exercised by synthetic **policy tests**,
 not claimed as a passing real-adapter close-code test. Raw reports are build
 artifacts, not source files. A failing prep does not justify loosening policy.
 
-Real-adapter invocation replaces the command, uses `--mode gate-proposal`, and
-records its production test bounds and native platform in the run evidence.
-It is intentionally not runnable until J6 supplies that executable.
+## Launch routes (J6f)
 
-## 5. Proposed J6 amendment for owner ruling
+`tools/jolt-autobahn/launch.sh <role> <agent>` is the only entry point: it calls
+`harness.py run`, which spawns the testee (`src/dev/jolt_autobahn_testee.clj`, the
+C14 echo shape over the production adapter), waits for its listener (the readiness
+barrier, with the child-exited guard), starts the role-correct Dockerized wstest
+with the generated `spec.json`, evaluates, and refuses stale report dirs. Server
+role: the suite dials in via `--network host`; client role: the suite's server is
+published on the loopback port. Results land under
+`tools/jolt-autobahn/results/<agent>/<mode>-<role>-<stamp>/`.
 
-Before J6 closes: owner approves this pinned 517-case classification and the
-six exact exception rows (or requests a revision); native jolt **client and
-server** each execute all 301 selected cases on **macOS arm64 and Linux
-x86_64** with the strict threshold above (1,204 selected results, no unexplained
-skips). Retain raw/summary reports, commit/toolchain/OS/architecture/image IDs,
+`tools/jolt-autobahn/remote-testee.sh [port] [logfile]` runs just the testee on a
+Linux server for a suite that dials in over the network: it waits for the testee's
+`READY` line (failing fast on `FAILED` or early death), then waits on the process;
+the harness's SIGTERM is the defined stop.
+
+`tools/jolt-autobahn/test-readiness.sh` exercises the barrier end to end through
+the testee's `J6_DELAY_BIND_MS` and `J6_FORCE_BIND_FAIL` hooks. Run these with
+Docker and the test build present; `bb autobahn:jolt <role> <agent>` wraps
+`launch.sh`.
+
+## 5. The J6 gate ratified (policy ratified 2026-10-28 by the Architect under owner delegation; the owner may overrule)
+
+Qualification requirement:
+
+Before J6 closes: the pinned 517-case classification and the six exact
+exception rows stand as ratified; native jolt **client and server** each
+execute all 301 selected cases on **macOS arm64 and Linux x86_64** with the
+strict threshold above (1,204 selected results, no unexplained skips).
+Retain raw/summary reports, commit/toolchain/OS/architecture/image IDs,
 actual resource bounds, runtime duration and closure inspection. N/A cases
 stay listed with reasons. Publish the resulting case list in the J6 brief.
 

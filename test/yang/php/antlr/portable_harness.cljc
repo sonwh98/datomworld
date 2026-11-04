@@ -114,10 +114,12 @@
 (defn render
   "The text a unit prints (ASCII here: the carrier is the text), then, for an
    uncaught error, the fatal line (no path)."
-  [{:php/keys [out uncaught]}]
+  [{:php/keys [out uncaught fatal]}]
   (str out
        (when uncaught
-         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))))
+         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))
+       (when fatal
+         (str "PHP Fatal error:  " fatal))))
 
 
 (defn lower-through-stage

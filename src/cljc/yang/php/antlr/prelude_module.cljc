@@ -178,6 +178,64 @@
     [php/dict-capture
      (fn [d name]
        (if (= d :php/globals) (php/global-capture name) (php/local-capture (php/scope-cell d name))))]
+    [php/name-start?
+     (fn [c]
+       (if (if (>= c 97) (<= c 122) false) true
+           (if (if (>= c 65) (<= c 90) false) true (if (= c 95) true (>= c 128)))))]
+    [php/name-rest?
+     (fn [c] (if (php/name-start? c) true (if (>= c 48) (<= c 57) false)))]
+    [php/valid-name-at
+     (fn [cs i n]
+       (if (< i n) (if (php/name-rest? (get cs i)) (php/valid-name-at cs (+ i 1) n) false) true))]
+    [php/valid-name?
+     (fn [s]
+       (let [cs (data/str->code-points s) n (data/count cs)]
+         (if (= n 0) false (if (php/name-start? (get cs 0)) (php/valid-name-at cs 1 n) false))))]
+    [php/extract-loop
+     (fn [d arr flags prefix i n count]
+       (if (< i n)
+         (let [k (get (php/array-order arr) i)
+               base (php/to-string k)
+               name (if (= flags 3) (data/str-concat prefix base)
+                        (if (if (= flags 2) (php/dict-isset? d base) false)
+                          (data/str-concat prefix base) base))
+               write? (if (php/valid-name? name)
+                        (if (= flags 1) (not (php/dict-isset? d base)) true)
+                        false)]
+           (do (if write? (php/dict-set! d name (php/addref (php/array-get arr k))) :php/null)
+               (php/extract-loop d arr flags prefix (+ i 1) n (if write? (+ count 1) count))))
+         count))]
+    [php/bi-extract
+     (fn [args d]
+       (do (php/arity-between "extract" args 1 3 "at least 1")
+           (let [arr (php/arg-array (get args 0) "extract" 1 "array")
+                 flags (php/to-int (php/arg-or args 1 0))]
+             (if (= (integer/bit-and flags 256) 256)
+               (php/throw-error "Error" "extract(EXTR_REFS) is not supported (corner C11)")
+               (php/extract-loop d arr flags (php/to-string (php/arg-or args 2 ""))
+                                 0 (php/array-count arr) 0)))))]
+    [php/compact-name
+     (fn [d name out]
+       (let [nm (php/to-string name)]
+         (if (php/dict-isset? d nm) (php/array-put out nm (php/addref (php/dict-peek d nm))) out)))]
+    [php/compact-arg
+     (fn [d v out]
+       (if (= (php/kind v) :array)
+         (php/compact-array d v 0 (php/array-count v) out)
+         (php/compact-name d v out)))]
+    [php/compact-array
+     (fn [d arr i n out]
+       (if (< i n)
+         (php/compact-array d arr (+ i 1) n
+                            (php/compact-arg d (php/array-get arr (get (php/array-order arr) i)) out))
+         out))]
+    [php/compact-loop
+     (fn [d args i n out]
+       (if (< i n) (php/compact-loop d args (+ i 1) n (php/compact-arg d (get args i) out)) out))]
+    [php/bi-compact
+     (fn [args d]
+       (do (php/arity-between "compact" args 1 1000000 "at least 1")
+           (php/compact-loop d args 0 (data/count args) (php/empty-array))))]
     [php/ctx-this
      (fn [f]
        (if (= f :php/null)

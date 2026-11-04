@@ -22,7 +22,9 @@
 
 
 (def ^:private published-php
-  (delay (h/publish-guest-module! (php-prelude/module-spec (h/registry)))))
+  (delay (h/publish-guest-module!
+           (php-prelude/module-spec (h/registry)
+                                    (:call-address @h/published)))))
 
 
 (defn- source-module
