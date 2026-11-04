@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe, bailian)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe, qwen)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -107,7 +107,7 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-| bailian      | `~/.bailian` (auth/config); `~/.claude-qwen` (wrapper's Claude store) | caller UUID via `--session-id` (through the `qwen` wrapper) | `--resume <uuid>` |
+| qwen         | `~/.claude-qwen` (wrapper's Claude store); account config in `~/.bailian` | caller UUID via `--session-id` | `--resume <uuid>` |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
@@ -286,15 +286,9 @@ shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
 moves (the muse lane has swung between geo-restricted, windowed, and live
 several times — that file, not this one, is the current authority).
 
-**Bailian routing:** `bl` (alias `bailian`) is Alibaba Cloud Model Studio's
-CLI — npm `bailian-cli`, v2.8.2, installed 2026-11-04 (Node ≥ 18.17.0; 12
-`bailian-*` skills via `bl skill init`). Auth: the owner's **Token Plan**
-key (`sk-sp-…`, ap-southeast-1) is validated and stored via
-`bl auth login --config token-plan --api-key <key>`; check with
-`bl auth status --output json`. Measured dispatch form (2026-11-04, OK
-rc=0 end to end): the **`qwen` wrapper** (`~/.local/bin/qwen`, same family
-as `claude-cloud`/`glm`/`deepseek`) — it points Claude Code at the
-Token Plan's Anthropic-compatible endpoint
+**Qwen routing:** the `qwen` wrapper (`~/.local/bin/qwen`, same family as
+`claude-cloud`/`glm`/`deepseek`) points Claude Code at Alibaba Cloud Model
+Studio's Anthropic-compatible endpoint on the owner's **Token Plan**
 `https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`
 via per-invocation `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` with an
 isolated `CLAUDE_CONFIG_DIR=~/.claude-qwen`, so plain `claude` defaults
@@ -303,8 +297,13 @@ are untouched. Invoke it with the claude-family conventions
 Measured model catalog on this plan (anything else returns "Model not
 exist"): **`qwen3.8-max`** (flagship) and **`qwen3.8-flash`** (fast tier)
 — no coder variants; tier mapping is opus→3.8-max, sonnet/haiku/subagent
-→3.8-flash. Gateway region matters: cn-beijing returns 403 invalid
-api-key for this key; only the key's own region works.
+→3.8-flash. Override the default model with `MODEL=<name> qwen …`.
+Gateway region matters: cn-beijing returns 403 invalid api-key for this
+key; only the key's own region works. Account management (auth, usage,
+image/video, knowledge bases) runs through the separate `bl` CLI
+(npm `bailian-cli`, key registered via `bl auth login --config token-plan
+--api-key <key>`, status via `bl auth status --output json`) — `bl` is
+NOT a coding-delegate lane; the `qwen` wrapper is the only coding path.
 
 > [!CAUTION]
 > **`bl config agent --agent claude-code` is a global takeover — do not

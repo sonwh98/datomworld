@@ -51,10 +51,10 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +=================+========================================+=============================================================================================================+
 | agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| bailian         | Token Plan subscription                | Invoke via the `qwen` wrapper (`~/.local/bin/qwen`; claude-family conventions — `--session-id`, `-p`).       |
+| qwen            | Token Plan subscription                | Invoke via the `qwen` wrapper (`~/.local/bin/qwen`; claude-family conventions — `--session-id`, `-p`).       |
 |                 | (Alibaba Cloud Model Studio,           | Measured catalog (2026-11-04, ap-southeast-1): `qwen3.8-max` (flagship) and `qwen3.8-flash` (fast tier);     |
-|                 | ap-southeast-1)                        | no coder variants. Strengths: coding rounds through Claude Code on Qwen; the `bl` CLI also covers            |
-|                 |                                        | image/video, knowledge/RAG, and usage inspection. Routing status: available NOW (end-to-end probe OK rc=0).  |
+|                 | ap-southeast-1)                        | no coder variants. Strengths: coding rounds through Claude Code on Qwen. Routing status: available NOW       |
+|                 |                                        | (end-to-end probe OK rc=0). Account management runs through the `bl` CLI, which is not a delegate lane.      |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude          | Inactive / Cancelled                   | Subscription stopped by owner. Do not route tasks here.                                                     |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
