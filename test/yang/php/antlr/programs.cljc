@@ -570,12 +570,10 @@
     :diag [[2 "Uninitialized string offset 5"]],
     :oracle "php-8.3.35 shiva 2026-10-25"}
    {:id :string-offset-write,
-    :criterion "G-str-offset-write: string offset writes are refused",
-    :source "<?php $s = 'abc'; $s[0] = 'x';",
-    :out "",
+    :criterion "single-byte string offset writes work (G-str-offset-write closed in 91c5c8cd)",
+    :source "<?php $s = \"ab\"; $s[0] = \"c\"; echo $s;",
+    :out "cb",
     :diag [],
-    :uncaught {:class "Error", :message "string offset writes are not supported yet (yang.php known gap G-str-offset-write)"},
-    :gap "G-str-offset-write",
     :oracle "php-8.3.35 shiva 2026-10-25"}
    {:id :string-offset-peek,
     :criterion "isset/empty on a string coerce bool and null silently and deprecate fractional floats",

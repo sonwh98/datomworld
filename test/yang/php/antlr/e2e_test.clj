@@ -228,7 +228,6 @@
 (deftest refusals-are-named-test
   (doseq [[source construct]
           [["<?php $a = &f();" :reference-source]
-           ["<?php $$a[0] = 1;" :assignment-target]
            ["<?php function f(int ...$a) {}" :typed-variadic]
            ["<?php function f(&...$a) {}" :variadic-reference]
            ["<?php $a = &new B;" :reference]
@@ -243,6 +242,13 @@
           d (first diagnostics)]
       (is (= :yang.php/unsupported (:yang.php/diagnostic d)) source)
       (is (= construct (:construct d)) source))))
+
+
+(deftest variable-variable-offset-assign-test
+  (testing "P9: a variable-variable base with an offset assigns through (${$a}[0])"
+    (is (= "1,20"
+           (h/run-walker (str "<?php $a = \"x\"; $x = [10, 20]; $$a[0] = 1; "
+                              "echo $x[0]; echo \",\"; echo $x[1];"))))))
 
 
 (deftest leading-numeric-string-warns-test
@@ -316,16 +322,12 @@
 
 
 (deftest lowering-warnings-test
-  (testing "a catalogue function the prelude lacks warns, and the program lowers"
+  (testing "a prelude builtin lowers with no warning and runs"
     (let [{:keys [ast warnings]} (h/lower-program "<?php echo strtoupper(\"a\");")]
       (is (some? ast))
-      (is (= [{:yang.php/diagnostic :yang.php/unknown-builtin,
-               :severity :warning,
-               :name "strtoupper"}]
-             (mapv #(select-keys % [:yang.php/diagnostic :severity :name]) warnings)))
-      (testing "and the call is an Error at run time"
-        (is (= "PHP Fatal error:  Uncaught Error: Call to undefined function strtoupper()"
-               (h/run-walker "<?php echo strtoupper(\"a\");"))))))
+      (is (empty? warnings))
+      (testing "and the call runs"
+        (is (= "A" (h/run-walker "<?php echo strtoupper(\"a\");"))))))
   (testing "a unit that declares the function, or a prelude builtin, does not"
     (is (empty? (:warnings (h/lower-program
                              "<?php function strtoupper($s) { return $s; } echo STRTOUPPER(\"a\");"))))
