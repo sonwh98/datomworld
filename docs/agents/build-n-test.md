@@ -49,6 +49,9 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # When a test fails, reproduce and fix it by running ONLY the failing test
 # (`clojure -M:test -n <ns> -v <ns>/<var>`, Node `--test=<ns>`, Dart `--only <ns>`) --
 # never the whole suite (owner ruling 2026-11-01; see Gate Ladder G0).
+# Individual tests run fine on the laptop; suite-scale runs (G1 subsystem sets,
+# G2 changed sets, full suites, slow tier, nightly) run on shiva/jupiter --
+# the suite has outgrown the laptop (owner ruling 2026-11-04).
 # At slice checkpoints, run G1 (`bb test:sub <own>`). Before landing a slice, run
 # G2 (`bb test:changed` in the worktree across all three lanes).
 # Full repo-wide `bb test` runs twice daily on the remote hosts (03:00/17:00 VN);
@@ -188,13 +191,17 @@ tri-host success: for foundation/compiler changes also run
 serialization rule. G1, full post-merge `bb test` (G3), applicable slow G4,
 demo smoke checks and review/landing gates all remain required. Node and Dart
 lanes retain their current commands. The original unsharded tasks remain
-available. **Never run the slow tier, `bb test:all`, or `nightly.clj` on the
-laptop** — the slow tier is 52 long namespaces whose JVM processes each
-multi-thread (test workers, JIT, GC threads sized by core count); four of them
-GC-thrashing at once drove a laptop load average over 100 on 2026-11-01 while
-making no progress (the remote hosts run this tier: jupiter 5,645 s at 12
-workers, shiva comparable). Do not run another lane set concurrently on the
-laptop either.
+available. **Individual tests may run on the laptop; suite-scale runs may
+not (owner ruling 2026-11-04).** A single failing test or one namespace
+reproduces quickly and is fine locally. Everything suite-scale — subsystem
+lane sets (G1), changed-set runs (G2), the full quick suite, the slow tier,
+`bb test:all`, and `nightly.clj` — runs on the remote hosts: the suite has
+outgrown the laptop. The slow tier is 52 long namespaces whose JVM
+processes each multi-thread (test workers, JIT, GC threads sized by core
+count); four of them GC-thrashing at once drove a laptop load average over
+100 on 2026-11-01 while making no progress (the remote hosts run this tier:
+jupiter 5,645 s at 12 workers, shiva comparable). Do not run another lane
+set concurrently on the laptop either.
 
 #### Worktree-local prerequisite caches
 
@@ -801,7 +808,9 @@ it, against about 9 minutes on the 8-core laptop run alone. Prerequisites (`npm 
 Node REPL, ANTLR) took about 30 s; the Dart peer 91 s. JVM and Node lane times are
 not recorded yet: fill them in from `summary.txt` after a completed run. Running the
 lanes concurrently on one host did not make the Dart lane faster, so count on the
-extra cores and a free laptop, and measure before relying on a speedup.
+extra cores, and measure before relying on a speedup. (Historical record — the
+"free laptop" comparison predates the 2026-11-04 ruling that suite-scale runs
+belong on the remote hosts.)
 
 ### Jupiter verification run (2026-10-29, commit 7c0a078f, scratch clone, sequential lanes)
 
@@ -810,7 +819,9 @@ ANTLR via `gen:antlr`, Dart peer) all succeeded; the stale 3.41.9 Flutter was
 replaced with 3.47.8 before the Dart lane. Results: **JVM quick tier
 (`test:quick-sharded`, 12 workers) rc=0 in 702 s** (cold, every shard green);
 **Node quick tier rc=0 in 4583 s** (all tests pass, but roughly 15x the
-laptop — route Node lanes to the laptop or shiva); **Dart quick tier
+laptop — route Node lanes to shiva; the laptop comparison is historical and
+suite-scale Node runs no longer belong there per the 2026-11-04 ruling);
+**Dart quick tier
 rc=1 in 1495 s with the ONLY failure the documented known Linux-only red**
 (`dao.stream.datagram.dart-test/refusals-and-lifecycle-events`, same
 taken-port/bind-failed signature recorded above). Routing summary: jupiter
