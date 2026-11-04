@@ -1,3 +1,26 @@
 muse: workspace root: /Users/sto/workspace/datomworld-cljrt (cwd default)
 muse: workspace trust: trusted source=run-flag
 muse: warning: rules file at /Users/sto/workspace/datomworld-cljrt/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+Matrix run is in flight; I’ll continue verification when its result lands.Kondo is clean (0 errors, 0 warnings). The matrix suite is still running; its result will arrive on completion, then I’ll run the remaining gates.Done. The residual defect is fixed, committed as `d3a35830` on `yang-clojure-runtime-module`, and pushed. No merge.
+
+**The defect, reproduced first**
+
+`{:type :cell-ref :id :customer :seal "wax" :marker 42}` invoked as a map threw `Dead or forged cell reference {:reason :dead-or-forged-reference}` out of the whole run, instead of answering 42. The same held for a runtime-built (let-bound) map with that shape.
+
+**Direction chosen: (a), admission-failure fallback — realized as a genuine-format gate**
+
+A literal try-deref-then-fallback is unimplementable here: `cell/get` failure is a host-side throw from the VM engine that no guest code can catch (the probe shows it escaping the run entirely). So the fallback happens before any dereference. Both structural sites in [clojure.cljc](/Users/sto/workspace/datomworld-cljrt/src/cljc/yang/clojure.cljc:1203) — call routing (`cell-ref-shaped-node`) and admission (`dsg__admitted?`, [clojure.cljc](/Users/sto/workspace/datomworld-cljrt/src/cljc/yang/clojure.cljc:2136)) — now require the exact issued format before dereferencing: `:type :cell-ref`, `:id` and `:seal` present, no other entries, and a 64-character string seal (verified against a genuine projected ref: `:id :cell-128`, 64-char blake3 hex seal). Anything else is never dereferenced: routing falls back to ordinary map invocation and admission to its witness branch.
+
+Why no bypass: the fallback performs only a plain lookup and grants no cell capability. The seal content is still checked solely by the dereference, and a guest cannot reconstruct a genuine reference from a source literal because the seal is a blake3 hash over the task secret. A format-perfect map with a wrong seal remains a capability counterfeit and fails closed — verified by probe (`:dead-or-forged-reference`, no map semantics, nothing granted). One deliberate consequence: annotating a genuine ref with extra keys makes it data, which is exactly the brief’s ruling for that shape.
+
+Option (b) was rejected: genuine references are plain maps minted by the VM’s `issue-ref`, so a host-record carrier would require changing `yin.vm` and every frontend’s projection — outside this round’s boundaries.
+
+**Regression and verification (real outputs)**
+
+- Extended [clojure-source-cell-ref-map-invocation-test](/Users/sto/workspace/datomworld-cljrt/test/yang/cross_lang_test.clj:151) with the full forged shape and a runtime-built forged map, both returning `42n`.
+- Matrix `yang.cross-lang-test`: **13 tests, 18 assertions, 0 failures, 0 errors** — genuine projected-cell legs (both clojure↔typescript directions) green.
+- `bb test:sub:clj yang.base`: **122 tests, 0 failures** (7 namespaces, 80 s).
+- Kondo on the two touched files: **0 errors, 0 warnings**.
+
+Boundaries held: only [clojure.cljc](/Users/sto/workspace/datomworld-cljrt/src/cljc/yang/clojure.cljc:1203) and [cross_lang_test.clj](/Users/sto/workspace/datomworld-cljrt/test/yang/cross_lang_test.clj:151) changed; no `yin.vm/**`, no `yang/core/call.cljc`, no evidence files; the accepted globals and kind-of fixes untouched. Branch pushed to `d3a35830` via gh HTTPS with origin unchanged; not merged.
+DISPATCH_RC=0
