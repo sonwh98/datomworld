@@ -33,11 +33,53 @@
   p3b/banner)
 
 
+(def p5-banner
+  "The P5 request-context run's own provenance banner (version/host/date of
+  the P5 recording pass, not P3-b's)."
+  "php-8.3.35 shiva 2026-10-25")
+
+
 (def ^:private errno-of
   {"Warning" 2,
    "Notice" 8,
    "Deprecated" 8192,
    "Fatal error" 1})
+
+
+(defn class-derived?
+  "Whether the recorded diag entry carries a class-derived errno: the runner
+  parses only the `Warning|Notice|...` kind line, so the recorded number is
+  derived from the message class, not the true constant (e.g. `Notice` parses
+  to 8 where the engine's semantic truth for `E_USER_NOTICE` is 1024)."
+  [diag-entry]
+  (boolean (:yang.php.oracle/class-derived (meta diag-entry))))
+
+
+(defn- mark-class-derived
+  "Mark a recorded `[errno message]` pair as class-derived (see [[class-derived?]])."
+  [pair]
+  (with-meta pair {:yang.php.oracle/class-derived true}))
+
+
+(defn errno-match?
+  "Whether expected errno `e` matches recorded diag entry `a`: identical
+  numbers match, and a 1024-vs-8 mismatch counts as equal ONLY when the oracle
+  record is marked class-derived."
+  [e a]
+  (let [[actual-errno] a]
+    (or (= e actual-errno)
+        (and (= 1024 e) (= 8 actual-errno) (class-derived? a)))))
+
+
+(defn diag-match?
+  "Whether the expected diag vector matches the recorded one entry-wise under
+  [[errno-match?]] (messages compare literally)."
+  [expected-diag actual-diag]
+  (and (= (count expected-diag) (count actual-diag))
+       (every? true? (map (fn [[e-errno e-msg] a]
+                            (and (errno-match? e-errno a)
+                                 (= e-msg (second a))))
+                          expected-diag actual-diag))))
 
 
 (defn- location-pattern
@@ -95,7 +137,7 @@
          out (str/replace without-fatal
                           diag-re
                           (fn [[_ kind msg]]
-                            (vswap! diags conj [(get errno-of kind) (strip-location msg file)])
+                            (vswap! diags conj (mark-class-derived [(get errno-of kind) (strip-location msg file)]))
                             ""))]
      {:out out,
       :diag @diags,
@@ -225,11 +267,14 @@
         :else (throw (ex-info "p5 oracle: non-scalar in request record" {:value v}))))
 
 (defn- request-pairs
-  "Ordered `[k v]` pairs of request-array `arr`, following its `:order`
+  "Ordered `[k v]` pairs of request-array `arr`: the engine's ordered entry
+   vectors are accepted as-is; otherwise pairs follow the array's `:order`
    (the engine's insertion order)."
   [arr]
   (when arr
-    (mapv (fn [k] [k (get (:index arr) k)]) (:order arr))))
+    (if (sequential? arr)
+      (mapv vec arr)
+      (mapv (fn [k] [k (get (:index arr) k)]) (:order arr)))))
 
 (defn- php-array-literal
   "The PHP `array(...)` literal of request-array `arr`."
@@ -289,7 +334,7 @@
   "Run P5 `fixture` in temporary directory `dir`: the fixture source plus,
    for `:request`-bearing fixtures, the [[p5-prologue]] as
    `auto_prepend_file`. Returns a check record like [[check-fixture]]."
-  [dir {:keys [id source request out diag uncaught oracle], :as fixture}]
+  [dir {:keys [id source request out diag uncaught status oracle]}]
   (let [file (str (name id) ".php")
         pre (str (name id) "-pre.php")]
     (write-source! dir file source)
@@ -301,13 +346,14 @@
           expected-diag (vec (or diag []))
           pass? (and (not= :pending oracle)
                      (= expected-out (:out actual))
-                     (= expected-diag (:diag actual))
-                     (= uncaught (:uncaught actual)))]
+                     (diag-match? expected-diag (:diag actual))
+                     (= uncaught (:uncaught actual))
+                     (or (nil? status) (= status (:exit actual))))]
       {:id id,
        :pass? pass?,
        :oracle oracle,
-       :expected {:out expected-out, :diag expected-diag, :uncaught uncaught},
-       :actual (select-keys actual [:out :diag :uncaught])})))
+       :expected {:out expected-out, :diag expected-diag, :uncaught uncaught, :status status},
+       :actual (assoc (select-keys actual [:out :diag :uncaught]) :exit (:exit actual))})))
 
 (defn run-p5
   "Run all `p5/fixtures` (the request-context fixtures) against
@@ -323,12 +369,12 @@
 
 (defn print-fold
   "Print the fold lines for `results`: one paste-ready record per fixture
-   in the P4 [[p4/pin]] shape `{:oracle banner :out :diag :uncaught}`."
+   in the P4 [[p4/pin]] shape `{:oracle p5-banner :out :diag :uncaught}`."
   [results]
   (doseq [{:keys [id actual]} results]
     (println "FOLD" (name id)
              (pr-str (assoc (select-keys actual [:out :diag :uncaught])
-                            :oracle banner)))))
+                            :oracle p5-banner)))))
 
 (defn run-all
   "Run all `programs/fixtures`, `matrix-source` and `float-cases` against
@@ -365,7 +411,7 @@
     (let [results (run-p5)
           recorded (filter #(= :pending (:oracle %)) results)
           failures (remove #(or (:pass? %) (= :pending (:oracle %))) results)]
-      (println "Banner:" banner)
+      (println "Banner:" p5-banner)
       (println "Checked:" (count results) "P5 targets; failures:" (count failures))
       (print-fold recorded)
       (doseq [f failures]

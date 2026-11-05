@@ -55,7 +55,7 @@
        (str "<?php set_error_handler(function($n, $s) { echo 'H', $n, ':', $s; });"
             " trigger_error('first', E_USER_WARNING); restore_error_handler();"
             " trigger_error('second', E_USER_NOTICE);")
-       "H512:first" :diag [[8 "second"]] :oracle "php-8.3.35 shiva 2026-10-25")
+       "H512:first" :diag [[1024 "second"]] :oracle "php-8.3.35 shiva 2026-10-25")
    (fx :exit-runs-shutdown
        "<?php register_shutdown_function(function() { echo 'S'; }); echo 'A'; exit(7); echo 'B';"
        "AS" :diag [] :oracle "php-8.3.35 shiva 2026-10-25"
