@@ -1,0 +1,1 @@
+error: option '--permission-mode <mode>' argument 'accept-edits' is invalid. Allowed choices are acceptEdits, auto, bypassPermissions, manual, dontAsk, plan.

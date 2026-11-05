@@ -1,0 +1,27 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+I've finished the design and have the full implementation ready, but the session's permission mode is blocking **all file writes** — every attempt (the source file, the watchdog, even a scratch file) returns:
+
+> Claude requested permissions to write to …, but you haven't granted it yet.
+
+So **nothing has been written yet**. I need write/edit permission for this worktree (e.g. approve the permission prompt, or re-run with `--permission-mode acceptEdits`) before I can land the brief.
+
+Here is exactly what I verified and what I will write the moment edits are allowed:
+
+## What the rewrite will contain
+
+**`src/dev/jolt_workload_w.clj`** (full replacement, ~1,000 lines):
+- **Server**: `wsj/bind!` on `127.0.0.1:0`, `:codecs [cbor/profile]`, `:ws/max-frame-bytes 4194304`, `/peer-a` echo + delivery ledger, `/peer-b` echo. Adapter API read from `src/jolt/dao/stream/ws/jolt.jolt` and the pump/tcp sources; no frozen file touched.
+- **Peer A**: raw nonblocking TCP (`tcp/connect!`, `recv-chunk!`, `send-chunk!` over a native buffer from `ffi/alloc`/`ffi/write-array`), RFC-6455 masked frame of 4,194,304 bytes written on a 120 s cumulative schedule (≤64 KiB catch-up/round), no-progress guard at 500 consecutive zero-progress attempts → `TRANSFER STALLED`, echo drained and counted.
+- **Peer B**: a real `Thread` (no type hints, `doto`/`Thread.`/`.setDaemon`/`.start`) that owns its own `wsj/create` client instance and wake, dials via `wsj/connect!`, pumps itself, and offers one 1 KiB request per absolute 100 ms grid slot, ≤8 outstanding, never re-basing the grid; scheduled-at / sent-at / received-at recorded per offer, missed slots counted.
+- **REPL**: `repl.main/boot` with `host/websocket`, one `submit-line!` of `(loop [i 0] …)`, and `driver/repl-step` + `driver/take-outbox` every owner round, with first-round evidence (append OK, exactly one result text `"5"`, shell `:round` +1, `:last-tick` stamped every round).
+- **Criterion**: prospective cohort = first 600 offers with `scheduled-at >= first-positive-write`; p99 round-trip and p99 scheduled-arrival ≤250 ms; zero lost/missed/late cohort replies; validity floor 500; exact one-sided 95 % Clopper–Pearson bound (closed form `1-0.05^(1/n)` at k=0, bisection on the binomial CDF otherwise — reproduces “at most 1 violation at n=600”); A delivered exactly once.
+- **Telemetry**: `W-PROGRESS` + `W-SAMPLER` every 10 s with owner rounds, B sent/completed/outstanding/missed, A bytes/%/window/delivery, REPL steps, and both cursor paths (`[:repl :indexer :materialization :cursor]`, `[:index-publication :cursor]` — absent in this tree, reported as `nil` and noted as a deviation).
+- **In-process soft cap** 240 s, independent of the watchdog.
+
+**`src/dev/jolt_workload_w_run.clj`** (rewrite): bb watchdog that spawns jolt, reads stdout non-blockingly, forwards `W-PROGRESS`/`W-SAMPLER`, emits its own 10 s `WATCHDOG TELEMETRY`, and at 300 s forcibly kills the worker and prints a FAILURE report (p99/samples/elapsed) even if the owner thread hangs.
+
+**`bb.edn`**: keep/refine the existing `workload-w:jolt` task (it already runs the watchdog, which execs jolt).
+
+**`collab/jolt/1794591000000-engineer-j6g-workload-w-clean.findings.md`**: implementation summary, local gate results (`cljstyle` — I'll run it once writes are possible), and deviations (the two index-cursor paths do not exist in this tree; `/peer-a` echo drained as telemetry, not a gate; full-window stats reported alongside the registered cohort).
+
+Please grant write access and I'll apply everything immediately.

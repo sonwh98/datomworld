@@ -1,0 +1,19 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+I completed the review. Verdict: **CHANGES-REQUESTED**.
+
+Two caveats up front:
+
+1. The brief's diff path (`…1794095000000-j6g-mob-astra-review.diff`) doesn't exist; the actual 1799-line diff is `…/collab/jolt/1794090000000-j6g-mob-astra-review.diff`, which I reviewed.
+2. I could not write to `/Users/sto/workspace/datomworld-orch/...` — it is outside this session's writable roots and the approval was not granted. I wrote the findings to the same relative location inside this worktree:
+
+   `/Users/sto/workspace/datomworld-j6g-mob-ds/collab/jolt/1794095000000-reviewer-j6g-mob-astra.deepseek-v4.1-flash-1017.findings.md`
+
+   To publish it: `cp /Users/sto/workspace/datomworld-j6g-mob-ds/collab/jolt/1794095000000-reviewer-j6g-mob-astra.deepseek-v4.1-flash-1017.findings.md /Users/sto/workspace/datomworld-orch/collab/jolt/`
+
+**Blocking finding (P1): the ruled five-point REPL verifier is absent.** `owner-round!` (`jolt_workload_w.clj:242-254`) increments `:rounds` and `:repl-steps` in the same function unconditionally, so the gate `:repl-every-round (= rounds repl-steps)` (`:395-396`) can never fail. The astra ruling explicitly rejects exactly this ("a counter incremented after calling `repl-step` is insufficient by itself"), and prescribes: append outcome, shell `:round` +1, exactly one result text `"5"`, successor `:last-value` 5 / halted VM / no pending run / no ingress loss, and an empty second `take-outbox`. Only the append and a final accumulated `["5"]` check are present. This is implementable with the frozen driver (the prior round's `step-and-verify-repl!` did it).
+
+**P2: cohort accounting is narrower than the ruling.** `samples` filters on `(< id 600)`, so only the first ~60 s of the ~120 s transfer feeds the p99/violation/binomial gates; later samples are measured but discarded. And no reply is checked against `[:a :delivered-at]`, though the ruling requires every cohort member answered before A's first delivery.
+
+**P3s:** A's pacing systematically overruns 120 s (one quantum per ≥10 ms visit, no catch-up; the gate only checks ≥120 s); the no-progress guard aborts the whole run rather than just the transfer leg; no `W-TIMINGS` token exists (content is in `W-SAMPLE`); the supervisor's catch drops accumulated samples if a line fails to parse.
+
+**Verified sound:** the B scheduler's independent grid and three timestamps; the ≤8-outstanding cap is genuinely enforced — a successful send is *not* acked (the `if-let` success path only increments `:sent`), so reservations are freed only on reply; the raw A upgrade/accept-check and paced 4 MiB transfer; the nearest-rank p99 and Clopper–Pearson bound (0–1 violations pass at n=600, 2 fail); the 300 s out-of-process watchdog and 10 s W-PROGRESS sampler; and all constraints (frozen files untouched, no type hints, requires resolvable, native buffers, no `collab/` comments). The cursor fields are present on both paths and honestly nil in this checkout, as the ruling anticipates. I could not re-run cljstyle (binary execution required an approval that wasn't granted).
