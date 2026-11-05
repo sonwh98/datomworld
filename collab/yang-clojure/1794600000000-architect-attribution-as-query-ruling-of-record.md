@@ -2,7 +2,9 @@ Created-GMT: 2026-11-05 03:40:00 GMT (v1)
 Revised-GMT: 2026-11-05 18:20:00 GMT (v2 — astra's four findings)
 Revised-GMT: 2026-11-05 20:10:00 GMT (v3 — qwen3.8-max's five amendments)
 Revised-GMT: 2026-11-06 02:45:00 GMT (v4 — kimi k3.1-pro's four amendments; verdict: endorse for owner sign-off with these)
-# RULING DRAFT v4 — attribution-as-query: CALLER-SIDE site tagging; record, then attribute by query (DRAFT — pending owner sign-off)
+# RULING OF RECORD — attribution-as-query: caller-side site tagging; record, then attribute by query
+
+Status: SIGNED by the owner (2026-11-06, "i sign-off") after three independent reviews (gpt-6-astra v1: 4 findings; qwen3.8-max v2: 5 amendments; kimi k3.1-pro v3: 4 amendments — all incorporated). This document is now the ruling-of-record and the implementation contract.
 
 Review state: v1 → astra (4 findings); v2 → qwen3.8-max (5 amendments); v3 → kimi k3.1-pro (4 amendments, below). Architecture settled across all three; v4's changes are mechanical corrections to the mechanism and the battery, per kimi: "(1) caller-side AST tagging; (2) case 5 redefined + a seventh case; (3) the trace-shape-induced revision of ALL pins and the accounting rewrite; (4) R1's trigger and format conditions." Central principle (all three accept): derive credit from recorded relationships, require actual body entry in both lanes, refuse ambiguity. Unitarity preserves what flows through the pipeline; it cannot recover provenance never recorded — this ruling records the missing provenance minimally, then attributes by query.
 
