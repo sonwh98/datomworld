@@ -190,10 +190,13 @@
 ;; H3-3 fixture family (h3_3_fixture_family.md, A-verified on pinned
 ;; upstream 86fca0d1): completion shapes first (F1-F20 primaries and
 ;; companions), then the refusal companions R1-R10 as :negative? rows.
-;; F2 is an honest non-crediting pass for registered-definition?/1;
-;; F18/F19/F20 credit only as named integrations.
+;; F2/R2 run the ADAPTED upstream /1 call in C (the stub's ambient
+;; forwarding supplies initial-context, attribution ruling R3); their
+;; earlier :guest-call overrides pinned the pre-ruling non-crediting
+;; adaptation and are retired with it. F18/F19/F20 credit only as named
+;; integrations.
 {:id :h3-3-axiom-true, :call (latte-kernel.defenv/axiom? (latte-kernel.defenv/->Axiom (quote a) [] 0 (quote T)))}
-{:id :h3-3-registered-definition-ambient, :call (latte-kernel.defenv/registered-definition? (quote gate-no-such-definition)), :guest-call (registered-definition? env (quote gate-no-such-definition))}
+{:id :h3-3-registered-definition-ambient, :call (latte-kernel.defenv/registered-definition? (quote gate-no-such-definition))}
 {:id :h3-3-nbe-evaluation-one, :call (latte-kernel.nbe/evaluation (quote [(λ [a ✳] a) b]))}
 {:id :h3-3-nbe-evaluation-var, :call (latte-kernel.nbe/evaluation (quote a))}
 {:id :h3-3-nbe-instantiate-def, :call (latte-kernel.nbe/instantiate-def (quote [[x ✳] [y ✳]]) (quote [x y]) (quote [a b]))}
@@ -223,7 +226,7 @@
 {:id :h3-3-unregister-unparser, :mode :unparser-install, :call (let [_ (latte-kernel.unparser/register-unparser! :gate (fn [t] (if (= t (quote x)) [(quote shown) true] [t false])))] [(latte-kernel.unparser/unparse (quote x)) (do (latte-kernel.unparser/unregister-unparser! :gate) (latte-kernel.unparser/unparse (quote x)))]), :guest-call (let [k1 (register-unparser env :gate (fn [t] (if (= t (quote x)) [(quote shown) true] [t false])))] [(unparse k1 (quote x)) (unparse (unregister-unparser k1 :gate) (quote x))])}
 {:id :h3-3-axiom-definition, :negative? true, :call (latte-kernel.defenv/axiom? (latte-kernel.defenv/->Definition (quote d) [] 0 (quote body) #{} (quote T) {}))}
 {:id :h3-3-axiom-map, :negative? true, :call (latte-kernel.defenv/axiom? {})}
-{:id :h3-3-registered-definition-nonsymbol, :negative? true, :call (latte-kernel.defenv/registered-definition? 5), :guest-call (registered-definition? env 5)}
+{:id :h3-3-registered-definition-nonsymbol, :negative? true, :call (latte-kernel.defenv/registered-definition? 5)}
 {:id :h3-3-nbe-evaluation-missing, :negative? true, :call (latte-kernel.nbe/evaluation (quote (gate-missing)))}
 {:id :h3-3-nbe-instantiate-def-too-many, :negative? true, :call (latte-kernel.nbe/instantiate-def (quote [[x ✳]]) (quote x) (quote [a b]))}
 {:id :h3-3-redex-application, :negative? true, :call (latte-kernel.norm/redex? (quote [x y]))}
