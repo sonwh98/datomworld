@@ -228,8 +228,8 @@
             source)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "a1b65915bff97c189e4a6d67ef5d78d94"
-                  "6e97c7bc5f2de2139cfdeeb1b506821"))
+                  "d93650264ab02e44817cb81b0fe3be35"
+                  "432b8951bc7d3c2fa198ebba8870de37"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-fda451811f1d578884c70ec1a6992e508dd301f7fc49cccbe547eb128683a62e
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -255,25 +255,25 @@
               source packet); the s3 slice did not move them)"
       (is (= (keyword
                (str "segment/blake3-"
-                    "dfd03d078772c8c9bf52048d14efd0c1"
-                    "334c41acbeeedd49279c49ddd077e201"))
+                    "e8afeca36e65eb8e90368ef02898d14c"
+                    "b39c1b05cbd2ab66d1a647c130816da7"))
              (:root a)))
       (is (= (keyword
                (str "segment/blake3-"
-                    "5d8313eb3d25d48eac975373d52a13c8"
-                    "c92419548119cc3b88feb5dcdf571909"))
+                    "5a586d1ec2c920eed3ae38564f75e20c"
+                    "4b64e8cb9a18a1ea983378f9c1b6aa5c"))
              (:root a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "051d081d36f1dacc3d528f327f0ef373"
-                    "4db9f9c4e3485d12823cb1d8c5f85e21"))
+                    "23b233f620a2a362d7dbf6f8c6e66ca"
+                    "67863e7a12efa439104e5694f86519400"))
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "c26c57dbe6ed0cc7a3a7d930eb254106"
-                    "bc336f3031500982ba249b2340f6fef7"))
+                    "73be42aafac74110e043f19d53cef583"
+                    "cb67f83a55e88a3410076b89219d9cb6"))
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]

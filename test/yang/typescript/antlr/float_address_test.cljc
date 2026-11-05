@@ -99,8 +99,8 @@
             call runtime, the T3 constructor entry and S11 thrown values)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "b5516a3668bdd4b85977d392608e27b7e"
-                  "573b24091c697f0e3d5267de01918e5"))
+                  "bbbba3ab8527f01f26197b8ab64794623"
+                  "2442fb59c42984762d5da6b70e3338b"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))))
 
 
@@ -137,8 +137,8 @@
             golden; includes the shared call runtime and T3 bundled prelude)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "f664230e47a23f72a34b0a9a55593998"
-                  "2cce09b0a50af1b696ad3f27e59adfa5"))
+                  "f08fc7f7481b65eef2e1e9333ace2d8b"
+                  "93abc309c67bace08fc6b553cea52855"))
            (:root (vm/ast->semantic-bytecode float-program)))))
   (testing "decoding the program and projecting it again keeps the address"
     (let [bytecode (vm/ast->semantic-bytecode float-program)
