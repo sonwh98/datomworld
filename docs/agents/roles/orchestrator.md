@@ -547,6 +547,4 @@ not here — read it before shelling out to any delegate CLI. It is reference
 material needed at the moment of dispatch, not on every orchestrator turn,
 which is why it is kept separate from this role's core identity and workflow.
 Dispatch is always by direct CLI invocation per that reference's canonical
-recipes; the legacy `dispatch.sh` helper predates several CLIs, does not
-know them, and carries stale cases (its muse case, for example, still uses
-Claude Code wrapper conventions) — never route through it.
+recipes. The legacy `dispatch.sh` helper has been deleted.
