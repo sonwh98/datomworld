@@ -1,0 +1,57 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+r5 is complete: committed as `bfe9a8d9`, pushed to `origin/yang-clojure-runtime-module` (`f35c65c2..bfe9a8d9`), not merged. The only untracked files left are the orchestrator's own BRIEF/REVIEW artifacts.
+
+# Report — cljrt round 5: the `cell/authentic?` ruling of record
+
+## Diff per file, with reconciliation-checklist disposition
+
+**`src/cljc/yin/vm/module.cljc`** (scoped VM hunk 1) — `authentic-cell?` constructor (`(make-effect :cell/authentic? {:cell c})`) beside new/get/set!; `'authentic?` registered in `cell-module`; `cell-profiles` gains the `:effectful [1] #{:cell/authentic?}` entry; section docstring notes the vocabulary.
+
+**`src/cljc/yin/vm/engine.cljc`** (scoped VM hunk 2) — one `handle-effect` case after `:cell/set!`: `{:state state, :value (authentic-ref? state :cell-ref (:cell effect)), :blocked? false}` — `authentic-ref?` reused verbatim, no state change, never fatal. Nothing else in yin/vm/** touched.
+
+**`src/cljc/yang/clojure.cljc`** — three hunks:
+- `:1245` `cell-ref-shaped-node` — **changed**: id-language discriminator retired; structural shape (type/`:id`/`:seal`, 3 entries, 64-char string seal) kept as the pre-filter for WHEN to ask; docstring rewritten to the ruled semantics.
+- `:1403` `compile-guest-call` routing — **changed**: the cell-ref branch emits `(cell/authentic? callee)`; authentic → `admitted` (cell/get + admission/apply), else → `value-call` (map invocation). Entry-key branch untouched.
+- `:1458` guard wraps (`yang.call/eligible?`, `invoke`/`invoke-with`) — **changed with zero hunk lines**: they gate through `dsg__admitted?`, whose cell branch now consults `cell/authentic?` before `cell/get`, so a forged candidate answers `false` instead of aborting.
+
+**`src/cljc/yang/core/call.cljc` — `:23` `_descriptor`** — **changed**: derefs only when the heap authenticates; an unauthenticated `:cell-ref` shape projects to itself and follows the ordinary descriptor rules (the entry-key policy then governs it as any map). `host-names` grows `cell/authentic?` (flows into the TS/PHP/Python preludes' `admit` sets and the `yang.call` module's free names automatically).
+
+**TS prelude `:135` (typeof path)** — **changed**: `js/cell?` consults authenticity, so `js/symbol?`/`js/object?`/`js/kind-of`/`js/is-array?` never deref an imitation; a forged shape falls to `js/kind-of`'s pre-existing foreign-value fallback (`:number`, the class every foreign map already answers) — no abort, no capability.
+
+**TS lower `:1167` (member-call)** — **documented, unchanged**: the lowering preserves the receiver (`js/get-value` + `js/call f o args`) and routes through `js/call` → `invoke-with` → `_descriptor`, which consults. Residual noted: `js/is-constructor?`'s `(cell/get v)` is guarded by `js/callable?` (= `eligible?`, consulting), so only the entry-carrying exception class (rule 7, out of scope) can reach it.
+
+**Python prelude `:1033` (`py/call-kw`)** — **changed via its two gates, no `py/call-kw` hunk**: `py/cell?` consults (fixing `py/content-type`'s deref everywhere, bound-method and class branches included) and `yang.call/eligible?`/`invoke` consult via `_descriptor`. A forged shape falls to the Python TypeError "object is not callable".
+
+**PHP prelude `:4229` (`php/callable-in`)** — **documented, unchanged**: `php/kind` routes on `:php/*` keys, never `:type :cell-ref`; the entry test goes through `yang.call/entry` → `_descriptor` (consulting); every other `cell/get` on the PHP path derefs PHP's own internal cells (`php.rt/*`, array handles). A forged shape resolves to "Value not callable".
+
+**Tests** — `clojure_test.clj`: `library-modules` registers the cell module (justified: the emitted consult must resolve once the pre-filter passes — every linked composition already registers cell because `yang.call` has read `cell/get` since D2); `run-cell-program` helper generalizes `run-cell-probe`; the r4 "residual, pinned" block is replaced by the ruled regressions. `cross_lang_test.clj`: the collision literal added at matrix level. `cell_test.cljc`: VM-level `authentic-query-is-non-fatal-test` on all four VMs.
+
+**Docs** — `yang.antlr.md`: new **§8.10.12** (vocabulary, heap-consulting routing, authentication≠authorization, bearer policy, bag clarification, entry-key exception, static-specialization obligation); §8.10.2's projection paragraph amended; the §"VM-state transitions" cell vocabulary listing updated; `yin/vm/docs/ast.md` vocabulary listing updated.
+
+## Local verification (real outputs)
+
+| Run | Result |
+|---|---|
+| `test-common-call-cell-ref-map-invocation` (18 assertions) | **0 failures** — collision literal answers `:cell-7` as data (both lanes); bearer copy resolves (both lanes); explicit `cell/get` refuses `dead-or-forged`; exposure probes, genuine-live, genuine-dead all green |
+| D2/entry pins: intra-unit budget+shadowing, value-invocation refusals, token-packet forgery, source admissions ×2 | **116 assertions, 0 failures** (incl. the `:2600` unadmitted entry-key refusal) |
+| Full `yang.clojure-test` | **95 tests, 922 assertions, 0 failures** |
+| Full `yang.cross-lang-test` (all edits in) | **exit code 0** |
+| Selected matrix legs (cell-ref invocation + `clj_apply` + `stored === phpfn` + `stored(2,3)` + py↔ts/php closures + `typeof py_fn`) | **9 tests, 15 assertions, 0 failures** |
+| `yin.vm.cell-test` (four VMs × gc thresholds) | **17 tests, 197 assertions, 0 failures** |
+| `yang.core.call-test`, TS prelude/module/parity/object kinds, py prelude parity, php generators | **0 failures** each (1372/428/221/76 assertions respectively) |
+| 4M kernel gate (`test-kernel-differential-gate`) | `{pass 109, recorded-upstream-failure 2, recorded-deviation 2}`, 0 blockers, **exactly one failure: the by-design `:pass` assertion at unexercised=20** — the standing state recorded in `0dc54289`; re-run on a pristine archive of `f35c65c2` reproduces the identical single failure, so **no drift from this round** |
+| clj-kondo on all nine touched files | `errors: 0, warnings: 0` |
+
+## Remote commands for the jupiter seat
+
+```
+clojure -M:test -n yang.cross-lang-test
+bb test:sub:clj yang.base
+clojure -M:test -n yang.clojure-test
+clojure -M:test -n yang.latte-oracle-test -v yang.latte-oracle-test/test-kernel-differential-gate
+```
+
+## Deviations from the ruling
+
+None in semantics. Three implementation notes: (1) the consult appears at three compiler/library sites (call-site routing, `dsg__admitted?`, `_descriptor` + `js/cell?`/`py/cell?`) because routing-decides-path and admission-decides-callable are distinct questions — this is the sweep the checklist itself requires; (2) the library-lane test fixture now registers the cell module (alignment, justified above); (3) **cljstyle could not be run** — no binary is reachable in this worktree; kondo (the brief's requirement) is clean and edits match surrounding style. Also note for the gate: `clojure -M:test -e …` runs the full suite first (known trap), and cognitect's `-v` needs fully-qualified var symbols.
+DISPATCH_RC=0

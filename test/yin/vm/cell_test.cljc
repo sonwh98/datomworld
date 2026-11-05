@@ -163,6 +163,11 @@
   (app (v 'cell/get) c))
 
 
+(defn- authentic-cell?
+  [c]
+  (app (v 'cell/authentic?) c))
+
+
 (defn- set-cell!
   [c x]
   (app (v 'cell/set!) c x))
@@ -322,6 +327,26 @@
     (testing (str effect " with a stream-ref type tag")
       (forged-refusal effect (app (v 'assoc) (v 'a) (lit :type)
                                   (lit :stream-ref))))))
+
+
+(deftest authentic-query-is-non-fatal-test
+  (testing "the heap's own reference authenticates, on every VM"
+    (every-vm= true
+               (let1 'c (new-cell (lit 5)) (authentic-cell? (v 'c)))))
+  (testing "a full-shape imitation answers false instead of refusing"
+    (every-vm= false
+               (let1 'c (new-cell (lit 5))
+                     (authentic-cell?
+                       (app (v 'assoc) (v 'c) (lit :seal)
+                            (lit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))))))
+  (testing "a dead id answers false"
+    (every-vm= false
+               (let1 'c (new-cell (lit 5))
+                     (authentic-cell?
+                       (app (v 'assoc) (v 'c) (lit :id) (lit :cell-999))))))
+  (testing "a non-reference value answers false"
+    (every-vm= false (authentic-cell? (lit 5)))
+    (every-vm= false (authentic-cell? (lit {:type :stream-ref})))))
 
 
 (deftest foreign-task-ref-refused-test

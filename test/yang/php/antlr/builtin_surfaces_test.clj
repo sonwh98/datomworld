@@ -15,6 +15,98 @@
         (is (nil? (:php/uncaught r)))))))
 
 
+(deftest p9-contracts-test
+  (let [out (fn [source] (:php/out (h/run-raw source)))
+        diag (fn [source] (mapv (juxt :errno :message) (:php/diag (h/run-raw source))))]
+    (testing "empty search returns the subject, never empty output"
+      (is (= "a" (out "<?php echo str_replace('', 'x', 'a');")))
+      (is (= "a" (out "<?php echo str_ireplace('', 'x', 'a');"))))
+    (testing "search/replacement/subject arrays and the count output"
+      (is (= "x x x" (out "<?php echo str_replace(['a', 'b'], 'x', 'a b a');")))
+      (is (= "Xb" (out "<?php echo str_ireplace('A', 'X', 'ab');")))
+      (is (= "bb2" (out "<?php $c = 0; echo str_replace('a', 'b', 'aa', $c), $c;")))
+      (is (= "ay|by" (out "<?php echo implode('|', str_replace('x', 'y', ['ax', 'bx']));"))))
+    (testing "str_pad never truncates; empty pad with work to do is a ValueError"
+      (is (= "abcd" (out "<?php echo str_pad('abcd', 2);")))
+      (is (= "x  " (out "<?php echo str_pad('x', 3);")))
+      (is (= "-x--" (out "<?php echo str_pad('x', 4, '-', STR_PAD_BOTH);")))
+      (is (= "ValueError" (out "<?php try { str_pad('x', 3, ''); } catch (ValueError $e) { echo 'ValueError'; }"))))
+    (testing "strrpos offsets bound the search"
+      (is (= "3" (out "<?php echo strrpos('hello', 'l', 3);")))
+      (is (= "" (out "<?php echo strrpos('hello', 'l', 4);")))
+      (is (= "3" (out "<?php echo strrpos('hello', 'l', -2);")))
+      (is (= "ValueError" (out "<?php try { strrpos('hello', 'l', 6); } catch (ValueError $e) { echo 'ValueError'; }")))
+      (is (= "ValueError" (out "<?php try { strrpos('hello', 'l', -6); } catch (ValueError $e) { echo 'ValueError'; }"))))
+    (testing "trim character masks with ranges"
+      (is (= "a" (out "<?php echo trim('xxaxx', 'x');")))
+      (is (= "def" (out "<?php echo trim('abcdef', 'a..c');"))))
+    (testing "single-array array_map keeps keys; multi-array is variadic"
+      (is (= "a,b" (out "<?php echo implode(',', array_keys(array_map(fn($x) => $x * 2, ['a' => 1, 'b' => 2])));")))
+      (is (= "11,22" (out "<?php echo implode(',', array_map(fn($a, $b) => $a + $b, [1, 2], [10, 20]));")))
+      (is (= "b" (out "<?php $r = array_map(null, [1, 2], ['a', 'b']); echo $r[1][1];"))))
+    (testing "array_unique dispatches on the flag: regular is loose, string is strict"
+      (is (= "1.0" (out "<?php echo implode(',', array_unique(['1.0', '1']));")))
+      (is (= "1.0,1" (out "<?php echo implode(',', array_unique(['1.0', '1'], SORT_STRING));")))
+      (is (= "1.0" (out "<?php echo implode(',', array_unique(['1.0', '1'], SORT_NUMERIC));"))))
+    (testing "diff/intersect take further arrays"
+      (is (= "1,4" (out "<?php echo implode(',', array_diff([1, 2, 3, 4], [2], [3]));")))
+      (is (= "3" (out "<?php echo implode(',', array_intersect([1, 2, 3], [2, 3], [3, 4]));"))))
+    (testing "diff/intersect compare as strings"
+      (is (= "1.0" (out "<?php echo implode(',', array_diff(['1.0'], ['1']));")))
+      (is (= "" (out "<?php echo implode(',', array_intersect(['1.0'], ['1']));"))))
+    (testing "array_splice normalizes bounds; omitted replacement removes"
+      (is (= "1,3|2" (out "<?php $a = [1, 2, 3]; $r = array_splice($a, 1, 1); echo implode(',', $a), '|', implode(',', $r);")))
+      (is (= "1,2|3" (out "<?php $a = [1, 2, 3]; $r = array_splice($a, -1); echo implode(',', $a), '|', implode(',', $r);"))))
+    (testing "array_splice drops replacement string keys; null replaces with nothing"
+      (is (= "1,8,9,3|2" (out "<?php $a = [1, 2, 3]; $r = array_splice($a, 1, 1, ['x' => 8, 9]); echo implode(',', $a), '|', implode(',', $r);")))
+      (is (= "1,3|2" (out "<?php $a = [1, 2, 3]; $r = array_splice($a, 1, 1, null); echo implode(',', $a), '|', implode(',', $r);"))))
+    (testing "range with a zero step is a ValueError, not a hang"
+      (is (= "ValueError" (out "<?php try { range(1, 3, 0); } catch (ValueError $e) { echo 'ValueError'; }"))))
+    (testing "JSON escapes control bytes instead of replacing them"
+      (is (= "\"\\u0001\"" (out "<?php echo json_encode(\"\\x01\");"))))
+    (testing "JSON rejects trailing commas, bad escapes and unchecked separators"
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('[1,]'));")))
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('\"\\\\q\"'));")))
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('{\"a\" 4}'));"))))
+    (testing "JSON enforces depth and JSON_THROW_ON_ERROR"
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('[[1]]', true, 1));")))
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('[1]', true, 1));")))
+      (is (= "threw" (out "<?php try { json_decode('[1,]', null, 512, JSON_THROW_ON_ERROR); } catch (JsonException $e) { echo 'threw'; }")))
+      (is (= "threw" (out "<?php try { json_encode(INF, JSON_THROW_ON_ERROR); } catch (JsonException $e) { echo 'threw'; }")))
+      (is (= "bool(false)\n" (out "<?php var_dump(json_encode(INF));"))))
+    (testing "JSON rejects a leading plus, raw controls, bad depth and bad flags"
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('+1'));")))
+      (is (= "NULL\n" (out "<?php var_dump(json_decode(\"\\\"\\x01\\\"\"));")))
+      (is (= "refused" (out "<?php try { json_encode([1], 64); } catch (Error $e) { echo 'refused'; }")))
+      (is (= "refused" (out "<?php try { json_decode('[1]', true, 512, 64); } catch (Error $e) { echo 'refused'; }")))
+      (is (= "ValueError" (out "<?php try { json_encode([1], 0, 0); } catch (ValueError $e) { echo 'ValueError'; }"))))
+    (testing "a nested encoding failure warns and answers false, never a host error"
+      (is (= "bool(false)\n" (out "<?php var_dump(json_encode([INF]));")))
+      (is (= [[2 "Inf and NaN cannot be JSON encoded"]]
+             (diag "<?php $x = json_encode([INF]);")))
+      (is (= "threw" (out "<?php try { json_encode([INF], JSON_THROW_ON_ERROR); } catch (JsonException $e) { echo 'threw'; }"))))
+    (testing "EXTR constants match PHP and every mode imports per PHP"
+      (is (= "4,5,6,7" (out "<?php echo EXTR_PREFIX_INVALID, ',', EXTR_PREFIX_IF_EXISTS, ',', EXTR_IF_EXISTS, ',', EXTR_PREFIX_ONLY_IF_EXISTS;")))
+      (is (= "6" (out "<?php extract(['z' => 6], EXTR_PREFIX_ALL, 'p_'); echo $p__z;")))
+      (is (= "12" (out "<?php $x = 1; extract(['x' => 2], EXTR_PREFIX_SAME, 'p'); echo $x, $p_x;")))
+      (is (= "34" (out "<?php $x = 3; extract(['x' => 4], EXTR_PREFIX_IF_EXISTS, 'p'); echo $x, $p_x;")))
+      (is (= "5" (out "<?php $n = extract(['0' => 5], EXTR_PREFIX_INVALID, 'p'); echo $p_0;")))
+      (is (= "5" (out "<?php $n = extract(['0' => 5], EXTR_PREFIX_ALL, 'p'); echo $p_0;")))
+      (is (= "6" (out "<?php $n = extract(['z' => 6], EXTR_PREFIX_ALL, ''); echo $_z;")))
+      (is (= "ValueError" (out "<?php try { extract(['x' => 1], 8); } catch (ValueError $e) { echo 'ValueError'; }")))
+      (is (= "ValueError" (out "<?php try { extract(['x' => 1], EXTR_PREFIX_SAME); } catch (ValueError $e) { echo 'ValueError'; }")))
+      (is (= "ValueError" (out "<?php try { extract(['x' => 1], EXTR_PREFIX_SAME, '9x'); } catch (ValueError $e) { echo 'ValueError'; }"))))
+    (testing "extract uses binding existence and compact warns on missing names"
+      (is (= "null-kept" (out "<?php $x = null; extract(['x' => 4], EXTR_SKIP); echo $x === null ? 'null-kept' : $x;")))
+      (is (= [[2 "compact(): Undefined variable $nope"]]
+             (diag "<?php $a = compact('nope');")))
+      (is (= [[2 "compact(): Each argument must be a string or an array of strings"]]
+             (diag "<?php $a = compact(1);"))))
+    (testing "namespaced user functions shadow extract/compact builtins"
+      (is (= "7" (out "<?php namespace N; function extract($a) { return 7; } echo extract([1]);")))
+      (is (= "9" (out "<?php namespace N; function compact($a) { return 9; } echo compact('x');"))))))
+
+
 (deftest p9-compile-refusals-test
   (doseq [[source reason]
           [["<?php eval('$x = 1;');" :eval]

@@ -2734,6 +2734,15 @@
                                 (:val effect)),
              :value (:val effect),
              :blocked? false})
+          ;; The cell-ref ruling of record: the same heap+seal predicate
+          ;; `check-ref!` consults (r10), answered as data instead of
+          ;; failing closed, so compiled call routing can ask the issuer
+          ;; whether it issued a reference. A pure query: no state change,
+          ;; never fatal, and the engine learns no frontend semantics.
+          :cell/authentic?
+          {:state state,
+           :value (authentic-ref? state :cell-ref (:cell effect)),
+           :blocked? false}
           (let [[id s'] (gensym state "effect")
                 handler (module/get-effect-handler (:modules state)
                                                    (:effect effect))]

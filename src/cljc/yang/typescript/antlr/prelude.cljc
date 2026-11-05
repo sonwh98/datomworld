@@ -132,13 +132,24 @@
                  (if (data/content= x (data/float64 x)) :number :bigint)
                  (if (js/str? x)
                    :string
-                   (if (js/cell? x)
+                   (if (if (js/cell? x) (cell/authentic? x) false)
                      (if (= (get (cell/get x) :js/type) :function)
                        :function
                        (if (= (get (cell/get x) :js/type) :symbol)
                          :symbol
-                         :object))
-                     :number))))))))]
+                         ;; A cell-backed foreign callable (a python
+                         ;; or PHP function: a cell whose contents
+                         ;; carry a call entry, no :js/type) is a
+                         ;; function too, not an object.
+                         (if (yang.call/eligible? x) :function :object)))
+                     ;; A cell-ref-SHAPED value the heap does not
+                     ;; authenticate is ordinary data (the ruling of
+                     ;; record): it earns whatever a plain map earns
+                     ;; here. An admitted foreign callable that is not
+                     ;; a JS cell (a clojure descriptor, a bound
+                     ;; method) is still a function; only a value no
+                     ;; profile admits keeps the bare-number fallback.
+                     (if (yang.call/eligible? x) :function :number)))))))))]
     [js/ty (fn [k] (if (= k :function) :object k))]
     [js/prim-type?
      (fn [t]

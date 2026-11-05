@@ -1,3 +1,36 @@
 muse: workspace root: /Users/sto/workspace/datomworld-h32 (cwd default)
 muse: workspace trust: trusted source=run-flag
 muse: warning: rules file at /Users/sto/workspace/datomworld-h32/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+Done. Both deliverables are written, A-verified, and committed locally on `h3-3-prep` as `413e991d`. No existing file was modified.
+
+**Deliverables**
+
+- [h3_3_fixture_family.md](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/h3_3_fixture_family.md) — fixture design for all 20 arities: corpus-shaped guest calls, predicted A/B/C outcomes, the exact trace record each fixture must produce in both C lanes, refusal/edge companions (R1–R10), conservative-upstream notes, and the credit table.
+- [h3_3_a_verify.clj](/Users/sto/workspace/datomworld-h32/test/yang/latte_oracle/h3_3_a_verify.clj) — runnable A-verification mirroring the H3-2 shape.
+
+**Real run output** (explicit-classpath equivalent of the seat command; the `clj -M:test` form fails on this laptop before reaching the script because the test-runner loads namespaces needing ungenerated ANTLR classes — an environment gap, noted in the doc):
+
+```text
+PASS unregister rebuilds :user from :standard (conservative upstream)
+H3-3-A-VERIFY: PASS (43/43)
+```
+
+exit 0, re-confirmed on the committed file after the formatter hook ran. Kondo: 0 errors (5 unused-alias warnings; the requires load the namespaces the eval'd forms resolve against).
+
+**Honest accounting** (one primary fixture per arity; 16 + 3 + 1 = 20)
+
+| Credit kind | Count | Arities |
+|---|---|---|
+| Direct, ordinary fixture | 16 | all `norm`/`nbe`/`presyntax`/`syntax` heads except below, plus `axiom?/1` |
+| Named integration (ID registration only) | 3 | `readable-term-/2`, `readable-term-/3`, `unregister-unparser!/1` |
+| Conditional | 1 | `registered-definition?/1` |
+
+Key findings recorded in the doc:
+
+- `registered-definition?/1` cannot be credited by an ordinary fixture: upstream `/1` is the ambient-`empty-env` form, the context adaptation has no ambient form, so the generated gate wrapper arity-errors on B/C. It credits only if integration adds the precedented `registered-definition?` entry (+1) to the harness's trace-name tables — the treatment `unregister-unparser!` already has. Until then its fixture is an honest non-crediting pass and the gate stays `:blocked` on that one arity.
+- `readable-term-` is private, so the A-leg `:call` must use the `(var …)` form (direct qualified call does not compile — probed), making those two named integrations rather than direct.
+- Corrections to brief assumptions, documented with source refs: `mk-fresh` is pure/deterministic (no gensym or supply), and `docs/design/hardening3-plan.md` does not exist in this workspace, so dispositions were derived from landed corpus precedents and the H3-2 pattern.
+- Conservative upstream behavior pinned, not corrected: unregister rebuilds `:user` from `:standard` (`unparser.cljc:35`), and `norm/instantiate-def` renames unfilled parameters (`t`→`t'`).
+
+B/C predictions are source-derived and explicitly marked unverified — executing them is the integration round's job. The seat pushes; nothing was pushed here.
+DISPATCH_RC=0

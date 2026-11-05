@@ -1,0 +1,62 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. The unit is complete and pushed. The report, written for the fresh gate:
+
+---
+
+## cljrt fix round 4 — delivered at `f35c65c2` (branch `yang-clojure-runtime-module`, pushed over gh HTTPS with `--force-with-lease` pinned to the verified remote tip `d3a35830`; origin config untouched, nothing merged)
+
+### 1. Diff summary (post-rebase, vs origin/master)
+
+```
+ src/cljc/yang/clojure.cljc                  | 313 ++++++++++++++++++++++--
+ src/cljc/yang/clojure/prelude.cljc          | 173 +++++++++++++++   (branch lane, rebased cleanly)
+ src/cljc/yang/typescript/antlr/prelude.cljc |  12 +--                    (branch lane, rebased cleanly)
+ test/yang/call/conformance.clj              |  78 +++++--                  (branch lane, rebased cleanly)
+ test/yang/clojure_test.clj                  | 111 +++++++++-               (D2 lane + my new regression)
+ test/yang/cross_lang_test.clj               | 131 +++++++++--              (r3 tests + the new full-shape legs)
+```
+Branch history now sits **on** master (4 commits over `811ac5ec`): the three runtime-module commits rebased, plus `f35c65c2` — the r4 fix.
+
+### 2. The fix, and the honest boundary it draws
+
+The gate is right that shape can never establish authenticity — genuine references are plain maps (`engine.cljc:316 issue-ref`), and authenticity is the heap+seal check. I verified empirically (spliced-`cell/new` probes on both JVM evaluators) that the only in-language probe is `cell/get` itself, whose `check-ref!` fails by **host ex-info that no guest construct can catch** (the `try` lowering catches outcome-tagged guest throws only; `u/capture` escapes carry guest conditions only; every backend steps the effect inline with no catch). So "fall back when the authenticity check fails" is **inexpressible in-language** — that needs a yin/vm non-fatal probe (e.g. a `cell/live?` primitive), which this round's boundaries forbid. Dead ends examined and closed: shape/format tests (the gate's rejected class), registries of seen refs (callback args unreachable), deref-first-then-data (genuine refs invoked with keys they contain answer wrongly), custom effect handlers from the prelude (not portable to remote harnesses), FFI (no heap access).
+
+What landed instead is the strongest *sound* discriminator: the engine mints **every** heap id from one counter as `:cell-N` (`gen-id`), so a full-shape map whose `:id` is not a keyword of that language **provably names no cell** — it can never be genuine, and it routes to ordinary map invocation (get on the key) on both evaluators. Every genuine reference passes the test (its `:id` *is* `:cell-N`), so admission still receives exactly the genuine candidates: live entries dereference through to the call; genuine-but-dead keeps the standing `not-callable` refusal byte-for-byte. **Residual, pinned as a test:** a forged `:id :cell-7` + 64-char-seal map still fails closed at `check-ref!` (`:dead-or-forged-reference`) — the same fate any forged reference meets anywhere in the system; nothing gains capability. The commit message carries this analysis verbatim.
+
+### 3. Conflict resolution narrative (rebase)
+
+All conflicts were in `src/cljc/yang/clojure.cljc`; both lanes rewrote the same three regions:
+- **`call-entry`** — auto-merged: D2's packet lane (vector `[token args]` on the unary entry, arity guard before `data/nth`, explicit refusal for non-token vectors, maps keep the record path) survived untouched; the branch never touched it.
+- **`dsg__admitted?` (3-way, the hard one)** — D2 had moved it into the shared frame `(u/lam '[dsg__admitted? dsg__intra_call] %)` with the callable-witness refinement; the branch had nested the cell branch inside it. Resolution: D2's frame and `dsg__intra_call` dispatcher **verbatim**, the branch's cell branch inside, and the witness branch carrying **D2's** `(data/callable? witness)` guard (a D2 fix the branch's side predated). One mid-rebase mistake caught and redone: a `git checkout --ours` on commit 2 silently dropped that commit's auto-merged content — detected by grepping for `kind-of`, rebase aborted and re-resolved by hand-editing the hunks (plus one paren repair; the quote in `'(fn …)` takes no close paren).
+- **`intra-unit-fn?` vs `cell-ref-shaped-node`** — both defs kept, both used.
+- `program-env`/`top-level-defined-fns`/assoc-branch (D2) and the requires + `read-forms`/`publish-to-globals`/`lower-unit` tail (branch) — auto-merged.
+- Test files didn't overlap: `clojure_test.clj` from master, `conformance.clj`/`cross_lang_test.clj` from the branch.
+
+### 4. Tests run here, with real output
+
+| command | result |
+|---|---|
+| `clojure -M:test --namespace yang.clojure-test` | **95 tests, 918 assertions, 0 failures, 0 errors** (master was 94/904; +1 test/+14 assertions are mine) |
+| `--var …test-common-call-cell-ref-map-invocation` (new) | 14 assertions green: full-shape literal `{:type :cell-ref :id :some-key :seal "a×64"}` → `[:yin.k/ok :cell-ref]` / `[:yin.k/ok :some-key]`; assoc-built runtime map → same; `eligible?` → false; genuine-live (spliced `cell/new`) → `[:yin.k/ok :called]`; genuine-but-dead → the standing `:yang.call/not-callable` refusal; residual forged `:cell-7` → pinned `[:thrown {:reason :dead-or-forged-reference, :effect :cell/get}]` — each on **both** evaluators |
+| `--var yang.cross-lang-test/clojure-source-cell-ref-map-invocation-test` | 5 assertions green incl. the two new full-shape donor legs (literal + assoc-built), answering the stored seal string through TS |
+| 4 genuine matrix legs (`clojure-closure-called-from-typescript`, `typescript-closure-called-from-clojure`, `clojure-projection-through-runtime-globals`, `clojure-caller-shadows-projected-global`) | 4 tests, 5 assertions, 0 failures |
+| D2 corpus (`token-packet-forgery`, `source-admission`, `invocation-source-admission`, `shadowed-helpers`, `invalid-continuation`) | 87 assertions, 0 failures — both lanes' pinned behavior on the rebased tree |
+| `--namespace yang.core.call-test` / `--namespace yang.frontend-test` | 4/15 and 3/29, all green |
+| clj-kondo on the three touched files | `linting took 1202ms, errors: 0, warnings: 0` (exit 0) |
+
+### 5. Remote commands for the seat (jupiter; suite-scale, not run here)
+
+```bash
+# at pin f35c65c2, fresh clone or fetch in ~/ci/
+clojure -M:test -n yang.cross-lang-test          # full matrix namespace (was 13/18/0 at d3a35830)
+bb test:sub:clj yang.base                        # yang.base subsystem lane (was 122/0)
+clojure -M:test -n yang.clojure-test             # full corpus incl. the D2 + r4 regressions
+# D2 authenticity re-establishment on the REBASED tree (the mutation-verified regression):
+clojure -M:test -n yang.clojure-test -v yang.clojure-test/test-common-call-token-packet-forgery-refuses
+# 4M kernel gate (uniform acceptance budget; binding fixtures' gate deftests):
+clojure -M:test -n yang.latte-oracle-test -v yang.latte-oracle-test/test-kernel-acceptance-counting
+clojure -M:test -n yang.latte-oracle-test -v yang.latte-oracle-test/test-kernel-exhaustion-evidence-is-bounded
+```
+
+One thing for the gate to weigh deliberately: if it holds the r3 line that *any* id/format-keyed routing "cannot converge", then this fix should be rejected **with the ruling request attached** — the wall analysis above is the payload; erasing the residual requires a non-fatal authenticity probe in yin/vm, a boundary decision only the seat can make.
+DISPATCH_RC=0

@@ -65,3 +65,32 @@ Next:
    relying on them for gate decisions.
 5. Owner decision pending: re-enable the 03:00 VN cron entries (currently
    cancelled); pin or leave `android-sdk = "latest"` in mise.toml.
+
+## 2026-11-05 01:0x:0x +07 — nightly cron installed: disjoint lanes at 04:00 Vietnam
+Completed-GMT: 2026-11-04 18:0x:00 GMT
+Coding-Agent: interactive (zcode, glm-5.3-flash)
+Session-ID: not-applicable (interactive seat)
+Tree: master@fac5f5db, no uncommitted changes this unit
+Done: owner instruction "schedule the disjoint tests on shiva and jupiter at 4am
+Vietnam time". Installed ~/ci/nightly-cron.sh on both hosts plus an hourly
+crontab entry (0 * * * *): the wrapper guards on TZ=Asia/Ho_Chi_Minh hour == 04
+(DST-immune: hosts run EST) and flock-skips a slot whose prior run is still
+live. shiva: lanes node,dart, --pin-publish, fresh dedicated clone
+~/ci/datomworld-nightly (origin verified github, checkout current master,
+per-clone fan-out auto-creates -node/-dart); jupiter: lane jvm, --pin-read
+--pin-peer shiva, clone already at datomworld-nightly. Driver window guard
+changed to 04 VN hour (still --now-forceable). Logs ~/ci/nightly-cron.log,
+results ~/ci/nightly-results/<stamp>/. Docs: build-n-test.md cadence +
+master-only sections updated; stale nightly-full.sh/tmux mention replaced.
+Closes the prior entry's open item "re-enable the 03:00 VN cron entries".
+Decisions: once daily at 04:00 (owner's new schedule) replaces the twice-daily
+03/17 windows; documented without supersession references per the file rule.
+Verification: both wrappers self-tested outside the window (silent exit, rc=0);
+crontabs confirmed installed; shiva clone currency proven by REMOTE-OK +
+log --oneline matching origin/master. No live run started (first automatic
+launch: tomorrow 04:00 VN).
+Delegates: none
+Next: check the first scheduled run's summaries on both hosts; yang-php pin
+regeneration and the include-test hang remain handed off (notes filed);
+slow-tier per-namespace timeout and the 10-hour uncovered-shard split stay
+unplanned items.

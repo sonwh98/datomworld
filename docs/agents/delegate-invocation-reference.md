@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, agy, kimi, vibe, qwen)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -107,6 +107,9 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | muse         | `~/.local/share/muse`       | caller UUID via `--session-id`   | `muse resume <uuid>`                     |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
+| qwen         | `~/.qwen/projects/<slug>/ch | caller UUID via `--session-id`   | `qwen --resume <uuid>`                   |
+|              | ats/`                       |                                  |                                          |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
 > **Don't probe before delegating.** Never run throwaway commands (`echo ok`, `--version`, `--help`) to
@@ -159,79 +162,93 @@ listed CLIs.
 
 ## CLI reference
 
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| CLI            | Provider / models          | Model select               | Review-mode flags    | Implementation-mode flags  | Session start        | Resume             |
-+================+============================+============================+======================+============================+======================+====================+
-| `claude`       | Anthropic; default         | `--model <model>`          | `--permission-mode   | `--permission-mode         | `--session-id <uuid> | `--resume <uuid>`  |
-|                | **claude-fable-5-1**       |                            | plan --allowed-tools | acceptEdits`               | --name <task>`       |                    |
-|                |                            |                            | Read "Bash(git diff  |                            |                      |                    |
-|                |                            |                            | *)" "Bash(git status |                            |                      |                    |
-|                |                            |                            | *)"`                 |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `claude-cloud` | Anthropic API (billing     | `--model <model>`          | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
-|                | lane: **claude-api**)      |                            |                      |                            |                      |                    |
-|                | (metered credits); default |                            |                      |                            |                      |                    |
-|                | **claude-sonnet-5-5** /    |                            |                      |                            |                      |                    |
-|                | **claude-opus-5-5**        |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `glm`          | Zhipu GLM; default         | `MODEL=<model> glm`        | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
-|                | **glm-5.3** (Sonnet/Haiku  |                            |                      |                            |                      |                    |
-|                | tier: `glm-5.3-flash`)     |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `deepseek`     | DeepSeek; default          | `MODEL=<model> deepseek`   | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
-|                | **deepseek-v4-pro**        |                            |                      |                            |                      |                    |
-|                | (Sonnet/Haiku tier:        |                            |                      |                            |                      |                    |
-|                | `deepseek-flash`)          |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `codex`        | OpenAI, flat-rate ChatGPT  | `-m <model>`               | `-s read-only`       | `-s workspace-write`       | no caller ID;        | `codex exec resume |
-|                | Plus; `gpt-6-astra`,       |                            |                      |                            | capture `thread.star | <thread-id>`       |
-|                | `gpt-6.1-sol`,             |                            |                      |                            | ted.thread_id` (see  |                    |
-|                | `gpt-6.1-terra`,           |                            |                      |                            | Session continuity)  |                    |
-|                | `gpt-6-luna`,              |                            |                      |                            |                      |                    |
-|                | `gpt-5.4-mini`             |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `kimi`         | Moonshot AI; native Kimi   | `-m <model-alias>`         | `--agent explore`    | `-p` (auto permissions)    | no caller ID;        | `--session <id>`   |
-|                | K3.1 Pro / K3 families     |                            | (read-only) or       |                            | capture session ID   |                    |
-|                |                            |                            | `--agent-file        |                            | from session index   |                    |
-|                |                            |                            | <path>` — profiles:  |                            |                      |                    |
-|                |                            |                            | plan, agent, coder,  |                            |                      |                    |
-|                |                            |                            | explore              |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `mistral`      | Mistral AI CLI; the binary | `--model <model>`          | `--agent ask`        | `--agent accept-edits`     | no caller ID;        | `--resume <id>`    |
-|                | is named `vibe` and        |                            | (read-only)          | (edit)                     | capture from         | (or `-c`)          |
-|                | `mistral` is an alias for  |                            |                      |                            | session journal      |                    |
-|                | it; either name invokes    |                            |                      |                            |                      |                    |
-|                | the same CLI (vibe 3.0.4). |                            |                      |                            |                      |                    |
-|                | Live model aliases         |                            |                      |                            |                      |                    |
-|                | (probed 2026-11-03):       |                            |                      |                            |                      |                    |
-|                | `mistral-4.0` (the current |                            |                      |                            |                      |                    |
-|                | large generation — use it, |                            |                      |                            |                      |                    |
-|                | NOT `mistral-large`) and   |                            |                      |                            |                      |                    |
-|                | `mistral-medium-3.5`; the  |                            |                      |                            |                      |                    |
-|                | rest (`mistral-large`,     |                            |                      |                            |                      |                    |
-|                | `devstral`, `codestral`)   |                            |                      |                            |                      |                    |
-|                | parse but the live API     |                            |                      |                            |                      |                    |
-|                | rejects them (400          |                            |                      |                            |                      |                    |
-|                | invalid_model)             |                            |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `agy`          | Gemini, Claude, GPT-OSS;   | `--model <model>` (the     | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
-|                | flat-rate. Effort is part  | ID or display name pins    | --sandbox`           | --sandbox`                 | capture              | <id>`              |
-|                | of the model name —        | the effort; `--effort` is  |                      |                            | `conversation_id`    |                    |
-|                | `gemini-4-argon-{low,      | redundant)                 |                      |                            |                      |                    |
-|                | medium,high}`,             |                            |                      |                            |                      |                    |
-|                | `gemini-3.8-flash-{low,    |                            |                      |                            |                      |                    |
-|                | medium,high}`,             |                            |                      |                            |                      |                    |
-|                | `claude-opus-5-5-{low,     |                            |                      |                            |                      |                    |
-|                | medium,high}`,             |                            |                      |                            |                      |                    |
-|                | `claude-sonnet-5-5-{low,   |                            |                      |                            |                      |                    |
-|                | medium,high}`,             |                            |                      |                            |                      |                    |
-|                | `gpt-oss-120b-medium`      |                            |                      |                            |                      |                    |
-|                | (catalog is per-host —     |                            |                      |                            |                      |                    |
-|                | `agy models`)              |                            |                      |                            |                      |                    |
-| `muse`         | Meta (Muse Code);          | `--model <model>`          | `--disable-write`    | default approval +         | `exec --session-id   | `muse resume       |
-|                | **muse-wonder-1.0**,       | `--reasoning-effort        |                      | sandbox (on)               | <uuid>`              | <uuid>`            |
-|                | `muse-spark-1.3`           | <effort>`                  |                      |                            |                      |                    |
-+----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| CLI            | Provider / models         | Model select               | Review-mode flags    | Implementation-mode flags | Session start        | Resume             |
++================+===========================+============================+======================+===========================+======================+====================+
+| `claude`       | Anthropic; default        | `--model <model>`          | `--permission-mode   | `--permission-mode        | `--session-id <uuid> | `--resume <uuid>`  |
+|                | **claude-fable-5-1**      |                            | plan --allowed-tools | acceptEdits`              | --name <task>`       |                    |
+|                |                           |                            | Read "Bash(git diff  |                           |                      |                    |
+|                |                           |                            | *)" "Bash(git status |                           |                      |                    |
+|                |                           |                            | *)"`                 |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `claude-cloud` | Anthropic API (billing    | `--model <model>`          | same as `claude`     | same as `claude`          | same as `claude`     | same as `claude`   |
+|                | lane: **claude-api**)     |                            |                      |                           |                      |                    |
+|                | (metered credits);        |                            |                      |                           |                      |                    |
+|                | default                   |                            |                      |                           |                      |                    |
+|                | **claude-sonnet-5-5** /   |                            |                      |                           |                      |                    |
+|                | **claude-opus-5-5**       |                            |                      |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `glm`          | Zhipu GLM; default        | `MODEL=<model> glm`        | same as `claude`     | same as `claude`          | same as `claude`     | same as `claude`   |
+|                | **glm-5.3** (Sonnet/Haiku |                            |                      |                           |                      |                    |
+|                | tier: `glm-5.3-flash`)    |                            |                      |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `deepseek`     | DeepSeek; default         | `MODEL=<model> deepseek`   | same as `claude`     | same as `claude`          | same as `claude`     | same as `claude`   |
+|                | **deepseek-v4-pro**       |                            |                      |                           |                      |                    |
+|                | (Sonnet/Haiku tier:       |                            |                      |                           |                      |                    |
+|                | `deepseek-flash`)         |                            |                      |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `codex`        | OpenAI, flat-rate ChatGPT | `-m <model>`               | `-s read-only`       | `-s workspace-write`      | no caller ID;        | `codex exec resume |
+|                | Plus; `gpt-6-astra`,      |                            |                      |                           | capture `thread.star | <thread-id>`       |
+|                | `gpt-6.1-sol`,            |                            |                      |                           | ted.thread_id` (see  |                    |
+|                | `gpt-6.1-terra`,          |                            |                      |                           | Session continuity)  |                    |
+|                | `gpt-6-luna`,             |                            |                      |                           |                      |                    |
+|                | `gpt-5.4-mini`            |                            |                      |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `kimi`         | Moonshot AI; native Kimi  | `-m <model-alias>`         | `--agent explore`    | `-p` (auto permissions)   | no caller ID;        | `--session <id>`   |
+|                | K3.1 Pro / K3 families    |                            | (read-only) or       |                           | capture session ID   |                    |
+|                |                           |                            | `--agent-file        |                           | from session index   |                    |
+|                |                           |                            | <path>` — profiles:  |                           |                      |                    |
+|                |                           |                            | plan, agent, coder,  |                           |                      |                    |
+|                |                           |                            | explore              |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `mistral`      | Mistral AI CLI; the       | `--model <model>`          | `--agent ask`        | `--agent accept-edits`    | no caller ID;        | `--resume <id>`    |
+|                | binary is named `vibe`    |                            | (read-only)          | (edit)                    | capture from session | (or `-c`)          |
+|                | and `mistral` is an alias |                            |                      |                           | journal              |                    |
+|                | for it; either name       |                            |                      |                           |                      |                    |
+|                | invokes the same CLI      |                            |                      |                           |                      |                    |
+|                | (vibe 3.0.4). Live model  |                            |                      |                           |                      |                    |
+|                | aliases (probed           |                            |                      |                           |                      |                    |
+|                | 2026-11-03):              |                            |                      |                           |                      |                    |
+|                | `mistral-4.0` (the        |                            |                      |                           |                      |                    |
+|                | current large generation  |                            |                      |                           |                      |                    |
+|                | — use it, NOT             |                            |                      |                           |                      |                    |
+|                | `mistral-large`) and      |                            |                      |                           |                      |                    |
+|                | `mistral-medium-3.5`; the |                            |                      |                           |                      |                    |
+|                | rest (`mistral-large`,    |                            |                      |                           |                      |                    |
+|                | `devstral`, `codestral`)  |                            |                      |                           |                      |                    |
+|                | parse but the live API    |                            |                      |                           |                      |                    |
+|                | rejects them (400         |                            |                      |                           |                      |                    |
+|                | invalid_model)            |                            |                      |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `agy`          | Gemini, Claude, GPT-OSS;  | `--model <model>`          | `--mode plan         | `--mode accept-edits      | no caller ID;        | `--conversation    |
+|                | flat-rate. Effort is part |                            | --sandbox`           | --sandbox`                | capture              | <id>`              |
+|                | of the model name: the ID |                            |                      |                           | `conversation_id`    |                    |
+|                | or display name pins the  |                            |                      |                           |                      |                    |
+|                | effort (`--effort` is     |                            |                      |                           |                      |                    |
+|                | redundant). Models:       |                            |                      |                           |                      |                    |
+|                | `gemini-4-argon-{low,medi |                            |                      |                           |                      |                    |
+|                | um,high}`,                |                            |                      |                           |                      |                    |
+|                | `gemini-3.8-flash-{low,me |                            |                      |                           |                      |                    |
+|                | dium,high}`,              |                            |                      |                           |                      |                    |
+|                | `claude-opus-5-5-{low,med |                            |                      |                           |                      |                    |
+|                | ium,high}`,               |                            |                      |                           |                      |                    |
+|                | `claude-sonnet-5-5-{low,m |                            |                      |                           |                      |                    |
+|                | edium,high}`,             |                            |                      |                           |                      |                    |
+|                | `gpt-oss-120b-medium`.    |                            |                      |                           |                      |                    |
+|                | Catalog is per-host: `agy |                            |                      |                           |                      |                    |
+|                | models`.                  |                            |                      |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `muse`         | Meta (Muse Code);         | `--model <model>`          | `--disable-write`    | default approval +        | `exec --session-id   | `muse resume       |
+|                | **muse-wonder-1.0**,      | `--reasoning-effort        |                      | sandbox (on)              | <uuid>`              | <uuid>`            |
+|                | `muse-spark-1.3`          | <effort>`                  |                      |                           |                      |                    |
++----------------+---------------------------+----------------------------+----------------------+---------------------------+----------------------+--------------------+
+| `qwen`         | Alibaba Model Studio      | `-m <model>`               | `--approval-mode     | `--approval-mode          | caller UUID via      | `--resume <uuid>`  |
+|                | (Token Plan,              |                            | plan`                | auto-edit` (default mode  | `--session-id`       |                    |
+|                | ap-southeast-1);          |                            |                      | no-ops tools headless)    |                      |                    |
+|                | `qwen3.8-max`,            |                            |                      |                           |                      |                    |
+|                | `qwen3.8-flash`,          |                            |                      |                           |                      |                    |
+|                | `qwen3.7-max`,            |                            |                      |                           |                      |                    |
+|                | `qwen3.6-flash`,          |                            |                      |                           |                      |                    |
+|                | `deepseek-v4-pro`         |                            |                      |                           |                      |                    |
 
 Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`) configure provider endpoints and credentials, then execute
 `claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek` share one CLI base: none needs a PTY, all
@@ -283,6 +300,57 @@ shell writes still gate). Never pass `--yolo`, `--disable-approval`, or
 [`routing-status.md`](routing-status.md) before dispatching: availability
 moves (the muse lane has swung between geo-restricted, windowed, and live
 several times — that file, not this one, is the current authority).
+
+**Qwen-code routing:** the `qwen` CLI is Alibaba's own coding agent
+(`@qwen-code/qwen-code@0.17.0`, npm-global under nvm node v26.1.0) — a
+first-class agent like `kimi` or `muse`, NOT a Claude Code wrapper (the
+withdrawn `~/.local/bin/qwen` wrapper is gone; the name collision it
+caused is why only this CLI answers to `qwen` now). Config
+`~/.qwen/settings.json`: the key lives in `env` as
+`BAILIAN_TOKEN_PLAN_API_KEY`; providers at
+`https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`
+(the key 403s at cn-beijing — region-bound, same as the Anthropic
+endpoint); default model `qwen3.8-max`. Measured usable catalog:
+`qwen3.8-max`, `qwen3.8-flash`, `qwen3.7-max`, `qwen3.6-flash`,
+`deepseek-v4-pro` — everything else the config previously listed (from a
+bl-side auto-setup that also guessed the wrong region) returns
+"Access to model denied" or "Model not exist". A pre-edit backup of the
+auto-written config sits at `~/.qwen/settings.json.bak.1793811000`.
+Account management runs through the separate `bl` CLI — `bl` is NOT a
+coding lane.
+
+Measured session mechanics (2026-11-04, all round-trips verified — a
+caller-UUID agent like the Claude family and Muse):
+- **Start with your own ID:** `qwen --session-id <uuid> "<prompt>"`
+  (`-p/--prompt` is deprecated; the positional query is the canonical
+  one-shot headless form, stdin allowed).
+- **Resume:** `qwen --resume <uuid> "<follow-up>"` — verified to restore
+  context twice, including WITHOUT `--chat-recording` on both runs: chat
+  recording is on by default, and the help text's "…or resume will not
+  work" applies only if recording has been disabled in settings.
+  `-c/--continue` resumes the most recent session for the current
+  project directory; prefer the exact `--resume <id>`.
+- **Store:** sessions persist as JSONL under
+  `~/.qwen/projects/<cwd-path-slug>/chats/<session-id>.jsonl` (grouped
+  by working directory — run follow-ups from the SAME directory), with
+  debug transcripts under `~/.qwen/debug/<session-id>.txt`.
+- **Headless approvals (the important one):** `--approval-mode default`
+  in a headless run SILENTLY ENDS THE TURN WITHOUT TOOLS — measured: it
+  replies "approve the agent tool…" and writes nothing (the AGY-class
+  no-deliverable trap). Implementation rounds must pass
+  `--approval-mode auto-edit` (measured: file writes complete, DONE,
+  rc=0) or `auto` (LLM-classifier approval); read-only review uses
+  `plan`. Never `yolo` — same rule as every delegate.
+
+> [!CAUTION]
+> **`bl config agent --agent claude-code` is a global takeover — do not
+> use it.** It rewrites `~/.claude/settings.json`'s `env` with
+> `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` AND forces
+> `ANTHROPIC_MODEL` + all three `ANTHROPIC_DEFAULT_*_MODEL` tiers +
+> `CLAUDE_CODE_SUBAGENT_MODEL` to one Qwen model, for every session in
+> every project — regardless of what the wrapper lane is named.
+> (The codex/opencode/openclaw targets are safer: they add a separate
+> `bailian-cli` provider block rather than replacing defaults.)
 
 **Kimi routing:** always invoke Kimi models through the dedicated `kimi` CLI.
 The managed 3.x aliases are `kimi-code/k3.1-pro`,
@@ -357,6 +425,17 @@ muse exec --trust-workspace --approval-mode never --model muse-wonder-1.0 --sess
 
 # Muse follow-up: resume the exact recorded UUID interactively (never `muse resume --last`).
 # Headless failure modes and the server-side verification record: see Known CLI quirks.
+
+# Qwen Code (Alibaba) — native CLI; positional prompt is the headless form (-p is deprecated).
+# Implementation: --approval-mode auto-edit (default mode silently no-ops tools headless).
+# Read-only review: --approval-mode plan.
+qwen --session-id <uuid> --approval-mode auto-edit "<prompt>" < /dev/null \
+  > collab/<topic>/<timestamp>-<role>-<task>.qwen3.8-max.stdout.log 2>&1
+
+# Qwen follow-up: resume the same caller UUID from the SAME working directory
+# (chats are stored per project path under ~/.qwen/projects/).
+qwen --resume <uuid> --approval-mode auto-edit "<follow-up prompt>" < /dev/null \
+  > collab/<topic>/<timestamp>-<role>-<task>-r2.qwen3.8-max.stdout.log 2>&1
 
 # Codex
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \

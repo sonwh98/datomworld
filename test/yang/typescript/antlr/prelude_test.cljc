@@ -684,3 +684,47 @@
 
 (deftest primitive-receiver-test
   (check (conj receiver-prim-cases receiver-set-case)))
+
+
+(def ^:private cell-ref-typeof-cases
+  [;; a cell-ref-SHAPED data value is ordinary data: it earns whatever a
+   ;; plain map earns (bare-number fallback), it does not abort
+   ['(js/typeof {:type :cell-ref :id "cell-1" :seal "x"})
+    {:js/str "number"}]
+   ['(js/kind-of {:type :cell-ref :id "cell-1" :seal "x"}) :number]
+   ;; a genuine reference still resolves exactly as before
+   ['(js/typeof (js/make-object js.rt/obj-proto)) {:js/str "object"}]
+   ['(js/kind-of (js/make-function {:js/str "f"}
+                                   0
+                                   :strict
+                                   :normal
+                                   (fn [this args] this)))
+    :function]])
+
+
+(deftest cell-ref-typeof-test
+  (check cell-ref-typeof-cases))
+
+
+(def ^:private cell-ref-receiver-cases
+  [;; the preserved member-call receiver passes through as data: a
+   ;; cell-ref-SHAPED receiver answers typeof as a plain map, no abort
+   ['(let [f (js/make-function {:js/str "f"}
+                               0
+                               :strict
+                               :normal
+                               (fn [this args] (js/typeof this)))]
+       (js/call f {:type :cell-ref :id "cell-1" :seal "x"} []))
+    {:js/str "number"}]
+   ;; a genuine object receiver still arrives as an object
+   ['(let [f (js/make-function {:js/str "f"}
+                               0
+                               :strict
+                               :normal
+                               (fn [this args] (js/typeof this)))]
+       (js/call f (js/make-object js.rt/obj-proto) []))
+    {:js/str "object"}]])
+
+
+(deftest cell-ref-receiver-test
+  (check cell-ref-receiver-cases))

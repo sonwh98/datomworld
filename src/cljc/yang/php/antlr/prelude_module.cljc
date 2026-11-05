@@ -191,33 +191,74 @@
      (fn [s]
        (let [cs (data/str->code-points s) n (data/count cs)]
          (if (= n 0) false (if (php/name-start? (get cs 0)) (php/valid-name-at cs 1 n) false))))]
+    [php/dict-exists?
+     ;; binding existence: a null-valued variable exists, an unbound one does
+     ;; not (isset would conflate the two)
+     (fn [d name]
+       (if (= d :php/globals) (not (nil? (php/global-slot name)))
+           (not (= (cell/get (php/scope-cell d name)) :php/undef))))]
+    [php/extract-needs-prefix?
+     ;; the modes that import under the prefixed name and need a prefix
+     (fn [flags]
+       (if (= flags 2) true (if (= flags 3) true (if (= flags 4) true (if (= flags 5) true (= flags 7))))))]
+    [php/extract-name
+     ;; the prefixed name: the underscore separator stays even when the
+     ;; prefix is empty, so "" prefixes "_key"
+     (fn [prefix base]
+       (data/str-concat (data/str-concat prefix "_") base))]
+    [php/extract-target
+     ;; the variable name to write for one key, or :php/missing to skip
+     (fn [base valid exists flags prefixed]
+       (if (= flags 0) (if valid base :php/missing)
+           (if (= flags 1) (if (if valid (not exists) false) base :php/missing)
+               (if (= flags 2) (if valid (if exists prefixed base) :php/missing)
+                   (if (= flags 3) prefixed
+                       (if (= flags 4) (if valid base (if (php/valid-name? prefixed) prefixed :php/missing))
+                           (if (= flags 5) (if (if valid exists false) prefixed :php/missing)
+                               (if (= flags 6) (if (if valid exists false) base :php/missing)
+                                   (if (= flags 7) (if (if valid exists false) prefixed :php/missing)
+                                       :php/missing)))))))))]
     [php/extract-loop
      (fn [d arr flags prefix i n count]
        (if (< i n)
          (let [k (get (php/array-order arr) i)
                base (php/to-string k)
-               name (if (= flags 3) (data/str-concat prefix base)
-                        (if (if (= flags 2) (php/dict-isset? d base) false)
-                          (data/str-concat prefix base) base))
-               write? (if (php/valid-name? name)
-                        (if (= flags 1) (not (php/dict-isset? d base)) true)
-                        false)]
-           (do (if write? (php/dict-set! d name (php/addref (php/array-get arr k))) :php/null)
+               valid (php/valid-name? base)
+               exists (php/dict-exists? d base)
+               target (php/extract-target base valid exists flags (php/extract-name prefix base))
+               write? (if (= target :php/missing) false (php/valid-name? target))]
+           (do (if write? (php/dict-set! d target (php/addref (php/array-get arr k))) :php/null)
                (php/extract-loop d arr flags prefix (+ i 1) n (if write? (+ count 1) count))))
          count))]
     [php/bi-extract
+     ;; an invalid mode, a missing prefix for a prefix mode, and a prefix
+     ;; that is not a valid variable name are all a ValueError, like PHP 8
      (fn [args d]
        (do (php/arity-between "extract" args 1 3 "at least 1")
            (let [arr (php/arg-array (get args 0) "extract" 1 "array")
                  flags (php/to-int (php/arg-or args 1 0))]
              (if (= (integer/bit-and flags 256) 256)
                (php/throw-error "Error" "extract(EXTR_REFS) is not supported (corner C11)")
-               (php/extract-loop d arr flags (php/to-string (php/arg-or args 2 ""))
-                                 0 (php/array-count arr) 0)))))]
+               (if (if (< flags 0) true (> flags 7))
+                 (php/throw-error "ValueError" "extract(): Argument #2 ($mode) must be a valid extract mode")
+                 (let [prefix (php/to-string (php/arg-or args 2 ""))]
+                   (if (if (php/extract-needs-prefix? flags)
+                         (if (< (data/count args) 3) true
+                             (if (= prefix "") false (not (php/valid-name? prefix))))
+                         false)
+                     (if (< (data/count args) 3)
+                       (php/throw-error "ValueError" "extract(): Argument #3 ($prefix) is required when $mode needs a prefix")
+                       (php/throw-error "ValueError" "extract(): Argument #3 ($prefix) must be a valid variable name"))
+                     (php/extract-loop d arr flags prefix 0 (php/array-count arr) 0))))))))]
     [php/compact-name
+     ;; null-valued variables are kept; a missing name warns and is skipped;
+     ;; a non-string, non-array argument warns and is skipped, like PHP
      (fn [d name out]
-       (let [nm (php/to-string name)]
-         (if (php/dict-isset? d nm) (php/array-put out nm (php/addref (php/dict-peek d nm))) out)))]
+       (if (= (php/kind name) :string)
+         (let [nm (php/to-string name)]
+           (if (php/dict-exists? d nm) (php/array-put out nm (php/addref (php/dict-peek d nm)))
+               (do (php/warn 2 (data/str-concat "compact(): Undefined variable $" nm)) out)))
+         (do (php/warn 2 "compact(): Each argument must be a string or an array of strings") out)))]
     [php/compact-arg
      (fn [d v out]
        (if (= (php/kind v) :array)

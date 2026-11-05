@@ -462,3 +462,28 @@ My e2e solo run (started to "measure the budget") was exactly the violation the
 RULE NOW ABSOLUTE FOR THIS SEAT: slow bodies run ONLY on shiva/jupiter, and only
   inside scheduled or owner-approved lanes. Local machine: quick namespaces, one at
   a time, nothing tagged or selected :slow, nothing that indexes the full prelude.
+
+## 2026-11-02 10:3x +07 — the cell-ref audit reply filed to the yang.clojure seat
+The yang.clojure seat's evidence relay (twelve py/cell? sites, three confirmed derefs) audited in
+  full — all twelve sites read and classified at origin/master 3ab1c925: three deref sites (:245
+  py/content-type, :1242 the py/add type-resolution fn, :1624-1631 py/eq -> py/eq-objects) are the
+  exposure; nine branch-only sites are safe (shape check, fall-through, never deref). Disposition
+  per the note's option 3: the audit closes my half with no code NOW; the three deref sites get the
+  ruling's rule (shape selects WHEN, cell/authentic? decides meaning) AFTER the cljrt runtime-module
+  landing — my fix round depends on cell/authentic? living on origin/master, which it does not yet.
+  Sharpened the peer's eq claim: the abort is dict-vs-dict == and dict-alone type reads; one
+  look-alike dict against a non-cell answers False without dereferencing. Reply filed:
+  collab/yang-call/1794390000000-orchestrator-yangpython-cell-ref-audit-reply.md.
+Next: the deref fix dispatches when cell/authentic? lands; until then the seat holds on this thread.
+
+## 2026-11-04 (evening) — quiet-mode: the seat proceeds on pre-authorized work only
+Owner is stepping away. The sweep round (a236a116) is complete and committed on the branch; the
+  focused verification runs on jupiter in tmux (pysweep), unattended. No decisions pending from the
+  owner for these steps; the kimi gate and any landing beyond the focused run WILL wait for the
+  owner's return (review dispatch is not pre-authorized tonight).
+Queued silently for morning review, no action without the owner:
+  - the pysweep jupiter results (call-entry, safepoint, import namespaces)
+  - the smoke test the yang.clojure note asked for (shiva matrix + php/ts legs) — deferred: it needs
+    the owner's OK to run another seat's verification lanes
+  - the muse re-verify after its quota reset
+  - the 8.10.11 conformance slice for Python

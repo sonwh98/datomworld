@@ -1,0 +1,614 @@
+diff --git a/src/cljc/yang/clojure.cljc b/src/cljc/yang/clojure.cljc
+index 6259328b..4f0d9e74 100644
+--- a/src/cljc/yang/clojure.cljc
++++ b/src/cljc/yang/clojure.cljc
+@@ -28,8 +28,11 @@
+ 
+   The compiler is written in .cljc format to run on both JVM and Node.js."
+   (:refer-clojure :exclude [compile])
+-  (:require [yang.core.call :as call]
+-            [yang.core.uast :as u]))
++  (:require [clojure.tools.reader :as treader]
++            [clojure.tools.reader.reader-types :as rt]
++            [yang.core.call :as call]
++            [yang.core.uast :as u]
++            [yin.vm :as vm]))
+ 
+ 
+ ;; Forward declaration for mutual recursion
+@@ -1305,7 +1308,11 @@
+           routed (if (::invoker env)
+                    (u/if-node
+                      (u/if-node (u/app (u/v 'data/map?) (u/v callee))
+-                                (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
++                                (u/if-node (u/app (u/v 'data/contains?) (u/v callee) (u/lit :yang.call/entry))
++                                           (u/lit true)
++                                           (u/app (u/v 'dsg__equal)
++                                                  (u/app (u/v 'dsg__get) (u/v callee) (u/lit :type))
++                                                  (u/lit :cell-ref)))
+                                 (u/lit false))
+                      admitted
+                      value-call)
+@@ -2096,14 +2103,27 @@
+                            (u/sexp->uast
+                              '(fn [dsg__candidate]
+                                 (if (data/map? dsg__candidate)
+-                                  (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
+-                                        dsg__witness (dsg__get dsg__candidate :clj/admission)]
+-                                    (if (data/callable? dsg__entry)
+-                                      (dsg__equal
+-                                        dsg__witness
+-                                        (dsg__make_admission
+-                                          (dsg__assoc dsg__candidate :clj/admission nil)))
+-                                      false))
++                                  (if (dsg__equal (dsg__get dsg__candidate :type)
++                                                  :cell-ref)
++                                    ;; A cell-backed callable stores its entry
++                                    ;; in the cell contents (yang.antlr.md
++                                    ;; 8.10.2); projection is structural, as
++                                    ;; `yang.call/_descriptor` projects it.
++                                    ;; Only the cell case dereferences, so a
++                                    ;; source map with an entry spelling
++                                    ;; still needs the witness below.
++                                    (let [dsg__descriptor (cell/get dsg__candidate)
++                                          dsg__entry (dsg__get dsg__descriptor
++                                                               :yang.call/entry)]
++                                      (data/callable? dsg__entry))
++                                    (let [dsg__entry (dsg__get dsg__candidate :yang.call/entry)
++                                          dsg__witness (dsg__get dsg__candidate :clj/admission)]
++                                      (if (data/callable? dsg__entry)
++                                        (dsg__equal
++                                          dsg__witness
++                                          (dsg__make_admission
++                                            (dsg__assoc dsg__candidate :clj/admission nil)))
++                                        false)))
+                                   false))))
+          (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
+          (outcomes? env) (u/let1
+@@ -2620,3 +2640,149 @@
+                           {:type :literal, :value 2}]}}"
+   [form]
+   (compile-form form true {}))
++
++
++;; =============================================================================
++;; The linked runtime entry (the conformance matrix round, yang.antlr.md
++;; section 8.10)
++;; =============================================================================
++;;
++;; A linked clojure program is published as an ordinary linker module whose
++;; one export, `body`, is its unmodified lowered unit, and run under its own
++;; entry, `clj/run-main` (the `clj` runtime module, yang.clojure.prelude).
++;; `read-forms` is the frontend's parser — the reader itself — and
++;; `lower-unit` lowers what it reads to the entry's argument: one thunk
++;; whose call runs the program compiled under the argument-vector
++;; convention and the outcome model over the guest library, with every
++;; top-level definition published to the runtime global namespace
++;; (`clj/define-global!`/`clj/global-get`), as a Python def lands in
++;; its module's globals. No call node is rewritten and no foreign
++;; `:code` is extracted: the unit is the program's own lowering,
++;; wrapped.
++
++(def unit-opts
++  "The `compile-program` opts a linked unit compiles with: the
++   argument-vector convention with the outcome model over the guest
++   library's adapters, every VM primitive callable directly by bare name."
++  {:convention :arg-vector,
++   :outcomes true,
++   :adapters library-adapters,
++   :native vm/primitive-profiles})
++
++
++(def top-defining-operators
++  "The operators whose second element names a top-level definition."
++  '#{def defn defn- defmacro})
++
++
++(defn read-forms
++  "Every form `source` text reads. The reader is the parser: a malformed
++   source throws, as any frontend's refused parse does."
++  [source]
++  (let [rd (rt/string-push-back-reader source)]
++    (loop [forms []]
++      (let [form (treader/read rd false ::eof)]
++        (if (= form ::eof)
++          forms
++          (recur (conj forms form)))))))
++
++
++(defn top-level-names
++  "The names `forms` define at the top level, in order: the second element
++   of each def/defn/defn-/defmacro head."
++  [forms]
++  (into []
++        (comp (filter #(and (seq? %) (contains? top-defining-operators (first %))))
++              (map (comp strip-symbol-meta second)))
++        forms))
++
++
++(declare publish-to-globals)
++
++
++(defn- globals-child
++  [x names bound]
++  (cond
++    (and (map? x) (contains? x :type)) (publish-to-globals x names bound)
++    (vector? x) (mapv #(globals-child % names bound) x)
++    :else x))
++
++
++(defn- publish-to-globals
++  "Rewrite the compiled `node` for the linked unit: a top-level
++   definition in `names` becomes a `clj/define-global!` write and a free
++   read of one becomes a `clj/global-get`, both under the name's string.
++   A store definition inside the unit thunk is conditional to the
++   linker, so no body read of it discharges (the runtime preludes avoid
++   this by keeping every definition at module level); the runtime
++   global namespace is the linked unit's definition table instead, as
++   a Python module body writes its dictionary. Lexically bound names,
++   quoted literals and macro definitions keep their store shape: a
++   macro is not a runtime value."
++  [node names bound]
++  (case (:type node)
++    :literal node
++    :vm/current-continuation node
++    :variable (if (and (contains? names (:name node))
++                       (not (contains? bound (:name node))))
++                (u/app (u/v 'clj/global-get) (u/lit (str (:name node))))
++                node)
++    :lambda (assoc node :body (publish-to-globals (:body node) names
++                                                  (into bound (:params node))))
++    :application
++    (if (and (= 'yin/def (get-in node [:operator :name]))
++             (= 2 (count (:operands node)))
++             (= :literal (:type (first (:operands node))))
++             (contains? names (:value (first (:operands node)))))
++      (u/app (u/v 'clj/define-global!)
++             (u/lit (str (:value (first (:operands node)))))
++             (publish-to-globals (second (:operands node)) names bound))
++      (assoc node
++             :operator (publish-to-globals (:operator node) names bound)
++             :operands (mapv #(publish-to-globals % names bound)
++                             (:operands node))))
++    :if (cond-> node
++          (contains? node :test)
++          (assoc :test (publish-to-globals (:test node) names bound))
++          (contains? node :consequent)
++          (assoc :consequent (publish-to-globals (:consequent node) names bound))
++          (contains? node :alternate)
++          (assoc :alternate (publish-to-globals (:alternate node) names bound)))
++    (reduce (fn [n k]
++              (let [v (get n k)]
++                (if (or (and (map? v) (contains? v :type)) (vector? v))
++                  (assoc n k (globals-child v names bound))
++                  n)))
++            node (keys node))))
++
++
++(defn lower-unit
++  "The `clj/run-main` entry's unit for the top-level source `forms`: one
++   thunk whose call runs the program — `forms` plus the definitions of
++   the guest library they need, compiled unmodified under `unit-opts`
++   and published to the runtime global namespace by
++   `publish-to-globals` — so the helper's export projection can read
++   each top-level definition. The program's own `yang.call` call sites
++   need no free-name declaration: the convention preamble
++   `compile-program` emits defines those names locally, and the donor
++   publication pins the `yang.call` module for the qualified reads
++   that remain."
++  [forms]
++  (let [source (vec forms)
++        library (library-for source)
++        program (compile-program (concat source library) true unit-opts)
++        macros (into #{}
++                     (comp (filter #(and (seq? %) (= 'defmacro (first %))))
++                           (map (comp strip-symbol-meta second)))
++                     (concat source library))
++        names (reduce disj
++                      (into (set (top-level-names source))
++                            (map (comp strip-symbol-meta second) library))
++                      macros)]
++    (u/lam [] (publish-to-globals program names #{}))))
++
++
++(defn output
++  "The `clj/run-main` value as test data."
++  [value]
++  (pr-str value))
+diff --git a/src/cljc/yang/clojure/prelude.cljc b/src/cljc/yang/clojure/prelude.cljc
+new file mode 100644
+index 00000000..ca8556dd
+--- /dev/null
++++ b/src/cljc/yang/clojure/prelude.cljc
+@@ -0,0 +1,165 @@
++(ns yang.clojure.prelude
++  "The `clj` runtime module (docs/design/yang.antlr.md section 8.10):
++   the published linker module every linked clojure program requires, as
++   `js`, `php` and `py` are for their frontends. It is written in prelude
++   notation and emitted with the same core machinery those preludes use;
++   it never runs on the host.
++
++   Three surfaces, mirroring the other runtimes:
++
++   - the entry, `clj/run-main`: initialize the runtime state, reset the
++     global namespace (it is task-local), run the unit — the thunk
++     `yang.clojure/lower-unit` lowered — and answer the program's value
++     with the outcome model's `[:yin.k/ok value]` wrapper removed, since
++     that wrapper is frontend-internal;
++   - the runtime global namespace, `clj/define-global!` and
++     `clj/global-get`: a task-local map in a cell (`clj.rt/globals`,
++     allocated once per task by `clj/init!`), keyed by export name. A
++     program's top-level definitions land here through its unit's own
++     publishing, and the conformance helper's export projection reads and
++     writes it — the JS `globalThis` table, the PHP named-function table
++     and the Python module dictionary are the same seam;
++   - admission, `admit`: the registry surface a linked clojure composition
++     needs beside the others — the `kind` module and the `portable`
++     adapters of the data exports the guest library's collection
++     predicates read.
++
++   The module pins the shared calling runtime (`yang.call`) at the
++   convention's call-address, as the other runtimes do, and refuses before
++   anything is published when a free name nothing supplies is read."
++  (:require [yang.core.prelude :as core]
++            [yang.clojure :as yang]
++            [yin.vm :as vm]
++            [yin.vm.data :as data]
++            [yin.vm.module :as module]))
++
++
++(def module-name
++  "The linker module name of the clojure runtime."
++  'clj)
++
++
++(def runtime-keys
++  "Every runtime key, each with an `:clj/uninit` placeholder at module
++   level so every read is discharged before `clj/init!` allocates the
++   real cell. They stay qualified: internal store keys, never guest
++   names."
++  '[clj.rt/state clj.rt/globals])
++
++
++(def definitions
++  "The module's definition list, in prelude notation (the module's own
++   `clj/` prefix is stripped on emit)."
++  '[;; ------------------------------------------------- state and namespace
++    [clj/init!
++     (fn []
++       (if (= clj.rt/state :clj/uninit)
++         (do (yin/def (quote clj.rt/globals) (cell/new {}))
++             (yin/def (quote clj.rt/state) :clj/ready))
++         :clj/ready))]
++    ;; the runtime global namespace: one task-local map in a cell, keyed by
++    ;; export name. `clj/define-global!` answers the value, so a publish
++    ;; sequence can chain through it.
++    [clj/define-global!
++     (fn [name value]
++       (do (cell/set! clj.rt/globals
++                      (assoc (cell/get clj.rt/globals) name value))
++           value))]
++    [clj/global-get
++     (fn [name]
++       (if (data/contains? (cell/get clj.rt/globals) name)
++         (get (cell/get clj.rt/globals) name)
++         :clj/unbound))]
++
++    ;; ------------------------------------------------------------- entry
++    ;; The outcome model's `[:yin.k/ok value]` wrapper is frontend-
++    ;; internal, so the entry removes one wrapper level from the
++    ;; program's value (a program returning that vector as data was
++    ;; wrapped again, so one level is exact). An error outcome passes
++    ;; through as the failure value for the caller to render.
++    [clj/unwrap-outcome
++     (fn [value]
++       (if (if (data/vector? value) (= (data/count value) 2) false)
++         (if (= (data/nth value 0) :yin.k/ok)
++           (data/nth value 1)
++           value)
++         value))]
++    [clj/run-main
++     (fn [body]
++       (do (clj/init!)
++           (cell/set! clj.rt/globals {})
++           (clj/unwrap-outcome (body))))]])
++
++
++(def module-definitions
++  "The module's definition list: an `:clj/uninit` placeholder for every
++   runtime key, then every definition, stripped."
++  (core/module-definitions "clj" :clj/uninit runtime-keys definitions))
++
++
++(def module-uast
++  "The module tree: one wide application over the definitions, so every
++   sibling and runtime key read is discharged at module level."
++  (core/module-tree module-definitions []))
++
++
++(def module-exports
++  "The module's exports: every `clj/` key of the definition list, stripped."
++  (core/exports "clj" definitions))
++
++
++(def ^:private module-free-names
++  "The names the module tree reads and does not define, sorted: the host
++   exports its manifest must declare."
++  (core/free-name-vec module-uast))
++
++
++(defn module-spec
++  "`yin.vm.linker.publish/publish-module!`'s spec for the module `clj` over
++   the host registry `registry`, pinned to the published `yang.call`
++   module at `call-address` — the convention's call-address, as every
++   runtime's publication carries. A free name nothing supplies is refused
++   before anything is published. This namespace emits; it never publishes."
++  [registry call-address]
++  (core/module-spec {:module-name module-name,
++                     :ast module-uast,
++                     :exports module-exports,
++                     :requires {'yang.call call-address},
++                     :free-names module-free-names,
++                     :skip? #(= "yang.call" (namespace %)),
++                     :registry registry,
++                     :message "the clj module reads an undeclared name",
++                     :refusal-ns "yang.clojure"}))
++
++
++(defn register-library-module
++  "Return `registry` with host module `name` installed over `entries`
++   (`[export function]` pairs) at `arities`, each export pure."
++  [registry name entries arities]
++  (module/register-host-module
++    registry name
++    (into {} entries)
++    (into {} (map (fn [[op _]] [op (vm/primitive-profile op :pure (get arities op [1]) #{} :none)]))
++          entries)))
++
++
++(defn admit
++  "Return `registry` with the guest library's host surface installed: the
++   `kind` module and the `portable` adapters of the data exports the
++   collection predicates read (yang.clojure's `library-adapters`). A
++   linked clojure composition registers them beside the other runtimes'
++   registry surfaces; a composition without a clojure program reads none
++   of them."
++  [registry]
++  (let [portable (into {}
++                       (map (fn [[source _]]
++                              (let [op (symbol (name source))]
++                                [op (yang/outcome-adapter data/refusal-message
++                                                          (get data/data-module op))])))
++                       yang/library-adapters)]
++    (-> registry
++        (register-library-module 'kind yang/kind-module yang/kind-arities)
++        (register-library-module
++          'portable portable
++          (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))
++                (keys portable))))))
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index ef978488..d820bb60 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -138,7 +138,11 @@
+                        (if (= (get (cell/get x) :js/type) :symbol)
+                          :symbol
+                          :object))
+-                     :number))))))))]
++                     ;; An admitted foreign callable that is not a JS
++                     ;; cell (a clojure descriptor, a bound method) is
++                     ;; still a function; only a value no profile admits
++                     ;; keeps the bare-number fallback.
++                     (if (yang.call/eligible? x) :function :number)))))))))]
+     [js/ty (fn [k] (if (= k :function) :object k))]
+     [js/prim-type?
+      (fn [t]
+diff --git a/test/yang/call/conformance.clj b/test/yang/call/conformance.clj
+index c67aff8a..7e569bfc 100644
+--- a/test/yang/call/conformance.clj
++++ b/test/yang/call/conformance.clj
+@@ -6,13 +6,14 @@
+    A donor is real source of any admitted frontend, lowered unmodified and
+    published as an ordinary linker module whose one export, `body`, is the
+    lowered unit. A caller task requires that module, runs its body under the
+-   donor runtime's own entry (`js/run-main`, `php/run-main`), reads each
+-   named export from the donor runtime's global namespace, and projects it
+-   into the caller runtime's namespace under the same name; then the caller
+-   source, lowered unmodified, runs under its own entry. The composition is
+-   a sequence of top-level nodes: no call node is rewritten, no foreign
+-   `:code` is extracted, no language-pair wrapper is inserted, and the
+-   projected value is the donor's own function cell (identity survives).
++   donor runtime's own entry (`js/run-main`, `php/run-main`, `py/run-main`,
++   `clj/run-main`), reads each named export from the donor runtime's global
++   namespace, and projects it into the caller runtime's namespace under the
++   same name; then the caller source, lowered unmodified, runs under its own
++   entry. The composition is a sequence of top-level nodes: no call node is
++   rewritten, no foreign `:code` is extracted, no language-pair wrapper is
++   inserted, and the projected value is the donor's own callable value
++   (identity survives).
+ 
+    A callable value is task-local (a function is a cell, and cells are
+    task-local, section 8.11), so the export is answered as a node evaluated
+@@ -21,10 +22,13 @@
+ 
+    Every program runs linked on the three vector VMs (`semantic`, `stack`,
+    `register`) over the TypeScript linked harness's content store, where
+-   `yang.call` and `js` already live and `php` is published beside them.
+-   The AST walker is not a backend: its links are refused until L-b."
++   `yang.call` and `js` already live and `php`, `py` and `clj` are
++   published beside them. The AST walker is not a backend: its links are
++   refused until L-b."
+   (:require
+     [clojure.string :as str]
++    [yang.clojure :as clj-comp]
++    [yang.clojure.prelude :as clj-prelude]
+     [yang.core.module :as core-module]
+     [yang.core.names :as names]
+     [yang.core.uast :as u]
+@@ -59,6 +63,14 @@
+                                    (:call-address @h/published)))))
+ 
+ 
++(def ^:private published-clj
++  "`clj` published beside `js`, `php` and `py`, over the same host registry
++   and `yang.call` revision."
++  (delay (h/publish-guest-module!
++           (clj-prelude/module-spec (h/registry)
++                                    (:call-address @h/published)))))
++
++
+ (defn- parse-ok
+   "The CST packet of `source` under `parse`, refused unless the parse is ok."
+   [parse source]
+@@ -91,12 +103,14 @@
+ 
+    - `:runtime`, `:address`: the runtime module and its published address;
+    - `:refusal`: the publication refusal key and reason of its modules;
++   - `:deps` (optional): pinned requirements beyond the runtime its
++     lowered units read directly (the clojure unit's `yang.call` reads);
+    - `:parse`: source text to CST packet;
+    - `:unit`: packet and projected exports to the lowered unit its
+      `:run-main` entry takes;
+    - `:read-export`: export name to the form reading the runtime's global
+      namespace (JS `globalThis`, PHP's named-function table, Python's main
+-     module dictionary);
++     module dictionary, the clojure runtime's task-local namespace cell);
+    - `:project`: name and a value form to the form binding the value where
+      the runtime's source resolves a called name;
+    - `:render`: the `:run-main` value as test data."
+@@ -136,7 +150,25 @@
+                          {:py/str export})),
+     :project (fn [name value]
+                (list 'yin/def (list 'quote (python-export-symbol name)) value)),
+-    :render py-render/output}})
++    :render py-render/output},
++   :clojure
++   {:runtime 'clj,
++    :address #(:address @published-clj),
++    :refusal [:yang.clojure/refusal :yang.clojure/undeclared-free],
++    :deps (fn [] {'yang.call (:call-address @h/published)}),
++    :parse clj-comp/read-forms,
++    :unit (fn [packet _] (clj-comp/lower-unit packet)),
++    :run-main 'clj/run-main,
++    :read-export (fn [export] (list 'clj/global-get export)),
++    :project (fn [name value]
++               ;; the runtime global namespace holds the projection (as
++               ;; `js/define-global!` does for a JS caller), and the
++               ;; `yin/def` under the same name is how clojure source
++               ;; resolves it: a free name resolves the task's store
++               (list 'do
++                     (list 'clj/define-global! name value)
++                     (list 'yin/def (list 'quote (symbol name)) value))),
++    :render clj-comp/output}})
+ 
+ 
+ (defn- profile
+@@ -145,6 +177,16 @@
+       (throw (ex-info "frontend not admitted" {:frontend frontend}))))
+ 
+ 
++(defn- modules
++  "The host registry, admitted by every runtime profile that checks it,
++   with the clojure guest library's host surface installed beside them.
++   Donor publication declares free names over this same registry, so a
++   clojure donor using the guest library (its `kind` and `portable`
++   hosts) publishes like it runs."
++  []
++  (clj-prelude/admit (php-prelude/admit (h/registry))))
++
++
+ (defn publish-donor!
+   "Publish the donor `source` of `frontend` as the module `module` (default
+    `xlang.donor.<frontend>`), exporting `body`, its unmodified lowered unit.
+@@ -152,17 +194,18 @@
+   ([frontend source]
+    (publish-donor! frontend source (symbol (str "xlang.donor." (name frontend)))))
+   ([frontend source module]
+-   (let [{:keys [runtime address refusal parse unit]} (profile frontend)
++   (let [{:keys [runtime address refusal parse unit deps]} (profile frontend)
+          [refusal-key reason] refusal
+          spec (core-module/module-spec
+-                refusal-key reason (h/registry)
++                refusal-key reason (modules)
+                 {:name module,
+                  :ast (core-module/module-tree
+                         [(core-module/require-node runtime)
+                          (u/def! 'body (unit (parse source) []))]),
+                  :exports '#{body},
+                  :runtime-name runtime,
+-                 :runtime-address (address)})
++                 :runtime-address (address),
++                 :deps (if deps (deps) {})})
+          result (h/publish-guest-module! spec)]
+      {:frontend frontend,
+       :module module,
+@@ -227,15 +270,10 @@
+              'js (:address @h/published),
+              'php (:address @published-php),
+              'py (:address @published-py),
++             'clj (:address @published-clj),
+              module address}))
+ 
+ 
+-(defn- modules
+-  "The host registry, admitted by every runtime profile that checks it."
+-  []
+-  (php-prelude/admit (h/registry)))
+-
+-
+ (defn run-program
+   "`{backend value}` of `ast`, linked against `donor`, on each vector VM."
+   [donor ast]
+diff --git a/test/yang/cross_lang_test.clj b/test/yang/cross_lang_test.clj
+index b87a12bb..dd66a08c 100644
+--- a/test/yang/cross_lang_test.clj
++++ b/test/yang/cross_lang_test.clj
+@@ -90,21 +90,33 @@
+                     [:php "<?php echo py_apply(function($x) { return $x + 1; });"])))))
+ 
+ 
+-;; Named skip: yang.clojure <-> TypeScript, both directions. yang.clojure has
+-;; convention-wired application lowering, but no published runtime module,
+-;; run-main entry, or runtime global namespace through which the shared helper
+-;; can run a donor and project exports. Adding those would be frontend work,
+-;; not a test-only composition through this helper. The test below pins the
+-;; skip: the helper refuses :clojure as not admitted, so admitting the
+-;; frontend turns this test red and the legs must be written for real.
+-
+-
+-(deftest clojure-typescript-cross-lang-skip-test
+-  (testing "named skip: yang.clojure <-> TypeScript, both directions"
+-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"frontend not admitted"
+-          (xl/call [:clojure "(defn clj-apply [f] (+ (f 20) 1))"]
+-                   ["clj_apply"]
+-                   [:typescript "console.log(clj_apply);"])))))
++;; yang.clojure <-> TypeScript, both directions. yang.clojure now publishes
++;; its runtime module (`clj`: the run-main entry, the task-local global
++;; namespace and the admission surface, yang.clojure.prelude), so the named
++;; skip is closed: the helper drives a clojure donor or caller like any
++;; other admitted frontend, and the same-cell identity check runs here too.
++
++
++(deftest clojure-closure-called-from-typescript-test
++  (testing "TS stores and calls the same clojure function cell it received"
++    ;; Clojure integers are bare exact integers, the value JS spells as a
++    ;; BigInt, so the TS callback adds with `1n` and logs `22n`.
++    (is (= {:js/out ["true 22n"], :js/uncaught nil}
++           (xl/call [:clojure "(defn clj_apply [f] (+ (f 20) 1))"]
++                    ["clj_apply"]
++                    [:typescript
++                     (str "const stored = clj_apply; "
++                          "console.log(stored === clj_apply, stored(x => x + 1n));")])))))
++
++
++(deftest typescript-closure-called-from-clojure-test
++  (testing "TS stores and calls the same clojure function cell it received"
++    (is (= "22"
++           (xl/call [:typescript
++                     (str "globalThis.ts_apply = f => { globalThis.stored = f; "
++                          "return stored === f ? f(20n) + 1n : -1n; };")]
++                    ["ts_apply"]
++                    [:clojure "(ts_apply (fn [x] (+ x 1)))"])))))
+ 
+ 
+ (deftest limits-test

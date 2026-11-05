@@ -380,7 +380,10 @@
 ;; constructors like the stream module's: they touch no heap, and the engine
 ;; interprets the effects they return. The heap is VM state, so a mutation
 ;; is shared by every closure over the ref and is never rolled back when a
-;; continuation is invoked (box semantics).
+;; continuation is invoked (box semantics). Beside the three mutators the
+;; module publishes `authentic?`, the ruling-of-record query a caller's
+;; compiled code asks the issuer before dereferencing a cell-ref-shaped
+;; callee; it answers a boolean and changes nothing.
 
 (defn new-cell
   [v]
@@ -397,9 +400,19 @@
   (make-effect :cell/set! {:cell c, :val v}))
 
 
+(defn authentic-cell?
+  "The pure query the cell-ref ruling of record added: does the heap
+   issue `c` as a cell reference? The engine answers the same
+   heap+seal predicate `check-ref!` consults, as a boolean, so compiled
+   call routing can ask the issuer instead of guessing from a value's
+   shape. Non-fatal, state unchanged."
+  [c]
+  (make-effect :cell/authentic? {:cell c}))
+
+
 (def cell-module
   "The `cell` module definition. Registering it is a composition step."
-  {'new new-cell, 'get get-cell, 'set! set-cell!})
+  {'new new-cell, 'get get-cell, 'set! set-cell!, 'authentic? authentic-cell?})
 
 
 (def cell-profiles
@@ -407,7 +420,9 @@
    `:effectful` pure effect constructor declaring its one effect kind."
   {'new (vm/primitive-profile 'new :effectful [1] #{:cell/new} :none)
    'get (vm/primitive-profile 'get :effectful [1] #{:cell/get} :none)
-   'set! (vm/primitive-profile 'set! :effectful [2] #{:cell/set!} :none)})
+   'set! (vm/primitive-profile 'set! :effectful [2] #{:cell/set!} :none)
+   'authentic? (vm/primitive-profile 'authentic? :effectful [1]
+                                     #{:cell/authentic?} :none)})
 
 
 (defn register-cell-module
