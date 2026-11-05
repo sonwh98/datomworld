@@ -1595,7 +1595,7 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             |                   | J6 Python over the network.                                                                         |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J6: native WebSocket and network REPL peers | RFC 6455 host     | Preconditions: C0-C4 on master; the Autobahn release, case list and exception list pinned in the    |
-| not started                                 | adapter on the    | brief (§9.5). §9.6 on both platforms, including the frame-too-large matrix (ruling 3, A4 wording).  |
+| landed (J6a-J6g; J6h pending)                | adapter on the    |
 |                                             | native socket +   | Native deployment only. ws:// only (owner-settled). The adapter's closure contains                  |
 |                                             | poller substrate  | `jolt.socket.native`, `jolt.io-poller` and `jolt.ffi` and not `jolt.socket` (ruling 2); `send!`     |
 |                                             |                   | never waits; `:queued-bytes` is exact and drains on readiness.                                      |
