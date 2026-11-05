@@ -27,7 +27,7 @@
     [yang.python.antlr.lower-portable-test :refer [packet]]
     [yang.python.antlr.repl :as python.repl]
     [yang.python.antlr.parser :as parser]
-    #?@(:cljd [] :clj [[yang.python.antlr.repl-probe :as probe]])
+    [yang.python.antlr.repl-probe :as probe]
     [yin.repl :as repl]
     [yin.repl.frontends :as frontends]
     [yin.vm.linker.interpreter :as link]
@@ -546,13 +546,24 @@
   (doseq [lang langs]
     (testing (str lang)
       (let [fresh (session lang)
-            [after text] (repl/eval-input fresh "(compile \"1 + 2\")")]
+            [after text]
+            (repl/eval-input
+              fresh
+              "(compile \"f12_contract_marker = f12_contract_value\")")]
         (is (str/starts-with? text "AST:"))
         (is (< (count text) 200000) "a compact artifact, not the prelude dump")
         (is (not (str/includes? text "py/init!")) "the prelude body is implicit")
         (is (str/includes? text "py/run-session"))
+        (is (str/includes? text "f12_contract_marker")
+            "the compiled artifact contains the submitted binding")
+        (is (str/includes? text "f12_contract_value")
+            "the compiled artifact contains the submitted reference")
         (is (= (:frontend-session fresh) (:frontend-session after))
             "the preview leaves the session unprimed")))))
+
+
+(deftest unclosed-parenthesis-is-incomplete-on-every-host
+  (is (= :incomplete (probe/probe "print("))))
 
 
 (deftest compile-error-path-test
