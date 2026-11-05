@@ -487,3 +487,13 @@ Queued silently for morning review, no action without the owner:
     the owner's OK to run another seat's verification lanes
   - the muse re-verify after its quota reset
   - the 8.10.11 conformance slice for Python
+
+## 2026-11-05 18:1x +07 — the hooks fixture fix LANDED (6f05df04)
+The DHT reds traced to a stale checked-in fixture: its pinned py/yang.call addresses no longer
+  matched HEAD after the S3 wiring and the authentic sweep. Codex regenerated the fixture
+  deterministically through its publication path; no product code touched. The missing-site-set
+  refusal path remains intact — hook-profile imports of unpublished modules still refuse; explicit
+  noninterruptible imports remain supported. Landed 6f05df04. The kimi gate round for this slice is
+  folded into the landing (test-only diff, gate-checked).
+Next: the peer seat's yang.clojure landing carries the authentic sweep; then the remaining slots are
+  the 8.10.11 conformance matrix (real-source legs), the F1/F2 diagnosis slices, and the muse re-verify.
