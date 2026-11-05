@@ -16,6 +16,7 @@
             [jolt.ffi :as ffi]
             [jolt.io-poller :as poller]
             [jolt.socket.native :as native]
+            [yin.repl :as shell]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
             [yin.repl.main :as repl.main]))
@@ -130,12 +131,12 @@
 
 (defn- binomial-cdf
   [n k q]
-  (loop [i 0 term (Math/pow (- 1.0 q) n) total 0.0]
-    (let [total (+ total term)]
+  (loop [i 0 log-term (* n (Math/log (- 1.0 q))) total 0.0]
+    (let [total (+ total (Math/exp log-term))]
       (if (= i k)
         total
-        (recur (inc i) (* term (/ (- n i) (double (inc i)))
-                          (/ q (- 1.0 q))) total)))))
+        (recur (inc i) (+ log-term (Math/log (/ (- n i) (double (inc i))))
+                          (Math/log (/ q (- 1.0 q)))) total)))))
 
 
 (defn- upper-bound
@@ -169,6 +170,7 @@
   [state]
   (let [rows (samples state)
         repl (:repl-state state)
+        summary (shell/repl-state (:repl repl))
         a (:a state)]
     {:owner-rounds (:rounds state)
      :b {:sent (:sent state) :completed (:completed state)
@@ -185,7 +187,7 @@
      :repl-steps (:repl-steps state)
      :repl-results (:repl-results state)
      :index-materialization-cursor (get-in repl [:repl :indexer :materialization :cursor])
-     :shell-index-publication-cursor (get-in repl [:repl :index-publication :cursor])}))
+     :shell-index-publication-cursor (get-in summary [:index-publication :cursor])}))
 
 
 (defn- callbacks
@@ -334,17 +336,23 @@
                         (max 0 (dec remaining)) remaining)
             n (if (pos? allowance)
                 (send-some! fd frame (:offset a) (min quantum allowance)) 0)
+            wrote-at (poller/clock-ms)
             stalls (if (and (pos? allowance) (zero? n)) (inc (:stalls a)) 0)]
         (when (>= stalls max-stalls)
           (emit! "TRANSFER STALLED" {:attempts stalls :sent-bytes (:offset a)})
           (fail! "TRANSFER STALLED: A made no progress" {:stalls stalls}))
         (when (and (pos? n) (nil? started))
-          (append! control {:kind :start :at now}))
+          (append! control {:kind :start :at wrote-at})
+          (let [r (driver/submit-line!
+                    (:input (:repl-state @state))
+                    "(loop [i 0] (if (< i 5) (recur (+ i 1) i)))")]
+            (when-not (= :dao.stream/ok (:dao.stream/outcome r))
+              (fail! "REPL submission failed" {:result r}))))
         (swap! state update :a
                #(cond-> (assoc % :offset (+ (:offset a) n) :stalls stalls
-                               :next-write (+ now pace-ms))
-                  (and (pos? n) (nil? started)) (assoc :started-at now)
-                  (= total (+ (:offset a) n)) (assoc :sent-at now)))))))
+                               :next-write (+ wrote-at pace-ms))
+                  (and (pos? n) (nil? started)) (assoc :started-at wrote-at)
+                  (= total (+ (:offset a) n)) (assoc :sent-at wrote-at)))))))
 
 
 (defn- read-a-echo!
@@ -420,8 +428,6 @@
         pump (wsj/host-pump inst)
         round! #(owner-round! state waiter pump)]
     (try
-      (append! (:input (:repl-state @state))
-               {driver/line-key "(loop [i 0] (if (< i 5) (recur (inc i)) i))"})
       (let [port (atom nil)
             bound (wsj/bind!
                     inst
