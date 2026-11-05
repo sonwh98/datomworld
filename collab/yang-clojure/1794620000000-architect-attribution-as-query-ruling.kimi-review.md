@@ -1,0 +1,12 @@
+Created-GMT: 2026-11-06 02:45:00 GMT
+Coding-Agent: kimi k3.1-pro (ZCode subagent, third independent review)
+# Review of the attribution-as-query ruling DRAFT v3 (the input to v4)
+
+Verdict: DO NOT SIGN OFF YET — one more revision (v4), scoped and small. With four amendments, endorse for owner sign-off. (Full text preserved in the session record; the four amendments and their incorporation:)
+
+1. **Caller-side site tagging** — the load-bearing flaw: kernel-trace-form instruments CALLEE body entry, so extending its record yields identical ids for both origins. Site ids must be assigned at application expressions in the compiled AST (post-macroexpansion), with the callee-entry record carrying the CALLER's site id. The walker-ingress inventory row updated accordingly; qwen's "one-line change" was optimistic and inherited unexamined.
+2. **Case 5 redefined + a seventh case** — the v3 case 5 was unimplementable (the tagged trace records no arguments; caller-supplied context is unobservable from the defined evidence). Redefined as compile-time AST verification (declaration vs the argument expression: empty-env literal vs anything else). Seventh case: variable/derived argument shapes default to refusal or /2-only (a variable bound to empty-env on one path and a populated env on another is statically unclassifiable and wrongly credits if declared ambient). Plus the stale-table diagnostic (a declared site never in any trace must be a recorded diagnostic, not silent non-credit).
+3. **R5/R6 blast radius made honest** — the trace-shape change (2-vector → 3-vector) touches EVERY pin and path set built as 2-vector literals, the kernel-executed-arity? rewrite forced by retiring kernel-context-extra-arguments (which serves six context APIs, ~30 pinned assertions), and the gate-status computation. "The refusal pins are untouched" corrected: mechanically updated on the record.
+4. **R1's two conditions** — the deferred trigger ("a second consumer exists") is an owner/architect call, never self-declared; the site tables land in a stable versioned evidence format so the later durable-record landing is additive, not a migration.
+
+Also: R1's descoping judged ACCEPTABLE and consistent with the owner's unitarity direction (three grounds stated); the latte_kernel.proof inventory residue (astra's ancillary point) carried into v4's inventory; resolution check: astra A1-A4 and qwen Q1-Q5 each verified resolved/partial with specifics (case 5 and the mechanism were the two partials — now fixed in v4).
