@@ -258,7 +258,7 @@
    S3's tracing (the trace cell and its hooks in the prelude) moves it
    once more. S3's shared-call prelude revision moves it with `py`."
   (keyword (str "segment/blake3-"
-                "57a7d1711998469fd94ac8d70eeddea34cd7cd7583079ddee37c0ec46e4fbb3a")))
+                "b85905d83a11624210894c80f790e085b79ca7ff7f9b2494ed681c23c76e0d60")))
 
 
 (defn- pysp-manifest-address
