@@ -27,7 +27,7 @@
     [yang.python.antlr.lower-portable-test :refer [packet]]
     [yang.python.antlr.repl :as python.repl]
     [yang.python.antlr.parser :as parser]
-    #?@(:cljd [] :clj [[yang.python.antlr.repl-probe :as probe]])
+    [yang.python.antlr.repl-probe :as probe]
     [yin.repl :as repl]
     [yin.repl.frontends :as frontends]
     [yin.vm.linker.interpreter :as link]
@@ -47,6 +47,7 @@
   "The parser's packet for each line the session scenarios submit; the
    REPL hands the parser the line with a newline appended."
   {"x = 1" (module (st (asg (tc (vr "x")) (tc (lit "1"))))),
+   "f12_contract_marker = f12_contract_value" (module (st (asg (tc (vr "f12_contract_marker")) (tc (vr "f12_contract_value"))))),
    "x = 5" (module (st (asg (tc (vr "x")) (tc (lit "5"))))),
    "print(x)" (module (st (ex (tc (call "print" (tc (vr "x"))))))),
    "x" (module (st (ex (tc (vr "x"))))),
@@ -224,8 +225,9 @@
     (fn []
       (doseq [lang langs]
         (testing (str lang)
-          (let [vm-type (first (remove #{(:vm-type (session lang))}
-                                       [:semantic :register]))
+          ;; The parserless Node and Dart REPLs use the semantic VM. The JVM
+          ;; also supports rebuilding into the register VM.
+          (let [vm-type #?(:clj :register :cljs :semantic :cljd :semantic)
                 [_ [switched _] gone _ again]
                 (feed (session lang)
                       ["x = 1" (str "(vm " vm-type ")") "print(x)" "x = 5"
@@ -546,13 +548,24 @@
   (doseq [lang langs]
     (testing (str lang)
       (let [fresh (session lang)
-            [after text] (repl/eval-input fresh "(compile \"1 + 2\")")]
+            [after text]
+            (repl/eval-input
+              fresh
+              "(compile \"f12_contract_marker = f12_contract_value\")")]
         (is (str/starts-with? text "AST:"))
         (is (< (count text) 200000) "a compact artifact, not the prelude dump")
         (is (not (str/includes? text "py/init!")) "the prelude body is implicit")
         (is (str/includes? text "py/run-session"))
+        (is (str/includes? text "f12_contract_marker")
+            "the compiled artifact contains the submitted binding")
+        (is (str/includes? text "f12_contract_value")
+            "the compiled artifact contains the submitted reference")
         (is (= (:frontend-session fresh) (:frontend-session after))
             "the preview leaves the session unprimed")))))
+
+
+(deftest unclosed-parenthesis-is-incomplete-on-every-host
+  (is (= :incomplete (probe/probe "print("))))
 
 
 (deftest compile-error-path-test
