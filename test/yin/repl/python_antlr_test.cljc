@@ -224,8 +224,9 @@
     (fn []
       (doseq [lang langs]
         (testing (str lang)
-          (let [vm-type (first (remove #{(:vm-type (session lang))}
-                                       [:semantic :register]))
+          ;; The parserless Node and Dart REPLs use the semantic VM. The JVM
+          ;; also supports rebuilding into the register VM.
+          (let [vm-type #?(:clj :register :cljs :semantic :cljd :semantic)
                 [_ [switched _] gone _ again]
                 (feed (session lang)
                       ["x = 1" (str "(vm " vm-type ")") "print(x)" "x = 5"
