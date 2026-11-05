@@ -46,13 +46,8 @@
    :feature :undefined-builtin,
    :builtin "str_repeat",
    :oracle-expect "ok",
-   :engine-result
-   {:out "",
-    :diag [],
-    :uncaught
-    {:class "Error",
-     :message "Call to undefined function str_repeat()"}},
-   :engine-work-item "Implement str_repeat()."}
+   :engine-result {:timeout ">5400 s with str_repeat present (the stress loop executes for real; measured on shiva 2026-11-04, 90-min window)"},
+   :engine-work-item "Host-class heavy: the case runs >90 min on the engine with str_repeat present (unlike the pre-fix undefined-function failure). Needs per-case budgeting, an engine perf pass on long str_repeat loops, or a documented bound. Not a guest-semantics gap."}
   {:id "Zend/tests/gc_012.phpt",
    :feature :gc-cycle-collection,
    :builtin nil,
