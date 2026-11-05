@@ -100,6 +100,27 @@ reason to run `<cli> models` wherever you dispatch, including locally,
 before writing a model name into a brief. Remote dispatch adds scp and
 ssh round-trips to every turn and resume of the session, with no benefit
 when the local checkout is current (push master first and it always is).
+Remote dispatch adds scp and
+ssh round-trips to every turn and resume of the session, with no benefit
+when the local checkout is current (push master first and it always is).
+
+**Long-running dispatches and remote gates wait via tracked background
+tasks — never foreground sleeps.** Launch the delegate or the remote
+gate so the host's task tracking owns the wait: in ZCode, run the
+command with the harness's background mode (`run_in_background`), not
+detached via `nohup … &` inside a foreground call — a detached process
+is invisible to the harness (no UI entry, no completion notification),
+which is how dispatches went missing from the user's view (2026-11-04).
+Remote gates launched through `bin/collab-tools/rverify.sh` run detached
+in tmux on the host by design; wait for them with a background task that
+polls the rverify `poll` subcommand on a long interval (≥ 5 min) and
+exits when the DONE marker lands — one completion notification, no
+foreground sleep chains. A foreground `sleep N; poll` chain blocks the
+turn, risks the harness's command timeout killing the wait mid-poll,
+and burns turns. If a foreground wait is cancelled or times out, the
+remote run is NOT affected (tmux survives) — re-check on demand, never
+restart it. Report dispatch and completion as explicit status entries so
+the user sees every long-running task in the UI.
 
 ## Artifact protocol
 
