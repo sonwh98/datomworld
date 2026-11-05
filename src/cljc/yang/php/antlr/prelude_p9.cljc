@@ -50,16 +50,23 @@
            (if (= (data/substring h i (+ i nn)) needle) i
                (php/p9-rindex-loop h needle (- i 1) nn lo))))]
     [php/bi-strrpos
-     ;; a non-negative offset is the search's lower bound; a negative one
-     ;; counts the end of the search back from the end of the string
+     ;; a non-negative offset is the search's lower bound (searching back
+     ;; from the end); a negative one starts that many characters from the
+     ;; end and searches back from there; out-of-range offsets are a
+     ;; ValueError, like PHP 8
      (fn [args]
        (do (php/arity-between "strrpos" args 2 3 "at least 2")
            (let [h (php/p9-string (get args 0)) n (php/p9-string (get args 1))
                  nn (data/str-length n) len (data/str-length h)
                  off (php/to-int (php/arg-or args 2 0))]
-             (if (>= off 0)
-               (php/p9-rindex-loop h n (- len nn) nn off)
-               (php/p9-rindex-loop h n (+ (- len nn) off) nn 0)))))]
+             (if (= n "")
+               (php/throw-error "ValueError" "strrpos(): Argument #2 ($needle) must not be empty")
+               (if (if (> off len) true (< off (integer/neg len)))
+                 (php/throw-error "ValueError" "strrpos(): Argument #3 ($offset) must be contained in argument #1 ($haystack)")
+                 (if (>= off 0)
+                   (php/p9-rindex-loop h n (- len nn) nn off)
+                   (let [hi (+ len off) top (- len nn)]
+                     (php/p9-rindex-loop h n (if (> hi top) top hi) nn 0))))))))]
     [php/p9-replace-loop
      ;; answers [output replacements]; an empty search never matches (PHP
      ;; returns the subject unchanged), so the loop always advances
@@ -434,9 +441,19 @@
              removed (php/p9-slice a start (+ start len) false 0 (php/empty-array))
              head (php/p9-slice a 0 start false 0 (php/empty-array))
              tail (php/p9-slice a (+ start len) n false 0 (php/empty-array))
-             r (if (= (php/kind repl) :array) repl (php/array-append (php/empty-array) repl))
+             r (if (= (php/kind repl) :array)
+                 (php/p9-splice-repl repl 0 (php/array-count repl) (php/empty-array))
+                 (if (= repl :php/null) (php/empty-array) (php/array-append (php/empty-array) repl)))
              merged (php/spread-loop (php/spread-loop head r 0 (php/array-count r)) tail 0 (php/array-count tail))]
          (php/out1 removed merged)))]
+    [php/p9-splice-repl
+     ;; the replacement is a plain list: string keys are discarded and an
+     ;; explicit null is already the empty array by the time we get here
+     (fn [r i n out]
+       (if (< i n)
+         (php/p9-splice-repl r (+ i 1) n
+                             (php/array-append out (php/array-get r (get (php/array-order r) i))))
+         out))]
     [php/bi-array-map
      ;; a single array keeps its keys; further arrays make it variadic (the
      ;; result is a list); a null callback zips the arrays instead
@@ -501,15 +518,16 @@
      (fn [args] (let [a (php/arg-array (get args 0) "array_reduce" 1 "array")] (php/p9-reduce a (get args 1) (php/arg-or args 2 :php/null) 0)))]
     [php/p9-reduce (fn [a cb acc i] (if (< i (php/array-count a)) (php/p9-reduce a cb (php/call-value cb (php/pair acc (php/array-get a (get (php/array-order a) i)))) (+ i 1)) acc))]
     [php/bi-array-unique
-     ;; the default comparison is SORT_STRING (flag 0)
+     ;; SORT_REGULAR (0) compares loosely, SORT_NUMERIC (1) numerically,
+     ;; anything else as strings (SORT_STRING is 2)
      (fn [args]
        (do (php/arity-between "array_unique" args 1 2 "at least 1")
            (php/p9-unique (php/arg-array (get args 0) "array_unique" 1 "array")
                           (php/to-int (php/arg-or args 1 0)) 0 (php/empty-array))))]
     [php/p9-unique-eq?
      (fn [flags a b]
-       (if (= flags 1) (php/loose-eq a b)
-           (if (= flags 2) (= (php/to-float a) (php/to-float b))
+       (if (= flags 0) (php/loose-eq a b)
+           (if (= flags 1) (= (php/to-float a) (php/to-float b))
                (= (php/p9-string a) (php/p9-string b)))))]
     [php/p9-unique-seen?
      (fn [out v flags i]
@@ -524,11 +542,18 @@
            (php/p9-unique a flags (+ i 1)
                           (if (php/p9-unique-seen? out v flags 0) out (php/array-put out k v))))
          out))]
+    [php/p9-diff-str-has?
+     ;; string comparison, like PHP: "1.0" and "1" are different strings
+     (fn [a v i]
+       (if (< i (php/array-count a))
+         (if (= (php/p9-string (php/array-get a (get (php/array-order a) i))) (php/p9-string v))
+           true (php/p9-diff-str-has? a v (+ i 1)))
+         false))]
     [php/p9-diff-others
      ;; found in any (diff) or in every (intersect) further array
      (fn [v others j m all]
        (if (< j m)
-         (let [found (not (= (php/p9-search (get others j) v false 0) false))]
+         (let [found (php/p9-diff-str-has? (get others j) v 0)]
            (if all
              (if found (php/p9-diff-others v others (+ j 1) m all) false)
              (if found true (php/p9-diff-others v others (+ j 1) m all))))
@@ -652,29 +677,34 @@
            (do (php/warn 2 message) false)))]
     [php/json-array-values
      ;; a failed child (false) fails the whole encoding, like PHP
-     (fn [a pretty depth throw? i out]
+     (fn [a pretty depth maxdepth throw? i out]
        (if (< i (php/array-count a))
-         (let [child (php/json-encode (php/array-get a (get (php/array-order a) i)) pretty (+ depth 1) throw?)]
+         (let [child (php/json-encode (php/array-get a (get (php/array-order a) i)) pretty (+ depth 1) maxdepth throw?)]
            (if (= (php/kind child) :string)
              (let [sep (if (= i 0) "" ",") br (if pretty (data/str-concat "\n" (php/json-indent (+ depth 1) "")) "")]
-               (php/json-array-values a pretty depth throw? (+ i 1)
+               (php/json-array-values a pretty depth maxdepth throw? (+ i 1)
                                       (data/str-concat out sep br child)))
              child))
          (data/str-concat out (if (if pretty (> i 0) false) (data/str-concat "\n" (php/json-indent depth "")) "") "]")))]
     [php/json-array-pairs
-     (fn [a pretty depth throw? i out]
+     (fn [a pretty depth maxdepth throw? i out]
        (if (< i (php/array-count a))
-         (let [child (php/json-encode (php/array-get a (get (php/array-order a) i)) pretty (+ depth 1) throw?)]
+         (let [child (php/json-encode (php/array-get a (get (php/array-order a) i)) pretty (+ depth 1) maxdepth throw?)]
            (if (= (php/kind child) :string)
              (let [k (get (php/array-order a) i) sep (if (= i 0) "" ",")
                    br (if pretty (data/str-concat "\n" (php/json-indent (+ depth 1) "")) "")
                    colon (if pretty ": " ":")]
-               (php/json-array-pairs a pretty depth throw? (+ i 1)
+               (php/json-array-pairs a pretty depth maxdepth throw? (+ i 1)
                                      (data/str-concat out sep br (php/json-key k) colon child)))
              child))
          (data/str-concat out (if (if pretty (> i 0) false) (data/str-concat "\n" (php/json-indent depth "")) "") "}")))]
+    [php/json-encode-value
+     ;; a nested failure answers false (throw mode already threw); callers
+     ;; must not concatenate the delimiter onto it, which the host refuses
+     (fn [s open]
+       (if (= (php/kind s) :string) (data/str-concat open s) s))]
     [php/json-encode
-     (fn [v pretty depth throw?]
+     (fn [v pretty depth maxdepth throw?]
        (let [k (php/kind v)]
          (if (= k :null) "null"
              (if (= k :bool) (if v "true" "false")
@@ -686,18 +716,23 @@
                                (php/json-encode-fail throw? "Inf and NaN cannot be JSON encoded")
                                (php/float-text v 17)))
                            (if (= k :array)
-                             (if (> depth 512)
+                             (if (> depth maxdepth)
                                (php/json-encode-fail throw? "Maximum stack depth exceeded")
                                (if (php/p9-is-list v 0)
-                                 (data/str-concat "[" (php/json-array-values v pretty depth throw? 0 ""))
-                                 (data/str-concat "{" (php/json-array-pairs v pretty depth throw? 0 ""))))
+                                 (php/json-encode-value (php/json-array-values v pretty depth maxdepth throw? 0 "") "[")
+                                 (php/json-encode-value (php/json-array-pairs v pretty depth maxdepth throw? 0 "") "{")))
                              (php/json-encode-fail throw? "Type is not supported")))))))))]
     [php/bi-json-encode
      (fn [args]
        (do (php/arity-between "json_encode" args 1 3 "at least 1")
-           (let [flags (php/to-int (php/arg-or args 1 0))]
-             (php/json-encode (get args 0) (= (integer/bit-and flags 128) 128) 0
-                              (= (integer/bit-and flags 4194304) 4194304)))))]
+           (let [flags (php/to-int (php/arg-or args 1 0))
+                 depth (php/to-int (php/arg-or args 2 512))]
+             (if (< depth 1)
+               (php/throw-error "ValueError" "json_encode(): Argument #3 ($depth) must be greater than 0")
+               (if (not (= (integer/bit-and flags -4194433) 0))
+                 (php/throw-error "Error" "json_encode(): Unsupported flag given, only JSON_PRETTY_PRINT and JSON_THROW_ON_ERROR are supported")
+                 (php/json-encode (get args 0) (= (integer/bit-and flags 128) 128) 0 depth
+                                  (= (integer/bit-and flags 4194304) 4194304)))))))]
     [php/json-literal
      (fn [st text value]
        (let [cs (get (cell/get st) 0) i (get (cell/get st) 1) n (data/str-length text)]
@@ -705,14 +740,16 @@
            (do (php/json-index! st (+ i n)) value)
            (php/json-fail st "Syntax error"))))]
     [php/json-read-string-loop
+     ;; a raw control byte inside a string is a syntax error, never content
      (fn [st out]
        (let [cs (get (cell/get st) 0) i (get (cell/get st) 1)]
          (if (>= i (data/count cs)) (php/json-fail st "Unterminated string")
              (let [c (get cs i)]
-               (do (php/json-index! st (+ i 1))
-                   (if (= c 34) out
-                       (if (= c 92) (php/json-read-escape st out)
-                           (php/json-read-string-loop st (php/vconj out c)))))))))]
+               (if (< c 32) (php/json-fail st "Syntax error")
+                   (do (php/json-index! st (+ i 1))
+                       (if (= c 34) out
+                           (if (= c 92) (php/json-read-escape st out)
+                               (php/json-read-string-loop st (php/vconj out c))))))))))]
     [php/json-read-escape
      ;; only the grammar's escapes are accepted; anything else is a syntax
      ;; error, never a silent literal
@@ -769,8 +806,9 @@
                    (if (= (php/numeric-string s) :php/null) (php/json-fail st "Syntax error")
                        (let [r (php/numeric-string s)] (if (= (get r 0) :int) (get r 1) (php/to-float s)))))))))]
     [php/json-number-end
+     ;; the JSON grammar has no leading plus: +1 is a syntax error, never a number
      (fn [cs i]
-       (if (< i (data/count cs)) (let [c (get cs i)] (if (if (>= c 48) (<= c 57) false) (php/json-number-end cs (+ i 1)) (if (if (= c 45) true (if (= c 43) true (if (= c 46) true (if (= c 101) true (= c 69))))) (php/json-number-end cs (+ i 1)) i))) i))]
+       (if (< i (data/count cs)) (let [c (get cs i)] (if (if (>= c 48) (<= c 57) false) (php/json-number-end cs (+ i 1)) (if (if (= c 45) true (if (= c 46) true (if (= c 101) true (= c 69)))) (php/json-number-end cs (+ i 1)) i))) i))]
     [php/json-at
      ;; the code point at the cursor, or -1 past the end
      (fn [st]
@@ -855,29 +893,31 @@
            (let [flags (php/to-int (php/arg-or args 3 0)) assoc (php/to-bool (php/arg-or args 1 false))
                  depth (php/to-int (php/arg-or args 2 512))]
              (if (< depth 1) (php/throw-error "ValueError" "json_decode(): Argument #3 ($depth) must be greater than 0")
-                 (php/call-ec
-                   (fn [esc]
-                     (let [st (cell/new
-                                (php/vconj
+                 (if (not (= (integer/bit-and flags -4194306) 0))
+                   (php/throw-error "Error" "json_decode(): Unsupported flag given, only JSON_OBJECT_AS_ARRAY and JSON_THROW_ON_ERROR are supported")
+                   (php/call-ec
+                     (fn [esc]
+                       (let [st (cell/new
                                   (php/vconj
                                     (php/vconj
                                       (php/vconj
                                         (php/vconj
                                           (php/vconj
                                             (php/vconj
-                                              (php/vconj [] (data/str->code-points (php/p9-string (get args 0))))
-                                              0)
-                                            assoc)
-                                          (= (integer/bit-and flags 4194304) 4194304))
-                                        depth)
-                                      0)
-                                    false)
-                                  esc))
-                           v (php/json-value st)]
-                       (do (php/json-space st)
-                           (if (= (get (cell/get st) 1) (data/count (get (cell/get st) 0)))
-                             (if (get (cell/get st) 6) (esc :php/null) v)
-                             (php/json-fail st "Syntax error"))))))))))]
+                                              (php/vconj
+                                                (php/vconj [] (data/str->code-points (php/p9-string (get args 0))))
+                                                0)
+                                              assoc)
+                                            (= (integer/bit-and flags 4194304) 4194304))
+                                          depth)
+                                        1)
+                                      false)
+                                    esc))
+                             v (php/json-value st)]
+                         (do (php/json-space st)
+                             (if (= (get (cell/get st) 1) (data/count (get (cell/get st) 0)))
+                               (if (get (cell/get st) 6) (esc :php/null) v)
+                               (php/json-fail st "Syntax error")))))))))))]
 
     ;; math II
     [php/abs (fn [x] (if (php/int? x) (if (< x 0) (integer/neg x) x) (php/f (php/abs-h (php/fl x)))))]

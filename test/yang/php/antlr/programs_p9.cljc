@@ -89,9 +89,8 @@
        "<?php $x = 1; $n = extract(['x' => 4, 'y' => 5]); echo $n, $x, $y;"
        "245")
    (fx :extract-skip-and-prefix :dynamic-scope
-       "<?php $x = 1; extract(['x' => 4, 'y' => 5], EXTR_SKIP); extract(['z' => 6], EXTR_PREFIX_ALL, 'p_'); echo $x, $y, $p_z;"
-       "15"
-       :diag [[2 "Undefined variable $p_z"]])
+       "<?php $x = 1; extract(['x' => 4, 'y' => 5], EXTR_SKIP); extract(['z' => 6], EXTR_PREFIX_ALL, 'p_'); echo $x, $y, $p__z;"
+       "156")
    (fx :compact-nested :dynamic-scope
        "<?php $x = 3; $y = 4; $a = compact('x', ['y', 'missing']); echo implode(',', $a);"
        "3,4"
