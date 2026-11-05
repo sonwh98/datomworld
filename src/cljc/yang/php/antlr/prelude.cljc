@@ -3934,15 +3934,15 @@
            (do (php/bi-ob-end-flush [])
                (php/drain-buffers!)))))]
     [php/shutdown!
-     ;; row 22: shutdown functions, the destructor phase, the drain of
-     ;; unclosed buffers, then the release of the globals and the static
-     ;; tables without destructors; an exception from a callback or
-     ;; destructor ends the sequence
+     ;; row 22: shutdown functions, the destructor phase, then the release
+     ;; of the globals and the static tables without destructors; the drain
+     ;; of unclosed buffers runs on the run-main exit path, outside the
+     ;; shutdown escape, so an exit during shutdown keeps buffered output;
+     ;; an exception from a callback or destructor ends the sequence
      (fn []
        (do (php/run-shutdown-fns 0)
            (php/shutdown-globals)
            (php/shutdown-finalizable (cell/get php.rt/finalizable) 0)
-           (php/drain-buffers!)
            (php/flush-pending!)
            (php/freeze-finalizable (cell/get php.rt/finalizable) 0)
            (php/release-globals (get (cell/get php.rt/globals) :order)
@@ -5186,11 +5186,14 @@
                                                   (fn [e] e)
                                                   (fn [] :php/null))]
                                 (if (= true (get exc2 :php/operational))
-                                  (fesc (assoc (assoc (assoc {} :php/terminal :fatal)
-                                                     :php/operational true)
-                                               :message (get exc2 :message)))
+                                  (php/root-fatal (get exc2 :message))
                                   (php/pair :normal exc2))))))
-                     ex2 (cell/get php.rt/exit-status)
+                     ;; the drain of unclosed buffers, outside the shutdown
+                     ;; escape: an exit during shutdown aborts the sequence
+                     ;; past this point, so the drain must run here, on every
+                     ;; path that reaches the exit status; the operational
+                     ;; fatal escapes past everything and never reaches here
+                     ex2 (do (php/drain-buffers!) (cell/get php.rt/exit-status))
                      st (if (= ex2 :php/null) ex ex2)
                      exc2 (if (= (get s :php/terminal) :exit) :php/null (get s 1))
                      e (if (= exc1 :php/null) exc2 exc1)
