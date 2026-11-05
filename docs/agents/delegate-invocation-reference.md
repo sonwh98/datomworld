@@ -158,7 +158,11 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 
 Prompts contain authorized paths, not source text. Headless plan agents must be told to produce the complete
 deliverable without waiting for a human. Never use AGY `invoke_subagent` to delegate; always shell out to the
-listed CLIs.
+listed CLIs. A delegate's file/shell reach is its working directory: briefs that reference paths in OTHER
+worktrees (or /tmp writes) fail headless with approval denials or ENOENT — observed 2026-11-05 in the J6G-mob
+round (a qwen brief pointed at a `-orch` worktree copy that lacked the file; deepseek wrote to /tmp and was
+denied "outside the working directories"). Point the brief at paths that exist UNDER the dispatch cwd, or grant
+the extra directories explicitly (qwen: `--include-directories <dir>`; claude family: `--add-dir`).
 
 ## CLI reference
 
@@ -653,7 +657,15 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   redirected to a file instead of chained. Fix by briefing delegates toward
   one simple command per step — never `--dangerously-skip-permissions` —
   treating a denial as a signal to simplify, not a capability gap to route
-  around.
+  around. The denial set also covers output redirection outside the session's
+  working directories (measured 2026-11-05, J6G-mob deepseek round: `> /tmp/…`
+  and `mkdir /tmp/…` both denied headless; `find /` was denied as a multiple-
+  operation command) — keep scratch writes inside the dispatch cwd.
+- **zsh glob failures inside delegate shell calls are denials, not model
+  errors**: a bare glob with no match (`src/jolt/jolt/ffi*`) aborts the whole
+  compound command with "no matches found" (zsh default, unlike bash). Delegate
+  briefs that quote shell snippets should quote globs or add `setopt +o nomatch`
+  context; observed 2026-11-05 in the same round.
 
 **Codex session writer-lock (observed 2026-10-30):** `codex exec resume <id>` fails with
 "thread already has an active writer" when the resumed thread is mid-turn in another
