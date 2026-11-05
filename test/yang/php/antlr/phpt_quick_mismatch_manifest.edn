@@ -68,10 +68,10 @@
    "Implement PHP cyclic garbage collection and roots/threshold behavior."}],
  :counts
  {:foreach-semantics 11,
-  :named-parameter-binding 3,
+  :named-parameter-binding 4,
   :zend-regression 61,
   :array-pointer 1,
-  :total 95,
+  :total 96,
   :unset-cv 3,
   :unsupported 57,
   :pass-by-reference 5,
@@ -174,6 +174,7 @@
    :entries
    ["Zend/tests/named_params/call_user_func_array_variadic.phpt"
     "Zend/tests/named_params/func_get_args.phpt"
+    "Zend/tests/named_params/internal.phpt"
     "Zend/tests/named_params/undef_var.phpt"]}
   {:feature :unset-cv,
    :entries
@@ -334,6 +335,8 @@
   "Bug #70121 (unserialize() could lead to unexpected methods execution / NULL pointer deref)",
   "Zend/tests/named_params/func_get_args.phpt"
   "Behavior of func_get_args() and friends with named parameters",
+  "Zend/tests/named_params/internal.phpt"
+  "Named params on internal functions",
   "Zend/tests/gc_018.phpt" "GC 018: GC detach with assign",
   "Zend/tests/bug78598.phpt"
   "Bug #78598: Changing array during undef index RW error segfaults",
