@@ -39,7 +39,8 @@
        "aabc")
    (fx :output-buffer-flush
        "<?php ob_start(); echo 'a'; ob_end_flush(); echo 'b'; var_dump(ob_end_clean());"
-       "abbool(false)\n")
+       "abbool(false)\n"
+       :diag [[8 "ob_end_clean(): Failed to delete buffer. No buffer to delete"]])
    (fx :headers-cookies-status
        "<?php header('X-One: 1'); setcookie('sid', 'abc'); http_response_code(201); echo http_response_code();"
        "201"

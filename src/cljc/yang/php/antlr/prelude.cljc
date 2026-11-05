@@ -391,16 +391,22 @@
      (fn [args]
        (let [bufs (cell/get php.rt/out)]
          (if (= (data/count bufs) 1)
-           false
+           (do (php/warn 8 "ob_end_clean(): Failed to delete buffer. No buffer to delete") false)
            (do (cell/set! php.rt/out (php/args-prefix bufs (- (data/count bufs) 1) 0 [])) true))))]
     [php/bi-ob-get-clean
      (fn [args]
-       (let [s (php/bi-ob-get-contents args)]
-         (if (= s false) false (do (php/bi-ob-end-clean args) s))))]
+       (let [bufs (cell/get php.rt/out)]
+         (if (= (data/count bufs) 1)
+           (do (php/warn 8 "ob_get_clean(): Failed to delete buffer. No buffer to delete") false)
+           (let [s (php/bi-ob-get-contents args)]
+             (do (php/bi-ob-end-clean args) s)))))]
     [php/bi-ob-end-flush
      (fn [args]
-       (let [s (php/bi-ob-get-contents args)]
-         (if (= s false) false (do (php/bi-ob-end-clean args) (php/echo s) true))))]
+       (let [bufs (cell/get php.rt/out)]
+         (if (= (data/count bufs) 1)
+           (do (php/warn 8 "ob_end_flush(): Failed to delete and flush buffer. No buffer to delete or flush") false)
+           (let [s (php/bi-ob-get-contents args)]
+             (do (php/bi-ob-end-clean args) (php/echo s) true)))))]
     [php/headers-refused?
      (fn []
        (if (cell/get php.rt/headers-sent)
