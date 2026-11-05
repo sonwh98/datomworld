@@ -60,16 +60,6 @@
      :message "Call to undefined function gc_collect_cycles()"}},
    :engine-work-item
    "Implement PHP cyclic garbage collection and roots/threshold behavior."}
-  {:id "Zend/tests/bug63055.phpt",
-   :feature :undefined-builtin,
-   :builtin "str_replace",
-   :oracle-expect "okey",
-   :engine-result
-   {:out "",
-    :diag [],
-    :uncaught
-    {:class "Error",
-     :message "Call to undefined function str_replace()"}},
    :engine-work-item "Implement str_replace()."}],
  :counts
  {:foreach-semantics 11,
