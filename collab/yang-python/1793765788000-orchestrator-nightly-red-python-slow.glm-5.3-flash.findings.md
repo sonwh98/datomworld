@@ -74,3 +74,7 @@ yang.php golden-pin drift after the P5 merge + the include-test hang
 (collab/yang-php note 1793765688000) and the known hardening3-h3-1 latte
 kernel gate. Shiva's Dart lane completed fully green (4,508 assertions,
 wall 25,806 s, done rc=0).
+
+## Failure 4 - JVM lane joins: dht-import fails with the SAME signature as Node (jupiter, 2026-11-05 run)
+
+Jupiter jvm nightly 20261104-1600 (master fb55362c): yang.python.antlr.dht-import-test RED on the JVM lane too - blobs-differ / blobs-only-here on :segment/blake3-* segments, ":py address" mismatch, and "Module link refused: absent" surfacing as an index error (slow-yang.python.antlr.dht-import-test.log; failures at dht_import_test.cljc:421,443,768+). The 15-line linked-prelude and linked-safepoint logs (empty of results) repeat the die-mid-test shape from Failure 1. Cross-host confirmation: Node saw the identical blob-mismatch family in shiva run 20261104-2345 (Failure 3's log) on a DIFFERENT commit (9bf07100). This is now a confirmed cross-host regression in the DHT import/publication path, not a lane flake - it outranks the recursion-limit item from Failure 3 in priority. Reproduce: clojure -M:test -n yang.python.antlr.dht-import-test (jupiter, ~/ci/datomworld-nightly).

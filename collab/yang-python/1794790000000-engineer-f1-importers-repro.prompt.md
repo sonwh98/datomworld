@@ -9,9 +9,9 @@ Role: Yang Compiler and Universal AST Engineer
 Implementers:
 - Model: codex gpt-6-luna | Assigned: 2026-11-06 04:20 +07 | Status: active | Rationale: one bounded reproduce/diagnose round in the Python frontend's test surface
 
-WORKTREE: /Users/sto/workspace/datomworld-f12 (at da883518 == origin/master; the ANTLR
+WORKTREE: /Users/sto/workspace/datomworld-f12 (at e4cf2d72, synced to origin/master acbf8e10 — the cljs compile is RESTORED, verified; branch from HEAD; the ANTLR
 parsers are already generated under lib/antlr/python3 and build/). Commit to a new branch
-`f1-importers-diagnosis`. You are the only writer.
+`f1-importers-diagnosis-r2`. You are the only writer.
 
 ## Context — the open F1 row (docs/agents/known-gaps.md)
 
