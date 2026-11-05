@@ -1,8 +1,8 @@
 Created-GMT: 2026-11-05 04:30:00 GMT (v1)
 Revised-GMT: 2026-11-06 02:30:00 GMT (v2 — astra's four amendments)
 Revised-GMT: 2026-11-06 03:20:00 GMT (v3 — qwen3.8-max's four amendments; both reviews endorse for owner signature)
-Status: ADDENDUM A v2 to the signed attribution-as-query ruling — pending owner signature (astra verdict: endorsed as architectural direction and scheduling authority, with the four amendments below incorporated)
-# ADDENDUM A v2 — call-site annotation generalizes: every yang.* compilation pipeline preserves caller-site provenance
+Status: ADDENDUM A v3 to the signed attribution-as-query ruling — SIGNED by the owner (2026-11-06, sign-off after the astra + qwen3.8-max reviews; both endorse)
+# ADDENDUM A (SIGNED) — call-site annotation generalizes: every yang.* compilation pipeline preserves caller-site provenance
 
 ## The owner's directive (recorded)
 
