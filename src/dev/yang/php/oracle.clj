@@ -17,6 +17,7 @@
     [yang.php.antlr.programs :as programs]
     [yang.php.antlr.programs-p3b :as p3b]
     [yang.php.antlr.programs-p4 :as p4]
+    [yang.php.antlr.programs-p5 :as p5]
     [yang.php.antlr.programs-p6 :as p6])
   (:import
     (java.nio.charset
@@ -32,11 +33,53 @@
   p3b/banner)
 
 
+(def p5-banner
+  "The P5 request-context run's own provenance banner (version/host/date of
+  the P5 recording pass, not P3-b's)."
+  "php-8.3.35 shiva 2026-10-25")
+
+
 (def ^:private errno-of
   {"Warning" 2,
    "Notice" 8,
    "Deprecated" 8192,
    "Fatal error" 1})
+
+
+(defn class-derived?
+  "Whether the recorded diag entry carries a class-derived errno: the runner
+  parses only the `Warning|Notice|...` kind line, so the recorded number is
+  derived from the message class, not the true constant (e.g. `Notice` parses
+  to 8 where the engine's semantic truth for `E_USER_NOTICE` is 1024)."
+  [diag-entry]
+  (boolean (:yang.php.oracle/class-derived (meta diag-entry))))
+
+
+(defn- mark-class-derived
+  "Mark a recorded `[errno message]` pair as class-derived (see [[class-derived?]])."
+  [pair]
+  (with-meta pair {:yang.php.oracle/class-derived true}))
+
+
+(defn errno-match?
+  "Whether expected errno `e` matches recorded diag entry `a`: identical
+  numbers match, and a 1024-vs-8 mismatch counts as equal ONLY when the oracle
+  record is marked class-derived."
+  [e a]
+  (let [[actual-errno] a]
+    (or (= e actual-errno)
+        (and (= 1024 e) (= 8 actual-errno) (class-derived? a)))))
+
+
+(defn diag-match?
+  "Whether the expected diag vector matches the recorded one entry-wise under
+  [[errno-match?]] (messages compare literally)."
+  [expected-diag actual-diag]
+  (and (= (count expected-diag) (count actual-diag))
+       (every? true? (map (fn [[e-errno e-msg] a]
+                            (and (errno-match? e-errno a)
+                                 (= e-msg (second a))))
+                          expected-diag actual-diag))))
 
 
 (defn- location-pattern
@@ -94,7 +137,7 @@
          out (str/replace without-fatal
                           diag-re
                           (fn [[_ kind msg]]
-                            (vswap! diags conj [(get errno-of kind) (strip-location msg file)])
+                            (vswap! diags conj (mark-class-derived [(get errno-of kind) (strip-location msg file)]))
                             ""))]
      {:out out,
       :diag @diags,
@@ -213,6 +256,134 @@
      :actual (select-keys actual [:out :diag :uncaught])}))
 
 
+(defn- php-literal
+  "The PHP literal of request-record scalar `v`: strings single-quoted
+   (escaping backslash and quote, the only two escapes there), ints bare.
+   Key coercion (numeric strings to ints) is left to PHP itself, exactly as
+   the engine's `php/array-key` performs it."
+  [v]
+  (cond (string? v) (str "'" (str/replace v #"\\|'" (fn [[c]] (str "\\" c))) "'")
+        (integer? v) (str v)
+        :else (throw (ex-info "p5 oracle: non-scalar in request record" {:value v}))))
+
+
+(defn- request-pairs
+  "Ordered `[k v]` pairs of request-array `arr`: the engine's ordered entry
+   vectors are accepted as-is; otherwise pairs follow the array's `:order`
+   (the engine's insertion order)."
+  [arr]
+  (when arr
+    (if (sequential? arr)
+      (mapv vec arr)
+      (mapv (fn [k] [k (get (:index arr) k)]) (:order arr)))))
+
+
+(defn- php-array-literal
+  "The PHP `array(...)` literal of request-array `arr`."
+  [arr]
+  (if (empty? (request-pairs arr))
+    "array()"
+    (str "array("
+         (str/join ", " (map (fn [[k v]]
+                               (str (php-literal k) " => " (php-literal v)))
+                             (request-pairs arr)))
+         ")")))
+
+
+(defn p5-prologue
+  "The `auto_prepend_file` prologue assigning the superglobals from the
+   fixture `:request` record, mirroring `php/bind-request!` (prelude
+   section `request and output`): `$_GET` is the query, `$_POST` the body,
+   `$_COOKIE` the cookies, `$_SERVER` the server fields with
+   `REQUEST_METHOD`/`REQUEST_URI` appended, `$_ENV` the env, `$_FILES` the
+   files, and `$_REQUEST` is `array_merge($_GET, $_POST)` (POST wins, the
+   engine's `php/merge-loop` over `[get post]`)."
+  [request]
+  (let [method (or (:php.request/method request) "")
+        uri (or (:php.request/uri request) "")]
+    (str "<?php\n"
+         "$_GET = " (php-array-literal (:php.request/query request)) ";\n"
+         "$_POST = " (php-array-literal (:php.request/body request)) ";\n"
+         "$_COOKIE = " (php-array-literal (:php.request/cookies request)) ";\n"
+         "$_SERVER = " (php-array-literal (:php.request/server request)) ";\n"
+         "$_SERVER['REQUEST_METHOD'] = " (php-literal method) ";\n"
+         "$_SERVER['REQUEST_URI'] = " (php-literal uri) ";\n"
+         "$_ENV = " (php-array-literal (:php.request/env request)) ";\n"
+         "$_FILES = " (php-array-literal (:php.request/files request)) ";\n"
+         "$_REQUEST = array_merge($_GET, $_POST);\n")))
+
+
+(defn run-php-file-with-prepend
+  "Run `<file>` inside `<dir>` via Docker `php:8.3-cli` with `prepend-file`
+   (a path relative to `<dir>`) as `auto_prepend_file`, and return the
+   parsed `{:out :diag :uncaught :exit}`."
+  [dir file prepend-file]
+  (let [{:keys [out err exit]}
+        (sh/sh "docker" "run" "--rm"
+               "-v" (str (.toAbsolutePath (.toPath (io/file dir))) ":/w")
+               "-w" "/w"
+               "php:8.3-cli" "php"
+               "-d" "display_errors=1"
+               "-d" "html_errors=0"
+               "-d" "error_reporting=E_ALL"
+               "-d" "log_errors=0"
+               "-d" (str "auto_prepend_file=/w/" prepend-file)
+               file
+               :out-enc "UTF-8")]
+    (assoc (parse-stdout out file nil)
+           :err err
+           :exit exit)))
+
+
+(defn check-p5-fixture
+  "Run P5 `fixture` in temporary directory `dir`: the fixture source plus,
+   for `:request`-bearing fixtures, the [[p5-prologue]] as
+   `auto_prepend_file`. Returns a check record like [[check-fixture]]."
+  [dir {:keys [id source request out diag uncaught status oracle]}]
+  (let [file (str (name id) ".php")
+        pre (str (name id) "-pre.php")]
+    (write-source! dir file source)
+    (when request (write-source! dir pre (p5-prologue request)))
+    (let [actual (if request
+                   (run-php-file-with-prepend dir file pre)
+                   (run-php-file dir file))
+          expected-out (or out "")
+          expected-diag (vec (or diag []))
+          pass? (and (not= :pending oracle)
+                     (= expected-out (:out actual))
+                     (diag-match? expected-diag (:diag actual))
+                     (= uncaught (:uncaught actual))
+                     (or (nil? status) (= status (:exit actual))))]
+      {:id id,
+       :pass? pass?,
+       :oracle oracle,
+       :expected {:out expected-out, :diag expected-diag, :uncaught uncaught, :status status},
+       :actual (assoc (select-keys actual [:out :diag :uncaught]) :exit (:exit actual))})))
+
+
+(defn run-p5
+  "Run all `p5/fixtures` (the request-context fixtures) against
+   `php:8.3-cli`."
+  []
+  (let [dir (.toFile (Files/createTempDirectory "yang-php-oracle-p5-"
+                                                (make-array FileAttribute 0)))]
+    (try
+      (mapv #(check-p5-fixture dir %) p5/fixtures)
+      (finally
+        (doseq [f (reverse (file-seq dir))]
+          (.delete ^java.io.File f))))))
+
+
+(defn print-fold
+  "Print the fold lines for `results`: one paste-ready record per fixture
+   in the P4 [[p4/pin]] shape `{:oracle p5-banner :out :diag :uncaught}`."
+  [results]
+  (doseq [{:keys [id actual]} results]
+    (println "FOLD" (name id)
+             (pr-str (assoc (select-keys actual [:out :diag :uncaught])
+                            :oracle p5-banner)))))
+
+
 (defn run-all
   "Run all `programs/fixtures`, `matrix-source` and `float-cases` against
    `php:8.3-cli`."
@@ -229,7 +400,36 @@
 
 
 (defn -main
-  [& _args]
+  [& args]
+  (when (some #{"--print-prologue"} args)
+    (let [id (keyword (or (second (drop-while #(not= "--print-prologue" %) args))
+                          "superglobals-from-request"))
+          fixture (first (filter #(= id (:id %)) p5/fixtures))]
+      (when-not fixture
+        (println "Unknown P5 fixture:" id)
+        (System/exit 2))
+      ;; Dry run: no docker, no oracle. Print the generated prologue for
+      ;; eyeball comparison against the engine's expected superglobal
+      ;; values (the fixture's hand-derived :out is the reference).
+      (print (p5-prologue (:request fixture)))
+      (flush)
+      (shutdown-agents)
+      (System/exit 0)))
+  (when (some #{"--p5"} args)
+    (let [results (run-p5)
+          recorded (filter #(= :pending (:oracle %)) results)
+          failures (remove #(or (:pass? %) (= :pending (:oracle %))) results)]
+      (println "Banner:" p5-banner)
+      (println "Checked:" (count results) "P5 targets; failures:" (count failures))
+      (print-fold recorded)
+      (doseq [f failures]
+        (println "FAIL" (:id f))
+        (println "  expected:" (pr-str (:expected f)))
+        (println "  actual:  " (pr-str (:actual f))))
+      (shutdown-agents)
+      (when (seq failures)
+        (System/exit 1))
+      (System/exit 0)))
   (let [results (run-all)
         recorded (filter #(= :pending (:oracle %)) results)
         failures (remove #(or (:pass? %) (= :pending (:oracle %))) results)]
