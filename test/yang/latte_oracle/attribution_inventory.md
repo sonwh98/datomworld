@@ -157,6 +157,35 @@ credits nothing ambient; any arity that loses its witness under the
 ruled query is reported as a withdrawn witness (R5) — credit is not
 forced.
 
+**Resolution (recorded after the first full run).** The predicted "iff"
+resolved against the ambient-literal reading for six of the retired
+entries: their real crediting sites thread the ADAPTED STATE — `k1`,
+`installed`, the kernel parameter of a shifted context callable — not
+the ambient initialization. Withdrawing them would have left eight
+previously credited arities unexercised (the six above plus
+`register-definition` /2, `local-definitions` /1, `unparse-term-once`
+/3, `unparse-term-rec` /3, `is-opaque?` /1 — all `:named-integration`
+credits through context-layer carriers), which contradicts R6's own
+condition: the derived tables must COVER every context-API arity the
+offset table served, or the retirement is partial and two mechanisms
+coexist. The realized correspondence therefore distinguishes three
+kinds (`kernel-ambient-correspondence`): `:ambient-delegation` — R3's
+disjointness pair — keeps the ambient-literal requirement exactly as
+ruled; `:context-shift` (the retired table's scope: the kernel-first
+carrier that replaced the upstream env parameter at the same arity, or
+was added at one fewer argument) and `:context-copy` (verbatim
+integration copies) credit through SITE-LINKED, non-delegation records
+— the static callee at the site is the carrier — with no
+ambient-literal shape, because these arities thread the adapted state
+explicitly by construction. R2b case 7's own text supports the split:
+a variable-shape context argument is "default refusal or /2-only
+attribution" — the unclassifiable shape kills the AMBIENT claim, not
+the explicit-context credit. Every one of the eight arities re-credits
+through a genuine site-linked body entry in both C lanes (e.g.
+`register-unparser!` /3 through `install-fundamental-unparsers`'s
+calling site, not through the `/4` self-delegation); no credit is
+forced and no witness is withdrawn.
+
 ## 4. Derived site tables and the versioned evidence format (R1b, R7)
 
 Each fixture's instrumentation derives a site table mechanically from
@@ -176,6 +205,58 @@ a trace from a fixture whose recorded hash differs refuses). The
 attribution itself is a `dao.space.query/q` join over three relations
 (records, site table, correspondence) so the H3-6 audit re-runs the
 same query (R7).
+
+## 6. The pin migration record (R5 — every revised pin, mechanical and semantic)
+
+Mechanical shape updates (2-vector → 3-vector records), all in
+`test/yang/latte_oracle_test.clj` unless noted:
+
+1. `kernel-trace-form`'s record emitter — `[fname n]` →
+   `[fname n (cell/get gate-site-slot)]` (the `[:variadic idx]` arity
+   encoding preserved).
+2. `kernel-executed-arity?` — the offset-table predicate → the ruled
+   query (site-linked, non-delegation, hash-matched, both C lanes).
+3. `test-kernel-acceptance-counting`'s synthetic literals —
+   `[[gate-syntax-subst 2]]` → `[[gate-syntax-subst 2 1]]`,
+   `[gate-syntax-subst 3]` → `[gate-syntax-subst 3 2]`.
+4. `test-kernel-unused-arity-execution`'s pins — `[fname 2]`/`[fname 1]`
+   record equality → `(= [fname n] (butlast record))`.
+5. The F3/F2 witness pins — 2-vector `contains?` → 3-vector records
+   carrying the stamped site ids.
+6. The evidence `:trace` declaration — `:record-shape
+   [guest-function arity]` → `[guest-function arity caller-site]` with
+   `:site-tagging` and `:refusal-site`.
+7. `slice9_evidence.edn` — fully regenerated (155 rows, 3-vector
+   executed-calls, the `:attribution` section, gate-status :pass).
+8. `slice9_unexercised.edn` — regenerated to `{}` (its single entry,
+   `[registered-definition? 1]`, is retired by the re-credit).
+
+Semantic revisions (superseded pins, revised on the record):
+
+9. `kernel_gate.edn` — the `:guest-call` overrides on
+   `:h3-3-registered-definition-ambient` (F2) and
+   `:h3-3-registered-definition-nonsymbol` (R2) are dropped: the C lane
+   now runs the adapted upstream /1 call; the old overrides pinned the
+   pre-ruling non-crediting adaptation.
+10. F2/R2's `/1` refusal pins — "no mapping turns F2's bare traces into
+    upstream /1 credit" and "R2 likewise credits nothing" — flip to
+    credit assertions: the ambient-shape execution credits
+    `registered-definition?` /1 (the ruling's re-credit).
+11. The "F2 stays honestly non-crediting" registration pin comment —
+    F2 now credits as a direct ambient fixture, never as a named
+    integration (`kernel-named-integrations` membership unchanged).
+12. The eight context-API arities credited pre-ruling by
+    integration-name+offset matching (`local-definitions` /1,
+    `register-definition` /2, `unparse-term-once` /3,
+    `unparse-term-rec` /3, `register-unparser!` /3,
+    `install-unfold-implicit!` /1, `is-opaque?` /1,
+    `install-opacity-function` /1) — their credit events tighten from
+    any-record-at-shifted-arity to site-linked, non-delegation records
+    of the derived `:context-shift`/`:context-copy` carriers (see §3's
+    resolution). No credited arity is withdrawn; no witness is forced.
+13. The by-design red pin `(= :pass (:gate-status evidence))` — the
+    assertion is unchanged and PASSES for the first time (165/165
+    admitted arities exercised).
 
 ## 5. What does NOT move
 

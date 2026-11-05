@@ -199,7 +199,10 @@
   "Admission for the portable context module: every variable is a lexical
    binder, declared guest function, or explicitly supplied data primitive."
   [ast program]
-  (let [globals (into #{'yin/def}
+  (let [globals (into #{'yin/def
+                        ;; the compiler's own intra-unit dispatcher, bound by
+                        ;; the compiled preamble; the site stamping reuses it
+                        'dsg__intra_call}
                       (concat (keys vm/primitive-profiles)
                               (map first call/definitions)
                               (for [form program :when (#{'def 'defn 'defn-} (first form))]
@@ -1553,6 +1556,39 @@
      local-definitions register-definition fetch-definition registered-definition? qualify-def})
 
 
+(defn- kernel-adapter-clause
+  "The context-adapter stub clause for `n` parameters of `symbol` (simple
+   name `name`, namespace `ns-sym`). When upstream's own body for this
+   arity is a single self-delegation, the stub mirrors that delegation —
+   an ambient `empty-env` argument becomes the declared `initial-context`
+   literal, so the adapter's declared path supplies the ambient
+   environment (attribution ruling R3) instead of forwarding an arity the
+   context layer does not carry. Every other clause keeps the
+   arity-preserving forward."
+  [ns-sym name symbol n]
+  (let [form (get top-forms [ns-sym name])
+        header (drop-while #(not (or (vector? %) (seq? %))) (nnext form))
+        clauses (if (vector? (first header)) [header] header)
+        params (mapv #(clojure.core/symbol (str "p" %)) (range n))
+        clause (first (filter #(= n (count (first %))) clauses))
+        body (next clause)]
+    (if (and (= 1 (count body)) (seq? (first body))
+             (symbol? (first (first body)))
+             (= symbol (kernel-resolve ns-sym (first (first body)))))
+      (let [renames (zipmap (first clause) params)]
+        (list params
+              (list* name
+                     (map (fn [a]
+                            (cond
+                              (and (symbol? a) (nil? (namespace a))
+                                   (= 'latte-kernel.defenv/empty-env (kernel-resolve ns-sym a)))
+                              initial-context
+                              (get renames a) (get renames a)
+                              :else a))
+                          (rest (first body))))))
+      (list params (list* name params)))))
+
+
 (defn- kernel-source
   [{:keys [ns name symbol arities disposition admission-reason]}]
   (cond
@@ -1564,9 +1600,7 @@
                                            {:refusal :nonportable-binding :binding (list 'quote symbol) :reason admission-reason})))) arities))
     (and (= ns 'latte_kernel.defenv) (contains? kernel-context-adapters name))
     (list* 'defn (kernel-guest-name symbol)
-           (map (fn [n]
-                  (let [ps (mapv #(clojure.core/symbol (str "p" %)) (range n))]
-                    (list ps (list* name ps)))) arities))
+           (map (fn [n] (kernel-adapter-clause ns name symbol n)) arities))
     (and (= ns 'latte_kernel.proof) (= name '+opacity-fn+))
     ;; The old ambient binding now names the explicit field; evaluating this
     ;; binding cannot initialize an atom or install an implicit closure.
@@ -1783,17 +1817,185 @@
    'latte-kernel.unparser/prod-impl-unparser 'prod-impl-unparser})
 
 
-(def ^:private kernel-context-extra-arguments
-  ;; Immutable-context APIs take one explicit context where upstream reads
-  ;; or writes an ambient binding. Raw guest arities remain in the trace.
-  {'unregister-unparser 1 'unparse 1 'register-unparser 1
-   'install-unfold-implicit 1 'install-fundamental-unparsers 1
-   'gate-proof-install-opacity-function 1})
+(def ^:private kernel-ambient-bindings
+  "The upstream module-level state the immutable-context adaptation
+   threads explicitly: the empty environment and the atoms the context
+   layer carries as its kernel parameter. The retired offset table
+   served these correspondences; this set derives them."
+  '#{latte-kernel.defenv/empty-env
+     latte-kernel.unparser/+unparser-registry+
+     latte-kernel.norm/+unfold-implicit+
+     latte-kernel.nbe/+unfold-implicit+
+     latte-kernel.proof/+opacity-fn+})
+
+
+(defn- kernel-ambient-reference?
+  "True when `form` references one of the ambient state bindings outside
+   `bound` (the enclosing clause's own parameters)."
+  [ns-sym form bound]
+  (some (fn [s]
+          (and (symbol? s) (nil? (namespace s))
+               (not (contains? bound s))
+               (contains? kernel-ambient-bindings (kernel-resolve ns-sym s))))
+        (tree-seq coll? seq form)))
+
+
+(defn- kernel-clauses
+  "The `[params body…]` clauses of one upstream top-level defn."
+  [ns-sym name]
+  (let [form (get top-forms [ns-sym name])
+        header (drop-while #(not (or (vector? %) (seq? %))) (nnext form))]
+    (if (vector? (first header)) [header] header)))
+
+
+(defn- kernel-program-clauses
+  "The `[params body…]` clauses of `fname` among the forms the C program
+   assembles (the checked-in context layer, the guest sources, the
+   branch-local refusals), or nil when the name is not carried."
+  [fname]
+  (some (fn [form]
+          (when (= fname (second form))
+            (let [header (drop-while #(not (or (vector? %) (seq? %))) (nnext form))]
+              (if (vector? (first header)) [header] header))))
+        (concat context-forms (vals kernel-sources) kernel-declaration-refusals)))
+
+
+(def ^:private kernel-ambient-correspondence
+  "The mechanically derived attribution paths (R6/R7), keyed
+   `[upstream-symbol arity]` → #{[carrier guest-arity kind]}: for each
+   admitted upstream function and arity, the guest/context callable and
+   guest arity that carry the adapted form. Three shapes are derived
+   from the pinned upstream forms and the checked-in context layer, all
+   anchored to the context layer's own convention (context.edn's header:
+   a context occupies the def-env argument throughout the adapted
+   kernel):
+   - :ambient-delegation — an upstream clause whose body is a single
+     self-delegation through the module-level ambient state (R3's
+     disjointness pair: `registered-definition?` /1) maps to the carrier
+     the adapter's mirrored stub delegates to; the credit query requires
+     such a site's compiled context argument to be the adapter-supplied
+     ambient literal.
+   - :context-shift — a carrier clause `[kernel …]`. When the upstream
+     clause at the SAME arity carries the env at its head (the pinned
+     upstream names that parameter `def-env`/`env`), the kernel replaced
+     the parameter (register-definition /2 and /3, local-definitions /1,
+     elab-opacity /3, fetch-definition, qualify-def, …); otherwise the
+     kernel was ADDED at one fewer upstream argument — exactly the
+     retired offset table's hand-declared +1 shifts (unregister-unparser!
+     /1, unparse /1, register-unparser! /2 and /3, install-unfold-implicit!
+     /1, install-fundamental-unparsers! /0, install-opacity-function /1).
+     These arities thread the adapted state explicitly, so their witness
+     is a site-linked record, not an ambient literal.
+   - :context-copy — a declared integration name whose checked-in copy
+     keeps the upstream parameter vector verbatim (is-opaque?, the
+     unparse-term-* walkers) carries the same arity.
+   The retired offset table `kernel-context-extra-arguments` served
+   exactly the :context-shift correspondences by hand."
+  (into {}
+        (mapcat
+          (fn [{:keys [ns name symbol]}]
+            (let [integration (get kernel-context-integration-names symbol)
+                  guest (kernel-guest-name symbol)
+                  has-arity? (fn [fname n]
+                               (let [ks (kernel-program-clauses fname)]
+                                 (and fname ks (some #(= n (count (first %))) ks))))
+                  carrier (fn [n]
+                            (or (when (has-arity? integration n) integration)
+                                ;; the stubbed adapters mirror through the
+                                ;; context layer's own name
+                                (when (and (contains? kernel-context-adapters name)
+                                           (has-arity? name n))
+                                  name)
+                                (when (has-arity? guest n) guest)))
+                  delegation (fn [clause]
+                               (let [body (next clause)]
+                                 (when (and (= 1 (count body)) (seq? (first body))
+                                            (symbol? (first (first body)))
+                                            (= symbol (kernel-resolve ns (first (first body)))))
+                                   (rest (first body)))))
+                  upstream-clauses (kernel-clauses ns name)
+                  upstream-arities (into #{} (map #(count (first %))) upstream-clauses)
+                  ;; the pinned upstream's env-position parameter names: the
+                  ;; defenv/proof context family names the env argument
+                  ;; def-env/env at the leading position it occupies
+                  env-param? '#{def-env env}
+                  from-delegations
+                  (set (for [clause upstream-clauses
+                             :let [args (delegation clause)]
+                             :when (and args (kernel-ambient-reference? ns args (set (first clause))))
+                             :let [g (carrier (count args))]
+                             :when g]
+                         [(count (first clause)) [g (count args) :ambient-delegation]]))
+                  ctx-carriers (distinct
+                                 (remove nil?
+                                         [integration
+                                          (when (some #(= name (second %)) context-forms) name)
+                                          (when (and ((set (map second (vals kernel-sources))) guest)
+                                                     (= 'kernel (ffirst (kernel-program-clauses guest))))
+                                            guest)]))
+                  from-shift
+                  (set (for [g ctx-carriers
+                             clause (kernel-program-clauses g)
+                             :let [ps (first clause)]
+                             :when (and (seq ps) (= 'kernel (first ps)))
+                             :let [;; the kernel REPLACED the upstream env
+                                   ;; parameter (same arity) when that clause
+                                   ;; carries the env at its head; otherwise it
+                                   ;; was ADDED at one fewer upstream argument
+                                   ;; (the retired offset table's +1 shifts)
+                                   replaced (some (fn [u]
+                                                    (let [up (first u)]
+                                                      (when (and (= (count up) (count ps))
+                                                                 (env-param? (first up)))
+                                                        (count up))))
+                                                  upstream-clauses)
+                                   added (let [a (dec (count ps))]
+                                           (when (and (contains? upstream-arities a)
+                                                      (not (some (fn [u]
+                                                                   (let [up (first u)]
+                                                                     (and (= (count up) a)
+                                                                          (env-param? (first up)))))
+                                                                 upstream-clauses)))
+                                             a))
+                                   m (or replaced added)]
+                             :when (and m
+                                        (not (contains? (set (map first from-delegations)) m)))]
+                         [m [g (count ps) :context-shift]]))
+                  from-copies
+                  (set (for [g [(get kernel-context-integration-names symbol)]
+                             :when g
+                             clause (kernel-program-clauses g)
+                             :let [ps (first clause)]
+                             :when (and (seq ps) (not= 'kernel (first ps))
+                                        (contains? upstream-arities (count ps))
+                                        (not (contains? (set (map first from-delegations))
+                                                        (count ps)))
+                                        (not (contains? (set (map first from-shift))
+                                                        (count ps))))]
+                         [(count ps) [g (count ps) :context-copy]]))]
+              (map (fn [[m entries]] [[symbol m] (into #{} (map second) entries)])
+                   (group-by first (into (into from-delegations from-shift) from-copies))))))
+        (filter #(and (contains? #{'defn 'defn-} (:kind %))
+                      (= :admitted (:disposition %)))
+                kernel-entries)))
+
+
+(def ^:private kernel-site-prelude
+  "The caller-side site channel (attribution ruling R2): one heap cell
+   holding the site id of the most recent stamped application, and the
+   stamping helper. A body entered without a stamped caller records the
+   :gate-site/none refusal site (R2b case 6)."
+  '[(def gate-site-slot (cell/new :gate-site/none))
+    (defn gate-site!
+      [k args]
+      (cell/set! gate-site-slot k) args)])
 
 
 (defn- kernel-trace-form
-  "Append the selected function/arity at body entry, including indirect calls.
-   Only C is instrumented; A/B still run their original fixture paths."
+  "Append the selected function/arity at body entry, including indirect
+   calls, carrying the CALLER's site id read from the site slot (R2: the
+   record is [fname arity caller-site-id]; caller-side tagging, never
+   callee-side). Only C is instrumented; A/B run their original paths."
   [form]
   (if (#{'defn 'defn-} (first form))
     (let [[op fname & header] form
@@ -1802,41 +2004,443 @@
                         (let [n (if (some #{'&} params)
                                   [:variadic (.indexOf params '&)] (count params))]
                           (list* params
-                                 (list 'stream/put! 'gate-execution-trace (list 'quote [fname n]))
+                                 (list 'stream/put! 'gate-execution-trace
+                                       (list 'vector (list 'quote fname) n
+                                             '(cell/get gate-site-slot)))
                                  body)))]
       (list* op fname (if (vector? (first header))
                         (trace-arity header) (map trace-arity header))))
     form))
 
 
+(def ^:private kernel-ambient-state-constructors
+  "Context-layer constructors that thread the ambient state: resolving an
+   argument through one of these (at its context position) keeps the
+   ambient claim alive, because upstream's ambient API reads exactly this
+   state. Derived from the checked-in context layer's names."
+  (into '#{kernel-context}
+        (filter #(or (str/starts-with? (str %) "install-")
+                     (str/starts-with? (str %) "register-")
+                     (str/starts-with? (str %) "unregister-")))
+        (map second context-forms)))
+
+
+(defn- kernel-stamped-args?
+  "The stamping wrapper around one already-stamped argument vector:
+   `(data/nth (dsg__intra_call gate-site! (conj [] k <args>)) 1)`. Returns
+   the wrapped original arguments node."
+  [node]
+  (when (and (map? node) (= :application (:type node))
+             (= :variable (:type (:operator node)))
+             (= 'data/nth (:name (:operator node)))
+             (= 2 (count (:operands node)))
+             (let [one (second (:operands node))]
+               (and (map? one) (= :literal (:type one)) (= 1 (:value one))))
+             (let [call (first (:operands node))]
+               (and (map? call) (= :application (:type call))
+                    (= :variable (:type (:operator call)))
+                    (= 'dsg__intra_call (:name (:operator call)))
+                    (let [args (get-in call [:operands 1])]
+                      (and (map? args) (= :application (:type args))
+                           (= :variable (:type (:operator args)))
+                           (= 'conj (:name (:operator args))))))))
+    (get-in node [:operands 0 :operands 1 :operands 2])))
+
+
+(defn- kernel-site-arguments
+  "The argument expression nodes of one compiled call site: the operand
+   vector the argument-vector convention assembles. `node` is either the
+   intra-unit fast path `(dsg__intra_call f <args>)` or the routed guest
+   call's arguments binding; the arguments are the elements of the
+   constructed vector (a constant :literal, or `(conj [] e1 e2 ...)`),
+   with any stamping wrapper already applied to inner expressions
+   stripped first."
+  [args-node]
+  (let [args-node (or (kernel-stamped-args? args-node) args-node)]
+    (cond
+      (= :literal (:type args-node)) (:value args-node)
+      (and (= :application (:type args-node))
+           (= :variable (:type (:operator args-node)))
+           (= 'conj (:name (:operator args-node)))
+           (= :literal (:type (first (:operands args-node)))))
+      (rest (:operands args-node))
+      :else nil)))
+
+
+(defn- kernel-intra-call?
+  "The compiled shape of one intra-unit guest call under the
+   argument-vector convention: an application of the unit's dispatcher
+   whose first operand names the callee and whose second is the assembled
+   argument vector."
+  [node]
+  (and (= :application (:type node))
+       (= :variable (:type (:operator node)))
+       (= 'dsg__intra_call (:name (:operator node)))
+       (= 2 (count (:operands node)))))
+
+
+(defn- kernel-routing?
+  "True when `node` mentions the admission routing's own vocabulary —
+   the dispatcher predicate or the invocation transfer — distinguishing
+   a compiled guest call's routing from an ordinary nested let (the two
+   share the let-lowering shape)."
+  [node]
+  (letfn [(any?
+            [n]
+            (or (and (map? n) (= :variable (:type n))
+                     (contains? '#{dsg__admitted? yang.call/invoke
+                                   yang.call/invoke-with}
+                                (:name n)))
+                (and (coll? n) (some any? n))))]
+    (boolean (any? node))))
+
+
+(defn- kernel-routed-call?
+  "The compiled shape of one non-intra guest call: the admission routing
+   binds the evaluated callee, then the evaluated argument vector, then
+   routes. Returns the routing's arguments binding node, or nil for any
+   other let-shaped chain: the arguments binding must carry a real
+   argument-vector construction (a constant or a conj application)."
+  [node]
+  (when (and (= :application (:type node))
+             (= :lambda (:type (:operator node)))
+             (= 1 (count (:params (:operator node))))
+             (= 1 (count (:operands node)))
+             (map? (:body (:operator node))))
+    (let [inner (:body (:operator node))]
+      (when (and (= :application (:type inner))
+                 (= :lambda (:type (:operator inner)))
+                 (= 1 (count (:params (:operator inner))))
+                 (= 1 (count (:operands inner)))
+                 (kernel-routing? (:body (:operator inner)))
+                 (or (= :literal (:type (first (:operands inner))))
+                     (and (map? (first (:operands inner)))
+                          (kernel-site-arguments (first (:operands inner))))))
+        inner))))
+
+
+(defn- kernel-resolve-site-arg
+  "Classify one call-site argument expression for the derived site table:
+   :ambient-literal (the adapter-supplied empty-context initialization,
+   possibly through let bindings and ambient-state constructors), :literal,
+   :variable (a parameter or an unresolvable binding — R2b case 7), or
+   :computed. `scope` maps bound names to their init nodes; `params` are
+   the enclosing binders."
+  [node scope params depth]
+  (cond
+    (or (nil? node) (> depth 8)) :computed
+    (= :literal (:type node)) :literal
+    ;; constant-argument values (a fully constant argument vector's
+    ;; elements arrive as data, not nodes)
+    (not (coll? node)) :literal
+    (= :variable (:type node))
+    (if (contains? params (:name node))
+      :variable
+      (if-let [init (get scope (:name node))]
+        (recur init scope params (inc depth))
+        :variable))
+    (and (= :application (:type node)) (kernel-intra-call? node)
+         (contains? kernel-ambient-state-constructors
+                    (get-in node [:operands 0 :name])))
+    (let [args-node (second (:operands node))
+          arg-nodes (kernel-site-arguments args-node)
+          first-arg (if (sequential? arg-nodes) (first arg-nodes)
+                        (when (= :literal (:type (or (kernel-stamped-args? args-node) args-node)))
+                          (first (:value (or (kernel-stamped-args? args-node) args-node)))))]
+      (if (and (= 'kernel-context (get-in node [:operands 0 :name]))
+               (map? first-arg) (= :literal (:type first-arg))
+               (= [{} {}] (:value first-arg)))
+        :ambient-literal
+        (if (and (sequential? arg-nodes) (= 1 (count arg-nodes))
+                 (= :ambient-literal (kernel-resolve-site-arg (first arg-nodes)
+                                                              scope params (inc depth))))
+          :ambient-literal :computed)))
+    ;; the compiler's outcome unwrap and let-hoist of one call: the
+    ;; argument expression is (data/nth <hoisted-binding> 1), and the
+    ;; binding's init is the call itself — resolve through it
+    (and (= :application (:type node))
+         (= :variable (:type (:operator node)))
+         (= 'data/nth (:name (:operator node)))
+         (= 2 (count (:operands node)))
+         (let [idx (second (:operands node))]
+           (and (map? idx) (= :literal (:type idx)) (number? (:value idx)) (pos? (:value idx)))))
+    (recur (first (:operands node)) scope params (inc depth))
+
+    :else :computed))
+
+
+(defn- kernel-under-dispatcher
+  "Split the compiled program into [outer-wrappers dispatcher-application
+   main-body]: everything before the unit dispatcher binding evaluates
+   before `dsg__intra_call` is bound, so a stamp there would not resolve.
+   Returns the applications above the dispatcher binding, the application
+   whose operator IS the dispatcher lambda, and that lambda's body — or
+   [nil nil ast] when no dispatcher wrapper exists (stamping then covers
+   the whole tree and the admission check reports the stamp)."
+  [ast]
+  (loop [wrappers [] node ast]
+    (if (and (map? node) (= :application (:type node))
+             (map? (:operator node)) (= :lambda (:type (:operator node)))
+             (= '[dsg__admitted? dsg__intra_call] (vec (:params (:operator node)))))
+      [wrappers node (:body (:operator node))]
+      (if (and (map? node) (= :application (:type node))
+               (map? (:operator node)) (= :lambda (:type (:operator node))))
+        (recur (conj wrappers node) (:body (:operator node)))
+        [nil nil ast]))))
+
+
+(defn- kernel-stamp-sites
+  "Assign compile-time-unique caller-site ids at the compiled program's
+   APPLICATION EXPRESSIONS, post-macroexpansion (R2), and derive the site
+   table mechanically (R7). Two compiled call shapes carry instrumented
+   invocations: the intra-unit fast path and the admission-routed guest
+   call. Each stamped site threads its argument vector through
+   gate-site!, which sets the site slot after operand evaluation and
+   immediately before the invocation, so nested stamped calls record
+   their own sites first and the callee's body-entry record reads the
+   applying site. Returns {:ast stamped-ast :sites [rows]} with one row
+   per stamped site: {:site id :callee name-or-:dynamic :arg-shapes […]
+   :def enclosing-definition :delegation? bool}. Unstampable calls
+   (library and native names) never enter an instrumented body; the
+   dispatcher's own bare application is not a guest-call shape and is
+   left alone."
+  [ast instrumented]
+  (let [counter (atom 0)
+        sites (atom [])
+        stamp (fn [args-node callee def-name scope params]
+                (let [k (swap! counter inc)
+                      shapes (if (= :dynamic callee)
+                               [:dynamic-callee]
+                               (mapv #(kernel-resolve-site-arg % scope params 0)
+                                     (or (kernel-site-arguments args-node) [])))]
+                  (swap! sites conj {:site k
+                                     :callee callee
+                                     :arg-shapes (vec shapes)
+                                     :def def-name
+                                     :delegation? (and (symbol? callee)
+                                                       (= callee def-name))})
+                  ;; the stamp calls the helper the way the compiler calls
+                  ;; any intra-unit definition — through the unit's
+                  ;; dispatcher with [k args] — and unwraps the call's
+                  ;; outcome with the data/nth primitive, so the stamped
+                  ;; expression's value IS the argument vector
+                  {:type :application
+                   :operator {:type :variable :name 'data/nth}
+                   :operands [{:type :application
+                               :operator {:type :variable :name 'dsg__intra_call}
+                               :operands [{:type :variable :name 'gate-site!}
+                                          {:type :application
+                                           :operator {:type :variable :name 'conj}
+                                           :operands [{:type :literal :value []}
+                                                      {:type :literal :value k}
+                                                      args-node]}]}
+                              {:type :literal :value 1}]}))
+        walk (fn walk
+               [node def-name scope params]
+               (cond
+                 (map? node)
+                 (let [t (:type node)]
+                   (cond
+                     ;; a definition: track the enclosed name, never stamp
+                     (and (= :application t)
+                          (= :variable (:type (:operator node)))
+                          (= 'yin/def (:name (:operator node)))
+                          (= :literal (:type (first (:operands node)))))
+                     (assoc node :operands (mapv #(walk % (:value (first (:operands node))) scope params)
+                                                 (:operands node)))
+
+                     ;; the intra-unit fast path: the callee names an
+                     ;; instrumented definition — a direct site. The
+                     ;; arguments are walked FIRST (their nested sites
+                     ;; stamp during argument evaluation), then wrapped.
+                     (and (= :application t) (kernel-intra-call? node)
+                          (= :variable (:type (first (:operands node))))
+                          (contains? instrumented (get-in node [:operands 0 :name])))
+                     (let [callee (first (:operands node))
+                           args-node (second (:operands node))
+                           walked-args (walk args-node def-name scope params)]
+                       (assoc node :operands [callee
+                                              (stamp walked-args
+                                                     (:name callee)
+                                                     def-name scope params)]))
+
+                     ;; the admission-routed guest call: a computed or
+                     ;; out-of-unit callee — an indirect site (R2). The
+                     ;; stamp wraps the routed arguments binding; the walk
+                     ;; then descends through the stamp into the argument
+                     ;; expressions and the routing.
+                     (and (= :application t) (kernel-routed-call? node))
+                     (let [inner (kernel-routed-call? node)
+                           stamped-inner (assoc inner :operands
+                                                [(stamp (first (:operands inner))
+                                                        :dynamic def-name scope params)])
+                           walked-inner (walk stamped-inner def-name scope params)]
+                       (-> node
+                           (assoc-in [:operator :body] walked-inner)
+                           (update :operands (fn [ops]
+                                               (mapv #(walk % def-name scope params) ops)))))
+
+                     ;; let-lowering: a one-param lambda applied to one
+                     ;; operand binds that parameter to the operand's
+                     ;; expression for the site-shape resolution
+                     (and (= :application t)
+                          (= :lambda (:type (:operator node)))
+                          (= 1 (count (:params (:operator node))))
+                          (= 1 (count (:operands node))))
+                     (let [[p init] [(first (:params (:operator node))) (first (:operands node))]
+                           walked-init (walk init def-name scope params)]
+                       (-> node
+                           (assoc-in [:operator :body]
+                                     (walk (:body (:operator node)) def-name
+                                           (assoc scope p walked-init) params))
+                           (assoc :operands [walked-init])))
+
+                     ;; an ordinary lambda's binders shadow: references to
+                     ;; them are the caller-owned :variable shape
+                     (and (map? node) (= :lambda t))
+                     (assoc node :body (walk (:body node) def-name scope
+                                             (into params (:params node))))
+
+                     :else (into {} (map (fn [[k v]]
+                                           (if (coll? v)
+                                             [k (walk v def-name scope params)]
+                                             [k v])))
+                                 node)))
+                 (vector? node) (mapv #(walk % def-name scope params) node)
+                 (seq? node) (apply list (map #(walk % def-name scope params) node))
+                 :else node))
+        [wrappers dispatcher-app main-body] (kernel-under-dispatcher ast)
+        stamped-body (walk main-body nil {} #{})
+        stamped (if dispatcher-app
+                  (reduce (fn [body wrapper]
+                            (assoc-in wrapper [:operator :body] body))
+                          (assoc-in dispatcher-app [:operator :body] stamped-body)
+                          (rseq wrappers))
+                  stamped-body)]
+    {:ast stamped :sites (vec @sites)}))
+
+
+(defn- kernel-record-credits?
+  "One caller-site-tagged trace record `[fname arity caller-site]` against
+   the attribution contract for upstream `symbol` at arity `n` (R1-R4):
+   the degenerate 1:1 path matches the arity-preserving guest definition
+   at any real site; a derived correspondence path matches its carrier
+   callable and arity only through a SITE-LINKED record — the site
+   table's static callee at that site is the carrier itself (R2b case 6:
+   indirect origins refuse unless site-linked) — that is not a
+   self-delegation (R2's rule: the originating call is the credited
+   event). An :ambient-delegation path — the R3 disjointness pair —
+   additionally requires the site's compiled context argument (position
+   0) to have resolved to the adapter-supplied ambient literal;
+   :context-shift and :context-copy paths thread the adapted state
+   explicitly (the retired offset table's scope, R6) and impose no
+   ambient-literal shape: their witness is the site-linked body entry of
+   the carrier, whatever context value the site threads. The
+   :gate-site/none entry site never credits."
+  [record table symbol n]
+  (let [[fname arity site] record]
+    (and (vector? record) (= 3 (count record))
+         (not= :gate-site/none site)
+         (or (and (= fname (kernel-guest-name symbol)) (= arity n))
+             (boolean (some (fn [[g t kind]]
+                              (let [site-row (get table site)]
+                                (and (= fname g) (= arity t)
+                                     site-row (= g (:callee site-row))
+                                     (not (:delegation? site-row))
+                                     (or (not= :ambient-delegation kind)
+                                         (= :ambient-literal (first (:arg-shapes site-row)))))))
+                            (get kernel-ambient-correspondence [symbol n])))))))
+
+
+(defn- kernel-ambient-site?
+  "R2b case 5's compile-time verification, one site at a time: a site
+   may claim the ambient correspondence only when the derived table says
+   its compiled context argument (position 0) IS the adapter-supplied
+   ambient literal and the site is not a self-delegation. A declaration
+   naming any other site refuses."
+  [table site-id]
+  (let [site-row (get table site-id)]
+    (and site-row
+         (not (:delegation? site-row))
+         (= :ambient-literal (first (:arg-shapes site-row))))))
+
+
+(defn- kernel-stale-sites
+  "R2b case 8's diagnostic: site ids the declared table carries that no
+   lane's trace ever records — a stale table after a fixture edit. The
+   result is recorded data (never silent non-credit): only sites the
+   attribution could have consulted (direct sites of instrumented
+   callees) participate."
+  [table lanes]
+  (let [recorded (into #{}
+                       (comp (mapcat #(get-in lanes [% :executed-calls]))
+                             (filter vector?)
+                             (map #(nth % 2 nil)))
+                       [:c-walker :c-semantic])]
+    (vec (sort (for [[k s] table
+                     :when (and (symbol? (:callee s)) (not (contains? recorded k)))]
+                 k)))))
+
+
 (defn- kernel-executed-arity?
+  "The ruled attribution query over `row`'s two caller-site-tagged C-lane
+   traces: upstream `symbol` at arity `n` is credited when BOTH lanes
+   record a body entry the query admits (kernel-record-credits?), and
+   the site table in the row is the one this program's canonical source
+   hashed to (R2b case 3: a table from another fixture, or a stale table
+   after an edit, refuses). The retired offset-table matching (any
+   record at arity n+offset, from any call origin) is gone."
   [row symbol n]
-  (let [names (remove nil? [(kernel-guest-name symbol)
-                            (get kernel-context-integration-names symbol)])
-        paths (set (for [fname names]
-                     [fname (if (number? n)
-                              (+ n (get kernel-context-extra-arguments fname 0)) n)]))]
-    (every? (fn [lane] (some paths (get-in row [lane :executed-calls])))
-            [:c-walker :c-semantic])))
+  (let [table (:site-table row)
+        hash-matches? (or (nil? (:site-table-hash row))
+                          (= (:canonical-source-hash row) (:site-table-hash row)))]
+    (and hash-matches?
+         (every? (fn [lane]
+                   (some #(kernel-record-credits? % table symbol n)
+                         (get-in row [lane :executed-calls])))
+                 [:c-walker :c-semantic]))))
+
+
+(defn- kernel-canonical-source-hash
+  "The canonical-source-hash of one fixture's inlined adaptation (R2b
+   case 3): the digest of the assembled context layer and guest sources —
+   the adapter this fixture inlines. A trace evaluated against a table
+   whose recorded hash differs refuses attribution."
+  [forms call]
+  (let [payload (binding [*print-length* nil *print-level* nil]
+                  (pr-str [forms call]))]
+    (apply str (map #(format "%02x" (bit-and 255 %))
+                    (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                             (.getBytes payload "UTF-8"))))))
 
 
 (defn- kernel-compile
   [fixture]
   (let [call (kernel-c-program fixture)
         forms (kernel-closure call)
-        program (into ['(def gate-execution-trace (stream/make 1000000))]
+        program (into (into ['(def gate-execution-trace (stream/make 1000000))]
+                            kernel-site-prelude)
                       (concat (map kernel-trace-form forms) [call]))
         program (into (yang/library-for program) program)
         opts (update arg-vector-opts :native into
                      (map (fn [[op profile]] [(clojure.core/symbol "stream" (name op)) profile])
                           module/stream-profiles))
-        ast (yang/compile-program program true opts)
-        missing (unbound-ast-symbols ast program)]
+        compiled (yang/compile-program program true opts)
+        ;; caller-side site ids at the compiled application expressions,
+        ;; post-macroexpansion (R2), with the mechanically derived site
+        ;; table (R7); every assembled definition is instrumented
+        {stamped :ast sites :sites} (kernel-stamp-sites
+                                      compiled (into #{} (map second) forms))
+        missing (unbound-ast-symbols stamped program)]
     (if (seq missing)
       {:status :blocked :phase :admission :blocked-by (vec (sort missing))
        :owners (into {} (for [s missing]
                           [s (mapv second (filter #(some #{s} (tree-seq coll? seq %)) program))]))}
-      {:status :compiled :ast ast :forms forms})))
+      {:status :compiled :ast stamped :forms forms
+       :site-table (into {} (map (juxt :site identity)) sites)
+       :site-table-hash (kernel-canonical-source-hash forms call)
+       :sites sites
+       :canonical-source-hash (kernel-canonical-source-hash forms call)})))
 
 
 (defn- kernel-c
@@ -1986,6 +2590,7 @@
               (str "incomplete or out-of-scope upstream-failure declaration: " id)))
     parsed))
 
+
 (defn- kernel-callable-descriptor?
   "True when `value` is the shape of the admitted common-call descriptor the
    reconciled compiler publishes for a guest closure: a true function-type
@@ -2002,6 +2607,7 @@
        (true? (:clj/outcomes? value))
        (values/closure? (get value :yang.call/entry))
        (values/closure? (get value :clj/admission))))
+
 
 (defn- kernel-host-value-deviation
   [fixture a b walker semantic]
@@ -2096,7 +2702,7 @@
   (let [inventory [{:symbol 'latte-kernel.syntax/subst :arities [2 3] :disposition :admitted}
                    {:symbol 'latte-kernel.syntax/term? :arities [1] :disposition :admitted}]
         fixture {:id :direct-subst :call '(latte-kernel.syntax/subst x y)}
-        calls '[[gate-syntax-subst 2]]
+        calls '[[gate-syntax-subst 2 1]]
         rows [{:id :direct-subst :status :pass
                :c-walker {:executed-calls calls} :c-semantic {:executed-calls calls}}
               {:id :check-assume-have-discharge :status :pass
@@ -2110,8 +2716,8 @@
            (mapv :exercise (kernel-exercise-entries inventory [fixture]
                                                     (mapv #(assoc % :status :mismatch) rows)))))
     (let [observed (mapv #(-> %
-                              (assoc-in [:c-walker :executed-calls] '[[gate-syntax-subst 2] [gate-syntax-subst 3]])
-                              (assoc-in [:c-semantic :executed-calls] '[[gate-syntax-subst 2] [gate-syntax-subst 3]])) rows)]
+                              (assoc-in [:c-walker :executed-calls] '[[gate-syntax-subst 2 1] [gate-syntax-subst 3 2]])
+                              (assoc-in [:c-semantic :executed-calls] '[[gate-syntax-subst 2 1] [gate-syntax-subst 3 2]])) rows)]
       (is (= [:direct :named-integration :unexercised]
              (mapv :exercise (kernel-exercise-entries inventory [fixture] observed))))
       (is (= [:direct :named-integration :unexercised]
@@ -2144,7 +2750,7 @@
                                             :yin.k/data {:script script :meta meta}}]})]
       ;; Both representations the reconciled pipeline actually produces.
       (is (some? (kernel-host-value-deviation fixture a a
-                                             (c-with (values/closure nil {})) (c-with (values/closure nil {})))))
+                                              (c-with (values/closure nil {})) (c-with (values/closure nil {})))))
       (is (some? (kernel-host-value-deviation fixture a a (c-with descriptor) (c-with descriptor)))
           "The admitted §8.10 descriptor classifies as the declared deviation")
       (is (nil? (kernel-host-value-deviation (assoc fixture :id :other) a a (c-with descriptor) (c-with descriptor))))
@@ -2251,6 +2857,9 @@
      :dependency-of (:dependency-of fixture)
      :call (or (:call fixture) (kernel-c-program fixture))
      :adapted-call (:guest-call fixture)
+     :site-table (:site-table compiled)
+     :site-table-hash (:site-table-hash compiled)
+     :canonical-source-hash (:canonical-source-hash compiled)
      :agreement {:a-b (and (= :completed (:status a) (:status b)) (= (:outcome a) (:outcome b)))
                  :a-c-walker (and (= :completed (:status a) (:status walker))
                                   (agrees? (:outcome a) (:outcome walker)))
@@ -2279,8 +2888,8 @@
     (is (= :pass (:status row)))
     (is (some #{fname} (:included-functions row)) "Both arities remain in the static closure")
     (doseq [lane [:c-walker :c-semantic]]
-      (is (some #{[fname 2]} (get-in row [lane :executed-calls])))
-      (is (not-any? #{[fname 1]} (get-in row [lane :executed-calls]))))
+      (is (some #(= [fname 2] (butlast %)) (get-in row [lane :executed-calls])))
+      (is (not-any? #(= [fname 1] (butlast %)) (get-in row [lane :executed-calls]))))
     (is (= [:unexercised :named-integration] (mapv :exercise entries)))
     (is (empty? (:integration-fixture-ids (first entries))))))
 
@@ -2321,9 +2930,9 @@
   (testing "A-side F2: inferred type recorded, anonymous have registers nothing"
     (let [empty-env @(upstream-fn 'latte-kernel.defenv/empty-env)
           [_ [def-env term ty]] ((upstream-fn 'latte-kernel.proof/elab-proof)
-                                  empty-env []
-                                  '[[:declare A :type {}] [:declare x A {}]
-                                    [:have <a> _ x {}] [:have _ A x {}] [:qed <a> {}]])]
+                                 empty-env []
+                                 '[[:declare A :type {}] [:declare x A {}]
+                                   [:have <a> _ x {}] [:have _ A x {}] [:qed <a> {}]])]
       (is (= ['(<a>) 'A] [term ty]))
       (is (= '#{<a>} (set (keys (second def-env)))))))
   (testing "both C lanes record the predicted arities of the passing integrations"
@@ -2352,7 +2961,7 @@
     (is (contains? kernel-named-integrations :h3-3-readable-term-2))
     (is (contains? kernel-named-integrations :h3-3-readable-term-3))
     (is (contains? kernel-named-integrations :h3-3-unregister-unparser))
-    ;; F2 stays honestly non-crediting: no registration, no trace-table mapping.
+    ;; F2 credits as a direct ambient fixture, never as a named integration.
     (is (not (contains? kernel-named-integrations :h3-3-registered-definition-ambient)))
     (doseq [id [:h3-3-axiom-definition :h3-3-axiom-map
                 :h3-3-registered-definition-nonsymbol :h3-3-nbe-evaluation-missing
@@ -2386,24 +2995,135 @@
               :let [row (kernel-row (by-id id))]]
         (is (= :pass (:status row)) (str id " passes"))
         (is (kernel-executed-arity? row sym n) (str id " witnesses " sym "/" n)))))
-  (testing "F2 passes but credits nothing; negative credit follows the accepted rule"
+  (testing "F2's ambient /1 credits through the ruled query; negative credit follows the accepted rule"
     (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
           f2 (kernel-row (by-id :h3-3-registered-definition-ambient))
           r2 (kernel-row (by-id :h3-3-registered-definition-nonsymbol))
-          r10 (kernel-row (by-id :h3-3-unregister-unparser-absent))]
+          r10 (kernel-row (by-id :h3-3-unregister-unparser-absent))
+          ambient-site (fn [row]
+                         (some (fn [[k s]]
+                                 (when (and (= 'registered-definition? (:callee s))
+                                            (= :ambient-literal (first (:arg-shapes s))))
+                                   k))
+                               (:site-table row)))]
       (is (= :pass (:status f2)))
-      (is (not (kernel-executed-arity? f2 'latte-kernel.defenv/registered-definition? 1))
-          "no mapping turns F2's bare traces into upstream /1 credit")
+      ;; R5's re-credit on the record: the pre-ruling pin ("no mapping turns
+      ;; F2's bare traces into upstream /1 credit") pinned the superseded
+      ;; callee-side rule; the ambient-shape execution now credits /1.
+      (is (kernel-executed-arity? f2 'latte-kernel.defenv/registered-definition? 1)
+          "F2's ambient-shape execution credits registered-definition?/1")
       (doseq [lane [:c-walker :c-semantic]]
-        (is (contains? (set (get-in f2 [lane :executed-calls])) '[registered-definition? 2])
-            (str "F2 still traces the bare context predicate: " lane)))
+        (is (contains? (set (get-in f2 [lane :executed-calls]))
+                       ['registered-definition? 3 (ambient-site f2)])
+            (str "F2 traces the ambient-tagged context entry at its stamped site: " lane)))
       (is (= :pass (:status r2)))
-      (is (not (kernel-executed-arity? r2 'latte-kernel.defenv/registered-definition? 1))
-          "R2 likewise credits nothing")
+      ;; D1(a) accepted for R2 too: the negative's ambient /1 shape still
+      ;; enters the adapted body before its refusal.
+      (is (kernel-executed-arity? r2 'latte-kernel.defenv/registered-definition? 1)
+          "R2's ambient /1 call credits the same arity")
       ;; D1(a) accepted: a passing negative traces its head and credits directly.
       (is (= :pass (:status r10)))
       (is (kernel-executed-arity? r10 'latte-kernel.unparser/unregister-unparser! 1)
           "R10's refusal still enters unregister-unparser! at the credited arity"))))
+
+
+(deftest test-attribution-battery
+  "The ruling's seven-case refusal battery plus the stale-table
+   diagnostic (R2b), each case a real executed check of the ruled
+   attribution over caller-site-tagged traces."
+  (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
+        f2 (kernel-row (by-id :h3-3-registered-definition-ambient))
+        explicit-2 (kernel-row {:id :battery-explicit-2
+                                :call '(latte-kernel.defenv/registered-definition?
+                                         env (quote gate-no-such-definition))})
+        unexecuted-1 (kernel-row {:id :battery-unexecuted-ambient
+                                  :call '(if false
+                                           (latte-kernel.defenv/registered-definition?
+                                             (quote gate-no-such-definition))
+                                           (latte-kernel.defenv/registered-definition?
+                                             env (quote gate-no-such-definition)))})]
+    (testing "case 1: an explicit /2 call supplying an empty environment does not credit /1"
+      (is (= :pass (:status explicit-2)))
+      ;; the supplied context VALUE is the empty environment — value-identical
+      ;; to the ambient initialization; the shapes are disjoint
+      (is (kernel-executed-arity? explicit-2 'latte-kernel.defenv/registered-definition? 2)
+          "the explicit context shape credits /2")
+      (is (not (kernel-executed-arity? explicit-2 'latte-kernel.defenv/registered-definition? 1))
+          "no value equality borrows /1 credit"))
+    (testing "case 2: an unexecuted ambient /1 beside an executed explicit /2 borrows nothing"
+      (is (= :pass (:status unexecuted-1)))
+      (is (kernel-executed-arity? unexecuted-1 'latte-kernel.defenv/registered-definition? 2)
+          "the executed explicit call credits /2")
+      (is (not (kernel-executed-arity? unexecuted-1 'latte-kernel.defenv/registered-definition? 1))
+          "the ambient site exists in the table but was never entered"))
+    (testing "case 3: mismatched program/adaptation evidence refuses"
+      (let [r2 (kernel-row (by-id :h3-3-registered-definition-nonsymbol))
+            swapped (assoc f2 :canonical-source-hash (:canonical-source-hash r2))]
+        (is (not (kernel-executed-arity? swapped 'latte-kernel.defenv/registered-definition? 1))
+            "a trace read against another fixture's canonical-source-hash refuses")))
+    (testing "case 4: missing-lane evidence refuses"
+      (let [one-lane (assoc-in f2 [:c-semantic :executed-calls] [])]
+        (is (kernel-executed-arity? f2 'latte-kernel.defenv/registered-definition? 1))
+        (is (not (kernel-executed-arity? one-lane 'latte-kernel.defenv/registered-definition? 1))
+            "both C lanes must record the entry")))
+    (testing "case 5: a site declared ambient whose compiled argument is not the ambient literal refuses"
+      (let [table (:site-table f2)
+            ambient (some (fn [[k s]]
+                            (when (and (= 'registered-definition? (:callee s))
+                                       (= :ambient-literal (first (:arg-shapes s))))
+                              k))
+                          table)
+            ;; the explicit fixture's adapted /2 threads the caller's
+            ;; context argument as a parameter expression — statically
+            ;; NOT the ambient literal, whatever value it holds
+            variable-site (some (fn [[k s]]
+                                  (when (and (= 'registered-definition? (:callee s))
+                                             (seq (:arg-shapes s))
+                                             (not= :ambient-literal (first (:arg-shapes s))))
+                                    k))
+                                (:site-table explicit-2))]
+        (is (some? ambient) "the fixture really derives an ambient site")
+        (is (kernel-ambient-site? table ambient))
+        (is (some? variable-site) "the fixture really derives parameter-shaped sites")
+        (is (not (kernel-ambient-site? (:site-table explicit-2) variable-site))
+            "the compile-time verification refuses a non-literal argument")))
+    (testing "case 6: indirect-origin body entries refuse"
+      (let [table (:site-table f2)
+            dynamic (some (fn [[k s]] (when (= :dynamic (:callee s)) k)) table)
+            none-site ['gate-defenv-registered-definition? 1 :gate-site/none]]
+        (is (not (kernel-record-credits? none-site table
+                                         'latte-kernel.defenv/registered-definition? 1))
+            "an entry without a stamped caller site never credits")
+        (when dynamic
+          (is (not (kernel-record-credits? ['registered-definition? 3 dynamic] table
+                                           'latte-kernel.defenv/registered-definition? 1))
+              "an entry through an indirect site refuses unless site-linked"))))
+    (testing "case 7: a variable context argument is /2-only, never ambient"
+      (let [table (:site-table explicit-2)
+            variable-site (some (fn [[k s]]
+                                  (when (and (= 'registered-definition? (:callee s))
+                                             (seq (:arg-shapes s))
+                                             (not= :ambient-literal (first (:arg-shapes s))))
+                                    k))
+                                table)]
+        (is (some? variable-site)
+            "the explicit fixture really derives a variable context argument")
+        (is (not (kernel-ambient-site? table variable-site)))
+        (is (not (kernel-record-credits? ['registered-definition? 3 variable-site] table
+                                         'latte-kernel.defenv/registered-definition? 1))
+            "the statically unclassifiable shape defaults to refusal")))
+    (testing "case 8: a stale table is a recorded diagnostic, not silent non-credit"
+      (let [table (:site-table f2)
+            stale-table (-> table
+                            (dissoc 5)
+                            (assoc 999 {:site 999 :callee 'registered-definition?
+                                        :arg-shapes [:ambient-literal] :def nil
+                                        :delegation? false}))
+            stale (kernel-stale-sites stale-table {:c-walker (:c-walker f2)
+                                                   :c-semantic (:c-semantic f2)})]
+        (is (contains? (set stale) 999)
+            "the mistyped site id is reported, never silently ignored")
+        (is (vector? stale) "the diagnostic is recorded data")))))
 
 
 (defn kernel-gate-evidence
@@ -2451,7 +3171,7 @@
       :ambient-prefix-only :refused}
      :runtime {:clojure (clojure-version) :java (System/getProperty "java.version")}
      :instruction-budget-per-lane 4000000
-     :instruction-budget-note "The original uninstrumented fixtures used 1,000,000 instructions. Body-entry stream writes add guest instructions; traced fixtures have a 2,000,000 instruction bound. The harness drains only after halt. Under the D2 record lane the binding fixture's walker cell needs 2,024,912 steps (1.2% over 2M; semantic 1,105,792); the architect's 2026-11-04 ruling approves a uniform 4,000,000 acceptance budget (~1.98x headroom on the binding lane, measurement-supported, no per-fixture table)."
+     :instruction-budget-note "The original uninstrumented fixtures used 1,000,000 instructions. Body-entry stream writes add guest instructions; traced fixtures have a 2,000,000 instruction bound. The harness drains only after halt. Under the D2 record lane the binding fixture's walker cell needs 2,024,912 steps (1.2% over 2M; semantic 1,105,792); the architect's 2026-11-04 ruling approves a uniform 4,000,000 acceptance budget (~1.98x headroom on the binding lane, measurement-supported, no per-fixture table). The attribution round's caller-site stamping adds one dispatcher call and one cell write per stamped guest call; every fixture in this evidence completed under the same 4,000,000 bound with the stamping active, and the trace stream bound stays stream/make 1000000 (one added field per body-entry record, no added records)."
      :manifest-bindings (count manifest) :function-arity-candidates (count all-arities)
      :manifest-functions (count (filter :arities kernel-entries))
      :admitted-function-arity-count (count admitted-arities)
@@ -2465,10 +3185,12 @@
                 :entries exercise-entries
                 :named-integration-fixture-ids (vec (sort kernel-named-integrations))
                 :transitive-execution-coverage :recorded-function-arity-body-entry
-                :context-extra-arguments kernel-context-extra-arguments
-                :trace {:record-shape '[guest-function arity]
+                :attribution-at-rule kernel-ambient-correspondence
+                :trace {:record-shape '[guest-function arity caller-site]
                         :transport :explicit-guest-stream :lanes [:c-walker :c-semantic]
-                        :point :selected-arity-body-entry}
+                        :point :selected-arity-body-entry
+                        :site-tagging :caller-side-compiled-ast-application
+                        :refusal-site :gate-site/none}
                 :basis "Passing direct calls or named integrations must record the exact function/arity executing in both C lanes. Static closure membership never counts; full branch coverage is not required."
                 :inventory inventory}
      :recorded-portability-boundaries
@@ -2477,12 +3199,28 @@
      :recorded-upstream-failures
      (mapv #(select-keys % [:id :status :recorded-upstream-failure])
            (filter #(= :recorded-upstream-failure (:status %)) results))
+     :attribution
+     {:version 1
+      :rule "caller-side site ids at compiled-AST application expressions (post-macroexpansion); records [guest-function arity caller-site]; ambient arities credit only through adapter-declared ambient-literal sites; delegations and the :gate-site/none entry site never credit"
+      :ambient-correspondence kernel-ambient-correspondence
+      :site-tables-file "slice9_site_tables.edn"
+      :stale-site-diagnostics
+      (into (sorted-map)
+            (for [row results
+                  :let [stale (kernel-stale-sites (:site-table row)
+                                                  {:c-walker (:c-walker row)
+                                                   :c-semantic (:c-semantic row)})]
+                  :when (and (seq stale) (= :pass (:status row)))]
+              [(:id row) stale]))}
      :counts (frequencies (map :status results)) :fixture-count (count results)
      :negative-fixture-count (count (filter :negative? results))
      :dependency-graph
      (into (sorted-map)
            (for [[fname source] kernel-sources]
              [fname (vec (sort (filter (set (keys kernel-sources)) (walk-symbols source))))]))
+     ;; the derived site tables stay on the rows (the query re-derives
+     ;; credit from them); the evidence writer omits them from the
+     ;; inline rows and lands them in the versioned companion file
      :fixtures results}))
 
 
@@ -2499,6 +3237,19 @@
                               (for [entry (get-in evidence [:coverage :entries])
                                     :when (= :unexercised (:exercise entry))]
                                 [(:function-arity entry) (:missing-dependency entry)]))) "\n"))
+     ;; The versioned site tables (R1b/R7): one derived table and one
+     ;; canonical-source-hash per fixture, stable across refreshes so the
+     ;; later durable correspondence record lands additively.
+     (spit (str dir "/slice9_site_tables.edn")
+           (str ";; GENERATED from the compiled AST of each fixture's C program.\n"
+                (pr-str {:version 1
+                         :fixtures
+                         (into (sorted-map)
+                               (for [row (:fixtures evidence)]
+                                 [(:id row)
+                                  {:canonical-source-hash (:canonical-source-hash row)
+                                   :site-table (:site-table row)}]))})
+                "\n"))
      (with-open [w (io/writer (str dir "/slice9_evidence.edn"))]
        ;; prn keeps (quote ...) in valid EDN rather than pprint's reader
        ;; shorthand. One fixture per line keeps refreshes independently diffable.
@@ -2506,9 +3257,9 @@
          (print "{")
          (doseq [[k v] (dissoc evidence :fixtures)] (pr k) (print " ") (prn v))
          (println ":fixtures [")
-         (doseq [row (:fixtures evidence)] (prn row))
+         (doseq [row (:fixtures evidence)] (prn (dissoc row :site-table)))
          (println "]}")))
-     (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates :coverage]))))
+     (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates :coverage :attribution]))))
 
 
 (deftest test-kernel-differential-gate
@@ -2616,8 +3367,12 @@
             "every fixture row keeps its raw A/B/C comparisons")
         (let [unexercised (edn/read-string (slurp (str dir "/slice9_unexercised.edn")))]
           (is (= (count (get-in written [:coverage :unexercised])) (count unexercised))
-              "the companion file lists every unexercised arity with its dependency")))
+              "the companion file lists every unexercised arity with its dependency"))
+        (let [tables (edn/read-string (slurp (str dir "/slice9_site_tables.edn")))]
+          (is (= 1 (:version tables)) "the site tables land in the versioned format")
+          (is (= (count (:fixtures written)) (count (:fixtures tables)))
+              "every fixture row carries its derived site table and canonical-source-hash")))
       (finally
         (run! #(let [f (java.io.File. (str dir "/" %))] (when (.exists f) (.delete f)))
-              ["slice9_evidence.edn" "slice9_unexercised.edn"])
+              ["slice9_evidence.edn" "slice9_unexercised.edn" "slice9_site_tables.edn"])
         (let [d (java.io.File. dir)] (when (.exists d) (.delete d)))))))

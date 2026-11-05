@@ -1,5 +1,80 @@
 # Slice 9 kernel differential gate: execution evidence correction
 
+## Attribution section — version 1 (attribution-as-query ruling of record)
+
+This section versions the executed-arity attribution contract per the signed
+ruling `1794600000000-architect-attribution-as-query-ruling-of-record.md`
+(v4) and its implementation round. The gate's credit rule is now a query
+over caller-site-tagged execution records, not name+arity string matching.
+
+- **Records.** Every instrumented arity body appends
+  `[guest-function arity caller-site]` to the fixture's guest stream at body
+  entry. The caller site id is assigned at APPLICATION EXPRESSIONS in the
+  compiled AST, post-macroexpansion (the corpus runs under macros; source
+  tagging would miss expanded sites), by a harness-owned instrumentation
+  pass (`kernel-stamp-sites`) that threads each stamped call's argument
+  vector through a guest site cell so the callee's first body form reads
+  the applying site. This is instantiation #1 of the site contract,
+  harness-level per Addendum A; yin.vm and yang.clojure are untouched. The
+  walker/semantic ingresses ingest the stamped program unchanged.
+- **Site tables.** Mechanically derived from each fixture's compiled AST
+  (`R7`): every stamped site's callee, per-argument shapes
+  (`:ambient-literal`, `:literal`, `:variable`, `:computed`,
+  `:dynamic-callee`), enclosing definition, and self-delegation mark —
+  recorded in the versioned [`slice9_site_tables.edn`](slice9_site_tables.edn)
+  (`:version 1`) with the per-fixture canonical-source-hash of the inlined
+  adaptation (R2b case 3's referent: a trace read against a differing hash
+  refuses).
+- **The query.** An upstream function-arity is credited when both C lanes
+  record (a) the arity-preserving guest definition's body entry at the same
+  arity through any real site (the degenerate 1:1 path), or (b) a body
+  entry of a derived correspondence carrier — the guest/context callable
+  and arity the derived correspondence names (`:attribution
+  :ambient-correspondence` in the evidence) — entered through a
+  SITE-LINKED record: the site table's static callee at that site is the
+  carrier itself, and the site is not a self-delegation. The derived
+  correspondence has three kinds. An `:ambient-delegation` path (R3's
+  disjointness pair, `registered-definition?` /1) additionally requires
+  the site's compiled context argument to have resolved to the
+  adapter-supplied ambient literal. `:context-shift` paths — the retired
+  offset table's scope (R6): the kernel-first context callable that
+  replaced the upstream env parameter at the same arity or was added at
+  one fewer argument (unregister-unparser!/1, unparse/1,
+  register-unparser!/2 and /3, install-unfold-implicit!/1,
+  install-fundamental-unparsers!/0, install-opacity-function/1,
+  register-definition /2 and /3, local-definitions /1, …) — and
+  `:context-copy` paths (the verbatim integration copies is-opaque?,
+  unparse-term-once/rec) thread the adapted state explicitly, so their
+  witness is the site-linked body entry of the carrier, whatever context
+  value the site threads; the ambient literal never borrows across kinds.
+  The retired offset table `kernel-context-extra-arguments` (six
+  hand-declared +1 shifts) is replaced by that derived correspondence;
+  its full coverage list is recorded in
+  [`attribution_inventory.md`](attribution_inventory.md).
+- **Refusals.** The seven-case battery
+  (`test-attribution-battery`) pins: explicit `/2` supplying an empty
+  environment never credits `/1` (disjointness by site identity and
+  compiled argument shape, never value equality); unexecuted ambient sites
+  borrow nothing; mismatched canonical-source-hash refuses; a missing lane
+  refuses; a site declared ambient whose compiled argument is not the
+  ambient literal refuses (compile-time AST verification); indirect-origin
+  entries (`:dynamic` sites, the `:gate-site/none` entry site) refuse;
+  variable context arguments are `/2`-only. A declared site id that never
+  appears in any trace is a RECORDED DIAGNOSTIC
+  (`:attribution :stale-site-diagnostics`), never silent non-credit. The
+  `/3` self-delegation keeps its own unmapped site id: no credit, the
+  originating call is the credited event.
+- **H3-6 prep (the audit's query shape).** The independent audit
+  re-derives the site tables from the same compiled ASTs, re-computes each
+  fixture's canonical-source-hash, and re-runs the credit query over the
+  two raw C-lane traces joined to the tables and the derived ambient
+  correspondence; closure requires the reconstructed credit set to equal
+  the gate's, with every withdrawn or gained witness explained.
+
+The remainder of this document is the prior gate record, unchanged.
+
+---
+
 The gate on the hardening line is **blocked**. The architect denied the prior
 165/165 closure claim because membership in a static dependency closure did
 not prove execution of every arity. That claim is withdrawn. The gate retains
