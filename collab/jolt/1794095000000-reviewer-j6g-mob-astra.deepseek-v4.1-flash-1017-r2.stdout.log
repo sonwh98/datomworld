@@ -1,0 +1,22 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+I reviewed the diff and wrote the findings. One delivery caveat: the session does not have write permission outside this worktree, so the requested orch destination could not be written; the findings are saved at the worktree path below (same content), and the `cp` to `/Users/sto/workspace/datomworld-orch/collab/jolt/...` is pending approval.
+
+- Findings file: `/Users/sto/workspace/datomworld-j6g-mob-ds/collab/jolt/1794095000000-reviewer-j6g-mob-astra.deepseek-v4.1-flash-1017.findings.md`
+- Requested destination (not written): `/Users/sto/workspace/datomworld-orch/collab/jolt/1794095000000-reviewer-j6g-mob-astra.deepseek-v4.1-flash-1017.findings.md`
+
+Note on the input path: the diff at the stated `1794095000000-...diff` does not exist; I reviewed the actual file `1794090000000-j6g-mob-astra-review.diff` (1799 lines against `origin/master`).
+
+Verdict: **CHANGES-REQUESTED**
+
+Blocking findings:
+
+1. **P1 — the mandated five-point per-round REPL verifier is absent.** `owner-round!` (`src/dev/jolt_workload_w.clj:242-254`) only stores the driver outbox; the gates are `:repl-every-round`, a tautology comparing two counters incremented in the same call, and `:submitted-loop-evaluated (= ["5"] ...)`. There is no shell `:round` delta, no driver result event check, no `:last-value`/halted-VM/pending-run/ingress-loss check, and no outbox re-drain duplicate check. The ruling's §2 explicitly rejects a counter incremented after `repl-step` as an evaluation verifier.
+2. **P1 — the latency statistics discard the rest of A's transfer.** `samples` (`:159-162`) filters on `:cohort?`, so the ~600 post-cohort requests the scheduler dispatches during the remaining 60 s of A's transfer are excluded from both p99s, `violations`, and `q` (and from the watchdog's running p99 at `jolt_workload_w_run.clj:34`). The ruling requires the entire qualifying transfer interval to be evaluated: "later bad samples cannot be discarded."
+
+P2: (a) no assertion that every cohort reply was received before A's first delivery — one such late reply can still pass as the single permitted binomial violation; (b) the `:scheduler-late` rule (`:95-101`) drops a late-but-dispatchable slot as `:missed`, turning a producer delay into a hard cohort failure instead of measuring it via the scheduled-arrival bound, and making a transient >100 ms deschedule of the B thread a false negative.
+
+P3s: W-STATE vs W-PROGRESS naming / no W-TIMINGS; both cursor paths are structurally nil with the frozen `yin.repl/repl-state`; no deadlines/phase evidence for the upgrade waits; `finally`'s unconditional `append!` can mask the original error; removal of the cross-host/served-stream probes and CLI modes (scope question); unrelated `bb.edn` churn.
+
+Verified correct: frozen files untouched, all requires resolvable under jolt, no type hints, jolt supports `Math/ceil|log|exp|pow`, API shapes match the frozen sources, `bytes/alloc` zero-fills so the payload comparison is sound, the Clopper-Pearson inversion is right (≤1 violation at n=600), the 120 s withheld-byte pacing is honest, and the babashka 300 s watchdog is genuinely independent and fails closed.
+
+To place it at the requested path, approve the copy or grant write permission to `/Users/sto/workspace/datomworld-orch/collab/jolt/`.

@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+Done. `src/dev/jolt_workload_w.clj` is rewritten from scratch as a clean 1,110-line harness; `src/dev/jolt_workload_w_run.clj` was rewritten to match its telemetry. The `workload-w:jolt` bb task already existed (`bb.edn:103-108`) with the required watchdog invocation, so it was left unchanged.
+
+**What the implementation does**
+
+- **Server**: one `dao.stream.ws.jolt` instance on `127.0.0.1:0`, `[cbor/profile]`, 4 MiB frame bound, with `/peer-a` (binary echo + delivery accounting) and `/peer-b` (request/reply echo).
+- **Peer A**: raw nonblocking TCP, handshake built through `upgrade/client-request` / `check-response` with a CSPRNG key, one masked 4 MiB binary frame written on an absolute 120 s schedule (≤64 KiB/round, never burst-then-wait), with a 500-attempt no-progress guard that prints `TRANSFER STALLED` and aborts.
+- **Peer B**: a dedicated `Thread.` (plain fn, no type hints) started at A's first positive write; absolute 100 ms grid that is never reset, one 1 KiB request per tick, at most 8 in flight, missed ticks counted, and `scheduled-at` / `sent-at` / `received-at` recorded. It drives its own client pump, so the owner round never schedules B.
+- **REPL**: `repl.main/boot` with the jolt host adapter, the loop submitted once, one `repl-step` + `take-outbox` per owner round.
+- **Criterion**: prospective cohort = first 600 offers scheduled after A's first write; nearest-rank p99 for both send→receive and scheduled→reply; 500-sample floor; exact one-sided 95% Clopper–Pearson bound computed by bisection over a log-free binomial recurrence (verified numerically: n=600 permits k=1 at 0.788%, rejects k=2 at 1.046%); plus delivered-once, no-lost/corrupt replies, and per-round step advancement (with the driver result `"5"` as verified progress).
+- **Telemetry/guards**: `W-PROGRESS` every 10 s with every requested field and both cursor paths; the independent bb watchdog owns the 300 s cap, reports every 10 s with output age, kills on cap and prints FAILURE; the worker refuses to run unsupervised; internal cap 280 s.
+
+**Local verification** — I could not execute the pinned cljstyle binary (the sandbox denies it) or run the workload (this worktree has no jolt bootstrap/natives; the brief assigns the run to the orchestrator). I verified instead: balanced delimiters (string/comment aware), every binding vector has even length, no tabs/trailing whitespace/3+ blank lines, EOF newline, no JVM type hints in the jolt file, and `git diff --check` exit 0. This limitation and all deviations (B's pump handoff, nil cursor paths on this checkout, missed offers counted as violations, the REPL-result pass leg) are recorded in the findings.
+
+Findings written to `collab/jolt/1794400000000-engineer-j6g-mob-ds.findings.md`. No commit was made.
