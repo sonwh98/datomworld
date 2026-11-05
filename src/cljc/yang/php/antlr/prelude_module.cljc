@@ -199,8 +199,9 @@
            (not (= (cell/get (php/scope-cell d name)) :php/undef))))]
     [php/extract-needs-prefix?
      ;; the modes that import under the prefixed name and need a prefix
+     ;; (mode 7 does not exist in PHP, so it is refused before this)
      (fn [flags]
-       (if (= flags 2) true (if (= flags 3) true (if (= flags 4) true (if (= flags 5) true (= flags 7))))))]
+       (if (= flags 2) true (if (= flags 3) true (if (= flags 4) true (= flags 5)))))]
     [php/extract-name
      ;; the prefixed name: the underscore separator stays even when the
      ;; prefix is empty, so "" prefixes "_key"
@@ -216,8 +217,7 @@
                        (if (= flags 4) (if valid base (if (php/valid-name? prefixed) prefixed :php/missing))
                            (if (= flags 5) (if (if valid exists false) prefixed :php/missing)
                                (if (= flags 6) (if (if valid exists false) base :php/missing)
-                                   (if (= flags 7) (if (if valid exists false) prefixed :php/missing)
-                                       :php/missing)))))))))]
+                                   :php/missing))))))))]
     [php/extract-loop
      (fn [d arr flags prefix i n count]
        (if (< i n)
@@ -239,7 +239,8 @@
                  flags (php/to-int (php/arg-or args 1 0))]
              (if (= (integer/bit-and flags 256) 256)
                (php/throw-error "Error" "extract(EXTR_REFS) is not supported (corner C11)")
-               (if (if (< flags 0) true (> flags 7))
+               ;; PHP has no EXTR_PREFIX_ONLY_IF_EXISTS: mode 7 is invalid
+               (if (if (< flags 0) true (> flags 6))
                  (php/throw-error "ValueError" "extract(): Argument #2 ($mode) must be a valid extract mode")
                  (let [prefix (php/to-string (php/arg-or args 2 ""))]
                    (if (if (php/extract-needs-prefix? flags)

@@ -518,12 +518,13 @@
      (fn [args] (let [a (php/arg-array (get args 0) "array_reduce" 1 "array")] (php/p9-reduce a (get args 1) (php/arg-or args 2 :php/null) 0)))]
     [php/p9-reduce (fn [a cb acc i] (if (< i (php/array-count a)) (php/p9-reduce a cb (php/call-value cb (php/pair acc (php/array-get a (get (php/array-order a) i)))) (+ i 1)) acc))]
     [php/bi-array-unique
-     ;; SORT_REGULAR (0) compares loosely, SORT_NUMERIC (1) numerically,
-     ;; anything else as strings (SORT_STRING is 2)
+     ;; the default is SORT_STRING (2): string comparison, so "1.0" and
+     ;; "1" are distinct; SORT_REGULAR (0) compares loosely, SORT_NUMERIC
+     ;; (1) numerically, anything else as strings
      (fn [args]
        (do (php/arity-between "array_unique" args 1 2 "at least 1")
            (php/p9-unique (php/arg-array (get args 0) "array_unique" 1 "array")
-                          (php/to-int (php/arg-or args 1 0)) 0 (php/empty-array))))]
+                          (php/to-int (php/arg-or args 1 2)) 0 (php/empty-array))))]
     [php/p9-unique-eq?
      (fn [flags a b]
        (if (= flags 0) (php/loose-eq a b)
@@ -671,10 +672,10 @@
     [php/json-indent
      (fn [n out] (if (> n 0) (php/json-indent (- n 1) (data/str-concat out "    ")) out))]
     [php/json-encode-fail
-     ;; without JSON_THROW_ON_ERROR an encoding failure warns and answers false
+     ;; without JSON_THROW_ON_ERROR an encoding failure answers false with
+     ;; no warning, like PHP; throw mode throws JsonException
      (fn [throw? message]
-       (if throw? (php/throw-error "JsonException" message)
-           (do (php/warn 2 message) false)))]
+       (if throw? (php/throw-error "JsonException" message) false))]
     [php/json-array-values
      ;; a failed child (false) fails the whole encoding, like PHP
      (fn [a pretty depth maxdepth throw? i out]
@@ -716,7 +717,9 @@
                                (php/json-encode-fail throw? "Inf and NaN cannot be JSON encoded")
                                (php/float-text v 17)))
                            (if (= k :array)
-                             (if (> depth maxdepth)
+                             ;; the top-level container is depth level 1, so
+                             ;; [1] at depth 1 fails, like PHP
+                             (if (>= (+ depth 1) maxdepth)
                                (php/json-encode-fail throw? "Maximum stack depth exceeded")
                                (if (php/p9-is-list v 0)
                                  (php/json-encode-value (php/json-array-values v pretty depth maxdepth throw? 0 "") "[")
@@ -795,20 +798,35 @@
                 (+ 128 (get (integer/quot-rem cp 64) 1))])))]
     [php/json-read-string
      (fn [st] (data/code-points->str (php/json-read-string-loop st [])))]
+    [php/json-lead-bad?
+     ;; the token forms the JSON grammar forbids: a leading plus (+1) and
+     ;; a leading zero followed by another digit (01, -01)
+     (fn [s]
+       (let [cs (data/str->code-points s) n (data/count cs)]
+         (if (= n 0) true
+             (if (= (get cs 0) 43) true
+                 (let [i (if (= (get cs 0) 45) 1 0)]
+                   (if (< (+ i 1) n)
+                     (if (= (get cs i) 48) (php/digit? (get cs (+ i 1))) false)
+                     false))))))]
     [php/json-number
      ;; no number characters at all (a bare ] or end of input) is a syntax
-     ;; error, never a zero
+     ;; error, never a zero; the token must be a whole number in the JSON
+     ;; grammar (1e+ is truncated text, never a prefix value) with no
+     ;; leading plus or leading zero
      (fn [st]
        (let [cs (get (cell/get st) 0) start (get (cell/get st) 1) i (php/json-number-end cs start)]
          (if (= start i) (php/json-fail st "Syntax error")
              (do (php/json-index! st i)
-                 (let [s (data/code-points->str (data/subvec cs start i))]
-                   (if (= (php/numeric-string s) :php/null) (php/json-fail st "Syntax error")
-                       (let [r (php/numeric-string s)] (if (= (get r 0) :int) (get r 1) (php/to-float s)))))))))]
+                 (let [s (data/code-points->str (data/subvec cs start i)) r (php/numeric-string s)]
+                   (if (if (php/full-num? r) (not (php/json-lead-bad? s)) false)
+                     (if (= (get r 0) :int) (get r 1) (php/to-float s))
+                     (php/json-fail st "Syntax error")))))))]
     [php/json-number-end
-     ;; the JSON grammar has no leading plus: +1 is a syntax error, never a number
+     ;; the scan admits the exponent sign too, so 1e+2 is one token;
+     ;; validation rejects a leading plus and leading-zero forms
      (fn [cs i]
-       (if (< i (data/count cs)) (let [c (get cs i)] (if (if (>= c 48) (<= c 57) false) (php/json-number-end cs (+ i 1)) (if (if (= c 45) true (if (= c 46) true (if (= c 101) true (= c 69)))) (php/json-number-end cs (+ i 1)) i))) i))]
+       (if (< i (data/count cs)) (let [c (get cs i)] (if (if (>= c 48) (<= c 57) false) (php/json-number-end cs (+ i 1)) (if (if (= c 45) true (if (= c 43) true (if (= c 46) true (if (= c 101) true (= c 69))))) (php/json-number-end cs (+ i 1)) i))) i))]
     [php/json-at
      ;; the code point at the cursor, or -1 past the end
      (fn [st]

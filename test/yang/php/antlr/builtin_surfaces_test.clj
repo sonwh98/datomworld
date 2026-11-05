@@ -44,10 +44,11 @@
       (is (= "a,b" (out "<?php echo implode(',', array_keys(array_map(fn($x) => $x * 2, ['a' => 1, 'b' => 2])));")))
       (is (= "11,22" (out "<?php echo implode(',', array_map(fn($a, $b) => $a + $b, [1, 2], [10, 20]));")))
       (is (= "b" (out "<?php $r = array_map(null, [1, 2], ['a', 'b']); echo $r[1][1];"))))
-    (testing "array_unique dispatches on the flag: regular is loose, string is strict"
-      (is (= "1.0" (out "<?php echo implode(',', array_unique(['1.0', '1']));")))
+    (testing "array_unique defaults to SORT_STRING: '1.0' and '1' are distinct strings"
+      (is (= "1.0,1" (out "<?php echo implode(',', array_unique(['1.0', '1']));")))
       (is (= "1.0,1" (out "<?php echo implode(',', array_unique(['1.0', '1'], SORT_STRING));")))
-      (is (= "1.0" (out "<?php echo implode(',', array_unique(['1.0', '1'], SORT_NUMERIC));"))))
+      (is (= "1.0" (out "<?php echo implode(',', array_unique(['1.0', '1'], SORT_NUMERIC));")))
+      (is (= "1.0" (out "<?php echo implode(',', array_unique(['1.0', '1'], SORT_REGULAR));"))))
     (testing "diff/intersect take further arrays"
       (is (= "1,4" (out "<?php echo implode(',', array_diff([1, 2, 3, 4], [2], [3]));")))
       (is (= "3" (out "<?php echo implode(',', array_intersect([1, 2, 3], [2, 3], [3, 4]));"))))
@@ -74,19 +75,26 @@
       (is (= "threw" (out "<?php try { json_decode('[1,]', null, 512, JSON_THROW_ON_ERROR); } catch (JsonException $e) { echo 'threw'; }")))
       (is (= "threw" (out "<?php try { json_encode(INF, JSON_THROW_ON_ERROR); } catch (JsonException $e) { echo 'threw'; }")))
       (is (= "bool(false)\n" (out "<?php var_dump(json_encode(INF));"))))
-    (testing "JSON rejects a leading plus, raw controls, bad depth and bad flags"
+    (testing "JSON keeps plus in exponents; rejects leading plus, leading zeros, raw controls, bad depth and bad flags"
+      (is (= "float(100)\n" (out "<?php var_dump(json_decode('1e+2'));")))
+      (is (= "float(100)\n" (out "<?php var_dump(json_decode('1E+2'));")))
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('01'));")))
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('-01'));")))
       (is (= "NULL\n" (out "<?php var_dump(json_decode('+1'));")))
       (is (= "NULL\n" (out "<?php var_dump(json_decode(\"\\\"\\x01\\\"\"));")))
       (is (= "refused" (out "<?php try { json_encode([1], 64); } catch (Error $e) { echo 'refused'; }")))
       (is (= "refused" (out "<?php try { json_decode('[1]', true, 512, 64); } catch (Error $e) { echo 'refused'; }")))
       (is (= "ValueError" (out "<?php try { json_encode([1], 0, 0); } catch (ValueError $e) { echo 'ValueError'; }"))))
-    (testing "a nested encoding failure warns and answers false, never a host error"
+    (testing "an encoding failure answers false with no warning, never a host error"
       (is (= "bool(false)\n" (out "<?php var_dump(json_encode([INF]));")))
-      (is (= [[2 "Inf and NaN cannot be JSON encoded"]]
-             (diag "<?php $x = json_encode([INF]);")))
+      (is (= [] (diag "<?php $x = json_encode([INF]);")))
+      (is (= [] (diag "<?php $x = json_encode([1], 0, 1);")))
+      (is (= "bool(false)\n" (out "<?php var_dump(json_encode([1], 0, 1));")))
       (is (= "threw" (out "<?php try { json_encode([INF], JSON_THROW_ON_ERROR); } catch (JsonException $e) { echo 'threw'; }"))))
     (testing "EXTR constants match PHP and every mode imports per PHP"
-      (is (= "4,5,6,7" (out "<?php echo EXTR_PREFIX_INVALID, ',', EXTR_PREFIX_IF_EXISTS, ',', EXTR_IF_EXISTS, ',', EXTR_PREFIX_ONLY_IF_EXISTS;")))
+      (is (= "4,5,6" (out "<?php echo EXTR_PREFIX_INVALID, ',', EXTR_PREFIX_IF_EXISTS, ',', EXTR_IF_EXISTS;")))
+      (is (= "0" (out "<?php echo defined('EXTR_PREFIX_ONLY_IF_EXISTS') ? '1' : '0';")))
+      (is (= "ValueError" (out "<?php try { extract(['x' => 1], 7); } catch (ValueError $e) { echo 'ValueError'; }")))
       (is (= "6" (out "<?php extract(['z' => 6], EXTR_PREFIX_ALL, 'p_'); echo $p__z;")))
       (is (= "12" (out "<?php $x = 1; extract(['x' => 2], EXTR_PREFIX_SAME, 'p'); echo $x, $p_x;")))
       (is (= "34" (out "<?php $x = 3; extract(['x' => 4], EXTR_PREFIX_IF_EXISTS, 'p'); echo $x, $p_x;")))

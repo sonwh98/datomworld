@@ -11,10 +11,12 @@
     {:class "Error",
      :message "Call to undefined function gc_collect_cycles()"}},
    :engine-work-item
-   "Implement PHP cyclic garbage collection and roots/threshold behavior."}
+   "Implement PHP cyclic garbage collection and roots/threshold behavior."
+   :measured-at {:tree "06cd429f" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"}}
   {:id "Zend/tests/gc_023.phpt",
    :feature :gc-cycle-collection,
    :oracle-expect "int(0)\nint(9999)\nint(0)\nint(1)\nok",
+   :measured-at {:tree "06cd429f" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"},
    :engine-result
    {:out "",
     :diag [],
@@ -33,7 +35,8 @@
     :uncaught
     {:class "Error",
      :message "Call to undefined function serialize()"}},
-   :engine-work-item "Implement serialize()."}
+   :engine-work-item "Implement serialize()."
+   :measured-at {:tree "06cd429f" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"}}
   {:id "Zend/tests/bug64660.phpt",
    :feature :host-resource-ceiling,
    :builtin nil,
@@ -41,17 +44,20 @@
    :engine-result {},
    :engine-work-item
    "The engine exhausts the JVM heap on this case (java.lang.OutOfMemoryError); a host resource ceiling, not a guest-semantics gap. Revisit with heap headroom or an engine fix.",
-   :oracle-expectf "Parse error: memory exhausted in %s on line %d "}
+   :oracle-expectf "Parse error: memory exhausted in %s on line %d "
+   :measured-at {:tree "06cd429f" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"}}
   {:id "Zend/tests/bug40809.phpt",
    :feature :host-heavy-timeout,
    :builtin "str_repeat",
    :oracle-expect "ok",
    :engine-result {:timeout ">5400 s with str_repeat present (the stress loop executes for real; measured on shiva 2026-11-04, 90-min window)"},
-   :engine-work-item "Host-class heavy: the case runs >90 min on the engine with str_repeat present (unlike the pre-fix undefined-function failure). Needs per-case budgeting, an engine perf pass on long str_repeat loops, or a documented bound. Not a guest-semantics gap."}
+   :engine-work-item "Host-class heavy: the case runs >90 min on the engine with str_repeat present (unlike the pre-fix undefined-function failure). Needs per-case budgeting, an engine perf pass on long str_repeat loops, or a documented bound. Not a guest-semantics gap."
+   :measured-at {:tree "dbe9e072" :host "shiva" :date "2026-11-05" :log "~/ci/rm-40809-long.log"}}
   {:id "Zend/tests/gc_012.phpt",
    :feature :gc-cycle-collection,
    :builtin nil,
    :oracle-expect "int(0)\nint(1000)\nok",
+   :measured-at {:tree "06cd429f" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"},
    :engine-result
    {:out "",
     :diag [],
