@@ -345,7 +345,7 @@
           (append! control {:kind :start :at wrote-at})
           (let [r (driver/submit-line!
                     (:input (:repl-state @state))
-                    "(loop [i 0] (if (< i 5) (recur (+ i 1))))")]
+                    "(loop [i 0] (if (< i 5) (recur (+ i 1)) i))")]
             (when-not (= :dao.stream/ok (:dao.stream/outcome r))
               (fail! "REPL submission failed" {:result r}))))
         (swap! state update :a
