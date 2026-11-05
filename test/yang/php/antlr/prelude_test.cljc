@@ -250,10 +250,8 @@
            (run '(php/path-assign 5 [0] 1))))
     (is (= "PHP Fatal error:  Uncaught Error: Cannot use a scalar value as an array"
            (run '(php/path-assign true [0] 1)))))
-  (testing "a string write is the known gap"
-    (is (= (str "PHP Fatal error:  Uncaught Error: string offset writes are not "
-                "supported yet (yang.php known gap G-str-offset-write)")
-           (run '(php/path-assign "abc" [0] "x")))))
+  (testing "a single-byte string write assigns through (G-str-offset-write closed in 91c5c8cd)"
+    (is (= "xbc" (run '(php/echo (php/path-assign "abc" [0] "x"))))))
   (testing "copy on write: the original is unchanged"
     (is (= "1,2"
            (run '(let [a (php/array-append (php/empty-array) 1)

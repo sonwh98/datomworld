@@ -1838,7 +1838,11 @@
                   (app* 'php/tmp! (call-node ctx (u/v f) arguments nil)))
           (rest groups)))
       (chain-dynamic
-        (case lc
+        ;; a namespaced user function shadows the global name: the extract /
+        ;; compact builtin lowering applies only when the call resolves to
+        ;; that builtin (user-lc nil). isset / unset / empty / exit / eval
+        ;; are language constructs and cannot be user-declared.
+        (case (if user-lc ::shadowed lc)
           "isset" (lower-isset ctx n (argument-chains ctx n arguments))
           "unset" (lower-unset ctx n (argument-chains ctx n arguments))
           "empty" (let [cs (argument-chains ctx n arguments)]

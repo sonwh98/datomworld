@@ -4,19 +4,76 @@
  [{:id "Zend/tests/gc_013.phpt",
    :feature :gc-cycle-collection,
    :oracle-expect "bool(true)\nok",
-   :engine-result {:out "",
-                   :diag [],
-                   :uncaught {:class "Error",
-                              :message "Call to undefined function gc_collect_cycles()"}},
-   :engine-work-item "Implement PHP cyclic garbage collection and roots/threshold behavior."}],
+   :engine-result
+   {:out "",
+    :diag [],
+    :uncaught
+    {:class "Error",
+     :message "Call to undefined function gc_collect_cycles()"}},
+   :engine-work-item
+   "Implement PHP cyclic garbage collection and roots/threshold behavior."
+   :measured-at {:tree "unrecorded" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"}}
+  {:id "Zend/tests/gc_023.phpt",
+   :feature :gc-cycle-collection,
+   :oracle-expect "int(0)\nint(9999)\nint(0)\nint(1)\nok",
+   :measured-at {:tree "unrecorded" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"},
+   :engine-result
+   {:out "",
+    :diag [],
+    :uncaught
+    {:class "Error",
+     :message "Call to undefined function gc_collect_cycles()"}},
+   :engine-work-item
+   "Implement PHP cyclic garbage collection and roots/threshold behavior."}
+  {:id "Zend/tests/bug39438.phpt",
+   :feature :undefined-builtin,
+   :builtin "serialize",
+   :oracle-expect "ok",
+   :engine-result
+   {:out "",
+    :diag [],
+    :uncaught
+    {:class "Error",
+     :message "Call to undefined function serialize()"}},
+   :engine-work-item "Implement serialize()."
+   :measured-at {:tree "unrecorded" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"}}
+  {:id "Zend/tests/bug64660.phpt",
+   :feature :host-resource-ceiling,
+   :builtin nil,
+   :oracle-expect nil,
+   :engine-result {},
+   :engine-work-item
+   "The engine exhausts the JVM heap on this case (java.lang.OutOfMemoryError); a host resource ceiling, not a guest-semantics gap. Revisit with heap headroom or an engine fix.",
+   :oracle-expectf "Parse error: memory exhausted in %s on line %d "
+   :measured-at {:tree "unrecorded" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"}}
+  {:id "Zend/tests/bug40809.phpt",
+   :feature :host-heavy-timeout,
+   :builtin "str_repeat",
+   :oracle-expect "ok",
+   :engine-result {:timeout ">5400 s with str_repeat present (the stress loop executes for real; measured on shiva 2026-11-04, 90-min window)"},
+   :engine-work-item "Host-class heavy: the case runs >90 min on the engine with str_repeat present (unlike the pre-fix undefined-function failure). Needs per-case budgeting, an engine perf pass on long str_repeat loops, or a documented bound. Not a guest-semantics gap."
+   :measured-at {:tree "dbe9e072" :host "shiva" :date "2026-11-05" :log "~/ci/rm-40809-long.log"}}
+  {:id "Zend/tests/gc_012.phpt",
+   :feature :gc-cycle-collection,
+   :builtin nil,
+   :oracle-expect "int(0)\nint(1000)\nok",
+   :measured-at {:tree "unrecorded" :host "shiva" :date "2026-11-04" :log "~/ci/rm-phpt-quick.log"},
+   :engine-result
+   {:out "",
+    :diag [],
+    :uncaught
+    {:class "Error",
+     :message "Call to undefined function gc_collect_cycles()"}},
+   :engine-work-item
+   "Implement PHP cyclic garbage collection and roots/threshold behavior."}],
  :counts
  {:foreach-semantics 11,
   :named-parameter-binding 3,
-  :zend-regression 70,
+  :zend-regression 61,
   :array-pointer 1,
-  :total 105,
-  :unset-cv 4,
-  :unsupported 58,
+  :total 95,
+  :unset-cv 3,
+  :unsupported 57,
   :pass-by-reference 5,
   :array-reference 1,
   :gc-cycle-collection 10},
@@ -37,7 +94,6 @@
     "Zend/tests/bug43426.phpt"
     "Zend/tests/bug44913.phpt"
     "Zend/tests/bug45147.phpt"
-    "Zend/tests/bug45877.phpt"
     "Zend/tests/bug46304.phpt"
     "Zend/tests/bug46811.phpt"
     "Zend/tests/bug49866.phpt"
@@ -47,30 +103,25 @@
     "Zend/tests/bug52940.phpt"
     "Zend/tests/bug55135.phpt"
     "Zend/tests/bug55705.phpt"
-    "Zend/tests/bug60350.phpt"
     "Zend/tests/bug60738.phpt"
     "Zend/tests/bug61681.phpt"
     "Zend/tests/bug63173.phpt"
-    "Zend/tests/bug63206_1.phpt"
     "Zend/tests/bug63882_2.phpt"
     "Zend/tests/bug64515.phpt"
     "Zend/tests/bug64578.phpt"
     "Zend/tests/bug67169.phpt"
     "Zend/tests/bug67314.phpt"
     "Zend/tests/bug67856.phpt"
-    "Zend/tests/bug67874.phpt"
     "Zend/tests/bug68215.phpt"
     "Zend/tests/bug68797.phpt"
     "Zend/tests/bug69167.phpt"
     "Zend/tests/bug69376_2.phpt"
-    "Zend/tests/bug69756.phpt"
     "Zend/tests/bug70121.phpt"
     "Zend/tests/bug70187_2.phpt"
     "Zend/tests/bug70253.phpt"
     "Zend/tests/bug70293.phpt"
     "Zend/tests/bug70662.phpt"
     "Zend/tests/bug70804.phpt"
-    "Zend/tests/bug71470.phpt"
     "Zend/tests/bug72347.phpt"
     "Zend/tests/bug72441.phpt"
     "Zend/tests/bug72943.phpt"
@@ -80,19 +131,16 @@
     "Zend/tests/bug74810.phpt"
     "Zend/tests/bug74836.phpt"
     "Zend/tests/bug76383.phpt"
-    "Zend/tests/bug78502.phpt"
     "Zend/tests/bug78598.phpt"
     "Zend/tests/bug79783.phpt"
     "Zend/tests/bug79784.phpt"
     "Zend/tests/bug79792.phpt"
     "Zend/tests/bug79828.phpt"
     "Zend/tests/bug79836.phpt"
-    "Zend/tests/bug79836_1.phpt"
     "Zend/tests/bug79948.phpt"
     "Zend/tests/bug80096.phpt"
     "Zend/tests/bug80184.phpt"
-    "Zend/tests/bug81076.phpt"
-    "Zend/tests/bug81705.phpt"]}
+    "Zend/tests/bug81076.phpt"]}
   {:feature :gc-cycle-collection,
    :engine-work-item
    "Implement PHP cyclic garbage collection and roots/threshold behavior.",
@@ -131,7 +179,6 @@
    :entries
    ["Zend/tests/unset_cv01.phpt"
     "Zend/tests/unset_cv02.phpt"
-    "Zend/tests/unset_cv08.phpt"
     "Zend/tests/unset_cv12.phpt"]}
   {:feature :array-reference,
    :entries ["Zend/tests/list/list_reference_008.phpt"]}
@@ -148,8 +195,6 @@
  {"Zend/tests/bug73663.phpt"
   "Bug #73663 (\"Invalid opcode 65/16/8\" occurs with a variable created with list())",
   "Zend/tests/bug61681.phpt" "Bug #61681: Malformed grammar",
-  "Zend/tests/unset_cv08.phpt"
-  "unset() CV 8 (unset() of global variable in array_unique($GLOBALS))",
   "Zend/tests/gc_021.phpt"
   "GC 021: GC detach reference with assign by reference",
   "Zend/tests/bug67856.phpt"
@@ -194,8 +239,6 @@
   "Bug #46304 (defining namespaced constant using define())",
   "tests/lang/passByReference_004.phpt"
   "passing the return value from a function by reference",
-  "Zend/tests/bug69756.phpt"
-  "Fixed bug #69756 (Fatal error: Nesting level too deep - recursive dependency? with ===).",
   "Zend/tests/bug52939.phpt"
   "Bug #52939 (zend_call_function_array does not respect ZEND_SEND_PREFER_REF)",
   "Zend/tests/bug79828.phpt"
@@ -231,8 +274,6 @@
   "Attempt to pass a constant by reference",
   "Zend/tests/bug72441.phpt"
   "Bug #72441 (Segmentation fault: RFC list_keys)",
-  "Zend/tests/bug71470.phpt"
-  "Bug #71470: Leaked 1 hashtable iterators",
   "Zend/tests/bug39018.phpt"
   "Bug #39018 (Error control operator '@' fails to suppress \"Uninitialized string offset\")",
   "Zend/tests/bug70293.phpt"
@@ -270,11 +311,6 @@
   "Zend/tests/bug69167.phpt"
   "Bug #69167 (call_user_func does not support references anymore)",
   "Zend/tests/foreach_over_null.phpt" "foreach over null",
-  "Zend/tests/bug81705.phpt"
-  "Bug #81705 (type confusion/UAF on set_error_handler with concat operation)",
-  "Zend/tests/bug67874.phpt" "Bug #67874 Crash in array_map()",
-  "Zend/tests/bug63206_1.phpt"
-  "Bug #63206 Fully support error_handler stacking, even with null",
   "Zend/tests/bug69376_2.phpt" "Bug #69376 (Wrong ref counting)",
   "Zend/tests/bug63173.phpt"
   "Bug #63173: Crash when invoking invalid array callback",
@@ -296,16 +332,12 @@
   "Perform a packed to hash insert when the iterator is at the end of the array",
   "Zend/tests/bug70121.phpt"
   "Bug #70121 (unserialize() could lead to unexpected methods execution / NULL pointer deref)",
-  "Zend/tests/bug60350.phpt"
-  "Bug #60350 No string escape code for ESC (ascii 27), normally \\e",
   "Zend/tests/named_params/func_get_args.phpt"
   "Behavior of func_get_args() and friends with named parameters",
   "Zend/tests/gc_018.phpt" "GC 018: GC detach with assign",
   "Zend/tests/bug78598.phpt"
   "Bug #78598: Changing array during undef index RW error segfaults",
   "Zend/tests/bug36568.phpt" "Bug #36568 (memory_limit has no effect)",
-  "Zend/tests/bug45877.phpt"
-  "Bug #45877 (Array key '2147483647' left as string)",
   "Zend/tests/bug67169.phpt"
   "Bug #67169: array_splice all elements, then []= gives wrong index",
   "Zend/tests/named_params/undef_var.phpt"
@@ -336,9 +368,5 @@
   "Bug #60738 Allow 'set_error_handler' to handle NULL",
   "Zend/tests/bug29883.phpt"
   "Bug #29883 (isset gives invalid values on strings)",
-  "Zend/tests/bug79836_1.phpt"
-  "Bug #79836 (Segfault in concat_function)",
   "Zend/tests/foreach_014.phpt"
-  "array_pop() function precerve foreach by reference iterator pointer",
-  "Zend/tests/bug78502.phpt"
-  "Bug #78502: Incorrect stack size calculation for indirectly recursive function call"}}
+  "array_pop() function precerve foreach by reference iterator pointer"}}

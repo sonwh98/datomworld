@@ -28,11 +28,9 @@
    evaluator's AST database, and `dao.space` queries over the transacted
    datoms. Those are v1 evaluator features, not v2 gaps in a demo.
 
-   The Clojure/Python/PHP language selection (`yang.clojure`, the ANTLR
-   Python frontend `yang.python.antlr`, `yang.php` all compile to the same
-   `:yin/*` AST) is ported from v1 unchanged — it is a Source->AST axis,
-   orthogonal to which evaluator runs the result, and dropping it would be
-   a product regression this plan does not make."
+   Clojure and Python compile editable source. PHP samples lower checked-in
+   CST packets without a browser parser; all three produce the same `:yin/*`
+   AST and run on the same evaluator."
   (:require ["@codemirror/lang-php" :refer [php]]
             ["@codemirror/lang-python" :refer [python]]
             ["@codemirror/state" :refer [EditorState]]
@@ -46,7 +44,9 @@
             [datomworld.demo.responsive :as responsive]
             [reagent.core :as r]
             [yang.clojure :as yang]
-            [yang.php :as php-comp]
+            [yang.php.antlr.demo-packets :as php.packets]
+            [yang.php.antlr.lower :as php.lower]
+            [yang.php.antlr.prelude :as php.prelude]
             [yang.python.antlr.parser :as py.parser]
             [yang.python.antlr.repl :as py.repl]
             [yin.demo.utils :as demo.utils]
@@ -85,7 +85,9 @@
   []
   (ast-walker/create-vm
     {:primitives (merge vm/primitives py.repl/primitives),
-     :modules (module/register-stream-module (module/default-registry)),
+     :modules (-> (module/default-registry)
+                  module/register-stream-module
+                  php.prelude/admit),
      :make-stream make-stream,
      :capability-secret (str (random-uuid))}))
 
@@ -148,6 +150,40 @@
          :error nil))
 
 
+(defn- form->packet
+  [form]
+  (let [nodes (atom [])]
+    (letfn [(visit
+              [f]
+              (let [id (count @nodes)]
+                (if (string? (first f))
+                  (do (swap! nodes conj {:id id, :kind :token, :type (first f),
+                                         :text (second f), :span [0 0]})
+                      id)
+                  (do (swap! nodes conj nil)
+                      (let [children (mapv visit (rest f))]
+                        (swap! nodes assoc id {:id id, :kind :rule,
+                                               :rule (name (first f)),
+                                               :children children, :span [0 0]})
+                        id)))))]
+      (visit form)
+      {:yang.cst/version 1, :yang.cst/unit [:demo 0], :yang.cst/grammar "php",
+       :yang.cst/outcome :yang.cst/ok, :yang.cst/root 0,
+       :yang.cst/nodes @nodes, :yang.cst/complete true})))
+
+
+(declare code-examples)
+
+
+(defn- php-ast
+  [source]
+  (let [{:keys [id]} (some #(when (= source (:code %)) %) code-examples)
+        form (get php.packets/forms id)]
+    (when-not form
+      (throw (ex-info "Choose a checked-in PHP sample" {:sample id})))
+    (php.lower/lower-packet (form->packet form))))
+
+
 (defn compile-source!
   []
   (stop-run-loop!)
@@ -158,7 +194,7 @@
                               (reader/read-string (str "[" source "]")))
                    :python (py.repl/lower
                              (py.parser/parse-source (str source "\n")))
-                   :php (php-comp/compile source))
+                   :php (php-ast source))
              datoms (vec (vm/ast->datoms ast))
              walker (load-program! datoms)]
          (swap! app-state assoc
@@ -371,16 +407,19 @@
     :lang :python,
     :code
     "def fib(n):\n  if n < 2:\n    return n\n  else:\n    return fib(n-1) + fib(n-2)\nfib(7)"}
-   {:name "PHP: Basic Math", :lang :php, :code "10 + 20;"}
-   {:name "PHP: Closure Power",
+   {:id :basic-math, :name "PHP: Basic Math", :lang :php, :code "10 + 20;"}
+   {:id :closure-power,
+    :name "PHP: Closure Power",
     :lang :php,
     :code
     "$makePower = function (int $exponent) {\n  return function (int $base) use ($exponent): int {\n    $result = 1;\n    for ($i = 0; $i < $exponent; $i++) {\n      $result *= $base;\n    }\n    return $result;\n  };\n};\n$cube = $makePower(3);\n$cube(2);"}
-   {:name "PHP: Factorial",
+   {:id :factorial,
+    :name "PHP: Factorial",
     :lang :php,
     :code
     "function fact($n) {\n  if ($n == 0) {\n    return 1;\n  } else {\n    return $n * fact($n - 1);\n  }\n}\nfact(5);"}
-   {:name "PHP: Fibonacci",
+   {:id :fibonacci,
+    :name "PHP: Fibonacci",
     :lang :php,
     :code
     "function fib($n) {\n  if ($n < 2) {\n    return $n;\n  } else {\n    return fib($n - 1) + fib($n - 2);\n  }\n}\nfib(7);"}])
@@ -601,7 +640,8 @@
                {:key source-lang,
                 :value source,
                 :language source-lang,
-                :on-change set-source!,
+                :on-change (when-not (= :php source-lang) set-source!),
+                :read-only (= :php source-lang),
                 :style {:height "100%"}}]]]]
            [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
             [card "AST"

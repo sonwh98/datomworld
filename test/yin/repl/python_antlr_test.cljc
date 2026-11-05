@@ -398,10 +398,10 @@
 
 
 (deftest other-frontends-still-echo-their-value-test
-  (let [state (frontends/create-state)
-        [php _] (repl/eval-input state "(lang :yang/php)")]
+  (let [state (frontends/create-state)]
     (is (= "3" (second (repl/eval-input state "(+ 1 2)"))))
-    (is (= "3" (second (repl/eval-input php "1 + 2;"))))))
+    #?(:clj (let [[php _] (repl/eval-input state "(lang :yang/php)")]
+              (is (= "3" (second (repl/eval-input php "<?php echo 1 + 2;"))))))))
 
 
 ;; =============================================================================

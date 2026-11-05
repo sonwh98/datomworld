@@ -17,6 +17,7 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yang.frontend :as frontend]
+            [yang.php.antlr.prelude :as php-prelude]
             [yin.repl.ast-index :as ast-index]
             [yin.repl.dht :as repl.dht]
             [yin.repl.index :as index]
@@ -660,7 +661,8 @@
                                     {::data/max-items 1048576})
                                   (integer/register-integer-module
                                     {::integer/max-bits 100000
-                                     ::integer/max-digits 4300}))
+                                     ::integer/max-digits 4300})
+                                  php-prelude/admit)
                         query-pair query/register)
              :make-stream make-ring-stream
              ;; the task's capability secret (yin.vm.linker.md 7.3, r10):

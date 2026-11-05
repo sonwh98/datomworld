@@ -65,11 +65,12 @@
 (deftest the-standard-languages-select-by-id-test
   (let [state (repl.frontends/create-state)
         [python switched] (run state "(lang :yang/python)")
-        [_ value] (run python "1 + 2")
-        [_ compiled] (run (first (run state "(lang :yang/php)")) "(compile \"1 + 2;\")")]
+        [_ value] (run python "1 + 2")]
     (is (= "Switched to :yang/python" switched))
     (is (= "3" value))
-    (is (str/includes? compiled "AST:"))
+    #?(:clj (is (= "3" (second (run (first (run (repl.frontends/create-state)
+                                                "(lang :yang/php)"))
+                                    "<?php echo 1 + 2;")))))
     (testing "a language keyword is not a selector"
       (let [[_ refused] (run state "(lang :python)")]
         (is (str/includes? refused "unavailable-parser")))

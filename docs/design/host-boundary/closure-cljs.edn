@@ -3,8 +3,8 @@
 {:lane :cljs,
  :root yin.repl.main,
  :features #{:cljs},
- :total 154,
- :shared 148,
+ :total 157,
+ :shared 151,
  :lane-specific 6,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
@@ -297,10 +297,22 @@
    :ns yang.frontend,
    :shared true,
    :classes #{:deferred-stage}}
-  {:file "src/cljc/yang/php.cljc",
-   :ns yang.php,
+  {:file "src/cljc/yang/php/antlr/builtins.cljc",
+   :ns yang.php.antlr.builtins,
    :shared true,
-   :classes #{:deferred-gensym :profile-consumer}}
+   :classes #{:none}}
+  {:file "src/cljc/yang/php/antlr/prelude.cljc",
+   :ns yang.php.antlr.prelude,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/php/antlr/prelude_module.cljc",
+   :ns yang.php.antlr.prelude-module,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/php/antlr/quoted.cljc",
+   :ns yang.php.antlr.quoted,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/yang/python/antlr/lower.cljc",
    :ns yang.python.antlr.lower,
    :shared true,

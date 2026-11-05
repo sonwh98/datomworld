@@ -418,16 +418,22 @@
      (fn [args]
        (let [bufs (cell/get php.rt/out)]
          (if (= (data/count bufs) 1)
-           false
+           (do (php/warn 8 "ob_end_clean(): Failed to delete buffer. No buffer to delete") false)
            (do (cell/set! php.rt/out (php/args-prefix bufs (- (data/count bufs) 1) 0 [])) true))))]
     [php/bi-ob-get-clean
      (fn [args]
-       (let [s (php/bi-ob-get-contents args)]
-         (if (= s false) false (do (php/bi-ob-end-clean args) s))))]
+       (let [bufs (cell/get php.rt/out)]
+         (if (= (data/count bufs) 1)
+           (do (php/warn 8 "ob_get_clean(): Failed to delete buffer. No buffer to delete") false)
+           (let [s (php/bi-ob-get-contents args)]
+             (do (php/bi-ob-end-clean args) s)))))]
     [php/bi-ob-end-flush
      (fn [args]
-       (let [s (php/bi-ob-get-contents args)]
-         (if (= s false) false (do (php/bi-ob-end-clean args) (php/echo s) true))))]
+       (let [bufs (cell/get php.rt/out)]
+         (if (= (data/count bufs) 1)
+           (do (php/warn 8 "ob_end_flush(): Failed to delete and flush buffer. No buffer to delete or flush") false)
+           (let [s (php/bi-ob-get-contents args)]
+             (do (php/bi-ob-end-clean args) (php/echo s) true)))))]
     [php/headers-refused?
      (fn []
        (if (cell/get php.rt/headers-sent)
@@ -497,7 +503,7 @@
            (do (php/unwind-to 1)
                (php/raise (assoc (assoc {} :php/operational true) :message message)))
            (esc (assoc (assoc (assoc {} :php/terminal :fatal)
-                             :php/operational true)
+                              :php/operational true)
                        :message message)))))]
     [php/bi-trigger-error
      (fn [args]
@@ -5160,34 +5166,34 @@
                                      (php/vconj response (assoc {} :php.response/body out))))))
                  fatal (fn [message] (assoc (result :php/null) :php/fatal message))
                  v (php/call-terminal
-                    (fn [fesc]
-                      (do (cell/set! php.rt/fatal-escape fesc)
-                          (php/call-terminal
-                           (fn [eesc]
-                             (do (cell/set! php.rt/exit-escape eesc)
-                                 (let [exc0 (php/try (fn [] (do (body) :php/null))
-                                                     (fn [e] e)
-                                                     (fn [] :php/null))]
-                                   (if (= true (get exc0 :php/operational))
-                                     (fesc (assoc (assoc (assoc {} :php/terminal :fatal)
-                                                        :php/operational true)
-                                                  :message (get exc0 :message)))
-                                     (php/pair :normal exc0)))))))))]
+                     (fn [fesc]
+                       (do (cell/set! php.rt/fatal-escape fesc)
+                           (php/call-terminal
+                             (fn [eesc]
+                               (do (cell/set! php.rt/exit-escape eesc)
+                                   (let [exc0 (php/try (fn [] (do (body) :php/null))
+                                                       (fn [e] e)
+                                                       (fn [] :php/null))]
+                                     (if (= true (get exc0 :php/operational))
+                                       (fesc (assoc (assoc (assoc {} :php/terminal :fatal)
+                                                           :php/operational true)
+                                                    :message (get exc0 :message)))
+                                       (php/pair :normal exc0)))))))))]
              (if (= (get v :php/terminal) :fatal)
                (fatal (get v :message))
                (let [ex (cell/get php.rt/exit-status)
                      exc0 (if (= (get v :php/terminal) :exit) :php/null (get v 1))
                      exc1 (if (= ex :php/null) (php/handle-uncaught exc0) :php/null)
                      s (php/call-terminal
-                        (fn [sesc]
-                          (do (cell/set! php.rt/shutdown-escape sesc)
-                              (cell/set! php.rt/in-shutdown true)
-                              (let [exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
-                                                  (fn [e] e)
-                                                  (fn [] :php/null))]
-                                (if (= true (get exc2 :php/operational))
-                                  (php/root-fatal (get exc2 :message))
-                                  (php/pair :normal exc2))))))
+                         (fn [sesc]
+                           (do (cell/set! php.rt/shutdown-escape sesc)
+                               (cell/set! php.rt/in-shutdown true)
+                               (let [exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
+                                                   (fn [e] e)
+                                                   (fn [] :php/null))]
+                                 (if (= true (get exc2 :php/operational))
+                                   (php/root-fatal (get exc2 :message))
+                                   (php/pair :normal exc2))))))
                      ;; the drain of unclosed buffers, outside the shutdown
                      ;; escape: an exit during shutdown aborts the sequence
                      ;; past this point, so the drain must run here, on every

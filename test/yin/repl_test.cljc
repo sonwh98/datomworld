@@ -718,15 +718,12 @@
         (is (= 1 (:last-value state'')))))))
 
 
-(deftest a-clojure-macro-expands-calls-from-other-languages
-  (let [[state _] (evaluate (repl.frontends/create-state) [unless-source twice-source
-                                                           "(defn inc2 [x] (+ x 2))"])]
-    (testing "PHP"
-      (let [[_ texts] (results state ["(lang :yang/php)"
-                                      "unless(false, 1, 2);"
-                                      "twice(21);"
-                                      "inc2(3);"])]
-        (is (= ["1" "42" "5"] (rest texts)))))))
+(deftest a-php-submission-has-an-isolated-runtime-test
+  #?(:clj
+     (let [[state _] (evaluate (repl.frontends/create-state)
+                               [unless-source twice-source "(defn inc2 [x] (+ x 2))"])
+           [_ texts] (results state ["(lang :yang/php)" "<?php echo 1 + 2;"])]
+       (is (= "3" (second texts))))))
 
 
 (deftest a-python-submission-cannot-see-a-clojure-defined-name

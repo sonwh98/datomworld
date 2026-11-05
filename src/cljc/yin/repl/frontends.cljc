@@ -1,7 +1,7 @@
 (ns yin.repl.frontends
   "The REPL's standard frontend catalog (docs/design/yang.antlr.md section
-   8.5.6, slice F2): the hand-written Clojure and PHP frontends and the
-   ANTLR Python frontend installed into a `yang.frontend` catalog. This is
+   8.5.6, slice F2): the hand-written Clojure frontend and the ANTLR PHP and
+   Python frontends installed into a `yang.frontend` catalog. This is
    the only place the REPL composition names a language's namespace;
    `yin.repl` core steps whatever binding the catalog selects.
 
@@ -11,7 +11,8 @@
   (:require
     [yang.clojure :as yang.clojure]
     [yang.frontend :as frontend]
-    [yang.php :as yang.php]
+    #?@(:clj [[yang.php.antlr.cst :as php.antlr.cst]
+              [yang.php.antlr.lower :as php.antlr.lower]])
     #?@(:cljd [[yang.python.antlr.repl :as python.antlr.repl]
                [yang.python.antlr.parser :as python.antlr.parser]
                [yang.python.antlr.repl-probe :as python.antlr.probe]]
@@ -54,20 +55,36 @@
           :yang.grammar/targets #{:java :javascript :dart}}))
 
 
+(defn php-manifest
+  []
+  (assoc (manifest :yang/php :php)
+         :yang.frontend/revision "antlr-p8"
+         :yang.frontend/grammar
+         {:yang.grammar/package "php",
+          :yang.grammar/entries {:module "htmlDocument"},
+          :yang.grammar/export-profile :yang.cst/v1,
+          :yang.grammar/targets #{:java :javascript}}
+         :yang.frontend/lowering-profile :yang.php/antlr
+         :yang.frontend/runtime-profile :yang.php/antlr
+         :yang.frontend/support-profile :yang.php/antlr))
+
+
 (defn standard
   "The standard catalog. The Clojure frontend consumes the forms the
-   shell's own reader read, so its parse stage is the identity.  The ANTLR
-   frontend is the Python frontend, installed on every host, each running
-   its own generated target of the one grammar.  It shows what a submission
-   printed and the value rendered by its `:render` (Python repr)."
+   shell's own reader read, so its parse stage is the identity. The ANTLR
+   frontends show what a submission printed and the value their `:render`
+   returns."
   []
   (cond-> frontend/empty-catalog
     true (frontend/install (manifest :yang/clojure :clojure)
                            {:input :forms,
                             :parse identity,
                             :lower clojure-lower})
-    true (frontend/install (manifest :yang/php :php)
-                           {:parse identity, :lower yang.php/compile})
+    #?@(:clj [true (frontend/install
+                     (php-manifest)
+                     {:parse php.antlr.cst/parse-source,
+                      :lower php.antlr.lower/lower-packet,
+                      :render :php/out})])
     #?@(:cljd [true (frontend/install
                       (antlr-manifest)
                       {:parse (fn [source]
