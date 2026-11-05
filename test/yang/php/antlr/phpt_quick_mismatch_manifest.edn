@@ -59,8 +59,7 @@
     {:class "Error",
      :message "Call to undefined function gc_collect_cycles()"}},
    :engine-work-item
-   "Implement PHP cyclic garbage collection and roots/threshold behavior."}
-   :engine-work-item "Implement str_replace()."}],
+   "Implement PHP cyclic garbage collection and roots/threshold behavior."}],
  :counts
  {:foreach-semantics 11,
   :named-parameter-binding 3,
