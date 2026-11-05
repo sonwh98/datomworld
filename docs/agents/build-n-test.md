@@ -379,8 +379,11 @@ The suite has two tiers so that slow tests run less often than quick ones
   The schedule is an **hourly cron plus a Vietnam-time guard** in
   `~/ci/nightly-cron.sh` on each host (the guard fires only at the 04 VN hour and
   `flock` skips a slot whose previous run is still active), so it is immune to the
-  DST shifts of either host's local timezone. Logs: `~/ci/nightly-cron.log`;
-  results: `~/ci/nightly-results/<stamp>/summary.txt`.
+  DST shifts of either host's local timezone. **The cron entries are currently
+  REMOVED (owner instruction 2026-11-06)**: the wrappers remain installed on both
+  hosts and re-arming is one crontab line each
+  (`0 * * * * ~/ci/nightly-cron.sh >> ~/ci/nightly-cron.log 2>&1`). Logs:
+  `~/ci/nightly-cron.log`; results: `~/ci/nightly-results/<stamp>/summary.txt`.
 
 Measured (2026-10-12, origin master plus the tags, Linux servers; see "Remote test
 servers" for how to run them):
