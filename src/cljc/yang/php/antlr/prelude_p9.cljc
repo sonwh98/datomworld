@@ -718,8 +718,9 @@
                                (php/float-text v 17)))
                            (if (= k :array)
                              ;; the top-level container is depth level 1, so
-                             ;; [1] at depth 1 fails, like PHP
-                             (if (>= (+ depth 1) maxdepth)
+                             ;; [1] at depth 1 is permitted and only a
+                             ;; deeper container fails, like PHP
+                             (if (> (+ depth 1) maxdepth)
                                (php/json-encode-fail throw? "Maximum stack depth exceeded")
                                (if (php/p9-is-list v 0)
                                  (php/json-encode-value (php/json-array-values v pretty depth maxdepth throw? 0 "") "[")
@@ -809,17 +810,30 @@
                    (if (< (+ i 1) n)
                      (if (= (get cs i) 48) (php/digit? (get cs (+ i 1))) false)
                      false))))))]
+    [php/json-dot-bad-at
+     ;; true when the point at cs[i] lacks a digit on either side; the
+     ;; JSON grammar needs digits both before and after the point, so
+     ;; .1 and 1. are syntax errors, never numbers
+     (fn [cs i n]
+       (if (>= i n) false
+           (if (= (get cs i) 46)
+             (let [p (if (= i 0) -1 (get cs (- i 1))) q (if (< (+ i 1) n) (get cs (+ i 1)) -1)]
+               (if (if (php/digit? p) (php/digit? q) false) (php/json-dot-bad-at cs (+ i 1) n) true))
+             (php/json-dot-bad-at cs (+ i 1) n))))]
+    [php/json-dot-bad?
+     (fn [s] (let [cs (data/str->code-points s)] (php/json-dot-bad-at cs 0 (data/count cs))))]
     [php/json-number
      ;; no number characters at all (a bare ] or end of input) is a syntax
      ;; error, never a zero; the token must be a whole number in the JSON
      ;; grammar (1e+ is truncated text, never a prefix value) with no
-     ;; leading plus or leading zero
+     ;; leading plus, no leading zero, and digits on both sides of any
+     ;; point (.1 and 1. are syntax errors, like PHP)
      (fn [st]
        (let [cs (get (cell/get st) 0) start (get (cell/get st) 1) i (php/json-number-end cs start)]
          (if (= start i) (php/json-fail st "Syntax error")
              (do (php/json-index! st i)
                  (let [s (data/code-points->str (data/subvec cs start i)) r (php/numeric-string s)]
-                   (if (if (php/full-num? r) (not (php/json-lead-bad? s)) false)
+                   (if (if (php/full-num? r) (if (not (php/json-lead-bad? s)) (not (php/json-dot-bad? s)) false) false)
                      (if (= (get r 0) :int) (get r 1) (php/to-float s))
                      (php/json-fail st "Syntax error")))))))]
     [php/json-number-end

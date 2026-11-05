@@ -78,6 +78,8 @@
     (testing "JSON keeps plus in exponents; rejects leading plus, leading zeros, raw controls, bad depth and bad flags"
       (is (= "float(100)\n" (out "<?php var_dump(json_decode('1e+2'));")))
       (is (= "float(100)\n" (out "<?php var_dump(json_decode('1E+2'));")))
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('.1'));")))
+      (is (= "NULL\n" (out "<?php var_dump(json_decode('1.'));")))
       (is (= "NULL\n" (out "<?php var_dump(json_decode('01'));")))
       (is (= "NULL\n" (out "<?php var_dump(json_decode('-01'));")))
       (is (= "NULL\n" (out "<?php var_dump(json_decode('+1'));")))
@@ -89,7 +91,8 @@
       (is (= "bool(false)\n" (out "<?php var_dump(json_encode([INF]));")))
       (is (= [] (diag "<?php $x = json_encode([INF]);")))
       (is (= [] (diag "<?php $x = json_encode([1], 0, 1);")))
-      (is (= "bool(false)\n" (out "<?php var_dump(json_encode([1], 0, 1));")))
+      (is (= "string(3) \"[1]\"\n" (out "<?php var_dump(json_encode([1], 0, 1));")))
+      (is (= "bool(false)\n" (out "<?php var_dump(json_encode([[1]], 0, 1));")))
       (is (= "threw" (out "<?php try { json_encode([INF], JSON_THROW_ON_ERROR); } catch (JsonException $e) { echo 'threw'; }"))))
     (testing "EXTR constants match PHP and every mode imports per PHP"
       (is (= "4,5,6" (out "<?php echo EXTR_PREFIX_INVALID, ',', EXTR_PREFIX_IF_EXISTS, ',', EXTR_IF_EXISTS;")))
