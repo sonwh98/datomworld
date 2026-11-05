@@ -100,7 +100,7 @@
            (println "probe:jolt-ws exits" (pr-str results))
            (System/exit (if (every? (comp zero? second) results) 0 1)))}
 
-  workload-w:jolt
+   workload-w:jolt
    {:doc "J6g: pre-registered Workload W, with an independent five-minute watchdog and ten-second sampler; one jolt worker serves two peers while stepping the REPL (needs bb bootstrap:jolt and bb build:jolt-native)"
    :task (System/exit
            (:exit (apply shell {:continue true} "sh" "-c"

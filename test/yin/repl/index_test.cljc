@@ -11,7 +11,9 @@
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.space.store :as durable]
+            [dao.space.transactor :as transactor]
             [dao.stream :as stream]
+            [dao.stream.memory-log :as memory-log]
             [dao.stream.observer :as observer]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
@@ -22,6 +24,28 @@
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.sign :as sign]
             [yin.vm.macro :as macro]))
+
+
+(defrecord CountingLocal
+  [inner reads]
+
+  stream/IDaoStreamReader
+
+  (cursor
+    [_ anchor]
+    (swap! reads conj [:cursor anchor])
+    (stream/cursor inner anchor))
+
+
+  (next
+    [_ cursor]
+    (swap! reads conj [:next cursor])
+    (stream/next inner cursor))
+
+
+  stream/IDaoStreamWriter
+
+  (append! [_ value] (stream/append! inner value)))
 
 
 (defn- stream-values
@@ -242,11 +266,11 @@
           "every round while lost says its code was not indexed"))))
 
 
-(deftest no-earlier-publication-is-retained-between-rounds
+(deftest only-derived-publication-state-is-retained-between-rounds
   (let [held-keys #{:observer :local :content-store :session-token
                     :publish-opts :after-publish :next-e :transactions
                     :published :published-payloads :manifest-address
-                    :lost? :failure}
+                    :lost? :failure :allocator :materialization}
         rounds (reductions
                  (fn [[state _] line] (repl/eval-input state line))
                  [(repl.frontends/create-state) nil]
@@ -256,18 +280,243 @@
                   records (stream-values (:local ix))]]
       (testing (str "after round " (inc i))
         (is (= held-keys (set (keys ix)))
-            "no transactor, intake, or pool outlives its round")
+            "only the allocator and verified coverage outlive the round")
+        (is (nil? (:intake-pool (:allocator ix))))
+        (is (= (:published ix) (get-in ix [:materialization :transactions])))
+        (is (= (:dao.stream/cursor (stream/cursor (:local ix) :dao.stream/newest))
+               (get-in ix [:materialization :cursor])))
+        (is (= (select-keys (:materialization ix)
+                            [:cursor :transactions :manifest-address])
+               (:index-publication (repl/repl-state state))))
         (is (every? #(contains? % :dao.space/transaction) records)
             "the local log holds transaction records only, no publication payload")
         (is (= (inc i) (count records)))
         (is (true? (:published? (repl.index/status ix))))
         (is (pos? (:published-payloads ix))
             "the round did publish; its payloads went to dao.jing, not the indexer")))
-    (testing "transaction time continues across per-round transactors"
+    (testing "transaction time continues through the retained allocator"
       (let [ix (:indexer (first (last rounds)))]
         (is (= [0 1 2 3]
                (mapv (comp :t :dao.space/transaction)
                      (stream-values (:local ix)))))))))
+
+
+(defn- full-publication
+  "Today's full-history publisher, used as an independent reference."
+  [ix]
+  (let [intake (:dao.stream/handle
+                 (memory-log/create! {:dao.stream/type memory-log/transport-type}))
+        tx (transactor/create! {:local-stream (:local ix) :intake-pool [intake]})
+        result (transactor/publish! tx (:publish-opts ix))]
+    (doseq [payload (stream-values intake)]
+      (jing/materialize! (:content-store ix) payload))
+    result))
+
+
+(deftest incremental-publication-covers-the-same-history-as-full-reconstruction
+  (let [{:keys [writer observer]} (small-medium 16)
+        initial (repl.index/make-indexer
+                  {:observer observer :session-token "equivalence"
+                   :content-store (mem/create-content-mem)
+                   :publish-opts {:branching-factor 4}})]
+    (reduce
+      (fn [ix round]
+        ;; More than one transaction in a round, including repeated content.
+        (doseq [v [round round (+ 100 round)]]
+          (stream/append! writer (literal-packet v)))
+        (let [next-ix (repl.index/step ix round)
+              store (:content-store next-ix)
+              incremental (index/read-manifest store (:manifest-address next-ix))
+              full (:manifest (full-publication next-ix))]
+          (is (true? (:published? (repl.index/status next-ix))))
+          (is (= (:count full) (:count incremental)))
+          (doseq [order [:eavt :aevt :avet :vaet]]
+            (is (= (vec (index/walk-index-datoms store (get-in full [:indexes order])))
+                   (vec (index/walk-index-datoms store (get-in incremental [:indexes order]))))
+                (str "identical covered facts at round " round " in " order)))
+          (is (= (:dao.stream/cursor (stream/cursor (:local next-ix) :dao.stream/newest))
+                 (get-in next-ix [:materialization :cursor])))
+          next-ix))
+      initial
+      (range 1 7))))
+
+
+(deftest a-fresh-round-does-not-reopen-the-retained-history
+  (let [reads (atom [])
+        initial (update-in (repl.frontends/create-state) [:indexer :local]
+                           #(->CountingLocal % reads))
+        [state _] (evaluate initial ["1" "2" "3"])
+        before (:indexer state)
+        _ (reset! reads [])
+        [after result] (repl/eval-input state "4")]
+    (is (= "4" result))
+    (is (not-any? #(= [:cursor :dao.stream/oldest] %) @reads)
+        "neither allocation nor publication reopens the prefix")
+    (is (= 2 (count (filter #(= :next (first %)) @reads)))
+        "one suffix record and one blocked read, independent of history")
+    (is (identical? (:next-t (:allocator before))
+                    (get-in after [:indexer :allocator :next-t])))
+    (is (= [0 1 2 3] (mapv :t (transactions after))))))
+
+
+(deftest incremental-roots-match-a-full-insertion-replay
+  (let [{:keys [writer observer]} (small-medium 16)
+        store (mem/create-content-mem)
+        initial (repl.index/make-indexer
+                  {:observer observer :session-token "roots" :content-store store
+                   :publish-opts {:branching-factor 16}})
+        ix (reduce (fn [ix round]
+                     (stream/append! writer (literal-packet round))
+                     (repl.index/step ix round))
+                   initial (range 1 13))
+        intake (:dao.stream/handle
+                 (memory-log/create! {:dao.stream/type memory-log/transport-type}))
+        replay (reduce index/fold-batch
+                       (index/session {:mode :resolved :schema {} :intake intake
+                                       :branching-factor 16})
+                       (stream-values (:local ix)))
+        result (index/publish! replay)]
+    (is (= :ok (:status result)))
+    (is (= (get-in ix [:materialization :manifest])
+           (get-in result [:state :publish :manifest]))
+        "all four root addresses equal a full insertion replay, including splits")))
+
+
+(deftest a-stale-or-foreign-live-cursor-falls-back-to-full-reconstruction
+  (doseq [cursor-kind [:stale :ahead :foreign]]
+    (let [{:keys [writer observer]} (small-medium 16)
+          reads (atom [])
+          initial (update (repl.index/make-indexer
+                            {:observer observer :session-token "cursor-validation"
+                             :content-store (mem/create-content-mem)
+                             :publish-opts {:branching-factor 4}})
+                          :local #(->CountingLocal % reads))
+          _ (stream/append! writer (literal-packet 10))
+          first-ix (repl.index/step initial 1)
+          _ (stream/append! writer (literal-packet 20))
+          second-ix (repl.index/step first-ix 2)
+          foreign (:dao.stream/handle
+                    (memory-log/create! {:dao.stream/type memory-log/transport-type}))
+          _ (stream/append! writer (literal-packet 30))
+          ;; Stage one authoritative transaction beyond the published frontier.
+          pending (repl.index/commit-names
+                    (assoc second-ix :after-publish (fn [_] (throw (ex-info "HEAD refused" {}))))
+                    [] 3)
+          cursor (case cursor-kind
+                   :stale (get-in first-ix [:materialization :cursor])
+                   :ahead (:dao.stream/cursor (stream/cursor (:local pending) :dao.stream/newest))
+                   :foreign (:dao.stream/cursor (stream/cursor foreign :dao.stream/oldest)))
+          bad (-> pending
+                  (assoc :after-publish nil)
+                  (assoc-in [:materialization :cursor] cursor))
+          _ (reset! reads [])
+          fixed (repl.index/step bad 4)]
+      (is (some #(= [:cursor :dao.stream/oldest] %) @reads)
+          (str cursor-kind " cursor triggers full reconstruction"))
+      (is (true? (:published? (repl.index/status fixed))))
+      (is (= (:manifest (full-publication fixed))
+             (index/read-manifest (:content-store fixed) (:manifest-address fixed)))))))
+
+
+(deftest unreadable-dirty-content-and-head-failure-never-promote-the-cursor
+  (doseq [stage [:content :head]]
+    (let [{:keys [writer observer]} (small-medium 16)
+          inner (mem/create-content-mem)
+          armed? (atom false)
+          hidden (atom nil)
+          heads (atom [])
+          content-store (assoc inner
+                               :put-bytes-fn
+                               (fn [address bs]
+                                 (let [result ((:put-bytes-fn inner) address bs)
+                                       blob (jing/get inner address nil)]
+                                   (when (and @armed? (= stage :content)
+                                              (map? blob) (contains? blob :keys))
+                                     (reset! hidden address))
+                                   result))
+                               :get-bytes-fn
+                               (fn [address missing]
+                                 (if (= address @hidden)
+                                   missing
+                                   ((:get-bytes-fn inner) address missing))))
+          write-head! (fn [address]
+                        (when (and @armed? (= stage :head))
+                          (throw (ex-info "HEAD refused" {})))
+                        (swap! heads conj address))
+          initial (repl.index/make-indexer
+                    {:observer observer :session-token "failure"
+                     :content-store content-store :after-publish write-head!
+                     :publish-opts {:branching-factor 4}})
+          _ (stream/append! writer (literal-packet 1))
+          before (repl.index/step initial 1)
+          _ (reset! armed? true)
+          _ (stream/append! writer (literal-packet 2))
+          failed (repl.index/step before 2)]
+      (is (false? (:published? (repl.index/status failed))))
+      (is (= :publish (get-in failed [:failure :stage])))
+      (is (= (:materialization before) (:materialization failed)))
+      (is (= [(:manifest-address before)] @heads))
+      (reset! armed? false)
+      (reset! hidden nil)
+      (stream/append! writer (literal-packet 3))
+      (let [retried (repl.index/step failed 3)]
+        (is (true? (:published? (repl.index/status retried))))
+        (is (nil? (:failure retried)))
+        (is (= 3 (:published retried)))
+        (is (= #{1 2 3} (committed-values retried)))
+        (is (= 2 (count @heads)))))))
+
+
+(deftest recovery-discards-live-cursors-and-derives-authority-from-history
+  (let [{:keys [writer observer]} (small-medium 16)
+        initial (repl.index/make-indexer
+                  {:observer observer :session-token "recovery"
+                   :content-store (mem/create-content-mem)})
+        _ (stream/append! writer (literal-packet 10))
+        first-ix (repl.index/step initial 1)
+        _ (stream/append! writer (literal-packet 20))
+        second-ix (repl.index/step first-ix 2)
+        recovery {:manifest (:manifest-address second-ix)
+                  :datoms (index/snapshot-datoms (:local second-ix))
+                  ;; No stale process cursor or allocator is recovery authority.
+                  :materialization (:materialization first-ix)
+                  :allocator (:allocator first-ix)}
+        reads (atom [])
+        recovered (update (repl.index/rehydrate second-ix recovery)
+                          :local #(->CountingLocal % reads))
+        _ (stream/append! writer (literal-packet 30))
+        resumed (repl.index/step recovered 3)]
+    (is (nil? (:allocator recovered)))
+    (is (nil? (:materialization recovered)))
+    (is (some #(= [:cursor :dao.stream/oldest] %) @reads)
+        "restart takes the authoritative full reconstruction path")
+    (is (= [0 1 2]
+           (mapv (comp :t :dao.space/transaction) (stream-values (:local resumed)))))
+    (is (= #{10 20 30} (committed-values resumed)))
+    (is (= (:manifest (full-publication resumed))
+           (index/read-manifest (:content-store resumed) (:manifest-address resumed)))
+        "the first recovered publication is exactly today's full reconstruction")))
+
+
+(deftest recovery-derives-the-allocator-from-transaction-times-not-record-count
+  (let [{:keys [writer observer]} (small-medium 16)
+        initial (repl.index/make-indexer
+                  {:observer observer :session-token "watermark"
+                   :content-store (mem/create-content-mem)})
+        datoms [[100 :test/value :earlier 7 1] [101 :test/value :later 43 1]]
+        _ (doseq [d datoms]
+            (stream/append! (:local initial)
+                            {:dao.space/transaction {:t (nth d 3) :datoms [d]}}))
+        published (full-publication initial)
+        recovered (repl.index/rehydrate initial {:manifest (:manifest-address published)
+                                                 :datoms datoms})
+        _ (stream/append! writer (literal-packet 99))
+        resumed (repl.index/step recovered 1)
+        txs (mapv :dao.space/transaction (stream-values (:local resumed)))]
+    (is (= [7 43 44] (mapv :t txs)))
+    (is (= 45 (transactor/watermark (:allocator resumed))))
+    (is (every? #(<= 102 (first %)) (:datoms (last txs))))
+    (is (true? (:published? (repl.index/status resumed))))))
 
 
 (deftest a-publication-beyond-the-old-intake-bound-completes

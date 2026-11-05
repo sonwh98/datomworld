@@ -31,8 +31,10 @@
             [jolt.ffi :as ffi]
             [jolt.socket.native :as native]
             [yin.repl.connect :as connect]
+            [yin.repl.ast-index :as repl.ast-index]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
+            [yin.repl.index :as repl.index]
             [yin.repl.main :as repl.main]
             [yin.repl.serve :as serve]))
 
@@ -140,7 +142,7 @@
             (= :would-block r) :would-block
             (:error r) (throw (ex-info "raw write-some failed" {:error r}))
             (map? r) (:n r)
-            :else n))))))
+            :else (throw (ex-info "unexpected raw write-some result" {:result r}))))))))
 
 
 (defn- head-end
@@ -202,6 +204,53 @@
                     {:workload/failure :timeout, :phase phase}))))
 
 
+(defn- timed-call!
+  "Optional per-call trace is diagnostic: it changes the measured composition.
+   Totals include all synchronous work in a phase, not just socket syscalls."
+  [trace? timings round phase f]
+  (let [started (poller/clock-ms)
+        report! (fn [event detail]
+                  (when trace?
+                    (println "W-CALL" (pr-str (merge {:round round, :phase phase, :event event}
+                                                     detail)))
+                    (flush)))]
+    (report! :enter {:at-ms started})
+    (try
+      (f)
+      (finally
+        (let [elapsed (- (poller/clock-ms) started)]
+          (swap! timings update phase
+                 (fn [s]
+                   {:calls (inc (:calls s 0))
+                    :total-ms (+ (:total-ms s 0) elapsed)
+                    :max-ms (max (:max-ms s 0) elapsed)}))
+          (report! :leave {:elapsed-ms elapsed}))))))
+
+
+(defn- step-repl!
+  [state trace? timings round]
+  (let [step! #(do
+                 (driver/submit-line! (:input state)
+                                      "(loop [i 0] (if (< i 5) (recur (inc i)) i))")
+                 (driver/repl-step state (poller/clock-ms)))]
+    (timed-call! trace? timings round :repl-step
+                 (fn []
+                   (if-not trace?
+                     (step!)
+                     (let [code-step repl.index/step
+                           ast-step repl.ast-index/step]
+                       ;; Diagnostic wrappers stay on the single owner thread.
+                       (with-redefs [repl.index/step
+                                     (fn [ix r]
+                                       (timed-call! true timings round :code-index
+                                                    #(code-step ix r)))
+                                     repl.ast-index/step
+                                     (fn [ix]
+                                       (timed-call! true timings round :ast-index
+                                                    #(ast-step ix)))]
+                         (step!))))))))
+
+
 (defn run-workload-w
   "Run the pre-registered Workload W benchmark:
    - Peer A: one 4,194,304 byte binary message (:ws/max-frame-bytes) paced over >= 60 s.
@@ -224,7 +273,9 @@
 
         ;; Peer A accounting
         a-deliveries (atom [])
-        a-delivered-once? (atom false)
+        a-window (atom {})
+        trace? (= "1" (System/getenv "JOLT_WORKLOAD_W_TRACE"))
+        timings (atom {})
 
         ;; Server bind
         server-bound? (atom false)
@@ -244,7 +295,11 @@
                                    {:ws/adapter
                                     {:opened! (fn [])
                                      :binary! (fn [payload]
-                                                (swap! a-deliveries conj (alength payload)))
+                                                (swap! a-deliveries conj (alength payload))
+                                                (swap! a-window
+                                                       #(if (:delivered-at %)
+                                                          %
+                                                          (assoc % :delivered-at (poller/clock-ms)))))
                                      :message! (fn [_])
                                      :closed! (fn [_ _])
                                      :error! (fn [_])
@@ -277,6 +332,7 @@
     ;; -------------------------------------------------------------------------
     (let [b-opened? (atom false)
           b-samples (atom [])
+          b-completed (atom 0)
           b-outstanding (atom {})
           b-lost (atom 0)
           b-req-seq (atom 0)
@@ -290,10 +346,14 @@
                                  sent-at (get @b-outstanding req-id)]
                              (if sent-at
                                (do (swap! b-outstanding dissoc req-id)
-                                    (swap! b-samples conj (- now sent-at))
-                                    ;; The independent sampler observes every completed reply.
-                                    (println "W-SAMPLE" (- now sent-at))
-                                    (flush))
+                                   (swap! b-completed inc)
+                                   ;; Both ends of a measured round trip must overlap A.
+                                   (let [{:keys [started-at delivered-at]} @a-window]
+                                     (when (and started-at (<= started-at sent-at)
+                                                (or (nil? delivered-at) (<= now delivered-at)))
+                                       (swap! b-samples conj (- now sent-at))
+                                       (println "W-SAMPLE" (- now sent-at))
+                                       (flush))))
                                (swap! b-lost inc))))
                 :message! (fn [_])
                 :closed! (fn [_ _])
@@ -357,7 +417,7 @@
 
               ;; Timing and dispatch state
               start-time (poller/clock-ms)
-              last-10hz-tick (atom start-time)
+              last-10hz-tick (atom (- start-time 100))
               last-telemetry-tick (atom start-time)
               a-stalls (atom 0)
               a-stalled? (atom false)
@@ -387,26 +447,32 @@
                   (when (= 1 @owner-round-count)
                     (println "W-PHASE repl-step")
                     (flush))
-                  (driver/submit-line! (:input @repl-state)
-                                       "(loop [i 0] (if (< i 5) (recur (inc i)) i))")
-                  (let [stepped (driver/repl-step @repl-state now)
-                        [_entries next-st] (driver/take-outbox stepped)]
+                  (let [before @repl-state
+                        stepped (step-repl! before trace? timings @owner-round-count)
+                        [entries next-st] (driver/take-outbox stepped)
+                        results (filter #(= :yin.repl.driver/result (get % driver/event-key)) entries)]
                     (reset! repl-state next-st)
-                    (swap! repl-step-count inc))
+                    (when (and (= (inc (get-in before [:repl :round]))
+                                  (get-in next-st [:repl :round]))
+                               (= ["5"] (mapv #(get % driver/text-key) results)))
+                      (swap! repl-step-count inc)))
 
                   ;; 2. Paced Peer A transfer across target-duration-ms (with no-progress guard)
                   (when (= 1 @owner-round-count)
                     (println "W-PHASE peer-a-send")
                     (flush))
                   (when-not @a-stalled?
-                    (let [target-bytes (if (>= elapsed target-duration-ms)
-                                         total-a-frame-len
+                    (let [a-start (:started-at @a-window)
+                          target-bytes (if a-start
                                          (min total-a-frame-len
-                                              (long (* total-a-frame-len
-                                                       (/ (double elapsed) (double target-duration-ms))))))]
+                                              (inc (long (* (dec total-a-frame-len)
+                                                            (/ (- (poller/clock-ms) a-start)
+                                                               (double target-duration-ms))))))
+                                         1)]
                       (when (< @a-sent target-bytes)
                         (let [to-write (min (- target-bytes @a-sent) 65536)
-                              r (write-some! (:fd raw-a) a-frame @a-sent to-write)]
+                              r (timed-call! trace? timings @owner-round-count :peer-a-send
+                                             #(write-some! (:fd raw-a) a-frame @a-sent to-write))]
                           (cond
                             (or (= :would-block r) (= 0 r))
                             (let [stalls (swap! a-stalls inc)]
@@ -417,8 +483,10 @@
                                          "consecutive no-progress polls at" @a-sent "/" total-a-frame-len "bytes. Aborting transfer leg.")
                                 (flush)))
 
-                            (and (number? r) (pos? r))
+                            (and (number? r) (pos? r) (<= r to-write))
                             (do (reset! a-stalls 0)
+                                (when-not a-start
+                                  (swap! a-window assoc :started-at (poller/clock-ms)))
                                 (swap! a-sent + r))
 
                             :else
@@ -427,13 +495,16 @@
                                 (flush)))))))
 
                   ;; 3. Peer B 10 Hz dispatch: concurrent requests up to 8 outstanding
-                  (when (>= (- now @last-10hz-tick) 100)
-                    (reset! last-10hz-tick now)
-                    (when (< (count @b-outstanding) 8)
-                      (let [id (swap! b-req-seq inc)
-                            req-bs (make-1kib-request id)]
-                        (swap! b-outstanding assoc id now)
-                        ((:send! @b-seam) req-bs))))
+                  (let [dispatch-at (poller/clock-ms)]
+                    (when (>= (- dispatch-at @last-10hz-tick) 100)
+                      ;; Keep the absolute cadence; missed slots are not sent in a burst.
+                      (swap! last-10hz-tick + (* 100 (quot (- dispatch-at @last-10hz-tick) 100)))
+                      (when (< (count @b-outstanding) 8)
+                        (let [id (swap! b-req-seq inc)
+                              req-bs (make-1kib-request id)]
+                          (timed-call! trace? timings @owner-round-count :peer-b-send
+                                       #(do (swap! b-outstanding assoc id (poller/clock-ms))
+                                            ((:send! @b-seam) req-bs)))))))
 
                   ;; 4. Periodic sampler flush every 10 seconds to ensure telemetry
                   (when (>= (- now @last-telemetry-tick) 10000)
@@ -445,17 +516,26 @@
                                     ", running p99=" (if cur-p99 (str cur-p99 "ms") "ABSENT") ", A-sent=" @a-sent "/" total-a-frame-len
                                     " (" (long (* 100 (/ (double @a-sent) (double total-a-frame-len)))) "%), A-deliveries=" (count @a-deliveries)
                                     (when @a-stalled? " [A-STALLED]")))
+                      (println "W-TIMINGS" (pr-str @timings))
+                      (println "W-PROGRESS"
+                               (pr-str {:rounds @owner-round-count, :loop-results @repl-step-count,
+                                        :transactions (get-in @repl-state [:repl :indexer :transactions]),
+                                        :index-cursor (get-in @repl-state [:repl :indexer :materialization :cursor]),
+                                        :b-sent @b-req-seq, :b-completed @b-completed,
+                                        :b-outstanding (count @b-outstanding), :a-window @a-window}))
                       (flush)))
 
                   ;; 5. Pump I/O for server and client B
                   (when (= 1 @owner-round-count)
                     (println "W-PHASE server-pump")
                     (flush))
-                  (wake/sleep-fds! w 5 server-pump nil)
+                  (timed-call! trace? timings @owner-round-count :server-pump
+                               #(wake/sleep-fds! w 5 server-pump nil))
                   (when (= 1 @owner-round-count)
                     (println "W-PHASE client-b-pump")
                     (flush))
-                  (wake/sleep-fds! w 5 client-b-pump nil)
+                  (timed-call! trace? timings @owner-round-count :client-b-pump
+                               #(wake/sleep-fds! w 5 client-b-pump nil))
                   (when (= 1 @owner-round-count)
                     (println "W-PHASE owner-round-complete")
                     (flush))
@@ -464,10 +544,10 @@
                   (let [a-done? (or @a-stalled?
                                     (and (>= @a-sent total-a-frame-len)
                                          (seq @a-deliveries)))
-                        time-done? (>= elapsed target-duration-ms)
-                        samples-done? (>= (count @b-samples) target-samples)]
+                        time-done? (>= elapsed target-duration-ms)]
 
-                    (if (and a-done? time-done? samples-done?)
+                    ;; Later replies cannot repair a deficient overlap sample count.
+                    (if (and a-done? time-done?)
                       ;; Drain trailing in-flight requests briefly
                       (let [drain-deadline (+ (poller/clock-ms) 500)]
                         (loop []
@@ -497,6 +577,8 @@
                       (nth sorted (min (dec sample-count) p99-idx)))
                 p99-ok? (and (some? p99) (<= p99 250))
                 repl-advances? (= @owner-round-count @repl-step-count)
+                overlap-ms (when (and (:started-at @a-window) (:delivered-at @a-window))
+                             (- (:delivered-at @a-window) (:started-at @a-window)))
                 a-deliv-count (count @a-deliveries)
                 a-deliv-len (or (first @a-deliveries) 0)
                 delivered-once? (and (= 1 a-deliv-count)
@@ -507,6 +589,9 @@
                                (not @a-stalled?)
                                valid-run?
                                target-samples-met?
+                               (some? overlap-ms)
+                               (>= overlap-ms target-duration-ms)
+                               (not trace?)
                                p99-ok?
                                repl-advances?
                                delivered-once?
@@ -519,6 +604,9 @@
             (println "  Hard cap timed out:           " @timed-out?)
             (println "  Elapsed:                      " elapsed-ms "ms")
             (println "  Peer A transfer stalled:      " @a-stalled?)
+            (println "  Transfer overlap ms:          " overlap-ms)
+            (println "  Diagnostic trace enabled:     " trace?)
+            (println "W-TIMINGS" (pr-str @timings))
             (println "  Sample count:                 " sample-count
                      (str "(valid >= 500: " valid-run? ", target >= " target-samples ": " target-samples-met? ")"))
             (println "  p99 round-trip latency:       " (if (some? p99) (str p99 "ms") "ABSENT")
@@ -544,9 +632,9 @@
                   {:pass? true
                    :p99 p99
                    :samples sample-count
-                    :elapsed-ms elapsed-ms
-                    :timed-out? @timed-out?
-                    :transfer-stalled? @a-stalled?
+                   :elapsed-ms elapsed-ms
+                   :timed-out? @timed-out?
+                   :transfer-stalled? @a-stalled?
                    :delivered-once? delivered-once?
                    :repl-advances? repl-advances?
                    :replies-lost replies-lost})
@@ -554,9 +642,9 @@
                   {:pass? false
                    :p99 p99
                    :samples sample-count
-                    :elapsed-ms elapsed-ms
-                    :timed-out? @timed-out?
-                    :transfer-stalled? @a-stalled?
+                   :elapsed-ms elapsed-ms
+                   :timed-out? @timed-out?
+                   :transfer-stalled? @a-stalled?
                    :delivered-once? delivered-once?
                    :repl-advances? repl-advances?
                    :replies-lost replies-lost}))))))))
@@ -674,14 +762,14 @@
     ;; Refusal of wss scheme
     (let [ci (wsj/create)
           seam (wsj/connect! ci
-                               {:ws/scheme "wss"
-                                :ws/host "127.0.0.1"
-                                :ws/port 443
-                                :ws/path "/repl"}
-                               {:opened! (fn [])
-                                :closed! (fn [_ _])
-                                :message! (fn [_])
-                                :binary! (fn [_])})]
+                             {:ws/scheme "wss"
+                              :ws/host "127.0.0.1"
+                              :ws/port 443
+                              :ws/path "/repl"}
+                             {:opened! (fn [])
+                              :closed! (fn [_ _])
+                              :message! (fn [_])
+                              :binary! (fn [_])})]
       (check! "dial with wss scheme is refused explicitly (nil returned)"
               (nil? seam)
               {:seam seam})
@@ -1065,6 +1153,8 @@
               (do (println "Unknown command:" cmd
                            "- valid commands: workload-w, quick-w, cross-host, served-stream, all")
                   false))]
+    (flush)
     (System/exit (if ok? 0 1))))
+
 
 (apply -main *command-line-args*)

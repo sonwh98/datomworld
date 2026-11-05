@@ -2175,6 +2175,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    to its lambda's root address (yin.vm.macro.md §10.1).  `:index` is the
    code indexer's `yin.repl.index/status`: whether every committed program
    is published, whether a gap lost the indexer, and its last failure.
+   `:index-publication` exposes the verified code-log cursor and covered
+   transaction count for owner diagnostics, never a substitute query view.
    `:ast-index` is the AST indexer's `yin.repl.ast-index/status`: the sizes
    of its `$ast` and `$occ` relations, whether a gap lost it, and why it
    failed."
@@ -2202,6 +2204,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                          :checks (or (:checks parked) 0)})
                       (:links parked))))
    :index (index/status (:indexer state))
+   :index-publication (select-keys (get-in state [:indexer :materialization])
+                                   [:cursor :transactions :manifest-address])
    :ast-index (ast-index/status (:ast-indexer state))
    :telemetry {:supported? false :note telemetry-text}
    :remote {:connected? false}})
