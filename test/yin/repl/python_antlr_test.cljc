@@ -47,6 +47,7 @@
   "The parser's packet for each line the session scenarios submit; the
    REPL hands the parser the line with a newline appended."
   {"x = 1" (module (st (asg (tc (vr "x")) (tc (lit "1"))))),
+   "f12_contract_marker = f12_contract_value" (module (st (asg (tc (vr "f12_contract_marker")) (tc (vr "f12_contract_value"))))),
    "x = 5" (module (st (asg (tc (vr "x")) (tc (lit "5"))))),
    "print(x)" (module (st (ex (tc (call "print" (tc (vr "x"))))))),
    "x" (module (st (ex (tc (vr "x"))))),
