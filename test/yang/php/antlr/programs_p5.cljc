@@ -65,4 +65,17 @@
    (fx :exit-string
        "<?php echo 'A'; die('B'); echo 'C';"
        "AB"
-       :status 0)])
+       :status 0)
+   (fx :exit-skips-finally
+       "<?php try { exit(7); } finally { echo 'F'; }"
+       ""
+       :status 7)
+   (fx :exit-in-finally-wins
+       "<?php try { echo 'A'; } finally { exit(3); } echo 'B';"
+       "A"
+       :status 3
+       :response [{:php.response/body "A"}])
+   (fx :unclosed-buffer-drains
+       "<?php ob_start(); echo 'x';"
+       "x"
+       :response [{:php.response/body "x"}])])

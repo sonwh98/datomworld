@@ -16,10 +16,10 @@
 
 (def ^:private function-definitions
   '[[php.sp/exhaust!
+     ;; the terminal root escape: guest handlers, returns and finalizers
+     ;; cannot replace the operational fatal
      (fn []
-       (do (php/unwind-to 1)
-           (php/raise {:php/operational true, :message
-                       "Maximum execution time of 30 seconds exceeded"})))]
+       (php/root-fatal "Maximum execution time of 30 seconds exceeded"))]
     [php.sp/tick
      (fn []
        (let [n (cell/get php.sp/remaining)]
@@ -37,8 +37,13 @@
 
 (defn program
   "The bounded run: hook definitions and a counter holding `budget`, then the
-   safepoint-derived program `ast`."
+   safepoint-derived program `ast`. `budget` must be a non-negative integer;
+   anything else is a named host-side error, not a guest diagnostic."
   [budget ast]
+  (when-not (and (integer? budget) (not (neg? budget)))
+    (throw (ex-info "php.sp/remaining budget must be a non-negative integer"
+                    {:yang.php.antlr.safepoint/error :invalid-budget
+                     :budget budget})))
   (u/mark-tails
     (u/then (definitions->uast function-definitions)
             (u/then (u/def! 'php.sp/remaining (u/sexp->uast (list 'cell/new budget)))

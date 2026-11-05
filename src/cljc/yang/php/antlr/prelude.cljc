@@ -211,6 +211,33 @@
              (do (php/pop-frame hs)
                  (if (= (get hs 0) :finally) ((get hs 1) :php/null) :php/null)
                  (php/unwind-to n))))))]
+    [php/abandon-to
+     ;; pop frames above frame count n WITHOUT running :finally thunks: the
+     ;; terminal root escapes (operational fatal, exit) bypass guest
+     ;; handlers, returns and finalizers
+     (fn [n]
+       (let [hs (php/handlers)]
+         (if (nil? hs)
+           :php/null
+           (if (<= (get hs 3) n)
+             :php/null
+             (do (php/pop-frame hs)
+                 (php/abandon-to n))))))]
+    [php/call-terminal
+     ;; `f` receives a terminal escape: invoking it abandons to here and
+     ;; answers its argument as this call's value, skipping :finally thunks
+     (fn [f]
+       (let [saved (cell/get php.rt/ctx)
+             flag (cell/new :first)]
+         ((fn [r]
+            (if (= (cell/get flag) :first)
+              (do (cell/set! flag :re-entered)
+                  (f (fn [x]
+                       (do (php/abandon-to (php/frame-depth (get saved :handlers)))
+                           (php/restore! saved)
+                           (r x)))))
+              r))
+          (%capture))))]
     [php/try
      (fn [body handler orelse]
        (let [saved (cell/get php.rt/ctx)
@@ -443,10 +470,35 @@
              value (php/array-get env name)]
          (if (= value :php/null) false value)))]
     [php/exit
+     ;; PHP exit: echo a string operand, then escape to the unit root,
+     ;; skipping exception handlers and finally blocks; shutdown functions
+     ;; and destructors still run and the status is preserved
      (fn [value]
        (if (= (php/kind value) :string)
-         (do (php/echo value) (php/raise (assoc {} :php/type :exit :status 0)))
-         (php/raise (assoc {} :php/type :exit :status (php/to-int value)))))]
+         (do (php/echo value) (php/root-exit 0))
+         (php/root-exit (php/to-int value))))]
+    [php/root-exit
+     ;; the distinct root exit continuation: an exit during shutdown only
+     ;; records its status and aborts the shutdown sequence
+     (fn [status]
+       (do (cell/set! php.rt/exit-status status)
+           (let [esc (if (= (cell/get php.rt/in-shutdown) true)
+                       (cell/get php.rt/shutdown-escape)
+                       (cell/get php.rt/exit-escape))]
+             (if (= esc :php/null)
+               (php/raise (assoc (assoc {} :php/type :exit) :status status))
+               (esc (assoc (assoc {} :php/terminal :exit) :status status))))))]
+    [php/root-fatal
+     ;; the terminal root escape for the operational fatal: guest handlers,
+     ;; returns and finalizers cannot replace it
+     (fn [message]
+       (let [esc (cell/get php.rt/fatal-escape)]
+         (if (= esc :php/null)
+           (do (php/unwind-to 1)
+               (php/raise (assoc (assoc {} :php/operational true) :message message)))
+           (esc (assoc (assoc (assoc {} :php/terminal :fatal)
+                             :php/operational true)
+                       :message message)))))]
     [php/bi-trigger-error
      (fn [args]
        (do (php/warn (if (> (data/count args) 1) (php/to-int (get args 1)) 1024)
@@ -3871,10 +3923,22 @@
        (if (< i (data/count entries))
          (do (php/unset-cv (get (get entries i) :cell)) (php/release-static-cells entries (+ i 1)))
          :php/null))]
+    [php/drain-buffers!
+     ;; row 22: nested buffer contents are not lost; fold every open buffer
+     ;; into buffer zero, innermost first, including destructor output;
+     ;; reuses the proven ob_end_flush path
+     (fn []
+       (let [bufs (cell/get php.rt/out)]
+         (if (= (data/count bufs) 1)
+           :php/null
+           (do (php/bi-ob-end-flush [])
+               (php/drain-buffers!)))))]
     [php/shutdown!
-     ;; row 22: shutdown functions, the destructor phase, then the release of
-     ;; the globals and the static tables without destructors; an exception
-     ;; from a callback or destructor ends the sequence
+     ;; row 22: shutdown functions, the destructor phase, then the release
+     ;; of the globals and the static tables without destructors; the drain
+     ;; of unclosed buffers runs on the run-main exit path, outside the
+     ;; shutdown escape, so an exit during shutdown keeps buffered output;
+     ;; an exception from a callback or destructor ends the sequence
      (fn []
        (do (php/run-shutdown-fns 0)
            (php/shutdown-globals)
@@ -5068,17 +5132,22 @@
                           (fn [e] e)
                           (fn [] :php/null)))))))]
     [php/run-main
-     ;; the unit root: output, response records, diagnostics and any uncaught error
+     ;; the unit root: output, response records, diagnostics and any uncaught error.
+     ;; The operational fatal escapes past everything through php/root-fatal;
+     ;; exit escapes past handlers and finally blocks through php/root-exit
+     ;; and its status is preserved through shutdown
      (fn [body]
        (do (cell/set! php.rt/out [[]])
            (cell/set! php.rt/ctx (php/ctx nil 0 0 nil))
            (cell/set! php.rt/response [])
            (cell/set! php.rt/headers-sent false)
            (cell/set! php.rt/status 200)
-           (let [exc0 (php/try (fn [] (do (body) :php/null))
-                               (fn [e] e)
-                               (fn [] :php/null))
-                 result (fn [exc]
+           (cell/set! php.rt/exit-status :php/null)
+           (cell/set! php.rt/in-shutdown false)
+           (cell/set! php.rt/fatal-escape :php/null)
+           (cell/set! php.rt/exit-escape :php/null)
+           (cell/set! php.rt/shutdown-escape :php/null)
+           (let [result (fn [exc]
                           (let [out (data/str-join "" (get (cell/get php.rt/out) 0))
                                 response (cell/get php.rt/response)]
                             (assoc (assoc (assoc (assoc {} :php/out out)
@@ -5088,16 +5157,48 @@
                                    :php/response
                                    (if (= out "")
                                      response
-                                     (php/vconj response (assoc {} :php.response/body out))))))]
-             (if (= true (get exc0 :php/operational))
-               (assoc (result :php/null) :php/fatal (get exc0 :message))
-               (let [exit? (= (get exc0 :php/type) :exit)
-                     exc1 (if exit? :php/null (php/handle-uncaught exc0))
-                     exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
-                                   (fn [e] e)
-                                   (fn [] :php/null))
-                     r (result (if (= exc1 :php/null) exc2 exc1))]
-                 (if exit? (assoc r :php/status (get exc0 :status)) r))))))]])
+                                     (php/vconj response (assoc {} :php.response/body out))))))
+                 fatal (fn [message] (assoc (result :php/null) :php/fatal message))
+                 v (php/call-terminal
+                    (fn [fesc]
+                      (do (cell/set! php.rt/fatal-escape fesc)
+                          (php/call-terminal
+                           (fn [eesc]
+                             (do (cell/set! php.rt/exit-escape eesc)
+                                 (let [exc0 (php/try (fn [] (do (body) :php/null))
+                                                     (fn [e] e)
+                                                     (fn [] :php/null))]
+                                   (if (= true (get exc0 :php/operational))
+                                     (fesc (assoc (assoc (assoc {} :php/terminal :fatal)
+                                                        :php/operational true)
+                                                  :message (get exc0 :message)))
+                                     (php/pair :normal exc0)))))))))]
+             (if (= (get v :php/terminal) :fatal)
+               (fatal (get v :message))
+               (let [ex (cell/get php.rt/exit-status)
+                     exc0 (if (= (get v :php/terminal) :exit) :php/null (get v 1))
+                     exc1 (if (= ex :php/null) (php/handle-uncaught exc0) :php/null)
+                     s (php/call-terminal
+                        (fn [sesc]
+                          (do (cell/set! php.rt/shutdown-escape sesc)
+                              (cell/set! php.rt/in-shutdown true)
+                              (let [exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
+                                                  (fn [e] e)
+                                                  (fn [] :php/null))]
+                                (if (= true (get exc2 :php/operational))
+                                  (php/root-fatal (get exc2 :message))
+                                  (php/pair :normal exc2))))))
+                     ;; the drain of unclosed buffers, outside the shutdown
+                     ;; escape: an exit during shutdown aborts the sequence
+                     ;; past this point, so the drain must run here, on every
+                     ;; path that reaches the exit status; the operational
+                     ;; fatal escapes past everything and never reaches here
+                     ex2 (do (php/drain-buffers!) (cell/get php.rt/exit-status))
+                     st (if (= ex2 :php/null) ex ex2)
+                     exc2 (if (= (get s :php/terminal) :exit) :php/null (get s 1))
+                     e (if (= exc1 :php/null) exc2 exc1)
+                     r (result (if (= e :php/null) :php/null e))]
+                 (if (= st :php/null) r (assoc r :php/status st)))))))]])
 
 
 (def ^:private builtins
@@ -5271,6 +5372,11 @@
                  (define 'php.rt/exception-handlers '(cell/new []))
                  (define 'php.rt/class-order '(cell/new []))
                  (define 'php.rt/shutdown-fns '(cell/new []))
+                 (define 'php.rt/exit-status '(cell/new :php/null))
+                 (define 'php.rt/in-shutdown '(cell/new false))
+                 (define 'php.rt/fatal-escape '(cell/new :php/null))
+                 (define 'php.rt/exit-escape '(cell/new :php/null))
+                 (define 'php.rt/shutdown-escape '(cell/new :php/null))
                  (define 'php.rt/pending-exc '(cell/new :php/null))
                  (define 'php.rt/cmp-depth '(cell/new 0))
                  (define 'php.rt/tmps '(cell/new []))
@@ -5333,7 +5439,8 @@
   "Every key `php/init!` allocates, the ready flag aside, sorted."
   '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
     php.rt/class-order php.rt/exception-handler php.rt/exception-handlers php.rt/finalizable php.rt/pending-exc
-    php.rt/shutdown-fns php.rt/strict php.rt/included php.rt/path-map php.rt/unit
+    php.rt/shutdown-fns php.rt/exit-status php.rt/in-shutdown php.rt/fatal-escape
+    php.rt/exit-escape php.rt/shutdown-escape php.rt/strict php.rt/included php.rt/path-map php.rt/unit
     php.rt/autoloaders php.rt/autoloading php.rt/class-map php.rt/constants
     php.rt/error-reporting php.rt/error-handlers php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
