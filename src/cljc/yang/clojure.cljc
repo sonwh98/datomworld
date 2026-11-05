@@ -28,8 +28,9 @@
 
   The compiler is written in .cljc format to run on both JVM and Node.js."
   (:refer-clojure :exclude [compile])
-  (:require [clojure.tools.reader :as treader]
-            [clojure.tools.reader.reader-types :as rt]
+  (:require #?(:jolt []
+               :default [clojure.tools.reader :as treader]
+               [clojure.tools.reader.reader-types :as rt])
             [yang.core.call :as call]
             [yang.core.uast :as u]
             [yin.vm :as vm]))
@@ -2890,14 +2891,23 @@
 
 (defn read-forms
   "Every form `source` text reads. The reader is the parser: a malformed
-   source throws, as any frontend's refused parse does."
+   source throws, as any frontend's refused parse does.
+
+   Source-string compilation is a JVM/Node capability (tools.reader is
+   an mvn dependency, absent from the jolt host's source-root classpath
+   — the jolt lane loads compiled output and ships source strings to
+   remote evaluators, so this is unreachable there; the honest error
+   says so if ever reached)."
   [source]
-  (let [rd (rt/string-push-back-reader source)]
-    (loop [forms []]
-      (let [form (treader/read rd false ::eof)]
-        (if (= form ::eof)
-          forms
-          (recur (conj forms form)))))))
+  #?(:jolt (throw (ex-info "Source-string compilation requires the JVM/Node reader; the jolt host compiles from forms or delegates source reading to its remote evaluators"
+                           {:yang.clojure/reader :unavailable-on-jolt}))
+     :default
+     (let [rd (rt/string-push-back-reader source)]
+       (loop [forms []]
+         (let [form (treader/read rd false ::eof)]
+           (if (= form ::eof)
+             forms
+             (recur (conj forms form))))))))
 
 
 (defn top-level-names
