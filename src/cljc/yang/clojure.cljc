@@ -28,18 +28,15 @@
 
   The compiler is written in .cljc format to run on both JVM and Node.js."
   (:refer-clojure :exclude [compile])
-  (:require [yang.core.call :as call]
+  (:require #?(:clj [clojure.tools.reader :as treader]
+               :cljs [cljs.tools.reader :as treader]
+               :cljd [clojure.tools.reader :as treader])
+            #?(:clj [clojure.tools.reader.reader-types :as rt]
+               :cljs [cljs.tools.reader.reader-types :as rt]
+               :cljd [clojure.tools.reader.reader-types :as rt])
+            [yang.core.call :as call]
             [yang.core.uast :as u]
             [yin.vm :as vm]))
-
-
-;; tools.reader is an mvn dependency, absent from the jolt host's
-;; source-root classpath; the conditional top-level require keeps the
-;; namespace loadable there (source-string compilation is unreachable
-;; on jolt — see read-forms).
-#?(:jolt nil
-   :default (require '[clojure.tools.reader :as treader]
-                     '[clojure.tools.reader.reader-types :as rt]))
 
 
 ;; Forward declaration for mutual recursion
