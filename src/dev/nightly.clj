@@ -168,10 +168,17 @@
         (throw (ex-info (str "lane clone failed: " clone-dir) {:rc rc})))))
   (let [frc (:exit (psh {:dir clone-dir :continue true} "git" "fetch" "origin"))
         crc (:exit (psh {:dir clone-dir :continue true}
-                        "git" "checkout" "-q" "--detach" sha))]
+                        "git" "checkout" "-q" "--detach" sha))
+        ;; a fresh lane clone is untrusted; the first bb shim call inside it
+        ;; refuses until trusted (measured on shiva 2026-11-05: both lanes
+        ;; died in 0s on exactly this)
+        trc (if (fs/which "mise")
+              (:exit (psh {:dir clone-dir :continue true} "mise" "trust"))
+              0)]
     (when-not (zero? frc) (log (str "FAIL: fetch in " clone-dir)))
     (when-not (zero? crc) (log (str "FAIL: checkout " sha " in " clone-dir)))
-    (if (zero? frc) crc frc)))
+    (when-not (zero? trc) (log (str "FAIL: mise trust in " clone-dir)))
+    (if (zero? frc) (max crc trc) frc)))
 
 
 (defn- lane-clones
