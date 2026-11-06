@@ -28,12 +28,12 @@
 
   The compiler is written in .cljc format to run on both JVM and Node.js."
   (:refer-clojure :exclude [compile])
-  (:require #?(:cljd nil
-               :clj [clojure.tools.reader :as treader]
-               :cljs [cljs.tools.reader :as treader])
-            #?(:cljd nil
-               :clj [clojure.tools.reader.reader-types :as rt]
-               :cljs [cljs.tools.reader.reader-types :as rt])
+  (:require #?@(:jolt []
+                :cljd []
+                :clj [[clojure.tools.reader :as treader]
+                      [clojure.tools.reader.reader-types :as rt]]
+                :cljs [[cljs.tools.reader :as treader]
+                       [cljs.tools.reader.reader-types :as rt]])
             [yang.core.call :as call]
             [yang.core.uast :as u]
             [yin.vm :as vm]))
