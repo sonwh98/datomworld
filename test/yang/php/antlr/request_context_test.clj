@@ -20,21 +20,14 @@
   (str/replace msg #" by \(output started at .*\)$" ""))
 
 
-(def ^:private ob-end-clean-no-buffer-pattern
-  "Recorded `ob_end_clean` failure text for the empty-buffer case."
-  #"ob_end_clean.*No buffer to delete")
-
-
 (defn- normalize-expected-diag
   "Normalize the fixture (oracle-fold) `:diag` before comparing against the
-  engine: (a) the empty-`ob_end_clean` diagnostic the oracle records is
-  dropped — the engine returns bare `false` with no diagnostic (the recorded
-  engine behavior per the fold); (b) the oracle's location suffix is stripped
-  from headers-already-sent texts. Fold records stay verbatim."
+  engine: the oracle's location suffix is stripped from headers-already-sent
+  texts (the engine records the bare refusal text per the headers ruling).
+  The empty-`ob_end_clean` notice the oracle records is kept verbatim — the
+  engine emits it per the notice ruling. Fold records stay verbatim."
   [expected-diag]
-  (into []
-        (comp (remove (fn [[_errno msg]] (re-find ob-end-clean-no-buffer-pattern msg)))
-              (map (fn [[errno msg]] [errno (strip-output-started msg)])))
+  (mapv (fn [[errno msg]] [errno (strip-output-started msg)])
         expected-diag))
 
 

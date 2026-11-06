@@ -421,10 +421,13 @@
            (do (php/warn 8 "ob_end_clean(): Failed to delete buffer. No buffer to delete") false)
            (do (cell/set! php.rt/out (php/args-prefix bufs (- (data/count bufs) 1) 0 [])) true))))]
     [php/bi-ob-get-clean
+     ;; php-8.3.35 shiva: ob_get_clean on an empty buffer returns false with
+     ;; no diagnostic (the :output-buffering oracle records []); only
+     ;; ob_end_clean/ob_end_flush emit the empty-buffer notice.
      (fn [args]
        (let [bufs (cell/get php.rt/out)]
          (if (= (data/count bufs) 1)
-           (do (php/warn 8 "ob_get_clean(): Failed to delete buffer. No buffer to delete") false)
+           false
            (let [s (php/bi-ob-get-contents args)]
              (do (php/bi-ob-end-clean args) s)))))]
     [php/bi-ob-end-flush

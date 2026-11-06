@@ -9144,7 +9144,11 @@
          [:expression
           [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$s"]]]]]]
           [:assignmentOperator ["Eq" "="]]
-          [:expression [:string ["SingleQuoteString" "'abc'"]]]]
+          [:expression
+           [:string
+            ["DoubleQuote" "\""]
+            [:interpolatedStringPart ["StringPart" "ab"]]
+            ["DoubleQuote" "\""]]]]
          ["SemiColon" ";"]]]]
       [:topStatement
        [:statement
@@ -9161,7 +9165,19 @@
                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]
                 ["CloseSquareBracket" "]"]]]]]]]
           [:assignmentOperator ["Eq" "="]]
-          [:expression [:string ["SingleQuoteString" "'x'"]]]]
+          [:expression
+           [:string
+            ["DoubleQuote" "\""]
+            [:interpolatedStringPart ["StringPart" "c"]]
+            ["DoubleQuote" "\""]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$s"]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
     :array-assign-value

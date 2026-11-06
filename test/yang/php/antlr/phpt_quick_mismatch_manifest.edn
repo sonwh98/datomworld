@@ -68,8 +68,8 @@
    "Implement PHP cyclic garbage collection and roots/threshold behavior."}],
  :counts
  {:foreach-semantics 11,
-  :named-parameter-binding 3,
-  :zend-regression 61,
+  :named-parameter-binding 4,
+  :zend-regression 60,
   :array-pointer 1,
   :total 95,
   :unset-cv 3,
@@ -109,7 +109,6 @@
     "Zend/tests/bug63882_2.phpt"
     "Zend/tests/bug64515.phpt"
     "Zend/tests/bug64578.phpt"
-    "Zend/tests/bug67169.phpt"
     "Zend/tests/bug67314.phpt"
     "Zend/tests/bug67856.phpt"
     "Zend/tests/bug68215.phpt"
@@ -174,6 +173,7 @@
    :entries
    ["Zend/tests/named_params/call_user_func_array_variadic.phpt"
     "Zend/tests/named_params/func_get_args.phpt"
+    "Zend/tests/named_params/internal.phpt"
     "Zend/tests/named_params/undef_var.phpt"]}
   {:feature :unset-cv,
    :entries
@@ -334,12 +334,12 @@
   "Bug #70121 (unserialize() could lead to unexpected methods execution / NULL pointer deref)",
   "Zend/tests/named_params/func_get_args.phpt"
   "Behavior of func_get_args() and friends with named parameters",
+  "Zend/tests/named_params/internal.phpt"
+  "Named params on internal functions",
   "Zend/tests/gc_018.phpt" "GC 018: GC detach with assign",
   "Zend/tests/bug78598.phpt"
   "Bug #78598: Changing array during undef index RW error segfaults",
   "Zend/tests/bug36568.phpt" "Bug #36568 (memory_limit has no effect)",
-  "Zend/tests/bug67169.phpt"
-  "Bug #67169: array_splice all elements, then []= gives wrong index",
   "Zend/tests/named_params/undef_var.phpt"
   "Passing undefined variable to named arg",
   "tests/lang/passByReference_008.phpt"
