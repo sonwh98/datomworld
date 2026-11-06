@@ -326,16 +326,19 @@
                                     0))))
          (fn [x] (cell/set! php.rt/error-handler h))))]
     [php/warn
-     ;; a handler is called whatever error_reporting says; returning false
-     ;; falls through to the default sink
+     ;; a handler is called whatever error_reporting says (unless its mask
+     ;; excludes this level); returning false falls through to the default
+     ;; sink
      (fn [errno msg]
        (let [rec (php/warn-record errno msg)
              h (cell/get php.rt/error-handler)]
          (if (= h :php/null)
            (php/warn-sink rec)
-           (if (= (php/invoke-handler h errno msg) false)
+           (if (= (integer/bit-and errno (cell/get php.rt/error-mask)) 0)
              (php/warn-sink rec)
-             :php/null))))]
+             (if (= (php/invoke-handler h errno msg) false)
+               (php/warn-sink rec)
+               :php/null)))))]
     [php/silence
      ;; `@e`: error_reporting is the PHP 8 mask while `thunk` runs, restored
      ;; by an escape too; the handler is still invoked and observes the mask
@@ -369,6 +372,61 @@
     [php/request-field
      (fn [request field]
        (php/request-array (get request field)))]
+    [php/request-max-key
+     ;; the highest integer key in `order`, or nil when there is none
+     (fn [order i n acc]
+       (if (< i n)
+         (let [k (get order i)]
+           (php/request-max-key order (+ i 1) n
+             (if (php/int? k)
+               (if (nil? acc)
+                 k
+                 (if (= (integer/compare k acc) 1) k acc))
+               acc)))
+         acc))]
+    [php/request-ensure-next
+     ;; stream-supplied tables may carry no `:next-index` (only guest writes
+     ;; maintain it); seed it from the highest integer key so appends land
+     ;; past every occupied slot instead of tripping the occupancy error
+     (fn [arr]
+       (if (if (= (php/slot-kind arr) :plain)
+             (nil? (get arr :next-index))
+             false)
+         (let [m (php/request-max-key (php/array-order arr) 0
+                                      (php/array-count arr) nil)]
+           (if (nil? m) arr (php/bump-next arr m)))
+         arr))]
+    [php/request-merge-into
+     ;; PHP's requests-table merge (php-src main/php_variables.c,
+     ;; php_register_variable_safe): string keys overwrite in order while
+     ;; numeric keys are preserved and appended, and nested arrays merge
+     ;; recursively instead of replacing. `array_merge` renumbers numeric
+     ;; keys and replaces nested arrays, so $_REQUEST needs its own merge.
+     (fn [base overlay]
+       (php/request-merge-keys (php/request-ensure-next base)
+                               overlay (php/array-order overlay) 0
+                               (php/array-count overlay)))]
+    [php/request-merge-keys
+     ;; integer keys append (like `spread-loop`); string keys overwrite in
+     ;; order unless both sides hold arrays, which merge recursively.
+     (fn [base overlay order i n]
+       (if (< i n)
+         (let [k (get order i)
+               v (php/array-get overlay k)]
+           (if (php/int? k)
+             (php/request-merge-keys
+               (php/array-append base v) overlay order (+ i 1) n)
+             (if (php/array-has? base k)
+               (let [old (php/array-get base k)]
+                 (if (if (php/array? old) (php/array? v) false)
+                   (php/request-merge-keys
+                     (php/array-put base k (php/request-merge-into old v))
+                     overlay order (+ i 1) n)
+                   (php/request-merge-keys
+                     (php/array-put base k v) overlay order (+ i 1) n)))
+               (php/request-merge-keys
+                 (php/array-put base k v) overlay order (+ i 1) n))))
+         base))]
     [php/bind-request!
      (fn [request]
        (let [geta (php/request-field request :php.request/query)
@@ -383,8 +441,7 @@
                                       (if (nil? uri) "" uri)))
              env (php/request-field request :php.request/env)
              files (php/request-field request :php.request/files)
-             req (php/merge-loop (php/vconj (php/vconj [] geta) post)
-                                 0 2 (php/empty-array))]
+             req (php/request-merge-into geta post)]
          (do (cell/set! php.rt/request request)
              (php/global-put! "_GET" geta)
              (php/global-put! "_POST" post)
@@ -443,30 +500,75 @@
          (do (php/warn 2 "Cannot modify header information - headers already sent") true)
          false))]
     [php/bi-header
+     ;; header(string, replace=true, status=0): the status argument sets the
+     ;; response code; a bare "HTTP/..." line sets it too. Returns null.
      (fn [args]
        (if (php/headers-refused?)
          :php/null
-         (php/emit-response!
-           (assoc (assoc {} :php.response/header (php/to-string (get args 0)))
-                  :replace (if (> (data/count args) 1) (php/to-bool (get args 1)) true)))))]
+         (let [line (php/to-string (get args 0))
+               replace (if (> (data/count args) 1) (php/to-bool (get args 1)) true)
+               status (if (> (data/count args) 2) (php/to-int (get args 2)) 0)]
+           (do (php/emit-response!
+                 (assoc (assoc {} :php.response/header line) :replace replace))
+               (if (not (= status 0))
+                 (do (cell/set! php.rt/status status)
+                     (php/emit-response! (assoc {} :php.response/status status)))
+                 :php/null)
+               :php/null))))]
     [php/bi-headers-sent
      (fn [args] (cell/get php.rt/headers-sent))]
     [php/bi-http-response-code
+     ;; with no argument answers the current code; with one, answers the
+     ;; previous code and installs the new one (false when refused).
      (fn [args]
        (if (= (data/count args) 0)
          (cell/get php.rt/status)
          (if (php/headers-refused?)
            false
-           (let [status (php/to-int (get args 0))]
+           (let [prev (cell/get php.rt/status)
+                 status (php/to-int (get args 0))]
              (do (cell/set! php.rt/status status)
                  (php/emit-response! (assoc {} :php.response/status status))
-                 true)))))]
+                 prev)))))]
+    [php/cookie-opt
+     (fn [opts k v]
+       (if (= v :php/null) opts (assoc opts k v)))]
     [php/bi-setcookie
+     ;; setcookie(name, value="", expires=0, path="", domain="", secure=false,
+     ;; httponly=false) or setcookie(name, value, [options-array]): retained
+     ;; expiration/path/domain/secure/httponly/samesite on the cookie record.
      (fn [args]
        (if (php/headers-refused?)
          false
-         (let [cookie (assoc (assoc {} :name (php/to-string (get args 0)))
-                             :value (if (> (data/count args) 1) (php/to-string (get args 1)) ""))]
+         (let [n (data/count args)
+               name (php/to-string (get args 0))
+               value (if (> n 1) (php/to-string (get args 1)) "")
+               opts (if (if (> n 2) (php/array? (get args 2)) false)
+                      (let [o (get args 2)
+                            opt (fn [m s k f]
+                                  (if (php/array-has? o s)
+                                    (php/cookie-opt m k (f (php/array-get o s)))
+                                    m))]
+                        (opt (opt (opt (opt (opt (opt {} "expires" :expires php/to-int)
+                                                              "path" :path php/to-string)
+                                                        "domain" :domain php/to-string)
+                                                  "secure" :secure php/to-bool)
+                                            "httponly" :httponly php/to-bool)
+                                      "samesite" :samesite php/to-string))
+                      (let [has (fn [i] (> n i))
+                            put (fn [m i k f]
+                                  (if (has i)
+                                    (php/cookie-opt m k (f (get args i)))
+                                    m))]
+                        (put (put (put (put (put (put {} 2 :expires php/to-int)
+                                                          3 :path php/to-string)
+                                                    4 :domain php/to-string)
+                                              5 :secure php/to-bool)
+                                        6 :httponly php/to-bool)
+                                  7 :samesite php/to-string)))
+               cookie (assoc (assoc {} :name name)
+                             :value value
+                             :options opts)]
            (do (php/emit-response! (assoc {} :php.response/cookie cookie)) true))))]
     [php/bi-setrawcookie
      (fn [args] (php/bi-setcookie args))]
@@ -508,11 +610,26 @@
            (esc (assoc (assoc (assoc {} :php/terminal :fatal)
                               :php/operational true)
                        :message message)))))]
+    [php/trigger-level-ok?
+     ;; trigger_error/user_error accept only the four user levels
+     (fn [level]
+       (if (= level 256) true
+         (if (= level 512) true
+           (if (= level 1024) true (= level 16384)))))]
     [php/bi-trigger-error
      (fn [args]
-       (do (php/warn (if (> (data/count args) 1) (php/to-int (get args 1)) 1024)
-                     (php/to-string (get args 0)))
-           true))]
+       (let [msg (php/to-string (get args 0))
+             level (if (> (data/count args) 1) (php/to-int (get args 1)) 1024)]
+         (if (php/trigger-level-ok? level)
+           (if (= level 256)
+             ;; an unhandled E_USER_ERROR is fatal: the handler runs first,
+             ;; then the run ends through the terminal root escape
+             (do (php/warn level msg)
+                 (php/root-fatal msg)
+                 false)
+             (do (php/warn level msg) true))
+           (do (php/warn 2 "trigger_error(): Invalid error level")
+               false))))]
     [php/zeros
      (fn [n acc] (if (> n 0) (php/zeros (- n 1) (data/str-concat acc "0")) acc))]
     [php/strip-zeros
@@ -4504,21 +4621,37 @@
          (php/to-bool (get args 0))
          (php/arity-error "boolval" "exactly 1" args)))]
     [php/bi-set-error-handler
+     ;; the handler stack saves the callback AND the mask: restore brings
+     ;; both back. The mask defaults to E_ALL; a null callback resets to the
+     ;; default sink. Answers the previous callback (null when none).
      (fn [args]
        (if (< (data/count args) 1)
          (php/throw-error "ArgumentCountError"
                           "set_error_handler() expects at least 1 argument, 0 given")
-         (let [old (cell/get php.rt/error-handler)]
+         (let [old (cell/get php.rt/error-handler)
+               old-mask (cell/get php.rt/error-mask)
+               mask (if (> (data/count args) 1) (php/to-int (get args 1)) 32767)
+               cb (get args 0)]
            (do (cell/set! php.rt/error-handlers
                           (php/vconj (cell/get php.rt/error-handlers) old))
-               (cell/set! php.rt/error-handler (get args 0))
+               (cell/set! php.rt/error-masks
+                          (php/vconj (cell/get php.rt/error-masks) old-mask))
+               (cell/set! php.rt/error-handler
+                          (if (= cb :php/null) :php/null cb))
+               (cell/set! php.rt/error-mask mask)
                old))))]
     [php/bi-restore-error-handler
      (fn [args]
        (let [stack (cell/get php.rt/error-handlers)
+             masks (cell/get php.rt/error-masks)
              n (data/count stack)]
          (do (cell/set! php.rt/error-handler (if (= n 0) :php/null (get stack (- n 1))))
+             (cell/set! php.rt/error-mask
+                        (if (= (data/count masks) 0) 32767 (get masks (- (data/count masks) 1))))
              (if (> n 0) (cell/set! php.rt/error-handlers (data/subvec stack 0 (- n 1))) :php/null)
+             (if (> (data/count masks) 0)
+               (cell/set! php.rt/error-masks (data/subvec masks 0 (- (data/count masks) 1)))
+               :php/null)
              true)))]
     [php/bi-error-reporting
      (fn [args]
@@ -5141,11 +5274,15 @@
                           (fn [e] e)
                           (fn [] :php/null)))))))]
     [php/run-main
-     ;; the unit root: output, response records, diagnostics and any uncaught error.
+     ;; the unit root: one task consuming one request record from the
+     ;; composition-supplied stream. The request seeds the superglobals here
+     ;; at initialization (not via a test-only rewrite): a nil request keeps
+     ;; the empty defaults. Output, response records and diagnostics are the
+     ;; task's emissions on the composition-supplied streams.
      ;; The operational fatal escapes past everything through php/root-fatal;
      ;; exit escapes past handlers and finally blocks through php/root-exit
      ;; and its status is preserved through shutdown
-     (fn [body]
+     (fn [body request]
        (do (cell/set! php.rt/out [[]])
            (cell/set! php.rt/ctx (php/ctx nil 0 0 nil))
            (cell/set! php.rt/response [])
@@ -5153,6 +5290,9 @@
            (cell/set! php.rt/status 200)
            (cell/set! php.rt/exit-status :php/null)
            (cell/set! php.rt/in-shutdown false)
+           (if (if (nil? request) true (= request :php/null))
+             :php/null
+             (php/bind-request! request))
            (cell/set! php.rt/fatal-escape :php/null)
            (cell/set! php.rt/exit-escape :php/null)
            (cell/set! php.rt/shutdown-escape :php/null)
@@ -5391,6 +5531,8 @@
                  (define 'php.rt/tmps '(cell/new []))
                  (define 'php.rt/next-cell '(cell/new 1))
                  (define 'php.rt/error-handler '(cell/new :php/null))
+                 (define 'php.rt/error-masks '(cell/new []))
+                 (define 'php.rt/error-mask '(cell/new 32767))
                  ;; E_ALL
                  (define 'php.rt/error-reporting '(cell/new 32767))
                  (define 'php.rt/diag '(cell/new []))
@@ -5447,6 +5589,7 @@
 (def runtime-keys
   "Every key `php/init!` allocates, the ready flag aside, sorted."
   '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
+    php.rt/error-mask php.rt/error-masks
     php.rt/class-order php.rt/exception-handler php.rt/exception-handlers php.rt/finalizable php.rt/pending-exc
     php.rt/shutdown-fns php.rt/exit-status php.rt/in-shutdown php.rt/fatal-escape
     php.rt/exit-escape php.rt/shutdown-escape php.rt/strict php.rt/included php.rt/path-map php.rt/unit

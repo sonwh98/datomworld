@@ -3747,7 +3747,7 @@
 
 (def option-keys
   "The options `lower-program` and the lowering stage accept."
-  [:prelude :path :paths :class-map])
+  [:prelude :path :paths :class-map :request])
 
 
 (defn- path-map-node
@@ -3776,7 +3776,7 @@
    the published `phpm.$classmap` and binds its classes and delivery thunks
    (plan P6 R9), which takes the place of `:paths`."
   ([packet] (lower-program packet {}))
-  ([packet {:keys [prelude paths path class-map], :or {prelude :bundled}}]
+  ([packet {:keys [prelude paths path class-map request], :or {prelude :bundled}}]
    (when-not (contains? #{:bundled :linked} prelude)
      (throw (ex-info "unknown PHP prelude profile"
                      {:yang.php/diagnostic :yang.php/unsupported,
@@ -3784,7 +3784,11 @@
                       :prelude prelude})))
    (let [linked? (= :linked prelude)
          ctx (context packet {:path (or path entry-path), :linked? linked?})
-         main (app* 'php/run-main (u/lam [] (unit-node ctx)))]
+         ;; the request record rides the composition path as `run-main`'s
+         ;; second operand: production initialization consumes it and seeds
+         ;; the superglobals, no postwalk rewrite involved.
+         main (app* 'php/run-main (u/lam [] (unit-node ctx))
+                    (u/sexp->uast (or request :php/null)))]
      {:ast (u/mark-tails
              (if linked?
                (u/seq-nodes (concat [(app* 'require (u/lit 'yang.call))
