@@ -71,7 +71,7 @@
   :named-parameter-binding 4,
   :zend-regression 61,
   :array-pointer 1,
-  :total 96,
+  :total 95,
   :unset-cv 3,
   :unsupported 57,
   :pass-by-reference 5,
@@ -109,7 +109,6 @@
     "Zend/tests/bug63882_2.phpt"
     "Zend/tests/bug64515.phpt"
     "Zend/tests/bug64578.phpt"
-    "Zend/tests/bug67169.phpt"
     "Zend/tests/bug67314.phpt"
     "Zend/tests/bug67856.phpt"
     "Zend/tests/bug68215.phpt"
@@ -341,8 +340,6 @@
   "Zend/tests/bug78598.phpt"
   "Bug #78598: Changing array during undef index RW error segfaults",
   "Zend/tests/bug36568.phpt" "Bug #36568 (memory_limit has no effect)",
-  "Zend/tests/bug67169.phpt"
-  "Bug #67169: array_splice all elements, then []= gives wrong index",
   "Zend/tests/named_params/undef_var.phpt"
   "Passing undefined variable to named arg",
   "tests/lang/passByReference_008.phpt"
