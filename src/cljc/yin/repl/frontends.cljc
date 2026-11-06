@@ -38,6 +38,20 @@
    :yang.frontend/support-profile :segment/legacy})
 
 
+(defn clojure-manifest
+  "The Clojure frontend's manifest. Its coverage promise changed under
+   the call-site occurrence contract C1 — every final `:application`
+   occurrence carries `:yang/call-site` in the frontend-metadata side
+   table, finalized over the post-expansion tree that executes and
+   retained beside a published module's manifest — and that promise is
+   a support claim, so the revision and the support profile name it;
+   the shared legacy profiles no longer describe this frontend."
+  []
+  (assoc (manifest :yang/clojure :clojure)
+         :yang.frontend/revision "c1-1"
+         :yang.frontend/support-profile :yang.clojure/c1))
+
+
 (defn- clojure-lower
   [forms]
   (if (= 1 (count forms))
@@ -77,7 +91,7 @@
    returns."
   []
   (cond-> frontend/empty-catalog
-    true (frontend/install (manifest :yang/clojure :clojure)
+    true (frontend/install (clojure-manifest)
                            {:input :forms,
                             :parse identity,
                             :lower clojure-lower})

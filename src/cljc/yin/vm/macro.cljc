@@ -1193,15 +1193,38 @@
   (update ctx :guards #(merge default-guards %)))
 
 
+(defn- final-call-site-metadata
+  "The call-site occurrence contract's (C1) side table of an expanded
+   final tree, as frontend-metadata rows `[origin root path
+   :yang/call-site 1]` in printed-row order: one row per
+   `:application` occurrence of the stand-in-lowered, tail-marked tree
+   that actually executes. The frontend's own markers named the
+   pre-expansion tree; expansion, tail marking and stand-in lowering
+   recompute roots and paths, so no pre-expansion table can cover this
+   tree and the table is finalized here, over the finished rows. The
+   origin is the run member's admission origin — the same coordinate
+   the expander's event rows carry for a top-level frame. No
+   expansion-record address is fabricated for the batch as a whole:
+   the batch's attempts are individually recorded in the log, and the
+   final tree is their admitted input's finished form."
+  [row-set origin]
+  (vec (sort-by pr-str
+                (map (fn [[root path]] [origin root path :yang/call-site 1])
+                     (vm/application-occurrences row-set)))))
+
+
 (defn expand-batch
   "Expand one input batch against `ctx` (§3.2). Returns
    `{:status :ok :tree packet :log log :ctx ctx'}` or
    `{:status :error :error e :log log :ctx ctx'}`. Either way `ctx'` has
    consumed the batch (`:t` + 1) and every attempt it allocated; only
-   success changes the store, to the post-harvest store. A context store
-   binding a reserved name, or holding an entry without the current AST
-   contract, is refused (Rule R): it is a composition defect, so it throws
-   rather than returning an error."
+   success changes the store, to the post-harvest store. A success also
+   carries `:frontend-metadata`: the C1 side table finalized over the
+   final tree (`final-call-site-metadata`), covering the tree that
+   actually executes. A context store binding a reserved name, or
+   holding an entry without the current AST contract, is refused
+   (Rule R): it is a composition defect, so it throws rather than
+   returning an error."
   [batch ctx]
   (check-store! (:store ctx))
   (let [ctx (with-default-guards ctx)
@@ -1212,6 +1235,7 @@
                    (if-let [e (:error st)]
                      {:status :error, :error e, :log (log-packet st), :ctx ctx'}
                      {:status :ok, :tree (:tree st), :log (log-packet st),
+                      :frontend-metadata (:frontend-metadata st),
                       :ctx (assoc ctx' :store (:next-store st))})))
         {:keys [admitted error]} (admit batch)]
     (if error
@@ -1255,10 +1279,14 @@
               (let [next-store (post-harvest store0 (:index st) root' catalogue)
                     [index root'] (retail (:index st) root')
                     [index root'] (lower-standins index root')
-                    tree (packet-of index root')]
+                    tree (packet-of index root')
+                    metadata (final-call-site-metadata
+                               (packet->row-set tree)
+                               (source-origin ctx source-batch run-index))]
                 (if-let [e (valid-tree? tree)]
                   (throw (ex-info "Expander produced a non-canonical tree" e))
-                  (finish (assoc st :tree tree :next-store next-store)))))))))))
+                  (finish (assoc st :tree tree :next-store next-store
+                                 :frontend-metadata metadata)))))))))))
 
 
 (defn expand
@@ -1359,11 +1387,17 @@
   "Expand one observed batch once: keep the returned context, stage the tree
    only on success, stage the log when a log writer exists, and accumulate
    the error of a failed expansion. Expansion failure is data, so the
-   cursor advances past it."
+   cursor advances past it. A successful expansion's C1 side table (the
+   batch result's `:frontend-metadata`) is retained on the consumer as
+   `:frontend-metadata`, so the composition that drives this expander —
+   the REPL's session — holds the executed tree's coverage beside the
+   expander that produced it."
   [expander batch]
-  (let [{:keys [status tree log error ctx]} (expand-batch batch (:ctx expander))]
+  (let [{:keys [status tree log error ctx frontend-metadata]}
+        (expand-batch batch (:ctx expander))]
     (cond-> (assoc expander :ctx ctx)
-      (= :ok status) (assoc :out-staged tree)
+      (= :ok status) (assoc :out-staged tree
+                            :frontend-metadata frontend-metadata)
       (:log expander) (assoc :log-staged log)
       (= :error status) (update :errors conj error))))
 

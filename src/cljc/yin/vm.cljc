@@ -1609,6 +1609,20 @@
                (into tuples (map (fn [[path id]] [root path id]) frontier)))))))
 
 
+(defn application-occurrences
+  "The `[root path]` of every `:application` occurrence of the projected
+   row set `tree`: the occurrence relation joined on the row tags, with
+   no origin — a composition fixes the origin from its own side, as with
+   `occurrences`. This is the eligible-site derivation of the call-site
+   occurrence contract: one pair per place, so a shared application row
+   at two places counts twice."
+  [{:keys [rows] :as tree}]
+  (into #{}
+        (comp (filter (fn [[_ _ id]] (= :application (nth (get rows id) 1))))
+              (map (fn [[root path _]] [root path])))
+        (occurrences tree)))
+
+
 (def occurrence-rules
   "§4.5/§7.7: root-scoped occurrence rules, as portable data. A name is
    bound at `[root path]` iff a `:lambda` occurrence of the same root sits

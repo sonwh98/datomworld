@@ -90,6 +90,64 @@
    linker/stack-format linker/register-format])
 
 
+;; =============================================================================
+;; Call-site occurrence contract C1 (Addendum A, design §2)
+;; =============================================================================
+;;
+;; A module whose frontend finalized its tree (`:yang/call-site 1` on
+;; every final `:application` occurrence) publishes its frontend-metadata
+;; side table beside its manifest: the manifest keeps schema 1 (a
+;; manifest address names code), and a separate record names the
+;; manifest, the code root, and the table's address — the site-set
+;; publication pattern (`yang.python.antlr.siteset`). The publisher
+;; extracts the markers from the map AST, refuses the publication when
+;; they do not exactly cover the canonical tree's application
+;; occurrences, and otherwise materializes the table and its record
+;; into the same handle. A module with no markers makes no claim and
+;; publishes exactly as before.
+
+(defn- publication-origin
+  "The occurrence origin of a module tree this publisher admits: the
+   publisher's own medium, the tree's root as its batch token, member
+   0. Deterministic in the tree, so the table published beside a
+   manifest can be recomputed — and its absence detected — from the
+   manifest alone."
+  [root]
+  [:source :yin.vm.linker.publish/publish root 0])
+
+
+(defn- claims-call-sites?
+  "True when map AST `ast` carries the C1 key anywhere. A hit inside a
+   literal payload is data, not a claim: extraction then finds no
+   markers and the module publishes unannotated, as it should."
+  [ast]
+  (boolean (some #(= :yang/call-site %) (tree-seq coll? seq ast))))
+
+
+(defn- call-site-claim
+  "The C1 claim `ast` makes over its canonical `tree`: nil when it
+   carries no markers; `{:origin o :rows [...]}` in printed-row order
+   when the extracted markers exactly cover the tree's eligible
+   application occurrences; `{:missing [...] :extra [...]}` when they
+   do not."
+  [ast tree]
+  (when (claims-call-sites? ast)
+    (let [origin (publication-origin (:root tree))
+          extracted (filter #(= :yang/call-site (nth % 3))
+                            (:frontend-metadata
+                              (vm/ast-side-tables ast tree origin)))
+          eligible (into #{}
+                         (map (fn [[r p]] [origin r p]))
+                         (vm/application-occurrences tree))
+          marked (into #{}
+                       (map (fn [[o r p _ _]] [o r p]))
+                       extracted)]
+      (if (= eligible marked)
+        {:origin origin, :rows (vec (sort-by pr-str extracted))}
+        {:missing (vec (sort-by pr-str (remove marked eligible))),
+         :extra (vec (sort-by pr-str (remove eligible marked)))}))))
+
+
 (defn link-local
   "Link `format`'s image through the manifest `address` over `handle`'s
    own content, `:verifying` with discharge deferred, as a serving
@@ -138,7 +196,14 @@
                 (sort-by (fn [[n _]] (str n)) requires)))
         fp (when (and tree (not defect) (not requirement)
                       (not= :refused (:status tree)))
-             (footprint handle (assoc spec :tree tree)))]
+             (footprint handle (assoc spec :tree tree)))
+        ;; a C1 claim is validated before anything is written: a module
+        ;; whose markers do not cover its tree is never published as
+        ;; though it did
+        claim (when (and tree (not defect) (not requirement)
+                         (not= :refused (:status tree))
+                         (not= :refused (:status fp)))
+                (call-site-claim ast tree))]
     (cond
       undefined
       (refusal :yin.link.publish/undefined-export {:export undefined})
@@ -151,6 +216,9 @@
       requirement requirement
 
       (= :refused (:status fp)) fp
+
+      (and claim (not (:rows claim)))
+      (refusal :yin.link.publish/incomplete-call-site-coverage claim)
 
       :else
       (let [tree-address (vm/materialize-tree! handle tree)
@@ -190,6 +258,17 @@
                                     primitives))
                       :yin.module/footprint fp}
             address (jing/materialize! handle manifest)
+            ;; the C1 side table and its record, beside the manifest
+            call-sites (when (:rows claim)
+                         (let [table (jing/materialize! handle (:rows claim))
+                               record {:yang.call-site/manifest address
+                                       :yang.call-site/root (:root tree)
+                                       :yang.call-site/origin (:origin claim)
+                                       :yang.call-site/table table}]
+                           {:record (jing/materialize! handle record)
+                            :table table
+                            :origin (:origin claim)
+                            :root (:root tree)}))
             walked (closure/walk handle address opts)]
         (if (not= :complete (:yin.link.closure/outcome walked))
           (refusal :yin.link.publish/incomplete-closure
@@ -201,12 +280,14 @@
                                                 (select-keys opts
                                                              [:bounds]))]))
                             code-formats)]
-            {:address address :manifest manifest
-             :identities {:yin.semantic/code sem
-                          :yin.debruijn.code sem
-                          :yin.debruijn.register sem}
-             :checksums {:yin.debruijn.code h :yin.debruijn.register r}
-             :links links}))))))
+            (cond-> {:address address :manifest manifest
+                     :identities {:yin.semantic/code sem
+                                  :yin.debruijn.code sem
+                                  :yin.debruijn.register sem}
+                     :checksums {:yin.debruijn.code h
+                                 :yin.debruijn.register r}
+                     :links links}
+              call-sites (assoc :call-sites call-sites))))))))
 
 
 (defn publish-module!
@@ -216,6 +297,67 @@
    bound left out taking `linker/default-bounds`."
   ([handle spec] (publish-module! handle spec nil))
   ([handle spec opts] (publish-closure! handle spec opts)))
+
+
+(defn- stored-tree
+  "The canonical row tree stored under `root` in `handle`, rebuilt
+   from its individually materialized rows (`vm/materialize-tree!`
+   stores each row body under its own address), or nil when a reached
+   row is absent."
+  [handle root]
+  (loop [queue [root]
+         rows {}]
+    (if (empty? queue)
+      {:root root, :rows rows}
+      (let [address (first queue)
+            body (jing/get handle address nil)]
+        (if-not (vector? body)
+          nil
+          (let [row (into [address] body)
+                kids (into []
+                           (mapcat (fn [[j [_ kind]]]
+                                     (let [pos (+ j 2)]
+                                       (case kind
+                                         :node [(nth row pos)]
+                                         :nodes (nth row pos)
+                                         nil))))
+                           (map-indexed vector
+                                        (get vm/semantic-bytecode-grammar
+                                             (nth row 1))))]
+            (recur (into (subvec queue 1)
+                         (remove #(contains? rows %) kids))
+                   (assoc rows address row))))))))
+
+
+(defn published-call-site-table
+  "The C1 side table published beside the module whose manifest is at
+   `address` in `handle`: `{:origin o :root r :rows [...] :tree tree}`
+   with the rows exactly as stored and the module's canonical tree, or
+   nil when the module made no C1 claim — nothing was published beside
+   it. The table and its record are content-addressed from the
+   manifest's tree, so their addresses are recomputed here and the
+   values then fetched: a module whose markers were never retained
+   answers nil, never a recomputation passed off as the published
+   table."
+  [handle address]
+  (let [manifest (jing/get handle address nil)]
+    (when (and (map? manifest) (:yin.module/tree manifest))
+      (when-let [tree (stored-tree handle (:yin.module/tree manifest))]
+        (let [origin (publication-origin (:root tree))
+              rows (vec (sort-by pr-str
+                                 (map (fn [[r p]]
+                                        [origin r p :yang/call-site 1])
+                                      (vm/application-occurrences tree))))
+              table (jing/segment-key rows)
+              record {:yang.call-site/manifest address
+                      :yang.call-site/root (:root tree)
+                      :yang.call-site/origin origin
+                      :yang.call-site/table table}
+              stored-rows (jing/get handle table nil)
+              stored-record (jing/get handle (jing/segment-key record) nil)]
+          (when (and (some? stored-rows) (= record stored-record))
+            {:origin origin, :root (:root tree), :rows stored-rows,
+             :tree tree}))))))
 
 
 ;; =============================================================================

@@ -4,11 +4,17 @@
    `:application` occurrence, and the complete-coverage validation a
    consumer runs against canonical rows."
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing.mem :as mem]
             [yang.clojure :as yang]
-            [yang.clojure.prelude]
+            [yang.clojure.prelude :as clj-prelude]
+            [yang.core.call :as call]
             [yang.safepoint :as safepoint]
             [yin.vm :as vm]
-            [yin.vm.encoder :as encoder]))
+            [yin.vm.data :as data]
+            [yin.vm.encoder :as encoder]
+            [yin.vm.linker.publish :as publish]
+            [yin.vm.macro :as macro]
+            [yin.vm.module :as module]))
 
 
 (def ^:private origin [:source :program "batch-1" 0])
@@ -22,15 +28,21 @@
      :metadata (:yin/frontend-metadata projected)}))
 
 
-(defn- eligible
-  "The eligible set, derived here directly from canonical rows and the
-   occurrence relation, independently of the producer's own helpers."
-  [tree]
+(defn- eligible-under
+  "The eligible set of canonical `tree` under `origin`, derived here
+   directly from canonical rows and the occurrence relation,
+   independently of the producer's own helpers."
+  [tree origin]
   (into #{}
         (comp (filter (fn [[_ _ id]]
                         (= :application (nth (get (:rows tree) id) 1))))
               (map (fn [[_ path _]] [origin (:root tree) path])))
         (vm/occurrences tree)))
+
+
+(defn- eligible
+  [tree]
+  (eligible-under tree origin))
 
 
 (defn- marked
@@ -105,13 +117,7 @@
                             {:type :vm/current-continuation}]})]
       (is (= 1 (:yang/call-site ast)))
       (is (not (contains? (first (:operands ast)) :yang/call-site)))
-      (is (not (contains? (second (:operands ast)) :yang/call-site)))))
-  (testing "generated trees carry an expansion origin honestly"
-    (let [ast (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)]
-                                    true yang/unit-opts)
-          tree (vm/ast->semantic-bytecode ast)
-          expansion-origin [:expansion (:root tree)]]
-      (is (true? (yang/validate-ast-call-sites! ast expansion-origin))))))
+      (is (not (contains? (second (:operands ast)) :yang/call-site))))))
 
 
 (deftest validation-failure-test
@@ -156,7 +162,25 @@
       (is (= :yang/call-site-incomplete-coverage
              (failure-rule
                #(yang/validate-call-site-coverage!
-                  tree (vec (remove (set markers) metadata)) origin)))))))
+                  tree (vec (remove (set markers) metadata)) origin)))))
+    (testing "a malformed marker row is rejected, not silently filtered"
+      (is (= :yang/call-site-malformed
+             (failure-rule
+               #(yang/validate-call-site-coverage!
+                  tree (conj metadata [origin (:root tree) []
+                                       :yang/call-site])
+                  origin))))
+      (is (= :yang/call-site-malformed
+             (failure-rule
+               #(yang/validate-call-site-coverage!
+                  tree (conj metadata [origin (:root tree) []
+                                       :yang/call-site 1 :extra])
+                  origin)))))
+    (testing "a duplicate entry in a declared table is rejected"
+      (is (= :yang/call-site-duplicate-entry
+             (failure-rule
+               #(yang/validate-call-site-coverage!
+                  tree (into metadata markers) origin {:declared? true})))))))
 
 
 (deftest safepoint-independence-test
@@ -191,3 +215,135 @@
                             slots)))]
       (is (= (vm/ast->semantic-bytecode (strip marked))
              (vm/ast->semantic-bytecode marked))))))
+
+
+(deftest encoder-claim-test
+  (testing "canonical-row production refuses a broken C1 claim instead of dropping it"
+    (let [ast (yang/compile '(+ (* 2 3) 4))]
+      (is (= :yang/call-site-incomplete-coverage
+             (failure-rule
+               #(encoder/program-batch
+                  (update-in ast [:operands 0] dissoc :yang/call-site)))))
+      (is (= :yang/call-site-unsupported-version
+             (failure-rule
+               #(encoder/program-batch (assoc ast :yang/call-site 2))))))))
+
+
+(defn- expand-like-the-repl
+  "Expand compiled `ast` through the REPL pipeline's production stages:
+   `encoder/program-batch` (what `yin.repl`'s eval-program appends to
+   program-in) into the row-native expander, seeded as the REPL seeds
+   its session expander — the standard forms folded through a throwaway
+   context, then a fresh session context holding that store. Answers
+   `{:ctx ctx :result expansion}`, where `ctx` is the admitting
+   context (its `:t` is the batch's source coordinate)."
+  [ast]
+  (let [store (macro/seed-store
+                (macro/make-ctx {:token :callsite-test/standard-forms
+                                 :source-medium :callsite-test/standard-forms})
+                [macro/stdlib-forms])
+        ctx (macro/make-ctx {:token "callsite-test"
+                             :source-medium :program-in
+                             :store store})]
+    {:ctx ctx
+     :result (macro/expand-batch (encoder/program-batch ast) ctx)}))
+
+
+(deftest post-expansion-coverage-test
+  (testing "the marker set covers the tree the REPL pipeline actually executes"
+    (let [ast (yang/compile-program
+                '[(defmacro unless [c a b] (yin/if c b a))
+                  (unless false (+ 1 2) 0)])
+          {:keys [ctx result]} (expand-like-the-repl ast)
+          {:keys [status tree frontend-metadata]} result
+          ;; the row set the evaluator loaders consume from program-out
+          final (macro/packet->row-set tree)
+          origin [:source :program-in (:t ctx) 0]
+          input-tree (vm/ast->semantic-bytecode ast)
+          input-tables (vm/ast-side-tables ast input-tree origin)]
+      (is (= :ok status))
+      (testing "expansion, tail marking and stand-in lowering made a new final tree"
+        (is (not= (:root input-tree) (:root final))))
+      (testing "the retained table covers exactly the executed tree"
+        (is (seq frontend-metadata))
+        (is (= (eligible-under final origin) (marked frontend-metadata)))
+        (is (true? (yang/validate-call-site-coverage!
+                     final frontend-metadata origin)))
+        (is (true? (yang/validate-call-site-coverage!
+                     final frontend-metadata origin {:declared? true})))
+        (is (every? (fn [[o r _ _ _]]
+                      (and (= origin o) (= (:root final) r)))
+                    frontend-metadata)))
+      (testing "the frontend's pre-expansion markers name a tree that no longer exists"
+        (is (= :yang/call-site-nonexistent-path
+               (failure-rule
+                 #(yang/validate-call-site-coverage!
+                    final (:frontend-metadata input-tables) origin)))))))
+  (testing "the expander consumer the REPL threads retains the executed tree's table"
+    (let [store (macro/seed-store
+                  (macro/make-ctx {:token :callsite-test/standard-forms
+                                   :source-medium :callsite-test/standard-forms})
+                  [macro/stdlib-forms])
+          ctx (macro/make-ctx {:token "callsite-test"
+                               :source-medium :program-in
+                               :store store})
+          ast (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
+          consumer (macro/load (macro/make-expander ctx nil)
+                               (encoder/program-batch ast))
+          final (macro/packet->row-set (:out-staged consumer))
+          origin [:source :program-in (:t ctx) 0]]
+      (is (= (eligible-under final origin)
+             (marked (:frontend-metadata consumer))))
+      (is (true? (yang/validate-call-site-coverage!
+                   final (:frontend-metadata consumer) origin
+                   {:declared? true}))))))
+
+
+(def ^:private publish-registry
+  "The host registry the published-module test publishes over: the
+   `cell` and `data` host modules the `clj` and `yang.call` module
+   trees read."
+  (-> (module/default-registry)
+      module/register-cell-module
+      (data/register-data-module {::data/max-items 1048576})))
+
+
+(deftest published-module-test
+  (testing "the markers are retrievable from the published module"
+    (let [store (mem/create-content-mem)
+          call-result (publish/publish-module!
+                        store (call/module-spec publish-registry))
+          call-address (:address call-result)
+          clj-result (publish/publish-module!
+                       store (clj-prelude/module-spec publish-registry
+                                                       call-address))
+          clj-address (:address clj-result)]
+      (is (some? call-address))
+      (is (some? clj-address))
+      (doseq [[label result address]
+              [["yang.call" call-result call-address]
+               ["clj" clj-result clj-address]]]
+        (testing label
+          (is (some? (get-in result [:call-sites :record]))
+              "the publication retains its side table beside the manifest")
+          (let [{:keys [tree origin rows]}
+                (publish/published-call-site-table store address)]
+            (is (some? rows)
+                "the markers are retrievable from the published module")
+            (is (pos? (count rows)))
+            (is (= (eligible-under tree origin) (marked rows)))
+            (is (true? (yang/validate-call-site-coverage!
+                         tree rows origin {:declared? true}))))))))
+  (testing "an unannotated module publishes no table and claims none"
+    (let [store (mem/create-content-mem)
+          plain (publish/publish-module!
+                  store {:name 'plain
+                         :ast {:type :application
+                               :operator {:type :variable :name 'yin/def}
+                               :operands [{:type :literal :value 'f}
+                                          {:type :literal :value 42}]}
+                         :exports #{'f} :requires {} :primitives {}})]
+      (is (some? (:address plain)))
+      (is (not (contains? plain :call-sites)))
+      (is (nil? (publish/published-call-site-table store
+                                                    (:address plain)))))))

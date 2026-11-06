@@ -18,7 +18,8 @@
      (f a ...)         -> :application
      any other value   -> :literal"
   (:require
-    [yang.tails :as tails]))
+    [yang.tails :as tails]
+    [yin.vm :as vm]))
 
 
 (defn lit
@@ -105,3 +106,46 @@
   "`yang.tails/mark-tails`: the lowering marks its tree with the same
    function a rewriting stage recomputes the marks with."
   tails/mark-tails)
+
+
+;; =============================================================================
+;; Call-site occurrence contract C1 (Addendum A, design §2)
+;; =============================================================================
+;;
+;; Every final `:application` occurrence of a produced tree carries the
+;; reserved frontend-metadata key `:yang/call-site` with version value `1`
+;; as a plain node key. Projection (`yin.vm/ast-side-tables`) drops the key
+;; from canonical rows and emits it into the frontend-metadata side table
+;; as `[origin root-address path :yang/call-site 1]`, where the first
+;; three coordinates are the site id. The key carries no callee identity,
+;; source arity, or ambient classification. It is distinct from
+;; `:yang/site`, the safepoint mark, which travels as node metadata.
+;; Dedicated node kinds (`:dao.stream.apply/call`, stream and
+;; continuation nodes) are not `:application` nodes and are never marked.
+;; The walk lives here, beside the other shared tree transforms, so every
+;; frontend's module trees finalize the same way; `yang.clojure` owns the
+;; contract's validation over canonical rows.
+
+(defn annotate-call-sites
+  "The finished map AST `node` with `:yang/call-site 1` on every
+   `:application` node, at every depth the row grammar knows. Literal
+   payloads are data, never syntax, and are not walked. Marking is
+   idempotent and preserves node metadata and every other key, so
+   canonical rows, roots, and executable outcomes are unchanged."
+  [node]
+  (let [tag (:type node)
+        slots (get vm/semantic-bytecode-grammar tag)]
+    (when-not slots
+      (throw (ex-info "Unknown AST node type" {:type tag, :node node})))
+    (let [walked (reduce (fn [n [field kind]]
+                           (case kind
+                             :node (update n field annotate-call-sites)
+                             :nodes (update n field
+                                            (fn [children]
+                                              (mapv annotate-call-sites
+                                                    children)))
+                             n))
+                         node
+                         slots)]
+      (cond-> walked
+        (= :application tag) (assoc :yang/call-site 1)))))

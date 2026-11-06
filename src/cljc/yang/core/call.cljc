@@ -166,10 +166,13 @@
 
 
 (def module-uast
-  "The linked module tree built from the same `definitions`."
+  "The linked module tree built from the same `definitions`. C1
+   finalized, like every published production tree: its
+   `:yang/call-site` markers publish beside its manifest (see
+   `yin.vm.linker.publish`)."
   (let [stripped (core/module-definitions "yang.call" :yang.call/uninit
                                           [] definitions)]
-    (core/module-tree stripped [])))
+    (u/annotate-call-sites (core/module-tree stripped []))))
 
 
 (def module-exports

@@ -80,24 +80,13 @@
    on every `:application` node, at every depth the row grammar knows.
    Literal payloads are data, never syntax, and are not walked. Marking
    is idempotent and preserves node metadata and every other key, so
-   canonical rows, roots, and executable outcomes are unchanged."
+   canonical rows, roots, and executable outcomes are unchanged.
+
+   The walk itself is `yang.core.uast/annotate-call-sites`, shared with
+   the other frontends' module trees; this frontend owns the contract's
+   constants and its validation over canonical rows."
   [node]
-  (let [tag (:type node)
-        slots (get vm/semantic-bytecode-grammar tag)]
-    (when-not slots
-      (throw (ex-info "Unknown AST node type" {:type tag, :node node})))
-    (let [walked (reduce (fn [n [field kind]]
-                           (case kind
-                             :node (update n field annotate-call-sites)
-                             :nodes (update n field
-                                            (fn [children]
-                                              (mapv annotate-call-sites
-                                                    children)))
-                             n))
-                         node
-                         slots)]
-      (cond-> walked
-        (= :application tag) (assoc call-site-key call-site-version)))))
+  (u/annotate-call-sites node))
 
 
 (defn eligible-application-sites
@@ -105,11 +94,23 @@
    `origin`: one `[origin root-address path]` per `:application`
    occurrence, derived from the occurrence relation and the row tags."
   [tree origin]
-  (let [{:keys [root rows]} tree]
-    (into #{}
-          (comp (filter (fn [[_ _ id]] (= :application (nth (get rows id) 1))))
-                (map (fn [[_ path _]] [origin root path])))
-          (vm/occurrences tree))))
+  (into #{}
+        (map (fn [[root path]] [origin root path]))
+        (vm/application-occurrences tree)))
+
+
+(defn call-site-metadata
+  "The C1 frontend-metadata rows of canonical `tree` (`{:root :rows}`)
+   under `origin`: one `[origin root-address path :yang/call-site 1]`
+   per eligible application occurrence, in printed-row order. This is
+   the finalizer for trees that exist only as canonical rows — the
+   expander's final tree, a published module's tree — where no map AST
+   remains for `annotate-call-sites` to walk."
+  [tree origin]
+  (vec (sort-by pr-str
+                (map (fn [[root path]]
+                       [origin root path call-site-key call-site-version])
+                     (vm/application-occurrences tree)))))
 
 
 (defn marked-application-sites
@@ -124,24 +125,59 @@
         (distinct frontend-metadata)))
 
 
+(defn- marker-row?
+  "True when frontend-metadata `row` claims the C1 key: a sequential row
+   whose fourth coordinate is `call-site-key`. A claiming row of any
+   other arity is malformed, never a row to filter away silently."
+  [row]
+  (and (sequential? row)
+       (<= 4 (count row))
+       (= call-site-key (nth row 3))))
+
+
 (defn validate-call-site-coverage!
   "Validate a complete-coverage C1 claim: the marker set of
    `frontend-metadata` for canonical `tree` under `origin` must equal
    the eligible application set. Returns true when the claim holds.
+
+   A row that claims the C1 key but is not a five-coordinate
+   `[origin root-address path key value]` row is malformed and is
+   rejected, never silently filtered. The delivery mode is `opts`:
+
+   - default (transport): the relation arrived over a medium, where an
+     at-least-once delivery may repeat a row; duplicate identical
+     deliveries dedupe to the same fact;
+   - `{:declared? true}`: the relation is a declared canonical table —
+     the side table a producer published as the tree's table — where a
+     duplicate entry is a second, conflicting claim to one fact and is
+     rejected.
+
    Conflicting values at one site, an unsupported marker version, a
    marker naming no occurrence, a marker on a non-application
    occurrence, and missing or extra markers each throw, naming the
    failed `:rule`."
-  [tree frontend-metadata origin]
-  (let [{:keys [root rows]} tree
-        tag-at (into {}
-                     (map (fn [[r path id]] [[r path] (nth (get rows id) 1)]))
-                     (vm/occurrences tree))
-        eligible (eligible-application-sites tree origin)
-        rows (filter (fn [row]
-                       (and (= 5 (count row)) (= call-site-key (nth row 3))))
-                     (distinct frontend-metadata))
-        by-site (group-by (fn [[o r path _ _]] [o r path]) rows)]
+  ([tree frontend-metadata origin]
+   (validate-call-site-coverage! tree frontend-metadata origin {}))
+  ([tree frontend-metadata origin {:keys [declared?]}]
+   (doseq [row frontend-metadata]
+     (when (and (marker-row? row) (not= 5 (count row)))
+       (throw (ex-info "Malformed call-site marker row"
+                       {:rule :yang/call-site-malformed, :row row}))))
+   (when declared?
+     (doseq [[row n] (frequencies (filter marker-row? frontend-metadata))]
+       (when (< 1 n)
+         (throw (ex-info "Duplicate call-site marker in a declared table"
+                         {:rule :yang/call-site-duplicate-entry,
+                          :site (vec (take 3 row)), :row row})))))
+   (let [{:keys [root rows]} tree
+         tag-at (into {}
+                      (map (fn [[r path id]] [[r path] (nth (get rows id) 1)]))
+                      (vm/occurrences tree))
+         eligible (eligible-application-sites tree origin)
+         rows (filter (fn [row]
+                        (and (= 5 (count row)) (= call-site-key (nth row 3))))
+                      (distinct frontend-metadata))
+         by-site (group-by (fn [[o r path _ _]] [o r path]) rows)]
     (doseq [[site srows] by-site]
       (when (< 1 (count (distinct (map #(nth % 4) srows))))
         (throw (ex-info "Conflicting call-site marker values"
@@ -170,18 +206,21 @@
                                                 (remove marked eligible))),
                          :extra (vec (sort-by pr-str
                                               (remove eligible marked)))}))))
-    true))
+    true)))
 
 
 (defn validate-ast-call-sites!
   "Validate the C1 claim of a produced map AST `ast` under `origin`:
    project it and compare the eligible application set derived from its
    canonical rows with the marker set of its frontend-metadata side
-   table. Returns true when the sets are equal."
+   table. The projected table is a declared canonical table, so it is
+   validated strictly (`:declared? true`). Returns true when the sets
+   are equal."
   [ast origin]
   (let [tree (vm/ast->semantic-bytecode ast)
         tables (vm/ast-side-tables ast tree origin)]
-    (validate-call-site-coverage! tree (:frontend-metadata tables) origin)))
+    (validate-call-site-coverage! tree (:frontend-metadata tables) origin
+                                  {:declared? true})))
 
 
 (defn literal?
