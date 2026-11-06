@@ -69,7 +69,7 @@
  :counts
  {:foreach-semantics 11,
   :named-parameter-binding 4,
-  :zend-regression 61,
+  :zend-regression 60,
   :array-pointer 1,
   :total 95,
   :unset-cv 3,
