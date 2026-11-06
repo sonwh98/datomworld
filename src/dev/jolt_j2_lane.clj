@@ -214,7 +214,19 @@
     :capability "udp datagram host seam" :owner "J6/J7"}
    {:ns "yin.vm.linker.head-follow-test"
     :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
-    :capability "udp datagram host seam" :owner "J6/J7"}])
+    :capability "udp datagram host seam" :owner "J6/J7"}
+   {:ns "dao.stream.ble-test"
+    :reason "BLE radio transport tests (dao.stream.ble)"
+    :capability "BLE radio / hardware" :owner "BLE track"}
+   {:ns "dao.stream.ble.dart-test"
+    :reason "Dart BLE seam in flutter_test sandbox (dao.stream.ble.dart)"
+    :capability "BLE radio + Flutter" :owner "BLE track"}
+   {:ns "dao.stream.ble.links-test"
+    :reason "BLE link state machine tests (dao.stream.ble.links)"
+    :capability "BLE radio / links" :owner "BLE track"}
+   {:ns "dao.stream.ble.mesh-test"
+    :reason "BLE flooding mesh interpreter tests (dao.stream.ble.mesh)"
+    :capability "BLE radio / mesh" :owner "BLE track"}])
 
 
 ;; Dependency order (the max rank of each suite's source requires), so a low
