@@ -11,7 +11,8 @@
   (:require
     [yang.clojure :as yang.clojure]
     [yang.frontend :as frontend]
-    #?@(:clj [[yang.php.antlr.cst :as php.antlr.cst]
+    #?@(:cljd []
+        :clj [[yang.php.antlr.cst :as php.antlr.cst]
               [yang.php.antlr.lower :as php.antlr.lower]])
     #?@(:cljd [[yang.python.antlr.repl :as python.antlr.repl]
                [yang.python.antlr.parser :as python.antlr.parser]

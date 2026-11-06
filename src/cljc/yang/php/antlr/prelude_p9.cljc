@@ -2,6 +2,7 @@
  yang.php.antlr.prelude-p9
   "P9 string, array, JSON and math builtins, written as guest code."
   (:require
+    #?(:cljd [clojure.edn :as edn])
     [yang.php.antlr.quoted :refer [defquoted]]))
 
 
