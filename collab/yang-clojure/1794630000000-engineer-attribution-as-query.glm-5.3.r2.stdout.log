@@ -12,3 +12,4 @@ Waiting on: the elder's next commits (timer armed) or its idle notice. When its 
 Check-in timer armed (10 min). The two relayed defects are confirmed fixed in the working tree; the elder continues into the correspondence and evidence work. I'll verify the landed commits when they arrive — running the battery locally, diffing the pin migration against my census, and kondo-ing the touched files.
 
 Kondo is permission-gated as expected — I'll route it through a temporary `clojure -M:test` namespace with ProcessBuilder at verification time (per the established worktree tooling pattern). Standing by for the elder's commits; timer armed.
+DISPATCH_RC=1

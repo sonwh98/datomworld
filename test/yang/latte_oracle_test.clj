@@ -2404,14 +2404,46 @@
 (defn- kernel-canonical-source-hash
   "The canonical-source-hash of one fixture's inlined adaptation (R2b
    case 3): the digest of the assembled context layer and guest sources —
-   the adapter this fixture inlines. A trace evaluated against a table
-   whose recorded hash differs refuses attribution."
+   the adapter this fixture inlines. Reader-generated symbols are renamed
+   by first occurrence across forms and call, preserving shared references
+   without depending on the process's gensym counter. A trace evaluated
+   against a table whose recorded hash differs refuses attribution."
   [forms call]
-  (let [payload (binding [*print-length* nil *print-level* nil]
-                  (pr-str [forms call]))]
+  (let [source [forms call]
+        gensyms (distinct (filter #(and (symbol? %)
+                                        (re-matches #"^[a-zA-Z0-9_.-]+__\d+(?:__auto__)?#?$"
+                                                    (name %)))
+                                  (tree-seq coll? seq source)))
+        renames (into {} (map-indexed (fn [i s] [s (symbol (str "$gensym_" (inc i)))])
+                                      gensyms))
+        payload (binding [*print-length* nil *print-level* nil]
+                  (pr-str (walk/postwalk-replace renames source)))]
     (apply str (map #(format "%02x" (bit-and 255 %))
                     (.digest (java.security.MessageDigest/getInstance "SHA-256")
                              (.getBytes payload "UTF-8"))))))
+
+
+(deftest test-kernel-canonical-source-hash
+  (testing "fresh reads of pinned NBE source ignore reader gensym counters"
+    (let [forms-a (read-forms 'latte_kernel.nbe)
+          forms-b (read-forms 'latte_kernel.nbe)
+          call '(latte-kernel.nbe/evaluation 'x)]
+      (is (not= (pr-str forms-a) (pr-str forms-b))
+          "the regression actually exercises reader-generated symbols")
+      (is (= (kernel-canonical-source-hash forms-a call)
+             (kernel-canonical-source-hash forms-b call)))))
+  (testing "canonical names preserve symbol identity across forms and call"
+    (doseq [[a b] '[[p1__123# p1__456#]
+                    [value__123__auto__ value__456__auto__]
+                    [G__123 G__456]]]
+      (is (= (kernel-canonical-source-hash [(list 'fn [a] a)] (list a))
+             (kernel-canonical-source-hash [(list 'fn [b] b)] (list b)))))
+    (is (not= (kernel-canonical-source-hash '[(fn [p1__123#] p1__123#)] '(p1__123#))
+              (kernel-canonical-source-hash '[(fn [p1__123#] p1__456#)] '(p1__123#)))
+        "distinct generated symbols must remain distinct")
+    (is (not= (kernel-canonical-source-hash '[(def x 1)] 'x)
+              (kernel-canonical-source-hash '[(def x 2)] 'x))
+        "ordinary source edits still invalidate the hash")))
 
 
 (defn- kernel-compile
@@ -3088,16 +3120,25 @@
         (is (not (kernel-ambient-site? (:site-table explicit-2) variable-site))
             "the compile-time verification refuses a non-literal argument")))
     (testing "case 6: indirect-origin body entries refuse"
-      (let [table (:site-table f2)
-            dynamic (some (fn [[k s]] (when (= :dynamic (:callee s)) k)) table)
+      (let [indirect (kernel-row (by-id :nbe-beta))
+            table (:site-table indirect)
+            dynamic (some (fn [[k s]]
+                            (when (and (= :dynamic (:callee s))
+                                       (every? (fn [lane]
+                                                 (some #(= k (nth % 2 nil))
+                                                       (get-in indirect [lane :executed-calls])))
+                                               [:c-walker :c-semantic]))
+                              k))
+                          table)
             none-site ['gate-defenv-registered-definition? 1 :gate-site/none]]
+        (is (= :pass (:status indirect)))
+        (is (some? dynamic) "both lanes execute an indirect call in this fixture")
         (is (not (kernel-record-credits? none-site table
                                          'latte-kernel.defenv/registered-definition? 1))
             "an entry without a stamped caller site never credits")
-        (when dynamic
-          (is (not (kernel-record-credits? ['registered-definition? 3 dynamic] table
-                                           'latte-kernel.defenv/registered-definition? 1))
-              "an entry through an indirect site refuses unless site-linked"))))
+        (is (not (kernel-record-credits? ['registered-definition? 3 dynamic] table
+                                         'latte-kernel.defenv/registered-definition? 1))
+            "an entry through an indirect site refuses unless site-linked")))
     (testing "case 7: a variable context argument is /2-only, never ambient"
       (let [table (:site-table explicit-2)
             variable-site (some (fn [[k s]]

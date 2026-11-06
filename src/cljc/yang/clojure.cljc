@@ -28,12 +28,12 @@
 
   The compiler is written in .cljc format to run on both JVM and Node.js."
   (:refer-clojure :exclude [compile])
-  (:require #?(:clj [clojure.tools.reader :as treader]
-               :cljs [cljs.tools.reader :as treader]
-               :cljd [clojure.tools.reader :as treader])
-            #?(:clj [clojure.tools.reader.reader-types :as rt]
-               :cljs [cljs.tools.reader.reader-types :as rt]
-               :cljd [clojure.tools.reader.reader-types :as rt])
+  (:require #?@(:jolt []
+                :cljd []
+                :clj [[clojure.tools.reader :as treader]
+                      [clojure.tools.reader.reader-types :as rt]]
+                :cljs [[cljs.tools.reader :as treader]
+                       [cljs.tools.reader.reader-types :as rt]])
             [yang.core.call :as call]
             [yang.core.uast :as u]
             [yin.vm :as vm]))
@@ -2902,7 +2902,9 @@
    remote evaluators, so this is unreachable there; the honest error
    says so if ever reached)."
   [source]
-  #?(:jolt (throw (ex-info "Source-string compilation requires the JVM/Node reader; the jolt host compiles from forms or delegates source reading to its remote evaluators"
+  #?(:cljd (throw (ex-info "Source-string compilation requires the JVM/Node reader; ClojureDart compiles from forms"
+                           {:yang.clojure/reader :unavailable-on-cljd}))
+     :jolt (throw (ex-info "Source-string compilation requires the JVM/Node reader; the jolt host compiles from forms or delegates source reading to its remote evaluators"
                            {:yang.clojure/reader :unavailable-on-jolt}))
      :default
      (let [rd (rt/string-push-back-reader source)]

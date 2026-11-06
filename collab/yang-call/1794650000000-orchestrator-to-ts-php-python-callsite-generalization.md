@@ -1,7 +1,7 @@
-Created-Local: 2026-11-05 1x:xx +0700 (PENDING — distribute after the owner signs Addendum A v3)
-Coding-Agent: interactive (ZCode / GLM-5.3-Flash, yang.clojure orchestrator seat)
+Created-Local: 2026-11-06 17:09:30 +0700 (DISTRIBUTED — attribution-as-query kernel gate closed 165/165)
+Coding-Agent: agy (gemini-3.8-flash, yang.clojure orchestrator seat)
 
-# To: ts/php/python seats — the call-site provenance standard generalizes to your compilation pipelines (Addendum A v3, pending signature)
+# To: ts/php/python seats — the call-site provenance standard generalizes to your compilation pipelines (Addendum A v3)
 
 Reciprocal to the four-seat cell-ref thread (1794340000000 → 1794400000000 → your replies). The cell/authentic? ruling landed (ae91bb8d); your sweeps remain unblocked and unaffected by what follows.
 

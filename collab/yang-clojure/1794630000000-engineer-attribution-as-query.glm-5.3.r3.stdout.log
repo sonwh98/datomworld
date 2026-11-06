@@ -1,0 +1,74 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The regen runs in the background with both a completion task and a monitor armed — I'll resume on their notification. Current state while waiting:
+
+**Done so far this session:**
+1. **Verified the tree** — session 1's in-flight implementation + session 2's two defect fixes confirmed present; found the 02:40 "verification" run had actually loaded a pre-edit image, masking a compile blocker.
+2. **Fixed the latent compile blocker** — one extra paren in the round-trip test (session 1's hunk) that closed its `try` early.
+3. **Completed the correspondence derivation (R6/R7)** — `kernel-ambient-correspondence` now derives three kinds: `:ambient-delegation` (R3's pair, ambient-literal required), `:context-shift` (the retired offset table's scope — kernel-first carriers, REPLACED env-param at same arity or ADDED at −1), `:context-copy` (verbatim integration copies). 23 entries, all mechanically derived; the false-pairing hazards (e.g. `[registered-definition? 1 → context /2]`) are excluded by the env-position check.
+4. **Kind-aware site-linked credit rule** — `kernel-record-credits?` requires the static callee at the site to *be* the carrier (R2b case 6 for all kinds), and the ambient-literal shape only for `:ambient-delegation`.
+5. **Fixed the battery** — case 5's `(key …)` ClassCast bugs and the nil `variable-site` (cases 5/7 now use the explicit-2 fixture's real parameter-shaped site).
+6. **Fixed the evidence plumbing** — `:site-table` now stays on rows (the gate's re-derivation loop and the site-tables writer need it); it's stripped only at evidence-file write time.
+7. **Focused tests green**: acceptance-counting, unused-arity, the full seven-case battery + diagnostic, and the twenty-arity family — 118 assertions, 0 failures.
+8. **kondo + cljstyle clean**; gate doc and inventory updated with the realized correspondence kinds and the resolution note.
+
+**Pending**: the evidence regen (running), then the full oracle namespace run (expecting the by-design assertion green for the first time, 165/165), cleanup, commit, push, and the round report.
+
+Both the background task and a monitor are armed — I'll resume on completion. State: all focused tests green, `yang.clojure-test` green (95/922/0/0), evidence regenerated with `:gate-status :pass` and 165/165 arities exercised, capacity note amended, kondo/cljstyle clean. Remaining: full-oracle validation → final regen+run on the exact committed tree → probe cleanup → commit → push → report.
+
+Waiting on the final run. All remaining steps are queued: on green — stage (6 modified files + `slice9_site_tables.edn` + the two round-record markdowns), commit, push to `origin attribution-as-query`, then the round report.
+
+The round is complete. The report:
+
+---
+
+# Attribution-as-query round — completion report
+
+**Branch `attribution-as-query`, commits `30b2f610` (inventory, elder) + `d794382e` (implementation, this session), pushed to origin, NOT merged per the boundary.** A fresh codex gate reviews against the ruling before landing.
+
+## Deliverable 1 — the inventory (committed first, `30b2f610`)
+
+`test/yang/latte_oracle/attribution_inventory.md`, written before code per the ruling's ordering: the instrumentation touch points (trace-form position unchanged / record extended; stamping at the compiled AST as harness instantiation #1 of the site contract — `yin.vm` and `yang.clojure` untouched, a stated placement deviation under Addendum A); the capacity measurement (`stream/make 1000000` unchanged — one added field per record, no added records; uniform 4,000,000 acceptance bound); and the offset-table coverage list — all six retired entries with their upstream arities and crediting fixtures, stated before deletion. **This session appended §3's resolution note and §6's pin-migration record** (below).
+
+## What this session found and did
+
+The tree carried the elder's implementation with the younger's two defect fixes verified present. The 02:40 "verification" run had **loaded a pre-edit image** (it started before the last edit landed), which masked a third defect — an extra paren in the evidence round-trip test closing its `try` early (`Unable to resolve symbol: finally`); fixed. Two more substantive completions:
+
+1. **The correspondence derivation (R6/R7).** The in-flight `kernel-ambient-correspondence` applied R3's ambient-literal requirement to *every* carrier kind, which withdrew 8 previously-credited context-API arities (`local-definitions`/1, `register-definition`/2, `unparse-term-once`/3, `unparse-term-rec`/3, `register-unparser!`/3, `install-unfold-implicit!`/1, `is-opaque?`/1, `install-opacity-function`/1) — all `:named-integration` credits. That contradicts R6's own condition (the derived tables must cover every context-API arity the offset table served, or the retirement is partial and two mechanisms coexist) and the acceptance section's expectation that the gate passes. The realized derivation has **three kinds**: `:ambient-delegation` (R3's pair — ambient-literal at arg0, exactly as ruled), `:context-shift` (the retired table's scope: the kernel-first carrier that **replaced** the upstream env parameter at the same arity — disambiguated by the pinned upstream's `def-env`/`env` head parameter — or was **added** at one fewer argument), and `:context-copy` (verbatim integration copies). 23 entries, all mechanically derived; the false-pairing hazards (`[registered-definition? 1 → context /2]`, `[register-unparser! 3 → context /3]`) are excluded by the env-position rule. Credit for shift/copy kinds requires **site-linked, non-delegation records** — the static callee at the site *is* the carrier (case 6 for all kinds) — with no ambient-literal shape, since these arities thread the adapted state explicitly by construction; R2b case 7's own "default refusal **or /2-only attribution**" text supports the split.
+2. **The battery's cases 5/7** had `(key …)` ClassCast bugs and looked for `:variable`-shaped sites that don't exist (def-body params resolve `:computed`); they now use the explicit-2 fixture's real parameter-shaped site with "not the ambient literal" finders per the ruling's own wording.
+
+Also fixed: `kernel-gate-evidence` dissoc'd `:site-table` from rows, which would have broken both the gate's re-derivation loop and the site-tables writer — tables now stay on rows and are stripped only at evidence-file write time. The capacity note was restated post-landing (stamping cost; every fixture under the 4M bound) and the evidence regenerated with it.
+
+## Diff per file (commit `d794382e`, 9 files, +1273/−216)
+
+| File | Change |
+|---|---|
+| `test/yang/latte_oracle_test.clj` | +805/−50: site stamping, prelude, shape resolution, correspondence derivation, the ruled query, the battery, the pin migration, evidence generation |
+| `test/yang/latte_oracle/kernel_gate.edn` | F2/R2 `:guest-call` overrides dropped (the C lane runs the adapted upstream /1 call) |
+| `test/yang/latte_oracle/slice9_gate.md` | versioned attribution section v1 (R4), incl. the three correspondence kinds |
+| `test/yang/latte_oracle/attribution_inventory.md` | §3 resolution note + §6 pin-migration record (R5's list) |
+| `test/yang/latte_oracle/slice9_evidence.edn` | regenerated: `:gate-status :pass`, 3-vector records, `:attribution` section |
+| `test/yang/latte_oracle/slice9_unexercised.edn` | regenerated: `{}` |
+| `test/yang/latte_oracle/slice9_site_tables.edn` | **new**: `:version 1`, per-fixture tables + canonical-source-hashes |
+| `VERIFICATION-aaq.md`, `DUPLICATE-DISPATCH-aaq.md` | round records (credit-both protocol) |
+
+## Local test outputs (real)
+
+- **Full oracle namespace** (`clojure -M:test -n yang.latte-oracle-test`): `Ran 30 tests containing 2456 assertions. 0 failures, 0 errors.` — **KERNEL-GATE `:gate-status :pass`, unexercised `[]`, 165/165 admitted arities exercised; the by-design red pin passes for the first time.** Run twice: before and after the capacity-note amendment (identical results); logs in `probe/oracle_final.txt`, `probe/oracle_committed_tree.txt`.
+- **Focused** (pre-commit): acceptance-counting, unused-arity, the seven-case battery + diagnostic, the twenty-arity family — `118 assertions, 0 failures, 0 errors` (`probe/focused_run2.txt`).
+- **`yang.clojure-test`**: `95 tests, 922 assertions, 0 failures, 0 errors` (`probe/clojure_test_final.txt`).
+- **clj-kondo**: `errors: 0, warnings: 0`. **cljstyle**: clean (fix applied).
+
+## Remote commands for the seat
+
+1. `clojure -M:test -n yang.latte-oracle-test` — expect the first-time green gate assertion, KERNEL-GATE `:pass`, unexercised `[]`.
+2. `clojure -M:test -n yang.clojure-test`
+3. The yang.base lane (subsystems.edn: yang.clojure yang.frontend yang.safepoint yang.stage yang.tails yang.io yang.core) via the seat's standard runner.
+4. Capacity confirmation: the regenerated `slice9_evidence.edn`'s `:instruction-budget-note` (stamping restated; 4M bound held).
+
+## Deviations from the ruling, with reasons
+
+1. **Stamping placement** (the elder's, already on record): harness-owned at the compiled AST, not in the yin.vm walker — Addendum A's "harness-level, oracle-owned" instantiation #1; semantics exactly R2.
+2. **The three-kind correspondence** (this session, on the record in inventory §3): R3's ambient-literal rule is scoped to the `:ambient-delegation` pair; the retired table's context-API scope credits through site-linked carriers. Grounds: R6's coverage condition, R2b case 7's "or /2-only attribution" text, and the acceptance section's expectation that the gate closes — with every credit a genuine site-linked body entry in both lanes (e.g. `register-unparser!`/3 through `install-fundamental-unparsers`'s calling site, not the `/4` self-delegation). No witness withdrawn, none forced.
+
+H3-6 prep (deliverable 7) is stated in the gate doc's versioned section: the audit re-derives the site tables, re-computes each hash, and re-runs the credit query over the two raw C-lane traces joined to the tables and the derived correspondence. The audit itself remains a separate round, and R1's deferred trigger stays reserved to the owner/architect.
+DISPATCH_RC=0

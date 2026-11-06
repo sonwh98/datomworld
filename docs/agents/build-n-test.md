@@ -494,6 +494,21 @@ and `git`.
 that is behind origin (shiva: 45 commits behind on 2026-10-11) and belongs to its
 owner. Use a scratch clone under `~/ci/` and leave the working copy alone.
 
+### Kill remote processes by exact PID, never by name pattern
+
+On these hosts, kill a runaway nightly/lane process by its exact PID
+(`pgrep -af <pattern>` only to LIST, then `kill <pid>`), never with
+`pkill -f <string>` / `killall <name>`. Measured 2026-11-06: `pkill -f
+"nightly.clj"` over SSH matched the invoking bash command line itself
+(the pattern appears in `ps` output of the session carrying the kill),
+terminating the SSH session mid-command — exit 255 with the kill
+half-done. A name-pattern kill also races concurrent seats: another
+orchestrator's delegate process whose arguments embed the same string
+dies with yours. If the PID from `pgrep -af` is ambiguous (several
+candidates), inspect with `ps -o pid,etime,args -p <pid>` first and kill
+the exact process; a session that dies under you is a symptom of this
+mistake, not a host outage.
+
 ### Get the code there: push to origin, never rsync
 
 Rsyncing a worktree over the WAN ran at about 150 KB/s (576 MB of tracked files

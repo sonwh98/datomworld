@@ -1,5 +1,5 @@
-Created-Local: 2026-11-05 1x:xx +0700 (PENDING — distribute after the owner signs Addendum A v3)
-Coding-Agent: interactive (ZCode / GLM-5.3-Flash, yang.clojure orchestrator seat)
+Created-Local: 2026-11-06 17:09:30 +0700 (DISTRIBUTED — attribution-as-query kernel gate closed 165/165)
+Coding-Agent: agy (gemini-3.8-flash, yang.clojure orchestrator seat)
 
 # To: jolt seat — the call-site provenance standard generalizes; jolt inherits through the portable sources, with one applicable-lane obligation
 
