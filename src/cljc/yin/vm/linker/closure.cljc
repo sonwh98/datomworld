@@ -192,6 +192,40 @@
 (declare walk-module)
 
 
+(defn- walk-call-sites
+  "Step 4b: the C1 side table and its reverse record the manifest
+   references (`:yin.module/call-sites`, `yin.vm.linker.publish`), read
+   and held to their own shape — the table is a vector of frontend-
+   metadata rows, the record is version 1, names the manifest's own
+   tree, and points at the referenced table. The origin is left to the
+   retriever, which recomputes it from the tree."
+  [st manifest path]
+  (if-some [call-sites (:yin.module/call-sites manifest)]
+    (let [[st table] (read-blob st (:table call-sites) :call-site path)]
+      (if (:stop st)
+        st
+        (let [[st record] (read-blob st (:record call-sites) :call-site path)]
+          (cond
+            (:stop st) st
+
+            (not (vector? table))
+            (stop st (invalid (:table call-sites) :call-site path
+                              :call-site-defect {:code :table-shape}))
+
+            (not= {:yang.call-site/version 1
+                   :yang.call-site/root (:yin.module/tree manifest)
+                   :yang.call-site/table (:table call-sites)}
+                  (select-keys record
+                               [:yang.call-site/version
+                                :yang.call-site/root
+                                :yang.call-site/table]))
+            (stop st (invalid (:record call-sites) :call-site path
+                              :call-site-defect {:code :record-shape}))
+
+            :else st))))
+    st))
+
+
 (defn- walk-requires
   "Step 5: list every pin with derived eagerness, then descend only into
    eager manifests not walked before. Deferred pins load at statement time."
@@ -242,7 +276,8 @@
                    (update :modules conj manifest-address)
                    (walk-rows (:yin.module/tree manifest) path))
             st (if (:stop st) st (walk-records st manifest path))
-            st (if (:stop st) st (walk-images st manifest path))]
+            st (if (:stop st) st (walk-images st manifest path))
+            st (if (:stop st) st (walk-call-sites st manifest path))]
         (if (:stop st)
           st
           (walk-requires st manifest-address manifest path depth))))))
@@ -262,11 +297,13 @@
      {:yin.link.closure/outcome :invalid
       :address a :role role :path [...] :defect {:code c :detail d}}
 
-   `role` is `:manifest`, `:row`, `:record`, `:image` or `:require`;
+   `role` is `:manifest`, `:row`, `:record`, `:image`, `:call-site` or
+   `:require`;
    `path` the manifest addresses from the root to the module the blob
    belongs to.  `:code` is one of `:address-mismatch`, `:manifest-defect`,
    `:row-defect`, `:record-defect`, `:derivation-mismatch`,
-   `:index-entry-missing`, `:identity-mismatch`, `:parts-limit`."
+   `:index-entry-missing`, `:identity-mismatch`, `:call-site-defect`,
+   `:parts-limit`."
   ([handle manifest-address] (walk handle manifest-address nil))
   ([handle manifest-address opts]
    (let [bounds (into linker/default-bounds

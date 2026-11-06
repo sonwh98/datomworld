@@ -268,7 +268,10 @@
    checked root-relatively — admission origins belong to the admitting
    expander, not to this projection. A member carrying no markers
    makes no claim and passes; the executed tree's table is finalized
-   after expansion, over the final rows."
+   after expansion, over the final rows. Answers true when the member
+   claimed coverage (it passed the check), false when it carried no
+   markers — the verdict the batch carries to the expander, which
+   finalizes a side table for a claimed batch only."
   [ast tree]
   (let [marked (marked-call-sites ast)]
     (when (seq marked)
@@ -285,22 +288,27 @@
                            :missing (vec (sort-by pr-str
                                                   (remove claimed eligible))),
                            :extra (vec (sort-by pr-str
-                                                (remove eligible claimed)))})))))))
+                                                (remove eligible claimed)))})))
+        true))))
 
 
 (defn program-batch
   "Encode frontend output as the expander's input batch (§2.1):
-   `[:yin.program/batch trees run-index declaration-rows harvest-rows]`.
-   Each member — a map AST or a `:yin/*` datom batch — projects to one tree
-   packet; `run-index` selects the one that becomes the program. Harvest
-   rows name every `(yin/def <literal-symbol> value)` occurrence in source
-   declaration order, member by member; declaration rows name those whose
-   lambda the frontend flagged `:macro?`. No syntax object crosses: every
-   code field is canonical rows. A member whose frontend markers claim
+   `[:yin.program/batch trees run-index declaration-rows harvest-rows
+   call-site-claim?]` — the trailing element present only when the batch
+   claimed call-site (C1) coverage, so every unclaimed batch keeps the
+   five-element shape. Each member — a map AST or a `:yin/*` datom batch
+   — projects to one tree packet; `run-index` selects the one that
+   becomes the program. Harvest rows name every `(yin/def
+   <literal-symbol> value)` occurrence in source declaration order,
+   member by member; declaration rows name those whose lambda the
+   frontend flagged `:macro?`. No syntax object crosses: every code
+   field is canonical rows. A member whose frontend markers claim
    call-site (C1) coverage is checked against its projected tree before
    the batch is formed (`check-call-site-claim!`): the markers drop out
    of the rows, but never silently — a broken claim refuses the batch,
-   and the executed tree's table is finalized after expansion."
+   and the claim verdict travels with the batch, so the expander
+   finalizes the executed tree's table for a claimed batch only."
   ([member] (program-batch [member] 0))
   ([members run-index]
    (let [asts (mapv member-ast members)
@@ -310,20 +318,24 @@
          occurrences (vec (mapcat (fn [j ast]
                                     (map #(assoc % :tree j)
                                          (definition-occurrences ast)))
-                                  (range) asts))]
-     ;; A frontend's C1 claim is enforced here, where its markers would
-     ;; otherwise drop out of canonical-row production unread.
-     (doseq [[ast tree] (map vector asts row-sets)]
-       (check-call-site-claim! ast tree))
-     [:yin.program/batch
-      trees
-      run-index
-      (into [] (comp (filter :declared?)
-                     (map (fn [{:keys [tree path]}] [:yin.macro/definition tree path])))
-            occurrences)
-      (into [] (map-indexed (fn [h {:keys [tree path]}]
-                              [:yin.macro/harvest h tree path]))
-            occurrences)])))
+                                  (range) asts))
+         ;; A frontend's C1 claim is enforced here, where its markers
+         ;; would otherwise drop out of canonical-row production unread;
+         ;; the verdict rides with the batch.
+         claimed (boolean
+                   (some true?
+                         (map check-call-site-claim! asts row-sets)))]
+     (cond-> [:yin.program/batch
+              trees
+              run-index
+              (into [] (comp (filter :declared?)
+                             (map (fn [{:keys [tree path]}]
+                                    [:yin.macro/definition tree path])))
+                    occurrences)
+              (into [] (map-indexed (fn [h {:keys [tree path]}]
+                                      [:yin.macro/harvest h tree path]))
+                    occurrences)]
+       claimed (conj true)))))
 
 
 (defn ready?

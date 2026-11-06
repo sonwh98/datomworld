@@ -738,11 +738,11 @@
 
 (def ^:private manifest-keys
   "The closed key set of a schema-1 manifest: every key of section 8.1's
-   example, the index alone optional."
+   example, the index and the call-site reference alone optional."
   #{:yin.module/name :yin.module/schema :yin.module/contracts
     :yin.module/tree :yin.module/derivations :yin.module/index
     :yin.module/exports :yin.module/requires :yin.module/primitives
-    :yin.module/footprint})
+    :yin.module/footprint :yin.module/call-sites})
 
 
 (def ^:private derivation-formats
@@ -785,7 +785,8 @@
                   (when (or (not (contains? manifest k))
                             (nil? (get manifest k)))
                     (assoc (shape k) :missing true)))
-                (disj manifest-keys :yin.module/index))
+                (disj manifest-keys :yin.module/index
+                      :yin.module/call-sites))
           (when-not (symbol? (:yin.module/name manifest))
             (shape :yin.module/name))
           (when (vm/reserved-name? (:yin.module/name manifest))
@@ -831,6 +832,16 @@
                          (set? (get-in manifest
                                        [:yin.module/footprint :effects])))
             (shape :yin.module/footprint))
+          ;; optional, and only when present checked: the C1 side-table
+          ;; reference is exactly the table's and the reverse record's
+          ;; Jing addresses (`yin.vm.linker.publish`)
+          (let [call-sites (:yin.module/call-sites manifest)]
+            (when (and (some? call-sites)
+                       (not (and (map? call-sites)
+                                 (= #{:table :record} (set (keys call-sites)))
+                                 (address? (:table call-sites))
+                                 (address? (:record call-sites)))))
+              (shape :yin.module/call-sites)))
           (some (fn [n]
                   (when (vm/reserved-name? n)
                     {:rule :reserved-name, :name n,

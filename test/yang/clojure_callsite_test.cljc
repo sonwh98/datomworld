@@ -4,6 +4,8 @@
    `:application` occurrence, and the complete-coverage validation a
    consumer runs against canonical rows."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
+            [dao.jing :as jing]
             [dao.jing.mem :as mem]
             [yang.clojure :as yang]
             [yang.clojure.prelude :as clj-prelude]
@@ -12,6 +14,7 @@
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.encoder :as encoder]
+            [yin.vm.linker.closure :as closure]
             [yin.vm.linker.publish :as publish]
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]))
@@ -291,12 +294,78 @@
           consumer (macro/load (macro/make-expander ctx nil)
                                (encoder/program-batch ast))
           final (macro/packet->row-set (:out-staged consumer))
-          origin [:source :program-in (:t ctx) 0]]
-      (is (= (eligible-under final origin)
-             (marked (:frontend-metadata consumer))))
+          origin [:source :program-in (:t ctx) 0]
+          rows (macro/call-site-table consumer (:out-staged consumer))]
+      (is (seq rows))
+      (is (= (eligible-under final origin) (marked rows)))
       (is (true? (yang/validate-call-site-coverage!
-                   final (:frontend-metadata consumer) origin
+                   final rows origin
                    {:declared? true}))))))
+
+
+(deftest successive-expansions-test
+  (testing "two loads over different programs: both trees' tables survive"
+    (let [store (macro/seed-store
+                  (macro/make-ctx {:token :callsite-test/standard-forms
+                                   :source-medium :callsite-test/standard-forms})
+                  [macro/stdlib-forms])
+          ctx (macro/make-ctx {:token "callsite-test"
+                               :source-medium :program-in
+                               :store store})
+          first-origin [:source :program-in (:t ctx) 0]
+          consumer (macro/make-expander ctx nil)
+          after-first (macro/load consumer
+                                  (encoder/program-batch
+                                    (yang/compile-program
+                                      '[(defn f [x] (+ x 1)) (f 2)])))
+          first-tree (:out-staged after-first)
+          second-origin [:source :program-in (:t (:ctx after-first)) 0]
+          consumer (macro/load after-first
+                               (encoder/program-batch
+                                 (yang/compile-program
+                                   '[(defmacro unless [c a b] (yin/if c b a))
+                                     (unless false (+ 1 2) 0)])))
+          second-tree (:out-staged consumer)]
+      (is (not= (first first-tree) (first second-tree))
+          "the two expansions produced different final trees")
+      (testing "the first load's table resolves for its tree after the second load"
+        (let [rows (macro/call-site-table consumer first-tree)]
+          (is (seq rows))
+          (is (= (eligible-under (macro/packet->row-set first-tree)
+                                 first-origin)
+                 (marked rows)))
+          (is (true? (yang/validate-call-site-coverage!
+                       (macro/packet->row-set first-tree) rows
+                       first-origin {:declared? true})))))
+      (testing "the second load's table resolves for its tree"
+        (let [rows (macro/call-site-table consumer second-tree)]
+          (is (seq rows))
+          (is (= (eligible-under (macro/packet->row-set second-tree)
+                                 second-origin)
+                 (marked rows)))
+          (is (true? (yang/validate-call-site-coverage!
+                       (macro/packet->row-set second-tree) rows
+                       second-origin {:declared? true}))))))))
+
+
+(deftest unclaimed-batch-test
+  (testing "a batch whose frontend makes no C1 claim creates no metadata"
+    (let [ctx (macro/make-ctx {:token :callsite-test/unclaimed
+                               :source-medium :program-in})
+          unmarked {:type :application
+                    :operator {:type :variable :name 'f}
+                    :operands [{:type :literal :value 1}
+                               {:type :literal :value 2}]}
+          {:keys [status frontend-metadata]}
+          (macro/expand-batch (encoder/program-batch unmarked) ctx)
+          consumer (macro/load (macro/make-expander ctx nil)
+                               (encoder/program-batch unmarked))]
+      (is (= :ok status))
+      (is (nil? frontend-metadata)
+          "no table, never an empty one, for an unclaimed batch")
+      (is (empty? (:call-site-tables consumer))
+          "the consumer holds no tables")
+      (is (nil? (macro/call-site-table consumer (:out-staged consumer)))))))
 
 
 (def ^:private publish-registry
@@ -346,4 +415,62 @@
       (is (some? (:address plain)))
       (is (not (contains? plain :call-sites)))
       (is (nil? (publish/published-call-site-table store
-                                                    (:address plain)))))))
+                                                    (:address plain))))))
+  (testing "the manifest references the side table, so the closure carries it"
+    (let [store (mem/create-content-mem)
+          result (publish/publish-module!
+                   store (clj-prelude/module-spec
+                           publish-registry
+                           (:address (publish/publish-module!
+                                       store
+                                       (call/module-spec publish-registry)))))
+          address (:address result)
+          manifest (jing/get store address nil)
+          reference (:yin.module/call-sites manifest)]
+      (is (map? reference)
+          "the manifest names the side table and its reverse record")
+      (is (every? jing/segment-address? ((juxt :table :record) reference)))
+      (is (= (:table (:call-sites result)) (:table reference)))
+      (is (some? (jing/get store (:table reference) nil)))
+      (is (some? (jing/get store (:record reference) nil)))
+      ;; transfer: fetch exactly the closure the walk answers missing, as
+      ;; a dao.space.dht load does, into a fresh store
+      (let [fresh (mem/create-content-mem)]
+        (loop [n 0]
+          (let [w (closure/walk fresh address)]
+            (if (= :missing (:yin.link.closure/outcome w))
+              (do (jing/materialize!
+                    fresh (jing/get store (:address w) ::absent))
+                  (recur (inc n)))
+              (do (is (= :complete (:yin.link.closure/outcome w)))
+                  (is (pos? n) "the walk fetched the module's blobs")
+                  (let [{:keys [tree origin rows]}
+                        (publish/published-call-site-table fresh address)]
+                    (is (some? rows)
+                        "the side table is retrievable from the transfer")
+                    (is (= (:rows (publish/published-call-site-table
+                                    store address))
+                           rows))
+                    (is (= (eligible-under tree origin) (marked rows)))
+                    (is (true? (yang/validate-call-site-coverage!
+                                 tree rows origin {:declared? true})))))))))))
+  (testing "a version-2 table is a claim rejection, not a silent nil"
+    (let [store (mem/create-content-mem)
+          bump (fn bump [node]
+                 (if (and (map? node) (= 1 (:yang/call-site node)))
+                   (assoc node :yang/call-site 2)
+                   node))
+          ast (clojure.walk/postwalk bump
+                (yang/compile-program '[(defn f [x] (inc x)) (f 2)]))
+          res (publish/publish-module!
+                store {:name 'bad-version
+                       :ast ast
+                       :exports #{'f}
+                       :requires {}
+                       :primitives {'inc {:yin.k/profile :yin.k/pure
+                                          :yin.k/effects #{}}}})]
+      (is (= :refused (:status res)))
+      (is (= :yin.link.publish/unsupported-call-site-version (:reason res)))
+      (is (= 2 (:unsupported-version res)))
+      (is (nil? (:address res))
+          "a claim rejection publishes nothing, so no table exists"))))
