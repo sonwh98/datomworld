@@ -1,0 +1,38 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc1 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc1/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. Committed locally as `e6522ceb` on `callsite-contract-clojure` (not merged). Push is blocked in this sandbox — SSH has no identity for uid 501 and unsandboxed escalation is disabled by launch policy — so the seat must run `git push -u origin callsite-contract-clojure`. Note on routing: this work was executed by muse-wonder-1.0 via the API lane (re-routed from glm), not by glm.
+
+## What changed
+
+- [src/cljc/yang/clojure.cljc](/Users/sto/workspace/datomworld-cc1/src/cljc/yang/clojure.cljc:44): contract C1. `annotate-call-sites` stamps `:yang/call-site 1` on every `:application` node of a finished tree (grammar-guided walk; literal payloads never walked; idempotent; metadata preserved). Finalization runs once at the owning entry point — `compile-form` (recursive calls defer via `*call-site-finalizing*`), `compile-program` (over the outcome preamble too), and `lower-unit` (re-finalized after `publish-to-globals` rewrites nodes). `eligible-application-sites` derives the eligible set from canonical rows + `vm/occurrences`; `validate-call-site-coverage!` dedupes identical deliveries and throws named rules for conflicting values, unsupported versions, nonexistent paths, non-application targets, and incomplete coverage. No `yin.vm` change: the key drops at projection, so canonical rows/roots are unchanged (tested).
+- [src/cljc/yang/clojure/prelude.cljc](/Users/sto/workspace/datomworld-cc1/src/cljc/yang/clojure/prelude.cljc:109): the published `clj` module tree is C1-finalized the same way.
+- [test/yang/clojure_callsite_test.cljc](/Users/sto/workspace/datomworld-cc1/test/yang/clojure_callsite_test.cljc:1): new tests (equality gate with independently derived eligible set, `yin/def` marked, stream/continuation nodes unmarked, expansion-origin validation, all five failure rules, `:yang/site` independence via `yang.safepoint/sites`, canonical invariance).
+
+Boundaries held: `yin/def` occurrences are annotated; `:dao.stream.apply/call`, `:stream/*`, and `:vm/*` nodes are never marked; generated post-expansion trees validate under a supplied `[:expansion root]` origin; `yang/safepoint.cljc` untouched.
+
+## Verification (real outputs)
+
+| Check | Result |
+|---|---|
+| `yang.clojure-callsite-test` | 5 tests, 35 assertions, 0 failures |
+| `yang.clojure-test` + `yang.safepoint-test` + `yin.vm.encoder-test` + `yin.vm.macro-test` | 133 tests, 1143 assertions, 0 failures |
+| Oracle consumer `test-attribution-battery` | 1 test, 22 assertions, 0 failures |
+| `yang.frontend-test`, `yang.core.call-test` | 3/29 and 4/15, 0 failures |
+| kondo on touched files | errors: 0, warnings: 0 |
+
+Equality gate on production-compiled real programs (via `encoder/project`, not fixtures): lower-unit library-backed program 945 applications = 945 markers; full guest library under `compile-program` 4696 = 4696; `clj` prelude tree 31 = 31. All `validate-call-site-coverage!` true, with coordinates of the form `[[:source :program "real-1" 0] :segment/blake3-… [3 2 3 …]]`.
+
+Pre-existing environment failure, not a regression: `yin.repl.frontend-catalog-test` (and unscoped test discovery) fails with `yang.php.antlr.gen.PhpLexer` ClassNotFound — generated ANTLR classes are absent in this checkout. I verified the identical failure on the untouched tree via `git stash`.
+
+## Design-gap notes (reported, not invented)
+
+- The shared `yang.call` module tree ([yang/core/call.cljc](/Users/sto/workspace/datomworld-cc1/src/cljc/yang/core/call.cljc:168)) is not annotated: it is shared with the ts/php/py tracks, and the brief's track isolation forbids touching it this round. Clojure linked programs pin that module, so its own occurrences await the shared adoption; the clojure-emitted preamble around it is covered.
+- The relay thread's dynamic-call-site edge (`$$`, `extract`, eval) is covered by the design as written: the marker carries no callee identity, so a runtime-computed callee needs no "dynamic" mark — the lexically fixed application occurrence gets its K (§2.1 statically-indirect coverage, §7 indirect gate). Eval-admitted code is a separate admission whose origin the admitting composition supplies; no lexical site is fabricated for it.
+- `publish-module!` still publishes rows only; persisting C1 side tables beside manifests is D1 durable-correspondence work, out of round 1 scope. Markers reach consumers today through the encoder side table.
+
+Suite-scale commands for the seat (jupiter), per the brief's test-boundary ruling: `clojure -M:test` (full JVM), `bb test:cljs`, `bb test:cljd`, and the jolt core lane `bb test:jolt-core` — the generated-parser namespaces must be built first (`clj -M:antlr-gen`) for the catalog/cross-language suites to load.
+DISPATCH_RC=0
