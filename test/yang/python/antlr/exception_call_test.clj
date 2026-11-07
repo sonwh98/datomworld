@@ -35,25 +35,25 @@
                         :expected (legs/expected leg) :actual e})))))))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r2} :frontends #{:python :typescript}}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:python :typescript}}
   python-to-typescript-test (check-pair :python :typescript))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r2} :frontends #{:python :typescript}}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:python :typescript}}
   typescript-to-python-test (check-pair :typescript :python))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r2} :frontends #{:python :php}}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:python :php}}
   python-to-php-test (check-pair :python :php))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r2} :frontends #{:python :php}}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:python :php}}
   php-to-python-test (check-pair :php :python))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r2} :frontends #{:python :clojure}}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:python :clojure}}
   python-to-clojure-test (check-pair :python :clojure))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r2} :frontends #{:python :clojure}}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:python :clojure}}
   clojure-to-python-test (check-pair :clojure :python))

@@ -32,25 +32,25 @@
                         :expected expected :actual e})))))))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r2 ::contract/r3 ::contract/r5}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2 ::contract/r3 ::contract/r5}
            :frontends #{:python}}
   python-provenance-test
   (check-frontend :python))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r2 ::contract/r3 ::contract/r5}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2 ::contract/r3 ::contract/r5}
            :frontends #{:php}}
   php-provenance-test
   (check-frontend :php))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r3 ::contract/r5}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r3 ::contract/r5}
            :frontends #{:typescript}}
   typescript-provenance-test
   (check-frontend :typescript))
 
 
-(deftest ^{:gates #{::contract/r1 ::contract/r3 ::contract/r5}
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r3 ::contract/r5}
            :frontends #{:clojure}}
   clojure-provenance-test
   (check-frontend :clojure))
