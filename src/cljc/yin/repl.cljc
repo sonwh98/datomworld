@@ -789,6 +789,7 @@
      :indexer (index/make-indexer {:observer ((:attach program-out))
                                    :session-token shell-token
                                    :content-store index-store
+                                   :publish-opts (:publish-opts index-store)
                                    :after-publish (:head-fn index-store)})
      :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
      :linker linker

@@ -348,6 +348,11 @@
     (when-some [recovered (and pub (get-in base [:recovery :manifest]))]
       (deposit-head! pub recovered))
     (assoc (dht/store node)
+           ;; The generic index default (512 keys) can put >64 KiB into
+           ;; one node as rounds accumulate. Keep REPL index pages below
+           ;; the DHT store-message bound for ordinary code datoms; an
+           ;; individually oversized value still gets the store's refusal.
+           :publish-opts {:branching-factor 64}
            :head-fn (fn [manifest-address]
                       ((:head-fn base) manifest-address)
                       (dht/announce! node manifest-address)
