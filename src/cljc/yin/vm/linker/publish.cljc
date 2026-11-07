@@ -138,11 +138,11 @@
    scope's own `id` plus the ordinal the scope's counter assigns. The
    counter lives in the caller-owned scope object, never here."
   [{:yin.link.publish/keys [scope-id ordinal]}]
-  (let [id (cond (string? scope-id) scope-id
-                 (keyword? scope-id) (name scope-id)
-                 :else (str scope-id))]
-    (keyword "yin.vm.linker.publish.scope"
-             (str id "#" (swap! ordinal inc)))))
+  ;; pr-str keeps the value's full identity — a keyword's namespace, a
+  ;; string's quoting, a symbol's name — so distinct caller-chosen ids
+  ;; (:a/publisher, :b/publisher, "publisher") never mint the same token
+  (keyword "yin.vm.linker.publish.scope"
+           (str (pr-str scope-id) "#" (swap! ordinal inc))))
 
 (defn- spec-admission-token
   "The default admission token: derived deterministically from the

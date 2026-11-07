@@ -200,15 +200,18 @@
     ;; origin (design §2.1); a second marker with a DIFFERENT, equally
     ;; well-formed origin for an already-covered occurrence is a
     ;; second claim to one fact and is rejected, not folded into the
-    ;; [root path] coverage projection
-    (when (or declared? per-occurrence-origins?)
-      (doseq [[site srows] (group-by (fn [[_ r path]] [r path]) rows)]
-        (let [origins (distinct (map #(nth % 0) srows))]
-          (when (< 1 (count origins))
-            (throw (ex-info
-                     "Call-site occurrence claimed by multiple origins"
-                     {:rule :yang/call-site-multi-claim, :site site,
-                      :origins (vec (sort-by pr-str origins))}))))))
+    ;; [root path] coverage projection. The one-origin-per-occurrence
+    ;; rule holds in EVERY validator mode; the default mode rejects a
+    ;; second claim with the same diagnostic (not a downstream
+    ;; nonexistent-path error) so the failure names the occurrence and
+    ;; both claims.
+    (doseq [[site srows] (group-by (fn [[_ r path]] [r path]) rows)]
+      (let [origins (distinct (map #(nth % 0) srows))]
+        (when (< 1 (count origins))
+          (throw (ex-info
+                   "Call-site occurrence claimed by multiple origins"
+                   {:rule :yang/call-site-multi-claim, :site site,
+                    :origins (vec (sort-by pr-str origins))})))))
     (doseq [[o r path _ value] rows]
       (when (not= call-site-version value)
         (throw (ex-info "Unsupported call-site marker version"

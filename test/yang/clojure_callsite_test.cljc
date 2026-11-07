@@ -235,6 +235,12 @@
                  #(yang/validate-call-site-coverage!
                     tree double-marked origin
                     {:per-occurrence-origins? true}))))
+        (is (= :yang/call-site-multi-claim
+               (failure-rule
+                 #(yang/validate-call-site-coverage!
+                    tree double-marked origin)))
+            "the default mode rejects the second claim with the same
+             diagnostic, not a downstream nonexistent-path error")
         (try (yang/validate-call-site-coverage!
                tree double-marked origin {:declared? true})
              (is false "the double marking must fail")
@@ -968,3 +974,31 @@
           (is (= (eligible-under tree origin) (marked rows)))
           (is (true? (yang/validate-call-site-coverage!
                        tree rows origin {:declared? true}))))))))
+
+(deftest publisher-scope-id-identity-test
+  (testing "scope ids keep their full identity: a keyword's namespace
+            and a string's type are part of the id, so :a/publisher,
+            :b/publisher and \"publisher\" mint distinct tokens even at
+            the same ordinal"
+    (let [ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+          spec {:name 'scoped-ids
+                :ast ast
+                :exports #{'f}
+                :requires {}
+                :primitives {'inc {:yin.k/profile :yin.k/pure
+                                   :yin.k/effects #{}}}}
+          publish-with-scope
+          (fn [id]
+            (let [store (mem/create-content-mem)]
+              [store (publish/publish-module!
+                       store spec {:yin.link.publish/scope
+                                   (publish/admission-scope id)})]))
+          [_ res-a] (publish-with-scope :a/publisher)
+          [_ res-b] (publish-with-scope :b/publisher)
+          [_ res-s] (publish-with-scope "publisher")]
+      (is (not= (get-in res-a [:call-sites :origin])
+                (get-in res-b [:call-sites :origin]))
+          ":a/publisher and :b/publisher stay distinct (namespace kept)")
+      (is (not= (get-in res-a [:call-sites :origin])
+                (get-in res-s [:call-sites :origin]))
+          "the keyword and the string of the same name stay distinct"))))
