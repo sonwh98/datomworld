@@ -2,17 +2,17 @@
   "The PHP parser worker (docs/design/yang.php.md section 6): the
    grammars-v4 php grammar profile over the generic `yang.antlr.cst` worker.
    The generated recognizers come from `bb gen:antlr` (antlr/php/manifest.edn);
-   the JVM is the only local target. The entry rule is `htmlDocument`.
+   the JVM and Node use the same grammar and export profile. The entry rule is `htmlDocument`.
 
    The grammar's non-standard generics (`typeParameterListInBrackets`, the
    `<: ... :>` brackets) are not PHP: a parse that uses them is refused as
    `{:yang.php/not-php :generics}` rather than exported."
   (:require
-    [yang.antlr.cst :as cst])
-  (:import
-    (yang.php.antlr.gen
-      PhpLexer
-      PhpParser)))
+    [yang.antlr.cst :as cst]
+    [dao.host.text :as text]
+    #?@(:cljs [["/yang/antlr/gen/php/PhpLexer.js" :default PhpLexer]
+               ["/yang/antlr/gen/php/PhpParser.js" :default PhpParser]]))
+  #?(:clj (:import (yang.php.antlr.gen PhpLexer PhpParser))))
 
 
 (def grammar-id
@@ -24,7 +24,8 @@
   {:grammar-id grammar-id,
    :make-lexer (fn [cs] (PhpLexer. cs)),
    :make-parser (fn [ts] (PhpParser. ts)),
-   :start (fn [^PhpParser p] (.htmlDocument p))})
+   :start #?(:clj (fn [^PhpParser p] (.htmlDocument p))
+             :cljs (fn [^js p] (.htmlDocument p)))})
 
 
 (defn make-worker
@@ -42,8 +43,8 @@
   "The UTF-8 byte offsets at which each source line begins (the line side
    table, section 17: derived at the parse boundary, where the source is
    known, so no later stage needs the text)."
-  [^String source]
-  (let [bs (.getBytes source "UTF-8")]
+  [source]
+  (let [bs (text/utf8-encode source)]
     (into [0] (keep-indexed (fn [i b] (when (= b 10) (inc i)))) bs)))
 
 
