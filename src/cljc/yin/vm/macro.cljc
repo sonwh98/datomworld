@@ -3,9 +3,10 @@
 
    A process between two media: it observes `program-in` batches
    `[:yin.program/batch trees run-index declaration-rows harvest-rows
-   call-site-claim?]` — the trailing claim element present only when the
-   batch's frontend claimed call-site (C1) coverage, so every older
-   five-element batch is still a valid unclaimed batch —
+   call-site-claims]` — the trailing element present only when some
+   member's frontend claimed call-site (C1) coverage, holding one
+   boolean verdict per member, so every older five-element batch is
+   still a valid unclaimed batch —
    rewrites the selected tree to a fixpoint, and appends one canonical tree
    packet `[root rows]` to `program-out`, with one event row per attempt on
    an optional log medium. Evaluators know nothing of any of this (decision
@@ -393,7 +394,10 @@
               (every? #(and (vector? %) (= 4 (count %))
                             (= :yin.macro/harvest (first %)))
                       harvest)
-              (or (nil? claim) (boolean? claim))))))
+              (or (nil? claim)
+                  (and (vector? claim)
+                       (= (count claim) (count trees))
+                       (every? boolean? claim)))))))
 
 
 (defn- merge-indexes
@@ -1197,14 +1201,17 @@
   (update ctx :guards #(merge default-guards %)))
 
 
-(defn- batch-call-site-claim?
-  "True when `batch`'s frontend claimed call-site (C1) coverage: the
-   claim is the encoder's own verdict over the batch's members — a batch
-   whose members carry no markers claims nothing, and a member whose
-   markers do not exactly cover its tree was refused at the boundary,
-   never delivered here. Only a claimed batch finalizes a side table."
+(defn- batch-call-site-claims
+  "The per-member call-site (C1) claim verdicts the encoder recorded on
+   `batch`: nil when no member claimed coverage, otherwise one boolean
+   per member — the encoder validated every member's markers against
+   its own tree at the boundary, so a member whose markers do not
+   exactly cover it was refused there, never delivered here. Each
+   member's own verdict decides its metadata: only a member that
+   claimed coverage finalizes a side table, whatever its siblings
+   claimed."
   [batch]
-  (true? (nth batch 5 nil)))
+  (nth batch 5 nil))
 
 
 (defn- final-call-site-metadata
@@ -1235,9 +1242,13 @@
    success changes the store, to the post-harvest store. A success also
    carries `:frontend-metadata` — the C1 side table finalized over the
    final tree (`final-call-site-metadata`), covering the tree that
-   actually executes — when, and only when, the batch's frontend claimed
-   C1 coverage (`batch-call-site-claim?`); an unclaimed batch carries
-   no table at all, never an empty one. A context store binding a
+   actually executes — when, and only when, the selected member itself
+   claimed C1 coverage (its own verdict in `batch-call-site-claims`); a
+   sibling's claim never manufactures a table for it, and an unclaimed
+   batch carries no table at all, never an empty one. The table's
+   occurrence origin rides beside it as `:call-site-origin`, the
+   admission this expansion produced the tree under (§2.1). A context
+   store binding a
    reserved name, or holding an entry without the current AST contract,
    is refused (Rule R): it is a composition defect, so it throws rather
    than returning an error."
@@ -1252,6 +1263,7 @@
                      {:status :error, :error e, :log (log-packet st), :ctx ctx'}
                      {:status :ok, :tree (:tree st), :log (log-packet st),
                       :frontend-metadata (:frontend-metadata st),
+                      :call-site-origin (:call-site-origin st),
                       :ctx (assoc ctx' :store (:next-store st))})))
         {:keys [admitted error]} (admit batch)]
     (if error
@@ -1296,14 +1308,23 @@
                     [index root'] (retail (:index st) root')
                     [index root'] (lower-standins index root')
                     tree (packet-of index root')
-                    metadata (when (batch-call-site-claim? batch)
-                               (final-call-site-metadata
-                                 (packet->row-set tree)
-                                 (source-origin ctx source-batch run-index)))]
+                    ;; the occurrence origin of this expansion (§2.1):
+                    ;; the admission this batch produced the final tree
+                    ;; under — the second coordinate of the side table's
+                    ;; site identity, beside the final root address
+                    origin (source-origin ctx source-batch run-index)
+                    ;; the selected member's own verdict decides its
+                    ;; metadata; a sibling's claim never manufactures a
+                    ;; table for a member that made none
+                    claims (batch-call-site-claims batch)
+                     metadata (when (and claims (nth claims run-index))
+                                (final-call-site-metadata
+                                  (packet->row-set tree) origin))]
                 (if-let [e (valid-tree? tree)]
                   (throw (ex-info "Expander produced a non-canonical tree" e))
                   (finish (assoc st :tree tree :next-store next-store
-                                 :frontend-metadata metadata)))))))))))
+                                 :frontend-metadata metadata
+                                  :call-site-origin (when metadata origin))))))))))))
 
 
 (defn expand
@@ -1401,15 +1422,19 @@
 
 
 (defn call-site-table
-  "The C1 side table the consumer `expander` holds for the tree packet
-   `tree` — the rows finalized over that tree's own expansion, under its
-   admission origin — or nil when the tree's batch made no C1 claim.
-   Tables are keyed by the final tree's root address, the content
-   identity of the tree being executed, so successive expansions
-   coexist: resolving by the tree at hand never answers another tree's
-   table, however many loads have run since."
-  [expander tree]
-  (get (:call-site-tables expander) (first tree)))
+  "The C1 side table the consumer `expander` holds for the occurrence
+   the executed tree packet `tree` names — `origin` being the
+   admission/expansion origin that occurrence was produced under (§2.1:
+   an application site is K = [origin root-address path], so the site
+   table's key is the origin beside the root address) — or nil when
+   that occurrence made no C1 claim. Two expansions can produce the
+   SAME final root from different admissions; keying by the full
+   occurrence identity keeps their tables distinct, so resolving by the
+   origin+root pair at hand never answers another execution's table,
+   however many loads have run since, and an unclaimed load of a root
+   previously loaded under a claim retrieves no stale table."
+  [expander tree origin]
+  (get (:call-site-tables expander) [origin (first tree)]))
 
 
 (defn load
@@ -1418,18 +1443,22 @@
    accumulate the error of a failed expansion. Expansion failure is
    data, so the cursor advances past it. A successful expansion's C1
    side table (the batch result's `:frontend-metadata`, present only
-   under a claimed batch) is retained on the consumer under the staged
-   tree's root address (`call-site-tables`, resolved per tree by
-   `call-site-table`), so the composition that drives this expander —
-   the REPL's session — holds every executed tree's coverage beside the
-   expander that produced it, each load's table surviving the next."
+   when the selected member itself claimed coverage) is retained on the
+   consumer under the occurrence identity of the staged tree — its
+   expansion origin beside its final root address (`call-site-tables`,
+   resolved by `call-site-table`) — so the composition that drives this
+   expander — the REPL's session — holds every executed occurrence's
+   coverage beside the expander that produced it, each load's table
+   surviving the next, even when two loads land on the same root."
   [expander batch]
-  (let [{:keys [status tree log error ctx frontend-metadata]}
+  (let [{:keys [status tree log error ctx frontend-metadata
+                call-site-origin]}
         (expand-batch batch (:ctx expander))]
     (cond-> (assoc expander :ctx ctx)
       (= :ok status) (assoc :out-staged tree)
       (and (= :ok status) frontend-metadata)
-      (assoc-in [:call-site-tables (first tree)] frontend-metadata)
+      (assoc-in [:call-site-tables [call-site-origin (first tree)]]
+                frontend-metadata)
       (:log expander) (assoc :log-staged log)
       (= :error status) (update :errors conj error))))
 

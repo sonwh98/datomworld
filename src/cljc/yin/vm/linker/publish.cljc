@@ -230,7 +230,11 @@
 
       (= :refused (:status fp)) fp
 
-      (and claim (:unsupported-version claim))
+      ;; dispatch on the key's PRESENCE, not its truthiness: a marker
+      ;; whose value is present but not the integer 1 — nil or false
+      ;; included — carries :unsupported-version nil/false, and its
+      ;; reason is the unsupported version, never incomplete coverage
+      (and claim (contains? claim :unsupported-version))
       (refusal :yin.link.publish/unsupported-call-site-version claim)
 
       (and claim (not (:rows claim)))

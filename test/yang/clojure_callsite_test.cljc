@@ -295,7 +295,7 @@
                                (encoder/program-batch ast))
           final (macro/packet->row-set (:out-staged consumer))
           origin [:source :program-in (:t ctx) 0]
-          rows (macro/call-site-table consumer (:out-staged consumer))]
+          rows (macro/call-site-table consumer (:out-staged consumer) origin)]
       (is (seq rows))
       (is (= (eligible-under final origin) (marked rows)))
       (is (true? (yang/validate-call-site-coverage!
@@ -329,7 +329,7 @@
       (is (not= (first first-tree) (first second-tree))
           "the two expansions produced different final trees")
       (testing "the first load's table resolves for its tree after the second load"
-        (let [rows (macro/call-site-table consumer first-tree)]
+        (let [rows (macro/call-site-table consumer first-tree first-origin)]
           (is (seq rows))
           (is (= (eligible-under (macro/packet->row-set first-tree)
                                  first-origin)
@@ -338,7 +338,7 @@
                        (macro/packet->row-set first-tree) rows
                        first-origin {:declared? true})))))
       (testing "the second load's table resolves for its tree"
-        (let [rows (macro/call-site-table consumer second-tree)]
+        (let [rows (macro/call-site-table consumer second-tree second-origin)]
           (is (seq rows))
           (is (= (eligible-under (macro/packet->row-set second-tree)
                                  second-origin)
@@ -365,7 +365,167 @@
           "no table, never an empty one, for an unclaimed batch")
       (is (empty? (:call-site-tables consumer))
           "the consumer holds no tables")
-      (is (nil? (macro/call-site-table consumer (:out-staged consumer)))))))
+      (is (nil? (macro/call-site-table consumer (:out-staged consumer)
+                                       [:source :program-in 0 0]))))))
+
+
+(defn- strip-call-sites
+  "The map AST with every C1 marker removed — canonical rows are
+   invariant under this (canonical-invariance-test), so stripping a
+   compiled tree and re-encoding produces the same final tree under a
+   no-claim batch."
+  [ast]
+  (clojure.walk/postwalk #(cond-> % (map? %) (dissoc :yang/call-site)) ast))
+
+
+(deftest same-root-coexistence-test
+  (testing "two loads landing on the SAME final root from different
+            admissions: both occurrences' tables coexist, retrievable
+            by their origin+root pair (design §2.1, K = [origin root
+            path])"
+    (let [store (macro/seed-store
+                  (macro/make-ctx {:token :callsite-test/standard-forms
+                                   :source-medium :callsite-test/standard-forms})
+                  [macro/stdlib-forms])
+          ctx (macro/make-ctx {:token "callsite-test"
+                               :source-medium :program-in
+                               :store store})
+          ast (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
+          first-origin [:source :program-in (:t ctx) 0]
+          consumer (macro/make-expander ctx nil)
+          consumer (macro/load consumer (encoder/program-batch ast))
+          first-tree (:out-staged consumer)
+          second-origin [:source :program-in (:t (:ctx consumer)) 0]
+          consumer (macro/load consumer (encoder/program-batch ast))
+          second-tree (:out-staged consumer)]
+      ;; the load that exposes the defect: identical programs, so the
+      ;; final trees are content-identical — same root
+      (is (= (first first-tree) (first second-tree))
+          "two admissions produced the same root address")
+      (is (not= first-origin second-origin)
+          "the two admissions are different occurrence origins")
+      (testing "each occurrence's table resolves under its own origin"
+        (doseq [[label tree origin]
+                [["first" first-tree first-origin]
+                 ["second" second-tree second-origin]]]
+          (let [rows (macro/call-site-table consumer tree origin)]
+            (is (seq rows) (str label " load's table resolves"))
+            (is (= (eligible-under (macro/packet->row-set tree) origin)
+                   (marked rows)))
+            (is (true? (yang/validate-call-site-coverage!
+                         (macro/packet->row-set tree) rows origin
+                         {:declared? true})))))
+        (is (= 2 (count (:call-site-tables consumer)))
+            "two tables, one per occurrence — neither overwrote the other")))))
+
+
+(deftest unclaimed-after-claimed-test
+  (testing "an unclaimed load of a root previously loaded under a claim
+            retrieves no stale table"
+    (let [store (macro/seed-store
+                  (macro/make-ctx {:token :callsite-test/standard-forms
+                                   :source-medium :callsite-test/standard-forms})
+                  [macro/stdlib-forms])
+          ctx (macro/make-ctx {:token "callsite-test"
+                               :source-medium :program-in
+                               :store store})
+          claimed (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
+          unmarked (strip-call-sites claimed)
+          first-origin [:source :program-in (:t ctx) 0]
+          consumer (macro/make-expander ctx nil)
+          consumer (macro/load consumer (encoder/program-batch claimed))
+          first-tree (:out-staged consumer)
+          second-origin [:source :program-in (:t (:ctx consumer)) 0]
+          consumer (macro/load consumer (encoder/program-batch unmarked))
+          second-tree (:out-staged consumer)]
+      (is (= (first first-tree) (first second-tree))
+          "the unmarked program lands on the claimed load's root")
+      (is (seq (macro/call-site-table consumer first-tree first-origin))
+          "the claimed occurrence's table is still held under its origin")
+      (is (nil? (macro/call-site-table consumer second-tree second-origin))
+          "the unclaimed occurrence retrieves no table — not the stale one")
+      (is (= 1 (count (:call-site-tables consumer)))))))
+
+
+(deftest per-member-claim-test
+  (testing "every member is validated: a defect in any member refuses
+            the batch, however valid its siblings"
+    (let [ast (yang/compile '(+ (* 2 3) 4))]
+      (testing "a valid member does not short-circuit a later defective one"
+        (is (= :yang/call-site-unsupported-version
+               (failure-rule
+                 #(encoder/program-batch
+                    [ast (assoc ast :yang/call-site 2)] 0))))
+        (is (= :yang/call-site-incomplete-coverage
+               (failure-rule
+                 #(encoder/program-batch
+                    [ast (update-in ast [:operands 0]
+                                    dissoc :yang/call-site)] 0)))))
+      (testing "a defective first member is caught too"
+        (is (= :yang/call-site-unsupported-version
+               (failure-rule
+                 #(encoder/program-batch
+                    [(assoc ast :yang/call-site 2) ast] 0)))))))
+  (testing "the verdicts ride the batch per member"
+    (let [ast (yang/compile '(+ (* 2 3) 4))]
+      (is (= [true false] (nth (encoder/program-batch
+                                 [ast (strip-call-sites ast)] 0) 5))
+          "one verdict per member: the marked member claims, the
+           unmarked member does not")
+      (is (= 5 (count (encoder/program-batch
+                        [(strip-call-sites ast) (strip-call-sites ast)] 0)))
+          "no member claims: the batch keeps the five-element shape"))))
+
+
+(deftest per-member-metadata-test
+  (testing "a claimed sibling never manufactures a table for an
+            unmarked selected member — the selected member's own
+            verdict decides its metadata"
+    (let [store (macro/seed-store
+                  (macro/make-ctx {:token :callsite-test/standard-forms
+                                   :source-medium :callsite-test/standard-forms})
+                  [macro/stdlib-forms])
+          ctx (macro/make-ctx {:token "callsite-test"
+                               :source-medium :program-in
+                               :store store})
+          marked (yang/compile '(+ (* 2 3) 4))
+          unmarked (strip-call-sites marked)
+          ;; tree 0 claims, tree 1 (the run tree) does not
+          batch (encoder/program-batch [marked unmarked] 1)]
+      (is (= [true false] (nth batch 5)))
+      (let [{:keys [status frontend-metadata]}
+            (macro/expand-batch batch ctx)]
+        (is (= :ok status))
+        (is (nil? frontend-metadata)
+            "the unmarked run member's own verdict made no table"))
+      (testing "the same batch with the claimed member selected finalizes its table"
+        (let [batch (encoder/program-batch [marked unmarked] 0)
+              {:keys [status frontend-metadata]}
+              (macro/expand-batch batch ctx)]
+          (is (= :ok status))
+          (is (seq frontend-metadata)))))))
+
+
+(deftest publish-version-reason-test
+  (testing "a present-but-wrong marker version refuses with the
+            unsupported-version reason, never incomplete coverage"
+    (doseq [bad-value [false nil 0 "1" true]]
+      (testing (pr-str bad-value)
+        (let [store (mem/create-content-mem)
+              ast (assoc (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+                         :yang/call-site bad-value)
+              res (publish/publish-module!
+                    store {:name 'bad-version-value
+                           :ast ast
+                           :exports #{'f}
+                           :requires {}
+                           :primitives {'inc {:yin.k/profile :yin.k/pure
+                                              :yin.k/effects #{}}}})]
+          (is (= :refused (:status res)))
+          (is (= :yin.link.publish/unsupported-call-site-version
+                 (:reason res)))
+          (is (= bad-value (:unsupported-version res)))
+          (is (nil? (:address res))))))))
 
 
 (def ^:private publish-registry

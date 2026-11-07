@@ -270,34 +270,37 @@
    makes no claim and passes; the executed tree's table is finalized
    after expansion, over the final rows. Answers true when the member
    claimed coverage (it passed the check), false when it carried no
-   markers — the verdict the batch carries to the expander, which
-   finalizes a side table for a claimed batch only."
+   markers — one verdict per member, so the selected member's own
+   verdict, never a sibling's, decides whether the expander finalizes
+   its side table."
   [ast tree]
   (let [marked (marked-call-sites ast)]
-    (when (seq marked)
-      (doseq [[path value] marked]
-        (when (not= 1 value)
-          (throw (ex-info "Unsupported call-site marker version"
-                          {:rule :yang/call-site-unsupported-version,
-                           :path path, :value value}))))
-      (let [eligible (into #{} (map second) (vm/application-occurrences tree))
-            claimed (into #{} (map first) marked)]
-        (when (not= eligible claimed)
-          (throw (ex-info "Call-site markers do not cover the projected tree"
-                          {:rule :yang/call-site-incomplete-coverage,
-                           :missing (vec (sort-by pr-str
-                                                  (remove claimed eligible))),
-                           :extra (vec (sort-by pr-str
-                                                (remove eligible claimed)))})))
-        true))))
+    (if (seq marked)
+      (do (doseq [[path value] marked]
+            (when (not= 1 value)
+              (throw (ex-info "Unsupported call-site marker version"
+                              {:rule :yang/call-site-unsupported-version,
+                               :path path, :value value}))))
+          (let [eligible (into #{} (map second) (vm/application-occurrences tree))
+                claimed (into #{} (map first) marked)]
+            (when (not= eligible claimed)
+              (throw (ex-info "Call-site markers do not cover the projected tree"
+                              {:rule :yang/call-site-incomplete-coverage,
+                               :missing (vec (sort-by pr-str
+                                                      (remove claimed eligible))),
+                               :extra (vec (sort-by pr-str
+                                                    (remove eligible claimed)))}))))
+          true)
+      false)))
 
 
 (defn program-batch
   "Encode frontend output as the expander's input batch (§2.1):
    `[:yin.program/batch trees run-index declaration-rows harvest-rows
-   call-site-claim?]` — the trailing element present only when the batch
-   claimed call-site (C1) coverage, so every unclaimed batch keeps the
-   five-element shape. Each member — a map AST or a `:yin/*` datom batch
+   call-site-claims]` — the trailing element present only when some
+   member claimed call-site (C1) coverage, holding one boolean verdict
+   per member, so every unclaimed batch keeps the five-element shape.
+   Each member — a map AST or a `:yin/*` datom batch
    — projects to one tree packet; `run-index` selects the one that
    becomes the program. Harvest rows name every `(yin/def
    <literal-symbol> value)` occurrence in source declaration order,
@@ -307,8 +310,9 @@
    call-site (C1) coverage is checked against its projected tree before
    the batch is formed (`check-call-site-claim!`): the markers drop out
    of the rows, but never silently — a broken claim refuses the batch,
-   and the claim verdict travels with the batch, so the expander
-   finalizes the executed tree's table for a claimed batch only."
+   and the per-member claim verdicts travel with the batch, so the
+   expander finalizes a member's executed tree's table when, and only
+   when, that member's own verdict is a claim."
   ([member] (program-batch [member] 0))
   ([members run-index]
    (let [asts (mapv member-ast members)
@@ -320,11 +324,14 @@
                                          (definition-occurrences ast)))
                                   (range) asts))
          ;; A frontend's C1 claim is enforced here, where its markers
-         ;; would otherwise drop out of canonical-row production unread;
-         ;; the verdict rides with the batch.
-         claimed (boolean
-                   (some true?
-                         (map check-call-site-claim! asts row-sets)))]
+         ;; would otherwise drop out of canonical-row production unread.
+         ;; EVERY member is validated — `mapv` is eager, so a defect in
+         ;; any member refuses the batch, however valid its siblings —
+         ;; and the per-member verdicts ride with the batch: each
+         ;; member's own verdict, never a sibling's, decides whether the
+         ;; expander finalizes that member's side table.
+         verdicts (mapv check-call-site-claim! asts row-sets)
+         claims (when (some true? verdicts) verdicts)]
      (cond-> [:yin.program/batch
               trees
               run-index
@@ -335,7 +342,7 @@
               (into [] (map-indexed (fn [h {:keys [tree path]}]
                                       [:yin.macro/harvest h tree path]))
                     occurrences)]
-       claimed (conj true)))))
+       claims (conj claims)))))
 
 
 (defn ready?
