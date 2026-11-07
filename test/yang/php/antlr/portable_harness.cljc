@@ -18,16 +18,37 @@
 (def ^:private capability-secret "yin.vm.test-utils/capability-secret")
 
 
+(defn make-stream
+  "The composition's stream constructor: a deterministic ring buffer, answering
+   the create outcome the engine consumes. The lifecycle streams below come
+   from this same constructor, so request consumption and response/diagnostic
+   emission travel composition-supplied streams rather than vectors."
+  ([] (make-stream nil))
+  ([capacity]
+   (ringbuffer/create!
+     {:dao.stream/type ringbuffer/transport-type,
+      ringbuffer/capacity-key (or capacity vm/default-stream-capacity)})))
+
+
+(defn- check-ok!
+  [result what]
+  (when-not (= :dao.stream/ok (:dao.stream/outcome result))
+    (throw (ex-info (str "PHP lifecycle stream failed: " what) {:result result})))
+  result)
+
+
+(defn- lifecycle-stream
+  "One open lifecycle stream handle from the composition's own constructor."
+  [what]
+  (:dao.stream/handle (check-ok! (make-stream) what)))
+
+
 (defn create-vm
   "An AST walker composed with the harness's deterministic ring-buffer stream."
   ([] (create-vm {}))
   ([opts]
    (ast-walker/create-vm
-     (merge {:make-stream
-             (fn [capacity]
-               (ringbuffer/create!
-                 {:dao.stream/type ringbuffer/transport-type,
-                  ringbuffer/capacity-key (or capacity vm/default-stream-capacity)}))
+     (merge {:make-stream (fn [capacity] (make-stream capacity)),
              :capability-secret capability-secret}
             opts))))
 
@@ -124,30 +145,79 @@
 
 (defn lower-through-stage
   "`{:ast a :warnings w}` or `{:diagnostics d}` for `pk` through the lowering
-   stage. Warning-severity diagnostics do not stop the program."
-  [pk]
-  (let [cst-log (new-memory-log)
-        program (new-memory-log)
-        diagnostics (new-memory-log)]
-    (stream/append! cst-log pk)
-    (lower/step-stage (lower/open-stage cst-log program diagnostics
-                                        {:medium lower/program-medium}))
-    (let [{warnings true, problems false}
-          (group-by #(= :warning (:severity %)) (drain diagnostics))]
-      (if (seq problems)
-        {:diagnostics problems}
-        (let [{:yin/keys [batch root]} (first (drain program))]
-          {:ast (nth batch root), :warnings (vec warnings)})))))
+   stage. Warning-severity diagnostics do not stop the program. With a request
+   record, it rides the composition path as `run-main`'s second operand."
+  ([pk] (lower-through-stage pk nil))
+  ([pk request]
+   (let [cst-log (new-memory-log)
+         program (new-memory-log)
+         diagnostics (new-memory-log)]
+     (stream/append! cst-log pk)
+     (lower/step-stage (lower/open-stage cst-log program diagnostics
+                                         (cond-> {:medium lower/program-medium}
+                                           (some? request) (assoc :request request))))
+     (let [{warnings true, problems false}
+           (group-by #(= :warning (:severity %)) (drain diagnostics))]
+       (if (seq problems)
+         {:diagnostics problems}
+         (let [{:yin/keys [batch root]} (first (drain program))]
+           {:ast (nth batch root), :warnings (vec warnings)}))))))
 
 
 (defn run-packet-raw
   "The unit's value, `{:php/out :php/diag :php/uncaught}`, of packet `pk` on
    the AST walker, or `{:diagnostics d}`."
-  [pk]
-  (let [{:keys [ast diagnostics]} (lower-through-stage pk)]
-    (if diagnostics
-      {:diagnostics diagnostics}
-      (vm/value (vm/eval (create-vm {:modules (host-registry)}) ast)))))
+  ([pk] (run-packet-raw pk nil))
+  ([pk request]
+   (let [{:keys [ast diagnostics]} (lower-through-stage pk request)]
+     (if diagnostics
+       {:diagnostics diagnostics}
+       (vm/value (vm/eval (create-vm {:modules (host-registry)}) ast))))))
+
+
+(defn- consume-one
+  "The single value appended to `handle`, read back through a fresh oldest
+   cursor: real stream consumption, not a vector pass."
+  [handle]
+  (let [start (:dao.stream/cursor (check-ok! (stream/cursor handle stream/anchor-oldest)
+                                             "request cursor"))
+        result (check-ok! (stream/next handle start) "request read")]
+    (:dao.stream/value result)))
+
+
+(defn- emit-all!
+  "Every record of `records` appended to the composition-supplied `handle`:
+   real stream emission, then drained back by the caller."
+  [handle records what]
+  (doseq [record records]
+    (check-ok! (stream/append! handle record) what)))
+
+
+(defn run-lifecycle-raw
+  "The full request/response/diagnostics lifecycle for packet `pk` over
+   composition-supplied streams: `request` (nil keeps the empty defaults) is
+   appended to the request stream and consumed back from it; the consumed
+   record rides the composition path as `run-main`'s second operand; the run's
+   response and diagnostic records are emitted on the response and diagnostics
+   streams. Returns `{:value v :request consumed :response [...] :diag [...]}`,
+   the drained streams, or `{:diagnostics d}` when lowering refuses."
+  [pk request]
+  (let [request-stream (lifecycle-stream "request create")
+        response-stream (lifecycle-stream "response create")
+        diagnostics-stream (lifecycle-stream "diagnostics create")]
+    (when (some? request)
+      (check-ok! (stream/append! request-stream request) "request append"))
+    (let [consumed (if (some? request) (consume-one request-stream) nil)
+          {:keys [ast diagnostics]} (lower-through-stage pk consumed)]
+      (if diagnostics
+        {:diagnostics diagnostics}
+        (let [v (vm/value (vm/eval (create-vm {:modules (host-registry)}) ast))]
+          (emit-all! response-stream (:php/response v) "response append")
+          (emit-all! diagnostics-stream (:php/diag v) "diagnostics append")
+          {:value v,
+           :request consumed,
+           :response (drain response-stream),
+           :diag (drain diagnostics-stream)})))))
 
 
 (defn run-packet

@@ -7,6 +7,7 @@
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.linked-harness :as lh]
+    [yang.php.antlr.portable-harness :as ph]
     [yang.php.antlr.prelude :as prelude]
     [yang.php.antlr.programs-p5b2 :as p5b2]))
 
@@ -38,6 +39,45 @@
                                                        (p5b2/request-array [["v" "Q"]])))]
       (is (= "Q" (:php/out r)))
       (is (= [] (:php/diag r))))))
+
+
+(deftest stream-lifecycle-consumes-and-emits-over-streams-test
+  (testing "the request consumed from the request stream seeds the superglobals"
+    (let [request (assoc p5b2/base-request
+                         :php.request/query (p5b2/request-array [["v" "Q"]])
+                         :php.request/body (p5b2/request-array [["w" "W"]]))
+          source "<?php echo $_GET['v'], $_POST['w'], $_REQUEST['v'], $_REQUEST['w'];"
+          {:keys [value response diag] :as lifecycle}
+          (ph/run-lifecycle-raw (cst/parse-source source) request)]
+      (is (= request (:request lifecycle)))
+      (is (= [{:php.response/body "QWQW"}] response))
+      (is (= [] diag))
+      (is (= response (:php/response value)))
+      (is (= diag (:php/diag value)))
+      (is (= "QWQW" (:php/out value)))
+      (is (= "QWQW" (:php/out (h/run-raw source request))))))
+  (testing "diagnostic records are emitted on the diagnostics stream"
+    (let [source "<?php trigger_error('boom', E_USER_NOTICE); echo 'done';"
+          {:keys [value response diag]}
+          (ph/run-lifecycle-raw (cst/parse-source source) p5b2/base-request)]
+      (is (= [[1024 "boom"]] (mapv (juxt :errno :message) diag)))
+      (is (= diag (:php/diag value)))
+      (is (= [{:php.response/body "done"}] response))))
+  (testing "response records keep header-then-body emission order on the stream"
+    (let [source "<?php header('X-A: 1'); echo 'hi';"
+          {:keys [value response diag]}
+          (ph/run-lifecycle-raw (cst/parse-source source) p5b2/base-request)]
+      (is (= [] diag))
+      (is (= response (:php/response value)))
+      (is (= "X-A: 1" (:php.response/header (first response))))
+      (is (= {:php.response/body "hi"} (last response)))))
+  (testing "a nil request keeps the empty defaults through the streams"
+    (let [{:keys [value response diag] :as lifecycle}
+          (ph/run-lifecycle-raw (cst/parse-source "<?php echo 'none';") nil)]
+      (is (nil? (:request lifecycle)))
+      (is (= [{:php.response/body "none"}] response))
+      (is (= [] diag))
+      (is (= "none" (:php/out value))))))
 
 
 (defn- linked-out
