@@ -1076,15 +1076,17 @@
   (let [[st counter] (allocate-attempt st)
         ctx (:ctx st)
         macro-root (first (:yin.macro/tree entry))
-        ;; the occurrence provenance of the replaced application (§2.1):
         ;; every output row whose content address is one of the input's
         ;; own rows is the admitted syntax retained — a no-op expansion
-        ;; or an operand passed through — and keeps this origin; rows
-        ;; the expansion itself generated take the event's origin below
+        ;; or an operand passed through — and keeps ITS OWN incoming
+        ;; provenance (§2.1): the origin the enclosing walk's
+        ;; `origin-of` already answers for that address, which need not
+        ;; be the replaced application's origin (an operand packet may
+        ;; carry syntax of mixed origin); rows the expansion itself
+        ;; generated take the event's origin below
         input-addrs (into #{address}
                           (map first)
                           (second (packet-of (:index st) address)))
-        admitted-origin (origin-of address)
         begin (fn [output error]
                 (event-row (attempt-id ctx counter)
                            (:source-batch st)
@@ -1137,7 +1139,11 @@
                                       :origin-of
                                       (fn [a]
                                         (if (contains? input-addrs a)
-                                          admitted-origin
+                                          ;; retained syntax keeps its
+                                          ;; own incoming provenance
+                                          ;; (§2.1), never the replaced
+                                          ;; call's origin
+                                          (origin-of a)
                                           ;; the recorded expansion event
                                           ;; row is the real expansion
                                           ;; record (§8); its content
@@ -1291,9 +1297,11 @@
    the key the table is stored and resolved under beside the final
    root address. It is the table's admission key, not a blanket
    stamp: each row's origin is that occurrence's own (§2.1, §2.3) —
-   the run member's source origin for admitted syntax a no-op
-   expansion retained, the `[:expansion record-address]` of a recorded
-   expansion event for syntax its output generated. A context
+   a retained occurrence keeps its own incoming provenance (its
+   source origin, or the generating expansion's, however deeply it
+   was passed through), and generated syntax carries the
+   `[:expansion record-address]` of the recorded expansion event
+   whose output introduced it. A context
    store binding a
    reserved name, or holding an entry without the current AST contract,
    is refused (Rule R): it is a composition defect, so it throws rather

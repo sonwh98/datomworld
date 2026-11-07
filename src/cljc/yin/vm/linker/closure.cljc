@@ -197,8 +197,11 @@
    references (`:yin.module/call-sites`, `yin.vm.linker.publish`), read
    and held to their own shape — the table is a vector of frontend-
    metadata rows, the record is version 1, names the manifest's own
-   tree, and points at the referenced table. The origin is left to the
-   retriever, which recomputes it from the tree."
+   tree, and points at the referenced table. The origin is not
+   recomputed or reconstructed here: each marker row carries its own
+   occurrence origin (design §2.1), and the record persists the
+   publication's admission identity, which the retriever reads from
+   the record, never from the tree."
   [st manifest path]
   (if-some [call-sites (:yin.module/call-sites manifest)]
     (let [[st table] (read-blob st (:table call-sites) :call-site path)]

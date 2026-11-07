@@ -216,7 +216,34 @@
       (is (= :yang/call-site-duplicate-entry
              (failure-rule
                #(yang/validate-call-site-coverage!
-                  tree (into metadata markers) origin {:declared? true})))))))
+                  tree (into metadata markers) origin {:declared? true})))))
+    (testing "a second origin claim for one occurrence is rejected"
+      ;; one occurrence has exactly one origin (design §2.1); a second
+      ;; version-1 marker with a different, equally well-formed origin
+      ;; for an already-covered [root path] is a second claim to one
+      ;; fact — the coverage projection on [root path] must not fold it
+      (let [other-origin [:source :other-publisher "batch-9" 0]
+            double-marked (conj metadata
+                                (assoc (first markers)
+                                       0 other-origin))]
+        (is (= :yang/call-site-multi-claim
+               (failure-rule
+                 #(yang/validate-call-site-coverage!
+                    tree double-marked origin {:declared? true}))))
+        (is (= :yang/call-site-multi-claim
+               (failure-rule
+                 #(yang/validate-call-site-coverage!
+                    tree double-marked origin
+                    {:per-occurrence-origins? true}))))
+        (try (yang/validate-call-site-coverage!
+               tree double-marked origin {:declared? true})
+             (is false "the double marking must fail")
+             (catch #?(:cljd Throwable :clj Exception :cljs :default) e
+               (let [d (ex-data e)]
+                 (is (= [(:root tree) (nth (first markers) 2)] (:site d))
+                     "the diagnostic names the double-claimed occurrence")
+                 (is (= #{origin other-origin} (set (:origins d)))
+                     "the diagnostic names both origins"))))))))
 
 
 (deftest safepoint-independence-test
@@ -384,6 +411,31 @@
         (is (= #{admission} (row-origins frontend-metadata))
             "no generating event occurred, so the source origin remains
              valid for every occurrence (design §2.1)")
+        (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+        (is (true? (yang/validate-call-site-coverage!
+                     final frontend-metadata admission
+                     {:declared? true :per-occurrence-origins? true})))))
+    (testing "a nested pass-through keeps the operand's own origin"
+      ;; design §2.1: a retained occurrence preserves ITS OWN incoming
+      ;; provenance. `wrap` generates `(pass x)` retaining the admitted
+      ;; `(+ 1 2)`; `pass` is a no-op returning `x` — the `+`
+      ;; application must still carry the source origin, never the
+      ;; enclosing expansion's origin
+      (let [ast (yang/compile-program
+                  '[(defmacro pass [x] x)
+                    (defmacro wrap [x]
+                      (yin/application (yin/variable 'pass) [x]))
+                    (wrap (+ 1 2))])
+            {:keys [ctx result]} (expand-like-the-repl ast)
+            {:keys [status tree frontend-metadata]} result
+            final (macro/packet->row-set tree)
+            admission [:source :program-in (:t ctx) 0]]
+        (is (= :ok status))
+        (is (seq frontend-metadata))
+        (is (= #{admission} (row-origins frontend-metadata))
+            "the admitted `(+ 1 2)` application passed through two
+             expansions keeps its source origin — it must not be
+             relabeled with any enclosing expansion's origin")
         (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
         (is (true? (yang/validate-call-site-coverage!
                      final frontend-metadata admission
@@ -718,9 +770,11 @@
             (is (= (eligible-under tree origin) (marked rows)))
             (is (true? (yang/validate-call-site-coverage!
                          tree rows origin {:declared? true}))))))))
-  (testing "two publications of identical trees are two admissions
-            (design §2.1), and a retrieval replays the one recorded
-            admission it names"
+  (testing "an unscoped re-publication of the same specification is
+            the same recorded admission (the default admission identity
+            is derived from the specification's own durable inputs,
+            never a hidden counter), and a retrieval replays the one
+            recorded admission it names"
     (let [store (mem/create-content-mem)
           ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
           spec {:name 'twin-admissions
@@ -735,15 +789,40 @@
           second-address (:address second-result)]
       (is (some? first-address))
       (is (some? second-address))
-      (is (not= first-address second-address)
-          "the manifests differ, because each references its own table")
-      (testing "identical content, distinct admission identities"
+      (is (= first-address second-address)
+          "the idempotent re-publication is the same manifest")
+      (testing "identical content, one admission identity"
         (is (= (get-in first-result [:call-sites :root])
                (get-in second-result [:call-sites :root]))
             "the published trees are content-identical")
-        (is (not= (get-in first-result [:call-sites :origin])
-                  (get-in second-result [:call-sites :origin]))
-            "separately admitted identical sources have different origins"))
+        (is (= (get-in first-result [:call-sites :origin])
+               (get-in second-result [:call-sites :origin]))
+            "the default admission identity is a function of the
+             specification's durable identity, not of process-local
+             mutable state, so no two publishers can unknowingly share
+             or split one"))
+      (testing "separate admissions of identical trees take explicit
+                scopes and stay distinct (design §2.1)"
+        (let [a (publish/admission-scope "publisher-a")
+              b (publish/admission-scope "publisher-b")
+              spec' (assoc spec :name 'twin-admissions-scoped)
+              via-a (publish/publish-module!
+                      store spec' {:yin.link.publish/scope a})
+              via-a-2 (publish/publish-module!
+                        store spec' {:yin.link.publish/scope a})
+              via-b (publish/publish-module!
+                      store spec' {:yin.link.publish/scope b})]
+          (is (some? (:address via-a)))
+          (is (not= (get-in via-a [:call-sites :origin])
+                    (get-in via-b [:call-sites :origin]))
+              "two independent publisher scopes producing identical
+               specs yield distinct admission identities")
+          (is (not= (get-in via-a [:call-sites :origin])
+                    (get-in via-a-2 [:call-sites :origin]))
+              "one scope's two publications are two admissions")
+          (is (not= (get-in via-a [:call-sites :table])
+                    (get-in via-b [:call-sites :table]))
+              "distinct admissions reference distinct tables")))
       (testing "retrieval reads each record's recorded admission"
         (doseq [[label result address]
                 [["first" first-result first-address]
@@ -847,3 +926,45 @@
       (is (= 2 (:unsupported-version res)))
       (is (nil? (:address res))
           "a claim rejection publishes nothing, so no table exists"))))
+
+
+(deftest publisher-scope-admission-identity-test
+  (testing "two independent publisher scopes producing identical
+            specifications still yield distinct admission identities
+            (design §2.1): the admission token is drawn from the
+            caller-owned scope object — no counter lives in the
+            publisher namespace, so two fresh publisher processes (or
+            restarts of one) publishing the same specification never
+            unknowingly share or split one admission identity"
+    (let [ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+          spec {:name 'scoped-twin
+                :ast ast
+                :exports #{'f}
+                :requires {}
+                :primitives {'inc {:yin.k/profile :yin.k/pure
+                                   :yin.k/effects #{}}}}
+          ;; two independent publisher processes: two stores, two scopes
+          store-a (mem/create-content-mem)
+          store-b (mem/create-content-mem)
+          scope-a (publish/admission-scope "publisher-a")
+          scope-b (publish/admission-scope "publisher-b")
+          via-a (publish/publish-module!
+                  store-a spec {:yin.link.publish/scope scope-a})
+          via-b (publish/publish-module!
+                  store-b spec {:yin.link.publish/scope scope-b})]
+      (is (some? (:address via-a)))
+      (is (some? (:address via-b)))
+      (is (= (get-in via-a [:call-sites :root])
+             (get-in via-b [:call-sites :root]))
+          "the published trees are content-identical")
+      (is (not= (get-in via-a [:call-sites :origin])
+                (get-in via-b [:call-sites :origin]))
+          "identical specs, independent scopes: distinct admissions")
+      (doseq [[label result store]
+              [["scope-a" via-a store-a] ["scope-b" via-b store-b]]]
+        (let [{:keys [tree origin rows]}
+              (publish/published-call-site-table store (:address result))]
+          (is (some? rows) (str label " table retrieves"))
+          (is (= (eligible-under tree origin) (marked rows)))
+          (is (true? (yang/validate-call-site-coverage!
+                       tree rows origin {:declared? true}))))))))

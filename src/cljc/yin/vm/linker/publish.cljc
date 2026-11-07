@@ -105,10 +105,12 @@
 ;; cannot name the manifest (the manifest references it, so the two
 ;; addresses would be circular), and custody runs one way, from the
 ;; manifest forward. The publication's origin is an ADMISSION identity
-;; (design §2.1): an explicit token drawn per publication — so two
-;; separately published identical trees are two admissions with
-;; distinct origins — persisted in the record and retrieved from the
-;; record, never reconstructed from the tree's content. The publisher
+;; (design §2.1): a token the composition pins explicitly, draws from
+;; a composition-owned scope object, or — by default — has derived
+;; from the publication specification's own durable identity; no
+;; counter or other mutable state lives in this namespace. The token
+;; is persisted in the record and retrieved from the record, never
+;; reconstructed from the tree's content. The publisher
 ;; extracts the markers from the map AST, refuses the
 ;; publication when they do not exactly cover the canonical tree's
 ;; application occurrences — or when a marker's value is not version 1 —
@@ -116,29 +118,59 @@
 ;; handle. A module with no markers makes no claim and publishes exactly
 ;; as before.
 
-(def ^:private publication-sequence
-  "The publisher's admission counter. Each publication is one admission
-   event (design §2.1): two separately admitted identical sources have
-   different origins, so the token drawn here never repeats."
-  (atom 0))
+(defn admission-scope
+  "An admission scope for `publish-module!`'s `:yin.link.publish/scope`
+   option. `id` names this publisher — a durable, caller-chosen
+   identity (a string or keyword) that distinguishes this publisher's
+   admissions from every other publisher's; a publisher that must not
+   collide with its own past runs takes a fresh `id` per run. The
+   returned scope object OWNS the publication ordinal counter, so no
+   counter lives in this namespace (no hidden global state): two
+   publications through one scope draw consecutive ordinals, and two
+   independent scopes publishing identical specifications still yield
+   distinct admission identities, because their `id`s differ."
+  [id]
+  {:yin.link.publish/scope-id id
+   :yin.link.publish/ordinal (atom 0)})
 
-(defn- next-admission-token
-  "A fresh, never-repeated admission token for one publication."
-  []
+(defn- scope-admission-token
+  "The admission token a scope object draws for one publication: the
+   scope's own `id` plus the ordinal the scope's counter assigns. The
+   counter lives in the caller-owned scope object, never here."
+  [{:yin.link.publish/keys [scope-id ordinal]}]
+  (let [id (cond (string? scope-id) scope-id
+                 (keyword? scope-id) (name scope-id)
+                 :else (str scope-id))]
+    (keyword "yin.vm.linker.publish.scope"
+             (str id "#" (swap! ordinal inc)))))
+
+(defn- spec-admission-token
+  "The default admission token: derived deterministically from the
+   publication specification's own durable identity — the module name
+   and the content address of its compiled tree — never from hidden
+   mutable state. Two publications of the same specification therefore
+   answer the same admission identity (an idempotent re-publication is
+   the same recorded admission), and distinct specifications never
+   share one, in this or any other publisher process. A composition
+   that admits the same specification more than once as separate
+   admissions passes an `:yin.link.publish/scope` (or an explicit
+   `:yin.link.publish/admission`) so the admissions stay distinct."
+  [{:keys [name]} tree]
   (keyword "yin.vm.linker.publish.publication"
-           (str (swap! publication-sequence inc))))
+           (str name "::" (:root tree))))
 
 (defn- publication-origin
   "The occurrence origin of the publication admission `token` names:
    the publisher's own medium, the explicit admission token, member 0.
    `token` is the publication's admission identity — the
    `:yin.link.publish/admission` option when the composition pins one,
-   otherwise a publisher-allocated token that never repeats — so two
-   publications of identical trees are two admissions with distinct
-   origins. The origin is an admission event's identity, not a
-   function of the tree's content: it is persisted in the side record
-   at publication time and retrieved from that record; nothing ever
-   reconstructs it from the root."
+   the `:yin.link.publish/scope` option's next drawn token when the
+   composition scopes the publisher, otherwise the token derived from
+   the publication specification's own durable identity. The origin is
+   an admission event's identity, not a function of the tree's content
+   alone: it is persisted in the side record at publication time and
+   retrieved from that record; nothing ever reconstructs it from the
+   root."
   [token]
   [:source :yin.vm.linker.publish/publish token 0])
 
@@ -237,10 +269,15 @@
         ;; though it did. One publication is one admission event
         ;; (design §2.1): the admission identity is pinned explicitly by
         ;; the composition when it supplies `:yin.link.publish/admission`,
-        ;; otherwise drawn fresh here — either way it is persisted in
-        ;; the side record and retrieved from there
+        ;; drawn from the composition's own scope object when it supplies
+        ;; `:yin.link.publish/scope`, and otherwise derived from the
+        ;; specification's own durable identity — no counter lives in
+        ;; this namespace. Either way it is persisted in the side record
+        ;; and retrieved from there
         admission (or (:yin.link.publish/admission opts)
-                      (next-admission-token))
+                      (when-let [scope (:yin.link.publish/scope opts)]
+                        (scope-admission-token scope))
+                      (when tree (spec-admission-token spec tree)))
         claim (when (and tree (not defect) (not requirement)
                          (not= :refused (:status tree))
                          (not= :refused (:status fp)))
@@ -348,7 +385,13 @@
   "Mint all four code formats, derivation records, and one schema-1 manifest.
    `opts` `{:bounds {...}}` are the composition bounds (section 4.2 step
    2) of every closure walk and local link the publication runs, every
-   bound left out taking `linker/default-bounds`."
+   bound left out taking `linker/default-bounds`. `opts` may also pin
+   the publication's admission identity explicitly
+   (`:yin.link.publish/admission`) or scope it — a scope object from
+   `admission-scope` under `:yin.link.publish/scope`, whose counter the
+   caller owns; without either, the admission identity is derived from
+   the specification's own durable identity, so re-publishing the same
+   specification is the same recorded admission."
   ([handle spec] (publish-module! handle spec nil))
   ([handle spec opts] (publish-closure! handle spec opts)))
 
