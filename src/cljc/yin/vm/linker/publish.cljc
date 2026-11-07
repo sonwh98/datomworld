@@ -101,24 +101,46 @@
 ;; reference `{table record}` — the module closure follows manifest
 ;; references, so only a referenced table travels with the module
 ;; through transfer. The reverse record names the tree root, the
-;; publisher's origin, and the table's address; it cannot name the
-;; manifest (the manifest references it, so the two addresses would be
-;; circular), and custody runs one way, from the manifest forward. The
-;; publisher extracts the markers from the map AST, refuses the
+;; publication's recorded admission origin, and the table's address; it
+;; cannot name the manifest (the manifest references it, so the two
+;; addresses would be circular), and custody runs one way, from the
+;; manifest forward. The publication's origin is an ADMISSION identity
+;; (design §2.1): an explicit token drawn per publication — so two
+;; separately published identical trees are two admissions with
+;; distinct origins — persisted in the record and retrieved from the
+;; record, never reconstructed from the tree's content. The publisher
+;; extracts the markers from the map AST, refuses the
 ;; publication when they do not exactly cover the canonical tree's
 ;; application occurrences — or when a marker's value is not version 1 —
 ;; and otherwise materializes the table and its record into the same
 ;; handle. A module with no markers makes no claim and publishes exactly
 ;; as before.
 
+(def ^:private publication-sequence
+  "The publisher's admission counter. Each publication is one admission
+   event (design §2.1): two separately admitted identical sources have
+   different origins, so the token drawn here never repeats."
+  (atom 0))
+
+(defn- next-admission-token
+  "A fresh, never-repeated admission token for one publication."
+  []
+  (keyword "yin.vm.linker.publish.publication"
+           (str (swap! publication-sequence inc))))
+
 (defn- publication-origin
-  "The occurrence origin of a module tree this publisher admits: the
-   publisher's own medium, the tree's root as its batch token, member
-   0. Deterministic in the tree, so the table published beside a
-   manifest can be recomputed — and its absence detected — from the
-   manifest alone."
-  [root]
-  [:source :yin.vm.linker.publish/publish root 0])
+  "The occurrence origin of the publication admission `token` names:
+   the publisher's own medium, the explicit admission token, member 0.
+   `token` is the publication's admission identity — the
+   `:yin.link.publish/admission` option when the composition pins one,
+   otherwise a publisher-allocated token that never repeats — so two
+   publications of identical trees are two admissions with distinct
+   origins. The origin is an admission event's identity, not a
+   function of the tree's content: it is persisted in the side record
+   at publication time and retrieved from that record; nothing ever
+   reconstructs it from the root."
+  [token]
+  [:source :yin.vm.linker.publish/publish token 0])
 
 
 (defn- claims-call-sites?
@@ -137,9 +159,9 @@
    do not; `{:unsupported-version v :path p}` when a marker's value is
    not version 1 — a claim rejection, never a silent acceptance of a
    table a retriever would read as version 1."
-  [ast tree]
+  [ast tree admission]
   (when (claims-call-sites? ast)
-    (let [origin (publication-origin (:root tree))
+    (let [origin (publication-origin admission)
           extracted (filter #(= :yang/call-site (nth % 3))
                             (:frontend-metadata
                               (vm/ast-side-tables ast tree origin)))
@@ -212,11 +234,17 @@
              (footprint handle (assoc spec :tree tree)))
         ;; a C1 claim is validated before anything is written: a module
         ;; whose markers do not cover its tree is never published as
-        ;; though it did
+        ;; though it did. One publication is one admission event
+        ;; (design §2.1): the admission identity is pinned explicitly by
+        ;; the composition when it supplies `:yin.link.publish/admission`,
+        ;; otherwise drawn fresh here — either way it is persisted in
+        ;; the side record and retrieved from there
+        admission (or (:yin.link.publish/admission opts)
+                      (next-admission-token))
         claim (when (and tree (not defect) (not requirement)
                          (not= :refused (:status tree))
                          (not= :refused (:status fp)))
-                (call-site-claim ast tree))]
+                (call-site-claim ast tree admission))]
     (cond
       undefined
       (refusal :yin.link.publish/undefined-export {:export undefined})
@@ -362,11 +390,13 @@
    when the module made no C1 claim. The manifest references the table
    and its reverse record (`:yin.module/call-sites`), so the reference —
    not a recomputation — is what is resolved here: the rows are fetched
-   from the referenced table address and held to the record the
-   publication wrote (version 1, the manifest's own tree, the
-   publisher's origin), so a module whose markers were never retained
-   answers nil, never a recomputation passed off as the published
-   table."
+   from the referenced table address and the ORIGIN is the one the
+   record RECORDED at publication (`:yang.call-site/origin`, held to be
+   a well-formed occurrence origin), beside the record's version, the
+   manifest's own tree, and the referenced table. Nothing reconstructs
+   an origin from content: a replay of this retrieval answers the
+   recorded admission identity, and no other module's admission can be
+   confused with it."
   [handle address]
   (let [manifest (jing/get handle address nil)
         call-sites (:yin.module/call-sites manifest)]
@@ -374,15 +404,18 @@
                (map? call-sites) (jing/segment-address? (:table call-sites))
                (jing/segment-address? (:record call-sites)))
       (when-let [tree (stored-tree handle (:yin.module/tree manifest))]
-        (let [origin (publication-origin (:root tree))
-              stored-rows (jing/get handle (:table call-sites) nil)
+        (let [stored-rows (jing/get handle (:table call-sites) nil)
               stored-record (jing/get handle (:record call-sites) nil)
-              expected-record {:yang.call-site/version 1
-                               :yang.call-site/root (:yin.module/tree manifest)
-                               :yang.call-site/origin origin
-                               :yang.call-site/table (:table call-sites)}]
+              origin (:yang.call-site/origin stored-record)]
           (when (and (vector? stored-rows)
-                     (= expected-record stored-record))
+                     (= {:yang.call-site/version 1
+                         :yang.call-site/root (:yin.module/tree manifest)
+                         :yang.call-site/table (:table call-sites)}
+                        (select-keys stored-record
+                                     [:yang.call-site/version
+                                      :yang.call-site/root
+                                      :yang.call-site/table]))
+                     (vm/occurrence-origin? origin))
             {:origin origin, :root (:root tree), :rows stored-rows,
              :tree tree}))))))
 

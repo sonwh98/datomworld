@@ -150,15 +150,25 @@
    - `{:declared? true}`: the relation is a declared canonical table —
      the side table a producer published as the tree's table — where a
      duplicate entry is a second, conflicting claim to one fact and is
-     rejected.
+     rejected;
+   - `{:per-occurrence-origins? true}`: the tree's occurrences do not
+     share one origin — the expander's final tree, whose rows carry
+     each occurrence's own admission or generating-expansion origin
+     (design §2.1, §2.3). Coverage is then compared on the
+     `[root-address path]` projection — the part a consumer derives
+     from canonical rows alone — and every marker's origin is held to
+     a well-formed occurrence origin; the origin VALUES are the
+     producer's correspondence claim, not something a consumer can
+     re-derive.
 
    Conflicting values at one site, an unsupported marker version, a
-   marker naming no occurrence, a marker on a non-application
-   occurrence, and missing or extra markers each throw, naming the
-   failed `:rule`."
+   malformed origin, a marker naming no occurrence, a marker on a
+   non-application occurrence, and missing or extra markers each
+   throw, naming the failed `:rule`."
   ([tree frontend-metadata origin]
    (validate-call-site-coverage! tree frontend-metadata origin {}))
-  ([tree frontend-metadata origin {:keys [declared?]}]
+  ([tree frontend-metadata origin
+    {:keys [declared? per-occurrence-origins?] :as _opts}]
    (doseq [row frontend-metadata]
      (when (and (marker-row? row) (not= 5 (count row)))
        (throw (ex-info "Malformed call-site marker row"
@@ -173,7 +183,10 @@
          tag-at (into {}
                       (map (fn [[r path id]] [[r path] (nth (get rows id) 1)]))
                       (vm/occurrences tree))
-         eligible (eligible-application-sites tree origin)
+         eligible ((if per-occurrence-origins?
+                     (fn [_] (vm/application-occurrences tree))
+                     #(eligible-application-sites tree %))
+                   origin)
          rows (filter (fn [row]
                         (and (= 5 (count row)) (= call-site-key (nth row 3))))
                       (distinct frontend-metadata))
@@ -188,7 +201,13 @@
         (throw (ex-info "Unsupported call-site marker version"
                         {:rule :yang/call-site-unsupported-version,
                          :site [o r path], :value value})))
-      (let [tag (when (and (= o origin) (= r root)) (get tag-at [r path]))]
+      (when (and per-occurrence-origins? (not (vm/occurrence-origin? o)))
+        (throw (ex-info "Call-site marker carries a malformed occurrence origin"
+                        {:rule :yang/call-site-invalid-origin,
+                         :site [o r path], :origin o})))
+      (let [tag (when (and (= r root)
+                           (or per-occurrence-origins? (= o origin)))
+                  (get tag-at [r path]))]
         (cond
           (nil? tag)
           (throw (ex-info "Call-site marker names no occurrence"
@@ -198,7 +217,11 @@
           (throw (ex-info "Call-site marker on a non-application occurrence"
                           {:rule :yang/call-site-non-application,
                            :site [o r path], :tag tag})))))
-    (let [marked (marked-application-sites frontend-metadata)]
+    (let [marked (if per-occurrence-origins?
+                   (into #{}
+                         (map (fn [[_ r path]] [r path]))
+                         (marked-application-sites frontend-metadata))
+                   (marked-application-sites frontend-metadata))]
       (when (not= eligible marked)
         (throw (ex-info "Call-site coverage is not complete"
                         {:rule :yang/call-site-incomplete-coverage,

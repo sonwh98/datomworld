@@ -1072,10 +1072,19 @@
    guard or invocation, run the transformer on the operand packets, validate
    and merge the result, finish the event, and reconsider the result at the
    same occurrence with depth + 1."
-  [st address entry {:keys [path rel frame shadow depth]}]
+  [st address entry {:keys [path rel frame shadow depth origin-of]}]
   (let [[st counter] (allocate-attempt st)
         ctx (:ctx st)
         macro-root (first (:yin.macro/tree entry))
+        ;; the occurrence provenance of the replaced application (§2.1):
+        ;; every output row whose content address is one of the input's
+        ;; own rows is the admitted syntax retained — a no-op expansion
+        ;; or an operand passed through — and keeps this origin; rows
+        ;; the expansion itself generated take the event's origin below
+        input-addrs (into #{address}
+                          (map first)
+                          (second (packet-of (:index st) address)))
+        admitted-origin (origin-of address)
         begin (fn [output error]
                 (event-row (attempt-id ctx counter)
                            (:source-batch st)
@@ -1124,7 +1133,17 @@
                                       :rel [],
                                       :frame {:parent (first ev), :root out},
                                       :shadow shadow,
-                                      :depth (inc depth)})))))))))))))
+                                      :depth (inc depth),
+                                      :origin-of
+                                      (fn [a]
+                                        (if (contains? input-addrs a)
+                                          admitted-origin
+                                          ;; the recorded expansion event
+                                          ;; row is the real expansion
+                                          ;; record (§8); its content
+                                          ;; address is the expansion
+                                          ;; origin (§2.1)
+                                          [:expansion (first ev)]))})))))))))))))
 
 
 (defn- expand-children
@@ -1152,8 +1171,16 @@
 (defn- expand-node
   "§4.2. `loc` carries the absolute `path` in the batch's run tree, the
    `rel` path within the current `frame` (`{:root r :parent event|nil
-   :tree-index j}`), the lexical `shadow` set, and the expansion `depth`.
-   Returns `[st address']`; a failure sets `(:error st)`."
+   :tree-index j}`), the lexical `shadow` set, the expansion `depth`,
+   and `:origin-of` — the occurrence-provenance function of §2.1, which
+   answers the origin of the admission or generation event that
+   produced the syntax of the row at `address`. Every application
+   occurrence is recorded under its absolute path as it is visited, so
+   the finalizer can name each occurrence's real origin; an occurrence
+   replaced by an expansion is re-recorded by the expansion's own walk,
+   and a stale entry for a path the finished tree no longer applies at
+   is simply never read. Returns `[st address']`; a failure sets
+   `(:error st)`."
   [st address {:keys [shadow] :as loc}]
   (if (:error st)
     [st address]
@@ -1164,7 +1191,9 @@
         (expand-call st address (macro-of st (nth row 2) shadow) loc)
 
         (= :application tag)
-        (let [op (nth row 2)
+        (let [st (update-in st [:call-site-origins]
+                            assoc (:path loc) ((:origin-of loc) address))
+              op (nth row 2)
               [st op'] (expand-node st op (-> loc
                                               (update :path conj 2)
                                               (update :rel conj 2)))]
@@ -1222,15 +1251,26 @@
    that actually executes. The frontend's own markers named the
    pre-expansion tree; expansion, tail marking and stand-in lowering
    recompute roots and paths, so no pre-expansion table can cover this
-   tree and the table is finalized here, over the finished rows. The
-   origin is the run member's admission origin — the same coordinate
-   the expander's event rows carry for a top-level frame. No
-   expansion-record address is fabricated for the batch as a whole:
-   the batch's attempts are individually recorded in the log, and the
-   final tree is their admitted input's finished form."
-  [row-set origin]
+   tree and the table is finalized here, over the finished rows.
+
+   Each row's origin is that occurrence's REAL origin (design §2.1,
+   §2.3): `occurrence-origins` maps the final occurrence path to the
+   origin of the admission or generation event that produced the
+   application syntax at that path — the admitted run member's source
+   origin for retained syntax (a no-op expansion keeps it valid), and
+   the `[:expansion record-address]` of the recorded expansion event
+   whose output introduced generated syntax. No expansion-record
+   address is fabricated: only event rows the expander actually
+   recorded appear. The table is therefore the explicit
+   final-root correspondence §2.3 requires — every generated occurrence
+   names its producing record, so an attribution consumer can reach the
+   event (its input root, call path, macro root, output root) from the
+   row alone."
+  [row-set occurrence-origins admission-origin]
   (vec (sort-by pr-str
-                (map (fn [[root path]] [origin root path :yang/call-site 1])
+                (map (fn [[root path]]
+                       [(get occurrence-origins path admission-origin)
+                        root path :yang/call-site 1])
                      (vm/application-occurrences row-set)))))
 
 
@@ -1245,9 +1285,15 @@
    actually executes — when, and only when, the selected member itself
    claimed C1 coverage (its own verdict in `batch-call-site-claims`); a
    sibling's claim never manufactures a table for it, and an unclaimed
-   batch carries no table at all, never an empty one. The table's
-   occurrence origin rides beside it as `:call-site-origin`, the
-   admission this expansion produced the tree under (§2.1). A context
+   batch carries no table at all, never an empty one. The admission
+   this expansion produced the tree under rides beside it as
+   `:call-site-origin` — the source origin of the admitted run member,
+   the key the table is stored and resolved under beside the final
+   root address. It is the table's admission key, not a blanket
+   stamp: each row's origin is that occurrence's own (§2.1, §2.3) —
+   the run member's source origin for admitted syntax a no-op
+   expansion retained, the `[:expansion record-address]` of a recorded
+   expansion event for syntax its output generated. A context
    store binding a
    reserved name, or holding an entry without the current AST contract,
    is refused (Rule R): it is a composition defect, so it throws rather
@@ -1301,17 +1347,29 @@
                                         {:path [], :rel [],
                                          :frame {:parent nil, :root root,
                                                  :tree-index run-index},
-                                         :shadow #{}, :depth 0})]
+                                         :shadow #{}, :depth 0,
+                                         ;; every syntax of the admitted
+                                         ;; run tree starts as source
+                                         ;; (§2.1); expansions override
+                                         ;; below their outputs
+                                         :origin-of
+                                         (fn [_]
+                                           (source-origin
+                                             ctx source-batch run-index))})]
             (if (:error st)
               (finish st)
               (let [next-store (post-harvest store0 (:index st) root' catalogue)
                     [index root'] (retail (:index st) root')
                     [index root'] (lower-standins index root')
                     tree (packet-of index root')
-                    ;; the occurrence origin of this expansion (§2.1):
-                    ;; the admission this batch produced the final tree
-                    ;; under — the second coordinate of the side table's
-                    ;; site identity, beside the final root address
+                    ;; the ADMISSION origin of this expansion (§2.1):
+                    ;; the admitted run member's source origin — the key
+                    ;; the side table is stored and resolved under beside
+                    ;; the final root address. It is NOT blindly stamped
+                    ;; on every row: each row's own origin is the one the
+                    ;; occurrence walk recorded (source for retained
+                    ;; syntax, the generating event's `[:expansion …]`
+                    ;; for generated syntax)
                     origin (source-origin ctx source-batch run-index)
                     ;; the selected member's own verdict decides its
                     ;; metadata; a sibling's claim never manufactures a
@@ -1319,7 +1377,8 @@
                     claims (batch-call-site-claims batch)
                      metadata (when (and claims (nth claims run-index))
                                 (final-call-site-metadata
-                                  (packet->row-set tree) origin))]
+                                  (packet->row-set tree)
+                                  (:call-site-origins st) origin))]
                 (if-let [e (valid-tree? tree)]
                   (throw (ex-info "Expander produced a non-canonical tree" e))
                   (finish (assoc st :tree tree :next-store next-store
@@ -1423,10 +1482,11 @@
 
 (defn call-site-table
   "The C1 side table the consumer `expander` holds for the occurrence
-   the executed tree packet `tree` names — `origin` being the
-   admission/expansion origin that occurrence was produced under (§2.1:
-   an application site is K = [origin root-address path], so the site
-   table's key is the origin beside the root address) — or nil when
+   the executed tree packet `tree` names — `origin` being the admission
+   origin the table was stored under (§2.1: an application site is
+   K = [origin root-address path]; the table's key is the admission
+   origin beside the root address, while each row's own origin names
+   that occurrence's admission or generating expansion record) — or nil when
    that occurrence made no C1 claim. Two expansions can produce the
    SAME final root from different admissions; keying by the full
    occurrence identity keeps their tables distinct, so resolving by the
@@ -1445,7 +1505,7 @@
    side table (the batch result's `:frontend-metadata`, present only
    when the selected member itself claimed coverage) is retained on the
    consumer under the occurrence identity of the staged tree — its
-   expansion origin beside its final root address (`call-site-tables`,
+   admission origin beside its final root address (`call-site-tables`,
    resolved by `call-site-table`) — so the composition that drives this
    expander — the REPL's session — holds every executed occurrence's
    coverage beside the expander that produced it, each load's table

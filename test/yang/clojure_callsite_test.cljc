@@ -48,6 +48,39 @@
   (eligible-under tree origin))
 
 
+(defn- occurrence-pairs
+  "The `[root-address path]` of every `:application` occurrence of
+   canonical `tree` — the projection a consumer derives from canonical
+   rows alone, origin-free (design §2.2: the origin values of a
+   per-occurrence table are the producer's correspondence claim)."
+  [tree]
+  (into #{}
+        (comp (filter (fn [[_ _ id]]
+                        (= :application (nth (get (:rows tree) id) 1))))
+              (map (fn [[_ path _]] [(:root tree) path])))
+        (vm/occurrences tree)))
+
+
+(defn- marked-pairs
+  "The `[root-address path]` projection of a C1 marker relation."
+  [metadata]
+  (into #{}
+        (comp (filter #(= :yang/call-site (nth % 3)))
+              (map (fn [[_ r path _ _]] [r path])))
+        metadata))
+
+
+(defn- row-origins
+  "The distinct occurrence origins a C1 marker relation carries."
+  [metadata]
+  (into #{} (map first) (filter #(= :yang/call-site (nth % 3)) metadata)))
+
+
+(defn- expansion-origin?
+  [o]
+  (and (vector? o) (= :expansion (first o))))
+
+
 (defn- marked
   [metadata]
   (into #{}
@@ -258,30 +291,103 @@
                 '[(defmacro unless [c a b] (yin/if c b a))
                   (unless false (+ 1 2) 0)])
           {:keys [ctx result]} (expand-like-the-repl ast)
-          {:keys [status tree frontend-metadata]} result
+          {:keys [status tree frontend-metadata log]} result
           ;; the row set the evaluator loaders consume from program-out
           final (macro/packet->row-set tree)
-          origin [:source :program-in (:t ctx) 0]
+          ;; the ADMISSION origin of this expansion — the table's key
+          ;; coordinate, never a blanket stamp on the rows (design §2.1:
+          ;; generated post-expansion syntax must not be mislabeled as
+          ;; original source)
+          admission [:source :program-in (:t ctx) 0]
           input-tree (vm/ast->semantic-bytecode ast)
-          input-tables (vm/ast-side-tables ast input-tree origin)]
+          input-tables (vm/ast-side-tables ast input-tree admission)
+          ;; the expansion record addresses the log actually holds: the
+          ;; only legitimate `[:expansion a]` origins are these
+          event-addrs (into #{} (map first) (nth log 1))
+          origins (row-origins frontend-metadata)]
       (is (= :ok status))
-      (testing "expansion, tail marking and stand-in lowering made a new final tree"
+      (testing "expansion changed the tree: the `(unless …)` call expanded"
         (is (not= (:root input-tree) (:root final))))
-      (testing "the retained table covers exactly the executed tree"
+      (testing "the changed root carries no fabricated expansion origin
+                (design §2.1: post-expansion names the pipeline
+                boundary, not proof that a generating event occurred)"
         (is (seq frontend-metadata))
-        (is (= (eligible-under final origin) (marked frontend-metadata)))
+        (is (every? (fn [o]
+                      (or (= o admission)
+                          (and (expansion-origin? o)
+                               (contains? event-addrs (second o)))))
+                    origins)
+            "every origin is the admission's source origin or names a
+             recorded expansion event — nothing fabricated")
+        ;; the `(unless …)` output's generated node is an `:if`, not an
+        ;; application, and its `(+ 1 2)` operand is the admitted
+        ;; operand passed through — so every APPLICATION here is
+        ;; retained admitted syntax and genuinely keeps the source
+        ;; origin; the source origin is not a blanket stamp, it is the
+        ;; real provenance of each marked occurrence
+        (is (= #{admission} origins)
+            "no generating event produced an application here, so every
+             marked occurrence is admitted"))
+      (testing "the retained table covers exactly the executed tree"
+        (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+        (is (every? (fn [[_ r _ _ _]] (= (:root final) r))
+                    frontend-metadata))
         (is (true? (yang/validate-call-site-coverage!
-                     final frontend-metadata origin)))
-        (is (true? (yang/validate-call-site-coverage!
-                     final frontend-metadata origin {:declared? true})))
-        (is (every? (fn [[o r _ _ _]]
-                      (and (= origin o) (= (:root final) r)))
-                    frontend-metadata)))
+                     final frontend-metadata admission
+                     {:declared? true :per-occurrence-origins? true}))))
       (testing "the frontend's pre-expansion markers name a tree that no longer exists"
         (is (= :yang/call-site-nonexistent-path
                (failure-rule
                  #(yang/validate-call-site-coverage!
-                    final (:frontend-metadata input-tables) origin)))))))
+                    final (:frontend-metadata input-tables) admission))))))
+    (testing "a generating expansion marks its generated applications
+              with the recorded expansion record's origin (design §2.1,
+              §2.3: the correspondence is explicit, never fabricated)"
+      (let [ast (yang/compile-program
+                  '[(defmacro make-call [x]
+                      (yin/application (yin/variable 'f) [x]))
+                    (defn f [y] (+ y 1))
+                    (make-call 2)])
+            {:keys [ctx result]} (expand-like-the-repl ast)
+            {:keys [status tree frontend-metadata log]} result
+            final (macro/packet->row-set tree)
+            admission [:source :program-in (:t ctx) 0]
+            event-addrs (into #{} (map first) (nth log 1))
+            origins (row-origins frontend-metadata)
+            generated (into #{}
+                            (comp (filter #(expansion-origin? (first %)))
+                                  (map #(vec (take 3 %))))
+                            frontend-metadata)]
+        (is (= :ok status))
+        (is (seq frontend-metadata))
+        (is (seq generated)
+            "the macro generated an application, and it is marked")
+        (is (contains? origins admission)
+            "the admitted applications keep the source origin")
+        (is (every? (fn [[o _ _]] (contains? event-addrs (second o))) generated)
+            "each generated occurrence names a recorded expansion event")
+        (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+        (is (true? (yang/validate-call-site-coverage!
+                     final frontend-metadata admission
+                     {:declared? true :per-occurrence-origins? true})))))
+    (testing "a no-op expansion retains the admitted source origin"
+      ;; no macro call at all: the pipeline boundary alone (tail
+      ;; marking) changes the root without a generating event, so the
+      ;; final rows legitimately keep the admission's source origin
+      (let [ast (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
+            {:keys [ctx result]} (expand-like-the-repl ast)
+            {:keys [status tree frontend-metadata]} result
+            final (macro/packet->row-set tree)
+            admission [:source :program-in (:t ctx) 0]]
+        (is (= :ok status))
+        (is (seq frontend-metadata))
+        (is (= #{admission} (row-origins frontend-metadata))
+            "no generating event occurred, so the source origin remains
+             valid for every occurrence (design §2.1)")
+        (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+        (is (true? (yang/validate-call-site-coverage!
+                     final frontend-metadata admission
+                     {:declared? true :per-occurrence-origins? true}))))))
   (testing "the expander consumer the REPL threads retains the executed tree's table"
     (let [store (macro/seed-store
                   (macro/make-ctx {:token :callsite-test/standard-forms
@@ -297,10 +403,10 @@
           origin [:source :program-in (:t ctx) 0]
           rows (macro/call-site-table consumer (:out-staged consumer) origin)]
       (is (seq rows))
-      (is (= (eligible-under final origin) (marked rows)))
+      (is (= (occurrence-pairs final) (marked-pairs rows)))
       (is (true? (yang/validate-call-site-coverage!
                    final rows origin
-                   {:declared? true}))))))
+                   {:declared? true :per-occurrence-origins? true}))))))
 
 
 (deftest successive-expansions-test
@@ -331,21 +437,21 @@
       (testing "the first load's table resolves for its tree after the second load"
         (let [rows (macro/call-site-table consumer first-tree first-origin)]
           (is (seq rows))
-          (is (= (eligible-under (macro/packet->row-set first-tree)
-                                 first-origin)
-                 (marked rows)))
+          (is (= (occurrence-pairs (macro/packet->row-set first-tree))
+                 (marked-pairs rows)))
           (is (true? (yang/validate-call-site-coverage!
                        (macro/packet->row-set first-tree) rows
-                       first-origin {:declared? true})))))
+                       first-origin
+                       {:declared? true :per-occurrence-origins? true})))))
       (testing "the second load's table resolves for its tree"
         (let [rows (macro/call-site-table consumer second-tree second-origin)]
           (is (seq rows))
-          (is (= (eligible-under (macro/packet->row-set second-tree)
-                                 second-origin)
-                 (marked rows)))
+          (is (= (occurrence-pairs (macro/packet->row-set second-tree))
+                 (marked-pairs rows)))
           (is (true? (yang/validate-call-site-coverage!
                        (macro/packet->row-set second-tree) rows
-                       second-origin {:declared? true}))))))))
+                       second-origin
+                       {:declared? true :per-occurrence-origins? true}))))))))
 
 
 (deftest unclaimed-batch-test
@@ -405,18 +511,67 @@
       (is (not= first-origin second-origin)
           "the two admissions are different occurrence origins")
       (testing "each occurrence's table resolves under its own origin"
-        (doseq [[label tree origin]
+        (doseq [[label tree admission]
                 [["first" first-tree first-origin]
                  ["second" second-tree second-origin]]]
-          (let [rows (macro/call-site-table consumer tree origin)]
+          (let [rows (macro/call-site-table consumer tree admission)]
             (is (seq rows) (str label " load's table resolves"))
-            (is (= (eligible-under (macro/packet->row-set tree) origin)
-                   (marked rows)))
+            (is (= (occurrence-pairs (macro/packet->row-set tree))
+                   (marked-pairs rows)))
             (is (true? (yang/validate-call-site-coverage!
-                         (macro/packet->row-set tree) rows origin
-                         {:declared? true})))))
+                         (macro/packet->row-set tree) rows admission
+                         {:declared? true :per-occurrence-origins? true})))))
         (is (= 2 (count (:call-site-tables consumer)))
-            "two tables, one per occurrence — neither overwrote the other")))))
+            "two tables, one per occurrence — neither overwrote the other")))
+    (testing "a generating program: the two admissions' rows carry
+              GENUINELY distinct origins, not the input's source origin"
+      (let [store (macro/seed-store
+                    (macro/make-ctx {:token :callsite-test/standard-forms
+                                     :source-medium :callsite-test/standard-forms})
+                    [macro/stdlib-forms])
+            ctx (macro/make-ctx {:token "callsite-test"
+                                 :source-medium :program-in
+                                 :store store})
+            ast (yang/compile-program
+                  '[(defmacro make-call [x]
+                      (yin/application (yin/variable 'f) [x]))
+                    (defn f [y] (+ y 1))
+                    (make-call 2)])
+            first-origin [:source :program-in (:t ctx) 0]
+            consumer (macro/make-expander ctx nil)
+            consumer (macro/load consumer (encoder/program-batch ast))
+            first-tree (:out-staged consumer)
+            second-origin [:source :program-in (:t (:ctx consumer)) 0]
+            consumer (macro/load consumer (encoder/program-batch ast))
+            second-tree (:out-staged consumer)
+            first-origins (row-origins
+                            (macro/call-site-table consumer first-tree
+                                                   first-origin))
+            second-origins (row-origins
+                             (macro/call-site-table consumer second-tree
+                                                    second-origin))]
+        (is (= (first first-tree) (first second-tree))
+            "two admissions produced the same root address")
+        (is (some expansion-origin? first-origins)
+            "the generated `(f …)` application carries an expansion origin")
+        (is (contains? first-origins first-origin)
+            "retained admitted syntax keeps its own admission's source origin")
+        (is (empty? (filter second-origins first-origins))
+            "the two admissions' occurrence origins are disjoint — the
+             expansion records and the source admissions all differ")
+        (is (not= first-origins second-origins)
+            "not the input's source origin: each admission's rows carry
+             that admission's own origins")
+        (doseq [[label tree admission]
+                [["first" first-tree first-origin]
+                 ["second" second-tree second-origin]]]
+          (let [rows (macro/call-site-table consumer tree admission)
+                final (macro/packet->row-set tree)]
+            (is (= (occurrence-pairs final) (marked-pairs rows)))
+            (is (true? (yang/validate-call-site-coverage!
+                         final rows admission
+                         {:declared? true :per-occurrence-origins? true}))
+                (str label " load's rows cover its occurrences"))))))))
 
 
 (deftest unclaimed-after-claimed-test
@@ -563,6 +718,64 @@
             (is (= (eligible-under tree origin) (marked rows)))
             (is (true? (yang/validate-call-site-coverage!
                          tree rows origin {:declared? true}))))))))
+  (testing "two publications of identical trees are two admissions
+            (design §2.1), and a retrieval replays the one recorded
+            admission it names"
+    (let [store (mem/create-content-mem)
+          ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+          spec {:name 'twin-admissions
+                :ast ast
+                :exports #{'f}
+                :requires {}
+                :primitives {'inc {:yin.k/profile :yin.k/pure
+                                   :yin.k/effects #{}}}}
+          first-result (publish/publish-module! store spec)
+          second-result (publish/publish-module! store spec)
+          first-address (:address first-result)
+          second-address (:address second-result)]
+      (is (some? first-address))
+      (is (some? second-address))
+      (is (not= first-address second-address)
+          "the manifests differ, because each references its own table")
+      (testing "identical content, distinct admission identities"
+        (is (= (get-in first-result [:call-sites :root])
+               (get-in second-result [:call-sites :root]))
+            "the published trees are content-identical")
+        (is (not= (get-in first-result [:call-sites :origin])
+                  (get-in second-result [:call-sites :origin]))
+            "separately admitted identical sources have different origins"))
+      (testing "retrieval reads each record's recorded admission"
+        (doseq [[label result address]
+                [["first" first-result first-address]
+                 ["second" second-result second-address]]]
+          (let [retrieved (publish/published-call-site-table store address)]
+            (is (some? retrieved) (str label " table retrieves"))
+            (is (= (get-in result [:call-sites :origin]) (:origin retrieved))
+                (str label " retrieval answers the recorded admission, "
+                     "never a reconstructed one"))
+            (is (= (:origin retrieved)
+                   (:origin (publish/published-call-site-table store address)))
+                (str label " replaying the retrieval replays the same "
+                     "recorded admission")))
+          (let [{:keys [tree origin rows]}
+                (publish/published-call-site-table store address)]
+            (is (= (eligible-under tree origin) (marked rows)))
+            (is (true? (yang/validate-call-site-coverage!
+                         tree rows origin {:declared? true}))))))
+      (testing "a composition may pin the admission identity explicitly"
+        (let [pinned (publish/publish-module!
+                       store spec
+                       {:yin.link.publish/admission "pinned-admission"})]
+          (is (some? (:address pinned)))
+          (is (= [:source :yin.vm.linker.publish/publish
+                  "pinned-admission" 0]
+                 (get-in pinned [:call-sites :origin]))
+              "the pinned token is the admission identity, persisted in
+               the record and retrieved from it")
+          (is (= [:source :yin.vm.linker.publish/publish
+                  "pinned-admission" 0]
+                 (:origin (publish/published-call-site-table
+                            store (:address pinned)))))))))
   (testing "an unannotated module publishes no table and claims none"
     (let [store (mem/create-content-mem)
           plain (publish/publish-module!
