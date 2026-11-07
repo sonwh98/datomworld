@@ -305,3 +305,117 @@
     (agreed (update-vals (run-program donor (compose donor exports caller-frontend
                                                      caller-source))
                          render))))
+
+
+(defn export-form
+  "The guest form reading a source-produced export after composition. This
+   reads the public namespace, never the callable's private code slot."
+  [frontend export]
+  ((:read-export (profile frontend)) export))
+
+
+(defn compose-exception
+  "Compose real donor/caller source exactly as `compose` does, optionally
+   followed by an unlowered boundary observation form. The source bodies
+   and their call nodes are untouched. Boundary forms are for provenance
+   assertions and malformed invocations, not substitute source-pair legs."
+  ([donor exports caller-frontend caller-source]
+   (compose donor exports caller-frontend caller-source))
+  ([donor exports caller-frontend caller-source observation]
+   (u/mark-tails
+     (u/then (compose donor exports caller-frontend caller-source)
+             (u/sexp->uast observation)))))
+
+
+(defn boundary-call-form
+  "An abortive observer of a public entry, as guest code. All arguments are
+   forms. `options` selects invoke-with when present. A returned envelope
+   is recorded as :return; only the supplied exit records :raise. Transfer
+   count and the after-call sentinel live in task cells. No payload is
+   snapshotted here: assertions must precede rendering."
+  ([callee positional named]
+   (boundary-call-form callee positional named nil))
+  ([callee positional named options]
+   (let [phase (gensym "phase")
+         transfers (gensym "transfers")
+         after (gensym "after")
+         escape (gensym "escape")
+         condition (gensym "condition")
+         returned (gensym "returned")
+         raise (list 'fn [condition]
+                     (list 'do
+                           (list 'cell/set! transfers (list '+ 1 (list 'cell/get transfers)))
+                           (list escape
+                                 {:route :raise :condition condition
+                                  :transfers (list 'cell/get transfers)
+                                  :after (list 'cell/get after)})))
+         invocation (if options
+                      (list 'yang.call/invoke-with callee positional named raise options)
+                      (list 'yang.call/invoke callee positional named raise))]
+     (list 'let [phase (list 'cell/new false)
+                 transfers (list 'cell/new 0) after (list 'cell/new false)]
+           (list (list 'fn [escape]
+                       (list 'if (list 'cell/get phase)
+                             escape
+                             (list 'do (list 'cell/set! phase true)
+                                   (list 'let [returned invocation]
+                                         (list 'do (list 'cell/set! after true)
+                                               {:route :return :value returned
+                                                :transfers (list 'cell/get transfers)
+                                                :after (list 'cell/get after)})))))
+                 (list '%capture))))))
+
+
+(defn guard-exceptions-form
+  "Diagnostic outer handlers: expose an escape that bypassed the supplied
+   boundary exit as :unbridged, rather than letting no-handler obscure the
+   assertion. These are NOT replacement callee bridges: :unbridged always
+   fails the provenance contract. Catch data stays guest-local."
+  [frontend-keys form]
+  (reduce
+    (fn [body frontend]
+      (let [e (gensym "unbridged")
+            handler (list 'fn [e] {:route :unbridged :frontend frontend})]
+        (case frontend
+          :typescript (list 'js/try (list 'fn [] body) handler)
+          (:python :php)
+          (let [result (gensym "result")
+                try-name (if (= frontend :python) 'py/try 'php/try)]
+            (list 'let [result (list 'cell/new nil)]
+                  (list try-name
+                        (list 'fn [] (list 'cell/set! result body))
+                        handler
+                        (list 'fn [] (list 'cell/get result)))))
+          :clojure body)))
+    form (distinct frontend-keys)))
+
+
+(defn exception-outcome
+  "Uniform observation of a runtime root's output. Preserve its exception
+   snapshot as data, plus the legacy render for diagnostics. This is not
+   identity evidence; use boundary-call-form for that. Success-call renders
+   and `call` are deliberately unchanged."
+  [frontend value]
+  (let [rendered ((:render (profile frontend)) value)
+        [out exception result]
+        (case frontend
+          :python [(:py/out rendered) (:py/exception value) nil]
+          :typescript [(:js/out rendered) (:js/uncaught value) nil]
+          :php [(:php/out value) (or (:php/uncaught value) (:php/fatal value)) nil]
+          :clojure (if (and (vector? value) (= 2 (count value))
+                            (= :yin.k/error (first value)))
+                     [[] (second value) nil]
+                     [[] nil value]))]
+    {:frontend frontend :out out :exception exception :value result
+     :rendered rendered}))
+
+
+(defn exception-call
+  "The exception-leg counterpart of `call`, with uniform per-VM outcomes.
+   Source supplies the donor raises / caller catches patterns. Always keep
+   the backend map: agreement alone must not hide which VM ran a red leg."
+  [[donor-frontend donor-source] exports [caller-frontend caller-source]]
+  (let [donor (publish-donor! donor-frontend donor-source)]
+    (update-vals
+      (run-program donor (compose-exception donor exports caller-frontend caller-source))
+      #(exception-outcome caller-frontend %))))
