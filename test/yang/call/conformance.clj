@@ -327,6 +327,22 @@
              (u/sexp->uast observation)))))
 
 
+(defn observation-map-form
+  "Emit a map whose known observation values are guest expressions.
+   sexp->uast intentionally treats a map literal as DATA, including lists
+   and symbols within it. Dynamic boundary observations use explicit assoc,
+   never a transformation of parsed source or a runtime shape detector."
+  [entries]
+  (reduce (fn [form [k value]] (list 'assoc form k value)) {} entries))
+
+
+(defn observation-vector-form
+  "Emit a boundary argument vector of evaluated expressions. Like maps,
+   vectors in sexp->uast are otherwise literal data."
+  [expressions]
+  (reduce (fn [form value] (list 'conj form value)) [] expressions))
+
+
 (defn boundary-call-form
   "An abortive observer of a public entry, as guest code. All arguments are
    forms. `options` selects invoke-with when present. A returned envelope
@@ -346,9 +362,10 @@
                      (list 'do
                            (list 'cell/set! transfers (list '+ 1 (list 'cell/get transfers)))
                            (list escape
-                                 {:route :raise :condition condition
-                                  :transfers (list 'cell/get transfers)
-                                  :after (list 'cell/get after)})))
+                                 (observation-map-form
+                                   {:route :raise :condition condition
+                                    :transfers (list 'cell/get transfers)
+                                    :after (list 'cell/get after)}))))
          invocation (if options
                       (list 'yang.call/invoke-with callee positional named raise options)
                       (list 'yang.call/invoke callee positional named raise))]
@@ -360,9 +377,10 @@
                              (list 'do (list 'cell/set! phase true)
                                    (list 'let [returned invocation]
                                          (list 'do (list 'cell/set! after true)
-                                               {:route :return :value returned
-                                                :transfers (list 'cell/get transfers)
-                                                :after (list 'cell/get after)})))))
+                                               (observation-map-form
+                                                 {:route :return :value returned
+                                                  :transfers (list 'cell/get transfers)
+                                                  :after (list 'cell/get after)}))))))
                  (list '%capture))))))
 
 
@@ -419,3 +437,27 @@
     (update-vals
       (run-program donor (compose-exception donor exports caller-frontend caller-source))
       #(exception-outcome caller-frontend %))))
+
+
+(defn run-exception-program
+  "The exception probes' independent VM runs, concurrent on the JVM. Each
+   job owns its registry, task, link pair AND content-serving composition;
+   no stream cursor is shared. Only the published content store is read
+   by all three. A host Exception is kept as the original host object for
+   clojure.test's :error reporting, NEVER relabelled as a guest condition.
+   All jobs settle even if one fails. `run-program` is unchanged."
+  [donor ast]
+  ;; Resolve publication delays before starting independent readers.
+  (link-source donor)
+  (let [jobs (mapv (fn [backend]
+                     [backend
+                      (future
+                        (try
+                          (vm/value
+                            (h/run-linked backend ast
+                                          {:modules (modules)
+                                           :link-source (link-source donor)}))
+                          (catch Exception e e)))])
+                   (keys h/backends))]
+    (into (sorted-map)
+          (map (fn [[backend job]] [backend @job])) jobs)))
