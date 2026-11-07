@@ -18,6 +18,7 @@
     [yang.php.antlr.programs-p3b :as p3b]
     [yang.php.antlr.programs-p4 :as p4]
     [yang.php.antlr.programs-p5 :as p5]
+    [yang.php.antlr.programs-p5b2 :as p5b2]
     [yang.php.antlr.programs-p6 :as p6])
   (:import
     (java.nio.charset
@@ -125,14 +126,20 @@
                    (str "\\n(Warning|Notice|Deprecated): ([^\\r\\n]*?) in /w/"
                         qfile
                         " on line \\d+\\n"))
-         [without-fatal uncaught]
+         [without-fatal uncaught fatal]
          (if-let [[_ cls msg] (re-find uncaught-re raw)]
            [(str/replace raw uncaught-re "")
-            {:class cls, :message (strip-location msg file)}]
+            {:class cls, :message (strip-location msg file)}
+            nil]
            (if-let [[_ msg] (re-find fatal-re raw)]
+             ;; a plain (non-uncaught-exception) fatal: the engine's
+             ;; guest-fatal representation (`:php/fatal message`, shutdown
+             ;; already run) is preserved as `:fatal`, distinct from
+             ;; `:uncaught`.
              [(str/replace raw fatal-re "")
-              {:class "Error", :message (strip-location msg file)}]
-             [raw nil]))
+              {:class "Error", :message (strip-location msg file)}
+              (strip-location msg file)]
+             [raw nil nil]))
          diags (volatile! [])
          out (str/replace without-fatal
                           diag-re
@@ -141,7 +148,8 @@
                             ""))]
      {:out out,
       :diag @diags,
-      :uncaught uncaught})))
+      :uncaught uncaught,
+      :fatal fatal})))
 
 
 (defn run-php-file
@@ -267,6 +275,19 @@
         :else (throw (ex-info "p5 oracle: non-scalar in request record" {:value v}))))
 
 
+(declare php-array-literal)
+
+
+(defn- php-value-literal
+  "The PHP literal of request-record value `v`: nested request arrays
+   (engine records and ordered entry vectors alike) recurse, scalars use
+   [[php-literal]]."
+  [v]
+  (if (or (sequential? v) (and (map? v) (= :array (:php/type v))))
+    (php-array-literal v)
+    (php-literal v)))
+
+
 (defn- request-pairs
   "Ordered `[k v]` pairs of request-array `arr`: the engine's ordered entry
    vectors are accepted as-is; otherwise pairs follow the array's `:order`
@@ -279,13 +300,14 @@
 
 
 (defn- php-array-literal
-  "The PHP `array(...)` literal of request-array `arr`."
+  "The PHP `array(...)` literal of request-array `arr`, recursing into
+   nested values."
   [arr]
   (if (empty? (request-pairs arr))
     "array()"
     (str "array("
          (str/join ", " (map (fn [[k v]]
-                               (str (php-literal k) " => " (php-literal v)))
+                               (str (php-value-literal k) " => " (php-value-literal v)))
                              (request-pairs arr)))
          ")")))
 
@@ -296,12 +318,24 @@
    section `request and output`): `$_GET` is the query, `$_POST` the body,
    `$_COOKIE` the cookies, `$_SERVER` the server fields with
    `REQUEST_METHOD`/`REQUEST_URI` appended, `$_ENV` the env, `$_FILES` the
-   files, and `$_REQUEST` is `array_merge($_GET, $_POST)` (POST wins, the
-   engine's `php/merge-loop` over `[get post]`)."
+   files, and `$_REQUEST` is the ruled recursive merge (POST wins per key,
+   nested arrays merged instead of replaced), mirroring the engine's
+   `php/request-merge-into` over `[get post]` (php-src
+   `php_register_variable_safe`), not `array_merge`."
   [request]
   (let [method (or (:php.request/method request) "")
         uri (or (:php.request/uri request) "")]
     (str "<?php\n"
+         "function yang_request_merge($base, $overlay) {\n"
+         "  foreach ($overlay as $k => $v) {\n"
+         "    if (array_key_exists($k, $base) && is_array($base[$k]) && is_array($v)) {\n"
+         "      $base[$k] = yang_request_merge($base[$k], $v);\n"
+         "    } else {\n"
+         "      $base[$k] = $v;\n"
+         "    }\n"
+         "  }\n"
+         "  return $base;\n"
+         "}\n"
          "$_GET = " (php-array-literal (:php.request/query request)) ";\n"
          "$_POST = " (php-array-literal (:php.request/body request)) ";\n"
          "$_COOKIE = " (php-array-literal (:php.request/cookies request)) ";\n"
@@ -310,7 +344,19 @@
          "$_SERVER['REQUEST_URI'] = " (php-literal uri) ";\n"
          "$_ENV = " (php-array-literal (:php.request/env request)) ";\n"
          "$_FILES = " (php-array-literal (:php.request/files request)) ";\n"
-         "$_REQUEST = array_merge($_GET, $_POST);\n")))
+         "$_REQUEST = yang_request_merge($_GET, $_POST);\n")))
+
+
+(defn p5b2-prologue
+  "The [[p5-prologue]] for a P5b2 `fixture`: when the fixture declares
+   `:http-profile`, the prologue first installs the HTTP profile's explicit
+   initial status 200. Bare `php:8.3-cli` starts without the engine's
+   assumed HTTP 200, so status-code fixtures run under this explicit
+   scaffold rather than against the bare CLI default."
+  [fixture]
+  (str (p5-prologue (:request fixture))
+       (when (:http-profile fixture)
+         "http_response_code(200);\n")))
 
 
 (defn run-php-file-with-prepend
@@ -374,6 +420,48 @@
           (.delete ^java.io.File f))))))
 
 
+(defn check-p5b2-fixture
+  "Run P5b2 `fixture` in temporary directory `dir`: the fixture source plus
+   the [[p5b2-prologue]] as `auto_prepend_file` (the ruled recursive merge
+   and, for `:http-profile` fixtures, the explicit initial status 200 — bare
+   CLI starts without the engine's assumed HTTP 200). Returns a check record
+   like [[check-fixture]], with the engine's guest-fatal representation
+   (`:fatal`) compared against the parser's preserved `:fatal`."
+  [dir {:keys [id source out diag uncaught status fatal oracle]}]
+  (let [file (str (name id) ".php")
+        pre (str (name id) "-pre.php")
+        fixture (first (filter #(= id (:id %)) p5b2/fixtures))]
+    (write-source! dir file source)
+    (write-source! dir pre (p5b2-prologue fixture))
+    (let [actual (run-php-file-with-prepend dir file pre)
+          expected-out (or out "")
+          expected-diag (vec (or diag []))
+          pass? (and (not= :pending oracle)
+                     (= expected-out (:out actual))
+                     (diag-match? expected-diag (:diag actual))
+                     (= uncaught (:uncaught actual))
+                     (= fatal (:fatal actual))
+                     (or (nil? status) (= status (:exit actual))))]
+      {:id id,
+       :pass? pass?,
+       :oracle oracle,
+       :expected {:out expected-out, :diag expected-diag, :uncaught uncaught,
+                  :fatal fatal, :status status},
+       :actual (assoc (select-keys actual [:out :diag :uncaught :fatal]) :exit (:exit actual))})))
+
+
+(defn run-p5b2
+  "Run all `p5b2/fixtures` (the B2 step-7 fixtures) against `php:8.3-cli`."
+  []
+  (let [dir (.toFile (Files/createTempDirectory "yang-php-oracle-p5b2-"
+                                                (make-array FileAttribute 0)))]
+    (try
+      (mapv #(check-p5b2-fixture dir %) p5b2/fixtures)
+      (finally
+        (doseq [f (reverse (file-seq dir))]
+          (.delete ^java.io.File f))))))
+
+
 (defn print-fold
   "Print the fold lines for `results`: one paste-ready record per fixture
    in the P4 [[p4/pin]] shape `{:oracle p5-banner :out :diag :uncaught}`."
@@ -404,14 +492,17 @@
   (when (some #{"--print-prologue"} args)
     (let [id (keyword (or (second (drop-while #(not= "--print-prologue" %) args))
                           "superglobals-from-request"))
-          fixture (first (filter #(= id (:id %)) p5/fixtures))]
-      (when-not fixture
+          fixture (first (filter #(= id (:id %)) p5/fixtures))
+          b2-fixture (first (filter #(= id (:id %)) p5b2/fixtures))]
+      (when-not (or fixture b2-fixture)
         (println "Unknown P5 fixture:" id)
         (System/exit 2))
       ;; Dry run: no docker, no oracle. Print the generated prologue for
       ;; eyeball comparison against the engine's expected superglobal
       ;; values (the fixture's hand-derived :out is the reference).
-      (print (p5-prologue (:request fixture)))
+      (print (if b2-fixture
+               (p5b2-prologue b2-fixture)
+               (p5-prologue (:request fixture))))
       (flush)
       (shutdown-agents)
       (System/exit 0)))
@@ -421,6 +512,21 @@
           failures (remove #(or (:pass? %) (= :pending (:oracle %))) results)]
       (println "Banner:" p5-banner)
       (println "Checked:" (count results) "P5 targets; failures:" (count failures))
+      (print-fold recorded)
+      (doseq [f failures]
+        (println "FAIL" (:id f))
+        (println "  expected:" (pr-str (:expected f)))
+        (println "  actual:  " (pr-str (:actual f))))
+      (shutdown-agents)
+      (when (seq failures)
+        (System/exit 1))
+      (System/exit 0)))
+  (when (some #{"--p5b2"} args)
+    (let [results (run-p5b2)
+          recorded (filter #(= :pending (:oracle %)) results)
+          failures (remove #(or (:pass? %) (= :pending (:oracle %))) results)]
+      (println "Banner:" p5-banner)
+      (println "Checked:" (count results) "P5b2 targets; failures:" (count failures))
       (print-fold recorded)
       (doseq [f failures]
         (println "FAIL" (:id f))
