@@ -55,7 +55,9 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # At slice checkpoints, run G1 (`bb test:sub <own>`). Before landing a slice, run
 # G2 (`bb test:changed` in the worktree across all three lanes).
 # Full repo-wide `bb test` runs once daily on the remote hosts (04:00 VN);
-# a MERGE needs only the affected tests (bb test:changed) -- owner ruling 2026-11-01.
+# a MERGE needs only the affected tests (bb test:changed) -- owner ruling 2026-11-01;
+# for a fix branch, the previously-failing tests green IS the merge bar
+# (owner ruling 2026-11-07; see Gate Ladder G0).
 # Cross-host bugs show only on Node or Dart, so tri-host verification is mandatory
 # for every gate from G1 upward. Run one lane set at a time per machine to avoid
 # contention (a laptop has 8 cores; the 24- and 48-core remote hosts have room to
@@ -276,8 +278,26 @@ selected namespaces and run automatically when needed.
    failing test, never the whole suite.** JVM: `clojure -M:test -n <ns>` (a single
    deftest: add `-v <ns>/<var-name>`). Node: `node target/node-tests.js --test=<ns>`
    (built by `bb build:yin-repl-node` first only if that test needs the Node REPL).
-   Dart: `bb src/dev/cljd_agg.clj --only <ns>`. Fix against the failing test alone,
-   re-run it green, then climb back up (G1 for the home subsystem, G2 for dependents).
+   Dart: `bb src/dev/cljd_agg.clj --only <ns>[/<test-name>]` (owner ruling
+   2026-11-07: the focus rule runs the failing TEST, not the namespace —
+   `NS/test-name` entries become flutter `--plain-name` filters so only the
+   named deftests execute; fall back to bare `<ns>` only when the failing
+   var inside the namespace is not yet known, and narrow as soon as it is).
+   Fix against the failing test alone, re-run it green, then climb back up
+   (G1 for the home subsystem, G2 for dependents).
+   Dart bug-chases may set `DATOM_FAIL_FAST=1` (owner ruling 2026-11-07): the
+   scoped run stops at the first failure so the report arrives in minutes instead
+   of after the full scoped set. Gate runs never set it — the merge bar needs the
+   complete pass/fail picture. All dart runs use `--reporter expanded`, which
+   streams failure names and positions inline so an interrupted run still retains
+   them (the nightly's compact reporter lost 7 failure names to its 30000s wall,
+   2026-11-06).
+   Merge bar for a fix branch (owner ruling 2026-11-07, sharpening the 2026-11-01
+   ruling): when the work is fixing already-failing tests, the previously-failing
+   tests re-run green IS the merge bar — a fix branch merges on that alone; the
+   G1/G2 climb applies to new feature slices, not to fixes. The full suite still
+   gets its end-to-end confirmation from the daily nightly (04:00 VN), which is
+   what catches collateral damage, not a pre-merge suite run.
    Never reproduce or chase a failure with the full suite or the slow tier — the full
    suite is not a debugging tool, and running it locally for one failing test is the
    exact misuse that drove a laptop load average over 100 (2026-11-01). A failure that
@@ -488,7 +508,7 @@ and `git`.
 | Host | Cores / RAM | Toolchain state (server snapshot checked 2026-10-11; repo selection comes from `mise.toml`) |
 |---|---|---|
 | `shiva.stigmergy.systems` | 24 / 62 GB | Server snapshot: java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.1. The repo's `mise.toml` selects Flutter `latest` on beta, not a fixed version. Activate the repo toolchain before running any lane. |
-| `jupiter.stigmergy.systems` | 48 / 62 GB | Server snapshot (rechecked 2026-10-29): java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.8 (the stale hand-symlinked 3.41.9 was replaced via `mise install flutter@3.47.8` after it failed to compile `dart:ui`-using cljd namespaces; if the Dart lane dies in the cljd compile, check `mise ls flutter` first). Tri-host quick tier verified green on 2026-10-29 (see Measured times). |
+| `jupiter.stigmergy.systems` | 48 / 62 GB | Server snapshot (rechecked 2026-10-29): java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.8 (the stale hand-symlinked 3.41.9 was replaced via `mise install flutter@3.47.8` after it failed to compile `dart:ui`-using cljd namespaces; if the Dart lane dies in the cljd compile, check `mise ls flutter` first). mise was moved off the apt package to the official user-local install (`~/.local/bin/mise`, 2026.11.2, owner action 2026-11-07) so both hosts share shiva's layout; toolchains in `~/.local/share/mise/installs/` were untouched. Tri-host quick tier verified green on 2026-10-29 (see Measured times). |
 
 **Never test in `~/workspace/datomworld` on either host.** It is a working copy
 that is behind origin (shiva: 45 commits behind on 2026-10-11) and belongs to its

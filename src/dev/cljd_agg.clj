@@ -172,14 +172,23 @@
                   ")$"))
     (System/exit 0))
   (let [slow-only? (some #{"--slow-only"} args)
-        only       (when (some #{"--only"} args)
-                     (let [v (second (drop-while #(not= "--only" %) args))]
-                       (vec (remove str/blank? (str/split (str v) #",")))))
         shard-dir  (or (when (some #{"--shard-dir"} args)
                          (second (drop-while #(not= "--shard-dir" %) args)))
                        shard-dir)
         no-compile? (some #{"--no-compile"} args)
         no-run?    (some #{"--no-run"} args)
+        ;; individual-test selection (owner ruling 2026-11-07: the focus rule
+        ;; runs the failing TEST, not the namespace): --only accepts NS or
+        ;; NS/test-name; entries with a test name become flutter --plain-name
+        ;; filters so only the named deftests execute.
+        {only :namespaces, test-names :tests}
+        (when (some #{"--only"} args)
+          (let [v (second (drop-while #(not= "--only" %) args))
+                entries (vec (remove str/blank? (str/split (str v) #",")))]
+            {:namespaces (vec (distinct (map #(first (str/split % #"/")) entries)))
+             :tests (vec (keep #(when (str/includes? % "/")
+                                  (last (str/split % #"/")))
+                               entries))}))
         wanted     (cond only only
                          slow-only? (slow-namespaces)
                          :else (test-namespaces))]
@@ -212,9 +221,21 @@
               (System/exit 0))
           (do (println (format "Running %d test files in %d shards"
                                (count files) (count shards)))
-              (let [exit (try (apply run!* "flutter" "test"
-                                     "--concurrency" (str (count shards))
-                                     shards)
+              ;; --reporter expanded streams every failure name and position
+              ;; as it happens, so even an interrupted run retains them (the
+              ;; nightly's compact reporter lost 7 dart failure names to its
+              ;; wall clock, 2026-11-06). DATOM_FAIL_FAST=1 opts a G0
+              ;; bug-chase into stopping at the first failure (owner ruling
+              ;; 2026-11-07): the report arrives in minutes, not after the
+              ;; whole scoped set. Gate runs never set it — the merge bar
+              ;; needs the complete pass/fail picture.
+              (let [fail-fast? (= "1" (System/getenv "DATOM_FAIL_FAST"))
+                    args (vec (concat ["flutter" "test" "--reporter" "expanded"]
+                                      (when fail-fast? ["--fail-fast"])
+                                      (mapcat #(vector "--plain-name" %) test-names)
+                                      ["--concurrency" (str (count shards))]
+                                      shards))
+                    exit (try (apply run!* args)
                               (finally (fs/delete-tree shard-dir)))]
                 (System/exit exit))))))))
 

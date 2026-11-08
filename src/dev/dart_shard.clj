@@ -184,7 +184,7 @@
                           :err :out
                           :extra-env {"DATOM_SLOW_TESTS" "1"}
                           :continue true}
-                     "flutter" "test" "--concurrency" (str conc) @dirs)
+                     "flutter" "test" "--reporter" "expanded" "--concurrency" (str conc) @dirs)
               wall (quot (- (System/currentTimeMillis) t0) 1000)
               verdict (some->> (slurp (str out "/all.log"))
                                str/split-lines
