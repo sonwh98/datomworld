@@ -183,6 +183,11 @@
         (is (true? (:running? state')))))))
 
 
+;; Dart gate (2026-11-08): :yang/php is not installed on Dart (the
+;; standard catalog there holds :clojure :python only; the php ANTLR
+;; runtime is JS-only, targets #{:java :javascript}), so the php
+;; selection and compile-preview assertions run everywhere except
+;; :cljd. The python selection and the refusal shape run on every host.
 (deftest language-and-compile-commands-behave-as-they-do-in-v1
   (let [[_ result] (repl/eval-input (repl.frontends/create-state) "(lang :yang/python)")
         [_ refused] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
@@ -191,14 +196,23 @@
     (is (= "Switched to :yang/python" result))
     (is (str/includes? refused "unavailable-parser")
         "a language keyword is not a selector")
-    (is (= "Switched to :yang/php" switched))
-    (is (= :yang/php (:lang state))
-        "a missing PHP binding must fail at selection, before compile source routing")
-    (is (not (str/starts-with? compiled "Error:")) compiled)
-    (is (str/includes? compiled "AST:"))
-    (is (str/includes? compiled "Input rows:"))
-    (is (str/includes? compiled "Expanded rows:"))
-    (is (str/includes? compiled "Events:"))))
+    (is (str/includes? refused "installed:")
+        "the refusal names what is installed")
+    #?(:cljd
+       (testing "php selection refuses on Dart and keeps the frontend"
+         (is (str/includes? switched "unavailable-parser") switched)
+         (is (str/includes? switched "installed:") switched)
+         (is (= :yang/clojure (:lang state))))
+       :default
+       (do
+         (is (= "Switched to :yang/php" switched))
+         (is (= :yang/php (:lang state))
+             "a missing PHP binding must fail at selection, before compile source routing")
+         (is (not (str/starts-with? compiled "Error:")) compiled)
+         (is (str/includes? compiled "AST:"))
+         (is (str/includes? compiled "Input rows:"))
+         (is (str/includes? compiled "Expanded rows:"))
+         (is (str/includes? compiled "Events:"))))))
 
 
 (deftest reset-rebuilds-the-vm-and-its-attachment
