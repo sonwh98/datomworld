@@ -27,7 +27,7 @@
 
 (deftest prelude-reaches-no-dao-host-test
   (is (not-any? #(str/starts-with? (str %) "dao.host") (prelude/free-names prelude/uast)))
-  (is (every? #(contains? #{"cell" "data" "integer"} (namespace %))
+  (is (every? #(contains? #{"cell" "data" "integer" "stream"} (namespace %))
               prelude/host-names)))
 
 

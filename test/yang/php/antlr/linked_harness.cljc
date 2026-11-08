@@ -140,11 +140,13 @@
        (throw (ex-info "fixture units failed to publish" {:result result})))
      (let [{:keys [ast warnings]}
            (lower/lower-program entry
-                                (merge {:prelude :linked,
-                                        :path main,
-                                        :paths (when (:computed? opts) (keys (:addresses result)))}
-                                       (cond-> (dissoc opts :computed? :src)
-                                         (:class-map opts) (assoc :class-map true))))
+                                (cond-> (merge {:prelude :linked,
+                                                :path main,
+                                                :paths (when (:computed? opts) (keys (:addresses result)))}
+                                               (dissoc opts :computed? :src :request))
+                                  (:class-map opts) (assoc :class-map true)
+                                  (some? (:request opts)) (assoc :request-node
+                                                                 (portable/request-node (:request opts)))))
            src (or (:src opts) (source (name-env result)))]
        {:warnings warnings,
         :values (into {}

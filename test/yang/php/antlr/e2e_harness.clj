@@ -10,6 +10,7 @@
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.portable-harness :as portable]
     [yang.php.antlr.safepoint :as hooks]
+    [yang.core.uast :as u]
     [yang.safepoint :as safepoint]
     [yin.vm :as vm]
     [yin.vm.debruijn.register :as rvm]
@@ -37,11 +38,20 @@
   (vm/fresh-code-loader semantic/load-ast vm/ast-contract))
 
 
+(defn request-node
+  "The `run-main` second-operand node the composition supplies for `request`:
+   the harness converts the record to UAST itself — lowering never embeds
+   request data."
+  [request]
+  (u/sexp->uast (or request :php/null)))
+
+
 (defn lower-program
   "`{:ast a :warnings w}` for `source` through the lowering stage, or
    `{:diagnostics d}`. Warning-severity diagnostics do not stop the program.
-  The request record travels the composition path too: as a stage option it
-  reaches `lower-program`, which emits it as `run-main`'s second operand."
+  The request record travels the composition path: the harness consumes it
+  (a plain record here) and composes it as `run-main`'s second operand —
+  lowering itself never sees request data."
   ([source] (lower-program source nil))
   ([source request]
    (let [cst-log (tu/new-memory-log)
@@ -50,13 +60,14 @@
      (stream/append! cst-log (cst/parse-source source))
      (lower/step-stage (lower/open-stage cst-log program diagnostics
                                          (cond-> {:medium lower/program-medium}
-                                           (some? request) (assoc :request request))))
-    (let [{warnings true, problems false}
-          (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
-      (if (seq problems)
-        {:diagnostics problems}
-        (let [{:yin/keys [batch root] :as envelope} (first (tu/drain program))]
-          {:ast (nth batch root), :envelope envelope, :warnings (vec warnings)}))))))
+                                           (some? request) (assoc :request-node
+                                                                  (request-node request)))))
+     (let [{warnings true, problems false}
+           (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
+       (if (seq problems)
+         {:diagnostics problems}
+         (let [{:yin/keys [batch root] :as envelope} (first (tu/drain program))]
+           {:ast (nth batch root), :envelope envelope, :warnings (vec warnings)}))))))
 
 
 (defn packet->form
@@ -151,8 +162,9 @@
 
 (defn run-raw
   "The unit's value on the AST walker, consuming an optional request record
-  through the production channel: the request is a lowering-stage option and
-  reaches `run-main` as its second operand — no AST rewrite involved."
+  through the production channel: the harness composes the record as
+  `run-main`'s second operand — no AST rewrite involved, and lowering
+  never sees request data."
   ([source] (run-raw source nil))
   ([source request]
    (let [{:keys [ast diagnostics]} (lower-program source request)]

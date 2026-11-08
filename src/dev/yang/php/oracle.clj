@@ -134,10 +134,10 @@
            (if-let [[_ msg] (re-find fatal-re raw)]
              ;; a plain (non-uncaught-exception) fatal: the engine's
              ;; guest-fatal representation (`:php/fatal message`, shutdown
-             ;; already run) is preserved as `:fatal`, distinct from
-             ;; `:uncaught`.
+             ;; already run) is preserved as `:fatal`, and `:uncaught`
+             ;; stays nil — a plain fatal populates one slot only.
              [(str/replace raw fatal-re "")
-              {:class "Error", :message (strip-location msg file)}
+              nil
               (strip-location msg file)]
              [raw nil nil]))
          diags (volatile! [])
@@ -464,12 +464,15 @@
 
 (defn print-fold
   "Print the fold lines for `results`: one paste-ready record per fixture
-   in the P4 [[p4/pin]] shape `{:oracle p5-banner :out :diag :uncaught}`."
+   in the P4 [[p4/pin]] shape `{:oracle p5-banner :out :diag :uncaught}`,
+   carrying the guest-fatal representation (`:fatal`) and the process exit
+   status (`:status`) alongside."
   [results]
   (doseq [{:keys [id actual]} results]
     (println "FOLD" (name id)
-             (pr-str (assoc (select-keys actual [:out :diag :uncaught])
-                            :oracle p5-banner)))))
+             (pr-str (assoc (select-keys actual [:out :diag :uncaught :fatal])
+                            :oracle p5-banner
+                            :status (:exit actual))))))
 
 
 (defn run-all

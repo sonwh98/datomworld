@@ -4,6 +4,7 @@
   every fixture stays available to the oracle recording pass."
   (:require
     [clojure.test :refer [deftest is testing]]
+    [clojure.walk :as walk]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.linked-harness :as lh]
@@ -78,6 +79,36 @@
       (is (= [{:php.response/body "none"}] response))
       (is (= [] diag))
       (is (= "none" (:php/out value))))))
+
+
+(defn- run-main-applications
+  "Every `php/run-main` application node in lowered `ast`."
+  [ast]
+  (let [found (volatile! [])]
+    (walk/postwalk (fn [node]
+                     (when (and (map? node)
+                                (= :application (:type node))
+                                (= 'php/run-main (get-in node [:operator :name])))
+                       (vswap! found conj node))
+                     node)
+                   ast)
+    @found))
+
+
+(deftest lowering-splices-stream-operands-test
+  (testing "stream references ride as run-main operands three and four"
+    (let [pk (cst/parse-source "<?php echo 'x';")
+          rref {:type :stream-ref :id "s1"}
+          dref {:type :stream-ref :id "s2"}
+          {:keys [ast]} (ph/lower-through-stage pk nil rref dref)
+          apps (run-main-applications ast)]
+      (is (= 1 (count apps)))
+      (is (= 4 (count (:operands (first apps)))))
+      (is (= rref (:value (nth (:operands (first apps)) 2))))
+      (is (= dref (:value (nth (:operands (first apps)) 3))))))
+  (testing "without streams run-main keeps two operands"
+    (let [{:keys [ast]} (ph/lower-through-stage (cst/parse-source "<?php echo 'x';"))]
+      (is (= [2] (mapv (comp count :operands) (run-main-applications ast)))))))
 
 
 (defn- linked-out

@@ -117,14 +117,22 @@
        "<?php echo 'A'; trigger_error('boom', E_USER_ERROR); echo 'C';"
        base-request "A"
        :diag [[256 "boom"]] :oracle :pending
-       :fatal "boom")
+       :fatal "boom" :status 255)
    (fx :trigger-user-error-runs-shutdown-and-buffers
        (str "<?php ob_start(); echo 'buf';"
             " register_shutdown_function(function() { echo 'S'; });"
             " trigger_error('boom', E_USER_ERROR);")
        base-request "bufS"
        :diag [[256 "boom"]] :oracle :pending
-       :fatal "boom")
+       :fatal "boom" :status 255)
+   (fx :trigger-user-error-suppresses-destructors
+       (str "<?php class D { function __destruct() { echo 'D'; } }"
+            " $o = new D;"
+            " register_shutdown_function(function() { echo 'S'; });"
+            " echo 'B'; trigger_error('boom', E_USER_ERROR);")
+       base-request "BS"
+       :diag [[256 "boom"]] :oracle :pending
+       :fatal "boom" :status 255)
    (fx :trigger-user-error-handled-continues
        (str "<?php set_error_handler(function($n, $s) { echo 'H'; return true; }, E_USER_ERROR);"
             " trigger_error('boom', E_USER_ERROR); echo 'C';")
@@ -136,7 +144,7 @@
             " echo 'A'; trigger_error('boom', E_USER_ERROR); echo 'C';")
        base-request "A"
        :diag [[256 "boom"]] :oracle :pending
-       :fatal "boom")
+       :fatal "boom" :status 255)
    (fx :trigger-invalid-level-throws-value-error
        "<?php var_dump(trigger_error('x', 9999));"
        base-request ""
@@ -185,7 +193,40 @@
        base-request ""
        :diag [] :oracle :pending
        :uncaught {:class "ValueError"
-                  :message "setcookie(): Unknown option 'bogus'"})
+                  :message "setcookie(): option \"bogus\" is invalid"})
+   (fx :setcookie-numeric-option-key-is-value-error
+       "<?php var_dump(setcookie('o', 'w', ['path' => '/', 1 => 2]));"
+       base-request ""
+       :diag [] :oracle :pending
+       :uncaught {:class "ValueError"
+                  :message "setcookie(): option array cannot have numeric keys"})
+   (fx :setcookie-extra-positional-is-argument-count-error
+       "<?php var_dump(setcookie('s', 'v', 0, '/', 'example.com', false, false, 'Lax'));"
+       base-request ""
+       :diag [] :oracle :pending
+       :uncaught {:class "ArgumentCountError"
+                  :message "setcookie() expects at most 7 arguments, 8 given"})
+   (fx :setcookie-extra-array-positional-is-argument-count-error
+       "<?php var_dump(setcookie('o', 'w', ['path' => '/'], 'extra'));"
+       base-request ""
+       :diag [] :oracle :pending
+       :uncaught {:class "ArgumentCountError"
+                  :message "setcookie(): Expects exactly 3 arguments when argument #3 ($expires_or_options) is an array"})
+   (fx :setcookie-array-options-coerced
+       "<?php var_dump(setcookie('o', 'w', ['expires' => '1700003600', 'secure' => 1, 'samesite' => 'Lax']));"
+       base-request "bool(true)\n"
+       :diag [] :oracle :pending
+       :response [{:php.response/cookie
+                   {:name "o", :value "w",
+                    :options {:expires 1700003600, :secure true,
+                              :samesite "Lax"}}}
+                  {:php.response/body "bool(true)\n"}])
+   (fx :http-response-code-zero-after-output-is-getter
+       "<?php http_response_code(201); echo 'x'; var_dump(http_response_code(0));"
+       base-request "xint(201)\n"
+       :diag [] :oracle :pending :http-profile true
+       :response [{:php.response/status 201}
+                  {:php.response/body "xint(201)\n"}])
    (fx :setcookie-option-names-case-insensitive
        "<?php var_dump(setcookie('o', 'w', ['SameSite' => 'Lax', 'SECURE' => true]));"
        base-request "bool(true)\n"

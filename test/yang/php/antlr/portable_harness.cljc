@@ -6,10 +6,12 @@
     [dao.stream :as stream]
     [dao.stream.memory-log :as memory-log]
     [dao.stream.ringbuffer :as ringbuffer]
+    [yang.core.uast :as u]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.prelude :as prelude]
     [yin.vm :as vm]
     [yin.vm.ast-walker :as ast-walker]
+    [yin.vm.engine :as engine]
     [yin.vm.data :as data]
     [yin.vm.integer :as integer]
     [yin.vm.module :as module]))
@@ -82,13 +84,16 @@
 
 
 (defn host-registry
-  "The registry with the cell, data and integer modules installed, admitted
-   by the PHP profile."
+  "The registry with the cell, data, integer and stream modules installed,
+   admitted by the PHP profile. The stream module is what lets execution
+   emit response and diagnostic records on composition-supplied streams
+   during the run."
   []
   (-> (module/empty-registry)
       module/register-cell-module
       (data/register-data-module data-limits)
       (prelude/register-integer-module integer-limits)
+      module/register-stream-module
       prelude/admit))
 
 
@@ -100,6 +105,7 @@
       module/register-cell-module
       (data/register-data-module data-limits)
       (prelude/register-integer-module integer-limits)
+      module/register-stream-module
       prelude/admit))
 
 
@@ -143,19 +149,42 @@
          (str "PHP Fatal error:  " fatal))))
 
 
+(defn operand-node
+  "A `run-main` operand node the composition supplies: the harness converts
+   the value (a request record, a stream reference) to UAST itself —
+   lowering never embeds composition data."
+  [value]
+  (u/sexp->uast (or value :php/null)))
+
+
+(def request-node
+  "The `run-main` second-operand node the composition supplies for `request`."
+  operand-node)
+
+
 (defn lower-through-stage
   "`{:ast a :warnings w}` or `{:diagnostics d}` for `pk` through the lowering
    stage. Warning-severity diagnostics do not stop the program. With a request
-   record, it rides the composition path as `run-main`'s second operand."
-  ([pk] (lower-through-stage pk nil))
-  ([pk request]
+   record, the harness consumed it from the request stream before lowering and
+   composes it here as `run-main`'s second operand — lowering itself never
+   sees request data. With `response-ref`/`diag-ref`, the composition-supplied
+   stream references execution emits on during the run ride as the third and
+   fourth operands."
+  ([pk] (lower-through-stage pk nil nil nil))
+  ([pk request] (lower-through-stage pk request nil nil))
+  ([pk request response-ref diag-ref]
    (let [cst-log (new-memory-log)
          program (new-memory-log)
          diagnostics (new-memory-log)]
      (stream/append! cst-log pk)
      (lower/step-stage (lower/open-stage cst-log program diagnostics
                                          (cond-> {:medium lower/program-medium}
-                                           (some? request) (assoc :request request))))
+                                           (some? request) (assoc :request-node
+                                                                  (operand-node request))
+                                           (some? response-ref) (assoc :response-node
+                                                                       (operand-node response-ref))
+                                           (some? diag-ref) (assoc :diag-node
+                                                                   (operand-node diag-ref)))))
      (let [{warnings true, problems false}
            (group-by #(= :warning (:severity %)) (drain diagnostics))]
        (if (seq problems)
@@ -185,22 +214,29 @@
     (:dao.stream/value result)))
 
 
-(defn- emit-all!
-  "Every record of `records` appended to the composition-supplied `handle`:
-   real stream emission, then drained back by the caller."
-  [handle records what]
-  (doseq [record records]
-    (check-ok! (stream/append! handle record) what)))
+(defn- attach-lifecycle-streams
+  "The AST walker VM with the composition-supplied `response-stream` and
+   `diagnostics-stream` handles attached under its capability secret,
+   answering `[vm response-ref diag-ref]`: the sealed references the
+   program emits on DURING execution."
+  [response-stream diagnostics-stream]
+  (let [vm (create-vm {:modules (host-registry)})
+        [response-ref vm] (engine/attach-resource vm response-stream)
+        [diag-ref vm] (engine/attach-resource vm diagnostics-stream)]
+    [vm response-ref diag-ref]))
 
 
 (defn run-lifecycle-raw
   "The full request/response/diagnostics lifecycle for packet `pk` over
    composition-supplied streams: `request` (nil keeps the empty defaults) is
    appended to the request stream and consumed back from it; the consumed
-   record rides the composition path as `run-main`'s second operand; the run's
-   response and diagnostic records are emitted on the response and diagnostics
-   streams. Returns `{:value v :request consumed :response [...] :diag [...]}`,
-   the drained streams, or `{:diagnostics d}` when lowering refuses."
+   record rides the composition path as `run-main`'s second operand, and the
+   response/diagnostics stream references ride as its third and fourth
+   operands. Execution emits response and diagnostic records onto those
+   streams DURING the run (never copied after completion); the runtime no
+   longer appends to cells on this path. Returns
+   `{:value v :request consumed :response [...] :diag [...]}`, the drained
+   streams, or `{:diagnostics d}` when lowering refuses."
   [pk request]
   (let [request-stream (lifecycle-stream "request create")
         response-stream (lifecycle-stream "response create")
@@ -208,12 +244,12 @@
     (when (some? request)
       (check-ok! (stream/append! request-stream request) "request append"))
     (let [consumed (if (some? request) (consume-one request-stream) nil)
-          {:keys [ast diagnostics]} (lower-through-stage pk consumed)]
+          [vm response-ref diag-ref] (attach-lifecycle-streams response-stream
+                                                               diagnostics-stream)
+          {:keys [ast diagnostics]} (lower-through-stage pk consumed response-ref diag-ref)]
       (if diagnostics
         {:diagnostics diagnostics}
-        (let [v (vm/value (vm/eval (create-vm {:modules (host-registry)}) ast))]
-          (emit-all! response-stream (:php/response v) "response append")
-          (emit-all! diagnostics-stream (:php/diag v) "diagnostics append")
+        (let [v (vm/value (vm/eval vm ast))]
           {:value v,
            :request consumed,
            :response (drain response-stream),

@@ -3746,8 +3746,12 @@
 
 
 (def option-keys
-  "The options `lower-program` and the lowering stage accept."
-  [:prelude :path :paths :class-map :request])
+  "The options `lower-program` and the lowering stage accept. Request data
+   never flows here: the harness consumes the request record from the
+   composition-supplied request stream before lowering and composes it as
+   `run-main`'s second operand (`:request-node`, an opaque UAST node) at
+   the composition level."
+  [:prelude :path :paths :class-map :request-node :response-node :diag-node])
 
 
 (defn- path-map-node
@@ -3774,21 +3778,36 @@
    `:paths` the normalized paths whose units the composition published,
    which a computed include resolves against; `:class-map` true requires
    the published `phpm.$classmap` and binds its classes and delivery thunks
-   (plan P6 R9), which takes the place of `:paths`."
+   (plan P6 R9), which takes the place of `:paths`; `:request-node` is the
+  opaque `run-main` second-operand node the harness composed from the
+  stream-consumed request record (lowering never embeds request data);
+  `:response-node` and `:diag-node` are the opaque third and fourth
+  operands: the composition-supplied stream references execution emits
+  on. Absent, `run-main` runs with two operands and the cells
+  accumulate."
   ([packet] (lower-program packet {}))
-  ([packet {:keys [prelude paths path class-map request], :or {prelude :bundled}}]
+  ([packet {:keys [prelude paths path class-map request-node response-node diag-node],
+            :or {prelude :bundled}}]
    (when-not (contains? #{:bundled :linked} prelude)
      (throw (ex-info "unknown PHP prelude profile"
                      {:yang.php/diagnostic :yang.php/unsupported,
                       :construct :prelude,
                       :prelude prelude})))
    (let [linked? (= :linked prelude)
+         request-node (or request-node (u/sexp->uast :php/null))
          ctx (context packet {:path (or path entry-path), :linked? linked?})
-         ;; the request record rides the composition path as `run-main`'s
-         ;; second operand: production initialization consumes it and seeds
-         ;; the superglobals, no postwalk rewrite involved.
-         main (app* 'php/run-main (u/lam [] (unit-node ctx))
-                    (u/sexp->uast (or request :php/null)))]
+         ;; `run-main`'s second operand arrives composed by the harness from
+         ;; the stream-consumed request record: production initialization
+         ;; consumes it and seeds the superglobals, no postwalk rewrite and
+         ;; no request data through lowering involved. With stream nodes
+         ;; `run-main` takes four operands (request, response and
+         ;; diagnostics references); without them it takes two and the
+         ;; cells accumulate.
+         main (if (or response-node diag-node)
+                (app* 'php/run-main (u/lam [] (unit-node ctx)) request-node
+                      (or response-node (u/sexp->uast :php/null))
+                      (or diag-node (u/sexp->uast :php/null)))
+                (app* 'php/run-main (u/lam [] (unit-node ctx)) request-node))]
      {:ast (u/mark-tails
              (if linked?
                (u/seq-nodes (concat [(app* 'require (u/lit 'yang.call))
