@@ -1,0 +1,116 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-07 13:09:31 GMT
+Completed-Local: 2026-11-07 20:09:31 +07
+
+# Architect review — byte-sized index page cuts
+
+Scope read, read-only, no tests run: both artifacts in full; [index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:286), [btree.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/data/btree.cljc:1998), [storage.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/data/btree/storage.cljc:93), [cbor.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing/cbor.cljc:913), [jing.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing.cljc:153), [yin/repl/index.cljc](/Users/sto/workspace/datomworld/src/cljc/yin/repl/index.cljc:356), [dao.jing.dht.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing/dht.cljc:73), [dao.jing.dht.md](/Users/sto/workspace/datomworld/docs/design/dao.jing.dht.md:798), branch commits `4f772d61` and `cb2cbe11`, and the uncommitted sweep state in `/tmp/nrf-branch-wt`.
+
+## Overall disposition: APPROVED-WITH-CHANGES
+
+The reframe is approved. The brief as written is not implementable: its sizing algorithm, its branch accounting, its manifest proposal, and its revert step each fail against the code. Required changes R1–R7 below are precise enough to re-brief from. Do not implement the brief verbatim.
+
+## 1. Framing — APPROVED, with one correction
+
+Byte-sized cutting at the index builder is the correct axis. The bound that bites is a byte bound on the encoded `:store` message ([dao.jing.dht.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing/dht.cljc:228): `store-message-size`, refused in `send-datagram!` at [dao.jing.dht.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing/dht.cljc:254)). No count cap can respect it, because datom values are unbounded in size. Fix 5 (`4f772d61`, `:branching-factor 64`) only moves the failure to larger code values.
+
+The alternatives are worse, and the review considered them:
+
+- Raising `max-message-bytes` alone: the design doc already marks it composition data to “confirm or raise” ([dao.jing.dht.md](/Users/sto/workspace/datomworld/docs/design/dao.jing.dht.md:805)), and S3 confirmed 65,536 covers only a small-datom build (26,497-byte canonical value, 26,720-byte wire value). Raising the bound does not bound a count-cut page; the same bug recurs at larger values, with larger reassembly state (`max-partial-messages` 64).
+- DHT chunking: already exists for messages over `max-datagram` (1200) and is explicitly capped by `max-message-bytes` before splitting. It cannot carry an over-bound store message.
+- Oversize-value chunking at another layer: a datom is the atomic index key in all four orders (`eavt-cmp`/`aevt-cmp`/`avet-cmp`/`vaet-cmp`). Splitting a value across leaves breaks ordering, lookup, and set semantics. Wrong layer.
+
+Correction to the directive: “fixed max-message-bound-derived cut” is not an alternative to byte cutting; it is byte cutting. The owner’s framing stands.
+
+## 2. Cut algorithm — REJECTED as specified; replacement specified
+
+Determinism: preserved either way. Canonical CBOR is a pure function of the value ([cbor.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing/cbor.cljc:913) `encode`; [jing.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing.cljc:153) `canonical-bytes`), and `from-sequential` sorts and dedupes before building ([btree.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/data/btree.cljc:2059)). A size derived from those bytes is a pure function of the sorted stream.
+
+Cost: encode-candidate-per-datom is O(k²·s) per leaf — each of k datoms re-encodes the whole accumulated leaf. At REPL page sizes this is the dominant build cost and heavy allocation churn on JS/Dart. Unacceptable when an exact O(n) accounting exists.
+
+Required replacement (R1): encode once, sum lengths.
+
+- Encode each sorted datom once; keep its byte length.
+- Leaf blob is `{:keys [d…]}` ([btree.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/data/btree.cljc:1080) `node->blob`). Its encoded size is exactly: map framing + `:keys` identifier bytes + array header for n + Σ datom lengths. Recompute only the array header as n crosses CBOR header thresholds (24, 256, 65536). Cut when adding the next datom would exceed the budget. No candidate re-encodes.
+- This is exact, not an estimate, because CBOR concatenation is additive apart from the header. State that proof in the design; forbid `pr-str` lengths or host string lengths anywhere in the accounting. Byte lengths come from the host byte array only.
+- Keep the brief’s oversize rule: a single datom over budget still forms a one-datom leaf, and the store refusal remains the last resort. Add a test that pins this as a loud refusal, not a silent unacknowledged publication (see Missed, below).
+
+## 3. Bulk vs incremental — FAILS as briefed; design addition required
+
+The brief heads its work “`from-sequential` and the publish path,” then specifies only the bulk builder. The two paths are different code:
+
+- Bulk: [index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:564) `publish-index!` → `bt/from-sequential` with `{:branching-factor branching}`.
+- Incremental: `session`/`fold-batch` folds with `bt/conj` ([index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:1034)), and [index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:1142) `publish!` serializes the existing tree via `bt/store-tree`. Splits there obey only `Settings.branching-factor` (`bf*`/`min-bf*`, [btree.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/data/btree.cljc:75)). The REPL uses both: full reconstruction via `transactor/publish!`, suffix publication via `index/publish!` ([yin/repl/index.cljc](/Users/sto/workspace/datomworld/src/cljc/yin/repl/index.cljc:394)).
+
+So a bulk-only byte cut leaves incremental publications able to emit the same 70 KiB leaf and collapse the same way. That alone would reject the brief.
+
+One premise in the review prompt needs correcting: differently-shaped trees from the two paths do not break an invariant. The design already disavows cross-path manifest equality — bulk and `conj` partition the same rows differently, and acceptance is logical equality ([dao.space.index.as-observer.md](/Users/sto/workspace/datomworld/docs/design/dao.space.index.as-observer.md:685), item A9). Determinism is per-path: same sorted stream plus same budget gives same tree, on each path separately.
+
+Required addition (R2): enforce the bound at blob emission on both paths, without redesigning the B-tree in this slice.
+
+- Keep `Settings` count-based. Do not make `node-conj`/`node-disj` byte-aware here; that rewrites split/merge/borrow invariants and is a separate design.
+- Bulk path: byte-aware grouping in `from-sorted-array`/`from-sequential` per R1.
+- Incremental path: `publish!` already holds every emitted blob’s canonical bytes in the recording handle (`:order` of `[address bs]`, [index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:493)). Check each `bs` length against the budget there — zero extra encodes. On violation, rebuild that index from `bt/seq` through the byte-cut bulk builder and store that instead. Never emit an over-budget blob and never count such a publication as published.
+- Thread the budget through `session`, `restore`, and the REPL `:publish-opts` so both paths see the same number.
+
+## 4. Manifest compatibility — brief’s preferred option REJECTED
+
+“Keep `:branching-factor` as the realized emergent count, no schema change” changes the field’s meaning while every consumer still reads the old one:
+
+- Validator requires an integer ≥ 2 ([index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:286)). An emergent root fanout is 0 for an empty tree and below 2 for a single-leaf tree. Those manifests become invalid.
+- `restored-indexes` threads the field into `kv-storage` Settings so restored nodes “split at the published thresholds” ([index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:341)); `verify-candidate` and `restore` do the same ([index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:1310), [index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:1344)). An emergent 3 or 7 would make all later mutation split at 3 or 7.
+- The verified-frontier gate compares the manifest field to `:publish-opts` for equality before reusing a suffix frontier ([yin/repl/index.cljc](/Users/sto/workspace/datomworld/src/cljc/yin/repl/index.cljc:368)). An emergent value varies per publication, so the gate would fail almost every round and force full reconstruction — or, if “fixed” by deleting the comparison, would reuse frontiers without the check that validates them. Do not remove that comparison.
+- One field cannot describe four trees. Byte cuts give EAVT/AEVT/AVET/VAET different leaf counts over the same datoms. There is no single emergent count to record.
+- The manifest is a hash input (`jing/segment-key manifest`, [index.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/space/index.cljc:619)). Redefining the field churns every manifest address and defeats the cache-sharing the directive wants to preserve, for scalar trees that never had the problem.
+
+Required (R3): keep the dual constraint and the schema. Cut a page when either the byte budget or the count cap (512) is reached. `:branching-factor` keeps meaning “the count cap this tree was built and must be restored with”; the manifest stays exactly `{:indexes :count :branching-factor}`. If the budget must later be recorded for restore fidelity, that is a schema proposal to the work log per the directive’s own rule — not this slice, and not a reason to overload the existing field.
+
+## 5. Reverting `cb2cbe11` (`:repair-slots 48`) — REJECTED as a step of this change
+
+The brief’s hedge (“verify rather than assume”) is right; its presumption is wrong, and its premise — “the 8× amplification collapses” — does not hold. At a 48 KiB budget, code-heavy REPL pages hold roughly the same datom counts as fix 5’s 64-key pages, so per-round address counts stay in fix 5’s 16–34 range, not the 512-era 9–16. The directive itself already says this correctly: page count per round still scales with volume, so the cadence question remains open.
+
+The live evidence also already superseded the brief: `/tmp/nrf-branch-wt` carries an uncommitted sweep replacing 48 with a measured 40 (49 idle ticks in a 400-tick observation, against 32 at 48 and 3 at 32; queue peaks 221 at 16 slots, 133 at 24, 81 at 32). A blanket `git revert cb2cbe11` returns the store to the `dao.space.dht` default of 16 — the configuration measured never to drain.
+
+Required (R4): no revert in the byte-cut change. After byte-cut lands, re-run the dart ticker-idle test at 16, 40, and 48 with byte-cut pages and pin the measured winner. Retire fix 5’s `:branching-factor 64` override in the same change (R3 makes it redundant); keep its commit in history, as the brief says.
+
+## 6. Sequencing — implement now on `nightly-reds-fix` (owner redirect upheld)
+
+The directive’s “after master-green, do not fold into nightly-reds-fix” was written before the owner halted the slot sweep as solving the wrong problem. Merging the branch as-is would land a known-wrong workaround (64-key pages plus slot tuning fitted to them) and then immediately rework it. The branch is also the only place the failing configuration reproduces. Implement byte-cut there, with independent review before merge.
+
+Risks owned with this pick: the change touches bulk-build behavior on a nightly-fix branch, so the merge waits on the brief’s full dart + node matrix plus the index namespaces; pin churn (see Missed) must be reported as measured emergent counts, never fitted. Worktree hygiene needs care first: `/tmp/nrf-branch-wt` is detached at `4f772d61` with the uncommitted 40-slot edit, while `nightly-reds-fix` names `cb2cbe11`. Reconcile that state explicitly before any implementation commit; do not let the slot edit ride along silently.
+
+The alternative’s risk is worse: master-green merges fix 5, the repair cadence gets tuned to the wrong page shape a second time, and the byte work starts over on a new slice.
+
+## 7. The 48 KiB budget — DEMAND MEASUREMENT; number not confirmed
+
+48 KiB is safe but unjustified, and as specified it is wired wrong:
+
+- It hardcodes 49,152 in `dao.space.index`, while the bound it derives from is per-composition data (`::max-message-bytes` in [dao.jing.dht.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing/dht.cljc:73), overridable at composition). Raise the composition bound and the index still over-cuts; lower it and the index overflows. Required (R5): derive the budget at the publish boundary — budget = composition `max-message-bytes` − measured `:store` envelope − margin — and pass it through `:publish-opts`. The envelope oracle already exists: `store-message-size` with maximal `q` and full cookie ([dao.jing.dht.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/jing/dht.cljc:228)). Tests must assert against the full store message, not the leaf alone.
+- The headroom is far larger than the envelope needs. The only measurement on record shows 223 bytes of envelope (26,497 → 26,720). Reserving 16 KiB inflates page count by roughly a third versus a ~60 KiB budget, which directly worsens the repair economics in §5. But S3 measured small datoms only; no REPL code-datom leaf distribution has been measured at any budget.
+- Required (R6): before pinning a number, measure real REPL covered-index leaves (the dart `yin.repl.dht-test` tree) — leaf byte distribution, emergent counts per index, per-round address counts. Then set the budget from the measured envelope plus an stated margin. 49,152 may stand as a provisional conservative pin only if the brief says that is what it is.
+
+## What both artifacts missed entirely
+
+1. Branch sizing is undercounted in the brief. A branch blob is `{:level n :keys [separator datoms] :addresses [...]}` ([btree.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/data/btree.cljc:1080)). “Each entry’s bytes = its canonical address encoding” omits the separator keys — full datoms, the largest part — plus map/array framing. Branch cuts must account the whole blob with the R1 summation method, or branches overflow after leaves are fixed.
+2. Bulk fill invariants. `split-ranges` builds chunks between `min-bf` and `max` aiming at the average ([btree.cljc](/Users/sto/workspace/datomworld/src/cljc/dao/data/btree.cljc:1998)), and branch levels group child nodes by the same count ranges. Byte grouping replaces this wholesale. The design must state that byte-cut leaves may be underfull by count, that this is legal for published immutable trees, and how a restored underfull leaf then behaves under `conj`/`disj` borrow/merge at `min-bf = bf/2`.
+3. Oversize publication semantics. `publish-index!` appends blobs to the intake before the DHT ever refuses them; an over-budget leaf therefore yields a locally durable, remotely unacknowledged manifest — the original symptom in quieter form. The design must surface that as a publication failure at publish time (R2’s emission check does), not leave it to ack collapse.
+4. Budget threading for the incremental session. The REPL indexer’s `:publish-opts` reach only the full-reconstruction path; the suffix path’s session is rebuilt by `index/restore` from the manifest. Unless the budget is threaded through `restore`/`session` and the storage Settings’ composition, the two paths will silently use different budgets after a restart.
+5. Test pins beyond the four shape pins. Grep shows the load-bearing ones: the default-factor pin `(= 512 (:branching-factor manifest))` and the many `{:branching-factor 4}` fixtures in [index_test.cljc](/Users/sto/workspace/datomworld/test/dao/space/index_test.cljc:163), the manifest-shape assertions at [index_test.cljc](/Users/sto/workspace/datomworld/test/dao/space/index_test.cljc:573), and the DHT test’s `(= 64 … :branching-factor)` pin added by fix 5. Under R3 the 512/4 semantics survive; only the fix-5 pin and any realized-count assertions change, each reported with its measured value per measure-then-pin.
+6. The manifest blob itself and non-DHT intake. Pages also travel intake streams and local stores that have no 64 KiB bound. Byte cutting is harmless there, but the design should say the budget is a DHT-derived composition input (R5), not a new property of the index format — otherwise a future non-DHT composition inherits an unexplained page shape.
+
+## Required changes for the re-brief
+
+- R1: encode-once length summation for leaf and branch cuts; exact header accounting; no candidate re-encodes (§2).
+- R2: emission-bound check plus bulk-rebuild fallback on the incremental `publish!` path; budget threaded through `session`/`restore` (§3, Missed 4).
+- R3: dual constraint (byte budget and 512 count cap); `:branching-factor` semantics and manifest schema unchanged; retire only the fix-5 `64` override (§4, §5).
+- R4: no `cb2cbe11` revert in this change; slot count re-measured after landing (§5).
+- R5: budget derived from the composition’s `max-message-bytes` minus the `store-message-size` envelope, passed via `:publish-opts`; tests assert full store-message size (§7).
+- R6: REPL leaf measurement precedes pinning the budget number; 49,152 provisional only (§7).
+- R7: sequence on `nightly-reds-fix` now, after reconciling the detached worktree and its uncommitted 40-slot edit; full dart + node matrix before merge (§6).
+
+With R1–R7 folded in, this is approved to implement.

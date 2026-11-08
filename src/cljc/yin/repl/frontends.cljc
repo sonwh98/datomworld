@@ -12,8 +12,9 @@
     [yang.clojure :as yang.clojure]
     [yang.frontend :as frontend]
     #?@(:cljd []
-        :clj [[yang.php.antlr.cst :as php.antlr.cst]
-              [yang.php.antlr.lower :as php.antlr.lower]])
+        :jolt []
+        :default [[yang.php.antlr.cst :as php.antlr.cst]
+                  [yang.php.antlr.lower :as php.antlr.lower]])
     #?@(:cljd [[yang.python.antlr.repl :as python.antlr.repl]
                [yang.python.antlr.parser :as python.antlr.parser]
                [yang.python.antlr.repl-probe :as python.antlr.probe]]
@@ -95,11 +96,13 @@
                            {:input :forms,
                             :parse identity,
                             :lower clojure-lower})
-    #?@(:clj [true (frontend/install
-                     (php-manifest)
-                     {:parse php.antlr.cst/parse-source,
-                      :lower php.antlr.lower/lower-packet,
-                      :render :php/out})])
+    #?@(:cljd []
+        :jolt []
+        :default [true (frontend/install
+                         (php-manifest)
+                         {:parse php.antlr.cst/parse-source,
+                          :lower php.antlr.lower/lower-packet,
+                          :render :php/out})])
     #?@(:cljd [true (frontend/install
                       (antlr-manifest)
                       {:parse (fn [source]

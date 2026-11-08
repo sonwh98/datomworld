@@ -334,6 +334,17 @@ caller-UUID agent like the Claude family and Muse):
   work" applies only if recording has been disabled in settings.
   `-c/--continue` resumes the most recent session for the current
   project directory; prefer the exact `--resume <id>`.
+  - **Headless approval flags do NOT carry into a resume** (observed
+  2026-11-07): a follow-up without an approval flag hangs on the first
+  tool approval ("requires user approval but cannot execute in
+  non-interactive mode"), and `-y` conflicts with `--approval-mode`
+  (yolo IS the approval mode) — pass `--approval-mode
+  yolo`/`auto-edit` on EVERY resume. `--resume` of an ALREADY-COMPLETED
+  headless session can also no-op with "Closed (exit 0). No action
+  pending." even when the follow-up asks for new work — if a resume
+  returns instantly with that line or prints the help text (a flag
+  validation error), start a FRESH `--session-id` run with the needed
+  context pasted inline instead of retrying the resume.
 - **Store:** sessions persist as JSONL under
   `~/.qwen/projects/<cwd-path-slug>/chats/<session-id>.jsonl` (grouped
   by working directory — run follow-ups from the SAME directory), with

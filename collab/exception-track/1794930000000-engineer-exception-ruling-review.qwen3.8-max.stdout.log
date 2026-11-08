@@ -1,0 +1,9 @@
+Warning: Tool "list_directory" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+Warning: Tool "glob" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+Operation cancelled.

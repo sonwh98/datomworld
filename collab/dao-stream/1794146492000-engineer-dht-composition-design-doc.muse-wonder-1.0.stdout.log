@@ -1,0 +1,27 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 14:04:04 GMT
+Completed-Local: 2026-11-08 21:04:04 Asia/Ho_Chi_Minh
+
+Wrote [yin.repl.dht-composition.md](/Users/sto/workspace/datomworld/docs/design/yin.repl.dht-composition.md) (759 lines) as the governing spec. No code. No commits.
+
+Sections:
+
+1. Owner requirements and scope
+2. The dependency rule
+3. Ownership split and ordering contract
+4. The dao.jing surface the engine may use
+5. Publication policy and frame budgets
+6. Coupling inventory — the refactor checklist
+7. Adapter dispositions
+8. Invariants to pin before relocation
+9. Commit sequence and exit conditions
+10. Swappability gates (acceptance criteria) — Gate A and Gate B
+11. Nightly exposure during the refactor window
+12. R-set adaptation
+13. Related debt: native recursion over deep structures
+14. Estimate

@@ -1,0 +1,236 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 13:06:13 GMT
+Completed-Local: 2026-11-08 20:06:13 +0700 (Asia/Ho_Chi_Minh)
+
+Both php-catalog Dart assertions are gated on `:cljd` with no commits. The work lives uncommitted in the [scratch clone](/tmp/datomworld-gate-80e2ad00) at `80e2ad00b167f9cc821e51040be6d532a2150ed5`. The main workspace was not edited.
+
+Host note: this session is `darkstar`, not `jupiter`, and `~/ci` does not exist here. The clone was made from GitHub over HTTPS (SSH fails under the sandbox) to `/tmp`, detached at `origin/master`. That is the only deviation from step 1. The catalog gap is in the [standard catalog](/tmp/datomworld-gate-80e2ad00/src/cljc/yin/repl/frontends.cljc:85): Dart installs only Clojure and Python. PHP targets only Java and JavaScript in the [PHP manifest](/tmp/datomworld-gate-80e2ad00/src/cljc/yin/repl/frontends.cljc:60).
+
+### Changes
+
+The [yin.repl-test gate](/tmp/datomworld-gate-80e2ad00/test/yin/repl_test.cljc:191) keeps the Python switch and the refusal shape on every host. It adds a generic `installed:` check. Only the PHP switch, language pin, and compile preview run off Dart. On Dart it asserts the PHP refusal, the installed list, and that the session stays on `:yang/clojure`.
+
+The [yin.repl.main-test gate](/tmp/datomworld-gate-80e2ad00/test/yin/repl/main_test.cljc:340) keeps the refusal shape generic on every host. The exact PHP-including installed list runs only off Dart, mirroring the [host-gate pattern](https://github.com/sonwh98/datomworld/commit/9032649e0478a6b23af2f8bdbcf3426eddb9a32f). On Dart it asserts the PHP refusal and that the PHP source does not evaluate to `3`. The Clojure tail still runs on every host. No assertions were deleted.
+
+```text
+ test/yin/repl/main_test.cljc | 38 ++++++++++++++++++++++++++++++++------
+ test/yin/repl_test.cljc      | 30 ++++++++++++++++++++++--------
+ 2 files changed, 54 insertions(+), 14 deletions(-)
+```
+
+### JVM verification
+
+Targeted runner, gated code:
+
+```text
+Testing yin.repl-test
+
+Ran 1 tests containing 10 assertions.
+0 failures, 0 errors.
+```
+
+The same target on the untouched base has 9 assertions. The gate adds coverage instead of weakening it:
+
+```text
+Ran 1 tests containing 9 assertions.
+0 failures, 0 errors.
+```
+
+Both targets without the socket fixture:
+
+```text
+repl-test target: {:test 5, :pass 10, :fail 0, :error 0}
+main-test target: {:test 20, :pass 19, :fail 0, :error 0}
+DIRECT-OK
+```
+
+Full `yin.repl-test` namespace:
+
+```text
+Testing yin.repl-test
+
+Ran 52 tests containing 268 assertions.
+0 failures, 0 errors.
+```
+
+The prompt-literal `-i :slow` filter is vacuous for `yin.repl-test`. It selects no target:
+
+```text
+Testing user
+
+Ran 0 tests containing 0 assertions.
+0 failures, 0 errors.
+```
+
+Any runner invocation of `yin.repl.main-test` fails under this sandbox before the target runs. The base fails identically, so this is pre-existing sandbox blockage, not a gate regression:
+
+```text
+Testing yin.repl.main-test
+Execution error (SocketException) at sun.nio.ch.Net/bind0 (Net.java:-2).
+Operation not permitted
+```
+
+### Dart verification
+
+The gated sources compile to Dart:
+
+```text
+Compilation succeeded - You rock! 🤘 @20:02:23
+Emitted 2 test files in 2 shards under build/cljd-agg
+```
+
+The sanctioned `flutter test` harness cannot start under this sandbox. Its tester device needs a loopback socket:
+
+```text
+Failed to load "/private/tmp/datomworld-gate-80e2ad00/build/cljd-agg/shard_0_test.dart": Failed to create server socket (OS Error: Operation not permitted, errno = 1), address = 127.0.0.1, port = 0
+```
+
+The same generated Dart was therefore run on the Dart VM. Both gated targets pass:
+
+```text
+00:00 +0: null yin.repl-test/language-and-compile-commands-behave-as-they-do-in-v1
+00:00 +1: All tests passed!
+```
+
+```text
+00:00 +0: null yin.repl.main-test/the-interactive-composition-holds-every-standard-language
+00:51 +1: All tests passed!
+```
+
+Full Dart `yin.repl-test` also passes:
+
+```text
+00:41 +52: All tests passed!
+```
+
+Style and whitespace pass with exit 0. Node uses the same `:default` branch as the JVM, confirmed by reader probe. Node was not run locally.
+
+Not run locally: the full slow Dart run of both namespaces and the full JVM `yin.repl.main-test` namespace. Both belong on `jupiter` or `shiva`, where socket binds are allowed. Run there in the scratch clone:
+
+```text
+DATOM_SLOW_TESTS=1 bb src/dev/cljd_agg.clj --only yin.repl-test,yin.repl.main-test
+clojure -M:test -n yin.repl-test
+clojure -M:test -n yin.repl.main-test
+```
+
+No `yin.repl.dht-test` namespace was touched, so its ledgered `rounds-larger...` seam did not occur.
+Completed-GMT: 2026-11-08 13:36:48 GMT
+Completed-Local: 2026-11-08 20:36:48 +0700 (Asia/Ho_Chi_Minh)
+
+Both php-catalog Dart assertions are gated on `:cljd` with no commits. The work lives uncommitted in the [scratch clone](/tmp/datomworld-gate-80e2ad00) at `80e2ad00b167f9cc821e51040be6d532a2150ed5`. The main workspace was not edited.
+
+This session is `darkstar`, not `jupiter`. The clone was made from GitHub over HTTPS to `/tmp`, detached at `origin/master`. The catalog gap is in the [standard catalog](/tmp/datomworld-gate-80e2ad00/src/cljc/yin/repl/frontends.cljc:85): Dart installs only Clojure and Python. PHP targets only Java and JavaScript in the [PHP manifest](/tmp/datomworld-gate-80e2ad00/src/cljc/yin/repl/frontends.cljc:60).
+
+### Changes
+
+The [yin.repl-test gate](/tmp/datomworld-gate-80e2ad00/test/yin/repl_test.cljc:191) keeps the Python switch and refusal shape on every host. Only the PHP switch and compile preview run off Dart. On Dart it asserts the PHP refusal and that the session stays on `:yang/clojure`.
+
+The [yin.repl.main-test gate](/tmp/datomworld-gate-80e2ad00/test/yin/repl/main_test.cljc:340) keeps the refusal shape generic on every host. The exact PHP-including installed list runs only off Dart. On Dart it asserts the PHP refusal and that PHP source does not evaluate to `3`. No assertions were deleted.
+
+```text
+ test/yin/repl/main_test.cljc | 38 ++++++++++++++++++++++++++++++++------
+ test/yin/repl_test.cljc      | 30 ++++++++++++++++++++++--------
+ 2 files changed, 54 insertions(+), 14 deletions(-)
+```
+
+### JVM verification
+
+Fresh targeted run:
+
+```text
+Testing yin.repl-test
+
+Ran 1 tests containing 10 assertions.
+0 failures, 0 errors.
+```
+
+Fresh `yin.repl-test` namespace:
+
+```text
+Testing yin.repl-test
+
+Ran 52 tests containing 268 assertions.
+0 failures, 0 errors.
+```
+
+Fresh `yin.repl.main-test` target, run directly to avoid the socket fixture:
+
+```text
+diag: loaded
+diag: COMPLETED true
+```
+
+Fresh socket-free subset of 14 `yin.repl.main-test` vars, all green. The gated target is:
+
+```text
+the-interactive-composition-holds-every-standard-language {:test 0, :pass 17, :fail 0, :error 0}
+SUBSET-BAD: []
+SUBSET-OK
+```
+
+The scoped runner for `yin.repl.main-test` cannot start under this sandbox. It fails in the R5 fixture before any test runs:
+
+```text
+Testing yin.repl.main-test
+Execution error (SocketException) at sun.nio.ch.Net/bind0 (Net.java:-2).
+Operation not permitted
+```
+
+### Dart verification
+
+The requested lane compiles the gated sources:
+
+```text
+Compilation succeeded - You rock! 🤘 @20:11:06
+Running 2 test files in 2 shards
+```
+
+Its Flutter harness cannot start under this sandbox. The tester device needs a loopback socket:
+
+```text
+Failed to load "/private/tmp/datomworld-gate-80e2ad00/build/cljd-agg/shard_0_test.dart": Failed to create server socket (OS Error: Operation not permitted, errno = 1), address = 127.0.0.1, port = 0
+```
+
+The identical generated Dart was run on the Dart VM with `DATOM_SLOW_TESTS=1`. Both gated targets pass:
+
+```text
+00:00 +0: null yin.repl-test/language-and-compile-commands-behave-as-they-do-in-v1
+00:00 +1: All tests passed!
+```
+
+```text
+00:00 +0: null yin.repl.main-test/the-interactive-composition-holds-every-standard-language
+00:42 +1: All tests passed!
+```
+
+Both Dart namespaces pass in full on the VM. `yin.repl-test`:
+
+```text
+00:35 +52: All tests passed!
+```
+
+`yin.repl.main-test` fast tier:
+
+```text
+00:45 +44: All tests passed!
+```
+
+`yin.repl.main-test` slow tier tail:
+
+```text
+00:49 +44: All tests passed!
+```
+
+The literal Flutter lane and the JVM `yin.repl.main-test` runner still need an unsandboxed host where loopback binds are allowed. Run there in the scratch clone:
+
+```text
+DATOM_SLOW_TESTS=1 bb src/dev/cljd_agg.clj --only yin.repl-test,yin.repl.main-test
+clojure -M:test -n yin.repl.main-test
+```
+
+No `yin.repl.dht-test` namespace was touched, so its ledgered seam did not occur.

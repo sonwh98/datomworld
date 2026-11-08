@@ -1,0 +1,175 @@
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Enable a sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+Completed-GMT: 2026-11-07 15:56:18 GMT
+Completed-Local: 2026-11-07 22:56:18 Asia/Ho_Chi_Minh
+
+## Result: both edits applied, all five verification runs green (node ×3, JVM ×2). Nothing committed.
+
+Governing ruling read in full. One path correction: the brief cites
+`collab/yang-clojure/1794065655000-architect-stream-eval-summary-fix-adjudication.gpt-6-astra.findings.md`,
+which does not exist; that epoch holds only the `.prompt.md`/`.stdout.log`. The findings of record are
+`1794065411000-architect-stream-eval-summary-fix-adjudication.gpt-6-astra.findings.md` (APPROVE, exactly two
+edits) — that is what I read, together with
+`collab/jolt/1794036904000-orchestrator-stream-eval-manifest-diagnosis.muse-wonder-1.0.stdout.log`.
+
+Clock note: the brief's hand-written `Created-GMT: 12:5x` is ~3 h behind the real clock (real 15:5x GMT), and
+behind the ruling it dispatches (findings stamped 15:35 GMT). Headers above are real `date` readings.
+
+## The two edits (verbatim `git diff`, worktree `/tmp/nrf-branch-wt` @ cb2cbe11)
+
+```diff
+diff --git a/src/cljc/yin/repl.cljc b/src/cljc/yin/repl.cljc
+index b5408353..54578e10 100644
+--- a/src/cljc/yin/repl.cljc
++++ b/src/cljc/yin/repl.cljc
+@@ -2208,7 +2208,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+                       (:links parked))))
+    :index (index/status (:indexer state))
+    :index-publication (select-keys (get-in state [:indexer :materialization])
+-                                   [:cursor :transactions :manifest-address])
++                                   [:cursor :transactions])
+    :ast-index (ast-index/status (:ast-indexer state))
+    :telemetry {:supported? false :note telemetry-text}
+    :remote {:connected? false}})
+diff --git a/test/yin/repl/index_test.cljc b/test/yin/repl/index_test.cljc
+index 00af5b4b..bcecf41f 100644
+--- a/test/yin/repl/index_test.cljc
++++ b/test/yin/repl/index_test.cljc
+@@ -286,7 +286,7 @@
+         (is (= (:dao.stream/cursor (stream/cursor (:local ix) :dao.stream/newest))
+                (get-in ix [:materialization :cursor])))
+         (is (= (select-keys (:materialization ix)
+-                            [:cursor :transactions :manifest-address])
++                            [:cursor :transactions])
+                (:index-publication (repl/repl-state state))))
+         (is (every? #(contains? % :dao.space/transaction) records)
+             "the local log holds transaction records only, no publication payload")
+```
+
+`git diff --stat` for **my** surface: `src/cljc/yin/repl.cljc | 2 +-`, `test/yin/repl/index_test.cljc | 2 +-`
+— exactly 2 files, 1 line each. The worktree was **not** clean as the brief states: it already carried
+`shadow-cljs.edn | 16 ++++++----` (another seat's `--stack-size` 6144→7168) and untracked
+`.flutter-plugins-dependencies`. I touched neither, so the worktree-wide `--stat` shows 3 files changed.
+
+## Lane answer: `index_test` runs on BOTH lanes
+
+`shadow-cljs.edn`'s `:test` build is `:node-test` with **no** `:ns-regex`/`:entries` filter and `test/` is in
+the `:cljs` alias's `:extra-paths`, so `yin.repl.index-test` compiles into `target/node-tests.js` (its only
+reader conditionals are `#?(:cljd …)`). I therefore ran it on node **and** on the JVM — the JVM run also
+covers the lane where the QA brief recorded the same red ("confirmed on BOTH lanes").
+
+## Verification 1 — shiva node lane (`~/ci/datomworld-nightly-node`, HEAD cb2cbe11)
+
+Recompile (verbatim, `/tmp/se-compile.log`):
+
+```
+MISE_OK
+[:test] Compiling ...
+[:test] Build completed. (636 files, 42 compiled, 1 warnings, 19.07s)
+EXIT_CODE=0
+```
+
+(the 1 warning is the pre-existing `cljs.core/+ … got [number dao.host.number/Float64]` in a number test)
+
+Runs, `DATOM_SLOW_TESTS=1 node target/node-tests.js --test=<ns>`, verbatim logs:
+
+```
+Testing yang.clojure.stream-eval-test
+
+Ran 13 tests containing 309 assertions.
+0 failures, 0 errors.
+```
+```
+Testing yin.repl-test
+
+Ran 52 tests containing 266 assertions.
+0 failures, 0 errors.
+```
+```
+Testing yin.repl.index-test
+
+Ran 21 tests containing 242 assertions.
+0 failures, 0 errors.
+```
+```
+=== RUN yang.clojure.stream-eval-test ===
+yang.clojure.stream-eval-test EXIT=0
+=== RUN yin.repl-test ===
+yin.repl-test EXIT=0
+=== RUN yin.repl.index-test ===
+yin.repl.index-test EXIT=0
+ALL_DONE
+```
+
+**The ruling's acceptance is met**: `stream-eval-test` shows the *same* 13 tests / 309 assertions as the
+diagnosis's pre-fix reproduction (`1 failures, 0 errors`, FAIL at `stream_eval_test.cljc:444:23`
+`every-vm-answers-the-same-stream-script`) and now `0 failures, 0 errors` — with **no** test-side
+normalization added; `stream_eval_test.cljc` is untouched by this diff.
+
+## Verification 2 — jupiter JVM lane (isolated worktree at cb2cbe11)
+
+Deviation, deliberate: jupiter's `~/ci/datomworld-nightly` is **detached at master 3d2f20db**, not cb2cbe11,
+and master's `src/cljc/yin/repl.cljc` differs from the branch by one line (branch keeps
+`:publish-opts (:publish-opts index-store)` at ~792, master lacks it). The brief's literal fallback
+(`cd ~/ci/datomworld-nightly && git apply`) would have tested *master + fix*, not the branch under test. So I
+left that clone pristine and ran in a scratch worktree:
+`git worktree add --detach /tmp/jup-nrf-verify cb2cbe11`, symlinked the gitignored
+`build/antlr/{python3,php,typescript}/classes` from the master clone (needed: `yin.repl.frontends` requires
+`yang.python.antlr.parser` / `yang.php.antlr.cst` on `:default`), then applied the same patch —
+`git diff --stat` there: exactly my 2 files.
+
+`DATOM_SLOW_TESTS=1 clojure -M:test -n <ns>`, verbatim:
+
+```
+HOST=jupiter.stigmergy.systems
+HEAD=cb2cbe11
+MISE_OK java=openjdk version "21.0.2" 2024-01-16
+yin.repl.index-test EXIT=0
+yang.clojure.stream-eval-test EXIT=0
+ALL_DONE
+```
+```
+Testing yin.repl.index-test
+
+Ran 21 tests containing 242 assertions.
+0 failures, 0 errors.
+```
+```
+Testing yang.clojure.stream-eval-test
+
+Ran 13 tests containing 309 assertions.
+0 failures, 0 errors.
+```
+
+## Ruling claims I re-verified independently (no design latitude exercised)
+
+- `:index-publication` consumers repo-wide: the projection itself, its docstring, `src/dev/jolt_workload_w.clj:190`
+  (reads only `[:index-publication :cursor]`), and the pin at `test/yin/repl/index_test.cljc:290`. No `src/`
+  consumer of the summary's address — matches the ruling.
+- The docstring at `repl.cljc:2181` already promises only "the verified code-log cursor and covered
+  transaction count", so the fix needs **no** doc edit (and none was made).
+- No `docs/` or `src/cljc/yin/vm/docs/` text mentions `:index-publication` — nothing documented the address.
+- The transcript fixture `test/resources/yin/repl/transcripts/local.edn:15-20` (`:id :index-publication`)
+  asserts `{:re "(?s).*:index\\s+.*:published\\? true.*"}` — `:published?`, not the summary's keys. Unaffected.
+- `index_test.cljc:272`'s `held-keys` set (which legitimately contains `:manifest-address` as an *indexer*
+  key) and the other 15 internal `:manifest-address` reads in that file: untouched. Only line 289 changed.
+
+## State left behind / side effects (for the orchestrator)
+
+- **Local**: `/tmp/nrf-branch-wt` @ cb2cbe11, detached HEAD, holds my 2 uncommitted edits plus the
+  pre-existing `shadow-cljs.edn` change. Nothing committed, nothing pushed, `collab/` untouched.
+- **shiva `~/ci/datomworld-nightly-node`**: my patch is **still applied** (uncommitted) and
+  `target/node-tests.js` was recompiled with `{:autorun false}` per the brief. That clone also carries two
+  other seats' uncommitted work I did not touch: `shadow-cljs.edn` (stack-size 7168) and
+  `src/cljc/yin/repl/dht.cljc` (`default-repair-slots` 48→40) — so the recompiled bundle, and therefore all
+  three node runs above, included that DHT constant change; it does not touch `repl-state`/the indexer
+  materialization, but flagging it for attribution. Another seat was concurrently running
+  `--test=yang.python.antlr.linked-prelude-test` in that clone during my runs.
+  Post-run `git status --porcelain`: ` M shadow-cljs.edn`, ` M src/cljc/yin/repl.cljc`,
+  ` M src/cljc/yin/repl/dht.cljc`, ` M test/yin/repl/index_test.cljc`, `?? .flutter-plugins-dependencies`.
+  To restore shiva to as-found: `cd ~/ci/datomworld-nightly-node && git checkout -- src/cljc/yin/repl.cljc test/yin/repl/index_test.cljc && eval "$(mise env -s bash)" && clj -M:cljs -m shadow.cljs.devtools.cli compile test`
+  (the recompile is needed to un-stale the bundle). Patch kept at `/tmp/se-summary-fix.patch` on shiva,
+  jupiter, and the laptop for re-application.
+- **jupiter**: `~/ci/datomworld-nightly` untouched (still detached at 3d2f20db, clean). Scratch worktree left
+  in place for re-verification: remove with
+  `git -C ~/ci/datomworld-nightly worktree remove --force /tmp/jup-nrf-verify`.
+- No files created inside any repo; scratch only in `/tmp` (`se-summary-fix.patch`, `jup-verify.sh`, run logs).

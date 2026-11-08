@@ -175,8 +175,10 @@
 
 
 (def prefix-rows
-  "Rows the §3.1 table names by prefix (`yang.python.antlr.*`)."
-  [[:deferred-stage "yang.python.antlr."]])
+  "Rows the §3.1 table names by prefix (`yang.python.antlr.*`,
+   `yang.php.antlr.*`)."
+  [[:deferred-stage "yang.python.antlr."]
+   [:deferred-stage "yang.php.antlr."]])
 
 
 (defn classes-of

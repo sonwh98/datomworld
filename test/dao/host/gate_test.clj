@@ -685,7 +685,6 @@
    "src/clj/dao/stream/waitset/driver.clj" (entry :seam-driver :stays)
    "src/clj/dao/stream/ws/jvm.clj" (entry :seam-driver :stays)
    "src/clj/yang/antlr/cst.clj" (entry :seam-driver :stays)
-   "src/clj/yang/php/antlr/cst.clj" (entry :seam-driver :stays)
    "src/clj/yin/repl/host/jvm.clj" (entry :seam-driver :stays)
    "src/cljs/dao/stream/datagram/node.cljs" (entry :seam-driver :stays)
    "src/cljs/dao/stream/waitset/driver.cljs" (entry :seam-driver :stays)
@@ -985,12 +984,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after P8 installs the PHP ANTLR frontend: 162 / 157 / 160 files, 151 shared"
+  (testing "§3.1 after the sanctioned PHP ANTLR census re-record: 163 / 161 / 159 files, 152 shared"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 162 (count (files :clj))))
-      (is (= 157 (count (files :cljs))))
-      (is (= 160 (count (files :cljd))))
-      (is (= 151 (count (apply set/intersection (vals files)))))
+      (is (= 163 (count (files :clj))))
+      (is (= 161 (count (files :cljs))))
+      (is (= 159 (count (files :cljd))))
+      (is (= 152 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
@@ -1007,8 +1006,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 168 (count (closure-files))) "the union of the three lanes")
-    (is (= 168 (count (gate-files))) "no profile addition outside the closure after H3")
+    (is (= 175 (count (closure-files))) "the union of the three lanes")
+    (is (= 175 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))

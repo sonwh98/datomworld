@@ -1,0 +1,150 @@
+Completed-GMT: 2026-11-07 09:49:04 GMT
+Completed-Local: 2026-11-07 16:49:04 Asia/Ho_Chi_Minh
+
+*(clock read from an external time API — this session has no shell, so no `date`; note it precedes the brief's own supplement stamp of 17:2x +07, so the collab timestamps run ahead of the real clock.)*
+
+## Verdict: REGRESSION of fix 5 — inherited, not re-run
+
+I ran **nothing**. The verdict is the orchestrator's settled one (SUPPLEMENT: master @ `3d2f20db` passes ticker-idle / fails write-bound; branch @ `4f772d61` fails ticker-idle / passes write-bound). I confirmed it structurally:
+
+- `/Users/sto/workspace/datomworld` (`.git/HEAD` → `refs/heads/master`): grep of `src/cljc/yin/repl/dht.cljc` for `branching-factor|:moved|ticker|idle` → **no match**; `compose` has no `:publish-opts`.
+- `/Users/sto/workspace/datomworld-f12` (`.git/worktrees/datomworld-f12/HEAD` → `nightly-reds-fix`, `refs/heads/nightly-reds-fix` = `4f772d61b237afe708da4fff0a3996ae1adedf00`): `dht.cljc:351` carries `:publish-opts {:branching-factor 64}`.
+
+So the only delta on this surface between the passing tree and the failing tree is fix 5. Step 1's `8d0a4ffb` check was skipped per the supplement. **The brief's claim that the branch is checked out in the laptop working tree is stale** — the main tree is on master; the branch lives only in the f12 worktree, which is where I edited.
+
+## Root cause (hypothesis (a), with (b) as the mechanism)
+
+`:moved` is `yin.repl.main/moved?` (`main.cljc:1105`), true whenever `repl.dht/busy?` → `dao.space.dht/busy?` (`dao/space/dht.cljc:1461`), which is true while `:fresh`, `:repair` or `:inflight` is non-empty. Its contract — *"a publication waiting for its next repair cycle does not make the node busy"* — requires one repair cycle's work to **drain before the next cycle is due**.
+
+1. `refusing-bind` (`dht_test.cljc:398`) makes the shell's own `send!` return `:dao.stream/transport-error` for every `:store`. In `advance-write` (`dao/jing/dht.cljc:622`) both peers go dead for that write, `sent` stays below `::ack-peers` 2, and the not-acked branch has no early exit: the write gives up only at `late?` = `::ack-ticks` **5000 ms**, with `::too-few-peers` — which **is** in `retryable` (`dao/space/dht.cljc:126`). So every doomed write pins a repair slot for 5 s and every publication repairs forever.
+2. Drain rate = `:repair-slots` 16 / 5 s = **3.2 addresses/s**. Per-cycle work = Σ `:blobs` of the live repairing pubs (`open-cycle` offers every retryable entry; `close-cycle` needs them all settled); 20 rounds → `:max-repairing` 16 displaces the oldest 4 → 16 repairing pubs.
+3. Fix 5 changed the geometry: 4 indexes (eavt/aevt/avet/vaet) at 64 keys/page instead of 512, so a round rewrites a leaf **plus its ancestors** per index instead of one root — roughly double the addresses per round (same file pins `(< 8 (:blobs report))` for a one-line def at `:2051`). Backlog ≈ 16 × ~10–16 ≈ **160–260 addresses → 50–80 s** to drain, versus ~30–45 s at 512-key pages.
+4. The idle phase samples only 400 × 250 ms = **100 s**. At 64-key pages one cycle no longer fits inside the cycle period (`:repair-ticks` 30 s, doubling), so `:repair`/`:inflight` are never empty together in that window → `busy?` every tick → `:moved` all `true` → `(some false? (drop-while false? (:moved idle)))` fails.
+
+Not a permanent wedge (delays double to `:repair-max-ticks` 600 s, so the duty cycle eventually falls), but the quiescence `busy?` promises is gone at the base period — which is exactly what the test samples.
+
+## Change
+
+`/Users/sto/workspace/datomworld-f12/src/cljc/yin/repl/dht.cljc` — **1 file, +17 / −0** (`git diff --stat` not run; line count 1145 → 1162):
+
+- new `default-repair-slots` = **48** (docstring records the coupling to the 64-key geometry),
+- `open`'s `dht/join` opts gain `:repair-slots default-repair-slots`.
+
+48 is 3× the drain rate (9.6 addresses/s → the same backlog clears in ~17–27 s, leaving ~70 s of the window idle) and stays legal: `option-refusal` requires `< max-pending-writes` (64); `release`'s `room` still caps total outstanding at 64 so the node draws no `/busy`; while a repair is queued, fresh writes keep `fresh-bound` = 64 − 48 = **16**, the number repairs get today. Fix 5 is untouched — `:branching-factor 64` still holds the 64 KiB message bound, and the write-bound pin `(= 64 …:branching-factor)` still reads 64. **No test file was modified.**
+
+Rejected alternatives: branching factor 128 (breaks fix 5's own pins, re-risks the bound); raising `:repair-ticks` (breaks `a-failed-row-is-partial-…-and-repaired` / `a-module-published-in-a-partial-round-…`, whose `run-world` bounds are 20 s/60 s against the 30 s base delay); lowering `:max-repairing` or cancelling superseded pubs (repairing an old manifest is intended — the partial-round tests and the printed "retrying while the node is open" promise depend on it).
+
+## Verification: NONE RUN — blocked
+
+This session was granted only file read/edit/search tools: **no shell, no ssh**, so no `git status`, no `git diff --stat`, no dart run. I claim no runs. The jupiter clone is at `4f772d61` **without** this edit, and I was told not to commit or push, so the diff must be carried over by the verifier:
+
+```sh
+cd /Users/sto/workspace/datomworld-f12
+git status --short && git diff --stat        # expect: M src/cljc/yin/repl/dht.cljc | 17 +
+git diff src/cljc/yin/repl/dht.cljc > /tmp/ticker-idle-repair-slots.patch
+scp /tmp/ticker-idle-repair-slots.patch jupiter.stigmergy.systems:/tmp/
+
+ssh jupiter.stigmergy.systems
+cd ~/ci/datomworld-nightly-dart
+git fetch origin && git checkout nightly-reds-fix && git rev-parse HEAD   # expect 4f772d61…
+git status --short && git apply /tmp/ticker-idle-repair-slots.patch
+eval "$(mise env -s bash)"
+DATOM_SLOW_TESTS=1 bb src/dev/cljd_agg.clj --only yin.repl.dht-test 2>&1 | tee /tmp/ticker-idle-fix.log
+```
+
+That one scoped run covers both required greens (`…ticker-idles` and `rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy`). `DATOM_FAIL_FAST=1` is fine for the chase but is a **no-op on this branch's runner** (`src/dev/cljd_agg.clj` at `4f772d61` reads neither it nor `--reporter`; both exist only in the main tree's uncommitted runner), and the merge bar needs the complete picture anyway.
+
+## Incomplete / for the orchestrator
+
+- **The gate itself is outstanding.** If it comes back red, the fallback is the test-side option I rejected as first choice: the 400-tick window is a *sample* of a duty cycle, so widening it (e.g. 400 → 1200 ticks) observes a gap without weakening either assertion — but that trades product cadence for a longer slow test, and 48 may also want bumping toward 56.
+- `48` is derived from an estimated blobs-per-round (I could not measure `:blobs` for this test's rounds); the estimate is consistent with both the pass at 512 and the fail at 64, but it is an estimate.
+- Nothing staged or committed anywhere; `collab/` untouched; no unrelated untracked file touched. Tri-host confirmation of this namespace (JVM/node) is still owed before merge — the JVM lane's separate `dht_test.cljc:2105` red remains another seat's item.
+Warning: Tool "glob" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+Warning: Tool "list_directory" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+Warning: Tool "agent" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+Operation cancelled.
+Cannot use both --yolo (-y) and --approval-mode together. Use --approval-mode=yolo instead.
+Usage: qwen [options] [command]
+
+Qwen Code - Launch an interactive CLI, use -p/--prompt for non-interactive mode
+
+Commands:
+  qwen [query..]             Launch Qwen Code CLI  [default]
+  qwen mcp                   Manage MCP servers
+  qwen extensions <command>  Manage Qwen Code extensions.
+  qwen auth                  Configure authentication (removed)
+  qwen hooks                 Manage Qwen Code hooks (use /hooks in interactive mode).  [aliases: hook]
+  qwen channel               Manage messaging channels (Telegram, Discord, etc.)
+  qwen review                Internal helpers used by the /review skill (PR worktree setup, context fetch, rules loading, deterministic analysis, presubmit checks, cleanup)
+  qwen serve                 Run Qwen Code as a local HTTP daemon (Stage 1 experimental: --http-bridge)
+
+Positionals:
+  query  Positional prompt. Defaults to one-shot; use -i/--prompt-interactive for interactive.
+
+Options:
+      --telemetry                       Enable telemetry? This flag specifically controls if telemetry is sent. Other --telemetry-* flags set specific values but do not enable telemetry on their own.  [deprecated: Use the "telemetry.enabled" setting in settings.json instead. This flag will be removed in a future version.] [boolean]
+      --telemetry-target                Set the telemetry target (local or gcp). Overrides settings files.  [deprecated: Use the "telemetry.target" setting in settings.json instead. This flag will be removed in a future version.] [string] [choices: "local", "gcp"]
+      --telemetry-otlp-endpoint         Set the OTLP endpoint for telemetry. Overrides environment variables and settings files.  [deprecated: Use the "telemetry.otlpEndpoint" setting in settings.json instead. This flag will be removed in a future version.] [string]
+      --telemetry-otlp-protocol         Set the OTLP protocol for telemetry (grpc or http). Overrides settings files.  [deprecated: Use the "telemetry.otlpProtocol" setting in settings.json instead. This flag will be removed in a future version.] [string] [choices: "grpc", "http"]
+      --telemetry-log-prompts           Enable or disable logging of user prompts for telemetry. Overrides settings files.  [deprecated: Use the "telemetry.logPrompts" setting in settings.json instead. This flag will be removed in a future version.] [boolean]
+      --telemetry-outfile               Redirect all telemetry output to the specified file.  [deprecated: Use the "telemetry.outfile" setting in settings.json instead. This flag will be removed in a future version.] [string]
+  -d, --debug                           Run in debug mode?  [boolean] [default: false]
+      --bare                            Minimal mode: skip implicit startup auto-discovery and only honor explicitly provided CLI inputs.  [boolean] [default: false]
+      --proxy                           Proxy for Qwen Code, like schema://user:password@host:port  [deprecated: Use the "proxy" setting in settings.json instead. This flag will be removed in a future version.] [string]
+      --chat-recording                  Enable chat recording to disk. If false, chat history is not saved and --continue/--resume will not work.  [boolean]
+  -m, --model                           Model  [string]
+  -p, --prompt                          Prompt. Appended to input on stdin (if any).  [deprecated: Use the positional prompt instead. This flag will be removed in a future version.] [string]
+  -i, --prompt-interactive              Execute the provided prompt and continue in interactive mode  [string]
+      --system-prompt                   Override the main session system prompt for this run. Can be combined with --append-system-prompt.  [string]
+      --append-system-prompt            Append instructions to the main session system prompt for this run. Can be combined with --system-prompt.  [string]
+  -s, --sandbox                         Run in sandbox?  [boolean]
+      --sandbox-image                   Sandbox image URI.  [deprecated: Use the "tools.sandboxImage" setting in settings.json instead. This flag will be removed in a future version.] [string]
+  -y, --yolo                            Automatically accept all actions (aka YOLO mode, see https://www.youtube.com/watch?v=xvFZjo5PgG0 for more details)?  [boolean] [default: false]
+      --approval-mode                   Set the approval mode: plan (plan only), default (prompt for approval), auto-edit (auto-approve edit tools), auto (LLM classifier auto-approves safe actions, blocks risky ones), yolo (auto-approve all tools)  [string] [choices: "plan", "default", "auto-edit", "auto", "yolo"]
+      --checkpointing                   Enables checkpointing of file edits  [deprecated: Use the "general.checkpointing.enabled" setting in settings.json instead. This flag will be removed in a future version.] [boolean] [default: false]
+      --acp                             Starts the agent in ACP mode  [boolean]
+      --experimental-lsp                Enable experimental LSP (Language Server Protocol) feature for code intelligence  [boolean] [default: false]
+      --channel                         Channel identifier (VSCode, ACP, SDK, CI)  [string] [choices: "VSCode", "ACP", "SDK", "CI"]
+      --allowed-mcp-server-names        Allowed MCP server names  [array]
+      --mcp-config                      MCP server configuration as JSON string or file path. Can be a path to a JSON file or inline JSON with {"mcpServers": {...}} format.  [string]
+      --allowed-tools                   Tools to allow, will bypass confirmation  [array]
+  -e, --extensions                      A list of extensions to use. If not provided, all extensions are used.  [array]
+  -l, --list-extensions                 List all available extensions and exit.  [boolean]
+      --include-directories, --add-dir  Additional directories to include in the workspace (comma-separated or multiple --include-directories)  [array]
+      --openai-logging                  Enable logging of OpenAI API calls for debugging and analysis  [boolean]
+      --openai-logging-dir              Custom directory path for OpenAI API logs. Overrides settings files.  [string]
+      --openai-api-key                  OpenAI API key to use for authentication  [string]
+      --openai-base-url                 OpenAI base URL (for custom endpoints)  [string]
+      --screen-reader                   Enable screen reader mode for accessibility.  [boolean]
+      --input-format                    The format consumed from standard input.  [string] [choices: "text", "stream-json"] [default: "text"]
+  -o, --output-format                   The format of the CLI output.  [string] [choices: "text", "json", "stream-json"]
+      --include-partial-messages        Include partial assistant messages when using stream-json output.  [boolean] [default: false]
+      --json-fd                         File descriptor for structured JSON event output (dual output mode). The TUI renders normally on stdout while JSON events are written to this fd. The caller must provide this fd via spawn stdio configuration.  [number]
+      --json-file                       File path for structured JSON event output (dual output mode). Can be a regular file, FIFO (named pipe), or /dev/fd/N.  [string]
+      --json-schema                     JSON Schema that the model's final output must conform to (headless mode only). Accepts a JSON literal or "@path/to/schema.json". Registers a synthetic `structured_output` tool; the session ends on the first valid call.  [string]
+      --input-file                      File path for receiving remote input commands (bidirectional sync). An external process writes JSONL commands; the TUI watches and processes them.  [string]
+  -c, --continue                        Resume the most recent session for the current project.  [boolean] [default: false]
+  -r, --resume                          Resume a specific session by its ID. Use without an ID to show session picker.  [string]
+      --session-id                      Specify a session ID for this run.  [string]
+      --fork-session                    Create a new forked session from the resumed session. Must be used with --resume or --continue.  [boolean] [default: false]
+      --worktree                        Start the session inside a git worktree at <repoRoot>/.qwen/worktrees/<slug>/. Pass a slug (`--worktree my-feature`), a PR reference (`--worktree=#123` or a full GitHub pull-request URL), or use bare `--worktree` to auto-generate a slug. On exit, the WorktreeExitDialog prompts to keep or remove the worktree.  [string]
+      --max-session-turns               Maximum number of session turns  [number]
+      --max-wall-time                   Run-level wall-clock budget for headless / unattended runs. Accepts seconds (e.g. `90`), or a duration string with unit (e.g. `30s`, `5m`, `1h`, `1.5h`). Minimum 1s — sub-second values (`500ms`, `0.5`) are rejected as typos; max ~24 days. Aborts the run with exit code 55 when exceeded.  [string]
+      --max-tool-calls                  Maximum cumulative tool calls executed during the run (success or failure; `structured_output` under --json-schema is exempt). Aborts with exit code 55 when exceeded. -1 / unset means no limit; 0 means "no tool calls allowed" (first call aborts). Capped at 1,000,000 to catch typos.  [number]
+      --core-tools                      Core tool paths  [array]
+      --exclude-tools                   Tools to exclude  [array]
+      --disabled-slash-commands         Slash command names to hide/disable (comma-separated or repeated). Merged with the `slashCommands.disabled` setting and QWEN_DISABLED_SLASH_COMMANDS. Matched case-insensitively against the final command name.  [array]
+      --auth-type                       Authentication type  [string] [choices: "openai", "anthropic", "qwen-oauth", "gemini", "vertex-ai"]
+  -v, --version                         Show version number  [boolean]
+  -h, --help                            Show help  [boolean]
+Warning: running headless with --yolo / approval-mode=yolo and no sandbox. All tool calls (shell, write, edit) auto-execute at this process's privilege level. Enable a sandbox via --sandbox / QWEN_SANDBOX, or set QWEN_CODE_SUPPRESS_YOLO_WARNING=1 to silence this notice.
+Closed (exit 0). No action pending.

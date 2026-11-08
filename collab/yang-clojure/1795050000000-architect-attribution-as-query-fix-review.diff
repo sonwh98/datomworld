@@ -1,0 +1,972 @@
+diff --git a/src/cljc/yin/vm/encoder.cljc b/src/cljc/yin/vm/encoder.cljc
+index 18c49562..acbbf2f7 100644
+--- a/src/cljc/yin/vm/encoder.cljc
++++ b/src/cljc/yin/vm/encoder.cljc
+@@ -268,39 +268,51 @@
+    checked root-relatively — admission origins belong to the admitting
+    expander, not to this projection. A member carrying no markers
+    makes no claim and passes; the executed tree's table is finalized
+-   after expansion, over the final rows."
++   after expansion, over the final rows. Answers true when the member
++   claimed coverage (it passed the check), false when it carried no
++   markers — one verdict per member, so the selected member's own
++   verdict, never a sibling's, decides whether the expander finalizes
++   its side table."
+   [ast tree]
+   (let [marked (marked-call-sites ast)]
+-    (when (seq marked)
+-      (doseq [[path value] marked]
+-        (when (not= 1 value)
+-          (throw (ex-info "Unsupported call-site marker version"
+-                          {:rule :yang/call-site-unsupported-version,
+-                           :path path, :value value}))))
+-      (let [eligible (into #{} (map second) (vm/application-occurrences tree))
+-            claimed (into #{} (map first) marked)]
+-        (when (not= eligible claimed)
+-          (throw (ex-info "Call-site markers do not cover the projected tree"
+-                          {:rule :yang/call-site-incomplete-coverage,
+-                           :missing (vec (sort-by pr-str
+-                                                  (remove claimed eligible))),
+-                           :extra (vec (sort-by pr-str
+-                                                (remove eligible claimed)))})))))))
++    (if (seq marked)
++      (do (doseq [[path value] marked]
++            (when (not= 1 value)
++              (throw (ex-info "Unsupported call-site marker version"
++                              {:rule :yang/call-site-unsupported-version,
++                               :path path, :value value}))))
++          (let [eligible (into #{} (map second) (vm/application-occurrences tree))
++                claimed (into #{} (map first) marked)]
++            (when (not= eligible claimed)
++              (throw (ex-info "Call-site markers do not cover the projected tree"
++                              {:rule :yang/call-site-incomplete-coverage,
++                               :missing (vec (sort-by pr-str
++                                                      (remove claimed eligible))),
++                               :extra (vec (sort-by pr-str
++                                                    (remove eligible claimed)))}))))
++          true)
++      false)))
+ 
+ 
+ (defn program-batch
+   "Encode frontend output as the expander's input batch (§2.1):
+-   `[:yin.program/batch trees run-index declaration-rows harvest-rows]`.
+-   Each member — a map AST or a `:yin/*` datom batch — projects to one tree
+-   packet; `run-index` selects the one that becomes the program. Harvest
+-   rows name every `(yin/def <literal-symbol> value)` occurrence in source
+-   declaration order, member by member; declaration rows name those whose
+-   lambda the frontend flagged `:macro?`. No syntax object crosses: every
+-   code field is canonical rows. A member whose frontend markers claim
++   `[:yin.program/batch trees run-index declaration-rows harvest-rows
++   call-site-claims]` — the trailing element present only when some
++   member claimed call-site (C1) coverage, holding one boolean verdict
++   per member, so every unclaimed batch keeps the five-element shape.
++   Each member — a map AST or a `:yin/*` datom batch
++   — projects to one tree packet; `run-index` selects the one that
++   becomes the program. Harvest rows name every `(yin/def
++   <literal-symbol> value)` occurrence in source declaration order,
++   member by member; declaration rows name those whose lambda the
++   frontend flagged `:macro?`. No syntax object crosses: every code
++   field is canonical rows. A member whose frontend markers claim
+    call-site (C1) coverage is checked against its projected tree before
+    the batch is formed (`check-call-site-claim!`): the markers drop out
+    of the rows, but never silently — a broken claim refuses the batch,
+-   and the executed tree's table is finalized after expansion."
++   and the per-member claim verdicts travel with the batch, so the
++   expander finalizes a member's executed tree's table when, and only
++   when, that member's own verdict is a claim."
+   ([member] (program-batch [member] 0))
+   ([members run-index]
+    (let [asts (mapv member-ast members)
+@@ -310,20 +322,27 @@
+          occurrences (vec (mapcat (fn [j ast]
+                                     (map #(assoc % :tree j)
+                                          (definition-occurrences ast)))
+-                                  (range) asts))]
+-     ;; A frontend's C1 claim is enforced here, where its markers would
+-     ;; otherwise drop out of canonical-row production unread.
+-     (doseq [[ast tree] (map vector asts row-sets)]
+-       (check-call-site-claim! ast tree))
+-     [:yin.program/batch
+-      trees
+-      run-index
+-      (into [] (comp (filter :declared?)
+-                     (map (fn [{:keys [tree path]}] [:yin.macro/definition tree path])))
+-            occurrences)
+-      (into [] (map-indexed (fn [h {:keys [tree path]}]
+-                              [:yin.macro/harvest h tree path]))
+-            occurrences)])))
++                                  (range) asts))
++         ;; A frontend's C1 claim is enforced here, where its markers
++         ;; would otherwise drop out of canonical-row production unread.
++         ;; EVERY member is validated — `mapv` is eager, so a defect in
++         ;; any member refuses the batch, however valid its siblings —
++         ;; and the per-member verdicts ride with the batch: each
++         ;; member's own verdict, never a sibling's, decides whether the
++         ;; expander finalizes that member's side table.
++         verdicts (mapv check-call-site-claim! asts row-sets)
++         claims (when (some true? verdicts) verdicts)]
++     (cond-> [:yin.program/batch
++              trees
++              run-index
++              (into [] (comp (filter :declared?)
++                             (map (fn [{:keys [tree path]}]
++                                    [:yin.macro/definition tree path])))
++                    occurrences)
++              (into [] (map-indexed (fn [h {:keys [tree path]}]
++                                      [:yin.macro/harvest h tree path]))
++                    occurrences)]
++       claims (conj claims)))))
+ 
+ 
+ (defn ready?
+diff --git a/src/cljc/yin/vm/linker.cljc b/src/cljc/yin/vm/linker.cljc
+index 8900fd54..44aacf0e 100644
+--- a/src/cljc/yin/vm/linker.cljc
++++ b/src/cljc/yin/vm/linker.cljc
+@@ -738,11 +738,11 @@
+ 
+ (def ^:private manifest-keys
+   "The closed key set of a schema-1 manifest: every key of section 8.1's
+-   example, the index alone optional."
++   example, the index and the call-site reference alone optional."
+   #{:yin.module/name :yin.module/schema :yin.module/contracts
+     :yin.module/tree :yin.module/derivations :yin.module/index
+     :yin.module/exports :yin.module/requires :yin.module/primitives
+-    :yin.module/footprint})
++    :yin.module/footprint :yin.module/call-sites})
+ 
+ 
+ (def ^:private derivation-formats
+@@ -785,7 +785,8 @@
+                   (when (or (not (contains? manifest k))
+                             (nil? (get manifest k)))
+                     (assoc (shape k) :missing true)))
+-                (disj manifest-keys :yin.module/index))
++                (disj manifest-keys :yin.module/index
++                      :yin.module/call-sites))
+           (when-not (symbol? (:yin.module/name manifest))
+             (shape :yin.module/name))
+           (when (vm/reserved-name? (:yin.module/name manifest))
+@@ -831,6 +832,16 @@
+                          (set? (get-in manifest
+                                        [:yin.module/footprint :effects])))
+             (shape :yin.module/footprint))
++          ;; optional, and only when present checked: the C1 side-table
++          ;; reference is exactly the table's and the reverse record's
++          ;; Jing addresses (`yin.vm.linker.publish`)
++          (let [call-sites (:yin.module/call-sites manifest)]
++            (when (and (some? call-sites)
++                       (not (and (map? call-sites)
++                                 (= #{:table :record} (set (keys call-sites)))
++                                 (address? (:table call-sites))
++                                 (address? (:record call-sites)))))
++              (shape :yin.module/call-sites)))
+           (some (fn [n]
+                   (when (vm/reserved-name? n)
+                     {:rule :reserved-name, :name n,
+diff --git a/src/cljc/yin/vm/linker/closure.cljc b/src/cljc/yin/vm/linker/closure.cljc
+index 3b99b7ea..618f147e 100644
+--- a/src/cljc/yin/vm/linker/closure.cljc
++++ b/src/cljc/yin/vm/linker/closure.cljc
+@@ -192,6 +192,40 @@
+ (declare walk-module)
+ 
+ 
++(defn- walk-call-sites
++  "Step 4b: the C1 side table and its reverse record the manifest
++   references (`:yin.module/call-sites`, `yin.vm.linker.publish`), read
++   and held to their own shape — the table is a vector of frontend-
++   metadata rows, the record is version 1, names the manifest's own
++   tree, and points at the referenced table. The origin is left to the
++   retriever, which recomputes it from the tree."
++  [st manifest path]
++  (if-some [call-sites (:yin.module/call-sites manifest)]
++    (let [[st table] (read-blob st (:table call-sites) :call-site path)]
++      (if (:stop st)
++        st
++        (let [[st record] (read-blob st (:record call-sites) :call-site path)]
++          (cond
++            (:stop st) st
++
++            (not (vector? table))
++            (stop st (invalid (:table call-sites) :call-site path
++                              :call-site-defect {:code :table-shape}))
++
++            (not= {:yang.call-site/version 1
++                   :yang.call-site/root (:yin.module/tree manifest)
++                   :yang.call-site/table (:table call-sites)}
++                  (select-keys record
++                               [:yang.call-site/version
++                                :yang.call-site/root
++                                :yang.call-site/table]))
++            (stop st (invalid (:record call-sites) :call-site path
++                              :call-site-defect {:code :record-shape}))
++
++            :else st))))
++    st))
++
++
+ (defn- walk-requires
+   "Step 5: list every pin with derived eagerness, then descend only into
+    eager manifests not walked before. Deferred pins load at statement time."
+@@ -242,7 +276,8 @@
+                    (update :modules conj manifest-address)
+                    (walk-rows (:yin.module/tree manifest) path))
+             st (if (:stop st) st (walk-records st manifest path))
+-            st (if (:stop st) st (walk-images st manifest path))]
++            st (if (:stop st) st (walk-images st manifest path))
++            st (if (:stop st) st (walk-call-sites st manifest path))]
+         (if (:stop st)
+           st
+           (walk-requires st manifest-address manifest path depth))))))
+@@ -262,11 +297,13 @@
+      {:yin.link.closure/outcome :invalid
+       :address a :role role :path [...] :defect {:code c :detail d}}
+ 
+-   `role` is `:manifest`, `:row`, `:record`, `:image` or `:require`;
++   `role` is `:manifest`, `:row`, `:record`, `:image`, `:call-site` or
++   `:require`;
+    `path` the manifest addresses from the root to the module the blob
+    belongs to.  `:code` is one of `:address-mismatch`, `:manifest-defect`,
+    `:row-defect`, `:record-defect`, `:derivation-mismatch`,
+-   `:index-entry-missing`, `:identity-mismatch`, `:parts-limit`."
++   `:index-entry-missing`, `:identity-mismatch`, `:call-site-defect`,
++   `:parts-limit`."
+   ([handle manifest-address] (walk handle manifest-address nil))
+   ([handle manifest-address opts]
+    (let [bounds (into linker/default-bounds
+diff --git a/src/cljc/yin/vm/linker/publish.cljc b/src/cljc/yin/vm/linker/publish.cljc
+index ad15a7d7..5cfd9f33 100644
+--- a/src/cljc/yin/vm/linker/publish.cljc
++++ b/src/cljc/yin/vm/linker/publish.cljc
+@@ -96,15 +96,20 @@
+ ;;
+ ;; A module whose frontend finalized its tree (`:yang/call-site 1` on
+ ;; every final `:application` occurrence) publishes its frontend-metadata
+-;; side table beside its manifest: the manifest keeps schema 1 (a
+-;; manifest address names code), and a separate record names the
+-;; manifest, the code root, and the table's address — the site-set
+-;; publication pattern (`yang.python.antlr.siteset`). The publisher
+-;; extracts the markers from the map AST, refuses the publication when
+-;; they do not exactly cover the canonical tree's application
+-;; occurrences, and otherwise materializes the table and its record
+-;; into the same handle. A module with no markers makes no claim and
+-;; publishes exactly as before.
++;; side table with its manifest: the manifest keeps schema 1 (a manifest
++;; address names code) and gains the optional `:yin.module/call-sites`
++;; reference `{table record}` — the module closure follows manifest
++;; references, so only a referenced table travels with the module
++;; through transfer. The reverse record names the tree root, the
++;; publisher's origin, and the table's address; it cannot name the
++;; manifest (the manifest references it, so the two addresses would be
++;; circular), and custody runs one way, from the manifest forward. The
++;; publisher extracts the markers from the map AST, refuses the
++;; publication when they do not exactly cover the canonical tree's
++;; application occurrences — or when a marker's value is not version 1 —
++;; and otherwise materializes the table and its record into the same
++;; handle. A module with no markers makes no claim and publishes exactly
++;; as before.
+ 
+ (defn- publication-origin
+   "The occurrence origin of a module tree this publisher admits: the
+@@ -129,7 +134,9 @@
+    carries no markers; `{:origin o :rows [...]}` in printed-row order
+    when the extracted markers exactly cover the tree's eligible
+    application occurrences; `{:missing [...] :extra [...]}` when they
+-   do not."
++   do not; `{:unsupported-version v :path p}` when a marker's value is
++   not version 1 — a claim rejection, never a silent acceptance of a
++   table a retriever would read as version 1."
+   [ast tree]
+   (when (claims-call-sites? ast)
+     (let [origin (publication-origin (:root tree))
+@@ -142,10 +149,16 @@
+           marked (into #{}
+                        (map (fn [[o r p _ _]] [o r p]))
+                        extracted)]
+-      (if (= eligible marked)
+-        {:origin origin, :rows (vec (sort-by pr-str extracted))}
+-        {:missing (vec (sort-by pr-str (remove marked eligible))),
+-         :extra (vec (sort-by pr-str (remove eligible marked)))}))))
++      (or (when-let [[v p] (some (fn [row]
++                                   (let [v (nth row 4)]
++                                     (when (not (and (integer? v) (= 1 v)))
++                                       [v (subvec row 0 3)])))
++                                 extracted)]
++            {:unsupported-version v, :path p})
++          (if (= eligible marked)
++            {:origin origin, :rows (vec (sort-by pr-str extracted))}
++            {:missing (vec (sort-by pr-str (remove marked eligible))),
++             :extra (vec (sort-by pr-str (remove eligible marked)))})))))
+ 
+ 
+ (defn link-local
+@@ -217,6 +230,13 @@
+ 
+       (= :refused (:status fp)) fp
+ 
++      ;; dispatch on the key's PRESENCE, not its truthiness: a marker
++      ;; whose value is present but not the integer 1 — nil or false
++      ;; included — carries :unsupported-version nil/false, and its
++      ;; reason is the unsupported version, never incomplete coverage
++      (and claim (contains? claim :unsupported-version))
++      (refusal :yin.link.publish/unsupported-call-site-version claim)
++
+       (and claim (not (:rows claim)))
+       (refusal :yin.link.publish/incomplete-call-site-coverage claim)
+ 
+@@ -235,40 +255,46 @@
+                      handle
+                      (assoc (ledger/derive-record input output)
+                             :yin.ledger/profile profile)))
+-            manifest {:yin.module/name name
+-                      :yin.module/schema linker/manifest-schema
+-                      :yin.module/contracts
+-                      {:yin.ast/code vm/ast-contract
+-                       :yin.semantic/code vm/semantic-contract
+-                       :yin.debruijn.code vm/stack-contract
+-                       :yin.debruijn.register vm/register-contract}
+-                      :yin.module/tree tree-address
+-                      :yin.module/derivations
+-                      {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
+-                       :yin.debruijn.code
+-                       (mint sem h linker/stack-lowering-profile)
+-                       :yin.debruijn.register
+-                       (mint sem r linker/register-lowering-profile)}
+-                      :yin.module/index {:yin.debruijn.code h-address
+-                                         :yin.debruijn.register r-address}
+-                      :yin.module/exports (set exports)
+-                      :yin.module/requires (or requires {})
+-                      :yin.module/primitives
+-                      (into {} (map (fn [[n p]] [n (:yin.k/profile p)])
+-                                    primitives))
+-                      :yin.module/footprint fp}
+-            address (jing/materialize! handle manifest)
+-            ;; the C1 side table and its record, beside the manifest
++            ;; the C1 side table and its reverse record, materialized
++            ;; BEFORE the manifest so the manifest can reference them:
++            ;; the module closure follows manifest references, so only a
++            ;; referenced table travels with the module through transfer
+             call-sites (when (:rows claim)
+                          (let [table (jing/materialize! handle (:rows claim))
+-                               record {:yang.call-site/manifest address
+-                                       :yang.call-site/root (:root tree)
++                               record {:yang.call-site/version 1
++                                       :yang.call-site/root tree-address
+                                        :yang.call-site/origin (:origin claim)
+                                        :yang.call-site/table table}]
+                            {:record (jing/materialize! handle record)
+                             :table table
+                             :origin (:origin claim)
+                             :root (:root tree)}))
++            manifest (cond-> {:yin.module/name name
++                              :yin.module/schema linker/manifest-schema
++                              :yin.module/contracts
++                              {:yin.ast/code vm/ast-contract
++                               :yin.semantic/code vm/semantic-contract
++                               :yin.debruijn.code vm/stack-contract
++                               :yin.debruijn.register vm/register-contract}
++                              :yin.module/tree tree-address
++                              :yin.module/derivations
++                              {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
++                               :yin.debruijn.code
++                               (mint sem h linker/stack-lowering-profile)
++                               :yin.debruijn.register
++                               (mint sem r linker/register-lowering-profile)}
++                              :yin.module/index {:yin.debruijn.code h-address
++                                                 :yin.debruijn.register r-address}
++                              :yin.module/exports (set exports)
++                              :yin.module/requires (or requires {})
++                              :yin.module/primitives
++                              (into {} (map (fn [[n p]] [n (:yin.k/profile p)])
++                                            primitives))
++                              :yin.module/footprint fp}
++                       call-sites (assoc :yin.module/call-sites
++                                         {:table (:table call-sites)
++                                          :record (:record call-sites)}))
++            address (jing/materialize! handle manifest)
+             walked (closure/walk handle address opts)]
+         (if (not= :complete (:yin.link.closure/outcome walked))
+           (refusal :yin.link.publish/incomplete-closure
+@@ -330,32 +356,33 @@
+ 
+ 
+ (defn published-call-site-table
+-  "The C1 side table published beside the module whose manifest is at
+-   `address` in `handle`: `{:origin o :root r :rows [...] :tree tree}`
+-   with the rows exactly as stored and the module's canonical tree, or
+-   nil when the module made no C1 claim — nothing was published beside
+-   it. The table and its record are content-addressed from the
+-   manifest's tree, so their addresses are recomputed here and the
+-   values then fetched: a module whose markers were never retained
++  "The C1 side table the module whose manifest is at `address` in
++   `handle` claims: `{:origin o :root r :rows [...] :tree tree}` with
++   the rows exactly as stored and the module's canonical tree, or nil
++   when the module made no C1 claim. The manifest references the table
++   and its reverse record (`:yin.module/call-sites`), so the reference —
++   not a recomputation — is what is resolved here: the rows are fetched
++   from the referenced table address and held to the record the
++   publication wrote (version 1, the manifest's own tree, the
++   publisher's origin), so a module whose markers were never retained
+    answers nil, never a recomputation passed off as the published
+    table."
+   [handle address]
+-  (let [manifest (jing/get handle address nil)]
+-    (when (and (map? manifest) (:yin.module/tree manifest))
++  (let [manifest (jing/get handle address nil)
++        call-sites (:yin.module/call-sites manifest)]
++    (when (and (map? manifest) (:yin.module/tree manifest)
++               (map? call-sites) (jing/segment-address? (:table call-sites))
++               (jing/segment-address? (:record call-sites)))
+       (when-let [tree (stored-tree handle (:yin.module/tree manifest))]
+         (let [origin (publication-origin (:root tree))
+-              rows (vec (sort-by pr-str
+-                                 (map (fn [[r p]]
+-                                        [origin r p :yang/call-site 1])
+-                                      (vm/application-occurrences tree))))
+-              table (jing/segment-key rows)
+-              record {:yang.call-site/manifest address
+-                      :yang.call-site/root (:root tree)
+-                      :yang.call-site/origin origin
+-                      :yang.call-site/table table}
+-              stored-rows (jing/get handle table nil)
+-              stored-record (jing/get handle (jing/segment-key record) nil)]
+-          (when (and (some? stored-rows) (= record stored-record))
++              stored-rows (jing/get handle (:table call-sites) nil)
++              stored-record (jing/get handle (:record call-sites) nil)
++              expected-record {:yang.call-site/version 1
++                               :yang.call-site/root (:yin.module/tree manifest)
++                               :yang.call-site/origin origin
++                               :yang.call-site/table (:table call-sites)}]
++          (when (and (vector? stored-rows)
++                     (= expected-record stored-record))
+             {:origin origin, :root (:root tree), :rows stored-rows,
+              :tree tree}))))))
+ 
+diff --git a/src/cljc/yin/vm/macro.cljc b/src/cljc/yin/vm/macro.cljc
+index 46ea6aa2..e62889fa 100644
+--- a/src/cljc/yin/vm/macro.cljc
++++ b/src/cljc/yin/vm/macro.cljc
+@@ -2,7 +2,11 @@
+   "The row-native macro expander (`docs/design/yin.vm.macro.md`, Phase 1).
+ 
+    A process between two media: it observes `program-in` batches
+-   `[:yin.program/batch trees run-index declaration-rows harvest-rows]`,
++   `[:yin.program/batch trees run-index declaration-rows harvest-rows
++   call-site-claims]` — the trailing element present only when some
++   member's frontend claimed call-site (C1) coverage, holding one
++   boolean verdict per member, so every older five-element batch is
++   still a valid unclaimed batch —
+    rewrites the selected tree to a fixpoint, and appends one canonical tree
+    packet `[root rows]` to `program-out`, with one event row per attempt on
+    an optional log medium. Evaluators know nothing of any of this (decision
+@@ -377,9 +381,9 @@
+ (defn- batch-shape-ok?
+   [batch]
+   (and (vector? batch)
+-       (= 5 (count batch))
++       (<= 5 (count batch) 6)
+        (= :yin.program/batch (nth batch 0))
+-       (let [[_ trees run-index decls harvest] batch]
++       (let [[_ trees run-index decls harvest claim] batch]
+          (and (vector? trees) (seq trees)
+               (integer? run-index) (<= 0 run-index) (< run-index (count trees))
+               (vector? decls)
+@@ -389,7 +393,11 @@
+               (vector? harvest)
+               (every? #(and (vector? %) (= 4 (count %))
+                             (= :yin.macro/harvest (first %)))
+-                      harvest)))))
++                      harvest)
++              (or (nil? claim)
++                  (and (vector? claim)
++                       (= (count claim) (count trees))
++                       (every? boolean? claim)))))))
+ 
+ 
+ (defn- merge-indexes
+@@ -1193,6 +1201,19 @@
+   (update ctx :guards #(merge default-guards %)))
+ 
+ 
++(defn- batch-call-site-claims
++  "The per-member call-site (C1) claim verdicts the encoder recorded on
++   `batch`: nil when no member claimed coverage, otherwise one boolean
++   per member — the encoder validated every member's markers against
++   its own tree at the boundary, so a member whose markers do not
++   exactly cover it was refused there, never delivered here. Each
++   member's own verdict decides its metadata: only a member that
++   claimed coverage finalizes a side table, whatever its siblings
++   claimed."
++  [batch]
++  (nth batch 5 nil))
++
++
+ (defn- final-call-site-metadata
+   "The call-site occurrence contract's (C1) side table of an expanded
+    final tree, as frontend-metadata rows `[origin root path
+@@ -1219,12 +1240,18 @@
+    `{:status :error :error e :log log :ctx ctx'}`. Either way `ctx'` has
+    consumed the batch (`:t` + 1) and every attempt it allocated; only
+    success changes the store, to the post-harvest store. A success also
+-   carries `:frontend-metadata`: the C1 side table finalized over the
++   carries `:frontend-metadata` — the C1 side table finalized over the
+    final tree (`final-call-site-metadata`), covering the tree that
+-   actually executes. A context store binding a reserved name, or
+-   holding an entry without the current AST contract, is refused
+-   (Rule R): it is a composition defect, so it throws rather than
+-   returning an error."
++   actually executes — when, and only when, the selected member itself
++   claimed C1 coverage (its own verdict in `batch-call-site-claims`); a
++   sibling's claim never manufactures a table for it, and an unclaimed
++   batch carries no table at all, never an empty one. The table's
++   occurrence origin rides beside it as `:call-site-origin`, the
++   admission this expansion produced the tree under (§2.1). A context
++   store binding a
++   reserved name, or holding an entry without the current AST contract,
++   is refused (Rule R): it is a composition defect, so it throws rather
++   than returning an error."
+   [batch ctx]
+   (check-store! (:store ctx))
+   (let [ctx (with-default-guards ctx)
+@@ -1236,6 +1263,7 @@
+                      {:status :error, :error e, :log (log-packet st), :ctx ctx'}
+                      {:status :ok, :tree (:tree st), :log (log-packet st),
+                       :frontend-metadata (:frontend-metadata st),
++                      :call-site-origin (:call-site-origin st),
+                       :ctx (assoc ctx' :store (:next-store st))})))
+         {:keys [admitted error]} (admit batch)]
+     (if error
+@@ -1280,13 +1308,23 @@
+                     [index root'] (retail (:index st) root')
+                     [index root'] (lower-standins index root')
+                     tree (packet-of index root')
+-                    metadata (final-call-site-metadata
+-                               (packet->row-set tree)
+-                               (source-origin ctx source-batch run-index))]
++                    ;; the occurrence origin of this expansion (§2.1):
++                    ;; the admission this batch produced the final tree
++                    ;; under — the second coordinate of the side table's
++                    ;; site identity, beside the final root address
++                    origin (source-origin ctx source-batch run-index)
++                    ;; the selected member's own verdict decides its
++                    ;; metadata; a sibling's claim never manufactures a
++                    ;; table for a member that made none
++                    claims (batch-call-site-claims batch)
++                     metadata (when (and claims (nth claims run-index))
++                                (final-call-site-metadata
++                                  (packet->row-set tree) origin))]
+                 (if-let [e (valid-tree? tree)]
+                   (throw (ex-info "Expander produced a non-canonical tree" e))
+                   (finish (assoc st :tree tree :next-store next-store
+-                                 :frontend-metadata metadata)))))))))))
++                                 :frontend-metadata metadata
++                                  :call-site-origin (when metadata origin))))))))))))
+ 
+ 
+ (defn expand
+@@ -1383,21 +1421,44 @@
+   (and (nil? (:out-staged expander)) (nil? (:log-staged expander))))
+ 
+ 
++(defn call-site-table
++  "The C1 side table the consumer `expander` holds for the occurrence
++   the executed tree packet `tree` names — `origin` being the
++   admission/expansion origin that occurrence was produced under (§2.1:
++   an application site is K = [origin root-address path], so the site
++   table's key is the origin beside the root address) — or nil when
++   that occurrence made no C1 claim. Two expansions can produce the
++   SAME final root from different admissions; keying by the full
++   occurrence identity keeps their tables distinct, so resolving by the
++   origin+root pair at hand never answers another execution's table,
++   however many loads have run since, and an unclaimed load of a root
++   previously loaded under a claim retrieves no stale table."
++  [expander tree origin]
++  (get (:call-site-tables expander) [origin (first tree)]))
++
++
+ (defn load
+-  "Expand one observed batch once: keep the returned context, stage the tree
+-   only on success, stage the log when a log writer exists, and accumulate
+-   the error of a failed expansion. Expansion failure is data, so the
+-   cursor advances past it. A successful expansion's C1 side table (the
+-   batch result's `:frontend-metadata`) is retained on the consumer as
+-   `:frontend-metadata`, so the composition that drives this expander —
+-   the REPL's session — holds the executed tree's coverage beside the
+-   expander that produced it."
++  "Expand one observed batch once: keep the returned context, stage the
++   tree only on success, stage the log when a log writer exists, and
++   accumulate the error of a failed expansion. Expansion failure is
++   data, so the cursor advances past it. A successful expansion's C1
++   side table (the batch result's `:frontend-metadata`, present only
++   when the selected member itself claimed coverage) is retained on the
++   consumer under the occurrence identity of the staged tree — its
++   expansion origin beside its final root address (`call-site-tables`,
++   resolved by `call-site-table`) — so the composition that drives this
++   expander — the REPL's session — holds every executed occurrence's
++   coverage beside the expander that produced it, each load's table
++   surviving the next, even when two loads land on the same root."
+   [expander batch]
+-  (let [{:keys [status tree log error ctx frontend-metadata]}
++  (let [{:keys [status tree log error ctx frontend-metadata
++                call-site-origin]}
+         (expand-batch batch (:ctx expander))]
+     (cond-> (assoc expander :ctx ctx)
+-      (= :ok status) (assoc :out-staged tree
+-                            :frontend-metadata frontend-metadata)
++      (= :ok status) (assoc :out-staged tree)
++      (and (= :ok status) frontend-metadata)
++      (assoc-in [:call-site-tables [call-site-origin (first tree)]]
++                frontend-metadata)
+       (:log expander) (assoc :log-staged log)
+       (= :error status) (update :errors conj error))))
+ 
+diff --git a/test/yang/clojure_callsite_test.cljc b/test/yang/clojure_callsite_test.cljc
+index 8c379f8e..b0faa824 100644
+--- a/test/yang/clojure_callsite_test.cljc
++++ b/test/yang/clojure_callsite_test.cljc
+@@ -4,6 +4,8 @@
+    `:application` occurrence, and the complete-coverage validation a
+    consumer runs against canonical rows."
+   (:require [clojure.test :refer [deftest is testing]]
++            [clojure.walk :as walk]
++            [dao.jing :as jing]
+             [dao.jing.mem :as mem]
+             [yang.clojure :as yang]
+             [yang.clojure.prelude :as clj-prelude]
+@@ -12,6 +14,7 @@
+             [yin.vm :as vm]
+             [yin.vm.data :as data]
+             [yin.vm.encoder :as encoder]
++            [yin.vm.linker.closure :as closure]
+             [yin.vm.linker.publish :as publish]
+             [yin.vm.macro :as macro]
+             [yin.vm.module :as module]))
+@@ -291,14 +294,240 @@
+           consumer (macro/load (macro/make-expander ctx nil)
+                                (encoder/program-batch ast))
+           final (macro/packet->row-set (:out-staged consumer))
+-          origin [:source :program-in (:t ctx) 0]]
+-      (is (= (eligible-under final origin)
+-             (marked (:frontend-metadata consumer))))
++          origin [:source :program-in (:t ctx) 0]
++          rows (macro/call-site-table consumer (:out-staged consumer) origin)]
++      (is (seq rows))
++      (is (= (eligible-under final origin) (marked rows)))
+       (is (true? (yang/validate-call-site-coverage!
+-                   final (:frontend-metadata consumer) origin
++                   final rows origin
+                    {:declared? true}))))))
+ 
+ 
++(deftest successive-expansions-test
++  (testing "two loads over different programs: both trees' tables survive"
++    (let [store (macro/seed-store
++                  (macro/make-ctx {:token :callsite-test/standard-forms
++                                   :source-medium :callsite-test/standard-forms})
++                  [macro/stdlib-forms])
++          ctx (macro/make-ctx {:token "callsite-test"
++                               :source-medium :program-in
++                               :store store})
++          first-origin [:source :program-in (:t ctx) 0]
++          consumer (macro/make-expander ctx nil)
++          after-first (macro/load consumer
++                                  (encoder/program-batch
++                                    (yang/compile-program
++                                      '[(defn f [x] (+ x 1)) (f 2)])))
++          first-tree (:out-staged after-first)
++          second-origin [:source :program-in (:t (:ctx after-first)) 0]
++          consumer (macro/load after-first
++                               (encoder/program-batch
++                                 (yang/compile-program
++                                   '[(defmacro unless [c a b] (yin/if c b a))
++                                     (unless false (+ 1 2) 0)])))
++          second-tree (:out-staged consumer)]
++      (is (not= (first first-tree) (first second-tree))
++          "the two expansions produced different final trees")
++      (testing "the first load's table resolves for its tree after the second load"
++        (let [rows (macro/call-site-table consumer first-tree first-origin)]
++          (is (seq rows))
++          (is (= (eligible-under (macro/packet->row-set first-tree)
++                                 first-origin)
++                 (marked rows)))
++          (is (true? (yang/validate-call-site-coverage!
++                       (macro/packet->row-set first-tree) rows
++                       first-origin {:declared? true})))))
++      (testing "the second load's table resolves for its tree"
++        (let [rows (macro/call-site-table consumer second-tree second-origin)]
++          (is (seq rows))
++          (is (= (eligible-under (macro/packet->row-set second-tree)
++                                 second-origin)
++                 (marked rows)))
++          (is (true? (yang/validate-call-site-coverage!
++                       (macro/packet->row-set second-tree) rows
++                       second-origin {:declared? true}))))))))
++
++
++(deftest unclaimed-batch-test
++  (testing "a batch whose frontend makes no C1 claim creates no metadata"
++    (let [ctx (macro/make-ctx {:token :callsite-test/unclaimed
++                               :source-medium :program-in})
++          unmarked {:type :application
++                    :operator {:type :variable :name 'f}
++                    :operands [{:type :literal :value 1}
++                               {:type :literal :value 2}]}
++          {:keys [status frontend-metadata]}
++          (macro/expand-batch (encoder/program-batch unmarked) ctx)
++          consumer (macro/load (macro/make-expander ctx nil)
++                               (encoder/program-batch unmarked))]
++      (is (= :ok status))
++      (is (nil? frontend-metadata)
++          "no table, never an empty one, for an unclaimed batch")
++      (is (empty? (:call-site-tables consumer))
++          "the consumer holds no tables")
++      (is (nil? (macro/call-site-table consumer (:out-staged consumer)
++                                       [:source :program-in 0 0]))))))
++
++
++(defn- strip-call-sites
++  "The map AST with every C1 marker removed — canonical rows are
++   invariant under this (canonical-invariance-test), so stripping a
++   compiled tree and re-encoding produces the same final tree under a
++   no-claim batch."
++  [ast]
++  (clojure.walk/postwalk #(cond-> % (map? %) (dissoc :yang/call-site)) ast))
++
++
++(deftest same-root-coexistence-test
++  (testing "two loads landing on the SAME final root from different
++            admissions: both occurrences' tables coexist, retrievable
++            by their origin+root pair (design §2.1, K = [origin root
++            path])"
++    (let [store (macro/seed-store
++                  (macro/make-ctx {:token :callsite-test/standard-forms
++                                   :source-medium :callsite-test/standard-forms})
++                  [macro/stdlib-forms])
++          ctx (macro/make-ctx {:token "callsite-test"
++                               :source-medium :program-in
++                               :store store})
++          ast (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
++          first-origin [:source :program-in (:t ctx) 0]
++          consumer (macro/make-expander ctx nil)
++          consumer (macro/load consumer (encoder/program-batch ast))
++          first-tree (:out-staged consumer)
++          second-origin [:source :program-in (:t (:ctx consumer)) 0]
++          consumer (macro/load consumer (encoder/program-batch ast))
++          second-tree (:out-staged consumer)]
++      ;; the load that exposes the defect: identical programs, so the
++      ;; final trees are content-identical — same root
++      (is (= (first first-tree) (first second-tree))
++          "two admissions produced the same root address")
++      (is (not= first-origin second-origin)
++          "the two admissions are different occurrence origins")
++      (testing "each occurrence's table resolves under its own origin"
++        (doseq [[label tree origin]
++                [["first" first-tree first-origin]
++                 ["second" second-tree second-origin]]]
++          (let [rows (macro/call-site-table consumer tree origin)]
++            (is (seq rows) (str label " load's table resolves"))
++            (is (= (eligible-under (macro/packet->row-set tree) origin)
++                   (marked rows)))
++            (is (true? (yang/validate-call-site-coverage!
++                         (macro/packet->row-set tree) rows origin
++                         {:declared? true})))))
++        (is (= 2 (count (:call-site-tables consumer)))
++            "two tables, one per occurrence — neither overwrote the other")))))
++
++
++(deftest unclaimed-after-claimed-test
++  (testing "an unclaimed load of a root previously loaded under a claim
++            retrieves no stale table"
++    (let [store (macro/seed-store
++                  (macro/make-ctx {:token :callsite-test/standard-forms
++                                   :source-medium :callsite-test/standard-forms})
++                  [macro/stdlib-forms])
++          ctx (macro/make-ctx {:token "callsite-test"
++                               :source-medium :program-in
++                               :store store})
++          claimed (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
++          unmarked (strip-call-sites claimed)
++          first-origin [:source :program-in (:t ctx) 0]
++          consumer (macro/make-expander ctx nil)
++          consumer (macro/load consumer (encoder/program-batch claimed))
++          first-tree (:out-staged consumer)
++          second-origin [:source :program-in (:t (:ctx consumer)) 0]
++          consumer (macro/load consumer (encoder/program-batch unmarked))
++          second-tree (:out-staged consumer)]
++      (is (= (first first-tree) (first second-tree))
++          "the unmarked program lands on the claimed load's root")
++      (is (seq (macro/call-site-table consumer first-tree first-origin))
++          "the claimed occurrence's table is still held under its origin")
++      (is (nil? (macro/call-site-table consumer second-tree second-origin))
++          "the unclaimed occurrence retrieves no table — not the stale one")
++      (is (= 1 (count (:call-site-tables consumer)))))))
++
++
++(deftest per-member-claim-test
++  (testing "every member is validated: a defect in any member refuses
++            the batch, however valid its siblings"
++    (let [ast (yang/compile '(+ (* 2 3) 4))]
++      (testing "a valid member does not short-circuit a later defective one"
++        (is (= :yang/call-site-unsupported-version
++               (failure-rule
++                 #(encoder/program-batch
++                    [ast (assoc ast :yang/call-site 2)] 0))))
++        (is (= :yang/call-site-incomplete-coverage
++               (failure-rule
++                 #(encoder/program-batch
++                    [ast (update-in ast [:operands 0]
++                                    dissoc :yang/call-site)] 0)))))
++      (testing "a defective first member is caught too"
++        (is (= :yang/call-site-unsupported-version
++               (failure-rule
++                 #(encoder/program-batch
++                    [(assoc ast :yang/call-site 2) ast] 0)))))))
++  (testing "the verdicts ride the batch per member"
++    (let [ast (yang/compile '(+ (* 2 3) 4))]
++      (is (= [true false] (nth (encoder/program-batch
++                                 [ast (strip-call-sites ast)] 0) 5))
++          "one verdict per member: the marked member claims, the
++           unmarked member does not")
++      (is (= 5 (count (encoder/program-batch
++                        [(strip-call-sites ast) (strip-call-sites ast)] 0)))
++          "no member claims: the batch keeps the five-element shape"))))
++
++
++(deftest per-member-metadata-test
++  (testing "a claimed sibling never manufactures a table for an
++            unmarked selected member — the selected member's own
++            verdict decides its metadata"
++    (let [store (macro/seed-store
++                  (macro/make-ctx {:token :callsite-test/standard-forms
++                                   :source-medium :callsite-test/standard-forms})
++                  [macro/stdlib-forms])
++          ctx (macro/make-ctx {:token "callsite-test"
++                               :source-medium :program-in
++                               :store store})
++          marked (yang/compile '(+ (* 2 3) 4))
++          unmarked (strip-call-sites marked)
++          ;; tree 0 claims, tree 1 (the run tree) does not
++          batch (encoder/program-batch [marked unmarked] 1)]
++      (is (= [true false] (nth batch 5)))
++      (let [{:keys [status frontend-metadata]}
++            (macro/expand-batch batch ctx)]
++        (is (= :ok status))
++        (is (nil? frontend-metadata)
++            "the unmarked run member's own verdict made no table"))
++      (testing "the same batch with the claimed member selected finalizes its table"
++        (let [batch (encoder/program-batch [marked unmarked] 0)
++              {:keys [status frontend-metadata]}
++              (macro/expand-batch batch ctx)]
++          (is (= :ok status))
++          (is (seq frontend-metadata)))))))
++
++
++(deftest publish-version-reason-test
++  (testing "a present-but-wrong marker version refuses with the
++            unsupported-version reason, never incomplete coverage"
++    (doseq [bad-value [false nil 0 "1" true]]
++      (testing (pr-str bad-value)
++        (let [store (mem/create-content-mem)
++              ast (assoc (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
++                         :yang/call-site bad-value)
++              res (publish/publish-module!
++                    store {:name 'bad-version-value
++                           :ast ast
++                           :exports #{'f}
++                           :requires {}
++                           :primitives {'inc {:yin.k/profile :yin.k/pure
++                                              :yin.k/effects #{}}}})]
++          (is (= :refused (:status res)))
++          (is (= :yin.link.publish/unsupported-call-site-version
++                 (:reason res)))
++          (is (= bad-value (:unsupported-version res)))
++          (is (nil? (:address res))))))))
++
++
+ (def ^:private publish-registry
+   "The host registry the published-module test publishes over: the
+    `cell` and `data` host modules the `clj` and `yang.call` module
+@@ -346,4 +575,62 @@
+       (is (some? (:address plain)))
+       (is (not (contains? plain :call-sites)))
+       (is (nil? (publish/published-call-site-table store
+-                                                    (:address plain)))))))
++                                                    (:address plain))))))
++  (testing "the manifest references the side table, so the closure carries it"
++    (let [store (mem/create-content-mem)
++          result (publish/publish-module!
++                   store (clj-prelude/module-spec
++                           publish-registry
++                           (:address (publish/publish-module!
++                                       store
++                                       (call/module-spec publish-registry)))))
++          address (:address result)
++          manifest (jing/get store address nil)
++          reference (:yin.module/call-sites manifest)]
++      (is (map? reference)
++          "the manifest names the side table and its reverse record")
++      (is (every? jing/segment-address? ((juxt :table :record) reference)))
++      (is (= (:table (:call-sites result)) (:table reference)))
++      (is (some? (jing/get store (:table reference) nil)))
++      (is (some? (jing/get store (:record reference) nil)))
++      ;; transfer: fetch exactly the closure the walk answers missing, as
++      ;; a dao.space.dht load does, into a fresh store
++      (let [fresh (mem/create-content-mem)]
++        (loop [n 0]
++          (let [w (closure/walk fresh address)]
++            (if (= :missing (:yin.link.closure/outcome w))
++              (do (jing/materialize!
++                    fresh (jing/get store (:address w) ::absent))
++                  (recur (inc n)))
++              (do (is (= :complete (:yin.link.closure/outcome w)))
++                  (is (pos? n) "the walk fetched the module's blobs")
++                  (let [{:keys [tree origin rows]}
++                        (publish/published-call-site-table fresh address)]
++                    (is (some? rows)
++                        "the side table is retrievable from the transfer")
++                    (is (= (:rows (publish/published-call-site-table
++                                    store address))
++                           rows))
++                    (is (= (eligible-under tree origin) (marked rows)))
++                    (is (true? (yang/validate-call-site-coverage!
++                                 tree rows origin {:declared? true})))))))))))
++  (testing "a version-2 table is a claim rejection, not a silent nil"
++    (let [store (mem/create-content-mem)
++          bump (fn bump [node]
++                 (if (and (map? node) (= 1 (:yang/call-site node)))
++                   (assoc node :yang/call-site 2)
++                   node))
++          ast (clojure.walk/postwalk bump
++                (yang/compile-program '[(defn f [x] (inc x)) (f 2)]))
++          res (publish/publish-module!
++                store {:name 'bad-version
++                       :ast ast
++                       :exports #{'f}
++                       :requires {}
++                       :primitives {'inc {:yin.k/profile :yin.k/pure
++                                          :yin.k/effects #{}}}})]
++      (is (= :refused (:status res)))
++      (is (= :yin.link.publish/unsupported-call-site-version (:reason res)))
++      (is (= 2 (:unsupported-version res)))
++      (is (nil? (:address res))
++          "a claim rejection publishes nothing, so no table exists"))))
+diff --git a/test/yin/vm/encoder_test.cljc b/test/yin/vm/encoder_test.cljc
+index 6c313f32..34925315 100644
+--- a/test/yin/vm/encoder_test.cljc
++++ b/test/yin/vm/encoder_test.cljc
+@@ -51,8 +51,11 @@
+ 
+ (deftest a-datom-member-declares-what-its-map-ast-declares
+   (let [ast (program '((defmacro m [x] x) (m 1)))]
+-    (is (= (encoder/program-batch ast)
+-           (encoder/program-batch (vec (vm/ast->datoms ast))))
++    ;; the C1 claim element, when the map path claims coverage, is the
++    ;; one difference: `:yang/call-site` markers are occurrence
++    ;; metadata, not datoms, so a datom member makes no C1 claim
++    (is (= (subvec (encoder/program-batch ast) 0 5)
++           (subvec (encoder/program-batch (vec (vm/ast->datoms ast))) 0 5))
+         "the :yin/macro? datom carries the frontend's declaration fact")))
+ 
+ 

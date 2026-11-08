@@ -473,6 +473,13 @@
   (on-every-vm (hooks/program hooks/uast ast) (with-signals []) outcome))
 
 
+#?(:cljs
+   (deftest node-test-stack-preserves-the-default-guest-limit
+     ;; The test entry raises V8's ~984 KiB default before loading CLJS.
+     ;; Keep the 1000-frame guest limit and test its RecursionError below.
+     (is (.includes (.-execArgv js/process) "--stack-size=6144"))))
+
+
 (defn- recursion-error
   []
   (testing "the default limit, exactly: f(999) is 1000 frames and completes;

@@ -450,10 +450,12 @@ each file with its class, which is what makes "remaining" checkable):
 | `yin.repl.main`, `yin.repl` (`:275-277` banner),    | Clock, stdin/stdout, exit, env         | Driver. `repl.cljc:275` and `fs.cljc:271` ambient reads  |
 | `yin.repl.state` (`dart:io`, `js/require`)          |                                        | deferred (§9.1).                                         |
 +-----------------------------------------------------+----------------------------------------+----------------------------------------------------------+
-| `yang.python.antlr.*`, `yang.antlr.cst` (x3),       | Generated recognizers                  | Stage: **deferred** (§9.3). (`antlr/repl.cljc:71` is a   |
-| `yang.frontend`, `yang.stage`, `yin.repl.frontends` |                                        | `println` inside a quoted yin program, the VM's own      |
-|                                                     |                                        | primitive, not a host call, V; r3's "one `println`" is   |
-|                                                     |                                        | withdrawn.)                                              |
+| `yang.python.antlr.*`, `yang.php.antlr.*`,          | Generated recognizers                  | Stage: **deferred** (§9.3). (`antlr/repl.cljc:71` is a   |
+| `yang.antlr.cst` (x3), `yang.frontend`,             |                                        | `println` inside a quoted yin program, the VM's own      |
+| `yang.stage`, `yin.repl.frontends`                  |                                        | primitive, not a host call, V; r3's "one `println`" is   |
+|                                                     |                                        | withdrawn.) §3.1 amendment: `yang.php.antlr.*` takes the |
+|                                                     |                                        | same `:deferred-stage` classification (§9.3);            |
+|                                                     |                                        | list-1/list-2 remain independently enforced.             |
 +-----------------------------------------------------+----------------------------------------+----------------------------------------------------------+
 | `yang.clojure:349,359`, `yang.php:575`,             | `gensym` (process counter)             | **Deferred** (§9.1), hygiene required.                   |
 | `dao.space.transact:35`                             |                                        |                                                          |

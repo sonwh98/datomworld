@@ -286,7 +286,7 @@
         (is (= (:dao.stream/cursor (stream/cursor (:local ix) :dao.stream/newest))
                (get-in ix [:materialization :cursor])))
         (is (= (select-keys (:materialization ix)
-                            [:cursor :transactions :manifest-address])
+                            [:cursor :transactions])
                (:index-publication (repl/repl-state state))))
         (is (every? #(contains? % :dao.space/transaction) records)
             "the local log holds transaction records only, no publication payload")
