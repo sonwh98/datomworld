@@ -27,7 +27,8 @@
      handle, cursor, and gap count belong to `dao.stream.observer`;
      nothing in this namespace polls a program stream."
   (:refer-clojure :exclude [gensym])
-  (:require [clojure.set]
+  (:require #?@(:cljd [["dart:core" :as dart-core]])
+            [clojure.set]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.stream :as stream]
@@ -2478,6 +2479,55 @@
   (into work (map (fn [x] [mode x])) xs))
 
 
+(defn- identity-hash
+  "The host's identity hash of `o`: one number per object, whatever the
+   object's size. It reads no field of `o`, so a continuation holding a
+   thousand-frame chain costs what a scalar costs."
+  [o]
+  #?(:clj (System/identityHashCode o)
+     :cljs (goog/getUid o)
+     :cljd (dart-core/identityHashCode o)))
+
+
+;; `trace` cannot key its seen set on `(hash [mode value])`, the shape a
+;; Clojure set asks for: a closure's and a continuation's `-hash` is
+;; structural over kind, owner and payload by law (`yin.vm.values`, table C),
+;; so hashing one recurses through its whole payload — the captured
+;; environments, the continuation chain below, the AST bodies those hold. A
+;; guest that has grown a 1000-frame handler chain then exhausts the host
+;; stack inside the collector, long before its own recursion guard fires
+;; (stack audit r2: a 13,542-frame trace, every frame a `hash`).
+;;
+;; Identity is also the sounder key, and not only the cheaper one. Nothing
+;; is missed by it: a value already walked is the same object, and an
+;; equal-but-distinct one is walked again, finding the same ids. `found` —
+;; hence the heap the sweep leaves — is what value-keyed dedup computed.
+(deftype Visited
+  [mode o]
+  #?@(:cljd [cljd.core/IEquiv
+             (-equiv [_ other]
+                     (and (instance? Visited other)
+                          (= mode (.-mode ^Visited other))
+                          (identical? o (.-o ^Visited other))))
+             cljd.core/IHash
+             (-hash [_] (bit-xor (hash mode) (identity-hash o)))]
+      :clj [Object
+            (equals [_ other]
+                    (and (instance? Visited other)
+                         (= mode (.-mode ^Visited other))
+                         (identical? o (.-o ^Visited other))))
+            (hashCode [_] (bit-xor (hash mode) (identity-hash o)))
+            clojure.lang.IHashEq
+            (hasheq [_] (bit-xor (hash mode) (identity-hash o)))]
+      :cljs [IEquiv
+             (-equiv [_ other]
+                     (and (instance? Visited other)
+                          (= mode (.-mode ^Visited other))
+                          (identical? o (.-o ^Visited other))))
+             IHash
+             (-hash [_] (bit-xor (hash mode) (identity-hash o)))]))
+
+
 (defn- trace
   "`found` plus the ids of `heap` reachable from `roots`, a map
    `{:kernel [...] :data [...]}` of root values by mode. Two modes keep
@@ -2497,9 +2547,12 @@
 
    Scalars hold nothing. With `follow?` a newly found id's content is
    traced too, as data (marking); without, only the refs met directly
-   (pinning). Each value is visited once per mode, so shared environments
-   cost one walk and a cell holding its own ref terminates. The worklist
-   is explicit: a deep continuation chain does not grow the host stack."
+   (pinning). Each object is visited once per mode, so shared environments
+   cost one walk and a cell holding its own ref terminates; the visit is
+   keyed on identity (`Visited`), never on a value's structural hash,
+   which for a closure or a continuation would recurse through the whole
+   chain it holds. The worklist is explicit: a deep continuation chain
+   does not grow the host stack."
   [vm heap roots found follow?]
   (let [children-of (if (satisfies? module/IModuleKernel vm)
                       #(module/gc-children vm %)
@@ -2511,9 +2564,10 @@
            found found]
       (if (empty? work)
         found
-        (let [[mode x :as entry] (peek work)
-              work (pop work)]
-          (if (or (scalar? x) (contains? seen entry))
+        (let [[mode x] (peek work)
+              work (pop work)
+              visit (when-not (scalar? x) (Visited. mode x))]
+          (if (or (nil? visit) (contains? seen visit))
             (recur work seen found)
             (let [id (when (map? x) (heap-ref-id heap x))
                   new-id? (and (some? id) (not (contains? found id)))
@@ -2534,7 +2588,7 @@
                          (and (nil? children) (not (map? x)) (coll? x))
                          (moded :data x))]
               (recur work
-                     (conj seen entry)
+                     (conj seen visit)
                      (if new-id? (conj found id) found)))))))))
 
 
