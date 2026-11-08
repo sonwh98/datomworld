@@ -75,6 +75,22 @@
   dht/default-max-inbound-bytes)
 
 
+(def default-repair-slots
+  "The repair writes this store's node holds outstanding at once: three
+   times `dao.space.dht`'s default and still below its pending-write
+   bound, so the node draws no `/busy` and fresh writes keep a bound of
+   their own while a repair is queued.  This store publishes 64-key index
+   pages (`compose`), so a round carries about twice the addresses the
+   generic 512-key page did, and every live publication repairs its own:
+   a write no peer accepts holds its slot for the DHT's whole `ack-ticks`,
+   so at 16 slots one cycle of a full `:max-repairing` set outlasts the
+   cycle's own period, the node's queues never empty, and the host ticker
+   never leaves its base cadence (`busy?`, yin.repl.main/moved?).  One
+   cycle drains inside the shortest period again at three times the
+   slots."
+  48)
+
+
 (def heads-file
   "The follower's durable state in the store directory (5.7)."
   "heads.edn")
@@ -348,6 +364,11 @@
     (when-some [recovered (and pub (get-in base [:recovery :manifest]))]
       (deposit-head! pub recovered))
     (assoc (dht/store node)
+           ;; The generic index default (512 keys) can put >64 KiB into
+           ;; one node as rounds accumulate. Keep REPL index pages below
+           ;; the DHT store-message bound for ordinary code datoms; an
+           ;; individually oversized value still gets the store's refusal.
+           :publish-opts {:branching-factor 64}
            :head-fn (fn [manifest-address]
                       ((:head-fn base) manifest-address)
                       (dht/announce! node manifest-address)
@@ -404,6 +425,7 @@
                          :bind-host bind-host
                          :bind-port bind-port
                          :max-inbound-bytes max-inbound-bytes
+                         :repair-slots default-repair-slots
                          :bind! (or bind! (dht/default-bind))})
               records])
            (catch #?(:cljd Object :clj Throwable :cljs :default) e

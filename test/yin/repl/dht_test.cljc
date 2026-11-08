@@ -2095,14 +2095,21 @@
                     (let [w (assoc-in (world net [2 3]) [:shells :p]
                                       (shell-at dir (mesh-bind net 10 (atom 0)) [2 3] nil []))
                           [w ms] (reduce (fn [[w ms] r]
-                                           (let [[w _] (eval-at w :p (big-program r 80))]
+                                           (let [[w text] (eval-at w :p (big-program r 80))]
+                                             (is (not (str/includes? text "Error:")) text)
+                                             (is (nil? (get-in w [:shells :p :indexer :failure]))
+                                                 (pr-str (get-in w [:shells :p :indexer :failure])))
                                              [w (conj ms (head-of w :p))]))
                                          [w []]
                                          (range 1 9))
                           w (run-world w 10 60000
                                        (fn [w] (every? #(event-of w :p :published %) ms)))
                           reports (mapv #(event-of w :p :published %) ms)]
+                      ;; These are manifest addresses, not clock readings:
+                      ;; every round must publish before its ack is awaited.
                       (is (= 8 (count (distinct ms))))
+                      (is (= 64 (get-in w [:shells :p :indexer :materialization
+                                           :manifest :branching-factor])))
                       (is (every? #(< space.dht/max-pending-writes (:blobs %)) reports)
                           (pr-str (map :blobs reports)))
                       (is (= (repeat 8 :acknowledged) (mapv :result reports)))

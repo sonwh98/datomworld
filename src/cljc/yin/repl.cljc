@@ -789,6 +789,7 @@
      :indexer (index/make-indexer {:observer ((:attach program-out))
                                    :session-token shell-token
                                    :content-store index-store
+                                   :publish-opts (:publish-opts index-store)
                                    :after-publish (:head-fn index-store)})
      :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
      :linker linker
@@ -2207,7 +2208,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                       (:links parked))))
    :index (index/status (:indexer state))
    :index-publication (select-keys (get-in state [:indexer :materialization])
-                                   [:cursor :transactions :manifest-address])
+                                   [:cursor :transactions])
    :ast-index (ast-index/status (:ast-indexer state))
    :telemetry {:supported? false :note telemetry-text}
    :remote {:connected? false}})

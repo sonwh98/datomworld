@@ -1,9 +1,13 @@
 {:grammar {:repo "antlr/grammars-v4",
            :path "php",
            :revision "85e2dd1779ce556111ef98ead5d62a9858e95599",
-           ;; All three files are MIT with their notices intact and are vendored
-           ;; verbatim beside this manifest; every file is digest-checked.
-           :files {"PhpLexer.g4"
+           ;; Upstream MIT files are vendored verbatim with their notices.
+           ;; The local Node helper port retains that notice; all files are
+           ;; digest-checked.
+           :files {"JavaScript/PhpLexerBase.js"
+                   {:blake3 "d5fc3fbb28176a1943d5b0d6d968062523e64ef0d2be1c6e10eb6cf59dcff455",
+                    :vendored "antlr/php/JavaScript/PhpLexerBase.js"},
+                   "PhpLexer.g4"
                    {:blake3 "21a682a8e2962042d9e6ed39fa65b6feadca09736d64c0d7177a25d184a4ecab",
                     :vendored "antlr/php/PhpLexer.g4"},
                    "PhpParser.g4"
@@ -74,13 +78,63 @@
                "PhpLexerBase.java"
                "9d719b7c28a361458a0cc55870c2d39034ef34cdd329b175d8c847268e3769ca",
                "PhpParser.java"
-               "cbbe279f2f03e8ff63d61eed8d051350233abfc9c45d4beacbb9d234343bf121"}}},
+               "cbbe279f2f03e8ff63d61eed8d051350233abfc9c45d4beacbb9d234343bf121"}},
+  ;; Node uses the same grammar patches and positioned heredoc terminator.
+  :javascript
+  {:runtime "antlr4 4.13.2 (npm)",
+   :flags ["-Dlanguage=JavaScript" "-no-listener" "-no-visitor"],
+   :helpers ["JavaScript/PhpLexerBase.js"],
+   :out "build/antlr/php/js/yang/antlr/gen/php",
+   :patches
+   {"PhpLexer.g4"
+    [["'>' | '</script>'" "'>' ('\\r'? '\\n')? | '</script>'"]
+     ["PHPEndSingleLineComment : '?' '>';"
+      "PHPEndSingleLineComment : '?' '>' ('\\r'? '\\n')?;"]
+     ["SeaWhitespace  : [ \\t\\r\\n]+ -> channel(HIDDEN);"
+      "SeaWhitespace  : [ \\t\\r\\n]+ -> type(HtmlText);"]
+     ["HtmlComment    : '<!' '--' .*? '-->'  -> channel(HIDDEN);"
+      "HtmlComment    : '<!' '--' .*? '-->'  -> type(HtmlText);"]
+     ["HtmlSpace                  : [ \\t\\r\\n]+ -> channel(HIDDEN);"
+      "HtmlSpace                  : [ \\t\\r\\n]+ -> type(HtmlText);"]
+     ["StartHereDoc : '<<<' [ \\t]* NameString {"
+      "StartHereDoc : '<<<' [ \\t]* ('\"' NameString '\"' | NameString) {"]
+     ["HereDocText: ~[\\r\\n]*? ('\\r'? '\\n' | '\\r');"
+      "HereDocText: ~[\\r\\n]*? ('\\r'? '\\n' | '\\r');\n// Never matches: HeredocEndToken in PhpLexerBase builds this token.\nHereDocEnd: [ \\t]* NameString { false }?;"]],
+    "PhpParser.g4"
+    [["    : StartHereDoc HereDocText+\n"
+      "    : StartHereDoc HereDocText+ HereDocEnd\n"]
+     ["    | StartNowDoc HereDocText+\n"
+      "    | StartNowDoc HereDocText+ HereDocEnd\n"]
+     ["    : Static variableInitializer (',' variableInitializer)* SemiColon\n    ;\n"
+      "    : Static staticInitializer (',' staticInitializer)* SemiColon\n    ;\n\nstaticInitializer\n    : VarName (Eq expression)?\n    ;\n"]
+     ["    | (expression '=>')? '&' chain\n    ;\n"
+      "    | (expression '=>')? '&' chain\n    | Ellipsis expression\n    ;\n"]
+     ["    : Return expression? SemiColon\n"
+      "    : Return (expression | yieldExpression)? SemiColon\n"]
+     ["    | assignable assignmentOperator attributes? expression        # AssignmentExpression\n"
+      "    | assignable assignmentOperator attributes? (expression | yieldExpression) # AssignmentExpression\n"]]},
+   :output-patches
+   {"PhpLexer.js"
+    [["import antlr4 from 'antlr4';"
+      "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]],
+    "PhpParser.js"
+    [["import antlr4 from 'antlr4';"
+      "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]]},
+   :generated
+   {"PhpLexer.js"
+    "bfa995b5cb0b6a73359f1d87cc949fd1d7e1ae994db5f192dd460ce10e043767",
+    "PhpLexerBase.js"
+    "d5fc3fbb28176a1943d5b0d6d968062523e64ef0d2be1c6e10eb6cf59dcff455",
+    "PhpParser.js"
+    "59fd36cbec61b0586521c66f1cd68f42541badfddb220052dc5ec9221cd6e6ff"}}},
  ;; yang.php.md section 6 license review
- :license {"PhpLexer.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
+ :license {"JavaScript/PhpLexerBase.js" "MIT; Node port of the pinned Java helper, notice retained",
+           "PhpLexer.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
            "PhpParser.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
            "Java/PhpLexerBase.java" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
            "antlr4-runtime 4.13.2" "BSD-3-Clause"},
  :redistribution {:vendored-sources ["antlr/php/PhpLexer.g4"
                                      "antlr/php/PhpParser.g4"
-                                     "antlr/php/PhpLexerBase.java"],
+                                     "antlr/php/PhpLexerBase.java"
+                                     "antlr/php/JavaScript/PhpLexerBase.js"],
                   :generated-artifacts :none}}

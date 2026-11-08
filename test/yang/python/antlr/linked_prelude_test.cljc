@@ -14,6 +14,7 @@
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.test-slow :as slow]
+    [dao.jing :as jing]
     [yang.core.call :as call]
     [yang.python.antlr.linked-harness :as h]
     [yang.python.antlr.lower :as lower]
@@ -241,9 +242,11 @@
    value-display slice (06065e42: py/result!, py.rt/value, the :py/value
    answer of py/run-session) moved it to this address; the s3 tracing
    slice moved only the hook prelude, so this address did not move. The
-   S3 shared-call publication moved the Python module manifest."
+   S3 shared-call publication moved the Python module manifest. The
+   post-authentic? call-runtime footprint moves it again; regenerated on
+   the JVM with dht-import-v1.generate.clj (two byte-identical runs)."
   (keyword (str "segment/blake3-"
-                "34893d591a14df92a0baf2f5edf41e1a8260195f8c64dde3e69a0be3bc3a5cb9")))
+                "d9aead51dc2da70f8dcd8935f2a8c3bc052037967064b45d1914897ad03a6a9c")))
 
 
 (def ^:private vector-formats
@@ -256,6 +259,20 @@
         links (:links result)]
     (testing "one address on every host (JVM golden)"
       (is (= manifest-golden address) (pr-str (dissoc result :links :walk))))
+    (testing "manifest maps and footprint sets encode independently of iteration order"
+      (let [manifest (:manifest result)
+            ordered (fn [cmp]
+                      (-> (into (sorted-map-by cmp) manifest)
+                          (update :yin.module/primitives #(into (sorted-map-by cmp) %))
+                          (update :yin.module/footprint
+                                  (fn [fp]
+                                    (into (sorted-map-by cmp)
+                                          (map (fn [[k v]] [k (into (sorted-set-by cmp) v)]))
+                                          fp)))))
+            ascending #(compare (str %1) (str %2))
+            descending #(compare (str %2) (str %1))]
+        (is (= address (jing/segment-key (ordered ascending))
+               (jing/segment-key (ordered descending))))))
     (testing "the three vector formats link :ok under :verifying"
       (doseq [f vector-formats]
         (is (= :ok (get-in links [f :status])) (str f))

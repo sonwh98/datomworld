@@ -17,6 +17,12 @@
 
           :test {:target :node-test
                  :output-to "target/node-tests.js"
+                 ;; V8 defaults to ~984 KiB: recursive guest frames and the
+                 ;; serializers of captured continuations can exhaust it before
+                 ;; Python's 1000-frame guard. 6 MiB fits Linux's 8 MiB native
+                 ;; stack. Re-exec before loading CLJS, covering shadow autorun
+                 ;; AND direct `node ... --test=...` shard invocations.
+                 :prepend "if (!process.execArgv.includes('--stack-size=6144')) { const child = require('child_process').spawnSync(process.execPath, [...process.execArgv, '--stack-size=6144', ...process.argv.slice(1)], {stdio: 'inherit'}); if (child.error) throw child.error; if (child.signal) process.kill(process.pid, child.signal); else process.exit(child.status); }"
                  :autorun true}
 
           :vm-bench {:target :node-script

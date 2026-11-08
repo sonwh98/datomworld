@@ -186,11 +186,15 @@
 (deftest language-and-compile-commands-behave-as-they-do-in-v1
   (let [[_ result] (repl/eval-input (repl.frontends/create-state) "(lang :yang/python)")
         [_ refused] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
-        [state _] (repl/eval-input (repl.frontends/create-state) "(lang :yang/php)")
-        [_ compiled] (repl/eval-input state "(compile \"1 + 2;\")")]
+        [state switched] (repl/eval-input (repl.frontends/create-state) "(lang :yang/php)")
+        [_ compiled] (repl/eval-input state "(compile \"<?php echo 1 + 2;\")")]
     (is (= "Switched to :yang/python" result))
     (is (str/includes? refused "unavailable-parser")
         "a language keyword is not a selector")
+    (is (= "Switched to :yang/php" switched))
+    (is (= :yang/php (:lang state))
+        "a missing PHP binding must fail at selection, before compile source routing")
+    (is (not (str/starts-with? compiled "Error:")) compiled)
     (is (str/includes? compiled "AST:"))
     (is (str/includes? compiled "Input rows:"))
     (is (str/includes? compiled "Expanded rows:"))
