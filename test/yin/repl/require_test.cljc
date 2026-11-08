@@ -24,6 +24,7 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
+            [yin.repl.fixture :as fixture]
             [yin.repl.frontends :as repl.frontends]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
@@ -132,12 +133,28 @@
 
 
 (defn- shell
-  "A shell of `vm-type` whose content source is the in-process `store`
-   and whose name environment resolves `env`."
-  [vm-type store env]
-  (repl.frontends/create-state {:vm-type vm-type
-                                :content-store store
-                                :name-env env}))
+  "A shell of `vm-type` whose content source is the in-process `store`,
+   whose name environment resolves `env`, and whose code index lives in
+   the explicitly injected non-DHT `backend` (Gate B's arrangement:
+   local `:content-store`/`:name-env` for linking, a plain `dao.jing`
+   handle for the index -- no DHT composition anywhere)."
+  ([vm-type store env]
+   (shell vm-type store env (fixture/open-backend :memory)))
+  ([vm-type store env backend]
+   (fixture/create-state backend {:vm-type vm-type
+                                  :content-store store
+                                  :name-env env})))
+
+
+(defn- prompt-state
+  "A shell over an explicitly injected in-memory non-DHT index backend
+   (Gate B): the link-policy and pending-run tests below are about the
+   pair's causality, not storage, so they run on the memory selection
+   through the fixture -- never the default construction, and never a
+   store spec that could resolve to DHT.  The dual-backend proof for
+   linking itself lives in the prompt-path tests above."
+  [opts]
+  (fixture/create-state (fixture/open-backend :memory) opts))
 
 
 (defn- silent-client
@@ -221,13 +238,16 @@
    export.  Returns `[answered result]` -- the require's own answer, read
    as the round's value rather than its rendered text (the shell renders
    a quoted symbol `'mod` on JVM and Node and `(quote mod)` on Dart), and
-   `{:value v :state s}` for the export's round."
-  [vm-type store address]
-  (let [state (shell vm-type store {'mod address})
-        [state' _] (repl/eval-input state "(require (quote mod))")
-        [state'' _] (repl/eval-input state' "(mod/f)")]
-    [(:last-value state')
-     {:value (:last-value state''), :state state''}]))
+   `{:value v :state s}` for the export's round.  The session's code
+   index lives in `backend` when one is supplied."
+  ([vm-type store address]
+   (require-and-apply vm-type store address (fixture/open-backend :memory)))
+  ([vm-type store address backend]
+   (let [state (shell vm-type store {'mod address} backend)
+         [state' _] (repl/eval-input state "(require (quote mod))")
+         [state'' _] (repl/eval-input state' "(mod/f)")]
+     [(:last-value state')
+      {:value (:last-value state''), :state state''}])))
 
 
 (defn- answers-42?
@@ -242,52 +262,62 @@
 ;; =============================================================================
 
 (deftest a-require-at-the-prompt-links-installs-and-resumes-test
-  (doseq [vm-type [:ast-walker :semantic :stack :register]]
-    (testing (name vm-type)
-      (let [store (mem/create-content-mem)
-            {:keys [address]} (publish-module store closed-module 'mod
-                                              closed-exports)
-            [answered result] (require-and-apply vm-type store address)]
-        (testing "the require answers with the module name"
-          (is (= 'mod answered)))
-        (testing "the export, lowered from the linked image, applies"
-          (is (= (b0/normalize (vm/value (vm/eval (tu/create-vm)
-                                                  closed-value)))
-                 (b0/normalize (:value result))))
-          (is (= 42 (:value result))))
-        (testing "nothing stayed pending or blocked"
-          (is (nil? (:pending-run (:state result))))
-          (is (not (vm/blocked? (:vm (:state result))))))))))
+  ;; Gate B: the whole prompt path on every VM and every non-DHT backend.
+  (doseq [kind fixture/backend-kinds
+          vm-type [:ast-walker :semantic :stack :register]]
+    (testing (str kind " " (name vm-type))
+      (fixture/call-with-backend
+        kind
+        (fn [backend]
+          (let [store (mem/create-content-mem)
+                {:keys [address]} (publish-module store closed-module 'mod
+                                                  closed-exports)
+                [answered result] (require-and-apply vm-type store address backend)]
+            (testing "the require answers with the module name"
+              (is (= 'mod answered)))
+            (testing "the export, lowered from the linked image, applies"
+              (is (= (b0/normalize (vm/value (vm/eval (tu/create-vm)
+                                                      closed-value)))
+                     (b0/normalize (:value result))))
+              (is (= 42 (:value result))))
+            (testing "nothing stayed pending or blocked"
+              (is (nil? (:pending-run (:state result))))
+              (is (not (vm/blocked? (:vm (:state result))))))))))))
 
 
 (deftest the-h-and-r-backends-link-one-manifest-b0-equal-test
   "The criterion's own clause: the same manifest linked by `(vm :stack)`
    and `(vm :register)` pins one A through distinct H/R derivations and
    produces B0-equal results."
-  (let [store (mem/create-content-mem)
-        {:keys [address a h r checksums]}
-        (publish-module store store-module 'mod store-exports)
-        [stack-answered stack] (require-and-apply :stack store address)
-        [register-answered register] (require-and-apply :register store
-                                                        address)]
-    (testing "phase 8c: one manifest pins A for both backends, with distinct H/R checksums"
-      (is (some? a))
-      (is (= a h r))
-      (is (some? (:yin.debruijn.code checksums)))
-      (is (some? (:yin.debruijn.register checksums)))
-      (is (not= (:yin.debruijn.code checksums)
-                (:yin.debruijn.register checksums))))
-    (testing "both prompt sessions answer the same value"
-      (is (= (b0/normalize (:value stack))
-             (b0/normalize (:value register))))
-      (is (answers-42? stack))
-      (is (answers-42? register))
-      (is (= 'mod stack-answered))
-      (is (= 'mod register-answered))
-      (testing "the store crossed with the export, not into the task's own"
-        (is (not (contains? (vm/store (:vm (:state stack))) 'n)))
-        (is (some? (seq (get-in (:state stack)
-                                [:vm :module-stores]))))))))
+  (doseq [kind fixture/backend-kinds]
+    (testing (str kind)
+      (fixture/call-with-backend
+        kind
+        (fn [backend]
+          (let [store (mem/create-content-mem)
+                {:keys [address a h r checksums]}
+                (publish-module store store-module 'mod store-exports)
+                [stack-answered stack] (require-and-apply :stack store address backend)
+                [register-answered register] (require-and-apply :register store
+                                                                address backend)]
+            (testing "phase 8c: one manifest pins A for both backends, with distinct H/R checksums"
+              (is (some? a))
+              (is (= a h r))
+              (is (some? (:yin.debruijn.code checksums)))
+              (is (some? (:yin.debruijn.register checksums)))
+              (is (not= (:yin.debruijn.code checksums)
+                        (:yin.debruijn.register checksums))))
+            (testing "both prompt sessions answer the same value"
+              (is (= (b0/normalize (:value stack))
+                     (b0/normalize (:value register))))
+              (is (answers-42? stack))
+              (is (answers-42? register))
+              (is (= 'mod stack-answered))
+              (is (= 'mod register-answered))
+              (testing "the store crossed with the export, not into the task's own"
+                (is (not (contains? (vm/store (:vm (:state stack))) 'n)))
+                (is (some? (seq (get-in (:state stack)
+                                        [:vm :module-stores]))))))))))))
 
 
 ;; =============================================================================
@@ -317,7 +347,7 @@
 
 
 (deftest a-link-that-stays-pending-does-not-wedge-the-shell-test
-  (let [state (repl.frontends/create-state {:vm-type :stack})
+  (let [state (prompt-state {:vm-type :stack})
         [pending text] (repl/eval-input state "(require (quote mod))")
         [held text2] (repl/eval-input pending "(+ 1 2)")
         [freed text3] (repl/eval-input held "(abandon)")]
@@ -349,33 +379,40 @@
    must never settle the later require: identity minted before the
    rollback is carried onto the base, and the abandon retires the
    request on the pair, so no late response is ever appended
-   (yin.vm.linker.md section 7.2, step 7; yin.vm.linker.dht.md 7.5)."
-  (let [store (mem/create-content-mem)
-        {:keys [address]} (publish-module store closed-module 'mod
-                                          closed-exports)
-        as-other (:address (publish-module store closed-module 'other
-                                           closed-exports))
-        state (repl.frontends/create-state {:vm-type :stack})
-        [pending _] (repl/eval-input state "(require (quote other))")
-        [held _] (repl/eval-input pending "(abandon)")
-        ;; the wire starts answering, over the same surviving pair
-        working (assoc held
-                       :link-source (link/composition
-                                      {:content-store store
-                                       :name-env {'other as-other
-                                                  'mod address}}))
-        [linked _] (repl/eval-input working "(require (quote mod))")
-        [done _] (repl/eval-input linked "(mod/f)")]
-    (testing "the abandoned request was retired: never answered late"
-      (let [ids (mapv :yin.link/id (pair-requests
-                                     (get-in linked [:linker :pair])))]
-        (is (= [(second ids)] (pair-responses (get-in linked [:linker :pair]))))
-        (is (empty? (first (engine/take-link-diagnostics (:vm linked)))))
-        (is (not= (first ids) (second ids))
-            "the carried identity kept the later require off the retired id")))
-    (testing "the later require linked for real and its export applies"
-      (is (= 'mod (:last-value linked)))
-      (is (= 42 (:last-value done))))))
+   (yin.vm.linker.md section 7.2, step 7; yin.vm.linker.dht.md 7.5).
+   Rollback does not replay a settled service request (spec section 7):
+   pinned here over the explicitly injected non-DHT index backend."
+  (doseq [kind fixture/backend-kinds]
+    (testing (str kind)
+      (fixture/call-with-backend
+        kind
+        (fn [backend]
+          (let [store (mem/create-content-mem)
+                {:keys [address]} (publish-module store closed-module 'mod
+                                                  closed-exports)
+                as-other (:address (publish-module store closed-module 'other
+                                                   closed-exports))
+                state (fixture/create-state backend {:vm-type :stack})
+                [pending _] (repl/eval-input state "(require (quote other))")
+                [held _] (repl/eval-input pending "(abandon)")
+                ;; the wire starts answering, over the same surviving pair
+                working (assoc held
+                               :link-source (link/composition
+                                              {:content-store store
+                                               :name-env {'other as-other
+                                                          'mod address}}))
+                [linked _] (repl/eval-input working "(require (quote mod))")
+                [done _] (repl/eval-input linked "(mod/f)")]
+            (testing "the abandoned request was retired: never answered late"
+              (let [ids (mapv :yin.link/id (pair-requests
+                                             (get-in linked [:linker :pair])))]
+                (is (= [(second ids)] (pair-responses (get-in linked [:linker :pair]))))
+                (is (empty? (first (engine/take-link-diagnostics (:vm linked)))))
+                (is (not= (first ids) (second ids))
+                    "the carried identity kept the later require off the retired id")))
+            (testing "the later require linked for real and its export applies"
+              (is (= 'mod (:last-value linked)))
+              (is (= 42 (:last-value done))))))))))
 
 
 (deftest an-install-wait-abandons-explicitly-test
@@ -400,7 +437,7 @@
                             {'require (get-in vm/primitives
                                               ['require :yin.k/profile])}}))
         names {'foo as-foo, 'bar as-bar}
-        state (assoc (repl.frontends/create-state {:vm-type :stack})
+        state (assoc (prompt-state {:vm-type :stack})
                      :link-source (withholding
                                     (link/composition {:content-store store
                                                        :name-env names})
@@ -442,9 +479,9 @@
   (let [store (mem/create-content-mem)
         {:keys [address]} (publish-module store closed-module 'mod
                                           closed-exports)
-        state (repl.frontends/create-state {:vm-type :stack
-                                            :content-client (silent-client)
-                                            :name-env {'mod address}})
+        state (prompt-state {:vm-type :stack
+                             :content-client (silent-client)
+                             :name-env {'mod address}})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held text2] (repl/eval-input pending "(+ 1 2)")
         working (assoc held
@@ -475,9 +512,9 @@
                                           closed-exports)
         as-other (:address (publish-module store closed-module 'other
                                            closed-exports))
-        state (repl.frontends/create-state {:vm-type :stack
-                                            :content-client (silent-client)
-                                            :name-env {'mod address}})
+        state (prompt-state {:vm-type :stack
+                             :content-client (silent-client)
+                             :name-env {'mod address}})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
         [held' _] (repl/eval-input held "(require (quote other))")
@@ -520,7 +557,7 @@
    `:accepted` when it does not."
   [policy]
   (try
-    (repl.frontends/create-state {:vm-type :stack :link-policy policy})
+    (prompt-state {:vm-type :stack :link-policy policy})
     :accepted
     (catch #?(:cljd Object :clj Exception :cljs js/Error) e
       e)))
@@ -528,11 +565,11 @@
 
 (deftest link-policy-defaults-to-manual-test
   (testing ":manual is the default, and nil passes through to it"
-    (is (= :manual (:link-policy (repl.frontends/create-state {:vm-type :stack}))))
+    (is (= :manual (:link-policy (prompt-state {:vm-type :stack}))))
     (is (= :manual (:link-policy
-                     (repl.frontends/create-state {:vm-type :stack
-                                                   :link-policy nil})))))
-  (let [state (repl.frontends/create-state {:vm-type :stack})
+                     (prompt-state {:vm-type :stack
+                                    :link-policy nil})))))
+  (let [state (prompt-state {:vm-type :stack})
         [pending text] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
         [held2 _] (repl/eval-input held "(+ 3 4)")
@@ -554,7 +591,7 @@
                  (if (>= (:checks view) 2)
                    {:abandon :host-gave-up}
                    :keep))
-        state (repl.frontends/create-state {:vm-type :stack :link-policy policy})
+        state (prompt-state {:vm-type :stack :link-policy policy})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
         [freed text] (repl/eval-input held "(+ 3 4)")]
@@ -579,8 +616,8 @@
 
 
 (deftest a-keep-policy-never-ends-a-pending-run-test
-  (let [state (repl.frontends/create-state {:vm-type :stack
-                                            :link-policy (constantly :keep)})
+  (let [state (prompt-state {:vm-type :stack
+                             :link-policy (constantly :keep)})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")]
     (is (some? (:pending-run held)))
@@ -590,8 +627,8 @@
 
 
 (deftest a-bare-abandon-uses-the-policy-reason-test
-  (let [state (repl.frontends/create-state {:vm-type :stack
-                                            :link-policy (constantly :abandon)})
+  (let [state (prompt-state {:vm-type :stack
+                             :link-policy (constantly :abandon)})
         [_ text] (repl/eval-input state "(require (quote mod))")]
     (is (str/includes? text "the session link policy ended the require"))
     (is (str/includes? text "Module link refused: link-policy"))
@@ -600,26 +637,26 @@
 
 (deftest a-misbehaving-policy-is-kept-and-reported-test
   (let [boom (fn [_] (throw (ex-info "host policy boom" {})))
-        state (repl.frontends/create-state {:vm-type :stack :link-policy boom})
+        state (prompt-state {:vm-type :stack :link-policy boom})
         [pending text] (repl/eval-input state "(require (quote mod))")]
     (testing "a throw is one error line, and the run stands"
       (is (str/includes? text "Error: host policy boom"))
       (is (str/includes? text "pending"))
       (is (some? (:pending-run pending)))))
-  (let [state (repl.frontends/create-state {:vm-type :stack
-                                            :link-policy (constantly :bogus)})
+  (let [state (prompt-state {:vm-type :stack
+                             :link-policy (constantly :bogus)})
         [pending text] (repl/eval-input state "(require (quote mod))")]
     (testing "an out-of-contract return is kept and reported too"
       (is (str/includes? text "outside its contract"))
       (is (some? (:pending-run pending)))))
-  (let [state (repl.frontends/create-state
+  (let [state (prompt-state
                 {:vm-type :stack
                  :link-policy (fn [_] {::x :not-part-of-the-contract})})
         [pending text] (repl/eval-input state "(require (quote mod))")]
     (testing "a map with no :abandon is out of contract, not an abandon"
       (is (str/includes? text "outside its contract"))
       (is (some? (:pending-run pending)))))
-  (let [state (repl.frontends/create-state
+  (let [state (prompt-state
                 {:vm-type :stack
                  :link-policy (fn [_] {:abandon :reason :extra true})})
         [pending text] (repl/eval-input state "(require (quote mod))")]
@@ -642,7 +679,7 @@
 
 (deftest reset-and-vm-preserve-the-link-policy-test
   (let [policy (constantly :keep)
-        state (repl.frontends/create-state {:vm-type :stack :link-policy policy})
+        state (prompt-state {:vm-type :stack :link-policy policy})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
         [held2 _] (repl/eval-input held "(+ 3 4)")
@@ -660,12 +697,12 @@
 
 
 (deftest a-policy-abandon-matches-abandon-s-retained-line-semantics-test
-  (let [by-command (let [state (repl.frontends/create-state {:vm-type :stack})
+  (let [by-command (let [state (prompt-state {:vm-type :stack})
                          [parked _] (repl/eval-input
                                       state "(require (quote mod))")
                          [held _] (repl/eval-input parked "(+ 1 2)")]
                      (repl/eval-input held "(abandon)"))
-        by-policy (let [state (repl.frontends/create-state
+        by-policy (let [state (prompt-state
                                 {:vm-type :stack
                                  :link-policy (fn [v]
                                                 (if (= 1 (:checks v))
@@ -704,7 +741,7 @@
                                           closed-exports)
         as-other (:address (publish-module store closed-module 'other
                                            closed-exports))
-        state (repl.frontends/create-state
+        state (prompt-state
                 {:vm-type :stack
                  :content-client (silent-client)
                  :name-env {'other as-other 'mod address}
@@ -742,7 +779,7 @@
         store (mem/create-content-mem)
         {:keys [address]} (publish-module store closed-module 'mod
                                           closed-exports)
-        state (repl.frontends/create-state
+        state (prompt-state
                 {:vm-type :stack
                  :content-client (silent-client)
                  :name-env {'mod address}
@@ -768,8 +805,8 @@
    line -- `driver/repl-step` evaluates drained input and nothing else
    -- so the shell carries the public step an unattended host drives at
    its own cadence."
-  (let [state (repl.frontends/create-state {:vm-type :stack
-                                            :link-policy (constantly :keep)})
+  (let [state (prompt-state {:vm-type :stack
+                             :link-policy (constantly :keep)})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [step1 _] (repl/recheck-pending pending)
         [step2 text] (repl/recheck-pending step1)]
@@ -777,12 +814,12 @@
       (is (some? (:pending-run step2)))
       (is (= 2 (:checks (:pending-run step2))))
       (is (str/includes? text "pending")))
-    (let [empty (repl.frontends/create-state {:vm-type :stack})
+    (let [empty (prompt-state {:vm-type :stack})
           [st text] (repl/recheck-pending empty)]
       (testing "nothing pending: nothing printed, nothing changed"
         (is (nil? text))
         (is (nil? (:pending-run st))))))
-  (let [state (repl.frontends/create-state
+  (let [state (prompt-state
                 {:vm-type :stack
                  :link-policy (fn [v]
                                 (if (= 2 (:checks v))
@@ -800,6 +837,13 @@
 ;; =============================================================================
 ;; The DHT link source beside the two content sources
 ;; (docs/design/yin.vm.linker.dht.md 4.1, slice L3)
+;;
+;; Step 1 isolation (spec section 10, Gate B): this is the one explicitly
+;; DHT-specific construction test in the retained engine suite.  It is
+;; composition-side, not part of the non-DHT proof above, and moves with
+;; the composition tests when Step 2 extracts `yin.repl.dht`; nothing in
+;; the parameterized tests depends on it.  It stays here, green, until
+;; that move so the refusal behaviour is never unpinned.
 ;; =============================================================================
 
 (deftest a-dht-source-composes-alone-and-the-content-budget-is-unchanged-test
@@ -814,13 +858,13 @@
                         e))))))
   (testing "the :content-store and :content-client attempt budget is unchanged"
     (is (= 64 link/attempt-budget))
-    (let [state (repl.frontends/create-state {:vm-type :stack
-                                              :content-client (silent-client)
-                                              :name-env {'mod (:address
-                                                                (publish-module
-                                                                  (mem/create-content-mem)
-                                                                  closed-module 'mod
-                                                                  closed-exports))}})
+    (let [state (prompt-state {:vm-type :stack
+                               :content-client (silent-client)
+                               :name-env {'mod (:address
+                                                 (publish-module
+                                                   (mem/create-content-mem)
+                                                   closed-module 'mod
+                                                   closed-exports))}})
           [pending text] (repl/eval-input state "(require (quote mod))")]
       (is (str/includes? text "pending"))
       (is (nil? (:manifest (first (:links (:pending-run pending)))))

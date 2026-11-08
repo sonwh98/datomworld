@@ -28,6 +28,7 @@
             [dao.stream.memory-log :as memory-log]
             [dao.space.store :as durable]
             [yin.repl :as repl]
+            [yin.repl.fixture :as fixture]
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.store :as store]
             [dao.space.store.fs :as fs]))
@@ -1439,3 +1440,67 @@
         (store/close! (:index-store durable)))
       (finally
         (cleanup-dir! dir)))))
+
+
+;; =============================================================================
+;; Step 1: the engine over either non-DHT backend (spec section 10,
+;; Gate B).  The lifecycle tests above pin each backend's own contract;
+;; this pins the swap itself: the same programs, evaluated through the
+;; fixture's explicitly injected handles, publish frontiers that agree
+;; on every Frontier-gate field and cover the same history (modulo the
+;; per-shell session token each shell mints), with no DHT composition
+;; anywhere in the shell.
+;; =============================================================================
+
+(defn- modulo-token
+  "Datoms with the shell's session token replaced by a placeholder, so
+   two shells' histories compare equal whatever tokens they minted."
+  [state datoms]
+  (let [token (:shell-token state)]
+    (mapv (fn [[e a v t m]] [e a (if (= v token) :session-token v) t m]) datoms)))
+
+
+(deftest the-same-programs-publish-the-same-frontier-on-either-backend
+  (let [programs ["(def alpha 1001)" "(def beta 2002)" "(+ alpha beta)"]
+        run (fn [kind]
+              (fixture/call-with-state
+                kind
+                (fn [state backend]
+                  (let [[state texts] (evaluate state programs)
+                        f (fixture/frontier (:indexer state))
+                        committed (into #{}
+                                        (mapcat :datoms)
+                                        (transactions state))]
+                    {:texts texts
+                     :spec (:index-store-spec state)
+                     :dht (:dht state)
+                     :durability-claim (fixture/backend-durability kind)
+                     :head (when (= :file kind)
+                             (:manifest (head-record-of (:dir backend))))
+                     :manifest (:manifest-address f)
+                     :count (:count f)
+                     :branching-factor (:branching-factor f)
+                     :published (:published f)
+                     :transactions (:transactions f)
+                     :datoms (set (modulo-token state committed))}))))
+        memory-run (run :memory)
+        file-run (run :file)]
+    (testing "neither shell composed any DHT state"
+      (doseq [r [memory-run file-run]]
+        (is (nil? (:spec r)) "no store spec: the handle was injected directly")
+        (is (nil? (:dht r)) "no DHT node, follower, or repair scheduler")))
+    (testing "evaluation and the published frontier agree across the swap"
+      (is (= (:texts memory-run) (:texts file-run)))
+      (is (= "3003" (peek (:texts memory-run))))
+      (is (= (:count memory-run) (:count file-run)))
+      (is (= 512 (:branching-factor memory-run) (:branching-factor file-run))
+          "both publish under the same generic count cap")
+      (is (= 3 (:published memory-run) (:transactions memory-run)
+             (:published file-run) (:transactions file-run)))
+      (is (= (:datoms memory-run) (:datoms file-run))
+          "the covered history is the same history on either backend")
+      (is (= (:manifest file-run) (:head file-run))
+          "the file backend's durable HEAD names its promoted manifest")
+      (is (= :memory (:durability-claim memory-run)))
+      (is (= :persistent (:durability-claim file-run))
+          "only the file composition claims persistence (spec section 4)"))))
