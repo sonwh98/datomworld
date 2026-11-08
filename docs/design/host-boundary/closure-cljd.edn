@@ -3,9 +3,9 @@
 {:lane :cljd,
  :root yin.repl.main,
  :features #{:cljd :clj},
- :total 160,
- :shared 151,
- :lane-specific 9,
+ :total 159,
+ :shared 152,
+ :lane-specific 7,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
   :consumer "H2 (require change only)",
@@ -296,27 +296,23 @@
   {:file "src/cljc/yang/php/antlr/builtins.cljc",
    :ns yang.php.antlr.builtins,
    :shared true,
-   :classes #{:none}}
-  {:file "src/cljc/yang/php/antlr/lower.cljc",
-   :ns yang.php.antlr.lower,
-   :shared false,
-   :classes #{:none}}
+   :classes #{:deferred-stage}}
   {:file "src/cljc/yang/php/antlr/prelude.cljc",
    :ns yang.php.antlr.prelude,
    :shared true,
-   :classes #{:none}}
+   :classes #{:deferred-stage}}
   {:file "src/cljc/yang/php/antlr/prelude_module.cljc",
    :ns yang.php.antlr.prelude-module,
    :shared true,
-   :classes #{:none}}
+   :classes #{:deferred-stage}}
+  {:file "src/cljc/yang/php/antlr/prelude_p9.cljc",
+   :ns yang.php.antlr.prelude-p9,
+   :shared true,
+   :classes #{:deferred-stage}}
   {:file "src/cljc/yang/php/antlr/quoted.cljc",
    :ns yang.php.antlr.quoted,
    :shared true,
-   :classes #{:none}}
-  {:file "src/cljc/yang/php/antlr/scope.cljc",
-   :ns yang.php.antlr.scope,
-   :shared false,
-   :classes #{:none}}
+   :classes #{:deferred-stage}}
   {:file "src/cljc/yang/python/antlr/lower.cljc",
    :ns yang.python.antlr.lower,
    :shared true,
