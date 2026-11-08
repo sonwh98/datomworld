@@ -1,0 +1,24 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 02:58:13 GMT
+Completed-Local: 2026-11-08 09:58:13 +07
+
+**Note on the prompt file:** `collab/yang-php/1794095000000-engineer-php-on-dart-fix.prompt.md` does not exist (only its `.muse-wonder-1.0.stdout.log` stub). I executed the identical task in [1794101833000-engineer-php-on-dart-fix.prompt.md](/Users/sto/workspace/datomworld/collab/yang-php/1794101833000-engineer-php-on-dart-fix.prompt.md). No commits made.
+
+**Environment adaptations (jupiter unreachable):** no SSH route to jupiter exists here, so I worked on darkstar's checkout at the pinned `001b8844` (same commit the prompt verifies). The sandbox blocks Flutter's SDK writes and localhost sockets, so I ran the identical generated suites via a `/tmp` Flutter SDK copy + `dart test` instead of `bb cljd_agg`'s `flutter test` step (its compile step ran unchanged). The prompt's middle `--only` entry is a test var, not a namespace; I scoped to its two owning namespaces, covering all three named tests.
+
+**Reproduced signatures (pre-fix, Dart):** all three reds are `Stack Overflow` — `source-calls-php-function-test` in `yang.tails/mark-tails`, both PHP fixture tests in `yin.vm/datoms->ast`. Measured cause: the PHP bundled prelude is a linear `then` chain of ~900 definitions, depth **908** (vs. TypeScript's balanced **132**). Not (a): the parser is unused by these packet-based tests and most PHP fixtures already evaluate on Dart.
+
+**Fix (c), contained to the allowed surface** — [prelude.cljc](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude.cljc:5426): mirrored the TypeScript prelude's established balanced `sequence-tree` (same comment rationale, order- and value-preserving). One file: `1 file changed, 17 insertions(+), 2 deletions(-)`. Depth 908 → 173.
+
+**Verification:**
+- JVM `yang.php.antlr.lower-portable-test` + `prelude-test`: `Ran 41 tests containing 1627 assertions. 0 failures, 0 errors.`
+- JVM `yang.typescript.antlr.source-call-test`: `Ran 2 tests containing 22 assertions. 0 failures, 0 errors.`
+- Dart post-fix: `00:00 +8 -2` — all 8 PHP lower-portable tests green (including `portable-fixtures-test`); the 6 other fast PHP namespaces in the broader JVM run were also clean.
+- Control: Dart `linked-prelude-test` (pure TS, all backends): `All tests passed!` (10 tests).
+
+**Remaining red — outside the allowed surface, reported not gated:** both source-call tests now pass their bundled path and linked `:semantic`/`:register`, but linked `:stack` still fails with a previously masked signature: `Module link refused: absent` for `:segment/blake3-d1d63aff…` (the PHP module's 2.5 MB de Bruijn segment). A Dart probe confirmed all content addresses are JVM-identical and the segment is present in the store, while the pure-TS `:stack` control passes — so this is a `yin.vm.linker` serve/fetch defect triggered by the PHP chain, in `src/cljc/yin/vm/**` (not editable under this prompt). Host-gating it would hide a VM defect, so I left the tests ungated for the yin.vm owner. Sibling note: `yang.python`'s prelude still uses the same linear chain pattern.

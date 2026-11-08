@@ -1,0 +1,80 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 00:09 GMT
+Completed-Local: 2026-11-08 07:09 +07
+
+Done. `engine/trace` no longer structurally hashes Continuations/Closures; no commits made.
+
+## The fix
+
+The worktree `/tmp/nrf-branch-wt` (detached @ e0fa8b0a) already carried the candidate diff from the interrupted prior attempt. I reviewed it line-by-line for all three hosts, proved the mechanism, and ran the full prescribed verification rather than rewriting it. Shiva's clone holds the byte-identical file (blob `481436bd…` on both sides), compiled into its `target/node-tests.js` after the edit.
+
+In [engine.cljc](/tmp/nrf-branch-wt/src/cljc/yin/vm/engine.cljc:2482): `trace`'s seen-set now keys on a new `Visited` deftype `(mode, o)` whose `-equiv` is `identical?` on `o` and whose `-hash` is `(bit-xor (hash mode) (identity-hash o))` — `System/identityHashCode` (:clj), `goog/getUid` (:cljs), `dart-core/identityHashCode` (:cljd). Scalars still short-circuit via `scalar?`. `values.cljc` is untouched: Closure/Continuation `-hash` keeps its table-C structural semantics for general use, exactly as directed. Telemetry is untouched (its consumers in `yin.repl`, `yin.vm.semantic`, `yin.vm.ffi` see no shape change — the hashed dedup was the GC's seen-set, reached via `count-allocation` → `collect` → `mark`/`pin-refs` → `trace`, both now identity-keyed).
+
+Soundness: reachable-object graph is finite and `gc-children` implementations return original sub-objects (vals of `dissoc`, `(:next x)`, payloads), so identity dedup terminates and computes the same `found` id set — confirmed by identical heap-reclamation counts pre/post fix.
+
+## diff --stat
+
+```text
+ src/cljc/yin/vm/engine.cljc | 70 +++++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 64 insertions(+), 6 deletions(-)
+```
+
+(`git diff --stat` in the worktree also shows `shadow-cljs.edn` — the other seat's pre-existing `--stack-size=7168` edit, present before I started and left alone, as on Shiva with its `repl.cljc`/`dht.cljc`/`index_test.cljc` edits.)
+
+## Mechanism probe (scratch, /tmp/probe.clj)
+
+`engine/collect` over a VM whose store holds a Continuation wrapping a 3000-deep nested payload, `-Xss256k`:
+
+```text
+=== nrf-pristine ===  PROBE-STACKOVERFLOW
+=== nrf-branch-wt === PROBE-OK heap-count= 0
+```
+
+## Shiva (~/ci/datomworld-nightly-node, verbatim)
+
+```text
+Testing yang.python.antlr.linked-safepoint-test
+
+Testing yang.python.antlr.safepoint-test
+
+Ran 18 tests containing 121 assertions.
+0 failures, 0 errors.
+A_EXIT=0
+```
+
+```text
+Testing yang.typescript.antlr.string-forms-test
+
+Ran 5 tests containing 96 assertions.
+0 failures, 0 errors.
+B_EXIT=0
+```
+
+Bonus single-var run: `linked-recursion-error-test` — `Ran 1 tests containing 3 assertions. 0 failures, 0 errors.`
+
+## Jupiter (isolated worktree @ e0fa8b0a + patch, removed after; verbatim)
+
+```text
+Testing yang.python.antlr.safepoint-test
+
+Ran 1 tests containing 4 assertions.
+0 failures, 0 errors.
+```
+
+```text
+Testing yin.vm.heap-reclamation-test
+
+Ran 14 tests containing 196 assertions.
+0 failures, 0 errors.
+```
+
+## Notes
+
+- Pre-fix JVM passes these tests at default stack (the red is V8-specific, per audit); the overflow reproduces pre-fix only under reduced stack, as probed above. Node timings: linked ns ~19 min on Node vs 3m06s JVM — identical JVM wall time pre/post fix (3m06.561s vs 3m06.454s, same 16 tests/113 assertions), so no algorithmic regression.
+- `:cljd` branch compile-verified on Jupiter (`Compilation succeeded`; generated Dart calls `dc.identityHashCode`). The Dart *test* lane was not run — outside the prescribed scope.
+- One orphaned duplicate Node run from my first Shiva attempt was killed by exact PID; other seats' processes and files were not touched.

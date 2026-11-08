@@ -1,0 +1,68 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 02:11:19 GMT
+Completed-Local: 2026-11-08 09:11:19 +0700 (Asia/Ho_Chi_Minh)
+
+## Outcome
+
+Diagnosis is **(b) test-side gap** — not (a), and no (c) fix exists inside the allowed surface. The three reds never touch a PHP parser: both namespaces compile to Dart and lower checked-in CST packets. All failures are `Stack Overflow` in the recursive shared walkers ([yang/tails.cljc](/tmp/datomworld-php-dart-fix/src/cljc/yang/tails.cljc) `mark-tails`, [vm.cljc](/tmp/datomworld-php-dart-fix/src/cljc/yin/vm.cljc) `datoms->ast`) over the prelude-chained program tree. Making those walkers iterative is the un-gating fix; it lives in `yang.tails`/`yin.vm`, outside `test/yang/php/`, `test/yang/typescript/`, `src/cljc/yang/php/`, so it is owner work. The contained (b) fix gates the affected tests on `:cljd` with `#?(:cljd nil :default (deftest ...))`, the established pattern in [state_test.cljc:272](/tmp/datomworld-php-dart-fix/test/yin/repl/state_test.cljc:272).
+
+Environment note: this session runs on `darkstar`, not `jupiter`, and `~/ci/datomworld-nightly-dart` does not exist here. I used the equivalent: fresh clone of the local repo to `/tmp/datomworld-php-dart-fix`, `checkout --detach origin/master`, verified `001b88449bce7a51f1430c02213700db06faece1`. No commits made.
+
+## Failure signatures (verbatim, pre-fix Dart run)
+
+```text
+00:00 +0 -1: build/cljd-agg/shard_1_test.dart: null yang.typescript.antlr.source-call-test/source-calls-php-function-test [E]
+  Stack Overflow
+  lib/cljd-out/yang/tails.dart 53:49                                     mark_tails.<fn>
+...
+00:01 +0 -2: build/cljd-agg/shard_1_test.dart: null yang.typescript.antlr.source-call-test/source-foreign-store-and-callback-test [E]
+  Expected: (= expected (render/output (run bundled)))
+    Actual: Result:<has thrown Stack Overflow>
+...
+00:02 +0 -3: build/cljd-agg/shard_0_test.dart: null yang.php.antlr.lower-portable-test/portable-fixtures-test [E]
+  Stack Overflow
+  lib/cljd-out/yin/vm.dart 3481:58                                    ifn_index_datoms_M__18695hm$1.$_invoke$2.get_attr$1.<fn>
+...
+00:03 +1 -4: build/cljd-agg/shard_0_test.dart: null yang.php.antlr.lower-portable-test/enabled-stage0-fixtures-run-from-packets-test [E]
+  Stack Overflow
+```
+
+A fourth test, `stage-routes-programs-and-diagnostics-test`, overflowed intermittently post-gate (same `mark-tails` path via `lower-through-stage`, even for the one-line `echo-1` packet) and is gated for the same reason. Measured root cause on the JVM: one fixture's stage AST is depth 909, 41416 nodes, 103402 datoms — the PHP prelude chained through `u/seq-nodes`. The same test is green on the JVM (`Ran 1 tests containing 484 assertions. 0 failures, 0 errors.`), so the lowering is host-correct.
+
+Adjacent (a) fact, not these reds: [antlr/php/manifest.edn](/tmp/datomworld-php-dart-fix/antlr/php/manifest.edn) has only `:java` and `:javascript` targets and [cst.cljc](/tmp/datomworld-php-dart-fix/src/cljc/yang/php/antlr/cst.cljc) has no `:cljd` branch, so the PHP recognizer itself cannot run on Dart today — but parser-dependent PHP tests are already `.clj`-only and never reach the Dart lane. The prompt's literal `--only` selectors also cannot run at base `001b8844`: `yang.typescript.antlr.source-foreign-store-and-callback-test` is a deftest, not a namespace (`Could not locate ... source_foreign_store_and_callback_test.cljc`), and base [cljd_agg.clj](/tmp/datomworld-php-dart-fix/src/dev/cljd_agg.clj) accepts namespaces only; I verified with `--only yang.typescript.antlr.source-call-test,yang.php.antlr.lower-portable-test`.
+
+## Changes (scratch clone only, uncommitted)
+
+- [lower_portable_test.cljc](/tmp/datomworld-php-dart-fix/test/yang/php/antlr/lower_portable_test.cljc): gated `portable-fixtures-test`, `enabled-stage0-fixtures-run-from-packets-test`, and `stage-routes-programs-and-diagnostics-test` on `:cljd`; ns docstring updated.
+- [source_call_test.cljc](/tmp/datomworld-php-dart-fix/test/yang/typescript/antlr/source_call_test.cljc): gated `source-calls-php-function-test` and `source-foreign-store-and-callback-test` on `:cljd`.
+
+```text
+ test/yang/php/antlr/lower_portable_test.cljc     | 101 ++++++++++++++---------
+ test/yang/typescript/antlr/source_call_test.cljc |  20 ++++-
+ 2 files changed, 76 insertions(+), 45 deletions(-)
+```
+
+## Verification (verbatim)
+
+Dart scoped run (sandbox blocks `flutter test`'s loopback socket, so shards were run with `dart test`; same generated files, `DATOM_SLOW_TESTS=1`):
+
+```text
+JVM-only namespaces (compiled, no Dart tests; skipped): yang.typescript.antlr.source-call-test
+Emitted 1 test files in 1 shards under build/cljd-agg
+00:00 +5: All tests passed!
+EXIT:0
+```
+
+JVM regression (gated tests still run and pass):
+
+```text
+Ran 2 tests containing 487 assertions.
+0 failures, 0 errors.
+```
+
+Not verified: the Node lane (not run; nightly attributes these reds to Dart only), and a full JVM `source-calls-php-function-test` (exceeds 280 s on this laptop both before and after the change; namespace loads cleanly). Owner follow-up: make `yang.tails/mark-tails` and `yin.vm/datoms->ast`/`ast->datoms` iterative, then remove the five gates.
