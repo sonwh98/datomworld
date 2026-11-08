@@ -331,6 +331,12 @@
       out)))
 
 
+;; Dart gate (2026-11-08): :yang/php is not installed on Dart (the
+;; standard catalog there holds :clojure :python only), so the exact
+;; installed list and the php switch/eval assertions are host-variable.
+;; The refusal shape (it happens, names the installed set, session keeps
+;; its frontend) is asserted generically on every host; only the php
+;; catalog content is gated.
 (deftest the-interactive-composition-holds-every-standard-language
   (let [t (transcript ["(host)"
                        "(lang :yang/python)"
@@ -351,13 +357,33 @@
     (is (= ["'ab'"] (get-in t [4 1])))
     (testing "a language keyword is not a selector: the refusal names what
               is installed, and the session keeps its frontend"
-      (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
-                   " is not in the frontend catalog; installed: :clojure :php"
-                   " :python (ids :yang/clojure :yang/php :yang/python)")]
-             (get-in t [5 1])))
+      (let [refusal (first (get-in t [5 1]))]
+        (is (str/starts-with? refusal
+                              (str "Error: unavailable-parser: Yin REPL language :python"
+                                   " is not in the frontend catalog; installed:"))
+            refusal)
+        (is (str/includes? refusal ":clojure") refusal)
+        (is (str/includes? refusal ":python") refusal)
+        (is (str/includes? refusal ":yang/clojure") refusal)
+        (is (str/includes? refusal ":yang/python") refusal))
+      #?(:cljd nil
+         :default
+         (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
+                      " is not in the frontend catalog; installed: :clojure :php"
+                      " :python (ids :yang/clojure :yang/php :yang/python)")]
+                (get-in t [5 1]))))
       (is (= ["3"] (get-in t [6 1]))))
-    (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
-    (is (= ["3"] (get-in t [8 1])))
+    #?(:cljd
+       (testing "php is not installed on Dart: selection refuses, keeps python"
+         (let [refusal (first (get-in t [7 1]))]
+           (is (str/includes? refusal "unavailable-parser") refusal)
+           (is (str/includes? refusal "installed:") refusal))
+         (is (not= ["3"] (get-in t [8 1]))
+             "the php source is not evaluated as php without the frontend"))
+       :default
+       (do
+         (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
+         (is (= ["3"] (get-in t [8 1])))))
     (is (= "Switched to :yang/clojure" (first (get-in t [9 1]))))
     (testing "Clojure reads `1 + 2` as three forms; the last value prints"
       (is (= ["2"] (get-in t [10 1]))))
