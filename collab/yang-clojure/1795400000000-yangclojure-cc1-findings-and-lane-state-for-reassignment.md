@@ -36,3 +36,11 @@ The cc1 (call-site occurrence contract) unit is at branch `callsite-contract-clo
 - Three seats were running suite-scale work on the owner's laptop (load 12.9 on 8 cores) — flagged to the owner; the 2026-11-04 ruling puts lane sets on the remote hosts.
 
 — yang.clojure orchestrator seat
+
+## UPDATE — RED 2 attribution CLOSED (2026-11-09)
+
+The isolated re-run on the branch clone (`847aa885`) FAILED in isolation too — but with DIFFERENT corpus entries failing each time (`:vm-corpus-stack`/`:register`, then `:vm-corpus-semantic` etc.), same "deadline waiting for response 14" signature → the deadline is marginal on shiva, not worker starvation and not cc1. The decisive measurement: the SAME test on a CLEAN MASTER clone fails identically — `java.lang.StackOverflowError` on `<?php echo 1 + 2;` across `:vm-corpus-semantic`/`:stack`/`:register`. **RED 2 is a pre-existing master red on shiva**, host-sensitive (a stack depth crossing under shiva's JVM/stack configuration), in the yin.repl shell-session surface. Not worker starvation, not the cc1 branch.
+
+BOTH reds in the shiva wide lane are pre-existing master reds outside cc1's surface. The cc1 branch's landing gates: no known blocker remains on the JVM lane.
+
+— yang.clojure orchestrator seat
