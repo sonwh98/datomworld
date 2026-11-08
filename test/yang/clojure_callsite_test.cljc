@@ -467,6 +467,69 @@
                    {:declared? true :per-occurrence-origins? true}))))))
 
 
+(deftest twin-identical-content-distinct-origin-test
+  (testing "identical-content applications with different histories are
+            distinguishable by query (ruling U1: an occurrence is
+            (content address, origin); provenance is read from retained
+            history, never inferred from content): an expansion whose
+            output contains an admitted `(f 1)` operand AND a freshly
+            constructed identical `(f 1)` yields TWO site rows — the
+            admitted one with its incoming source origin, the
+            constructed one naming its expansion record"
+    (let [ast (yang/compile-program
+                '[(defmacro twin [x]
+                    (yin/if (yin/literal true)
+                            x
+                            (yin/application (yin/variable 'f) [(yin/literal 1)])))
+                  (defn f [y] y)
+                  (twin (f 1))])
+          {:keys [ctx result]} (expand-like-the-repl ast)
+          {:keys [status tree frontend-metadata log]} result
+          final (macro/packet->row-set tree)
+          admission [:source :program-in (:t ctx) 0]
+          event-addrs (into #{} (map first) (nth log 1))
+          rows (filterv #(= :yang/call-site (nth % 3)) frontend-metadata)
+          ;; the expansion's `:if` output (the run tree's root may carry
+          ;; the expanded form as an operand of the program wrapper)
+          if-row (some #(when (= :if (nth % 1)) %) (vals (:rows final)))]
+      (is (= :ok status))
+      (testing "the admitted and the constructed twin share one content address"
+        (let [a1 (nth if-row 3)
+              a2 (nth if-row 4)]
+          (is (= a1 a2)
+              "the `if` branches hold the SAME content address — an
+               address-set classification could never separate them")
+          (is (= (get (:rows final) a1) (get (:rows final) a2)))))
+      (let [twin-app (get (:rows final) (nth if-row 3))
+            twin-paths (into #{} (comp (filter (fn [[_ _ id]] (= twin-app (get (:rows final) id))))
+                                       (map (fn [[_ path _]] path)))
+                              (vm/occurrences final))
+            twin-origins (into #{} (comp (filter #(contains? twin-paths (nth % 2)))
+                                         (map #(nth % 0)))
+                               rows)]
+        (is (= 2 (count twin-paths))
+            "both application occurrences are marked — two occurrences,
+             one content address")
+        (testing "the site table yields two distinct origins"
+          (is (= 2 (count twin-origins)))
+          (is (contains? twin-origins admission)
+              "the admitted twin keeps its incoming source origin")
+          (let [expansion-origins (filterv expansion-origin? (vec twin-origins))]
+            (is (= 1 (count expansion-origins))
+                "the constructed twin carries exactly one expansion origin")
+            (is (contains? event-addrs (second (first expansion-origins)))
+                "and it names an expansion event the log actually recorded"))))
+      (testing "the expansion record retains the per-occurrence correspondence"
+        (let [corr (nth (first (nth log 1)) 11)]
+          (is (= {[3] [:retained admission], [4] :constructed} corr)
+              "path [3]: the retained operand with its incoming origin;
+               path [4]: the expansion's own construction")))
+      (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+      (is (true? (yang/validate-call-site-coverage!
+                   final frontend-metadata admission
+                   {:declared? true :per-occurrence-origins? true}))))))
+
+
 (deftest successive-expansions-test
   (testing "two loads over different programs: both trees' tables survive"
     (let [store (macro/seed-store

@@ -595,12 +595,68 @@
           (mapcat second packets)))
 
 
+(def ^:private pending-expansion-origin
+  "The construction origin the prelude attaches to every node the
+   macro's code builds during one invocation (ruling U1: identity comes
+   from the construction event, never from comparing content
+   addresses). `expand-call` substitutes the recorded expansion event's
+   `[:expansion record-address]` origin for it when the output's
+   occurrence correspondence is read — the placeholder never reaches a
+   table, a row, or an event it does not belong to."
+  [:expansion ::pending])
+
+
+(defn- with-origin-of
+  "Tag packet `p` with `f`, its construction origin function: `(f rel)`
+   answers the origin of the occurrence at `rel`, a path relative to
+   `p`'s root — the pending expansion origin for a node the macro's
+   code constructed, or, below a child coordinate that retains a
+   passed-through packet, that packet's own origin function. The
+   function rides the packet's metadata, so it is content-addressing
+   invisible and never leaks into a final tree."
+  [p f]
+  (vary-meta p assoc ::origin-of f))
+
+
+(defn- origin-of-fn
+  "The construction origin function packet `p` carries, or nil."
+  [p]
+  (::origin-of (meta p)))
+
+
+(defn- constructed-origin-fn
+  "The origin function of a packet the prelude constructed: its root
+   occurrence carries the pending expansion origin; a relative path
+   below a child coordinate delegates to the packet passed for that
+   child — a spliced operand retains its own incoming origin, however
+   the macro's code embedded it."
+  [coord-children]
+  (fn [rel]
+    (if (empty? rel)
+      pending-expansion-origin
+      (if-some [child (get coord-children (first rel))]
+        (if-some [f (origin-of-fn child)]
+          (f (subvec rel 1))
+          pending-expansion-origin)
+        pending-expansion-origin))))
+
+
 (defn- construct
-  "Intern `body` over the rows of its child `packets`; a closed packet."
+  "Intern `body` over the rows of its child `packets`; a closed packet.
+   Every node interned here is CONSTRUCTED by the expansion's code
+   (ruling U1), so the result packet carries the construction origin
+   function and the output's per-occurrence origins are read from this
+   construction history — never inferred by comparing content
+   addresses: a constructed node whose content equals a retained
+   node's stays distinct, because its origin answers through this
+   function and not through its address."
   [body packets]
   (let [index (merge-packets packets)
-        [index a] (intern-body index body)]
-    (packet-of index a)))
+        [index a] (intern-body index body)
+        coord-children (into {}
+                             (map (fn [[place p]] [(first place) p]))
+                             (map vector (child-places (get index a)) packets))]
+    (with-origin-of (packet-of index a) (constructed-origin-fn coord-children))))
 
 
 (defn- root-row
@@ -654,13 +710,22 @@
   [tree n]
   (let [row (root-row (need-packet 'yin/slot tree))
         kinds (into {} (slot-kinds (row-tag row)))
-        index (packet-index tree)]
+        index (packet-index tree)
+        ;; an extracted slot is input syntax READ, not built: the
+        ;; extracted packet retains the source packet's construction
+        ;; origin function, descending through the slot's coordinate
+        ofn (or (origin-of-fn tree)
+                (fn [_] pending-expansion-origin))]
     (when-not (and (integer? n) (contains? kinds n))
       (throw-prelude "yin/slot position names no grammar slot"
                      {:op 'yin/slot, :position n}))
     (case (get kinds n)
-      :node (packet-of index (nth row n))
-      :nodes (mapv #(packet-of index %) (nth row n))
+      :node (with-origin-of (packet-of index (nth row n))
+              (fn [rel] (ofn (into [n] rel))))
+      :nodes (map-indexed (fn [i c]
+                            (with-origin-of (packet-of index c)
+                              (fn [rel] (ofn (into [[n i]] rel)))))
+                          (nth row n))
       (nth row n))))
 
 
@@ -1003,9 +1068,20 @@
 ;; =============================================================================
 
 (defn- event-row
-  [attempt source-batch origin parent input-root call-path macro-root output-root error]
+  "The expansion record (§8). `correspondence` — nil for a failed
+   attempt — is the per-occurrence correspondence of the successful
+   output (ruling U1): `{path :constructed | [:retained origin]}` for
+   every `:application` occurrence of the output, at its path relative
+   to the output root, read from the construction history the macro's
+   own code threaded through the packets it built. A `:constructed`
+   occurrence names THIS record as its generating event (the record it
+   is retained in); a `[:retained origin]` occurrence names the
+   incoming origin its syntax already carried. The call-site side
+   table derives each marked occurrence's origin from this record."
+  [attempt source-batch origin parent input-root call-path macro-root output-root
+   error correspondence]
   (intern-row [:yin.macro/expand attempt source-batch origin parent input-root
-               call-path macro-root output-root error]))
+               call-path macro-root output-root error correspondence]))
 
 
 (defn- source-origin
@@ -1067,27 +1143,49 @@
 (declare expand-node)
 
 
+(defn- output-correspondence
+  "The per-occurrence correspondence of the expansion's output (ruling
+   U1): for every `:application` occurrence of output packet `tree`, at
+   its path relative to the output root, `:constructed` when the
+   expansion's code built that node, or `[:retained origin]` when the
+   node is input syntax retained with its own incoming origin. The
+   classification is the construction origin function the prelude
+   threaded through the packets the macro's code built — never a
+   comparison of content addresses; the recorded expansion event
+   retains the answer, and the site table derives each marked
+   occurrence's origin from it."
+  [tree ofn]
+  (into {}
+        (map (fn [path]
+               (let [o (ofn path)]
+                 [path (if (= pending-expansion-origin o)
+                         :constructed
+                         [:retained o])])))
+        (sort-by pr-str
+                 (map second
+                      (vm/application-occurrences (packet->row-set tree))))))
+
+
 (defn- expand-call
   "One recognized call: allocate an attempt, begin its event before any
    guard or invocation, run the transformer on the operand packets, validate
    and merge the result, finish the event, and reconsider the result at the
-   same occurrence with depth + 1."
+   same occurrence with depth + 1.
+
+   Each operand packet enters the invocation carrying its occurrence
+   origin function — the enclosing walk's origin at the operand's own
+   absolute path — and the prelude threads it through every node the
+   macro's code constructs (ruling U1): a spliced operand retains its
+   own incoming origin, a built node carries the pending expansion
+   origin. The output's per-occurrence correspondence is read from that
+   construction history, retained in the event record, and the
+   recursive walk answers origins from the record — never from
+   comparing content addresses."
   [st address entry {:keys [path rel frame shadow depth origin-of]}]
   (let [[st counter] (allocate-attempt st)
         ctx (:ctx st)
         macro-root (first (:yin.macro/tree entry))
-        ;; every output row whose content address is one of the input's
-        ;; own rows is the admitted syntax retained — a no-op expansion
-        ;; or an operand passed through — and keeps ITS OWN incoming
-        ;; provenance (§2.1): the origin the enclosing walk's
-        ;; `origin-of` already answers for that address, which need not
-        ;; be the replaced application's origin (an operand packet may
-        ;; carry syntax of mixed origin); rows the expansion itself
-        ;; generated take the event's origin below
-        input-addrs (into #{address}
-                          (map first)
-                          (second (packet-of (:index st) address)))
-        begin (fn [output error]
+        begin (fn [output error correspondence]
                 (event-row (attempt-id ctx counter)
                            (:source-batch st)
                            (when-not (:parent frame)
@@ -1097,14 +1195,20 @@
                            rel
                            macro-root
                            output
-                           error))
+                           error
+                           correspondence))
         failed (fn [st error]
-                 (-> st (record-event (begin nil error)) (fail error)))
+                 (-> st (record-event (begin nil error nil)) (fail error)))
         guards (:guards ctx)]
     (if (>= depth (:max-depth guards))
       [(failed st {:kind :depth-guard, :depth depth, :path path}) address]
       (let [row (get (:index st) address)
-            operands (mapv #(packet-of (:index st) %) (nth row 3))
+            operands (map-indexed
+                      (fn [i a]
+                        (with-origin-of (packet-of (:index st) a)
+                          (fn [rel]
+                            (origin-of (into (conj path [3 i]) rel)))))
+                      (nth row 3))
             {:keys [tree error]} (invoke* entry operands ctx counter)
             invalid (fn [reason]
                       {:kind :invalid-output, :macro macro-root, :path path,
@@ -1121,8 +1225,15 @@
                     [(failed st (invalid :address-conflict)) address]
                     (if-let [e (guard-batch-rows st')]
                       [(failed st' e) address]
-                      (let [out (first tree)
-                            ev (begin out nil)
+                      (let [;; the output's construction origin function
+                            ;; (ruling U1); an output the prelude did not
+                            ;; thread — unreachable through the sanctioned
+                            ;; constructors — classifies as constructed
+                            ofn (or (origin-of-fn tree)
+                                    (fn [_] pending-expansion-origin))
+                            corr (output-correspondence tree ofn)
+                            out (first tree)
+                            ev (begin out nil corr)
                             st' (-> st'
                                     (record-event ev)
                                     (update :produced
@@ -1136,20 +1247,20 @@
                                       :frame {:parent (first ev), :root out},
                                       :shadow shadow,
                                       :depth (inc depth),
+                                      ;; per-occurrence origins read from
+                                      ;; the RETAINED correspondence (§2.1,
+                                      ;; §8): a `[:retained origin]` names
+                                      ;; the incoming origin the syntax
+                                      ;; already carried, a `:constructed`
+                                      ;; occurrence names the recorded
+                                      ;; expansion event — the record the
+                                      ;; correspondence is retained in
                                       :origin-of
-                                      (fn [a]
-                                        (if (contains? input-addrs a)
-                                          ;; retained syntax keeps its
-                                          ;; own incoming provenance
-                                          ;; (§2.1), never the replaced
-                                          ;; call's origin
-                                          (origin-of a)
-                                          ;; the recorded expansion event
-                                          ;; row is the real expansion
-                                          ;; record (§8); its content
-                                          ;; address is the expansion
-                                          ;; origin (§2.1)
-                                          [:expansion (first ev)]))})))))))))))))
+                                      (fn [abs-path]
+                                        (let [o (get corr (subvec abs-path (count path)))]
+                                          (if (and (vector? o) (= :retained (first o)))
+                                            (second o)
+                                            [:expansion (first ev)])))})))))))))))))
 
 
 (defn- expand-children
@@ -1179,8 +1290,9 @@
    `rel` path within the current `frame` (`{:root r :parent event|nil
    :tree-index j}`), the lexical `shadow` set, the expansion `depth`,
    and `:origin-of` — the occurrence-provenance function of §2.1, which
-   answers the origin of the admission or generation event that
-   produced the syntax of the row at `address`. Every application
+   answers, for an ABSOLUTE occurrence path, the origin of the
+   admission or generation event that produced the syntax there.
+   Every application
    occurrence is recorded under its absolute path as it is visited, so
    the finalizer can name each occurrence's real origin; an occurrence
    replaced by an expansion is re-recorded by the expansion's own walk,
@@ -1198,7 +1310,7 @@
 
         (= :application tag)
         (let [st (update-in st [:call-site-origins]
-                            assoc (:path loc) ((:origin-of loc) address))
+                            assoc (:path loc) ((:origin-of loc) (:path loc)))
               op (nth row 2)
               [st op'] (expand-node st op (-> loc
                                               (update :path conj 2)
@@ -1325,7 +1437,7 @@
         (finish (-> st
                     (record-event (event-row (attempt-id ctx counter) source-batch
                                              (source-origin ctx source-batch nil)
-                                             nil nil nil nil nil error))
+                                             nil nil nil nil nil error nil))
                     (fail error))))
       (let [{:keys [trees indexes index run-index definitions]} admitted
             store0 (or (:store ctx) {})
@@ -1359,7 +1471,11 @@
                                          ;; every syntax of the admitted
                                          ;; run tree starts as source
                                          ;; (§2.1); expansions override
-                                         ;; below their outputs
+                                         ;; below their outputs. The
+                                         ;; function answers by absolute
+                                         ;; occurrence path and ignores it
+                                         ;; here: admitted syntax is all
+                                         ;; source
                                          :origin-of
                                          (fn [_]
                                            (source-origin
