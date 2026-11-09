@@ -1038,6 +1038,115 @@
           (is (true? (yang/validate-call-site-coverage!
                        tree rows origin {:declared? true}))))))))
 
+(defn- correspondences
+  "Every expansion correspondence the log recorded."
+  [log]
+  (map #(nth % 11) (nth log 1)))
+
+
+(deftest p1-packet-provenance-test
+  (testing "packet reassembly retains the incoming origin (P1-1)"
+    (let [ast (yang/compile-program
+                '[(defmacro repack [x]
+                    (conj [] (first x) (first (rest x))))
+                  (repack (+ 1 2))])
+          {:keys [ctx result]} (expand-like-the-repl ast)
+          {:keys [status tree frontend-metadata log]} result
+          final (macro/packet->row-set tree)
+          admission [:source :program-in (:t ctx) 0]]
+      (is (= :ok status))
+      (is (contains? (set (correspondences log))
+                     {[] [:retained admission]})
+          "the reassembled packet records the incoming origin as
+           retained, never fabricated construction")
+      (is (= #{admission} (row-origins frontend-metadata))
+          "the retained application keeps its source origin")
+      (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+      (is (true? (yang/validate-call-site-coverage!
+                   final frontend-metadata admission
+                   {:declared? true :per-occurrence-origins? true})))))
+  (testing "a reassembled packet inserted as a child retains its origin (P1-1)"
+    (let [ast (yang/compile-program
+                '[(defmacro repack-call [x]
+                    (yin/application (yin/variable 'f)
+                                     [(conj [] (first x)
+                                            (first (rest x)))]))
+                  (defn f [y] y)
+                  (repack-call (+ 1 2))])
+          {:keys [ctx result]} (expand-like-the-repl ast)
+          {:keys [status tree frontend-metadata log]} result
+          final (macro/packet->row-set tree)
+          admission [:source :program-in (:t ctx) 0]
+          event-addrs (into #{} (map first) (nth log 1))]
+      (is (= :ok status))
+      (is (contains? (set (correspondences log))
+                     {[] :constructed, [[3 0]] [:retained admission]})
+          "the built call is constructed; the reassembled child keeps
+           its incoming origin")
+      (is (contains? (row-origins frontend-metadata) admission))
+      (is (some (fn [o]
+                  (and (expansion-origin? o)
+                       (contains? event-addrs (second o))))
+                (row-origins frontend-metadata))
+          "the built call names its recorded expansion event")
+      (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+      (is (true? (yang/validate-call-site-coverage!
+                   final frontend-metadata admission
+                   {:declared? true :per-occurrence-origins? true})))))
+  (testing "equal-content operands: reassembly recovers its own occurrence (P1-1)"
+    ;; `a` and `b` hold identical row objects (one shared index), but
+    ;; `a` retains the source admission while `b` belongs to the
+    ;; `feed` expansion; recovering `a`'s origin for `b` is the
+    ;; ambiguous row-level match this pin refuses.
+    (let [ast (yang/compile-program
+                '[(defmacro pick-second [a b]
+                    (conj [] (first b) (first (rest b))))
+                  (defmacro feed [x]
+                    (yin/application (yin/variable 'pick-second)
+                      [x (yin/application (yin/variable 'f)
+                                           [(yin/literal 1)])]))
+                  (defn f [y] y)
+                  (feed (f 1))])
+          {:keys [ctx result]} (expand-like-the-repl ast)
+          {:keys [status tree frontend-metadata log]} result
+          final (macro/packet->row-set tree)
+          admission [:source :program-in (:t ctx) 0]
+          event-addrs (into #{} (map first) (nth log 1))
+          corrs (correspondences log)]
+      (is (= :ok status))
+      (is (some (fn [corr]
+                  (let [o (get corr [])]
+                    (and (vector? o) (= :retained (first o))
+                         (expansion-origin? (second o))
+                         (contains? event-addrs (second (second o))))))
+                corrs)
+          "reassembling b recovers the feed-expansion origin")
+      (is (not (contains? (set corrs) {[] [:retained admission]}))
+          "never the other occurrence's source admission")
+      (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+      (is (true? (yang/validate-call-site-coverage!
+                   final frontend-metadata admission
+                   {:declared? true :per-occurrence-origins? true})))))
+  (testing "a packet entering a literal slot encodes cleanly (P1-2)"
+    (let [ast (yang/compile-program
+                '[(defmacro packet-data [x] (yin/literal x))
+                  (packet-data (+ 1 2))])
+          {:keys [result]} (expand-like-the-repl ast)
+          {:keys [status tree]} result
+          payload (some (fn [row]
+                          (when (and (= :literal (nth row 1))
+                                     (vector? (nth row 2)))
+                            (nth row 2)))
+                        (second tree))]
+      (is (= :ok status)
+          "private tracking metadata never reaches the encoder")
+      (is (some? payload) "the operand survives as literal data")
+      (is (not (contains? (or (meta payload) {})
+                          :yin.vm.macro/origin-of))
+          "only the private tracking entry is removed")
+      (is (nil? (macro/valid-tree? tree))))))
+
+
 (deftest publisher-scope-id-identity-test
   (testing "scope ids keep their full identity: a keyword's namespace
             and a string's type are part of the id, so :a/publisher,

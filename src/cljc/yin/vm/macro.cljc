@@ -624,21 +624,127 @@
   (::origin-of (meta p)))
 
 
+(def ^:private tracking-meta-keys
+  "The private provenance entries the expander rides on packet values.
+   They are host functions, so they must never enter a hashed or
+   validated data slot (P1-2); every other metadata entry is the
+   caller's legitimate data and is preserved."
+  #{::origin-of})
+
+
+(defn- strip-tracking
+  "Remove only the private tracking entries, recursively, from `x`:
+   every collection element, map key and value, and every metadata map
+   (including metadata on metadata) is visited, so a packet nested at
+   any depth inside a literal payload loses its host-function origin
+   while legitimate user metadata survives untouched."
+  [x]
+  (let [x' (cond (record? x) x
+                 (map? x) (into (empty x)
+                                (map (fn [[k v]]
+                                       [(strip-tracking k)
+                                        (strip-tracking v)]))
+                                x)
+                 (set? x) (into (empty x) (map strip-tracking) x)
+                 (vector? x) (mapv strip-tracking x)
+                 (sequential? x) (with-meta
+                                   (apply list (map strip-tracking x))
+                                   nil)
+                 :else x)
+        m (meta x)]
+    (if m
+      (let [m' (strip-tracking
+                 (apply dissoc m tracking-meta-keys))]
+        (with-meta x' (when-not (and (empty? m') (nil? (meta m'))) m')))
+      x')))
+
+
+(defn- packet-has-application?
+  "True when packet `p` contains an `:application` occurrence, the only
+   occurrences whose provenance a correspondence ever reads."
+  [p]
+  (boolean (and (packet? p)
+                (some #(= :application (row-tag %)) (second p)))))
+
+
+(defn- register-lineage!
+  "Record packet `p` in the invocation `lineage` (an atom of entries)
+   under the identity of its rows vector. Host decomposition
+   (`first`/`rest`/`get`) hands that very object to reassembly, so the
+   entry is how a rebuilt packet proves it is this packet retained,
+   never a content twin built anew. Returns `p`."
+  [lineage p]
+  (when (and lineage (packet? p) (origin-of-fn p))
+    (when-not (some #(identical? (second p) (:rows %)) @lineage)
+      (swap! lineage conj {:root (first p), :rows (second p),
+                           :fn (origin-of-fn p)})))
+  p)
+
+
+(defn- lineage-origin-for
+  "The retained origin function for candidate packet `c`, or nil when
+   no registered packet unambiguously accounts for it. Content
+   equality alone never suffices — a freshly built twin holds equal
+   but distinct row objects and recovers nothing here (ruling U1).
+
+   Exact container lineage is preferred: a registered packet whose
+   rows vector is the very object `c` carries (host decomposition
+   hands that object to reassembly) is occurrence-specific, so it
+   wins over any row-level match. Row-level recovery — the root
+   matches and every row is `identical?` to a registered packet's
+   row in order — is taken only when exactly one distinct origin
+   function matches: distinct occurrences of identical content share
+   row objects (`packet-of` retrieves them from one index), so a
+   first-match pick among ambiguous row-level candidates would
+   attach another occurrence's origin. Ambiguity is refused (nil),
+   which downstream reads as missing provenance, never as a guess."
+  [lineage c]
+  (when (and lineage (packet? c) (nil? (origin-of-fn c)))
+    (let [entries (filter #(= (:root %) (first c)) @lineage)
+          rows (second c)
+          only-fn (fn [es]
+                    (let [fns (distinct (map :fn es))]
+                      (when (= 1 (count fns)) (first fns))))
+          exact (filter #(identical? (:rows %) rows) entries)]
+      (if (seq exact)
+        (only-fn exact)
+        (only-fn (filter #(and (= (count (:rows %)) (count rows))
+                               (every? true?
+                                       (map identical? (:rows %) rows)))
+                         entries))))))
+
+
+(def ^:private missing-provenance-origin
+  "The origin an unaccounted child answers below its coordinate: no
+   sanctioned operation threaded provenance to it, so nothing may
+   relabel its occurrences as this expansion's construction (P1-1).
+   `output-correspondence` carries the marker through and
+   `expand-call` refuses the output as `:missing-provenance`; the
+   marker never reaches a table, a row, or an event."
+  [:expansion ::missing])
+
+
 (defn- constructed-origin-fn
   "The origin function of a packet the prelude constructed: its root
    occurrence carries the pending expansion origin; a relative path
    below a child coordinate delegates to the packet passed for that
    child — a spliced operand retains its own incoming origin, however
-   the macro's code embedded it."
-  [coord-children]
-  (fn [rel]
-    (if (empty? rel)
-      pending-expansion-origin
-      (if-some [child (get coord-children (first rel))]
-        (if-some [f (origin-of-fn child)]
-          (f (subvec rel 1))
-          pending-expansion-origin)
-        pending-expansion-origin))))
+   the macro's code embedded it. `recover` answers a child packet's
+   retained origin function when the packet itself carries none (it
+   was rebuilt by decomposition/reassembly); a child neither source
+   accounts for answers `missing-provenance-origin` below its
+   coordinate, which the expander refuses rather than reads as
+   construction."
+  ([coord-children] (constructed-origin-fn coord-children (fn [_] nil)))
+  ([coord-children recover]
+   (fn [rel]
+     (if (empty? rel)
+       pending-expansion-origin
+       (if-some [child (get coord-children (first rel))]
+         (if-some [f (or (origin-of-fn child) (recover child))]
+           (f (subvec rel 1))
+           missing-provenance-origin)
+         pending-expansion-origin)))))
 
 
 (defn- construct
@@ -649,14 +755,34 @@
    construction history — never inferred by comparing content
    addresses: a constructed node whose content equals a retained
    node's stays distinct, because its origin answers through this
-   function and not through its address."
-  [body packets]
-  (let [index (merge-packets packets)
-        [index a] (intern-body index body)
-        coord-children (into {}
-                             (map (fn [[place p]] [(first place) p]))
-                             (map vector (child-places (get index a)) packets))]
-    (with-origin-of (packet-of index a) (constructed-origin-fn coord-children))))
+   function and not through its address.
+
+   Values entering `:data`/`:key` slots are stripped of private
+   tracking metadata first (P1-2), before hashing and validation.
+   Missing child provenance never proves construction (P1-1): the
+   result's origin function answers the missing marker below an
+   unaccounted child and the expander refuses such an output."
+  ([body packets] (construct body packets nil))
+  ([body packets lineage]
+   (let [recover (fn [child] (lineage-origin-for lineage child))]
+     (let [tag (first body)
+           slots (get working-grammar tag)
+           body (if (and slots (= (count slots) (count (rest body))))
+                  (into [tag]
+                        (map (fn [[_ kind] v]
+                               (if (contains? #{:data :key} kind)
+                                 (strip-tracking v)
+                                 v))
+                             slots
+                             (rest body)))
+                  body)
+           index (merge-packets packets)
+           [index a] (intern-body index body)
+           coord-children (into {}
+                                (map (fn [[place p]] [(first place) p]))
+                                (map vector (child-places (get index a)) packets))]
+       (with-origin-of (packet-of index a)
+         (constructed-origin-fn coord-children recover))))))
 
 
 (defn- root-row
@@ -665,21 +791,24 @@
 
 
 (defn- literal-packet
-  [v]
-  (construct [:literal v] []))
+  ([v] (literal-packet v nil))
+  ([v lineage] (construct [:literal (strip-tracking v)] [] lineage)))
 
 
 (defn- application-packet
-  [operator operands]
-  (construct [:application (first operator) (mapv first operands) false]
-             (cons operator operands)))
+  ([operator operands] (application-packet operator operands nil))
+  ([operator operands lineage]
+   (construct [:application (first operator) (mapv first operands) false]
+              (cons operator operands)
+              lineage)))
 
 
 (defn- lambda-packet
-  [params body]
-  (when-not (and (sequential? params) (every? symbol? params))
-    (throw-prelude "yin/lambda params must be symbols" {:op 'yin/lambda}))
-  (construct [:lambda (vec params) (first body)] [body]))
+  ([params body] (lambda-packet params body nil))
+  ([params body lineage]
+   (when-not (and (sequential? params) (every? symbol? params))
+     (throw-prelude "yin/lambda params must be symbols" {:op 'yin/lambda}))
+   (construct [:lambda (vec params) (first body)] [body] lineage)))
 
 
 (defn- name-of
@@ -696,26 +825,35 @@
 (defn- sequence-body
   "The reference `do` lowering: `(do a b c)` is `((fn [_] ((fn [_] c) b)) a)`;
    one form is itself and none is the literal nil."
-  [trees]
-  (let [trees (vec trees)]
-    (doseq [t trees] (need-packet 'yin/sequence-body t))
-    (case (count trees)
-      0 (literal-packet nil)
-      1 (first trees)
-      (application-packet (lambda-packet ['_] (sequence-body (subvec trees 1)))
-                          [(first trees)]))))
+  ([trees] (sequence-body trees nil))
+  ([trees lineage]
+   (let [trees (vec trees)]
+     (doseq [t trees] (need-packet 'yin/sequence-body t))
+     (case (count trees)
+       0 (literal-packet nil lineage)
+       1 (first trees)
+       (application-packet
+         (lambda-packet ['_]
+                        (sequence-body (subvec trees 1) lineage)
+                        lineage)
+         [(first trees)]
+         lineage)))))
 
 
 (defn- slot-of
-  [tree n]
-  (let [row (root-row (need-packet 'yin/slot tree))
+  ([tree n] (slot-of tree n nil))
+  ([tree n lineage]
+   (let [row (root-row (need-packet 'yin/slot tree))
         kinds (into {} (slot-kinds (row-tag row)))
         index (packet-index tree)
         ;; an extracted slot is input syntax READ, not built: the
         ;; extracted packet retains the source packet's construction
-        ;; origin function, descending through the slot's coordinate
+        ;; origin function, descending through the slot's coordinate.
+        ;; A source no operation accounted for answers the missing
+        ;; marker, never fabricated construction (P1-1).
         ofn (or (origin-of-fn tree)
-                (fn [_] pending-expansion-origin))]
+                (lineage-origin-for lineage tree)
+                (fn [_] missing-provenance-origin))]
     (when-not (and (integer? n) (contains? kinds n))
       (throw-prelude "yin/slot position names no grammar slot"
                      {:op 'yin/slot, :position n}))
@@ -726,47 +864,106 @@
                             (with-origin-of (packet-of index c)
                               (fn [rel] (ofn (into [[n i]] rel)))))
                           (nth row n))
-      (nth row n))))
+      (nth row n)))))
 
 
 (defn prelude
   "The closed body environment (§5.3): the pure standard primitives (no
    `require`, no stream or FFI constructor) and the row-native constructors,
    each consuming and returning self-contained tree packets. `gensym` is the
-   invocation-local `yin/gensym-sym`."
-  [gensym]
-  (merge
-    (dissoc vm/primitives 'require 'try-require 'bytes->str)
-    {'yin/tag (fn [tree] (row-tag (root-row (need-packet 'yin/tag tree)))),
-     'yin/slot slot-of,
-     'yin/literal literal-packet,
-     'yin/variable (fn [sym]
-                     (when-not (symbol? sym)
-                       (throw-prelude "yin/variable expects a symbol" {:op 'yin/variable}))
-                     (construct [:variable sym] [])),
-     'yin/lambda (fn [params body] (lambda-packet params (need-packet 'yin/lambda body))),
-     'yin/application (fn [operator operands]
-                        (need-packet 'yin/application operator)
-                        (doseq [o operands] (need-packet 'yin/application o))
-                        (application-packet operator (vec operands))),
-     'yin/if (fn [t c a]
-               (doseq [x [t c a]] (need-packet 'yin/if x))
-               (construct [:if (first t) (first c) (first a)] [t c a])),
-     'yin/sequence-body sequence-body,
-     'yin/make-lambda (fn [params-tree body]
-                        (let [row (root-row (need-packet 'yin/make-lambda params-tree))]
-                          (when-not (and (= :literal (row-tag row))
-                                         (vector? (nth row 2))
-                                         (every? symbol? (nth row 2)))
-                            (throw-prelude "yin/make-lambda reads a literal parameter vector"
-                                           {:op 'yin/make-lambda}))
-                          (lambda-packet (nth row 2) (need-packet 'yin/make-lambda body)))),
-     'yin/make-def (fn [name-tree value-tree]
-                     (application-packet (construct [:variable 'yin/def] [])
-                                         [(literal-packet (name-of name-tree))
-                                          (need-packet 'yin/make-def value-tree)])),
-     'yin/name-of name-of,
-     'yin/gensym-sym gensym}))
+   invocation-local `yin/gensym-sym`.
+
+   The collection primitives are provenance-aware within one invocation
+   (P1-1): decomposing a packet (`first`/`rest`/`get`) registers its
+   lineage, and reassembling one (`conj`/`assoc`/`vec`) reattaches the
+   retained origin function when the rebuilt packet holds the very row
+   objects it was decomposed from. A packet rebuilt any other way
+   carries no provenance and is refused downstream rather than
+   relabelled as construction."
+  ([gensym] (prelude gensym (atom [])))
+  ([gensym lineage]
+   (let [recover-packet (fn [result]
+                          (cond (not (packet? result)) result
+                                (origin-of-fn result)
+                                (register-lineage! lineage result)
+                                :else (if-some [f (lineage-origin-for
+                                                    lineage result)]
+                                        (with-origin-of result f)
+                                        result)))
+         wrap (fn [sym f]
+                (let [entry (get vm/primitives sym)]
+                  (if (and (map? entry)
+                           (contains? entry :yin.k/function))
+                    (assoc entry :yin.k/function f)
+                    f)))
+         p-first (fn [coll]
+                   (register-lineage! lineage coll)
+                   (recover-packet (first coll)))
+         p-rest (fn [coll]
+                  (register-lineage! lineage coll)
+                  (vec (rest coll)))
+         p-conj (fn [coll & xs]
+                  (register-lineage! lineage coll)
+                  (doseq [x xs] (register-lineage! lineage x))
+                  (recover-packet (apply conj coll xs)))
+         p-assoc (fn [m & kvs]
+                   (register-lineage! lineage m)
+                   (recover-packet (apply assoc m kvs)))
+         p-get (fn
+                 ([m k]
+                  (register-lineage! lineage m)
+                  (recover-packet (get m k)))
+                 ([m k not-found]
+                  (register-lineage! lineage m)
+                  (recover-packet (get m k not-found))))
+         p-vec (fn [coll]
+                 (recover-packet (vec coll)))]
+     (merge
+       (dissoc vm/primitives 'require 'try-require 'bytes->str)
+       {'first (wrap 'first p-first),
+        'rest (wrap 'rest p-rest),
+        'conj (wrap 'conj p-conj),
+        'assoc (wrap 'assoc p-assoc),
+        'get (wrap 'get p-get),
+        'vec (wrap 'vec p-vec),
+        'yin/tag (fn [tree] (row-tag (root-row (need-packet 'yin/tag tree)))),
+        'yin/slot (fn [tree n] (slot-of tree n lineage)),
+        'yin/literal (fn [v] (literal-packet v lineage)),
+        'yin/variable (fn [sym]
+                        (when-not (symbol? sym)
+                          (throw-prelude "yin/variable expects a symbol" {:op 'yin/variable}))
+                        (construct [:variable sym] [] lineage)),
+        'yin/lambda (fn [params body]
+                      (lambda-packet params (need-packet 'yin/lambda body)
+                                     lineage)),
+        'yin/application (fn [operator operands]
+                           (need-packet 'yin/application operator)
+                           (doseq [o operands] (need-packet 'yin/application o))
+                           (application-packet operator (vec operands)
+                                               lineage)),
+        'yin/if (fn [t c a]
+                  (doseq [x [t c a]] (need-packet 'yin/if x))
+                  (construct [:if (first t) (first c) (first a)] [t c a]
+                             lineage)),
+        'yin/sequence-body (fn [trees] (sequence-body trees lineage)),
+        'yin/make-lambda (fn [params-tree body]
+                           (let [row (root-row (need-packet 'yin/make-lambda params-tree))]
+                             (when-not (and (= :literal (row-tag row))
+                                            (vector? (nth row 2))
+                                            (every? symbol? (nth row 2)))
+                               (throw-prelude "yin/make-lambda reads a literal parameter vector"
+                                              {:op 'yin/make-lambda}))
+                             (lambda-packet (nth row 2)
+                                            (need-packet 'yin/make-lambda body)
+                                            lineage))),
+        'yin/make-def (fn [name-tree value-tree]
+                        (application-packet
+                          (construct [:variable 'yin/def] [] lineage)
+                          [(literal-packet (name-of name-tree) lineage)
+                           (need-packet 'yin/make-def value-tree)]
+                          lineage)),
+        'yin/name-of name-of,
+        'yin/gensym-sym gensym}))))
 
 
 (def ^:private suspending-tags
@@ -901,15 +1098,22 @@
                        (vswap! n inc)
                        (symbol (str (if (symbol? prefix) (name prefix) prefix)
                                     "__" token "_" counter "_" i))))
+            lineage (atom [])
+            _ (doseq [p operands] (register-lineage! lineage p))
             run (or (:eval ctx) bounded-row-evaluator)
             {:keys [value error]} (run {:macro-tree macro-tree,
                                         :contract (:yin.macro/contract entry),
                                         :env env,
-                                        :prelude (prelude gensym),
+                                        :prelude (prelude gensym lineage),
                                         :max-steps (get-in ctx [:guards :max-steps])})]
         (if error
           {:error (assoc error :macro macro-root)}
-          {:tree value})))))
+          {:tree (if (and (packet? value)
+                          (nil? (origin-of-fn value)))
+                   (if-some [f (lineage-origin-for lineage value)]
+                     (with-origin-of value f)
+                     value)
+                   value)})))))
 
 
 (def default-guards
@@ -1153,14 +1357,17 @@
    threaded through the packets the macro's code built — never a
    comparison of content addresses; the recorded expansion event
    retains the answer, and the site table derives each marked
-   occurrence's origin from it."
+   occurrence's origin from it. An occurrence no operation accounted
+   for reads `::missing-provenance`; `expand-call` refuses such an
+   output, so the marker is retained in no event."
   [tree ofn]
   (into {}
         (map (fn [path]
                (let [o (ofn path)]
-                 [path (if (= pending-expansion-origin o)
-                         :constructed
-                         [:retained o])])))
+                 [path (cond (= pending-expansion-origin o) :constructed
+                             (= missing-provenance-origin o)
+                             ::missing-provenance
+                             :else [:retained o])])))
         (sort-by pr-str
                  (map second
                       (vm/application-occurrences (packet->row-set tree))))))
@@ -1225,14 +1432,25 @@
                     [(failed st (invalid :address-conflict)) address]
                     (if-let [e (guard-batch-rows st')]
                       [(failed st' e) address]
-                      (let [;; the output's construction origin function
-                            ;; (ruling U1); an output the prelude did not
-                            ;; thread — unreachable through the sanctioned
-                            ;; constructors — classifies as constructed
+                      (if (and (nil? (origin-of-fn tree))
+                               (packet-has-application? tree))
+                        ;; missing provenance never proves construction
+                        ;; (P1-1): an application-bearing output no
+                        ;; sanctioned operation accounted for is refused,
+                        ;; never relabelled with this expansion's origin
+                        [(failed st' (invalid :missing-provenance)) address]
+                        (let [;; the output's construction origin function
+                            ;; (ruling U1), threaded by the prelude through
+                            ;; every packet it built or reassembled; the
+                            ;; fallback is reached only by an output
+                            ;; without applications, whose correspondence
+                            ;; never consults it
                             ofn (or (origin-of-fn tree)
                                     (fn [_] pending-expansion-origin))
-                            corr (output-correspondence tree ofn)
-                            out (first tree)
+                            corr (output-correspondence tree ofn)]
+                        (if (some #(= ::missing-provenance %) (vals corr))
+                          [(failed st' (invalid :missing-provenance)) address]
+                          (let [out (first tree)
                             ev (begin out nil corr)
                             st' (-> st'
                                     (record-event ev)
@@ -1260,7 +1478,7 @@
                                         (let [o (get corr (subvec abs-path (count path)))]
                                           (if (and (vector? o) (= :retained (first o)))
                                             (second o)
-                                            [:expansion (first ev)])))})))))))))))))
+                                            [:expansion (first ev)])))}))))))))))))))))
 
 
 (defn- expand-children
