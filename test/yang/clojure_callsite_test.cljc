@@ -244,7 +244,7 @@
         (try (yang/validate-call-site-coverage!
                tree double-marked origin {:declared? true})
              (is false "the double marking must fail")
-             (catch #?(:cljd Throwable :clj Exception :cljs :default) e
+             (catch #?(:cljd Object :clj Exception :cljs :default) e
                (let [d (ex-data e)]
                  (is (= [(:root tree) (nth (first markers) 2)] (:site d))
                      "the diagnostic names the double-claimed occurrence")
