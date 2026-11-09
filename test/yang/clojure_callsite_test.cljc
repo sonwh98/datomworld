@@ -1127,6 +1127,42 @@
       (is (true? (yang/validate-call-site-coverage!
                    final frontend-metadata admission
                    {:declared? true :per-occurrence-origins? true})))))
+  (testing "packet content replacement drops stale tracking metadata (P1-4)"
+    ;; `assoc` on packet `a` replaces its contents with `b`'s while the
+    ;; host operation retains `a`'s vector metadata; trusting that
+    ;; `::origin-of` would record `a`'s source origin for `b`'s
+    ;; occurrence. The rebuilt packet must instead recover the feed
+    ;; expansion's origin from its actual (root, rows) lineage.
+    (let [ast (yang/compile-program
+                '[(defmacro pick-second [a b]
+                    (assoc a 0 (first b) 1 (first (rest b))))
+                  (defmacro feed [x]
+                    (yin/application (yin/variable 'pick-second)
+                      [x (yin/application (yin/variable 'g)
+                                           [(yin/literal 2)])]))
+                  (defn f [y] y)
+                  (defn g [y] y)
+                  (feed (f 1))])
+          {:keys [ctx result]} (expand-like-the-repl ast)
+          {:keys [status tree frontend-metadata log]} result
+          final (macro/packet->row-set tree)
+          admission [:source :program-in (:t ctx) 0]
+          event-addrs (into #{} (map first) (nth log 1))
+          corrs (correspondences log)]
+      (is (= :ok status))
+      (is (some (fn [corr]
+                  (let [o (get corr [])]
+                    (and (vector? o) (= :retained (first o))
+                         (expansion-origin? (second o))
+                         (contains? event-addrs (second (second o))))))
+                corrs)
+          "replacing a's contents with b's recovers the feed-expansion origin")
+      (is (not (contains? (set corrs) {[] [:retained admission]}))
+          "never a's stale source admission, carried by retained metadata")
+      (is (= (occurrence-pairs final) (marked-pairs frontend-metadata)))
+      (is (true? (yang/validate-call-site-coverage!
+                   final frontend-metadata admission
+                   {:declared? true :per-occurrence-origins? true})))))
   (testing "a packet entering a literal slot encodes cleanly (P1-2)"
     (let [ast (yang/compile-program
                 '[(defmacro packet-data [x] (yin/literal x))

@@ -879,7 +879,17 @@
    retained origin function when the rebuilt packet holds the very row
    objects it was decomposed from. A packet rebuilt any other way
    carries no provenance and is refused downstream rather than
-   relabelled as construction."
+   relabelled as construction.
+
+   Tracking metadata is valid only for the exact vector object it was
+   attached to (P1-4): host `assoc`/`conj` copy the input vector's
+   metadata onto a new vector whose contents may be unrelated, so
+   every content-changing primitive routes its result through the one
+   choke point `recover-rebuilt-packet`, which drops `::origin-of`
+   before lineage recovery. Extractive primitives (`first`/`get`)
+   return the very object that was tagged, so they alone may trust
+   the metadata they hand back. A rebuilt packet no lineage entry
+   accounts for carries no provenance and is refused downstream."
   ([gensym] (prelude gensym (atom [])))
   ([gensym lineage]
    (let [recover-packet (fn [result]
@@ -890,6 +900,11 @@
                                                     lineage result)]
                                         (with-origin-of result f)
                                         result)))
+         recover-rebuilt-packet
+         (fn [result]
+           (recover-packet (if (origin-of-fn result)
+                             (vary-meta result dissoc ::origin-of)
+                             result)))
          wrap (fn [sym f]
                 (let [entry (get vm/primitives sym)]
                   (if (and (map? entry)
@@ -905,10 +920,10 @@
          p-conj (fn [coll & xs]
                   (register-lineage! lineage coll)
                   (doseq [x xs] (register-lineage! lineage x))
-                  (recover-packet (apply conj coll xs)))
+                  (recover-rebuilt-packet (apply conj coll xs)))
          p-assoc (fn [m & kvs]
                    (register-lineage! lineage m)
-                   (recover-packet (apply assoc m kvs)))
+                   (recover-rebuilt-packet (apply assoc m kvs)))
          p-get (fn
                  ([m k]
                   (register-lineage! lineage m)
@@ -917,7 +932,8 @@
                   (register-lineage! lineage m)
                   (recover-packet (get m k not-found))))
          p-vec (fn [coll]
-                 (recover-packet (vec coll)))]
+                 (register-lineage! lineage coll)
+                 (recover-rebuilt-packet (vec coll)))]
      (merge
        (dissoc vm/primitives 'require 'try-require 'bytes->str)
        {'first (wrap 'first p-first),
