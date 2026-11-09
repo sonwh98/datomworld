@@ -51,8 +51,11 @@
 
 (deftest a-datom-member-declares-what-its-map-ast-declares
   (let [ast (program '((defmacro m [x] x) (m 1)))]
-    (is (= (encoder/program-batch ast)
-           (encoder/program-batch (vec (vm/ast->datoms ast))))
+    ;; the C1 claim element, when the map path claims coverage, is the
+    ;; one difference: `:yang/call-site` markers are occurrence
+    ;; metadata, not datoms, so a datom member makes no C1 claim
+    (is (= (subvec (encoder/program-batch ast) 0 5)
+           (subvec (encoder/program-batch (vec (vm/ast->datoms ast))) 0 5))
         "the :yin/macro? datom carries the frontend's declaration fact")))
 
 

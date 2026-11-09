@@ -227,35 +227,122 @@
                               {:rule :batch-member, :member member}))))
 
 
+(def ^:private call-site-key
+  "The reserved frontend-metadata key of the call-site occurrence
+   contract C1 (`yang.clojure`), enforced at this boundary but not
+   owned by it."
+  :yang/call-site)
+
+
+(defn- marked-call-sites
+  "The `[path value]` of every node of map AST `ast` carrying the C1
+   key, walked by the row grammar. Literal payloads are data, never
+   syntax, and are not walked. Member ASTs are already projected by the
+   time this runs, so every tag is a grammar tag."
+  [ast]
+  (letfn [(walk
+            [node path]
+            (into (if (contains? node call-site-key)
+                    [[path (get node call-site-key)]]
+                    [])
+                  (mapcat (fn [[j [field kind]]]
+                            (let [pos (+ j 2)
+                                  value (get node field)]
+                              (case kind
+                                :node (walk value (conj path pos))
+                                :nodes (mapcat (fn [[i child]]
+                                                 (walk child
+                                                       (conj path [pos i])))
+                                               (map-indexed vector value))
+                                nil)))
+                          (map-indexed vector
+                                       (get vm/semantic-bytecode-grammar
+                                            (:type node))))))]
+    (walk ast [])))
+
+
+(defn- check-call-site-claim!
+  "Refuse a batch member whose C1 markers do not exactly cover its
+   projected tree, naming the failed `:rule`: canonical-row production
+   must not silently drop a frontend's coverage claim. The claim is
+   checked root-relatively — admission origins belong to the admitting
+   expander, not to this projection. A member carrying no markers
+   makes no claim and passes; the executed tree's table is finalized
+   after expansion, over the final rows. Answers true when the member
+   claimed coverage (it passed the check), false when it carried no
+   markers — one verdict per member, so the selected member's own
+   verdict, never a sibling's, decides whether the expander finalizes
+   its side table."
+  [ast tree]
+  (let [marked (marked-call-sites ast)]
+    (if (seq marked)
+      (do (doseq [[path value] marked]
+            (when (not= 1 value)
+              (throw (ex-info "Unsupported call-site marker version"
+                              {:rule :yang/call-site-unsupported-version,
+                               :path path, :value value}))))
+          (let [eligible (into #{} (map second) (vm/application-occurrences tree))
+                claimed (into #{} (map first) marked)]
+            (when (not= eligible claimed)
+              (throw (ex-info "Call-site markers do not cover the projected tree"
+                              {:rule :yang/call-site-incomplete-coverage,
+                               :missing (vec (sort-by pr-str
+                                                      (remove claimed eligible))),
+                               :extra (vec (sort-by pr-str
+                                                    (remove eligible claimed)))}))))
+          true)
+      false)))
+
+
 (defn program-batch
   "Encode frontend output as the expander's input batch (§2.1):
-   `[:yin.program/batch trees run-index declaration-rows harvest-rows]`.
-   Each member — a map AST or a `:yin/*` datom batch — projects to one tree
-   packet; `run-index` selects the one that becomes the program. Harvest
-   rows name every `(yin/def <literal-symbol> value)` occurrence in source
-   declaration order, member by member; declaration rows name those whose
-   lambda the frontend flagged `:macro?`. No syntax object crosses: every
-   code field is canonical rows."
+   `[:yin.program/batch trees run-index declaration-rows harvest-rows
+   call-site-claims]` — the trailing element present only when some
+   member claimed call-site (C1) coverage, holding one boolean verdict
+   per member, so every unclaimed batch keeps the five-element shape.
+   Each member — a map AST or a `:yin/*` datom batch
+   — projects to one tree packet; `run-index` selects the one that
+   becomes the program. Harvest rows name every `(yin/def
+   <literal-symbol> value)` occurrence in source declaration order,
+   member by member; declaration rows name those whose lambda the
+   frontend flagged `:macro?`. No syntax object crosses: every code
+   field is canonical rows. A member whose frontend markers claim
+   call-site (C1) coverage is checked against its projected tree before
+   the batch is formed (`check-call-site-claim!`): the markers drop out
+   of the rows, but never silently — a broken claim refuses the batch,
+   and the per-member claim verdicts travel with the batch, so the
+   expander finalizes a member's executed tree's table when, and only
+   when, that member's own verdict is a claim."
   ([member] (program-batch [member] 0))
   ([members run-index]
    (let [asts (mapv member-ast members)
-         trees (mapv (fn [ast]
-                       (let [{:keys [root rows]} (vm/ast->semantic-bytecode ast)]
-                         [root (vec (vals rows))]))
-                     asts)
+         row-sets (mapv vm/ast->semantic-bytecode asts)
+         trees (mapv (fn [{:keys [root rows]}] [root (vec (vals rows))])
+                     row-sets)
          occurrences (vec (mapcat (fn [j ast]
                                     (map #(assoc % :tree j)
                                          (definition-occurrences ast)))
-                                  (range) asts))]
-     [:yin.program/batch
-      trees
-      run-index
-      (into [] (comp (filter :declared?)
-                     (map (fn [{:keys [tree path]}] [:yin.macro/definition tree path])))
-            occurrences)
-      (into [] (map-indexed (fn [h {:keys [tree path]}]
-                              [:yin.macro/harvest h tree path]))
-            occurrences)])))
+                                  (range) asts))
+         ;; A frontend's C1 claim is enforced here, where its markers
+         ;; would otherwise drop out of canonical-row production unread.
+         ;; EVERY member is validated — `mapv` is eager, so a defect in
+         ;; any member refuses the batch, however valid its siblings —
+         ;; and the per-member verdicts ride with the batch: each
+         ;; member's own verdict, never a sibling's, decides whether the
+         ;; expander finalizes that member's side table.
+         verdicts (mapv check-call-site-claim! asts row-sets)
+         claims (when (some true? verdicts) verdicts)]
+     (cond-> [:yin.program/batch
+              trees
+              run-index
+              (into [] (comp (filter :declared?)
+                             (map (fn [{:keys [tree path]}]
+                                    [:yin.macro/definition tree path])))
+                    occurrences)
+              (into [] (map-indexed (fn [h {:keys [tree path]}]
+                                      [:yin.macro/harvest h tree path]))
+                    occurrences)]
+       claims (conj claims)))))
 
 
 (defn ready?

@@ -90,6 +90,131 @@
    linker/stack-format linker/register-format])
 
 
+;; =============================================================================
+;; Call-site occurrence contract C1 (Addendum A, design §2)
+;; =============================================================================
+;;
+;; A module whose frontend finalized its tree (`:yang/call-site 1` on
+;; every final `:application` occurrence) publishes its frontend-metadata
+;; side table with its manifest: the manifest keeps schema 1 (a manifest
+;; address names code) and gains the optional `:yin.module/call-sites`
+;; reference `{table record}` — the module closure follows manifest
+;; references, so only a referenced table travels with the module
+;; through transfer. The reverse record names the tree root, the
+;; publication's recorded admission origin, and the table's address; it
+;; cannot name the manifest (the manifest references it, so the two
+;; addresses would be circular), and custody runs one way, from the
+;; manifest forward. The publication's origin is an ADMISSION identity
+;; (design §2.1): a token the composition pins explicitly, draws from
+;; a composition-owned scope object, or — by default — has derived
+;; from the publication specification's own durable identity; no
+;; counter or other mutable state lives in this namespace. The token
+;; is persisted in the record and retrieved from the record, never
+;; reconstructed from the tree's content. The publisher
+;; extracts the markers from the map AST, refuses the
+;; publication when they do not exactly cover the canonical tree's
+;; application occurrences — or when a marker's value is not version 1 —
+;; and otherwise materializes the table and its record into the same
+;; handle. A module with no markers makes no claim and publishes exactly
+;; as before.
+
+(defn admission-scope
+  "An admission scope for `publish-module!`'s `:yin.link.publish/scope`
+   option. `id` names this publisher — a durable, caller-chosen
+   identity (a string or keyword) that distinguishes this publisher's
+   admissions from every other publisher's; a publisher that must not
+   collide with its own past runs takes a fresh `id` per run. The
+   returned scope object OWNS the publication ordinal counter, so no
+   counter lives in this namespace (no hidden global state): two
+   publications through one scope draw consecutive ordinals, and two
+   independent scopes publishing identical specifications still yield
+   distinct admission identities, because their `id`s differ."
+  [id]
+  {:yin.link.publish/scope-id id
+   :yin.link.publish/ordinal (atom 0)})
+
+(defn- scope-admission-token
+  "The admission token a scope object draws for one publication: the
+   scope's own `id` plus the ordinal the scope's counter assigns. The
+   counter lives in the caller-owned scope object, never here."
+  [{:yin.link.publish/keys [scope-id ordinal]}]
+  ;; pr-str keeps the value's full identity — a keyword's namespace, a
+  ;; string's quoting, a symbol's name — so distinct caller-chosen ids
+  ;; (:a/publisher, :b/publisher, "publisher") never mint the same token
+  (keyword "yin.vm.linker.publish.scope"
+           (str (pr-str scope-id) "#" (swap! ordinal inc))))
+
+(defn- spec-admission-token
+  "The default admission token: derived deterministically from the
+   publication specification's own durable identity — the module name
+   and the content address of its compiled tree — never from hidden
+   mutable state. Two publications of the same specification therefore
+   answer the same admission identity (an idempotent re-publication is
+   the same recorded admission), and distinct specifications never
+   share one, in this or any other publisher process. A composition
+   that admits the same specification more than once as separate
+   admissions passes an `:yin.link.publish/scope` (or an explicit
+   `:yin.link.publish/admission`) so the admissions stay distinct."
+  [{:keys [name]} tree]
+  (keyword "yin.vm.linker.publish.publication"
+           (str name "::" (:root tree))))
+
+(defn- publication-origin
+  "The occurrence origin of the publication admission `token` names:
+   the publisher's own medium, the explicit admission token, member 0.
+   `token` is the publication's admission identity — the
+   `:yin.link.publish/admission` option when the composition pins one,
+   the `:yin.link.publish/scope` option's next drawn token when the
+   composition scopes the publisher, otherwise the token derived from
+   the publication specification's own durable identity. The origin is
+   an admission event's identity, not a function of the tree's content
+   alone: it is persisted in the side record at publication time and
+   retrieved from that record; nothing ever reconstructs it from the
+   root."
+  [token]
+  [:source :yin.vm.linker.publish/publish token 0])
+
+
+(defn- claims-call-sites?
+  "True when map AST `ast` carries the C1 key anywhere. A hit inside a
+   literal payload is data, not a claim: extraction then finds no
+   markers and the module publishes unannotated, as it should."
+  [ast]
+  (boolean (some #(= :yang/call-site %) (tree-seq coll? seq ast))))
+
+
+(defn- call-site-claim
+  "The C1 claim `ast` makes over its canonical `tree`: nil when it
+   carries no markers; `{:origin o :rows [...]}` in printed-row order
+   when the extracted markers exactly cover the tree's eligible
+   application occurrences; `{:missing [...] :extra [...]}` when they
+   do not; `{:unsupported-version v :path p}` when a marker's value is
+   not version 1 — a claim rejection, never a silent acceptance of a
+   table a retriever would read as version 1."
+  [ast tree admission]
+  (when (claims-call-sites? ast)
+    (let [origin (publication-origin admission)
+          extracted (filter #(= :yang/call-site (nth % 3))
+                            (:frontend-metadata
+                              (vm/ast-side-tables ast tree origin)))
+          eligible (into #{}
+                         (map (fn [[r p]] [origin r p]))
+                         (vm/application-occurrences tree))
+          marked (into #{}
+                       (map (fn [[o r p _ _]] [o r p]))
+                       extracted)]
+      (or (when-let [[v p] (some (fn [row]
+                                   (let [v (nth row 4)]
+                                     (when (not (and (integer? v) (= 1 v)))
+                                       [v (subvec row 0 3)])))
+                                 extracted)]
+            {:unsupported-version v, :path p})
+          (if (= eligible marked)
+            {:origin origin, :rows (vec (sort-by pr-str extracted))}
+            {:missing (vec (sort-by pr-str (remove marked eligible))),
+             :extra (vec (sort-by pr-str (remove eligible marked)))})))))
+
+
 (defn link-local
   "Link `format`'s image through the manifest `address` over `handle`'s
    own content, `:verifying` with discharge deferred, as a serving
@@ -138,7 +263,25 @@
                 (sort-by (fn [[n _]] (str n)) requires)))
         fp (when (and tree (not defect) (not requirement)
                       (not= :refused (:status tree)))
-             (footprint handle (assoc spec :tree tree)))]
+             (footprint handle (assoc spec :tree tree)))
+        ;; a C1 claim is validated before anything is written: a module
+        ;; whose markers do not cover its tree is never published as
+        ;; though it did. One publication is one admission event
+        ;; (design §2.1): the admission identity is pinned explicitly by
+        ;; the composition when it supplies `:yin.link.publish/admission`,
+        ;; drawn from the composition's own scope object when it supplies
+        ;; `:yin.link.publish/scope`, and otherwise derived from the
+        ;; specification's own durable identity — no counter lives in
+        ;; this namespace. Either way it is persisted in the side record
+        ;; and retrieved from there
+        admission (or (:yin.link.publish/admission opts)
+                      (when-let [scope (:yin.link.publish/scope opts)]
+                        (scope-admission-token scope))
+                      (when tree (spec-admission-token spec tree)))
+        claim (when (and tree (not defect) (not requirement)
+                         (not= :refused (:status tree))
+                         (not= :refused (:status fp)))
+                (call-site-claim ast tree admission))]
     (cond
       undefined
       (refusal :yin.link.publish/undefined-export {:export undefined})
@@ -151,6 +294,16 @@
       requirement requirement
 
       (= :refused (:status fp)) fp
+
+      ;; dispatch on the key's PRESENCE, not its truthiness: a marker
+      ;; whose value is present but not the integer 1 — nil or false
+      ;; included — carries :unsupported-version nil/false, and its
+      ;; reason is the unsupported version, never incomplete coverage
+      (and claim (contains? claim :unsupported-version))
+      (refusal :yin.link.publish/unsupported-call-site-version claim)
+
+      (and claim (not (:rows claim)))
+      (refusal :yin.link.publish/incomplete-call-site-coverage claim)
 
       :else
       (let [tree-address (vm/materialize-tree! handle tree)
@@ -167,28 +320,45 @@
                      handle
                      (assoc (ledger/derive-record input output)
                             :yin.ledger/profile profile)))
-            manifest {:yin.module/name name
-                      :yin.module/schema linker/manifest-schema
-                      :yin.module/contracts
-                      {:yin.ast/code vm/ast-contract
-                       :yin.semantic/code vm/semantic-contract
-                       :yin.debruijn.code vm/stack-contract
-                       :yin.debruijn.register vm/register-contract}
-                      :yin.module/tree tree-address
-                      :yin.module/derivations
-                      {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
-                       :yin.debruijn.code
-                       (mint sem h linker/stack-lowering-profile)
-                       :yin.debruijn.register
-                       (mint sem r linker/register-lowering-profile)}
-                      :yin.module/index {:yin.debruijn.code h-address
-                                         :yin.debruijn.register r-address}
-                      :yin.module/exports (set exports)
-                      :yin.module/requires (or requires {})
-                      :yin.module/primitives
-                      (into {} (map (fn [[n p]] [n (:yin.k/profile p)])
-                                    primitives))
-                      :yin.module/footprint fp}
+            ;; the C1 side table and its reverse record, materialized
+            ;; BEFORE the manifest so the manifest can reference them:
+            ;; the module closure follows manifest references, so only a
+            ;; referenced table travels with the module through transfer
+            call-sites (when (:rows claim)
+                         (let [table (jing/materialize! handle (:rows claim))
+                               record {:yang.call-site/version 1
+                                       :yang.call-site/root tree-address
+                                       :yang.call-site/origin (:origin claim)
+                                       :yang.call-site/table table}]
+                           {:record (jing/materialize! handle record)
+                            :table table
+                            :origin (:origin claim)
+                            :root (:root tree)}))
+            manifest (cond-> {:yin.module/name name
+                              :yin.module/schema linker/manifest-schema
+                              :yin.module/contracts
+                              {:yin.ast/code vm/ast-contract
+                               :yin.semantic/code vm/semantic-contract
+                               :yin.debruijn.code vm/stack-contract
+                               :yin.debruijn.register vm/register-contract}
+                              :yin.module/tree tree-address
+                              :yin.module/derivations
+                              {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
+                               :yin.debruijn.code
+                               (mint sem h linker/stack-lowering-profile)
+                               :yin.debruijn.register
+                               (mint sem r linker/register-lowering-profile)}
+                              :yin.module/index {:yin.debruijn.code h-address
+                                                 :yin.debruijn.register r-address}
+                              :yin.module/exports (set exports)
+                              :yin.module/requires (or requires {})
+                              :yin.module/primitives
+                              (into {} (map (fn [[n p]] [n (:yin.k/profile p)])
+                                            primitives))
+                              :yin.module/footprint fp}
+                       call-sites (assoc :yin.module/call-sites
+                                         {:table (:table call-sites)
+                                          :record (:record call-sites)}))
             address (jing/materialize! handle manifest)
             walked (closure/walk handle address opts)]
         (if (not= :complete (:yin.link.closure/outcome walked))
@@ -201,21 +371,96 @@
                                                 (select-keys opts
                                                              [:bounds]))]))
                             code-formats)]
-            {:address address :manifest manifest
-             :identities {:yin.semantic/code sem
-                          :yin.debruijn.code sem
-                          :yin.debruijn.register sem}
-             :checksums {:yin.debruijn.code h :yin.debruijn.register r}
-             :links links}))))))
+            (cond-> {:address address :manifest manifest
+                     :identities {:yin.semantic/code sem
+                                  :yin.debruijn.code sem
+                                  :yin.debruijn.register sem}
+                     :checksums {:yin.debruijn.code h
+                                 :yin.debruijn.register r}
+                     :links links}
+              call-sites (assoc :call-sites call-sites))))))))
 
 
 (defn publish-module!
   "Mint all four code formats, derivation records, and one schema-1 manifest.
    `opts` `{:bounds {...}}` are the composition bounds (section 4.2 step
    2) of every closure walk and local link the publication runs, every
-   bound left out taking `linker/default-bounds`."
+   bound left out taking `linker/default-bounds`. `opts` may also pin
+   the publication's admission identity explicitly
+   (`:yin.link.publish/admission`) or scope it — a scope object from
+   `admission-scope` under `:yin.link.publish/scope`, whose counter the
+   caller owns; without either, the admission identity is derived from
+   the specification's own durable identity, so re-publishing the same
+   specification is the same recorded admission."
   ([handle spec] (publish-module! handle spec nil))
   ([handle spec opts] (publish-closure! handle spec opts)))
+
+
+(defn- stored-tree
+  "The canonical row tree stored under `root` in `handle`, rebuilt
+   from its individually materialized rows (`vm/materialize-tree!`
+   stores each row body under its own address), or nil when a reached
+   row is absent."
+  [handle root]
+  (loop [queue [root]
+         rows {}]
+    (if (empty? queue)
+      {:root root, :rows rows}
+      (let [address (first queue)
+            body (jing/get handle address nil)]
+        (if-not (vector? body)
+          nil
+          (let [row (into [address] body)
+                kids (into []
+                           (mapcat (fn [[j [_ kind]]]
+                                     (let [pos (+ j 2)]
+                                       (case kind
+                                         :node [(nth row pos)]
+                                         :nodes (nth row pos)
+                                         nil))))
+                           (map-indexed vector
+                                        (get vm/semantic-bytecode-grammar
+                                             (nth row 1))))]
+            (recur (into (subvec queue 1)
+                         (remove #(contains? rows %) kids))
+                   (assoc rows address row))))))))
+
+
+(defn published-call-site-table
+  "The C1 side table the module whose manifest is at `address` in
+   `handle` claims: `{:origin o :root r :rows [...] :tree tree}` with
+   the rows exactly as stored and the module's canonical tree, or nil
+   when the module made no C1 claim. The manifest references the table
+   and its reverse record (`:yin.module/call-sites`), so the reference —
+   not a recomputation — is what is resolved here: the rows are fetched
+   from the referenced table address and the ORIGIN is the one the
+   record RECORDED at publication (`:yang.call-site/origin`, held to be
+   a well-formed occurrence origin), beside the record's version, the
+   manifest's own tree, and the referenced table. Nothing reconstructs
+   an origin from content: a replay of this retrieval answers the
+   recorded admission identity, and no other module's admission can be
+   confused with it."
+  [handle address]
+  (let [manifest (jing/get handle address nil)
+        call-sites (:yin.module/call-sites manifest)]
+    (when (and (map? manifest) (:yin.module/tree manifest)
+               (map? call-sites) (jing/segment-address? (:table call-sites))
+               (jing/segment-address? (:record call-sites)))
+      (when-let [tree (stored-tree handle (:yin.module/tree manifest))]
+        (let [stored-rows (jing/get handle (:table call-sites) nil)
+              stored-record (jing/get handle (:record call-sites) nil)
+              origin (:yang.call-site/origin stored-record)]
+          (when (and (vector? stored-rows)
+                     (= {:yang.call-site/version 1
+                         :yang.call-site/root (:yin.module/tree manifest)
+                         :yang.call-site/table (:table call-sites)}
+                        (select-keys stored-record
+                                     [:yang.call-site/version
+                                      :yang.call-site/root
+                                      :yang.call-site/table]))
+                     (vm/occurrence-origin? origin))
+            {:origin origin, :root (:root tree), :rows stored-rows,
+             :tree tree}))))))
 
 
 ;; =============================================================================

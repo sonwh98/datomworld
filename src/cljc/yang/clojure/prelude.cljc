@@ -107,8 +107,9 @@
 
 (def module-uast
   "The module tree: one wide application over the definitions, so every
-   sibling and runtime key read is discharged at module level."
-  (core/module-tree module-definitions []))
+   sibling and runtime key read is discharged at module level. C1
+   finalized, like every production `yang.clojure` tree."
+  (yang/annotate-call-sites (core/module-tree module-definitions [])))
 
 
 (def module-exports

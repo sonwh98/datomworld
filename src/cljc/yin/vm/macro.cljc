@@ -2,7 +2,11 @@
   "The row-native macro expander (`docs/design/yin.vm.macro.md`, Phase 1).
 
    A process between two media: it observes `program-in` batches
-   `[:yin.program/batch trees run-index declaration-rows harvest-rows]`,
+   `[:yin.program/batch trees run-index declaration-rows harvest-rows
+   call-site-claims]` — the trailing element present only when some
+   member's frontend claimed call-site (C1) coverage, holding one
+   boolean verdict per member, so every older five-element batch is
+   still a valid unclaimed batch —
    rewrites the selected tree to a fixpoint, and appends one canonical tree
    packet `[root rows]` to `program-out`, with one event row per attempt on
    an optional log medium. Evaluators know nothing of any of this (decision
@@ -377,9 +381,9 @@
 (defn- batch-shape-ok?
   [batch]
   (and (vector? batch)
-       (= 5 (count batch))
+       (<= 5 (count batch) 6)
        (= :yin.program/batch (nth batch 0))
-       (let [[_ trees run-index decls harvest] batch]
+       (let [[_ trees run-index decls harvest claim] batch]
          (and (vector? trees) (seq trees)
               (integer? run-index) (<= 0 run-index) (< run-index (count trees))
               (vector? decls)
@@ -389,7 +393,11 @@
               (vector? harvest)
               (every? #(and (vector? %) (= 4 (count %))
                             (= :yin.macro/harvest (first %)))
-                      harvest)))))
+                      harvest)
+              (or (nil? claim)
+                  (and (vector? claim)
+                       (= (count claim) (count trees))
+                       (every? boolean? claim)))))))
 
 
 (defn- merge-indexes
@@ -587,12 +595,194 @@
           (mapcat second packets)))
 
 
+(def ^:private pending-expansion-origin
+  "The construction origin the prelude attaches to every node the
+   macro's code builds during one invocation (ruling U1: identity comes
+   from the construction event, never from comparing content
+   addresses). `expand-call` substitutes the recorded expansion event's
+   `[:expansion record-address]` origin for it when the output's
+   occurrence correspondence is read — the placeholder never reaches a
+   table, a row, or an event it does not belong to."
+  [:expansion ::pending])
+
+
+(defn- with-origin-of
+  "Tag packet `p` with `f`, its construction origin function: `(f rel)`
+   answers the origin of the occurrence at `rel`, a path relative to
+   `p`'s root — the pending expansion origin for a node the macro's
+   code constructed, or, below a child coordinate that retains a
+   passed-through packet, that packet's own origin function. The
+   function rides the packet's metadata, so it is content-addressing
+   invisible and never leaks into a final tree."
+  [p f]
+  (vary-meta p assoc ::origin-of f))
+
+
+(defn- origin-of-fn
+  "The construction origin function packet `p` carries, or nil."
+  [p]
+  (::origin-of (meta p)))
+
+
+(def ^:private tracking-meta-keys
+  "The private provenance entries the expander rides on packet values.
+   They are host functions, so they must never enter a hashed or
+   validated data slot (P1-2); every other metadata entry is the
+   caller's legitimate data and is preserved."
+  #{::origin-of})
+
+
+(defn- strip-tracking
+  "Remove only the private tracking entries, recursively, from `x`:
+   every collection element, map key and value, and every metadata map
+   (including metadata on metadata) is visited, so a packet nested at
+   any depth inside a literal payload loses its host-function origin
+   while legitimate user metadata survives untouched."
+  [x]
+  (let [x' (cond (record? x) x
+                 (map? x) (into (empty x)
+                                (map (fn [[k v]]
+                                       [(strip-tracking k)
+                                        (strip-tracking v)]))
+                                x)
+                 (set? x) (into (empty x) (map strip-tracking) x)
+                 (vector? x) (mapv strip-tracking x)
+                 (sequential? x) (with-meta
+                                   (apply list (map strip-tracking x))
+                                   nil)
+                 :else x)
+        m (meta x)]
+    (if m
+      (let [m' (strip-tracking
+                 (apply dissoc m tracking-meta-keys))]
+        (with-meta x' (when-not (and (empty? m') (nil? (meta m'))) m')))
+      x')))
+
+
+(defn- packet-has-application?
+  "True when packet `p` contains an `:application` occurrence, the only
+   occurrences whose provenance a correspondence ever reads."
+  [p]
+  (boolean (and (packet? p)
+                (some #(= :application (row-tag %)) (second p)))))
+
+
+(defn- register-lineage!
+  "Record packet `p` in the invocation `lineage` (an atom of entries)
+   under the identity of its rows vector. Host decomposition
+   (`first`/`rest`/`get`) hands that very object to reassembly, so the
+   entry is how a rebuilt packet proves it is this packet retained,
+   never a content twin built anew. Returns `p`."
+  [lineage p]
+  (when (and lineage (packet? p) (origin-of-fn p))
+    (when-not (some #(identical? (second p) (:rows %)) @lineage)
+      (swap! lineage conj {:root (first p), :rows (second p),
+                           :fn (origin-of-fn p)})))
+  p)
+
+
+(defn- lineage-origin-for
+  "The retained origin function for candidate packet `c`, or nil when
+   no registered packet unambiguously accounts for it. Content
+   equality alone never suffices — a freshly built twin holds equal
+   but distinct row objects and recovers nothing here (ruling U1).
+
+   Exact container lineage is preferred: a registered packet whose
+   rows vector is the very object `c` carries (host decomposition
+   hands that object to reassembly) is occurrence-specific, so it
+   wins over any row-level match. Row-level recovery — the root
+   matches and every row is `identical?` to a registered packet's
+   row in order — is taken only when exactly one distinct origin
+   function matches: distinct occurrences of identical content share
+   row objects (`packet-of` retrieves them from one index), so a
+   first-match pick among ambiguous row-level candidates would
+   attach another occurrence's origin. Ambiguity is refused (nil),
+   which downstream reads as missing provenance, never as a guess."
+  [lineage c]
+  (when (and lineage (packet? c) (nil? (origin-of-fn c)))
+    (let [entries (filter #(= (:root %) (first c)) @lineage)
+          rows (second c)
+          only-fn (fn [es]
+                    (let [fns (distinct (map :fn es))]
+                      (when (= 1 (count fns)) (first fns))))
+          exact (filter #(identical? (:rows %) rows) entries)]
+      (if (seq exact)
+        (only-fn exact)
+        (only-fn (filter #(and (= (count (:rows %)) (count rows))
+                               (every? true?
+                                       (map identical? (:rows %) rows)))
+                         entries))))))
+
+
+(def ^:private missing-provenance-origin
+  "The origin an unaccounted child answers below its coordinate: no
+   sanctioned operation threaded provenance to it, so nothing may
+   relabel its occurrences as this expansion's construction (P1-1).
+   `output-correspondence` carries the marker through and
+   `expand-call` refuses the output as `:missing-provenance`; the
+   marker never reaches a table, a row, or an event."
+  [:expansion ::missing])
+
+
+(defn- constructed-origin-fn
+  "The origin function of a packet the prelude constructed: its root
+   occurrence carries the pending expansion origin; a relative path
+   below a child coordinate delegates to the packet passed for that
+   child — a spliced operand retains its own incoming origin, however
+   the macro's code embedded it. `recover` answers a child packet's
+   retained origin function when the packet itself carries none (it
+   was rebuilt by decomposition/reassembly); a child neither source
+   accounts for answers `missing-provenance-origin` below its
+   coordinate, which the expander refuses rather than reads as
+   construction."
+  ([coord-children] (constructed-origin-fn coord-children (fn [_] nil)))
+  ([coord-children recover]
+   (fn [rel]
+     (if (empty? rel)
+       pending-expansion-origin
+       (if-some [child (get coord-children (first rel))]
+         (if-some [f (or (origin-of-fn child) (recover child))]
+           (f (subvec rel 1))
+           missing-provenance-origin)
+         pending-expansion-origin)))))
+
+
 (defn- construct
-  "Intern `body` over the rows of its child `packets`; a closed packet."
-  [body packets]
-  (let [index (merge-packets packets)
-        [index a] (intern-body index body)]
-    (packet-of index a)))
+  "Intern `body` over the rows of its child `packets`; a closed packet.
+   Every node interned here is CONSTRUCTED by the expansion's code
+   (ruling U1), so the result packet carries the construction origin
+   function and the output's per-occurrence origins are read from this
+   construction history — never inferred by comparing content
+   addresses: a constructed node whose content equals a retained
+   node's stays distinct, because its origin answers through this
+   function and not through its address.
+
+   Values entering `:data`/`:key` slots are stripped of private
+   tracking metadata first (P1-2), before hashing and validation.
+   Missing child provenance never proves construction (P1-1): the
+   result's origin function answers the missing marker below an
+   unaccounted child and the expander refuses such an output."
+  ([body packets] (construct body packets nil))
+  ([body packets lineage]
+   (let [recover (fn [child] (lineage-origin-for lineage child))]
+     (let [tag (first body)
+           slots (get working-grammar tag)
+           body (if (and slots (= (count slots) (count (rest body))))
+                  (into [tag]
+                        (map (fn [[_ kind] v]
+                               (if (contains? #{:data :key} kind)
+                                 (strip-tracking v)
+                                 v))
+                             slots
+                             (rest body)))
+                  body)
+           index (merge-packets packets)
+           [index a] (intern-body index body)
+           coord-children (into {}
+                                (map (fn [[place p]] [(first place) p]))
+                                (map vector (child-places (get index a)) packets))]
+       (with-origin-of (packet-of index a)
+         (constructed-origin-fn coord-children recover))))))
 
 
 (defn- root-row
@@ -601,21 +791,24 @@
 
 
 (defn- literal-packet
-  [v]
-  (construct [:literal v] []))
+  ([v] (literal-packet v nil))
+  ([v lineage] (construct [:literal (strip-tracking v)] [] lineage)))
 
 
 (defn- application-packet
-  [operator operands]
-  (construct [:application (first operator) (mapv first operands) false]
-             (cons operator operands)))
+  ([operator operands] (application-packet operator operands nil))
+  ([operator operands lineage]
+   (construct [:application (first operator) (mapv first operands) false]
+              (cons operator operands)
+              lineage)))
 
 
 (defn- lambda-packet
-  [params body]
-  (when-not (and (sequential? params) (every? symbol? params))
-    (throw-prelude "yin/lambda params must be symbols" {:op 'yin/lambda}))
-  (construct [:lambda (vec params) (first body)] [body]))
+  ([params body] (lambda-packet params body nil))
+  ([params body lineage]
+   (when-not (and (sequential? params) (every? symbol? params))
+     (throw-prelude "yin/lambda params must be symbols" {:op 'yin/lambda}))
+   (construct [:lambda (vec params) (first body)] [body] lineage)))
 
 
 (defn- name-of
@@ -632,68 +825,161 @@
 (defn- sequence-body
   "The reference `do` lowering: `(do a b c)` is `((fn [_] ((fn [_] c) b)) a)`;
    one form is itself and none is the literal nil."
-  [trees]
-  (let [trees (vec trees)]
-    (doseq [t trees] (need-packet 'yin/sequence-body t))
-    (case (count trees)
-      0 (literal-packet nil)
-      1 (first trees)
-      (application-packet (lambda-packet ['_] (sequence-body (subvec trees 1)))
-                          [(first trees)]))))
+  ([trees] (sequence-body trees nil))
+  ([trees lineage]
+   (let [trees (vec trees)]
+     (doseq [t trees] (need-packet 'yin/sequence-body t))
+     (case (count trees)
+       0 (literal-packet nil lineage)
+       1 (first trees)
+       (application-packet
+         (lambda-packet ['_]
+                        (sequence-body (subvec trees 1) lineage)
+                        lineage)
+         [(first trees)]
+         lineage)))))
 
 
 (defn- slot-of
-  [tree n]
-  (let [row (root-row (need-packet 'yin/slot tree))
+  ([tree n] (slot-of tree n nil))
+  ([tree n lineage]
+   (let [row (root-row (need-packet 'yin/slot tree))
         kinds (into {} (slot-kinds (row-tag row)))
-        index (packet-index tree)]
+        index (packet-index tree)
+        ;; an extracted slot is input syntax READ, not built: the
+        ;; extracted packet retains the source packet's construction
+        ;; origin function, descending through the slot's coordinate.
+        ;; A source no operation accounted for answers the missing
+        ;; marker, never fabricated construction (P1-1).
+        ofn (or (origin-of-fn tree)
+                (lineage-origin-for lineage tree)
+                (fn [_] missing-provenance-origin))]
     (when-not (and (integer? n) (contains? kinds n))
       (throw-prelude "yin/slot position names no grammar slot"
                      {:op 'yin/slot, :position n}))
     (case (get kinds n)
-      :node (packet-of index (nth row n))
-      :nodes (mapv #(packet-of index %) (nth row n))
-      (nth row n))))
+      :node (with-origin-of (packet-of index (nth row n))
+              (fn [rel] (ofn (into [n] rel))))
+      :nodes (map-indexed (fn [i c]
+                            (with-origin-of (packet-of index c)
+                              (fn [rel] (ofn (into [[n i]] rel)))))
+                          (nth row n))
+      (nth row n)))))
 
 
 (defn prelude
   "The closed body environment (§5.3): the pure standard primitives (no
    `require`, no stream or FFI constructor) and the row-native constructors,
    each consuming and returning self-contained tree packets. `gensym` is the
-   invocation-local `yin/gensym-sym`."
-  [gensym]
-  (merge
-    (dissoc vm/primitives 'require 'try-require 'bytes->str)
-    {'yin/tag (fn [tree] (row-tag (root-row (need-packet 'yin/tag tree)))),
-     'yin/slot slot-of,
-     'yin/literal literal-packet,
-     'yin/variable (fn [sym]
-                     (when-not (symbol? sym)
-                       (throw-prelude "yin/variable expects a symbol" {:op 'yin/variable}))
-                     (construct [:variable sym] [])),
-     'yin/lambda (fn [params body] (lambda-packet params (need-packet 'yin/lambda body))),
-     'yin/application (fn [operator operands]
-                        (need-packet 'yin/application operator)
-                        (doseq [o operands] (need-packet 'yin/application o))
-                        (application-packet operator (vec operands))),
-     'yin/if (fn [t c a]
-               (doseq [x [t c a]] (need-packet 'yin/if x))
-               (construct [:if (first t) (first c) (first a)] [t c a])),
-     'yin/sequence-body sequence-body,
-     'yin/make-lambda (fn [params-tree body]
-                        (let [row (root-row (need-packet 'yin/make-lambda params-tree))]
-                          (when-not (and (= :literal (row-tag row))
-                                         (vector? (nth row 2))
-                                         (every? symbol? (nth row 2)))
-                            (throw-prelude "yin/make-lambda reads a literal parameter vector"
-                                           {:op 'yin/make-lambda}))
-                          (lambda-packet (nth row 2) (need-packet 'yin/make-lambda body)))),
-     'yin/make-def (fn [name-tree value-tree]
-                     (application-packet (construct [:variable 'yin/def] [])
-                                         [(literal-packet (name-of name-tree))
-                                          (need-packet 'yin/make-def value-tree)])),
-     'yin/name-of name-of,
-     'yin/gensym-sym gensym}))
+   invocation-local `yin/gensym-sym`.
+
+   The collection primitives are provenance-aware within one invocation
+   (P1-1): decomposing a packet (`first`/`rest`/`get`) registers its
+   lineage, and reassembling one (`conj`/`assoc`/`vec`) reattaches the
+   retained origin function when the rebuilt packet holds the very row
+   objects it was decomposed from. A packet rebuilt any other way
+   carries no provenance and is refused downstream rather than
+   relabelled as construction.
+
+   Tracking metadata is valid only for the exact vector object it was
+   attached to (P1-4): host `assoc`/`conj` copy the input vector's
+   metadata onto a new vector whose contents may be unrelated, so
+   every content-changing primitive routes its result through the one
+   choke point `recover-rebuilt-packet`, which drops `::origin-of`
+   before lineage recovery. Extractive primitives (`first`/`get`)
+   return the very object that was tagged, so they alone may trust
+   the metadata they hand back. A rebuilt packet no lineage entry
+   accounts for carries no provenance and is refused downstream."
+  ([gensym] (prelude gensym (atom [])))
+  ([gensym lineage]
+   (let [recover-packet (fn [result]
+                          (cond (not (packet? result)) result
+                                (origin-of-fn result)
+                                (register-lineage! lineage result)
+                                :else (if-some [f (lineage-origin-for
+                                                    lineage result)]
+                                        (with-origin-of result f)
+                                        result)))
+         recover-rebuilt-packet
+         (fn [result]
+           (recover-packet (if (origin-of-fn result)
+                             (vary-meta result dissoc ::origin-of)
+                             result)))
+         wrap (fn [sym f]
+                (let [entry (get vm/primitives sym)]
+                  (if (and (map? entry)
+                           (contains? entry :yin.k/function))
+                    (assoc entry :yin.k/function f)
+                    f)))
+         p-first (fn [coll]
+                   (register-lineage! lineage coll)
+                   (recover-packet (first coll)))
+         p-rest (fn [coll]
+                  (register-lineage! lineage coll)
+                  (vec (rest coll)))
+         p-conj (fn [coll & xs]
+                  (register-lineage! lineage coll)
+                  (doseq [x xs] (register-lineage! lineage x))
+                  (recover-rebuilt-packet (apply conj coll xs)))
+         p-assoc (fn [m & kvs]
+                   (register-lineage! lineage m)
+                   (recover-rebuilt-packet (apply assoc m kvs)))
+         p-get (fn
+                 ([m k]
+                  (register-lineage! lineage m)
+                  (recover-packet (get m k)))
+                 ([m k not-found]
+                  (register-lineage! lineage m)
+                  (recover-packet (get m k not-found))))
+         p-vec (fn [coll]
+                 (register-lineage! lineage coll)
+                 (recover-rebuilt-packet (vec coll)))]
+     (merge
+       (dissoc vm/primitives 'require 'try-require 'bytes->str)
+       {'first (wrap 'first p-first),
+        'rest (wrap 'rest p-rest),
+        'conj (wrap 'conj p-conj),
+        'assoc (wrap 'assoc p-assoc),
+        'get (wrap 'get p-get),
+        'vec (wrap 'vec p-vec),
+        'yin/tag (fn [tree] (row-tag (root-row (need-packet 'yin/tag tree)))),
+        'yin/slot (fn [tree n] (slot-of tree n lineage)),
+        'yin/literal (fn [v] (literal-packet v lineage)),
+        'yin/variable (fn [sym]
+                        (when-not (symbol? sym)
+                          (throw-prelude "yin/variable expects a symbol" {:op 'yin/variable}))
+                        (construct [:variable sym] [] lineage)),
+        'yin/lambda (fn [params body]
+                      (lambda-packet params (need-packet 'yin/lambda body)
+                                     lineage)),
+        'yin/application (fn [operator operands]
+                           (need-packet 'yin/application operator)
+                           (doseq [o operands] (need-packet 'yin/application o))
+                           (application-packet operator (vec operands)
+                                               lineage)),
+        'yin/if (fn [t c a]
+                  (doseq [x [t c a]] (need-packet 'yin/if x))
+                  (construct [:if (first t) (first c) (first a)] [t c a]
+                             lineage)),
+        'yin/sequence-body (fn [trees] (sequence-body trees lineage)),
+        'yin/make-lambda (fn [params-tree body]
+                           (let [row (root-row (need-packet 'yin/make-lambda params-tree))]
+                             (when-not (and (= :literal (row-tag row))
+                                            (vector? (nth row 2))
+                                            (every? symbol? (nth row 2)))
+                               (throw-prelude "yin/make-lambda reads a literal parameter vector"
+                                              {:op 'yin/make-lambda}))
+                             (lambda-packet (nth row 2)
+                                            (need-packet 'yin/make-lambda body)
+                                            lineage))),
+        'yin/make-def (fn [name-tree value-tree]
+                        (application-packet
+                          (construct [:variable 'yin/def] [] lineage)
+                          [(literal-packet (name-of name-tree) lineage)
+                           (need-packet 'yin/make-def value-tree)]
+                          lineage)),
+        'yin/name-of name-of,
+        'yin/gensym-sym gensym}))))
 
 
 (def ^:private suspending-tags
@@ -828,15 +1114,22 @@
                        (vswap! n inc)
                        (symbol (str (if (symbol? prefix) (name prefix) prefix)
                                     "__" token "_" counter "_" i))))
+            lineage (atom [])
+            _ (doseq [p operands] (register-lineage! lineage p))
             run (or (:eval ctx) bounded-row-evaluator)
             {:keys [value error]} (run {:macro-tree macro-tree,
                                         :contract (:yin.macro/contract entry),
                                         :env env,
-                                        :prelude (prelude gensym),
+                                        :prelude (prelude gensym lineage),
                                         :max-steps (get-in ctx [:guards :max-steps])})]
         (if error
           {:error (assoc error :macro macro-root)}
-          {:tree value})))))
+          {:tree (if (and (packet? value)
+                          (nil? (origin-of-fn value)))
+                   (if-some [f (lineage-origin-for lineage value)]
+                     (with-origin-of value f)
+                     value)
+                   value)})))))
 
 
 (def default-guards
@@ -995,9 +1288,20 @@
 ;; =============================================================================
 
 (defn- event-row
-  [attempt source-batch origin parent input-root call-path macro-root output-root error]
+  "The expansion record (§8). `correspondence` — nil for a failed
+   attempt — is the per-occurrence correspondence of the successful
+   output (ruling U1): `{path :constructed | [:retained origin]}` for
+   every `:application` occurrence of the output, at its path relative
+   to the output root, read from the construction history the macro's
+   own code threaded through the packets it built. A `:constructed`
+   occurrence names THIS record as its generating event (the record it
+   is retained in); a `[:retained origin]` occurrence names the
+   incoming origin its syntax already carried. The call-site side
+   table derives each marked occurrence's origin from this record."
+  [attempt source-batch origin parent input-root call-path macro-root output-root
+   error correspondence]
   (intern-row [:yin.macro/expand attempt source-batch origin parent input-root
-               call-path macro-root output-root error]))
+               call-path macro-root output-root error correspondence]))
 
 
 (defn- source-origin
@@ -1059,16 +1363,52 @@
 (declare expand-node)
 
 
+(defn- output-correspondence
+  "The per-occurrence correspondence of the expansion's output (ruling
+   U1): for every `:application` occurrence of output packet `tree`, at
+   its path relative to the output root, `:constructed` when the
+   expansion's code built that node, or `[:retained origin]` when the
+   node is input syntax retained with its own incoming origin. The
+   classification is the construction origin function the prelude
+   threaded through the packets the macro's code built — never a
+   comparison of content addresses; the recorded expansion event
+   retains the answer, and the site table derives each marked
+   occurrence's origin from it. An occurrence no operation accounted
+   for reads `::missing-provenance`; `expand-call` refuses such an
+   output, so the marker is retained in no event."
+  [tree ofn]
+  (into {}
+        (map (fn [path]
+               (let [o (ofn path)]
+                 [path (cond (= pending-expansion-origin o) :constructed
+                             (= missing-provenance-origin o)
+                             ::missing-provenance
+                             :else [:retained o])])))
+        (sort-by pr-str
+                 (map second
+                      (vm/application-occurrences (packet->row-set tree))))))
+
+
 (defn- expand-call
   "One recognized call: allocate an attempt, begin its event before any
    guard or invocation, run the transformer on the operand packets, validate
    and merge the result, finish the event, and reconsider the result at the
-   same occurrence with depth + 1."
-  [st address entry {:keys [path rel frame shadow depth]}]
+   same occurrence with depth + 1.
+
+   Each operand packet enters the invocation carrying its occurrence
+   origin function — the enclosing walk's origin at the operand's own
+   absolute path — and the prelude threads it through every node the
+   macro's code constructs (ruling U1): a spliced operand retains its
+   own incoming origin, a built node carries the pending expansion
+   origin. The output's per-occurrence correspondence is read from that
+   construction history, retained in the event record, and the
+   recursive walk answers origins from the record — never from
+   comparing content addresses."
+  [st address entry {:keys [path rel frame shadow depth origin-of]}]
   (let [[st counter] (allocate-attempt st)
         ctx (:ctx st)
         macro-root (first (:yin.macro/tree entry))
-        begin (fn [output error]
+        begin (fn [output error correspondence]
                 (event-row (attempt-id ctx counter)
                            (:source-batch st)
                            (when-not (:parent frame)
@@ -1078,14 +1418,20 @@
                            rel
                            macro-root
                            output
-                           error))
+                           error
+                           correspondence))
         failed (fn [st error]
-                 (-> st (record-event (begin nil error)) (fail error)))
+                 (-> st (record-event (begin nil error nil)) (fail error)))
         guards (:guards ctx)]
     (if (>= depth (:max-depth guards))
       [(failed st {:kind :depth-guard, :depth depth, :path path}) address]
       (let [row (get (:index st) address)
-            operands (mapv #(packet-of (:index st) %) (nth row 3))
+            operands (map-indexed
+                      (fn [i a]
+                        (with-origin-of (packet-of (:index st) a)
+                          (fn [rel]
+                            (origin-of (into (conj path [3 i]) rel)))))
+                      (nth row 3))
             {:keys [tree error]} (invoke* entry operands ctx counter)
             invalid (fn [reason]
                       {:kind :invalid-output, :macro macro-root, :path path,
@@ -1102,8 +1448,26 @@
                     [(failed st (invalid :address-conflict)) address]
                     (if-let [e (guard-batch-rows st')]
                       [(failed st' e) address]
-                      (let [out (first tree)
-                            ev (begin out nil)
+                      (if (and (nil? (origin-of-fn tree))
+                               (packet-has-application? tree))
+                        ;; missing provenance never proves construction
+                        ;; (P1-1): an application-bearing output no
+                        ;; sanctioned operation accounted for is refused,
+                        ;; never relabelled with this expansion's origin
+                        [(failed st' (invalid :missing-provenance)) address]
+                        (let [;; the output's construction origin function
+                            ;; (ruling U1), threaded by the prelude through
+                            ;; every packet it built or reassembled; the
+                            ;; fallback is reached only by an output
+                            ;; without applications, whose correspondence
+                            ;; never consults it
+                            ofn (or (origin-of-fn tree)
+                                    (fn [_] pending-expansion-origin))
+                            corr (output-correspondence tree ofn)]
+                        (if (some #(= ::missing-provenance %) (vals corr))
+                          [(failed st' (invalid :missing-provenance)) address]
+                          (let [out (first tree)
+                            ev (begin out nil corr)
                             st' (-> st'
                                     (record-event ev)
                                     (update :produced
@@ -1116,7 +1480,21 @@
                                       :rel [],
                                       :frame {:parent (first ev), :root out},
                                       :shadow shadow,
-                                      :depth (inc depth)})))))))))))))
+                                      :depth (inc depth),
+                                      ;; per-occurrence origins read from
+                                      ;; the RETAINED correspondence (§2.1,
+                                      ;; §8): a `[:retained origin]` names
+                                      ;; the incoming origin the syntax
+                                      ;; already carried, a `:constructed`
+                                      ;; occurrence names the recorded
+                                      ;; expansion event — the record the
+                                      ;; correspondence is retained in
+                                      :origin-of
+                                      (fn [abs-path]
+                                        (let [o (get corr (subvec abs-path (count path)))]
+                                          (if (and (vector? o) (= :retained (first o)))
+                                            (second o)
+                                            [:expansion (first ev)])))}))))))))))))))))
 
 
 (defn- expand-children
@@ -1144,8 +1522,17 @@
 (defn- expand-node
   "§4.2. `loc` carries the absolute `path` in the batch's run tree, the
    `rel` path within the current `frame` (`{:root r :parent event|nil
-   :tree-index j}`), the lexical `shadow` set, and the expansion `depth`.
-   Returns `[st address']`; a failure sets `(:error st)`."
+   :tree-index j}`), the lexical `shadow` set, the expansion `depth`,
+   and `:origin-of` — the occurrence-provenance function of §2.1, which
+   answers, for an ABSOLUTE occurrence path, the origin of the
+   admission or generation event that produced the syntax there.
+   Every application
+   occurrence is recorded under its absolute path as it is visited, so
+   the finalizer can name each occurrence's real origin; an occurrence
+   replaced by an expansion is re-recorded by the expansion's own walk,
+   and a stale entry for a path the finished tree no longer applies at
+   is simply never read. Returns `[st address']`; a failure sets
+   `(:error st)`."
   [st address {:keys [shadow] :as loc}]
   (if (:error st)
     [st address]
@@ -1156,7 +1543,9 @@
         (expand-call st address (macro-of st (nth row 2) shadow) loc)
 
         (= :application tag)
-        (let [op (nth row 2)
+        (let [st (update-in st [:call-site-origins]
+                            assoc (:path loc) ((:origin-of loc) (:path loc)))
+              op (nth row 2)
               [st op'] (expand-node st op (-> loc
                                               (update :path conj 2)
                                               (update :rel conj 2)))]
@@ -1193,15 +1582,76 @@
   (update ctx :guards #(merge default-guards %)))
 
 
+(defn- batch-call-site-claims
+  "The per-member call-site (C1) claim verdicts the encoder recorded on
+   `batch`: nil when no member claimed coverage, otherwise one boolean
+   per member — the encoder validated every member's markers against
+   its own tree at the boundary, so a member whose markers do not
+   exactly cover it was refused there, never delivered here. Each
+   member's own verdict decides its metadata: only a member that
+   claimed coverage finalizes a side table, whatever its siblings
+   claimed."
+  [batch]
+  (nth batch 5 nil))
+
+
+(defn- final-call-site-metadata
+  "The call-site occurrence contract's (C1) side table of an expanded
+   final tree, as frontend-metadata rows `[origin root path
+   :yang/call-site 1]` in printed-row order: one row per
+   `:application` occurrence of the stand-in-lowered, tail-marked tree
+   that actually executes. The frontend's own markers named the
+   pre-expansion tree; expansion, tail marking and stand-in lowering
+   recompute roots and paths, so no pre-expansion table can cover this
+   tree and the table is finalized here, over the finished rows.
+
+   Each row's origin is that occurrence's REAL origin (design §2.1,
+   §2.3): `occurrence-origins` maps the final occurrence path to the
+   origin of the admission or generation event that produced the
+   application syntax at that path — the admitted run member's source
+   origin for retained syntax (a no-op expansion keeps it valid), and
+   the `[:expansion record-address]` of the recorded expansion event
+   whose output introduced generated syntax. No expansion-record
+   address is fabricated: only event rows the expander actually
+   recorded appear. The table is therefore the explicit
+   final-root correspondence §2.3 requires — every generated occurrence
+   names its producing record, so an attribution consumer can reach the
+   event (its input root, call path, macro root, output root) from the
+   row alone."
+  [row-set occurrence-origins admission-origin]
+  (vec (sort-by pr-str
+                (map (fn [[root path]]
+                       [(get occurrence-origins path admission-origin)
+                        root path :yang/call-site 1])
+                     (vm/application-occurrences row-set)))))
+
+
 (defn expand-batch
   "Expand one input batch against `ctx` (§3.2). Returns
    `{:status :ok :tree packet :log log :ctx ctx'}` or
    `{:status :error :error e :log log :ctx ctx'}`. Either way `ctx'` has
    consumed the batch (`:t` + 1) and every attempt it allocated; only
-   success changes the store, to the post-harvest store. A context store
-   binding a reserved name, or holding an entry without the current AST
-   contract, is refused (Rule R): it is a composition defect, so it throws
-   rather than returning an error."
+   success changes the store, to the post-harvest store. A success also
+   carries `:frontend-metadata` — the C1 side table finalized over the
+   final tree (`final-call-site-metadata`), covering the tree that
+   actually executes — when, and only when, the selected member itself
+   claimed C1 coverage (its own verdict in `batch-call-site-claims`); a
+   sibling's claim never manufactures a table for it, and an unclaimed
+   batch carries no table at all, never an empty one. The admission
+   this expansion produced the tree under rides beside it as
+   `:call-site-origin` — the source origin of the admitted run member,
+   the key the table is stored and resolved under beside the final
+   root address. It is the table's admission key, not a blanket
+   stamp: each row's origin is that occurrence's own (§2.1, §2.3) —
+   a retained occurrence keeps its own incoming provenance (its
+   source origin, or the generating expansion's, however deeply it
+   was passed through), and generated syntax carries the
+   `[:expansion record-address]` of the recorded expansion event
+   whose output introduced it. A context
+   store binding a
+   reserved name, or holding an entry without the current AST contract,
+   is refused (Rule R): it is a composition defect, so it throws rather
+   than returning an error."
   [batch ctx]
   (check-store! (:store ctx))
   (let [ctx (with-default-guards ctx)
@@ -1212,6 +1662,8 @@
                    (if-let [e (:error st)]
                      {:status :error, :error e, :log (log-packet st), :ctx ctx'}
                      {:status :ok, :tree (:tree st), :log (log-packet st),
+                      :frontend-metadata (:frontend-metadata st),
+                      :call-site-origin (:call-site-origin st),
                       :ctx (assoc ctx' :store (:next-store st))})))
         {:keys [admitted error]} (admit batch)]
     (if error
@@ -1219,7 +1671,7 @@
         (finish (-> st
                     (record-event (event-row (attempt-id ctx counter) source-batch
                                              (source-origin ctx source-batch nil)
-                                             nil nil nil nil nil error))
+                                             nil nil nil nil nil error nil))
                     (fail error))))
       (let [{:keys [trees indexes index run-index definitions]} admitted
             store0 (or (:store ctx) {})
@@ -1249,16 +1701,47 @@
                                         {:path [], :rel [],
                                          :frame {:parent nil, :root root,
                                                  :tree-index run-index},
-                                         :shadow #{}, :depth 0})]
+                                         :shadow #{}, :depth 0,
+                                         ;; every syntax of the admitted
+                                         ;; run tree starts as source
+                                         ;; (§2.1); expansions override
+                                         ;; below their outputs. The
+                                         ;; function answers by absolute
+                                         ;; occurrence path and ignores it
+                                         ;; here: admitted syntax is all
+                                         ;; source
+                                         :origin-of
+                                         (fn [_]
+                                           (source-origin
+                                             ctx source-batch run-index))})]
             (if (:error st)
               (finish st)
               (let [next-store (post-harvest store0 (:index st) root' catalogue)
                     [index root'] (retail (:index st) root')
                     [index root'] (lower-standins index root')
-                    tree (packet-of index root')]
+                    tree (packet-of index root')
+                    ;; the ADMISSION origin of this expansion (§2.1):
+                    ;; the admitted run member's source origin — the key
+                    ;; the side table is stored and resolved under beside
+                    ;; the final root address. It is NOT blindly stamped
+                    ;; on every row: each row's own origin is the one the
+                    ;; occurrence walk recorded (source for retained
+                    ;; syntax, the generating event's `[:expansion …]`
+                    ;; for generated syntax)
+                    origin (source-origin ctx source-batch run-index)
+                    ;; the selected member's own verdict decides its
+                    ;; metadata; a sibling's claim never manufactures a
+                    ;; table for a member that made none
+                    claims (batch-call-site-claims batch)
+                     metadata (when (and claims (nth claims run-index))
+                                (final-call-site-metadata
+                                  (packet->row-set tree)
+                                  (:call-site-origins st) origin))]
                 (if-let [e (valid-tree? tree)]
                   (throw (ex-info "Expander produced a non-canonical tree" e))
-                  (finish (assoc st :tree tree :next-store next-store)))))))))))
+                  (finish (assoc st :tree tree :next-store next-store
+                                 :frontend-metadata metadata
+                                  :call-site-origin (when metadata origin))))))))))))
 
 
 (defn expand
@@ -1355,15 +1838,45 @@
   (and (nil? (:out-staged expander)) (nil? (:log-staged expander))))
 
 
+(defn call-site-table
+  "The C1 side table the consumer `expander` holds for the occurrence
+   the executed tree packet `tree` names — `origin` being the admission
+   origin the table was stored under (§2.1: an application site is
+   K = [origin root-address path]; the table's key is the admission
+   origin beside the root address, while each row's own origin names
+   that occurrence's admission or generating expansion record) — or nil when
+   that occurrence made no C1 claim. Two expansions can produce the
+   SAME final root from different admissions; keying by the full
+   occurrence identity keeps their tables distinct, so resolving by the
+   origin+root pair at hand never answers another execution's table,
+   however many loads have run since, and an unclaimed load of a root
+   previously loaded under a claim retrieves no stale table."
+  [expander tree origin]
+  (get (:call-site-tables expander) [origin (first tree)]))
+
+
 (defn load
-  "Expand one observed batch once: keep the returned context, stage the tree
-   only on success, stage the log when a log writer exists, and accumulate
-   the error of a failed expansion. Expansion failure is data, so the
-   cursor advances past it."
+  "Expand one observed batch once: keep the returned context, stage the
+   tree only on success, stage the log when a log writer exists, and
+   accumulate the error of a failed expansion. Expansion failure is
+   data, so the cursor advances past it. A successful expansion's C1
+   side table (the batch result's `:frontend-metadata`, present only
+   when the selected member itself claimed coverage) is retained on the
+   consumer under the occurrence identity of the staged tree — its
+   admission origin beside its final root address (`call-site-tables`,
+   resolved by `call-site-table`) — so the composition that drives this
+   expander — the REPL's session — holds every executed occurrence's
+   coverage beside the expander that produced it, each load's table
+   surviving the next, even when two loads land on the same root."
   [expander batch]
-  (let [{:keys [status tree log error ctx]} (expand-batch batch (:ctx expander))]
+  (let [{:keys [status tree log error ctx frontend-metadata
+                call-site-origin]}
+        (expand-batch batch (:ctx expander))]
     (cond-> (assoc expander :ctx ctx)
       (= :ok status) (assoc :out-staged tree)
+      (and (= :ok status) frontend-metadata)
+      (assoc-in [:call-site-tables [call-site-origin (first tree)]]
+                frontend-metadata)
       (:log expander) (assoc :log-staged log)
       (= :error status) (update :errors conj error))))
 

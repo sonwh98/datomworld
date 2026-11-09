@@ -43,6 +43,225 @@
 (declare compile-form compile-lambda)
 
 
+;; =============================================================================
+;; Call-site occurrence contract C1 (Addendum A, design §2)
+;; =============================================================================
+;;
+;; Every final `:application` occurrence of a produced tree carries the
+;; reserved frontend-metadata key `:yang/call-site` with version value `1`
+;; as a plain node key. Projection (`yin.vm/ast-side-tables`) drops the key
+;; from canonical rows and emits it into the frontend-metadata side table
+;; as `[origin root-address path :yang/call-site 1]`, where the first
+;; three coordinates are the site id. The key carries no callee identity,
+;; source arity, or ambient classification. It is distinct from
+;; `:yang/site`, the safepoint mark, which travels as node metadata.
+;; Dedicated node kinds (`:dao.stream.apply/call`, stream and
+;; continuation nodes) are not `:application` nodes and are never marked.
+
+(def call-site-key
+  "The reserved frontend-metadata key of contract C1."
+  :yang/call-site)
+
+
+(def call-site-version
+  "The version value a C1 marker carries."
+  1)
+
+
+(def ^:private ^:dynamic *call-site-finalizing*
+  "True while an owning production entry point compiles a tree, so the
+   recursive `compile-form` calls inside it defer marking to that entry
+   point's single finalization walk over the finished tree."
+  false)
+
+
+(defn annotate-call-sites
+  "The finished map AST `node` with `call-site-key`/`call-site-version`
+   on every `:application` node, at every depth the row grammar knows.
+   Literal payloads are data, never syntax, and are not walked. Marking
+   is idempotent and preserves node metadata and every other key, so
+   canonical rows, roots, and executable outcomes are unchanged.
+
+   The walk itself is `yang.core.uast/annotate-call-sites`, shared with
+   the other frontends' module trees; this frontend owns the contract's
+   constants and its validation over canonical rows."
+  [node]
+  (u/annotate-call-sites node))
+
+
+(defn eligible-application-sites
+  "The eligible C1 site set of canonical `tree` (`{:root :rows}`) under
+   `origin`: one `[origin root-address path]` per `:application`
+   occurrence, derived from the occurrence relation and the row tags."
+  [tree origin]
+  (into #{}
+        (map (fn [[root path]] [origin root path]))
+        (vm/application-occurrences tree)))
+
+
+(defn call-site-metadata
+  "The C1 frontend-metadata rows of canonical `tree` (`{:root :rows}`)
+   under `origin`: one `[origin root-address path :yang/call-site 1]`
+   per eligible application occurrence, in printed-row order. This is
+   the finalizer for trees that exist only as canonical rows — the
+   expander's final tree, a published module's tree — where no map AST
+   remains for `annotate-call-sites` to walk."
+  [tree origin]
+  (vec (sort-by pr-str
+                (map (fn [[root path]]
+                       [origin root path call-site-key call-site-version])
+                     (vm/application-occurrences tree)))))
+
+
+(defn marked-application-sites
+  "The deduped C1 marker set of a frontend-metadata relation: one
+   `[origin root-address path]` per distinct `:yang/call-site` row.
+   Duplicate identical transport deliveries dedupe to the same fact."
+  [frontend-metadata]
+  (into #{}
+        (comp (filter (fn [row]
+                        (and (= 5 (count row)) (= call-site-key (nth row 3)))))
+              (map (fn [[origin root path _ _]] [origin root path])))
+        (distinct frontend-metadata)))
+
+
+(defn- marker-row?
+  "True when frontend-metadata `row` claims the C1 key: a sequential row
+   whose fourth coordinate is `call-site-key`. A claiming row of any
+   other arity is malformed, never a row to filter away silently."
+  [row]
+  (and (sequential? row)
+       (<= 4 (count row))
+       (= call-site-key (nth row 3))))
+
+
+(defn validate-call-site-coverage!
+  "Validate a complete-coverage C1 claim: the marker set of
+   `frontend-metadata` for canonical `tree` under `origin` must equal
+   the eligible application set. Returns true when the claim holds.
+
+   A row that claims the C1 key but is not a five-coordinate
+   `[origin root-address path key value]` row is malformed and is
+   rejected, never silently filtered. The delivery mode is `opts`:
+
+   - default (transport): the relation arrived over a medium, where an
+     at-least-once delivery may repeat a row; duplicate identical
+     deliveries dedupe to the same fact;
+   - `{:declared? true}`: the relation is a declared canonical table —
+     the side table a producer published as the tree's table — where a
+     duplicate entry is a second, conflicting claim to one fact and is
+     rejected;
+   - `{:per-occurrence-origins? true}`: the tree's occurrences do not
+     share one origin — the expander's final tree, whose rows carry
+     each occurrence's own admission or generating-expansion origin
+     (design §2.1, §2.3). Coverage is then compared on the
+     `[root-address path]` projection — the part a consumer derives
+     from canonical rows alone — and every marker's origin is held to
+     a well-formed occurrence origin; the origin VALUES are the
+     producer's correspondence claim, not something a consumer can
+     re-derive.
+
+   Conflicting values at one site, an unsupported marker version, a
+   malformed origin, a marker naming no occurrence, a marker on a
+   non-application occurrence, and missing or extra markers each
+   throw, naming the failed `:rule`."
+  ([tree frontend-metadata origin]
+   (validate-call-site-coverage! tree frontend-metadata origin {}))
+  ([tree frontend-metadata origin
+    {:keys [declared? per-occurrence-origins?] :as _opts}]
+   (doseq [row frontend-metadata]
+     (when (and (marker-row? row) (not= 5 (count row)))
+       (throw (ex-info "Malformed call-site marker row"
+                       {:rule :yang/call-site-malformed, :row row}))))
+   (when declared?
+     (doseq [[row n] (frequencies (filter marker-row? frontend-metadata))]
+       (when (< 1 n)
+         (throw (ex-info "Duplicate call-site marker in a declared table"
+                         {:rule :yang/call-site-duplicate-entry,
+                          :site (vec (take 3 row)), :row row})))))
+   (let [{:keys [root rows]} tree
+         tag-at (into {}
+                      (map (fn [[r path id]] [[r path] (nth (get rows id) 1)]))
+                      (vm/occurrences tree))
+         eligible ((if per-occurrence-origins?
+                     (fn [_] (vm/application-occurrences tree))
+                     #(eligible-application-sites tree %))
+                   origin)
+         rows (filter (fn [row]
+                        (and (= 5 (count row)) (= call-site-key (nth row 3))))
+                      (distinct frontend-metadata))
+         by-site (group-by (fn [[o r path _ _]] [o r path]) rows)]
+    (doseq [[site srows] by-site]
+      (when (< 1 (count (distinct (map #(nth % 4) srows))))
+        (throw (ex-info "Conflicting call-site marker values"
+                        {:rule :yang/call-site-conflict, :site site,
+                         :values (vec (distinct (map #(nth % 4) srows)))}))))
+    ;; one occurrence — one [root-address path] — has exactly one
+    ;; origin (design §2.1); a second marker with a DIFFERENT, equally
+    ;; well-formed origin for an already-covered occurrence is a
+    ;; second claim to one fact and is rejected, not folded into the
+    ;; [root path] coverage projection. The one-origin-per-occurrence
+    ;; rule holds in EVERY validator mode; the default mode rejects a
+    ;; second claim with the same diagnostic (not a downstream
+    ;; nonexistent-path error) so the failure names the occurrence and
+    ;; both claims.
+    (doseq [[site srows] (group-by (fn [[_ r path]] [r path]) rows)]
+      (let [origins (distinct (map #(nth % 0) srows))]
+        (when (< 1 (count origins))
+          (throw (ex-info
+                   "Call-site occurrence claimed by multiple origins"
+                   {:rule :yang/call-site-multi-claim, :site site,
+                    :origins (vec (sort-by pr-str origins))})))))
+    (doseq [[o r path _ value] rows]
+      (when (not= call-site-version value)
+        (throw (ex-info "Unsupported call-site marker version"
+                        {:rule :yang/call-site-unsupported-version,
+                         :site [o r path], :value value})))
+      (when (and per-occurrence-origins? (not (vm/occurrence-origin? o)))
+        (throw (ex-info "Call-site marker carries a malformed occurrence origin"
+                        {:rule :yang/call-site-invalid-origin,
+                         :site [o r path], :origin o})))
+      (let [tag (when (and (= r root)
+                           (or per-occurrence-origins? (= o origin)))
+                  (get tag-at [r path]))]
+        (cond
+          (nil? tag)
+          (throw (ex-info "Call-site marker names no occurrence"
+                          {:rule :yang/call-site-nonexistent-path,
+                           :site [o r path]}))
+          (not= :application tag)
+          (throw (ex-info "Call-site marker on a non-application occurrence"
+                          {:rule :yang/call-site-non-application,
+                           :site [o r path], :tag tag})))))
+    (let [marked (if per-occurrence-origins?
+                   (into #{}
+                         (map (fn [[_ r path]] [r path]))
+                         (marked-application-sites frontend-metadata))
+                   (marked-application-sites frontend-metadata))]
+      (when (not= eligible marked)
+        (throw (ex-info "Call-site coverage is not complete"
+                        {:rule :yang/call-site-incomplete-coverage,
+                         :missing (vec (sort-by pr-str
+                                                (remove marked eligible))),
+                         :extra (vec (sort-by pr-str
+                                              (remove eligible marked)))}))))
+    true)))
+
+
+(defn validate-ast-call-sites!
+  "Validate the C1 claim of a produced map AST `ast` under `origin`:
+   project it and compare the eligible application set derived from its
+   canonical rows with the marker set of its frontend-metadata side
+   table. The projected table is a declared canonical table, so it is
+   validated strictly (`:declared? true`). Returns true when the sets
+   are equal."
+  [ast origin]
+  (let [tree (vm/ast->semantic-bytecode ast)
+        tables (vm/ast-side-tables ast tree origin)]
+    (validate-call-site-coverage! tree (:frontend-metadata tables) origin
+                                  {:declared? true})))
+
+
 (defn literal?
   "Check if a value is a literal (self-evaluating)."
   [form]
@@ -2015,20 +2234,30 @@
                                     :default (clojure.core/type form))}))))
 
 
+(defn- compile-form-1
+  [form tail? env macro-env]
+  (let [ast (compile-form* form tail? (dissoc env ::top-level) macro-env
+                           (::top-level env))
+        m (meta form)]
+    (if (seq (dissoc m ::fn-loop))
+      (vary-meta ast merge (dissoc m ::fn-loop))
+      ast)))
+
+
 (defn compile-form
   "Compile one Clojure form and retain the reader's plain metadata on the
    emitted Universal AST node. The tuple boundary removes it from content
-   and writes positions and other frontend facts to occurrence side tables."
+   and writes positions and other frontend facts to occurrence side tables.
+   The returned tree is C1-finalized (`annotate-call-sites`); recursive
+   calls inside one compilation defer to the owning call's walk."
   ([form] (compile-form form false {} initial-macro-env))
   ([form env] (compile-form form false env initial-macro-env))
   ([form tail? env] (compile-form form tail? env initial-macro-env))
   ([form tail? env macro-env]
-   (let [ast (compile-form* form tail? (dissoc env ::top-level) macro-env
-                            (::top-level env))
-         m (meta form)]
-     (if (seq (dissoc m ::fn-loop))
-       (vary-meta ast merge (dissoc m ::fn-loop))
-       ast))))
+   (if *call-site-finalizing*
+     (compile-form-1 form tail? env macro-env)
+     (binding [*call-site-finalizing* true]
+       (annotate-call-sites (compile-form-1 form tail? env macro-env))))))
 
 
 (defn- top-level-defined-fns
@@ -2225,7 +2454,8 @@
                                            (compile-form head false
                                                          (assoc env ::top-level true) macro-env))]}
                        tail? (assoc :tail? true))))))]
-       (cond->> (go forms initial-macro-env)
+       (annotate-call-sites
+         (cond->> (go forms initial-macro-env)
          ;; The two sibling closures share one frame: separate bindings would
          ;; retain one extra helper environment in every closure a guest
          ;; captures (the machine-data validation bound notices).
@@ -2390,7 +2620,7 @@
                                         (assoc m k v k2 v2)
                                         (assoc m k v k2 v2 k3 v3))))))
                              (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
-         (outcomes? env) u/mark-tails)))))
+           (outcomes? env) u/mark-tails))))))
 
 
 ;; =============================================================================
@@ -3017,7 +3247,10 @@
                              (concat (map (comp strip-symbol-meta second) library)
                                      (map symbol exports)))
                        macros)]
-     (u/lam [] (publish-to-globals program names #{})))))
+     ;; `publish-to-globals` rewrites nodes after `compile-program`
+     ;; finalized them, so the unit is finalized again over its
+     ;; finished tree: the rewrite's own applications are occurrences.
+     (annotate-call-sites (u/lam [] (publish-to-globals program names #{}))))))
 
 
 (defn output

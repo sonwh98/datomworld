@@ -180,10 +180,11 @@
                                                 {:callee :value})))))))
   (testing "bundled and linked emitters use the same definition source"
     (is (= call/module-uast
-           (core/module-tree
-             (core/module-definitions "yang.call" :yang.call/uninit
-                                      [] call/definitions)
-             [])))
+           (u/annotate-call-sites
+             (core/module-tree
+               (core/module-definitions "yang.call" :yang.call/uninit
+                                        [] call/definitions)
+               []))))
     (is (= call/module-exports
            (:exports (call/module-spec registry))))
     (is (= call/host-names
