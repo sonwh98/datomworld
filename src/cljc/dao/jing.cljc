@@ -161,6 +161,30 @@
   (cbor/encode v))
 
 
+(defn canonical-compare
+  "Total order over values by their canonical bytes: unsigned bytewise
+   lexicographic order over `(canonical-bytes v)`, a proper prefix
+   sorting first (RFC 8949 canonical order). Host-independent, unlike
+   ordering by `pr-str`, whose rendering is a host's printer."
+  [a b]
+  (let [x (canonical-bytes a)
+        y (canonical-bytes b)
+        nx (bytes/length x)
+        ny (bytes/length y)
+        n (min nx ny)]
+    (loop [i 0]
+      (if (< i n)
+        (let [bx (bytes/get x i)
+              by (bytes/get y i)]
+          (if (= bx by)
+            (recur (inc i))
+            (if (< bx by) -1 1)))
+        (cond
+          (< nx ny) -1
+          (> nx ny) 1
+          :else 0)))))
+
+
 (defn content-hash
   "Hash the canonical-bytes of v using the specified algorithm (defaulting to
    default-hash-algorithm, i.e. :blake3). Returns lowercase hexadecimal string.

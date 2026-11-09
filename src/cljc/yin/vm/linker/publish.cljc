@@ -96,15 +96,17 @@
 ;;
 ;; A module whose frontend finalized its tree (`:yang/call-site 1` on
 ;; every final `:application` occurrence) publishes its frontend-metadata
-;; side table with its manifest: the manifest keeps schema 1 (a manifest
-;; address names code) and gains the optional `:yin.module/call-sites`
-;; reference `{table record}` — the module closure follows manifest
-;; references, so only a referenced table travels with the module
-;; through transfer. The reverse record names the tree root, the
-;; publication's recorded admission origin, and the table's address; it
-;; cannot name the manifest (the manifest references it, so the two
-;; addresses would be circular), and custody runs one way, from the
-;; manifest forward. The publication's origin is an ADMISSION identity
+;; side table beside its manifest: the manifest keeps the closed
+;; schema-1 key set (a manifest address names code, and nothing else),
+;; so the side table never enters the hashed manifest. The manifest is
+;; materialized first, and the publication record then names it
+;; (`:yang.call-site/manifest`), beside the tree root, the publication's
+;; recorded admission origin, and the table's address — a record names
+;; a manifest, never the reverse (the site-set precedent,
+;; `yang.python.antlr.siteset`). Custody of the record and table runs
+;; through the `publish-module!` result's `:call-sites`, not through
+;; the module closure: execution never consults C1 tables, so the
+;; closure walker does not follow them. The publication's origin is an ADMISSION identity
 ;; (design §2.1): a token the composition pins explicitly, draws from
 ;; a composition-owned scope object, or — by default — has derived
 ;; from the publication specification's own durable identity; no
@@ -185,8 +187,8 @@
 
 (defn- call-site-claim
   "The C1 claim `ast` makes over its canonical `tree`: nil when it
-   carries no markers; `{:origin o :rows [...]}` in printed-row order
-   when the extracted markers exactly cover the tree's eligible
+   carries no markers; `{:origin o :rows [...]}` in canonical-byte
+   order (`jing/canonical-compare`) when the extracted markers exactly cover the tree's eligible
    application occurrences; `{:missing [...] :extra [...]}` when they
    do not; `{:unsupported-version v :path p}` when a marker's value is
    not version 1 — a claim rejection, never a silent acceptance of a
@@ -210,9 +212,9 @@
                                  extracted)]
             {:unsupported-version v, :path p})
           (if (= eligible marked)
-            {:origin origin, :rows (vec (sort-by pr-str extracted))}
-            {:missing (vec (sort-by pr-str (remove marked eligible))),
-             :extra (vec (sort-by pr-str (remove eligible marked)))})))))
+            {:origin origin, :rows (vec (sort jing/canonical-compare extracted))}
+            {:missing (vec (sort jing/canonical-compare (remove marked eligible))),
+             :extra (vec (sort jing/canonical-compare (remove eligible marked)))})))))
 
 
 (defn link-local
@@ -320,46 +322,49 @@
                      handle
                      (assoc (ledger/derive-record input output)
                             :yin.ledger/profile profile)))
-            ;; the C1 side table and its reverse record, materialized
-            ;; BEFORE the manifest so the manifest can reference them:
-            ;; the module closure follows manifest references, so only a
-            ;; referenced table travels with the module through transfer
+            ;; the manifest is materialized FIRST, with the closed
+            ;; schema-1 key set only: the C1 side table never enters
+            ;; the hashed manifest, so identical specifications under
+            ;; distinct admissions share one manifest address
+            manifest {:yin.module/name name
+                      :yin.module/schema linker/manifest-schema
+                      :yin.module/contracts
+                      {:yin.ast/code vm/ast-contract
+                       :yin.semantic/code vm/semantic-contract
+                       :yin.debruijn.code vm/stack-contract
+                       :yin.debruijn.register vm/register-contract}
+                      :yin.module/tree tree-address
+                      :yin.module/derivations
+                      {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
+                       :yin.debruijn.code
+                       (mint sem h linker/stack-lowering-profile)
+                       :yin.debruijn.register
+                       (mint sem r linker/register-lowering-profile)}
+                      :yin.module/index {:yin.debruijn.code h-address
+                                         :yin.debruijn.register r-address}
+                      :yin.module/exports (set exports)
+                      :yin.module/requires (or requires {})
+                      :yin.module/primitives
+                      (into {} (map (fn [[n p]] [n (:yin.k/profile p)])
+                                    primitives))
+                      :yin.module/footprint fp}
+            address (jing/materialize! handle manifest)
+            ;; the C1 side table and its publication record, beside
+            ;; the manifest: the record names the manifest (a record
+            ;; names a manifest, never the reverse), so each admission
+            ;; of one specification keeps its own record and table
             call-sites (when (:rows claim)
                          (let [table (jing/materialize! handle (:rows claim))
-                               record {:yang.call-site/version 1
-                                       :yang.call-site/root tree-address
+                               record {:yang.call-site/schema 1
+                                       :yang.call-site/manifest address
+                                       :yang.call-site/root (:root tree)
                                        :yang.call-site/origin (:origin claim)
                                        :yang.call-site/table table}]
                            {:record (jing/materialize! handle record)
                             :table table
                             :origin (:origin claim)
-                            :root (:root tree)}))
-            manifest (cond-> {:yin.module/name name
-                              :yin.module/schema linker/manifest-schema
-                              :yin.module/contracts
-                              {:yin.ast/code vm/ast-contract
-                               :yin.semantic/code vm/semantic-contract
-                               :yin.debruijn.code vm/stack-contract
-                               :yin.debruijn.register vm/register-contract}
-                              :yin.module/tree tree-address
-                              :yin.module/derivations
-                              {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
-                               :yin.debruijn.code
-                               (mint sem h linker/stack-lowering-profile)
-                               :yin.debruijn.register
-                               (mint sem r linker/register-lowering-profile)}
-                              :yin.module/index {:yin.debruijn.code h-address
-                                                 :yin.debruijn.register r-address}
-                              :yin.module/exports (set exports)
-                              :yin.module/requires (or requires {})
-                              :yin.module/primitives
-                              (into {} (map (fn [[n p]] [n (:yin.k/profile p)])
-                                            primitives))
-                              :yin.module/footprint fp}
-                       call-sites (assoc :yin.module/call-sites
-                                         {:table (:table call-sites)
-                                          :record (:record call-sites)}))
-            address (jing/materialize! handle manifest)
+                            :root (:root tree)
+                            :manifest address}))
             walked (closure/walk handle address opts)]
         (if (not= :complete (:yin.link.closure/outcome walked))
           (refusal :yin.link.publish/incomplete-closure
@@ -427,40 +432,52 @@
 
 
 (defn published-call-site-table
-  "The C1 side table the module whose manifest is at `address` in
-   `handle` claims: `{:origin o :root r :rows [...] :tree tree}` with
-   the rows exactly as stored and the module's canonical tree, or nil
-   when the module made no C1 claim. The manifest references the table
-   and its reverse record (`:yin.module/call-sites`), so the reference —
-   not a recomputation — is what is resolved here: the rows are fetched
-   from the referenced table address and the ORIGIN is the one the
-   record RECORDED at publication (`:yang.call-site/origin`, held to be
-   a well-formed occurrence origin), beside the record's version, the
-   manifest's own tree, and the referenced table. Nothing reconstructs
-   an origin from content: a replay of this retrieval answers the
-   recorded admission identity, and no other module's admission can be
-   confused with it."
-  [handle address]
-  (let [manifest (jing/get handle address nil)
-        call-sites (:yin.module/call-sites manifest)]
-    (when (and (map? manifest) (:yin.module/tree manifest)
-               (map? call-sites) (jing/segment-address? (:table call-sites))
-               (jing/segment-address? (:record call-sites)))
-      (when-let [tree (stored-tree handle (:yin.module/tree manifest))]
-        (let [stored-rows (jing/get handle (:table call-sites) nil)
-              stored-record (jing/get handle (:record call-sites) nil)
-              origin (:yang.call-site/origin stored-record)]
-          (when (and (vector? stored-rows)
-                     (= {:yang.call-site/version 1
-                         :yang.call-site/root (:yin.module/tree manifest)
-                         :yang.call-site/table (:table call-sites)}
-                        (select-keys stored-record
-                                     [:yang.call-site/version
-                                      :yang.call-site/root
-                                      :yang.call-site/table]))
-                     (vm/occurrence-origin? origin))
-            {:origin origin, :root (:root tree), :rows stored-rows,
-             :tree tree}))))))
+  "The C1 side table a publication record claims: `{:origin o :root r
+   :rows [...] :tree tree}` with the rows exactly as stored and the
+   module's canonical tree, or nil when no record verifies. The record
+   names the manifest (`:yang.call-site/manifest`); the manifest never
+   names the record, so a bare manifest address alone cannot discover
+   a side table. Accepts the publication record's address, or the
+   `publish-module!` result map (whose `:call-sites :record` and
+   `:address` it reads); the three-argument form additionally holds
+   the record to the manifest it is asked about. A record verifies
+   only when its schema is 1, its `:yang.call-site/manifest` is the
+   manifest in question, its `:yang.call-site/root` is that manifest's
+   own tree, and its ORIGIN is the one RECORDED at publication
+   (`:yang.call-site/origin`, held to be a well-formed occurrence
+   origin). Nothing reconstructs an origin from content: a replay of
+   this retrieval answers the recorded admission identity, and no
+   other module's admission can be confused with it."
+  ([handle record-or-result]
+   (if (map? record-or-result)
+     (published-call-site-table handle
+                                (:address record-or-result)
+                                (get-in record-or-result
+                                        [:call-sites :record]))
+     (published-call-site-table handle nil record-or-result)))
+  ([handle manifest-address record-address]
+   (when (jing/segment-address? record-address)
+     (let [record (jing/get handle record-address nil)]
+       (when (and (map? record)
+                  (= 1 (:yang.call-site/schema record))
+                  (jing/segment-address? (:yang.call-site/manifest record))
+                  (or (nil? manifest-address)
+                      (= manifest-address (:yang.call-site/manifest record)))
+                  (jing/segment-address? (:yang.call-site/table record))
+                  (vm/occurrence-origin? (:yang.call-site/origin record)))
+         (let [manifest (jing/get handle
+                                  (:yang.call-site/manifest record) nil)]
+           (when (and (map? manifest)
+                      (= (:yang.call-site/root record)
+                         (:yin.module/tree manifest)))
+             (when-let [tree (stored-tree handle (:yin.module/tree manifest))]
+               (let [stored-rows (jing/get handle
+                                           (:yang.call-site/table record)
+                                           nil)]
+                 (when (vector? stored-rows)
+                   {:origin (:yang.call-site/origin record),
+                    :root (:root tree), :rows stored-rows,
+                    :tree tree}))))))))))
 
 
 ;; =============================================================================

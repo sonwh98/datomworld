@@ -34,6 +34,7 @@
                       [clojure.tools.reader.reader-types :as rt]]
                 :cljs [[cljs.tools.reader :as treader]
                        [cljs.tools.reader.reader-types :as rt]])
+            [dao.jing :as jing]
             [yang.core.call :as call]
             [yang.core.uast :as u]
             [yin.vm :as vm]))
@@ -102,15 +103,16 @@
 (defn call-site-metadata
   "The C1 frontend-metadata rows of canonical `tree` (`{:root :rows}`)
    under `origin`: one `[origin root-address path :yang/call-site 1]`
-   per eligible application occurrence, in printed-row order. This is
+   per eligible application occurrence, in canonical-byte order
+   (`jing/canonical-compare`). This is
    the finalizer for trees that exist only as canonical rows — the
    expander's final tree, a published module's tree — where no map AST
    remains for `annotate-call-sites` to walk."
   [tree origin]
-  (vec (sort-by pr-str
-                (map (fn [[root path]]
-                       [origin root path call-site-key call-site-version])
-                     (vm/application-occurrences tree)))))
+  (vec (sort jing/canonical-compare
+             (map (fn [[root path]]
+                    [origin root path call-site-key call-site-version])
+                  (vm/application-occurrences tree)))))
 
 
 (defn marked-application-sites

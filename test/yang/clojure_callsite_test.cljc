@@ -825,14 +825,14 @@
           clj-address (:address clj-result)]
       (is (some? call-address))
       (is (some? clj-address))
-      (doseq [[label result address]
-              [["yang.call" call-result call-address]
-               ["clj" clj-result clj-address]]]
+      (doseq [[label result]
+              [["yang.call" call-result]
+               ["clj" clj-result]]]
         (testing label
           (is (some? (get-in result [:call-sites :record]))
               "the publication retains its side table beside the manifest")
           (let [{:keys [tree origin rows]}
-                (publish/published-call-site-table store address)]
+                (publish/published-call-site-table store result)]
             (is (some? rows)
                 "the markers are retrievable from the published module")
             (is (pos? (count rows)))
@@ -882,6 +882,13 @@
               via-b (publish/publish-module!
                       store spec' {:yin.link.publish/scope b})]
           (is (some? (:address via-a)))
+          (is (= (:address via-a) (:address via-b))
+              "identical specifications under different admission
+               scopes produce the same manifest address: the side
+               table is excluded from the hashed manifest")
+          (is (not= (get-in via-a [:call-sites :record])
+                    (get-in via-b [:call-sites :record]))
+              "each admission keeps its own publication record")
           (is (not= (get-in via-a [:call-sites :origin])
                     (get-in via-b [:call-sites :origin]))
               "two independent publisher scopes producing identical
@@ -893,20 +900,20 @@
                     (get-in via-b [:call-sites :table]))
               "distinct admissions reference distinct tables")))
       (testing "retrieval reads each record's recorded admission"
-        (doseq [[label result address]
-                [["first" first-result first-address]
-                 ["second" second-result second-address]]]
-          (let [retrieved (publish/published-call-site-table store address)]
+        (doseq [[label result]
+                [["first" first-result]
+                 ["second" second-result]]]
+          (let [retrieved (publish/published-call-site-table store result)]
             (is (some? retrieved) (str label " table retrieves"))
             (is (= (get-in result [:call-sites :origin]) (:origin retrieved))
                 (str label " retrieval answers the recorded admission, "
                      "never a reconstructed one"))
             (is (= (:origin retrieved)
-                   (:origin (publish/published-call-site-table store address)))
+                   (:origin (publish/published-call-site-table store result)))
                 (str label " replaying the retrieval replays the same "
                      "recorded admission")))
           (let [{:keys [tree origin rows]}
-                (publish/published-call-site-table store address)]
+                (publish/published-call-site-table store result)]
             (is (= (eligible-under tree origin) (marked rows)))
             (is (true? (yang/validate-call-site-coverage!
                          tree rows origin {:declared? true}))))))
@@ -923,7 +930,7 @@
           (is (= [:source :yin.vm.linker.publish/publish
                   "pinned-admission" 0]
                  (:origin (publish/published-call-site-table
-                            store (:address pinned)))))))))
+                            store pinned))))))))
   (testing "an unannotated module publishes no table and claims none"
     (let [store (mem/create-content-mem)
           plain (publish/publish-module!
@@ -935,9 +942,8 @@
                          :exports #{'f} :requires {} :primitives {}})]
       (is (some? (:address plain)))
       (is (not (contains? plain :call-sites)))
-      (is (nil? (publish/published-call-site-table store
-                                                    (:address plain))))))
-  (testing "the manifest references the side table, so the closure carries it"
+      (is (nil? (publish/published-call-site-table store plain)))))
+  (testing "the manifest excludes the side table; the record names the manifest"
     (let [store (mem/create-content-mem)
           result (publish/publish-module!
                    store (clj-prelude/module-spec
@@ -947,15 +953,27 @@
                                        (call/module-spec publish-registry)))))
           address (:address result)
           manifest (jing/get store address nil)
-          reference (:yin.module/call-sites manifest)]
-      (is (map? reference)
-          "the manifest names the side table and its reverse record")
-      (is (every? jing/segment-address? ((juxt :table :record) reference)))
-      (is (= (:table (:call-sites result)) (:table reference)))
-      (is (some? (jing/get store (:table reference) nil)))
-      (is (some? (jing/get store (:record reference) nil)))
+          record-address (get-in result [:call-sites :record])
+          record (jing/get store record-address nil)]
+      (is (not (contains? manifest :yin.module/call-sites))
+          "the hashed manifest keeps the closed schema-1 key set")
+      (is (every? jing/segment-address?
+                  ((juxt :table :record) (:call-sites result))))
+      (is (= address (:yang.call-site/manifest record))
+          "the publication record names the manifest")
+      (is (= address (get-in result [:call-sites :manifest])))
+      (is (= (:yin.module/tree manifest) (:yang.call-site/root record)))
+      (is (some? (jing/get store (get-in result [:call-sites :table]) nil)))
+      (is (some? record))
+      (is (some? (publish/published-call-site-table store record-address))
+          "the record address alone retrieves the table")
+      (is (nil? (publish/published-call-site-table
+                  store (:yin.module/tree manifest) record-address))
+          "a record held to a manifest it does not name does not verify")
       ;; transfer: fetch exactly the closure the walk answers missing, as
-      ;; a dao.space.dht load does, into a fresh store
+      ;; a dao.space.dht load does, into a fresh store; the side table
+      ;; travels only when its record and table are carried explicitly,
+      ;; since the closure no longer follows them
       (let [fresh (mem/create-content-mem)]
         (loop [n 0]
           (let [w (closure/walk fresh address)]
@@ -965,12 +983,20 @@
                   (recur (inc n)))
               (do (is (= :complete (:yin.link.closure/outcome w)))
                   (is (pos? n) "the walk fetched the module's blobs")
+                  (is (nil? (publish/published-call-site-table
+                              fresh record-address))
+                      "the closure alone does not carry the side table")
+                  (jing/materialize!
+                    fresh (jing/get store (get-in result [:call-sites :table])
+                                    ::absent))
+                  (jing/materialize! fresh (jing/get store record-address
+                                                     ::absent))
                   (let [{:keys [tree origin rows]}
-                        (publish/published-call-site-table fresh address)]
+                        (publish/published-call-site-table fresh record-address)]
                     (is (some? rows)
-                        "the side table is retrievable from the transfer")
+                        "the side table is retrievable once carried")
                     (is (= (:rows (publish/published-call-site-table
-                                    store address))
+                                    store result))
                            rows))
                     (is (= (eligible-under tree origin) (marked rows)))
                     (is (true? (yang/validate-call-site-coverage!
@@ -1032,7 +1058,7 @@
       (doseq [[label result store]
               [["scope-a" via-a store-a] ["scope-b" via-b store-b]]]
         (let [{:keys [tree origin rows]}
-              (publish/published-call-site-table store (:address result))]
+              (publish/published-call-site-table store result)]
           (is (some? rows) (str label " table retrieves"))
           (is (= (eligible-under tree origin) (marked rows)))
           (is (true? (yang/validate-call-site-coverage!

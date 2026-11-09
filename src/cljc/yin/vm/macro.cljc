@@ -1384,9 +1384,9 @@
                              (= missing-provenance-origin o)
                              ::missing-provenance
                              :else [:retained o])])))
-        (sort-by pr-str
-                 (map second
-                      (vm/application-occurrences (packet->row-set tree))))))
+        (sort jing/canonical-compare
+              (map second
+                   (vm/application-occurrences (packet->row-set tree))))))
 
 
 (defn- expand-call
@@ -1598,7 +1598,8 @@
 (defn- final-call-site-metadata
   "The call-site occurrence contract's (C1) side table of an expanded
    final tree, as frontend-metadata rows `[origin root path
-   :yang/call-site 1]` in printed-row order: one row per
+   :yang/call-site 1]` in canonical-byte order
+   (`jing/canonical-compare`): one row per
    `:application` occurrence of the stand-in-lowered, tail-marked tree
    that actually executes. The frontend's own markers named the
    pre-expansion tree; expansion, tail marking and stand-in lowering
@@ -1619,11 +1620,11 @@
    event (its input root, call path, macro root, output root) from the
    row alone."
   [row-set occurrence-origins admission-origin]
-  (vec (sort-by pr-str
-                (map (fn [[root path]]
-                       [(get occurrence-origins path admission-origin)
-                        root path :yang/call-site 1])
-                     (vm/application-occurrences row-set)))))
+  (vec (sort jing/canonical-compare
+             (map (fn [[root path]]
+                    [(get occurrence-origins path admission-origin)
+                     root path :yang/call-site 1])
+                  (vm/application-occurrences row-set)))))
 
 
 (defn expand-batch
