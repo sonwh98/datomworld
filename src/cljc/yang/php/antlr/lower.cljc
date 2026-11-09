@@ -3747,10 +3747,10 @@
 
 (def option-keys
   "The options `lower-program` and the lowering stage accept. Request data
-   never flows here: the harness consumes the request record from the
-   composition-supplied request stream before lowering and composes it as
-   `run-main`'s second operand (`:request-node`, an opaque UAST node) at
-   the composition level."
+   never flows here: the harness attaches the composition-supplied request
+   stream and composes its sealed reference as `run-main`'s second operand
+   (`:request-node`, an opaque UAST node) at the composition level — the
+   record itself reaches the runtime only when `run-main` consumes it."
   [:prelude :path :paths :class-map :request-node :response-node :diag-node])
 
 
@@ -3780,7 +3780,8 @@
    the published `phpm.$classmap` and binds its classes and delivery thunks
    (plan P6 R9), which takes the place of `:paths`; `:request-node` is the
   opaque `run-main` second-operand node the harness composed from the
-  stream-consumed request record (lowering never embeds request data);
+  attached request stream (lowering never embeds request data — `run-main`
+  consumes the record from the stream at runtime);
   `:response-node` and `:diag-node` are the opaque third and fourth
   operands: the composition-supplied stream references execution emits
   on. Absent, `run-main` runs with two operands and the cells
@@ -3797,12 +3798,12 @@
          request-node (or request-node (u/sexp->uast :php/null))
          ctx (context packet {:path (or path entry-path), :linked? linked?})
          ;; `run-main`'s second operand arrives composed by the harness from
-         ;; the stream-consumed request record: production initialization
-         ;; consumes it and seeds the superglobals, no postwalk rewrite and
-         ;; no request data through lowering involved. With stream nodes
-         ;; `run-main` takes four operands (request, response and
-         ;; diagnostics references); without them it takes two and the
-         ;; cells accumulate.
+         ;; the attached request stream: production initialization consumes
+         ;; the record from the stream at runtime and seeds the superglobals,
+         ;; no postwalk rewrite and no request data through lowering involved.
+         ;; With stream nodes `run-main` takes four operands (request,
+         ;; response and diagnostics references); without them it takes two
+         ;; and the cells accumulate.
          main (if (or response-node diag-node)
                 (app* 'php/run-main (u/lam [] (unit-node ctx)) request-node
                       (or response-node (u/sexp->uast :php/null))

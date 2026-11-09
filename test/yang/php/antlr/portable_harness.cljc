@@ -151,36 +151,39 @@
 
 (defn operand-node
   "A `run-main` operand node the composition supplies: the harness converts
-   the value (a request record, a stream reference) to UAST itself —
-   lowering never embeds composition data."
+   the opaque reference (a request-stream, response-stream or diagnostics
+   reference) to UAST itself — lowering never embeds composition data, and
+   request records never travel as compiled UAST content."
   [value]
   (u/sexp->uast (or value :php/null)))
 
 
 (def request-node
-  "The `run-main` second-operand node the composition supplies for `request`."
+  "The `run-main` second-operand node the composition supplies: the attached
+   request-stream reference (or nil for the empty defaults). The record is
+   consumed from the stream at runtime, never embedded in the program."
   operand-node)
 
 
 (defn lower-through-stage
   "`{:ast a :warnings w}` or `{:diagnostics d}` for `pk` through the lowering
-   stage. Warning-severity diagnostics do not stop the program. With a request
-   record, the harness consumed it from the request stream before lowering and
-   composes it here as `run-main`'s second operand — lowering itself never
-   sees request data. With `response-ref`/`diag-ref`, the composition-supplied
-   stream references execution emits on during the run ride as the third and
-   fourth operands."
+   stage. Warning-severity diagnostics do not stop the program. `request-ref`
+   is the attached request-stream reference the harness composed as
+   `run-main`'s second operand — lowering itself never sees request data, and
+   the record reaches the runtime only through the stream at execution time.
+   With `response-ref`/`diag-ref`, the composition-supplied stream references
+   execution emits on during the run ride as the third and fourth operands."
   ([pk] (lower-through-stage pk nil nil nil))
-  ([pk request] (lower-through-stage pk request nil nil))
-  ([pk request response-ref diag-ref]
+  ([pk request-ref] (lower-through-stage pk request-ref nil nil))
+  ([pk request-ref response-ref diag-ref]
    (let [cst-log (new-memory-log)
          program (new-memory-log)
          diagnostics (new-memory-log)]
      (stream/append! cst-log pk)
      (lower/step-stage (lower/open-stage cst-log program diagnostics
                                          (cond-> {:medium lower/program-medium}
-                                           (some? request) (assoc :request-node
-                                                                  (operand-node request))
+                                           (some? request-ref) (assoc :request-node
+                                                                      (operand-node request-ref))
                                            (some? response-ref) (assoc :response-node
                                                                        (operand-node response-ref))
                                            (some? diag-ref) (assoc :diag-node
@@ -193,67 +196,75 @@
            {:ast (nth batch root), :warnings (vec warnings)}))))))
 
 
+(defn- attach-request-stream
+  "The composition-supplied request stream carrying `request`, attached under
+   the VM's capability secret, answering `[request-ref vm]`. The sealed
+   reference — never the record — is what the program composes; `run-main`
+   consumes the record from the stream at runtime."
+  [vm request]
+  (let [request-stream (lifecycle-stream "request create")]
+    (check-ok! (stream/append! request-stream request) "request append")
+    (engine/attach-resource vm request-stream)))
+
+
 (defn run-packet-raw
   "The unit's value, `{:php/out :php/diag :php/uncaught}`, of packet `pk` on
-   the AST walker, or `{:diagnostics d}`."
+   the AST walker, or `{:diagnostics d}`. A request rides the attached
+   request stream (consumed at runtime), never the compiled program."
   ([pk] (run-packet-raw pk nil))
   ([pk request]
-   (let [{:keys [ast diagnostics]} (lower-through-stage pk request)]
+   (let [vm (create-vm {:modules (host-registry)})
+         [request-ref vm] (if (some? request)
+                            (attach-request-stream vm request)
+                            [nil vm])
+         {:keys [ast diagnostics]} (lower-through-stage pk request-ref)]
      (if diagnostics
        {:diagnostics diagnostics}
-       (vm/value (vm/eval (create-vm {:modules (host-registry)}) ast))))))
-
-
-(defn- consume-one
-  "The single value appended to `handle`, read back through a fresh oldest
-   cursor: real stream consumption, not a vector pass."
-  [handle]
-  (let [start (:dao.stream/cursor (check-ok! (stream/cursor handle stream/anchor-oldest)
-                                             "request cursor"))
-        result (check-ok! (stream/next handle start) "request read")]
-    (:dao.stream/value result)))
+       (vm/value (vm/eval vm ast))))))
 
 
 (defn- attach-lifecycle-streams
-  "The AST walker VM with the composition-supplied `response-stream` and
-   `diagnostics-stream` handles attached under its capability secret,
-   answering `[vm response-ref diag-ref]`: the sealed references the
-   program emits on DURING execution."
-  [response-stream diagnostics-stream]
+  "The AST walker VM with the composition-supplied `request-stream`,
+   `response-stream` and `diagnostics-stream` handles attached under its
+   capability secret, answering `[vm request-ref response-ref diag-ref]`
+   (a nil request keeps the empty defaults and composes no reference): the
+   sealed references the program consumes and emits on DURING execution."
+  [request response-stream diagnostics-stream]
   (let [vm (create-vm {:modules (host-registry)})
+        [request-ref vm] (if (some? request)
+                           (attach-request-stream vm request)
+                           [nil vm])
         [response-ref vm] (engine/attach-resource vm response-stream)
         [diag-ref vm] (engine/attach-resource vm diagnostics-stream)]
-    [vm response-ref diag-ref]))
+    [vm request-ref response-ref diag-ref]))
 
 
 (defn run-lifecycle-raw
   "The full request/response/diagnostics lifecycle for packet `pk` over
    composition-supplied streams: `request` (nil keeps the empty defaults) is
-   appended to the request stream and consumed back from it; the consumed
-   record rides the composition path as `run-main`'s second operand, and the
+   appended to the request stream; the attached stream reference rides the
+   composition path as `run-main`'s second operand, and the
    response/diagnostics stream references ride as its third and fourth
-   operands. Execution emits response and diagnostic records onto those
-   streams DURING the run (never copied after completion); the runtime no
-   longer appends to cells on this path. Returns
-   `{:value v :request consumed :response [...] :diag [...]}`, the drained
+   operands. `run-main` consumes the request record from the stream at
+   runtime — the record never enters the compiled program. Execution emits
+   response and diagnostic records onto those streams DURING the run (never
+   copied after completion); the runtime no longer appends to cells on this
+   path. Returns
+   `{:value v :request request :response [...] :diag [...]}`, the drained
    streams, or `{:diagnostics d}` when lowering refuses."
   [pk request]
-  (let [request-stream (lifecycle-stream "request create")
-        response-stream (lifecycle-stream "response create")
-        diagnostics-stream (lifecycle-stream "diagnostics create")]
-    (when (some? request)
-      (check-ok! (stream/append! request-stream request) "request append"))
-    (let [consumed (if (some? request) (consume-one request-stream) nil)
-          [vm response-ref diag-ref] (attach-lifecycle-streams response-stream
-                                                               diagnostics-stream)
-          {:keys [ast diagnostics]} (lower-through-stage pk consumed response-ref diag-ref)]
-      (if diagnostics
-        {:diagnostics diagnostics}
-        (let [v (vm/value (vm/eval vm ast))]
-          {:value v,
-           :request consumed,
-           :response (drain response-stream),
-           :diag (drain diagnostics-stream)})))))
+  (let [response-stream (lifecycle-stream "response create")
+        diagnostics-stream (lifecycle-stream "diagnostics create")
+        [vm request-ref response-ref diag-ref]
+        (attach-lifecycle-streams request response-stream diagnostics-stream)
+        {:keys [ast diagnostics]} (lower-through-stage pk request-ref response-ref diag-ref)]
+    (if diagnostics
+      {:diagnostics diagnostics}
+      (let [v (vm/value (vm/eval vm ast))]
+        {:value v,
+         :request request,
+         :response (drain response-stream),
+         :diag (drain diagnostics-stream)}))))
 
 
 (defn run-packet

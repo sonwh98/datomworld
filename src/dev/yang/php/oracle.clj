@@ -146,8 +146,11 @@
                           (fn [[_ kind msg]]
                             (vswap! diags conj (mark-class-derived [(get errno-of kind) (strip-location msg file)]))
                             ""))]
+     ;; a single-slot plain fatal carries its own diagnostic: the engine
+     ;; records the fatal's E_USER_ERROR-class diagnostic (errno 256)
+     ;; alongside `:fatal`, so `:diag` carries it too.
      {:out out,
-      :diag @diags,
+      :diag (if fatal (conj @diags [256 fatal]) @diags),
       :uncaught uncaught,
       :fatal fatal})))
 

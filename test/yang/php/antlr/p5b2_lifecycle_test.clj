@@ -119,6 +119,68 @@
     (into {} (map (fn [[k v]] [k (:php/out v)]) values))))
 
 
+(defn- request-data-nodes
+  "Every compiled-program node embedding request data: map literals carrying
+   request-record keys. The composition path must never produce one."
+  [ast]
+  (let [found (volatile! [])]
+    (walk/postwalk (fn [node]
+                     (when (and (map? node)
+                                (some #(contains? node %) [:php.request/method
+                                                           :php.request/uri
+                                                           :php.request/query
+                                                           :php.request/body]))
+                       (vswap! found conj node))
+                     node)
+                   ast)
+    @found))
+
+
+(deftest request-never-enters-compiled-uast-test
+  (testing "the composed second operand is the opaque stream reference"
+    (let [pk (cst/parse-source "<?php echo $_GET['v'];")
+          ref {:type :stream-ref :id "req-0"}
+          {:keys [ast]} (ph/lower-through-stage pk ref)
+          apps (run-main-applications ast)]
+      (is (= 1 (count apps)))
+      (is (= ref (:value (nth (:operands (first apps)) 1))))))
+  (testing "no request data is embedded in the compiled program"
+    (let [pk (cst/parse-source "<?php echo $_GET['v'];")
+          ref {:type :stream-ref :id "req-0"}
+          {:keys [ast]} (ph/lower-through-stage pk ref nil nil)]
+      (is (empty? (request-data-nodes ast)))))
+  (testing "the lifecycle run still seeds superglobals from the stream"
+    (let [request (assoc p5b2/base-request
+                         :php.request/query (p5b2/request-array [["v" "Q"]]))
+          {:keys [value]} (ph/run-lifecycle-raw
+                            (cst/parse-source "<?php echo $_GET['v'];")
+                            request)]
+      (is (= "Q" (:php/out value))))))
+
+
+(deftest setcookie-validates-before-headers-sent-test
+  (testing "excess arguments throw ArgumentCountError even after output"
+    (let [r (h/run-raw (str "<?php echo 'x'; var_dump(setcookie('s', 'v', 0, '/', "
+                            "'example.com', false, false, 'Lax'));")
+                       p5b2/base-request)]
+      (is (= "x" (:php/out r)))
+      (is (= "ArgumentCountError" (get-in r [:php/uncaught :class])))
+      (is (= "setcookie() expects at most 7 arguments, 8 given"
+             (get-in r [:php/uncaught :message])))))
+  (testing "an unknown option throws ValueError even after output"
+    (let [r (h/run-raw (str "<?php echo 'x'; var_dump(setcookie('o', 'w', "
+                            "['bogus' => 1]));")
+                       p5b2/base-request)]
+      (is (= "x" (:php/out r)))
+      (is (= "ValueError" (get-in r [:php/uncaught :class])))))
+  (testing "a valid setcookie after output still warns and answers false"
+    (let [r (h/run-raw "<?php echo 'x'; var_dump(setcookie('s', 'v'));"
+                       p5b2/base-request)]
+      (is (= "xbool(false)\n" (:php/out r)))
+      (is (= [[2 "Cannot modify header information - headers already sent"]]
+             (mapv (juxt :errno :message) (:php/diag r)))))))
+
+
 (deftest linked-profile-consumes-request-and-isolates-test
   (testing "the :linked entry point takes the request operand too"
     (let [r (linked-out "<?php echo $_GET['v'], $_REQUEST['w'];"

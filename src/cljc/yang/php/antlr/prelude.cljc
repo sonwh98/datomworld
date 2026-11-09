@@ -483,6 +483,20 @@
              (php/global-put! "_FILES" files)
              (php/global-put! "_REQUEST" req)
              :php/null)))]
+    [php/resolve-request
+     ;; the request record `run-main` binds: a plain record binds directly,
+     ;; while a composition-supplied request-stream reference is consumed
+     ;; here at runtime (one record, oldest first) — the stream, never the
+     ;; record, is what the harness composes into the program, so request
+     ;; data never travels as compiled UAST content. An empty stream keeps
+     ;; the empty defaults.
+     (fn [request]
+       (if (if (nil? request) true (= request :php/null))
+         :php/null
+         (if (= (get request :type) :stream-ref)
+           (let [v (stream/poll! (stream/cursor request))]
+             (if (= v :dao.stream/blocked) :php/null v))
+           request)))]
     [php/emit-response!
      ;; the task's response emission: onto the composition-supplied
      ;; response stream DURING execution when run-main received one, else
@@ -723,35 +737,38 @@
      ;; case-insensitively; unknown or numeric keys are a ValueError.
      ;; Retained expiration/path/domain/secure/httponly/samesite on the
      ;; cookie record.
+     ;; validation runs before the headers-sent refusal: after output, excess
+     ;; arguments and unknown options still throw (ArgumentCountError and
+     ;; ValueError), instead of warning-and-skipping.
      (fn [args]
-       (if (php/headers-refused?)
-         false
-         (let [n (data/count args)
-               name (php/to-string (get args 0))
-               value (if (> n 1) (php/to-string (get args 1)) "")
-               array-form? (if (> n 2) (php/array? (get args 2)) false)]
-           (if (if array-form? (> n 3) (> n 7))
-             (php/throw-error "ArgumentCountError"
-                              (if array-form?
-                                "setcookie(): Expects exactly 3 arguments when argument #3 ($expires_or_options) is an array"
-                                (data/str-concat "setcookie() expects at most 7 arguments, "
-                                                 (data/str-concat (integer/format n) " given"))))
-             (let [opts (if array-form?
-                          (php/cookie-options-array (get args 2))
-                          (let [has (fn [i] (> n i))
-                                put (fn [m i k f]
-                                      (if (has i)
-                                        (php/cookie-opt m k (f (get args i)))
-                                        m))]
-                            (put (put (put (put (put (put {} 2 :expires php/to-int)
-                                                     3 :path php/to-string)
-                                                4 :domain php/to-string)
-                                           5 :secure php/to-bool)
-                                      6 :httponly php/to-bool)
-                                 7 :samesite php/to-string)))
-                   cookie (assoc (assoc {} :name name)
-                                 :value value
-                                 :options opts)]
+       (let [n (data/count args)
+             array-form? (if (> n 2) (php/array? (get args 2)) false)]
+         (if (if array-form? (> n 3) (> n 7))
+           (php/throw-error "ArgumentCountError"
+                            (if array-form?
+                              "setcookie(): Expects exactly 3 arguments when argument #3 ($expires_or_options) is an array"
+                              (data/str-concat "setcookie() expects at most 7 arguments, "
+                                               (data/str-concat (integer/format n) " given"))))
+           (let [opts (if array-form?
+                        (php/cookie-options-array (get args 2))
+                        (let [has (fn [i] (> n i))
+                              put (fn [m i k f]
+                                    (if (has i)
+                                      (php/cookie-opt m k (f (get args i)))
+                                      m))]
+                          (put (put (put (put (put (put {} 2 :expires php/to-int)
+                                                   3 :path php/to-string)
+                                              4 :domain php/to-string)
+                                         5 :secure php/to-bool)
+                                    6 :httponly php/to-bool)
+                               7 :samesite php/to-string)))
+                 name (php/to-string (get args 0))
+                 value (if (> n 1) (php/to-string (get args 1)) "")
+                 cookie (assoc (assoc {} :name name)
+                               :value value
+                               :options opts)]
+             (if (php/headers-refused?)
+               false
                (do (php/emit-response! (assoc {} :php.response/cookie cookie)) true))))))]
     [php/bi-setrawcookie
      (fn [args] (php/bi-setcookie args))]
@@ -5571,9 +5588,10 @@
                              (fn [eesc]
                                (do (cell/set! php.rt/exit-escape eesc)
                                    (let [exc0 (php/try (fn []
-                                                         (do (if (if (nil? request) true (= request :php/null))
-                                                               :php/null
-                                                               (php/bind-request! request))
+                                                         (do (let [resolved (php/resolve-request request)]
+                                                               (if (if (nil? resolved) true (= resolved :php/null))
+                                                                 :php/null
+                                                                 (php/bind-request! resolved)))
                                                              (body) :php/null))
                                                        (fn [e] e)
                                                        (fn [] :php/null))]
