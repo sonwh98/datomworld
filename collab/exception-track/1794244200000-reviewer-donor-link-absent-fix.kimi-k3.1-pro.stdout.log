@@ -1,0 +1,194 @@
+kimi version 2.4.0
+• I need read prompt. I am subagent exploration only no edits. Caller says read and complete it. I need inspect and provide findings perhaps implementation plan? Must obey exclusive read-only. I'll read.I cannot write findings due subagent read only. Should provide findings in response so main can write. Must inspect thoroughly static no tests. Should date current timestamp use date command okay. Read diff files brief findings original problem. Parallel.
+
+• I’ll trace the publication and call-site paths in the linked worktree, then return a ready-to-save review with per-question dispositions.diff --git a/test/yang/call/conformance.clj b/test/yang/call/conformance.clj
+index 8cb2e908..2779ea91 100644
+--- a/test/yang/call/conformance.clj
++++ b/test/yang/call/conformance.clj
+@@ -187,6 +187,12 @@
+   (clj-prelude/admit (php-prelude/admit (h/registry))))
+ 
+ 
++(defn- claims-call-sites?
++  "True when map AST `ast` carries the C1 call-site key anywhere."
++  [ast]
++  (boolean (some #(= :yang/call-site %) (tree-seq coll? seq ast))))
++
++
+ (defn publish-donor!
+   "Publish the donor `source` of `frontend` as the module `module` (default
+    `xlang.donor.<frontend>`), exporting `body`, its unmodified lowered unit.
+@@ -196,12 +202,15 @@
+   ([frontend source module]
+    (let [{:keys [runtime address refusal parse unit deps]} (profile frontend)
+          [refusal-key reason] refusal
++         ast (let [raw (core-module/module-tree
++                         [(core-module/require-node runtime)
++                          (u/def! 'body (unit (parse source) []))])]
++               (cond-> raw
++                 (claims-call-sites? raw) u/annotate-call-sites))
+          spec (core-module/module-spec
+                 refusal-key reason (modules)
+                 {:name module,
+-                 :ast (core-module/module-tree
+-                        [(core-module/require-node runtime)
+-                         (u/def! 'body (unit (parse source) []))]),
++                 :ast ast,
+                  :exports '#{body},
+                  :runtime-name runtime,
+                  :runtime-address (address),
+ M test/yang/call/conformance.clj
+
+
+• Should read xlink AGENTS plus remaining lower-unit region, core module, core call prelude, interpreter exact, h publish source. Searches all.a5a3ac0eb881766721384656a7afdd148aa1daf4 HEAD, origin/master, origin/HEAD
+ test/yang/call/conformance.clj | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+2026-11-09 17:19:37 GMT
+2026-11-10 00:19:37 +07
+Should have no run suites done. Should coverage list discrepancy 8 PHP provenance listed actually 7 ids perhaps ×3? "6 PHP provenance rows" likely 2 tests 3 backends. Static tracing exception_legs all frontends. Should inspect test namespaces imports and export-program use Grep all languages perhaps .cljc? Use broad. Also h file glob.Should read conformance_test cross_lang exception source exception contract python exception to map risk.Worktree actually collab contrary prompt but irrelevant. Should h read relevant.b825498e fix(yang.clojure): C1 survives the production pipeline (cc1 fix round)
+ src/cljc/yang/clojure.cljc           | 109 ++++++++++++++-------
+ src/cljc/yang/core/call.cljc         |   7 +-
+ src/cljc/yang/core/uast.cljc         |  46 ++++++++-
+ src/cljc/yin/repl/frontends.cljc     |  16 ++-
+ src/cljc/yin/vm.cljc                 |  14 +++
+ src/cljc/yin/vm/encoder.cljc         |  78 ++++++++++++++-
+ src/cljc/yin/vm/linker/publish.cljc  | 156 +++++++++++++++++++++++++++--
+ src/cljc/yin/vm/macro.cljc           |  52 ++++++++--
+ test/yang/clojure_callsite_test.cljc | 184 ++++++++++++++++++++++++++++++++---
+ test/yang/core/call_test.cljc        |   9 +-
+ 10 files changed, 593 insertions(+), 78 deletions(-)
+I ran weird git pipe read-only okay but no need. Should identify potential defect claims-call-sites raw tree-seq literal payload causing annotation not harmful except annotating nonclaims? If literal payload keyword causes claims true then annotate applications, claim side tables only actual, so no semantic harm. Could produce C1 table on non-clj if quoted :yang/call-site anywhere; still metadata all apps and no execution changes. Accept observation duplication. Silent nil likely P2 or P3. Asked "Should kit throw ... (Flag as finding with severity; do not fix.)" Must be defect with severity. If verdict CHANGES-REQUIRED with blocking findings numbered, should this be blocking? Probably silent nil P2 defect and CHANGES REQUIRED [4]. Should adversarial assess if expected accept fix but note issue. They explicitly say flag as a finding severity; likely CHANGES-REQUIRED (4). Could choose P2. Should have all questions evidence.
+
+  Potential bigger issue Q3 "including frontends donors do NOT claim call sites cond leaves untouched" Fix covers all affected rows because only clj donors; python/php donors unaffected. 6 PHP provenance uses Python donor though problem says every one names Clojure donor contradictory: exception probes boundary donor is python. Why would PHP provenance rows name clj donor? Runtime require 'clj' perhaps because clj prelude? Wait published-donors all four delays created map values delays only not realized. For PHP provenance donor python, no C1. Why errors xlang.donor.clojure? Could source contract frontends? Problem says all names clj donor perhaps ledger mismatch. Static call path shows PHP provenance Python donor, so fix does not touch donor for those. Yet compose calls runtime-entry donor and caller: python/php only. No clj. How would clj donor absent? Something off. Perhaps "6 PHP provenance" are clojure provenance? Problem statement says 6 PHP provenance but actual test check-frontend :php uses boundary Python. Could original observed errors all name clj donor questionable. Q3 specifically all 24 flow through this one publish-donor including frontends. Yes all flow, but fix only Clojure donor. For PHP provenance no clj donor. They may have mislabeled 6 clojure provenance rows. Should flag handwaving evidence mismatch. Should analyze counts: fixtures per frontend. Read contract.
+
+• The main path checks out, but the provenance coverage claim needs closer scrutiny: the current provenance fixtures publish a Python donor, not a Clojure donor. I’m checking whether the stated 24-row grouping is mislabeled or incomplete.
+
+• 6 PHP provenance likely six errors across two scenarios? I'll count baseline errors for PHP: protocol invalid/unsupported, local, foreign, retained, saved invalid/unsupported = 7 scenarios ×3 =21 errors. But problem says 6 PHP provenance rows likely 6 assertions not scenarios: foreign/local/retained =3 + saved-protocol invalid/unsupported? =2 + protocol? total7. They list 7 names despite says 6. Could be 6 affected rows = 2 tests? Hmm. They say every names clj donor but impossible. This may be intentionally adversarial expected flag Q3 handwaving. Should trace clj module publication in runtime-entry? `link-source` has 'clj @published-clj not xlang. Not clj donor. Provenance Python donor no C1. So fix cannot explain those 6/21. Yet perhaps all tests run in same JVM shared delays `published-donors` map with all delays only, no. Python donor published then C1? no. PHP caller lower doesn't mark. So absent clj donor impossible for PHP provenance. Original data itself inconsistent. I must respond with "coverage not proven; mechanism covers clj→py and py→php via shared Clojure donor, but not PHP provenance; static path contradicts attribution. Defect P2 maybe fix incomplete/claim invalid." Q3 disposition defect P2. Combined with silent nil perhaps CHANGES required [3,4]. User specifically expects one disposition per question accept/defect/observation. I can set Q1 accept; Q2 accept; Q3 defect P2 due unaddressed provenance group; Q4 defect P2; Q5 observation acceptable; Q6 accept; Q7 observation risk.
+
+  But careful: Q3 wording "All 24 affected rows (8 Clojure→Python pairs, 6 PHP provenance, 6 Python→PHP) flow through this one publish-donor!" Perhaps "6 PHP provenance" not scenarios but assertions? They expect verify conditional no claims. They may know actual path uses Python donor and want "Clojure donor issue also provenance?" Why might Clojure donor publication occur from `clj-prelude/admit`? `modules()` doesn't publish donor. No.
+
+  Could source static at HEAD differ from orchestrator problem? HEAD a5a3 same. Strong defect in findings but not necessarily code. Review deliverable should note claim unsupported not necessarily block fix if code correct. Yet question is fix covers all. Respond no static. Could say defect P2: verification coverage gap, not semantic defect. CHANGES required with Q4 perhaps enough.
+
+  Should have exact commit evidence optional git show b825 file. Q1 accept based actual code. Q2 semantics: annotate marks existing synthetic applications, they were already canonical application occurrences before annotation. Occurrence identity = origin root path; origin assigned once publication, canonical root unchanged because metadata excluded. No invented executable sites. Every app must mark. Good.
+
+  Q4 silent nil P2 should kit throw? In test helper, yes refusing publication is fixture operational defect should ex-info result. `export-program` doc says no user direct usage currently but call. Severity P2 because all refusal reasons obscured.
+
+  Q5 duplication exact copy including doc difference omitted literal nuance. Should local duplicate drift risk, but publish private no public claim API. Publishing unconditionally would be semantics-neutral for all ASTs? But would turn nonclaiming modules into C1, not desired. Public API helper might be architecturally nicer but test local okay. Note false positive literal benign but could align doc. Observation no block.
+
+  Q6 no commits status only one M. G0 author only single command. They didn't run optional second. No ledger diff. `git diff --stat`. Accept claims static no independent test.
+
+  Q7 risk other tests:
+  - yang.cross-lang-test many Clojure donors green at 100 etc
+  - python source tests no clj donor so cond unchanged
+  - exception_legs used all directed pair tests py and possibly future all 12
+  - exception probes python donor unaffected.
+  - conformance_test no publish.
+  - export-program has no callers found (other than definition/docs).
+  Could mention `yang.python.antlr.exception-call-test` all six directions; Clojure donor only clj->py. `yang.call.exception-contract-test` Python donor all. Main risk currently green Clojure donors in cross-lang tests. Since canonical unchanged no execution regression expected; new manifest call-site table and addresses? Root unchanged but manifest gains call-sites and address changes; tests use dynamic addresses no pins. Search pinned donor manifests? likely none. `published-clj` dynamic. Source call tests donors nonclj untouched. Risk low.
+
+  Perhaps investigate frontend annotation on Clojure AST claims literal :yang/call-site. Fine.
+
+  No file edits allowed; the response should be ready to save. Could main agent expects findings path exists; I must explicitly state not written due read-only. But final response must begin timestamps exactly and stand-alone. I can include whole review content. Parent can write. User asked completed-GMT at current 17:19 but now later get fresh right before response. Perhaps ensure date precise. Can do date call and then respond. Should structure 7 questions evidence. Include header static review no tests. Verdict perhaps CHANGES-REQUIRED blocking findings 3,4. Is #3 defect code? Might be deemed overly adversarial but evidence clear. I should word "P2 (coverage/attribution)" because acceptance criteria fix all errors? Original only required G0 clj test and mechanism presumed. It says "If correct same mechanism fixed PHP..." Static contradicts. Block until actual PHP provenance cause established and tested full acceptance orchestrator. Yes.
+
+  Potential issue problem states 24 rows but 8+6+6 =20 not24; they likely mean 8 scenarios +6 provenance assertions +6 scenarios =20 ×? Total mixed weird. Flag numerical inconsistency perhaps Q3. 8 clj pairs (24 backend assertions), 6 PHP provenance (backend assertions =2 scenarios), 6 py php (18 assertions) total 48 backend assertions. They call affected rows a mixture. Problem statement explicit list seven provenance ids. I can mention arithmetic/provenance mismatch as more evidence report unreliable, not central.
+
+  I'll inspect ledger exact `:php` statuses perhaps 6 affected rows means two fixtures moved errors? Regardless static no clj donor. I can state supplied grouping cannot be validated as stated, list seven names despite six. Good.
+
+  Should timestamp call.
+
+• The fix itself preserves executable code, but two issues remain: the stated PHP-provenance coverage is not supported by its actual call path, and publication refusals are still silently converted into nil addresses.2026-11-09 17:22:38 GMT
+2026-11-10 00:22:38 +07
+
+
+• Response must exact timestamps first. Then explain unable write. But "deliverable" contents can be markdown. Should have no heavy. I should include paths absolute? Findings file references normally worktree relative okay. Should line evidence. Perhaps Q3 references `exception_probes.clj:19-20,165-170,179-188`; conformance profile Python; no C1 proof lower python no annotate? Should show absence static from profiles lines 139-153 and grep no annotate in py lower. Could search annotation all source confirms only clj core call. I already grep core etc not py. `claims` raw false if no marker from Python unit. There may be literal keyword :yang/call-site in Python source no. No markers anywhere by Python lower (search). Could cite no annotation from unit but negative evidence enough. Search `yang/call-site` Python files.Now respond. Should begin exactly lines no prefix. State file not written after timestamps. Deliverable text perhaps parent wants only summary. I need all details. Use findings with disposition bold. Verdict one-line end exactly. Note no tests run. Completed time 17:22. Include Q6 no violations. Q1 causal commit evidence from git show only confirms validator introduced, okay.
+
+  Q3 P2 may be blocker report not fix. Q4 P2 silent nil. Q7 observation not accept? One disposition per. Good.
+
+  I should not claim file completed written. Main agent can save.
+
+• Completed-GMT: 2026-11-09 17:22:38 GMT
+  Completed-Local: 2026-11-10 00:22:38 +07
+
+  Read-only review completed; no tests were run. I could not write the findings file because this exploration role is read-only. The ready-to-save contents for `collab/exception-track/1794244200000-reviewer-donor-link-absent-fix.kimi-k3.1-pro.findings.md` follow.
+
+  # Adversarial review: donor-link-absent fix
+
+  Scope: uncommitted `test/yang/call/conformance.clj` change at `/Users/sto/workspace/datomworld-xlink`, detached at `a5a3ac0e`. Static review only.
+
+  ## 1. Mechanism correctness — accept
+
+  The attribution is correct for Clojure-donor rows:
+
+  - `publish-donor!` constructs wrapper applications around the already-C1-finalized Clojure unit (`test/yang/call/conformance.clj:203-218`; `src/cljc/yang/clojure.cljc:3222-3253`).
+  - `module-tree`, `require-node`, and `def!` create real application nodes (`src/cljc/yang/core/module.cljc:25-34`; `src/cljc/yang/core/prelude.cljc:53-68`; `src/cljc/yang/core/uast.cljc:40-56`).
+  - Any marker activates the C1 claim (`src/cljc/yin/vm/linker/publish.cljc:178-215`). Incomplete application coverage refuses publication at `publish.cljc:302-306`; successful results receive `:address` only at `publish.cljc:374-381`.
+  - `publish-donor!` extracts that absent address as nil (`test/yang/call/conformance.clj:218-222`), and `link-source` installs it in the name environment (`conformance.clj:275-283`).
+  - The non-DHT interpreter uses `if-let` on the lookup, so a present-but-nil mapping produces exactly `{:status :refused :reason :absent :name ...}` (`src/cljc/yin/vm/linker/interpreter.cljc:615-628`).
+
+  `git show --stat b825498e` also confirms that this commit introduced the C1 publication validation in `publish.cljc`. No hand-waving remains in this specific causal chain.
+
+  ## 2. Fix semantics — accept
+
+  The annotation does not invent executable call sites. The synthetic applications already exist and already have canonical occurrence identities; the change only adds metadata required for those occurrences.
+
+  - C1 identity is `[origin root-address path]`, not source-callee identity (`src/cljc/yang/core/uast.cljc:114-127`; `src/cljc/yang/clojure.cljc:92-113`).
+  - `annotate-call-sites` walks existing grammar slots and only associates `:yang/call-site 1` on existing applications (`src/cljc/yang/core/uast.cljc:129-151`).
+  - Canonical projection excludes `:yang/*` keys, so roots and executable rows remain unchanged (`src/cljc/yin/vm.cljc:1113-1123`).
+  - Publication assigns one admission origin and joins those markers to existing canonical occurrences (`src/cljc/yin/vm/linker/publish.cljc:186-215,267-284`).
+
+  This matches production finalization in `yang.core.call` (`src/cljc/yang/core/call.cljc:168-175`) and `yang.clojure.prelude` (`src/cljc/yang/clojure/prelude.cljc:108-112`). Re-annotating the already-marked inner Clojure unit is explicitly idempotent.
+
+  ## 3. Coverage — defect, P2
+
+  The Clojure-donor mechanism covers the 8 Clojure→Python scenarios and the 6 Python→PHP scenarios because both directions obtain the same delayed Clojure donor through `published-donors` (`test/yang/call/exception_legs.clj:206-219,239-258`).
+
+  The claimed PHP-provenance coverage is not supported by the actual source path:
+
+  - Every provenance frontend uses `boundary-donor`, which is explicitly `(kit/publish-donor! :python contract/boundary-source)` (`test/yang/call/exception_probes.clj:19-20,161-170,173-188`).
+  - Thus PHP provenance does not require `xlang.donor.clojure`; its composition initializes only the Python donor and PHP caller runtimes (`test/yang/call/conformance.clj:225-240`; `test/yang/call/exception_probes.clj:165-188`).
+  - Python lowering contains no C1 annotation, so the `cond->` leaves this donor unchanged. That is correct for Python, but means the change cannot explain or repair a Clojure-donor refusal in these fixtures.
+
+  The supplied row accounting is also internally inconsistent: the problem statement lists seven PHP provenance identifiers while calling them six rows. Before claiming all 24 operational errors are addressed, the PHP-provenance failures need a separate causal trace or corrected grouping. The two authorized narrow-test reports do not establish this coverage.
+
+  For non-C1 TypeScript, PHP, and Python donors, leaving `raw` untouched is semantically correct: no marker means no C1 claim (`src/cljc/yin/vm/linker/publish.cljc:114-119`).
+
+  ## 4. Silent nil — defect, P2
+
+  `publish-donor!` should throw immediately when publication returns `:status :refused`, preserving the complete refusal map.
+
+  Currently every publication refusal—not just incomplete C1 coverage—is collapsed into `{:address nil :links nil}` (`test/yang/call/conformance.clj:218-222`). Execution then fails remotely as `:absent`, discarding the actual reason and diagnostic data (`src/cljc/yin/vm/linker/interpreter.cljc:617-628`). This converted a publication-contract defect into 24 misleading operational failures and will repeat for malformed trees, missing requirements, invalid closures, and other refusals.
+
+  This is a test-fixture correctness/diagnosability defect, not a request to weaken publication validation.
+
+  ## 5. Duplication — observation
+
+  The local predicate is an exact copy of the publisher’s private `claims-call-sites?` (`test/yang/call/conformance.clj:190-193`; `src/cljc/yin/vm/linker/publish.cljc:178-183`). Duplication is acceptable for this minimal kit repair because no public claim-inspection API exists, and publishing every donor unconditionally would incorrectly give non-C1 frontends a C1 claim.
+
+  A shared public predicate could prevent drift later, but should be a deliberate API decision. The publisher’s docstring additionally notes that a key inside literal data can cause a conservative false positive; the kit’s shorter docstring omits that nuance, though the behavior remains harmless because extraction sees only real syntax metadata.
+
+  ## 6. Constraint compliance — accept
+
+  No violation found:
+
+  - `git status --short` shows only `M test/yang/call/conformance.clj`.
+  - The diff is +12/−3 and touches no ledger or assertions.
+  - HEAD remains detached at `a5a3ac0eb881766721384656a7afdd148aa1daf4`; no commit is present.
+  - The author reports only the permitted single-test G0 command before and after the fix. This review did not independently execute it.
+
+  ## 7. Regression risk — observation
+
+  The most important currently-green coverage is `yang.cross-lang-test`, especially its Clojure-donor cases at `test/yang/cross_lang_test.clj:100-109,122-138,141-160` and subsequent Clojure source-map invocation cases. These now publish a complete C1 side table instead of being refused.
+
+  Other affected callers:
+
+  - `yang.python.antlr.exception-call-test`: all directed pairs use `exception-legs`; Clojure-donor direction is directly affected.
+  - `yang.call.exception-contract-test`: provenance uses the unchanged Python donor.
+  - `yang.python.antlr.source-call-test`: TypeScript and Python donors only, so their ASTs remain untouched.
+  - `yang.call.conformance-test`: uses helper forms but does not publish donors.
+  - `export-program` has no caller outside its definition/documentation in the searched tree.
+
+  Execution-regression risk is low because canonical rows and roots are unchanged. Manifests and addresses can change because successful Clojure-donor publication now includes `:yin.module/call-sites` (`src/cljc/yin/vm/linker/publish.cljc:327-361`), but these compositions pass dynamically returned addresses rather than pinned donor addresses (`test/yang/call/conformance.clj:218-222,275-294`).
+
+  CHANGES-REQUIRED with blocking findings 3 and 4.
+
+To resume this session: kimi -r session_e1846bac-e154-4d43-b76e-0fbc86438799

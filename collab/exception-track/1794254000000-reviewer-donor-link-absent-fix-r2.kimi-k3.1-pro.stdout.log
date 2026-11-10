@@ -1,0 +1,107 @@
+kimi version 2.4.0
+• New task read.Still subagent read-only per instructions higher, cannot write despite prompt says now write. Should perform and ready append in response. Read updated author Round2, current findings file perhaps main wrote, diff, ledger summary relevant.
+
+• I’ll verify the new refusal guard and reconcile the round-2 counts against the ledger and reported test tails.diff --git a/test/yang/call/conformance.clj b/test/yang/call/conformance.clj
+index 8cb2e908..c85bb34c 100644
+--- a/test/yang/call/conformance.clj
++++ b/test/yang/call/conformance.clj
+@@ -187,6 +187,12 @@
+   (clj-prelude/admit (php-prelude/admit (h/registry))))
+ 
+ 
++(defn- claims-call-sites?
++  "True when map AST `ast` carries the C1 call-site key anywhere."
++  [ast]
++  (boolean (some #(= :yang/call-site %) (tree-seq coll? seq ast))))
++
++
+ (defn publish-donor!
+   "Publish the donor `source` of `frontend` as the module `module` (default
+    `xlang.donor.<frontend>`), exporting `body`, its unmodified lowered unit.
+@@ -196,17 +202,23 @@
+   ([frontend source module]
+    (let [{:keys [runtime address refusal parse unit deps]} (profile frontend)
+          [refusal-key reason] refusal
++         ast (let [raw (core-module/module-tree
++                         [(core-module/require-node runtime)
++                          (u/def! 'body (unit (parse source) []))])]
++               (cond-> raw
++                 (claims-call-sites? raw) u/annotate-call-sites))
+          spec (core-module/module-spec
+                 refusal-key reason (modules)
+                 {:name module,
+-                 :ast (core-module/module-tree
+-                        [(core-module/require-node runtime)
+-                         (u/def! 'body (unit (parse source) []))]),
++                 :ast ast,
+                  :exports '#{body},
+                  :runtime-name runtime,
+                  :runtime-address (address),
+                  :deps (if deps (deps) {})})
+          result (h/publish-guest-module! spec)]
++     (when (= :refused (:status result))
++       (throw (ex-info (str "Donor module publication refused: " (or (:reason result) (:status result)))
++                       result)))
+      {:frontend frontend,
+       :module module,
+       :address (:address result),
+ M test/yang/call/conformance.clj
+
+
+• Round2 author narrative labels PHP failures wrong names in prose but totals right. Prompt says flag any row ledger status evidence contradicts. Counts and actual tail no contradict. But author claims specific failure ids forged-lifetime/tampered-envelope nonexistent; should flag report error perhaps nonblocking observation. They explicitly ask cross-check row statuses. Should examine remaining python pairs lines 165 onward confirms. Read 165-211. Also guard other published helpers: They do not guard, so "no other silent-nil path remains ... check ... too" answer no: published-php etc raw delayed result but consumers use :address at profiles lines129,142,156 and link-source lines current 280 etc. Refusal yields nil exactly same silent nil for runtime modules. Finding4 incomplete if expectation all publication helpers. Should defect P2 remain. Round2 likely trap: guard only donor not published runtime. Should flag CHANGES REQUIRED finding1. Also h/published itself raw no guard but question specifically check published php py clj. Should evidence. `link-source` direct addresses. Yes.
+
+  Question 3 new throw placement test reporting. Should trace published-donors delay dereference happens before run-exception-program try. In `run-pair` line246 published deref outside per-scenario try in check-pair? check-pair calls observations = legs/run-pair before doseq and no encompassing try around run-pair (exception_call_test:10-15). So publication throw escapes deftest and clojure.test reports test error, not per row fixture loop. It doesn't crash fixture loop? It aborts test before loop, but clojure.test catches deftest exceptions and reports error. Prompt asks "surfaces in test's :error reporting path (instance? Throwable branch) rather than crashing fixture loop?" Actual no instance Throwable branch because throw before run-exception-program and results. For direct `exception-call`, publish in let outside backend map no catch. For `run-leg` deref outside `run-exception-program`. In check-pair outer per-leg try begins after run-pair returns. So fail-fast aborts whole pair deftest; clojure.test reports one error rather than 24 row errors. Is this acceptable? They specifically expect guard surfaces instance branch perhaps placement not correct. Should identify precise. `check-frontend` same: observations = probes/run-frontend before doseq; no catch around. Throws at delay deref before loops. No instance branch. This is new risk and question 3 defect perhaps P2/P3. Could accept fail-fast one test error is intended rather than remote row errors but prompt phrased requirement explicitly. Should say guard correct but publication helpers incomplete and error not routed per-row. Verdict changes required 1,3. Finding2 accept with doc label mistakes observation.
+
+  Could the throw within delay deref occurs `legs/run-pair` called in `check-pair` let outside doseq; clojure.test catches at deftest top-level so no process crash, but not instance? Throwable. I'll articulate.
+
+  No tests run. Perhaps no need further tools except Read current `run-exception-program` lines458 etc known. Already round1. Use read exact current line 239 etc perhaps existing enough. Could read ledger rest.
+
+• The donor guard works, but the same nil-address path remains in the runtime publication delays. Also, donor exceptions are thrown before the per-row `Throwable` handling, so the new reporting behavior needs to be called out precisely.2026-11-09 18:29:42 GMT
+2026-11-10 01:29:42 +07
+
+
+• I need respond short report ready append, no write. Could verdict CHANGES-REQUIRED due Q1 and Q3. Is Q3 really blocking? Prompt "New risk introduced ... Is throw placement such exception surfaces ... rather than crashing fixture loop?" It doesn't crash whole test suite, just top-level deftest. If intended per row branch, no. Report "Defect P2: not routed as asked, aborts run-pair before loops. It will still be caught by clojure.test at deftest boundary as one test error, not process crash." That is precise and non-exaggerated. Finding 4 runtime delays definitely incomplete. Good.
+
+  Finding2: accept measured aggregate. Note author's detailed PHP labels contradict ledger: claimed failures include :forged-lifetime, :tampered-envelope nonexistent, and errors list catch-all etc nonexistent. Actual ledger errors seven listed protocol etc. Prompt "Flag any row whose ledger status evidence contradicts." I should explicitly flag narrative contradiction. Does this warrant defect P3 documentation but counts okay. I can say Accept totals, observation P3 narrative row labels incorrect. Their output tails only show forged-retention and unchanged rethrow, not all rows; can't confirm all per-row post-fix statuses from tails, only totals. They asked cross-check author's output tails. Should not overclaim all rows match. "No output row shown contradicts ledger; tails insufficient to prove every row, but counts align. Prose mapping is wrong." If strict row coverage not fully proven perhaps finding3 resolved enough? They claim exact counts and ledger, yes. Use observation not blocking.
+
+  Could ledger baseline total accepted runtime line14. 39 errors =18 python php+21 php. Great.
+
+  I'll start final timestamps from 18:29. State not appended read-only. End one-line verdict. Ensure short.
+
+• Completed-GMT: 2026-11-09 18:29:42 GMT
+  Completed-Local: 2026-11-10 01:29:42 +07
+
+  Static review only; no tests were run. I could not append the report because this role remains read-only. The following is ready to append to the round-1 findings file.
+
+  ## Round 2 confirmation
+
+  ### 1. Finding 4 — defect remains, P2
+
+  The new donor guard is correctly placed immediately after `h/publish-guest-module!` and before address extraction. It throws `ex-info` with the complete refusal map as `ex-data` (`test/yang/call/conformance.clj:218-225`).
+
+  However, silent-nil publication paths remain in `published-php`, `published-py`, and `published-clj`: each delay returns the raw publication result without checking `:status` (`conformance.clj:50-71`). Their consumers extract `:address` directly in frontend profiles and `link-source` (`conformance.clj:127-160,278-286`). A refused runtime publication therefore still becomes a nil name-env address and a later `:absent` refusal. Finding 4 is only partially resolved.
+
+  ### 2. Finding 3 — accept totals; documentation observation
+
+  The ledger supports the corrected aggregate accounting:
+
+  - Clojure→Python: five green scenarios and three red scenarios, hence 15 passes / 9 failures / 0 errors (`test/yang/call/exception_r0_results.edn:166-173`). The reported post-fix 9 failures / 0 errors matches.
+  - Python→PHP: six error scenarios and red `:finally-replacement` / `:round-trip`, hence 18 errors / 6 failures (`exception_r0_results.edn:189-196`). The baseline error records have the reported `data primitive refused` / `float-value` signature.
+  - PHP provenance: seven error scenarios and six red scenarios, hence 21 errors / 18 failures (`exception_r0_results.edn:34-46,128-140`).
+  - Consequently, the 24 Clojure→Python operational errors explain the entire 150 F / 63 E regression from 159 F / 39 E (`exception_r0_results.edn:13-15`).
+
+  No row shown in the supplied output tails contradicts the ledger. The tails alone do not display every row, but their totals agree.
+
+  The round-2 prose nevertheless mislabels PHP rows: `:php/forged-lifetime`, `:php/tampered-envelope`, `:php/catch-all`, and similar names are absent from the ledger. The actual ledger rows are those at `exception_r0_results.edn:34-46`. This is a documentation error, not contrary aggregate evidence.
+
+  ### 3. Throw reporting path — defect, P2
+
+  The throw does **not** reach the tests’ per-row `instance? Throwable` branches.
+
+  `run-pair` dereferences the delayed donor before calling `run-exception-program` and before its `Throwable` fallback (`test/yang/call/exception_legs.clj:239-259`). `check-pair` calls `run-pair` before entering its per-scenario `doseq`/`try` (`test/yang/python/antlr/exception_call_test.clj:10-17`). Provenance has the same structure: `probes/run-frontend` executes before the fixture loop (`test/yang/call/exception_contract_test.clj:9-15`).
+
+  Thus a future refused donor aborts that pair/provenance run before row reporting. `clojure.test` should still catch it at the `deftest` boundary and report one test-level error, rather than crashing the process, but the complete refusal is not delivered through the intended per-backend `:error` path.
+
+  CHANGES-REQUIRED
+
+To resume this session: kimi -r session_e1846bac-e154-4d43-b76e-0fbc86438799
