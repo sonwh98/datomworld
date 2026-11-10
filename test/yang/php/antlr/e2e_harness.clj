@@ -4,7 +4,6 @@
    is the unit's bottom buffer, a latin-1 byte carrier, decoded as UTF-8
    here at the boundary."
   (:require
-    [clojure.walk :as walk]
     [dao.host.text :as text]
     [dao.stream :as stream]
     [yang.php.antlr.cst :as cst]
@@ -39,22 +38,36 @@
   (vm/fresh-code-loader semantic/load-ast vm/ast-contract))
 
 
+(defn request-node
+  "The `run-main` second-operand node the composition supplies for `request`:
+   the harness converts the record to UAST itself — lowering never embeds
+   request data."
+  [request]
+  (u/sexp->uast (or request :php/null)))
+
+
 (defn lower-program
   "`{:ast a :warnings w}` for `source` through the lowering stage, or
-   `{:diagnostics d}`. Warning-severity diagnostics do not stop the program."
-  [source]
-  (let [cst-log (tu/new-memory-log)
-        program (tu/new-memory-log)
-        diagnostics (tu/new-memory-log)]
-    (stream/append! cst-log (cst/parse-source source))
-    (lower/step-stage (lower/open-stage cst-log program diagnostics
-                                        {:medium lower/program-medium}))
-    (let [{warnings true, problems false}
-          (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
-      (if (seq problems)
-        {:diagnostics problems}
-        (let [{:yin/keys [batch root] :as envelope} (first (tu/drain program))]
-          {:ast (nth batch root), :envelope envelope, :warnings (vec warnings)})))))
+   `{:diagnostics d}`. Warning-severity diagnostics do not stop the program.
+  The request record travels the composition path: the harness consumes it
+  (a plain record here) and composes it as `run-main`'s second operand —
+  lowering itself never sees request data."
+  ([source] (lower-program source nil))
+  ([source request]
+   (let [cst-log (tu/new-memory-log)
+         program (tu/new-memory-log)
+         diagnostics (tu/new-memory-log)]
+     (stream/append! cst-log (cst/parse-source source))
+     (lower/step-stage (lower/open-stage cst-log program diagnostics
+                                         (cond-> {:medium lower/program-medium}
+                                           (some? request) (assoc :request-node
+                                                                  (request-node request)))))
+     (let [{warnings true, problems false}
+           (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
+       (if (seq problems)
+         {:diagnostics problems}
+         (let [{:yin/keys [batch root] :as envelope} (first (tu/drain program))]
+           {:ast (nth batch root), :envelope envelope, :warnings (vec warnings)}))))))
 
 
 (defn packet->form
@@ -148,28 +161,16 @@
 
 
 (defn run-raw
-  "The unit's value on the AST walker, optionally after binding a request record."
+  "The unit's value on the AST walker, consuming an optional request record
+  through the production channel: the harness composes the record as
+  `run-main`'s second operand — no AST rewrite involved, and lowering
+  never sees request data."
   ([source] (run-raw source nil))
   ([source request]
-   (let [{:keys [ast diagnostics]} (lower-program source)]
+   (let [{:keys [ast diagnostics]} (lower-program source request)]
      (if diagnostics
        {:diagnostics diagnostics}
        (let [session (tu/make-observer-session
-                       (tu/create-vm {:modules (host-registry)}))
-             ast (if request
-                   (walk/postwalk
-                     (fn [node]
-                       (if (and (map? node)
-                                (= :application (:type node))
-                                (= 'php/run-main (get-in node [:operator :name])))
-                         (let [body (first (:operands node))]
-                           (assoc node :operands
-                                  [(u/lam []
-                                          (u/then
-                                            (u/sexp->uast (list 'php/bind-request! request))
-                                            (u/app body)))]))
-                         node))
-                     ast)
-                   ast)]
+                       (tu/create-vm {:modules (host-registry)}))]
          (tu/queue-ast! session ast)
          (vm/value (:consumer (tu/run-session session))))))))

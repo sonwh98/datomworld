@@ -47,6 +47,11 @@
      php.rt/next-cell      a cell, the per-task counted-cell id (`:id`)
      php.rt/request        a cell holding the explicit request record
      php.rt/response       a cell holding ordered response records
+                           (compositions without streams)
+     php.rt/response-stream, php.rt/diag-stream
+                           cells holding the composition-supplied stream
+                           references execution emits response and
+                           diagnostic records on, :php/null without them
      php.rt/headers-sent, php.rt/status   output state and the response status
      php.rt/error-handler  a cell, :php/null or a callable
      php.rt/error-handlers a cell holding previous handlers for restoration
@@ -95,7 +100,8 @@
            integer/shift-left integer/shift-right integer/bit-and integer/bit-or
            integer/bit-xor integer/bit-not integer/from-float integer/quot-rem
            integer/floor-div-mod integer/format integer/parse
-           integer/float-digits integer/decimal->float}
+           integer/float-digits integer/decimal->float
+           stream/put! stream/cursor stream/poll!}
         call/host-names))
 
 
@@ -187,14 +193,25 @@
        (cell/set! php.rt/ctx
                   (assoc (assoc (cell/get php.rt/ctx) :handlers (get hs 2))
                          :depth (get hs 4))))]
+    [php/missing-invariant-trap
+     ;; never called in a correct run: the two-operand `cell/new` is refused
+     ;; by the host primitive's arity, so reaching this point fails loudly
+     ;; at the host level instead of answering a value
+     (fn [msg] (cell/new msg :php/unexpected-second-operand))]
+    [php/invariant-violation
+     ;; a defect-loud failure for `php/raise` with an empty handler stack.
+     ;; Never call `php/root-fatal` here: with no escape installed it falls
+     ;; back to `php/raise`, which recurses.
+     (fn [msg] (php/missing-invariant-trap msg))]
     [php/raise
      ;; deliver the error to the innermost handler, running each :finally
-     ;; thunk it unwinds through; the unit root always installs a handler,
-     ;; so an empty stack is a defect and answers the error
+     ;; thunk it unwinds through; the unit root always installs a handler
+     ;; before any guest code (including request binding) runs, so an empty
+     ;; stack is an invariant violation and fails loudly
      (fn [e]
        (let [hs (php/handlers)]
          (if (nil? hs)
-           e
+           (php/invariant-violation "php/raise: empty handler stack")
            (if (= (get hs 0) :finally)
              (do (php/pop-frame hs)
                  ((get hs 1) e)
@@ -308,12 +325,17 @@
        (assoc (assoc (assoc {} :php.diag/warning true) :errno errno)
               :message msg))]
     [php/warn-sink
-     ;; a diagnostic record on php.rt/diag when the mask admits it
+     ;; a diagnostic record on php.rt/diag when the mask admits it: onto
+     ;; the composition-supplied diagnostics stream DURING execution when
+     ;; run-main received one, else onto the diag cell.
      (fn [rec]
        (if (= (integer/bit-and (get rec :errno) (cell/get php.rt/error-reporting))
               0)
          :php/null
-         (cell/set! php.rt/diag (php/vconj (cell/get php.rt/diag) rec))))]
+         (let [h (cell/get php.rt/diag-stream)]
+           (if (= h :php/null)
+             (cell/set! php.rt/diag (php/vconj (cell/get php.rt/diag) rec))
+             (do (stream/put! h rec) :php/null)))))]
     [php/invoke-handler
      ;; the user handler is unset while it runs, so its own warnings go to
      ;; the sink, and restored when it returns or an escape unwinds through it
@@ -326,16 +348,19 @@
                                     0))))
          (fn [x] (cell/set! php.rt/error-handler h))))]
     [php/warn
-     ;; a handler is called whatever error_reporting says; returning false
-     ;; falls through to the default sink
+     ;; a handler is called whatever error_reporting says (unless its mask
+     ;; excludes this level); returning false falls through to the default
+     ;; sink
      (fn [errno msg]
        (let [rec (php/warn-record errno msg)
              h (cell/get php.rt/error-handler)]
          (if (= h :php/null)
            (php/warn-sink rec)
-           (if (= (php/invoke-handler h errno msg) false)
+           (if (= (integer/bit-and errno (cell/get php.rt/error-mask)) 0)
              (php/warn-sink rec)
-             :php/null))))]
+             (if (= (php/invoke-handler h errno msg) false)
+               (php/warn-sink rec)
+               :php/null)))))]
     [php/silence
      ;; `@e`: error_reporting is the PHP 8 mask while `thunk` runs, restored
      ;; by an escape too; the handler is still invoked and observes the mask
@@ -369,6 +394,71 @@
     [php/request-field
      (fn [request field]
        (php/request-array (get request field)))]
+    [php/request-max-key
+     ;; the highest integer key in `order`, or nil when there is none
+     (fn [order i n acc]
+       (if (< i n)
+         (let [k (get order i)]
+           (php/request-max-key order (+ i 1) n
+                                (if (php/int? k)
+                                  (if (nil? acc)
+                                    k
+                                    (if (= (integer/compare k acc) 1) k acc))
+                                  acc)))
+         acc))]
+    [php/request-ensure-next
+     ;; stream-supplied tables may carry no `:next-index` (only guest writes
+     ;; maintain it); seed it from the highest integer key so appends land
+     ;; past every occupied slot instead of tripping the occupancy error
+     (fn [arr]
+       (if (if (= (php/slot-kind arr) :plain)
+             (nil? (get arr :next-index))
+             false)
+         (let [m (php/request-max-key (php/array-order arr) 0
+                                      (php/array-count arr) nil)]
+           (if (nil? m) arr (php/bump-next arr m)))
+         arr))]
+    [php/request-merge-into
+     ;; PHP's requests-table merge (php-src main/php_variables.c,
+     ;; php_register_variable_safe): string keys overwrite in order while
+     ;; numeric keys are preserved and appended, and nested arrays merge
+     ;; recursively instead of replacing. `array_merge` renumbers numeric
+     ;; keys and replaces nested arrays, so $_REQUEST needs its own merge.
+     (fn [base overlay]
+       (php/request-merge-keys (php/request-ensure-next base)
+                               overlay (php/array-order overlay) 0
+                               (php/array-count overlay)))]
+    [php/request-merge-keys
+     ;; PHP's requests-table merge (php-src main/php_variables.c,
+     ;; php_register_variable_safe): both key kinds preserve their keys;
+     ;; a colliding scalar overwrites in order (GET-then-POST), while a
+     ;; collision where both sides hold arrays merges recursively.
+     (fn [base overlay order i n]
+       (if (< i n)
+         (let [k (get order i)
+               v (php/array-get overlay k)]
+           (if (php/int? k)
+             (if (php/array-has? base k)
+               (let [old (php/array-get base k)]
+                 (if (if (php/array? old) (php/array? v) false)
+                   (php/request-merge-keys
+                     (php/array-put base k (php/request-merge-into old v))
+                     overlay order (+ i 1) n)
+                   (php/request-merge-keys
+                     (php/array-put base k v) overlay order (+ i 1) n)))
+               (php/request-merge-keys
+                 (php/array-put base k v) overlay order (+ i 1) n))
+             (if (php/array-has? base k)
+               (let [old (php/array-get base k)]
+                 (if (if (php/array? old) (php/array? v) false)
+                   (php/request-merge-keys
+                     (php/array-put base k (php/request-merge-into old v))
+                     overlay order (+ i 1) n)
+                   (php/request-merge-keys
+                     (php/array-put base k v) overlay order (+ i 1) n)))
+               (php/request-merge-keys
+                 (php/array-put base k v) overlay order (+ i 1) n))))
+         base))]
     [php/bind-request!
      (fn [request]
        (let [geta (php/request-field request :php.request/query)
@@ -383,8 +473,7 @@
                                       (if (nil? uri) "" uri)))
              env (php/request-field request :php.request/env)
              files (php/request-field request :php.request/files)
-             req (php/merge-loop (php/vconj (php/vconj [] geta) post)
-                                 0 2 (php/empty-array))]
+             req (php/request-merge-into geta post)]
          (do (cell/set! php.rt/request request)
              (php/global-put! "_GET" geta)
              (php/global-put! "_POST" post)
@@ -394,9 +483,42 @@
              (php/global-put! "_FILES" files)
              (php/global-put! "_REQUEST" req)
              :php/null)))]
+    [php/resolve-request
+     ;; the request record `run-main` binds: a plain record binds directly,
+     ;; while a composition-supplied request-stream reference is consumed
+     ;; here at runtime (one record, oldest first) — the stream, never the
+     ;; record, is what the harness composes into the program, so request
+     ;; data never travels as compiled UAST content. An empty stream keeps
+     ;; the empty defaults.
+     (fn [request]
+       (if (if (nil? request) true (= request :php/null))
+         :php/null
+         (if (= (get request :type) :stream-ref)
+           (let [v (stream/poll! (stream/cursor request))]
+             (if (= v :dao.stream/blocked) :php/null v))
+           request)))]
     [php/emit-response!
+     ;; the task's response emission: onto the composition-supplied
+     ;; response stream DURING execution when run-main received one, else
+     ;; onto the response cell (compositions without streams).
      (fn [record]
-       (cell/set! php.rt/response (php/vconj (cell/get php.rt/response) record)))]
+       (let [h (cell/get php.rt/response-stream)]
+         (if (= h :php/null)
+           (cell/set! php.rt/response (php/vconj (cell/get php.rt/response) record))
+           (do (stream/put! h record) :php/null))))]
+    [php/drain-loop
+     ;; poll `cur` to `:dao.stream/blocked`, accumulating the records in
+     ;; stream order; the composition drains what execution emitted.
+     (fn [cur acc]
+       (let [v (stream/poll! cur)]
+         (if (= v :dao.stream/blocked)
+           acc
+           (php/drain-loop cur (php/vconj acc v)))))]
+    [php/drain-stream
+     ;; every record execution emitted on the composition-supplied stream
+     ;; `ref`, oldest first.
+     (fn [ref]
+       (php/drain-loop (stream/cursor ref) []))]
     [php/echo
      (fn [s]
        (let [bufs (cell/get php.rt/out)
@@ -442,32 +564,212 @@
        (if (cell/get php.rt/headers-sent)
          (do (php/warn 2 "Cannot modify header information - headers already sent") true)
          false))]
+    [php/header-field-name
+     ;; the lower-cased field name of a header line (before the first colon),
+     ;; or the whole lower-cased line when there is none
+     (fn [line]
+       (php/lc (php/header-field-raw line)))]
+    [php/header-field-raw
+     (fn [line]
+       (let [cs (data/str->code-points line)]
+         (data/code-points->str (php/header-field-loop cs 0 (data/count cs) []))))]
+    [php/header-field-loop
+     (fn [cs i n acc]
+       (if (< i n)
+         (let [c (get cs i)]
+           (if (= c 58) acc (php/header-field-loop cs (+ i 1) n (php/vconj acc c))))
+         acc))]
+    [php/status-line-code
+     ;; the response code of an "HTTP/..." status line, or 0 when the line is
+     ;; not a status line (the first space-separated token past "HTTP/x.y ")
+     (fn [line]
+       (if (if (> (data/str-length line) 5) (= (data/substring line 0 5) "HTTP/") false)
+         (let [cs (data/str->code-points line)]
+           (php/status-line-loop cs 5 (data/count cs) 0))
+         0))]
+    [php/status-line-loop
+     (fn [cs i n acc]
+       (if (< i n)
+         (let [c (get cs i)]
+           (if (= c 32)
+             (php/status-digits-loop cs (+ i 1) n 0)
+             (php/status-line-loop cs (+ i 1) n acc)))
+         acc))]
+    [php/status-digits-loop
+     (fn [cs i n acc]
+       (if (< i n)
+         (let [c (get cs i)]
+           (if (if (>= c 48) (<= c 57) false)
+             (php/status-digits-loop cs (+ i 1) n (+ (* acc 10) (- c 48)))
+             acc))
+         acc))]
+    [php/response-without-header!
+     ;; drop earlier emissions of the same header field name (case-insensitive
+     ;; field-name match): replace=true replaces, it does not append
+     (fn [records i acc name]
+       (if (< i (data/count records))
+         (let [rec (get records i)]
+           (php/response-without-header!
+             records (+ i 1)
+             (if (nil? (get rec :php.response/header))
+               (php/vconj acc rec)
+               (if (= (php/header-field-name (get rec :php.response/header)) name)
+                 acc
+                 (php/vconj acc rec)))
+             name))
+         acc))]
+    [php/response-view
+     ;; the response records as the composition reads them: every emission
+     ;; is an appended command, and replacement is interpreted here — a
+     ;; header with replace=true drops earlier same-name emissions
+     ;; (case-insensitive field-name match). Status and cookie records
+     ;; pass through in emission order.
+     (fn [records i acc]
+       (if (< i (data/count records))
+         (let [rec (get records i)]
+           (if (if (nil? (get rec :php.response/header)) false (= (get rec :replace) true))
+             (php/response-view records (+ i 1)
+                                (php/vconj (php/response-without-header! acc 0 []
+                                                                         (php/header-field-name (get rec :php.response/header)))
+                                           rec))
+             (php/response-view records (+ i 1) (php/vconj acc rec))))
+         acc))]
+    [php/emit-header!
+     ;; append-only: the emission is a command bearing its replace flag;
+     ;; replacement is interpreted by `php/response-view` at read time,
+     ;; earlier records are never deleted here
+     (fn [line replace]
+       (php/emit-response!
+         (assoc (assoc {} :php.response/header line) :replace replace)))]
     [php/bi-header
+     ;; header(string, replace=true, status=0): the status argument sets the
+     ;; response code; a bare "HTTP/..." status line sets it too.
+     ;; replace=true (the default) replaces earlier same-name headers,
+     ;; case-insensitively on the field name. Returns null.
      (fn [args]
        (if (php/headers-refused?)
          :php/null
-         (php/emit-response!
-           (assoc (assoc {} :php.response/header (php/to-string (get args 0)))
-                  :replace (if (> (data/count args) 1) (php/to-bool (get args 1)) true)))))]
+         (let [line (php/to-string (get args 0))
+               replace (if (> (data/count args) 1) (php/to-bool (get args 1)) true)
+               status (if (> (data/count args) 2) (php/to-int (get args 2)) 0)
+               code (if (= status 0) (php/status-line-code line) status)]
+           (do (php/emit-header! line replace)
+               (if (not (= code 0))
+                 (do (cell/set! php.rt/status code)
+                     (php/emit-response! (assoc {} :php.response/status code)))
+                 :php/null)
+               :php/null))))]
     [php/bi-headers-sent
      (fn [args] (cell/get php.rt/headers-sent))]
     [php/bi-http-response-code
+     ;; with no argument answers the current code; with one, answers the
+     ;; previous code and installs the new one (false when refused).
+     ;; a 0 argument is a getter regardless of headers-sent: the code is
+     ;; answered, nothing installed, no refusal diagnostic.
      (fn [args]
        (if (= (data/count args) 0)
          (cell/get php.rt/status)
-         (if (php/headers-refused?)
-           false
-           (let [status (php/to-int (get args 0))]
-             (do (cell/set! php.rt/status status)
-                 (php/emit-response! (assoc {} :php.response/status status))
-                 true)))))]
+         (let [prev (cell/get php.rt/status)
+               status (php/to-int (get args 0))]
+           (if (= status 0)
+             prev
+             (if (php/headers-refused?)
+               false
+               (do (cell/set! php.rt/status status)
+                   (php/emit-response! (assoc {} :php.response/status status))
+                   prev))))))]
+    [php/cookie-opt
+     (fn [opts k v]
+       (if (= v :php/null) opts (assoc opts k v)))]
+    [php/cookie-option-key
+     ;; the canonical option slot for a `setcookie` options-array key, or
+     ;; nil when the key is unknown (numeric keys included: they never name
+     ;; an option). Names match case-insensitively.
+     (fn [k]
+       (if (php/int? k)
+         nil
+         (let [name (php/lc (php/to-string k))]
+           (if (= name "expires") :expires
+               (if (= name "path") :path
+                   (if (= name "domain") :domain
+                       (if (= name "secure") :secure
+                           (if (= name "httponly") :httponly
+                               (if (= name "samesite") :samesite nil)))))))))]
+    [php/cookie-opt-value
+     ;; the array-option coercions, like PHP 8.3 head.c
+     ;; (zval_get_long / zval_get_string / zval_is_true per slot)
+     (fn [slot v]
+       (if (= slot :expires)
+         (php/to-int v)
+         (if (= slot :secure)
+           (php/to-bool v)
+           (if (= slot :httponly)
+             (php/to-bool v)
+             (php/to-string v)))))]
+    [php/cookie-options-loop
+     ;; fold options-array `o` (order/order-count) into `m`, coercing each
+     ;; value per its slot. A numeric key and an unknown name are both a
+     ;; ValueError, with PHP 8.3 head.c's own texts.
+     (fn [o order i n m]
+       (if (< i n)
+         (let [k (get order i)]
+           (if (php/int? k)
+             (php/throw-error "ValueError"
+                              "setcookie(): option array cannot have numeric keys")
+             (let [slot (php/cookie-option-key k)]
+               (if (nil? slot)
+                 (php/throw-error "ValueError"
+                                  (data/str-concat "setcookie(): option \""
+                                                   (data/str-concat (php/to-string k) "\" is invalid")))
+                 (php/cookie-options-loop o order (+ i 1) n
+                                          (assoc m slot
+                                                 (php/cookie-opt-value slot (php/array-get o k))))))))
+         m))]
+    [php/cookie-options-array
+     (fn [o]
+       (php/cookie-options-loop o (php/array-order o) 0 (php/array-count o) {}))]
     [php/bi-setcookie
+     ;; setcookie(name, value="", expires=0, path="", domain="", secure=false,
+     ;; httponly=false) or setcookie(name, value, [options-array]): at most
+     ;; seven positional arguments; the array form takes exactly three.
+     ;; Excess arguments are an ArgumentCountError, like PHP 8.3 (the
+     ;; array-form refusal uses head.c's own text). Option names match
+     ;; case-insensitively; unknown or numeric keys are a ValueError.
+     ;; Retained expiration/path/domain/secure/httponly/samesite on the
+     ;; cookie record.
+     ;; validation runs before the headers-sent refusal: after output, excess
+     ;; arguments and unknown options still throw (ArgumentCountError and
+     ;; ValueError), instead of warning-and-skipping.
      (fn [args]
-       (if (php/headers-refused?)
-         false
-         (let [cookie (assoc (assoc {} :name (php/to-string (get args 0)))
-                             :value (if (> (data/count args) 1) (php/to-string (get args 1)) ""))]
-           (do (php/emit-response! (assoc {} :php.response/cookie cookie)) true))))]
+       (let [n (data/count args)
+             array-form? (if (> n 2) (php/array? (get args 2)) false)]
+         (if (if array-form? (> n 3) (> n 7))
+           (php/throw-error "ArgumentCountError"
+                            (if array-form?
+                              "setcookie(): Expects exactly 3 arguments when argument #3 ($expires_or_options) is an array"
+                              (data/str-concat "setcookie() expects at most 7 arguments, "
+                                               (data/str-concat (integer/format n) " given"))))
+           (let [opts (if array-form?
+                        (php/cookie-options-array (get args 2))
+                        (let [has (fn [i] (> n i))
+                              put (fn [m i k f]
+                                    (if (has i)
+                                      (php/cookie-opt m k (f (get args i)))
+                                      m))]
+                          (put (put (put (put (put (put {} 2 :expires php/to-int)
+                                                   3 :path php/to-string)
+                                              4 :domain php/to-string)
+                                         5 :secure php/to-bool)
+                                    6 :httponly php/to-bool)
+                               7 :samesite php/to-string)))
+                 name (php/to-string (get args 0))
+                 value (if (> n 1) (php/to-string (get args 1)) "")
+                 cookie (assoc (assoc {} :name name)
+                               :value value
+                               :options opts)]
+             (if (php/headers-refused?)
+               false
+               (do (php/emit-response! (assoc {} :php.response/cookie cookie)) true))))))]
     [php/bi-setrawcookie
      (fn [args] (php/bi-setcookie args))]
     [php/php-sapi-name
@@ -508,11 +810,63 @@
            (esc (assoc (assoc (assoc {} :php/terminal :fatal)
                               :php/operational true)
                        :message message)))))]
+    [php/trigger-level-ok?
+     ;; trigger_error/user_error accept only the four user levels
+     (fn [level]
+       (if (= level 256) true
+           (if (= level 512) true
+               (if (= level 1024) true (= level 16384)))))]
+    [php/guest-fatal
+     ;; the default E_USER_ERROR fatal: a guest-level fatal, NOT the
+     ;; operational termination. It escapes the body through the exit
+     ;; continuation (past handlers and finally blocks, like exit), while
+     ;; run-main still runs shutdown functions, drains buffers and marks
+     ;; objects destructed on the way out.
+     ;; PHP main.c: the fatal suppresses further destructors, so every
+     ;; existing object counts destructed before the ordinary shutdown
+     ;; (destructor output stays out: "BS", never "BSD"); the fatal
+     ;; status is 255.
+     (fn [message]
+       (do (cell/set! php.rt/exit-status 255)
+           (php/freeze-finalizable (cell/get php.rt/finalizable) 0)
+           (let [rec (assoc (assoc {} :php/terminal :guest-fatal) :message message)]
+             (if (= (cell/get php.rt/in-shutdown) true)
+               (let [sesc (cell/get php.rt/shutdown-escape)]
+                 (if (= sesc :php/null)
+                   (do (php/unwind-to 1)
+                       (php/raise (assoc (assoc {} :php/type :exit) :status 255)))
+                   (sesc rec)))
+               (let [esc (cell/get php.rt/exit-escape)]
+                 (if (= esc :php/null)
+                   (do (php/unwind-to 1)
+                       (php/raise (assoc (assoc {} :php/type :exit) :status 255)))
+                   (esc rec)))))))]
     [php/bi-trigger-error
+     ;; trigger_error/user_error accept only the four user levels (PHP 8.3);
+     ;; anything else throws a catchable ValueError, like PHP. An E_USER_ERROR
+     ;; handled by a matching handler returning non-false continues the run;
+     ;; absent, excluded, or false-returning handlers take the default fatal
+     ;; path: the diagnostic is sunk, then the guest-fatal escape ends the
+     ;; body while shutdown still runs.
      (fn [args]
-       (do (php/warn (if (> (data/count args) 1) (php/to-int (get args 1)) 1024)
-                     (php/to-string (get args 0)))
-           true))]
+       (let [msg (php/to-string (get args 0))
+             level (if (> (data/count args) 1) (php/to-int (get args 1)) 1024)]
+         (if (php/trigger-level-ok? level)
+           (if (= level 256)
+             (let [h (cell/get php.rt/error-handler)]
+               (if (if (= h :php/null) false
+                       (not (= (integer/bit-and level (cell/get php.rt/error-mask)) 0)))
+                 (if (= (php/invoke-handler h level msg) false)
+                   (do (php/warn-sink (php/warn-record level msg))
+                       (php/guest-fatal msg)
+                       false)
+                   true)
+                 (do (php/warn-sink (php/warn-record level msg))
+                     (php/guest-fatal msg)
+                     false)))
+             (do (php/warn level msg) true))
+           (php/throw-error "ValueError"
+                            "trigger_error(): Argument #2 ($error_level) must be one of E_USER_ERROR, E_USER_WARNING, E_USER_NOTICE, or E_USER_DEPRECATED"))))]
     [php/zeros
      (fn [n acc] (if (> n 0) (php/zeros (- n 1) (data/str-concat acc "0")) acc))]
     [php/strip-zeros
@@ -4504,21 +4858,37 @@
          (php/to-bool (get args 0))
          (php/arity-error "boolval" "exactly 1" args)))]
     [php/bi-set-error-handler
+     ;; the handler stack saves the callback AND the mask: restore brings
+     ;; both back. The mask defaults to E_ALL; a null callback resets to the
+     ;; default sink. Answers the previous callback (null when none).
      (fn [args]
        (if (< (data/count args) 1)
          (php/throw-error "ArgumentCountError"
                           "set_error_handler() expects at least 1 argument, 0 given")
-         (let [old (cell/get php.rt/error-handler)]
+         (let [old (cell/get php.rt/error-handler)
+               old-mask (cell/get php.rt/error-mask)
+               mask (if (> (data/count args) 1) (php/to-int (get args 1)) 32767)
+               cb (get args 0)]
            (do (cell/set! php.rt/error-handlers
                           (php/vconj (cell/get php.rt/error-handlers) old))
-               (cell/set! php.rt/error-handler (get args 0))
+               (cell/set! php.rt/error-masks
+                          (php/vconj (cell/get php.rt/error-masks) old-mask))
+               (cell/set! php.rt/error-handler
+                          (if (= cb :php/null) :php/null cb))
+               (cell/set! php.rt/error-mask mask)
                old))))]
     [php/bi-restore-error-handler
      (fn [args]
        (let [stack (cell/get php.rt/error-handlers)
+             masks (cell/get php.rt/error-masks)
              n (data/count stack)]
          (do (cell/set! php.rt/error-handler (if (= n 0) :php/null (get stack (- n 1))))
+             (cell/set! php.rt/error-mask
+                        (if (= (data/count masks) 0) 32767 (get masks (- (data/count masks) 1))))
              (if (> n 0) (cell/set! php.rt/error-handlers (data/subvec stack 0 (- n 1))) :php/null)
+             (if (> (data/count masks) 0)
+               (cell/set! php.rt/error-masks (data/subvec masks 0 (- (data/count masks) 1)))
+               :php/null)
              true)))]
     [php/bi-error-reporting
      (fn [args]
@@ -5141,14 +5511,30 @@
                           (fn [e] e)
                           (fn [] :php/null)))))))]
     [php/run-main
-     ;; the unit root: output, response records, diagnostics and any uncaught error.
+     ;; the unit root: one task consuming one request record from the
+     ;; composition-supplied stream. The request seeds the superglobals here
+     ;; at initialization (not via a test-only rewrite): a nil request keeps
+     ;; the empty defaults. `response-stream` and `diag-stream` are the
+     ;; composition-supplied stream references execution emits response and
+     ;; diagnostic records on DURING the run (:php/null without them, when
+     ;; the cells accumulate instead).
      ;; The operational fatal escapes past everything through php/root-fatal;
      ;; exit escapes past handlers and finally blocks through php/root-exit
      ;; and its status is preserved through shutdown
-     (fn [body]
+     (fn [body request response-stream diag-stream]
        (do (cell/set! php.rt/out [[]])
            (cell/set! php.rt/ctx (php/ctx nil 0 0 nil))
            (cell/set! php.rt/response [])
+           (cell/set! php.rt/response-stream (if (if (nil? response-stream)
+                                                   true
+                                                   (= response-stream :php/null))
+                                               :php/null
+                                               response-stream))
+           (cell/set! php.rt/diag-stream (if (if (nil? diag-stream)
+                                               true
+                                               (= diag-stream :php/null))
+                                           :php/null
+                                           diag-stream))
            (cell/set! php.rt/headers-sent false)
            (cell/set! php.rt/status 200)
            (cell/set! php.rt/exit-status :php/null)
@@ -5156,17 +5542,44 @@
            (cell/set! php.rt/fatal-escape :php/null)
            (cell/set! php.rt/exit-escape :php/null)
            (cell/set! php.rt/shutdown-escape :php/null)
-           (let [result (fn [exc]
-                          (let [out (data/str-join "" (get (cell/get php.rt/out) 0))
-                                response (cell/get php.rt/response)]
-                            (assoc (assoc (assoc (assoc {} :php/out out)
-                                                 :php/diag (cell/get php.rt/diag))
-                                          :php/uncaught
-                                          (if (= exc :php/null) nil (php/snapshot-exc exc)))
-                                   :php/response
-                                   (if (= out "")
-                                     response
-                                     (php/vconj response (assoc {} :php.response/body out))))))
+           (let [response-records
+                 (fn []
+                   ;; what execution emitted: drained from the
+                   ;; composition-supplied streams when present (the drain
+                   ;; runs at the end of the run, after shutdown), else the
+                   ;; accumulated cells; replacement is always interpreted
+                   ;; from the appended commands at read time.
+                   (let [h (cell/get php.rt/response-stream)
+                         dh (cell/get php.rt/diag-stream)]
+                     (php/pair (php/response-view (if (= h :php/null)
+                                                    (cell/get php.rt/response)
+                                                    (php/drain-stream h))
+                                                  0 [])
+                               (if (= dh :php/null)
+                                 (cell/get php.rt/diag)
+                                 (php/drain-stream dh)))))
+                 result (fn [exc]
+                          (let [out (data/str-join "" (get (cell/get php.rt/out) 0))]
+                            (do (if (= out "")
+                                  :php/null
+                                  ;; the body record joins the task's
+                                  ;; emissions before the read: appended to
+                                  ;; the stream when present, else conjoined
+                                  ;; onto the accumulated cells.
+                                  (let [body-rec (assoc {} :php.response/body out)
+                                        hs (cell/get php.rt/response-stream)]
+                                    (if (= hs :php/null)
+                                      (cell/set! php.rt/response
+                                                 (php/vconj (cell/get php.rt/response) body-rec))
+                                      (stream/put! hs body-rec))))
+                                (let [recs (response-records)
+                                      response (get recs 0)
+                                      diag (get recs 1)]
+                                  (assoc (assoc (assoc (assoc {} :php/out out)
+                                                       :php/diag diag)
+                                                :php/uncaught
+                                                (if (= exc :php/null) nil (php/snapshot-exc exc)))
+                                         :php/response response)))))
                  fatal (fn [message] (assoc (result :php/null) :php/fatal message))
                  v (php/call-terminal
                      (fn [fesc]
@@ -5174,7 +5587,12 @@
                            (php/call-terminal
                              (fn [eesc]
                                (do (cell/set! php.rt/exit-escape eesc)
-                                   (let [exc0 (php/try (fn [] (do (body) :php/null))
+                                   (let [exc0 (php/try (fn []
+                                                         (do (let [resolved (php/resolve-request request)]
+                                                               (if (if (nil? resolved) true (= resolved :php/null))
+                                                                 :php/null
+                                                                 (php/bind-request! resolved)))
+                                                             (body) :php/null))
                                                        (fn [e] e)
                                                        (fn [] :php/null))]
                                      (if (= true (get exc0 :php/operational))
@@ -5184,8 +5602,9 @@
                                        (php/pair :normal exc0)))))))))]
              (if (= (get v :php/terminal) :fatal)
                (fatal (get v :message))
-               (let [ex (cell/get php.rt/exit-status)
-                     exc0 (if (= (get v :php/terminal) :exit) :php/null (get v 1))
+               (let [guest? (= (get v :php/terminal) :guest-fatal)
+                     ex (cell/get php.rt/exit-status)
+                     exc0 (if (if (= (get v :php/terminal) :exit) true guest?) :php/null (get v 1))
                      exc1 (if (= ex :php/null) (php/handle-uncaught exc0) :php/null)
                      s (php/call-terminal
                          (fn [sesc]
@@ -5204,10 +5623,23 @@
                      ;; fatal escapes past everything and never reaches here
                      ex2 (do (php/drain-buffers!) (cell/get php.rt/exit-status))
                      st (if (= ex2 :php/null) ex ex2)
-                     exc2 (if (= (get s :php/terminal) :exit) :php/null (get s 1))
+                     ;; a guest fatal always answers status 255, even when it
+                     ;; escaped through the shutdown continuation past the
+                     ;; exit-status cell (PHP main.c: the fatal status)
+                     st (if (if (= st :php/null)
+                              (if (= guest? true) true (= (get s :php/terminal) :guest-fatal))
+                              false)
+                          255
+                          st)
+                     exc2 (if (if (= (get s :php/terminal) :exit) true (= (get s :php/terminal) :guest-fatal)) :php/null (get s 1))
                      e (if (= exc1 :php/null) exc2 exc1)
-                     r (result (if (= e :php/null) :php/null e))]
-                 (if (= st :php/null) r (assoc r :php/status st)))))))]])
+                     r (result (if (= e :php/null) :php/null e))
+                     r2 (if (= st :php/null) r (assoc r :php/status st))
+                     gmsg (if (= guest? true) (get v :message)
+                              (if (= (get s :php/terminal) :guest-fatal) (get s :message) :php/null))]
+                 (if (= gmsg :php/null)
+                   r2
+                   (assoc r2 :php/fatal gmsg)))))))]])
 
 
 (def ^:private builtins
@@ -5391,9 +5823,13 @@
                  (define 'php.rt/tmps '(cell/new []))
                  (define 'php.rt/next-cell '(cell/new 1))
                  (define 'php.rt/error-handler '(cell/new :php/null))
+                 (define 'php.rt/error-masks '(cell/new []))
+                 (define 'php.rt/error-mask '(cell/new 32767))
                  ;; E_ALL
                  (define 'php.rt/error-reporting '(cell/new 32767))
                  (define 'php.rt/diag '(cell/new []))
+                 (define 'php.rt/response-stream '(cell/new :php/null))
+                 (define 'php.rt/diag-stream '(cell/new :php/null))
                  (define 'php.rt/included '(cell/new {}))
                  (define 'php.rt/unit '(cell/new :php/null))
                  (define 'php.rt/path-map '(cell/new {}))
@@ -5461,14 +5897,17 @@
 
 (def runtime-keys
   "Every key `php/init!` allocates, the ready flag aside, sorted."
-  '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
+  '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/diag-stream
+    php.rt/error-handler
+    php.rt/error-mask php.rt/error-masks
     php.rt/class-order php.rt/exception-handler php.rt/exception-handlers php.rt/finalizable php.rt/pending-exc
     php.rt/shutdown-fns php.rt/exit-status php.rt/in-shutdown php.rt/fatal-escape
     php.rt/exit-escape php.rt/shutdown-escape php.rt/strict php.rt/included php.rt/path-map php.rt/unit
     php.rt/autoloaders php.rt/autoloading php.rt/class-map php.rt/constants
     php.rt/error-reporting php.rt/error-handlers php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
-    php.rt/out php.rt/request php.rt/response php.rt/headers-sent php.rt/status php.rt/tmps])
+    php.rt/out php.rt/request php.rt/response php.rt/response-stream
+    php.rt/headers-sent php.rt/status php.rt/tmps])
 
 
 (defn strip

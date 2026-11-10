@@ -44,7 +44,7 @@
        "<?php header('X-One: 1'); setcookie('sid', 'abc'); http_response_code(201); echo http_response_code();"
        "201" :diag [] :oracle "php-8.3.35 shiva 2026-10-25"
        :response [{:php.response/header "X-One: 1", :replace true}
-                  {:php.response/cookie {:name "sid", :value "abc"}}
+                  {:php.response/cookie {:name "sid", :value "abc", :options {}}}
                   {:php.response/status 201}
                   {:php.response/body "201"}])
    (fx :headers-after-output

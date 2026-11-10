@@ -13,10 +13,10 @@
 
 (deftest uncaught-block-keeps-shutdown-output-test
   (testing "output before and after an uncaught exception survives the strip"
-    (is (= {:out "aS", :diag [], :uncaught {:class "Exception", :message "e"}}
+    (is (= {:out "aS", :diag [], :uncaught {:class "Exception", :message "e"}, :fatal nil}
            (oracle/parse-stdout (str "a" uncaught-block "S") "f.php"))))
   (testing "a block with no trailing output still parses"
-    (is (= {:out "a", :diag [], :uncaught {:class "Exception", :message "e"}}
+    (is (= {:out "a", :diag [], :uncaught {:class "Exception", :message "e"}, :fatal nil}
            (oracle/parse-stdout (str "a" uncaught-block) "f.php"))))
   (testing "a multi-line stack trace is consumed up to the terminator"
     (is (= "xS"
@@ -30,7 +30,13 @@
   (testing "a plain fatal followed by shutdown-time output"
     (let [r (oracle/parse-stdout "a\nFatal error: boom in /w/f.php on line 3\nS" "f.php")]
       (is (= "aS" (:out r)))
-      (is (= {:class "Error", :message "boom"} (:uncaught r)))))
+      (is (nil? (:uncaught r)))
+      (is (= "boom" (:fatal r)))))
   (testing "a plain fatal at the very end"
     (is (= "a"
-           (:out (oracle/parse-stdout "a\nFatal error: boom in /w/f.php on line 3\n" "f.php"))))))
+           (:out (oracle/parse-stdout "a\nFatal error: boom in /w/f.php on line 3\n" "f.php")))))
+  (testing "a single-slot fatal carries its E_USER_ERROR-class diagnostic"
+    (let [r (oracle/parse-stdout "a\nFatal error: boom in /w/f.php on line 3\n" "f.php")]
+      (is (= [[256 "boom"]] (:diag r)))
+      (is (= "boom" (:fatal r)))
+      (is (nil? (:uncaught r))))))
