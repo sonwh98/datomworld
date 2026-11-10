@@ -1451,7 +1451,8 @@
               and publishes its side table"
       (let [spec (publish/module-from-index
                    db {:name 'closed :exports '[g] :primitives vm/primitives
-                       :call-site-tables tables})
+                       :call-site-tables tables
+                       :call-site-admissions (repl/call-site-admissions state)})
             store (mem/create-content-mem)
             res (publish/publish-module! store spec)]
         (is (not= :refused (:status spec)))
@@ -1699,7 +1700,8 @@
                         tables)
             spec (publish/module-from-index
                    db {:name 'closed :exports '[g] :primitives vm/primitives
-                       :call-site-tables stale})]
+                       :call-site-tables stale
+                       :call-site-admissions (repl/call-site-admissions state)})]
         (is (claim-free? spec)
             "identical content under a different admission is not borrowed")))
     (testing "a wrong-version retained table proves nothing"
@@ -1711,7 +1713,8 @@
                       tables))
             spec (publish/module-from-index
                    db {:name 'closed :exports '[g] :primitives vm/primitives
-                       :call-site-tables bad})]
+                       :call-site-tables bad
+                       :call-site-admissions (repl/call-site-admissions state)})]
         (is (claim-free? spec))))
     (testing "an incomplete retained table proves nothing"
       (let [bad (into {}
@@ -1720,7 +1723,8 @@
                       tables))
             spec (publish/module-from-index
                    db {:name 'closed :exports '[g] :primitives vm/primitives
-                       :call-site-tables bad})]
+                       :call-site-tables bad
+                       :call-site-admissions (repl/call-site-admissions state)})]
         (is (claim-free? spec))))))
 
 
@@ -1745,3 +1749,217 @@
           (is (some? response))
           (is (= tables (:call-site-tables @captured))
               "ordinary yin.link/publish now carries the retained tables"))))))
+
+;; =============================================================================
+;; cc2 fix round r3: admission identity + explicit wrappers (astra r2 confirm)
+;; =============================================================================
+
+(defn- r3-claim-free?
+  "True when `spec` carries no C1 claim and publishes with no side table."
+  [spec]
+  (let [tree (vm/ast->semantic-bytecode (:ast spec))
+        side (vm/ast-side-tables (:ast spec) tree origin)
+        res (publish/publish-module! (mem/create-content-mem) spec)]
+    (and (empty? (filter #(= :yang/call-site (nth % 3))
+                         (:frontend-metadata side)))
+         (not (contains? spec :call-site-rows))
+         (jing/segment-address? (:address res))
+         (not (contains? res :call-sites)))))
+
+(defn- r3-programs
+  "The indexed programs of `db` as `[m root t]` rows."
+  [db]
+  (query/collect
+    (query/q '[:find ?m ?r ?t :where [?m :yin.repl/root ?r ?t _]] db)))
+
+(deftest module-from-index-c1-r3-test
+  (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"
+                                           "(def g (fn [] (+ (k) 41)))"])
+        tables (repl/call-site-tables state)
+        admissions (repl/call-site-admissions state)
+        programs (r3-programs db)
+        spec-of (fn [ts ads]
+                  (publish/module-from-index
+                    db {:name 'closed :exports '[g] :primitives vm/primitives
+                        :call-site-tables ts :call-site-admissions ads}))]
+    (is (seq admissions)
+        "the session records an explicit indexed-program admission mapping")
+    (is (every? (fn [[m o]] (and (contains? (set (map first programs)) m)
+                                 (vm/occurrence-origin? o)))
+                  admissions)
+        "the mapping is keyed by indexed program, valued by full origin")
+    (testing "(a) a sole foreign table with the same root and batch but a
+              different medium/member is not accepted"
+      (let [foreign (into {}
+                          (map (fn [[[o root] rs]]
+                                 [[[:source "foreign-medium" (nth o 2) 99]
+                                   root] rs]))
+                          tables)]
+        (is (r3-claim-free? (spec-of foreign admissions))
+            "counter equality with a foreign admission proves nothing")))
+    (testing "(b) the drift collision publishes claim-free, not borrowed:
+              a second admission of one root at batch+1, whose indexed
+              program carries the first admission's batch as its t, and
+              for which no explicit mapping is supplied"
+      (let [[[o root] rows] (first tables)
+            m (some (fn [[m r _t]] (when (= r root) m)) programs)
+            drifted (assoc tables [[:source (nth o 1) (inc (nth o 2))
+                                    (nth o 3)] root] rows)
+            ads (dissoc admissions m)]
+        (is (some? m))
+        (is (r3-claim-free? (spec-of drifted ads))
+            "the drifted program's table is never borrowed from batch t")))
+    (testing "(b2) an explicit mapping resolves exactly despite drift:
+              the mapped origin's batch differs from the program's t"
+      (let [[[o root] rows] (first tables)
+            [m _r t] (some (fn [[m r t]] (when (= r root) [m r t])) programs)
+            b-origin [:source (nth o 1) (inc (nth o 2)) (nth o 3)]
+            b-rows (assoc-in (vec rows) [0 0] b-origin)
+            drifted (assoc tables [b-origin root] b-rows)
+            spec (spec-of drifted (assoc admissions m b-origin))]
+        (is (not= (inc (nth o 2)) t) "precondition: mapped batch is not t")
+        (is (seq (:call-site-rows spec)))
+        (is (some #(= b-origin (first %)) (:call-site-rows spec))
+            "resolution followed the explicit [origin root] key, not t")))
+    (testing "(c) a deleted retained row is refused at publication, not
+              reassigned to the publication origin"
+      (let [spec (spec-of tables admissions)
+            deleted (first (:call-site-rows spec))
+            tampered (update spec :call-site-rows (fn [rs] (vec (rest rs))))
+            res (publish/publish-module! (mem/create-content-mem) tampered)]
+        (is (seq (:call-site-rows spec)))
+        (is (= :refused (:status res)) (pr-str res))
+        (is (= :yin.link.publish/incomplete-call-site-coverage (:reason res)))
+        (is (contains? (set (:missing res)) [(nth deleted 1) (nth deleted 2)])
+            "the refusal names the deleted occurrence as unmapped")))
+    (testing "a tampered wrapper set is refused: the wrapper applications
+              are the assembly's explicit set, not every uncovered site"
+      (let [spec (spec-of tables admissions)
+            tampered (update spec :call-site-wrappers pop)
+            res (publish/publish-module! (mem/create-content-mem) tampered)]
+        (is (seq (:call-site-wrappers spec))
+            "assembly emits the explicit wrapper occurrence set")
+        (is (= :refused (:status res)) (pr-str res))))
+    (testing "(d) []/nil supplied rows publish claim-free, not fully claimed"
+      (let [spec (spec-of tables admissions)]
+        (doseq [empty-rows [[] nil]]
+          (let [res (publish/publish-module!
+                      (mem/create-content-mem)
+                      (assoc spec :call-site-rows empty-rows))]
+            (is (jing/segment-address? (:address res)) (pr-str res))
+            (is (not (contains? res :call-sites))
+                "an empty supplied table claims no application")))))
+    (testing "(d2) []/nil supplied tables publish claim-free from the index"
+      (doseq [ts [[] nil {}]]
+        (is (r3-claim-free? (spec-of ts admissions)))))))
+
+
+;; =============================================================================
+;; cc2 fix round r4: commit-evidence recorder + wrapper provenance (astra r3)
+;; =============================================================================
+
+(defn- r4-record
+  "Run the session recorder over a crafted state: `ix` is the indexer's
+   post-round value, `evidence` the commit evidence the round captured
+   before indexing (`:programs-before`, `:indexer-before`)."
+  [ix evidence crafted-tables]
+  (#'repl/record-call-site-admissions
+    {}
+    {:expander {:call-site-tables crafted-tables}
+     :call-site-admissions {}
+     :indexer ix
+     :call-site-commit-evidence evidence}))
+
+(deftest record-call-site-admissions-r4-test
+  (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"])
+        tables (repl/call-site-tables state)
+        [[o root] rows] (first tables)
+        ix (:indexer state)
+        [m-a] (some (fn [[m r _t]] (when (= r root) [m])) (r3-programs db))
+        b-origin [:source (nth o 1) 999 (nth o 3)]
+        crafted {[b-origin root] rows}
+        ok-before (assoc ix :transactions 0 :published 0)]
+    (is (some? m-a) "precondition: the session indexed one program")
+    (testing "(r4-1) a stale published snapshot after a failed index round
+              is not paired: publication failure leaves the old manifest,
+              and recording is gated on the round having succeeded"
+      (let [failed-ix (assoc ix :failure {:round 99 :stage :publish
+                                          :message "simulated failure"})
+            result (r4-record failed-ix
+                              {:programs-before [] :indexer-before ok-before}
+                              crafted)]
+        (is (= {} (:call-site-admissions result))
+            "no admission is recorded against the stale snapshot")
+        (is (r3-claim-free?
+              (publish/module-from-index
+                db {:name 'closed :exports '[k] :primitives vm/primitives
+                    :call-site-tables crafted
+                    :call-site-admissions (:call-site-admissions result)}))
+            "the unpaired admission publishes claim-free")))
+    (testing "(r4-3) a rehydrated unmapped program is pre-existing index
+              evidence, not this round's commit: no pairing, claim-free"
+      (let [result (r4-record ix
+                              {:programs-before [[m-a root]]
+                               :indexer-before ix}
+                              crafted)]
+        (is (= {} (:call-site-admissions result))
+            "the rehydrated program is never claimed by a new admission")
+        (is (r3-claim-free?
+              (publish/module-from-index
+                db {:name 'closed :exports '[k] :primitives vm/primitives
+                    :call-site-tables crafted
+                    :call-site-admissions (:call-site-admissions result)}))
+            "a rehydrated session recovers claim-free, never by borrowing")))
+    (testing "(r4-2) multiple new admissions competing for one newly
+              committed candidate refuse all of them, never first-wins"
+      (let [c-origin [:source (nth o 1) 1000 (nth o 3)]
+            competing (assoc crafted [c-origin root] rows)
+            result (r4-record ix
+                              {:programs-before [] :indexer-before ok-before}
+                              competing)]
+        (is (= {} (:call-site-admissions result))
+            "neither competing admission claims the sole candidate")))
+    (testing "(r4-2b) multiple newly committed candidates for one new
+              admission refuse it: uniqueness is required on both sides"
+      (let [{state2 :state db2 :db}
+            (session-index ["(def k (fn [] 1))" "(def k (fn [] 1))"])
+            roots2 (into #{} (map second) (r3-programs db2))
+            result (r4-record (:indexer state2)
+                              {:programs-before []
+                               :indexer-before (assoc (:indexer state2)
+                                                      :transactions 0
+                                                      :published 0)}
+                              {[b-origin (first roots2)] rows})]
+        (is (= 1 (count roots2)) "precondition: both rounds share one root")
+        (is (= {} (:call-site-admissions result))
+            "an admission with two committed candidates stays unmapped")))))
+
+(deftest wrapper-provenance-r4-test
+  (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"
+                                           "(def g (fn [] (+ (k) 41)))"])
+        spec (publish/module-from-index
+               db {:name 'closed :exports '[g] :primitives vm/primitives
+                   :call-site-tables (repl/call-site-tables state)
+                   :call-site-admissions (repl/call-site-admissions state)})]
+    (is (seq (:call-site-rows spec)) "precondition: assembly recovered rows")
+    (is (some? (:call-site-wrappers-evidence spec))
+        "assembly retains its computed wrapper set as spec evidence")
+    (testing "(r4-4) a recovered user occurrence moved into the wrapper
+              set is refused as wrapper provenance, not reassigned to the
+              publication origin"
+      (let [deleted (first (:call-site-rows spec))
+            moved (-> spec
+                      (update :call-site-rows (fn [rs] (vec (rest rs))))
+                      (update :call-site-wrappers
+                              conj [(nth deleted 1) (nth deleted 2)]))
+            res (publish/publish-module! (mem/create-content-mem) moved)]
+        (is (= :refused (:status res)) (pr-str res))
+        (is (= :yin.link.publish/wrapper-provenance (:reason res))
+            "the refusal names wrapper provenance as the defect")))
+    (testing "(r4-4b) a caller-supplied wrapper set without retained
+              assembly evidence is never accepted"
+      (let [res (publish/publish-module!
+                  (mem/create-content-mem)
+                  (dissoc spec :call-site-wrappers-evidence))]
+        (is (= :refused (:status res)) (pr-str res))
+        (is (= :yin.link.publish/wrapper-provenance (:reason res)))))))
