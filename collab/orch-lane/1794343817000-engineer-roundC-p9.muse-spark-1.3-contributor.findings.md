@@ -65,9 +65,12 @@ Model: muse-spark-1.3-contributor | Status: complete
   single-byte write path (`programs.cljc :string-offset-write`, no warning)
   is behaviorally untouched by construction (warn fires only when assigned
   length > 1). Remote gate at merge covers it.
-- **cljstyle binary unavailable** (no alias, no binary, no network); the
-  diff follows surrounding indentation. `clojure -M:kondo` on both touched
-  source/test files: 0 errors, 0 warnings.
+- **cljstyle: CLEAN.** No binary or alias in the repo; resolved via the
+  Clojars jar (`mvxcvi/cljstyle 0.17.642`, whose jar bundles the
+  `indents.clj` resource the cached 0.16.626 jar lacks) run with
+  `clojure.main -m cljstyle.main check` on both touched files — no
+  findings, exit 0. `clojure -M:kondo` on both touched source/test files:
+  0 errors, 0 warnings.
 - Gates run: `builtin-surfaces-test` full namespace — 3 tests, 170
   assertions, 0 failures. Single-byte `programs.cljc` walker fixtures not
   re-run locally for the reason above.
