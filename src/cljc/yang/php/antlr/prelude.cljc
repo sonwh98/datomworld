@@ -5633,6 +5633,9 @@
                           st)
                      exc2 (if (if (= (get s :php/terminal) :exit) true (= (get s :php/terminal) :guest-fatal)) :php/null (get s 1))
                      e (if (= exc1 :php/null) exc2 exc1)
+                     ;; an uncaught guest throwable terminates the script with
+                     ;; status 255 (php main.c: uncaught Error/Exception exit)
+                     st (if (= st :php/null) (if (= e :php/null) st 255) st)
                      r (result (if (= e :php/null) :php/null e))
                      r2 (if (= st :php/null) r (assoc r :php/status st))
                      gmsg (if (= guest? true) (get v :message)

@@ -64,12 +64,15 @@
 
 (defn errno-match?
   "Whether expected errno `e` matches recorded diag entry `a`: identical
-  numbers match, and a 1024-vs-8 mismatch counts as equal ONLY when the oracle
-  record is marked class-derived."
+  numbers match, and a class-derived parse mismatch counts as equal ONLY when
+  the oracle record is marked class-derived (the runner parses only the
+  `Warning|Notice|...` kind line: E_USER_NOTICE parses to 8 and E_USER_WARNING
+  to 2 where the engine's semantic truth is 1024 and 512)."
   [e a]
   (let [[actual-errno] a]
     (or (= e actual-errno)
-        (and (= 1024 e) (= 8 actual-errno) (class-derived? a)))))
+        (and (= 1024 e) (= 8 actual-errno) (class-derived? a))
+        (and (= 512 e) (= 2 actual-errno) (class-derived? a)))))
 
 
 (defn diag-match?
