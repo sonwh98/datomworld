@@ -928,32 +928,60 @@
          nil))))
 
 
+(def ^:private visible-predicate-heads
+  "Library predicate heads whose argument must observe a caught value's
+   visible payload rather than its generated wrapper."
+  #{'map? 'vector? 'set? 'seq? 'coll? 'sequential? 'list? 'string?
+    'boolean? 'int? 'keyword? 'symbol? 'var? 'fn? 'reduced?})
+
+
+(def ^:private visible-of-form
+  '(fn [dsg__value]
+     (if (data/map? dsg__value)
+       (let [dsg__decoded (dsg__condition_retained dsg__value)]
+         (if (dsg__equal dsg__decoded nil)
+           dsg__value
+           (data/nth dsg__decoded 0)))
+       dsg__value)))
+
+
 (def ^:private condition-wrapper-form
   '(fn [dsg__visible dsg__condition]
-     (cell/new
-       (conj (conj (conj [] dsg__visible) dsg__condition)
-             (dsg__condition_witness dsg__visible dsg__condition)))))
+     (let [dsg__vis (dsg__visible_of dsg__visible)]
+       (cell/new
+         (conj (conj (conj [] dsg__vis) dsg__condition)
+               (dsg__condition_witness dsg__vis dsg__condition))))))
 
 
 (def ^:private condition-retained-form
   '(fn [dsg__candidate]
      (if (data/map? dsg__candidate)
-       (if (cell/authentic? dsg__candidate)
-         (let [dsg__contents (cell/get dsg__candidate)]
-           (if (data/vector? dsg__contents)
-             (if (dsg__equal (data/count dsg__contents) 3)
-               (let [dsg__visible (data/nth dsg__contents 0)
-                     dsg__condition (data/nth dsg__contents 1)
-                     dsg__proof (data/nth dsg__contents 2)]
-                 (if (data/callable? dsg__proof)
-                   (if (dsg__equal dsg__proof
-                                   (dsg__condition_witness
-                                     dsg__visible dsg__condition))
-                     (conj (conj [] dsg__visible) dsg__condition)
-                     nil)
-                   nil))
+       (if (dsg__equal (dsg__get dsg__candidate :type) :cell-ref)
+         (if (data/contains? dsg__candidate :id)
+           (if (data/contains? dsg__candidate :seal)
+             (if (data/string? (dsg__get dsg__candidate :seal))
+               (if (dsg__equal (data/str-length (dsg__get dsg__candidate :seal)) 64)
+                 (if (cell/authentic? dsg__candidate)
+                   (let [dsg__contents (cell/get dsg__candidate)]
+                     (if (data/vector? dsg__contents)
+                       (if (dsg__equal (data/count dsg__contents) 3)
+                         (let [dsg__visible (data/nth dsg__contents 0)
+                               dsg__condition (data/nth dsg__contents 1)
+                               dsg__proof (data/nth dsg__contents 2)]
+                           (if (data/callable? dsg__proof)
+                             (if (dsg__equal dsg__proof
+                                             (dsg__condition_witness
+                                               dsg__visible dsg__condition))
+                               (conj (conj [] dsg__visible) dsg__condition)
+                               nil)
+                             nil))
+                         nil)
+                       nil))
+                   nil)
+                 nil)
                nil)
-             nil))
+             nil)
+           nil)
          nil)
        nil)))
 
@@ -1246,7 +1274,17 @@
             :adapted (lower-operands env (vec ops)
                                      (fn [vs] (rebuild form (cons (get (adapters env) head) vs))))
             :guest (lower-operands env (into [head] ops)
-                                   (fn [vs] (rebuild form vs)))))))
+                                   (fn [vs]
+                                     (rebuild form
+                                              (if (and (symbol? head)
+                                                       (not (contains? (locals env) head))
+                                                       (or (and (contains? visible-predicate-heads head)
+                                                                (= 1 (count ops)))
+                                                           (and (= 'contains? head)
+                                                                (= 2 (count ops)))))
+                                                (assoc (vec vs) 1
+                                                       (list 'dsg__visible_of (second vs)))
+                                                vs))))))))
     (or (vector? form) (set? form) (map? form))
     (if (failing? env form)
       (cond
@@ -1774,6 +1812,26 @@
                         env tail?)))
 
 
+(def ^:private visible-all-operands-ops
+  "Native equality operations whose every operand must observe a caught
+   value's visible payload rather than its generated wrapper."
+  #{'= '==})
+
+
+(def ^:private visible-first-operand-ops
+  "Native lookup/predicate operations whose collection operand must
+   observe a caught value's visible payload rather than its wrapper."
+  #{'get 'nil? 'empty? 'data/map? 'data/vector? 'data/string?
+    'data/number? 'data/callable? 'data/contains?})
+
+
+(defn- visible-node
+  "Wrap compiled `ast` so a retained condition's wrapper yields its
+   visible payload; an ordinary value yields itself."
+  [ast]
+  (u/app (u/v 'dsg__visible_of) ast))
+
+
 (defn- compile-av-application
   [operator operands env tail? macro-env]
   (cond
@@ -1789,7 +1847,8 @@
                    {:keyword operator}))
         (cond-> {:type :application
                  :operator {:type :variable, :name 'get}
-                 :operands (into [(compile-form (first operands) false env macro-env)
+                 :operands (into [(let [m (compile-form (first operands) false env macro-env)]
+                                    (if (outcomes? env) (visible-node m) m))
                                   (compile-literal operator false)]
                                  (map #(compile-form % false env macro-env))
                                  (rest operands))}
@@ -1842,13 +1901,26 @@
                         (compile-form (vec operands) false env macro-env)]}
       tail? (assoc :tail? true))
 
-    ;; a statically native name: call it directly
+    ;; a statically native name: call it directly. Under the outcome
+    ;; model a caught value is the generated wrapper, so equality, lookup
+    ;; and predicate operations observe its visible payload instead.
     (native-name? env operator)
-    (cond-> {:type :application
-             :operator (cond-> {:type :variable, :name operator}
-                         (seq (meta operator)) (with-meta (meta operator)))
-             :operands (mapv #(compile-form % false env macro-env) operands)}
-      tail? (assoc :tail? true))
+    (let [compiled (mapv #(compile-form % false env macro-env) operands)
+          compiled (if (outcomes? env)
+                     (cond
+                       (contains? visible-all-operands-ops operator)
+                       (mapv visible-node compiled)
+                       (contains? visible-first-operand-ops operator)
+                       (if (seq compiled)
+                         (assoc compiled 0 (visible-node (first compiled)))
+                         compiled)
+                       :else compiled)
+                     compiled)]
+      (cond-> {:type :application
+               :operator (cond-> {:type :variable, :name operator}
+                           (seq (meta operator)) (with-meta (meta operator)))
+               :operands compiled}
+        tail? (assoc :tail? true)))
 
     ;; a compiler-internal helper introduced by the pre-pass (the exception
     ;; accessors): a direct application, never a guest invocation
@@ -2750,6 +2822,8 @@
            ;; witness (which names the token) precedes the token binding.
            (outcomes? env) (u/let1 'dsg__condition_wrapper
                                    (u/sexp->uast condition-wrapper-form))
+           (outcomes? env) (u/let1 'dsg__visible_of
+                                   (u/sexp->uast visible-of-form))
            (outcomes? env) (u/let1 'dsg__ex_message
                                    (u/sexp->uast ex-message-form))
            (outcomes? env) (u/let1 'dsg__ex_data

@@ -1592,6 +1592,115 @@
           (str lane ": the caught wrapper rethrows the retained condition")))))
 
 
+(deftest test-exception-r3-caught-payload-identity
+  (testing "P1-2: (= e orig) holds across a DYNAMIC call for a
+            location-independent value and for an ex-info payload"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok true]
+             (run-library
+               '[(let [orig {:a 1}
+                       f (fn [] (throw orig))]
+                   (try (f) (catch Exception e (= e orig))))]
+               library-opts lane 1000000))
+          (str lane ": a caught map payload is identical to its origin"))
+      (is (= [:yin.k/ok true]
+             (run-library
+               '[(let [orig (ex-info "boom" {:x 1})
+                       f (fn [] (throw orig))]
+                   (try (f) (catch Exception e (= e orig))))]
+               library-opts lane 1000000))
+          (str lane ": a caught ex-info payload is identical to its origin"))))
+  (testing "P1-2: (= e original) holds when the payload is a cell/new value
+            (mirrors exception_legs.clj home: (= e original))"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok true]
+             (run-library
+               '[(def original (cell/new :original))
+                 (defn receive
+                   [f orig]
+                   (try (f) (catch Exception e (= e orig))))
+                 (receive (fn [] (throw original)) original)]
+               library-opts lane 1000000))
+          (str lane ": a caught cell payload keeps its identity"))))
+  (testing "P1-2: keyword lookup, get, a custom key and a predicate on a
+            caught value all observe the original payload"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok [:the-cause "boom" {:code 7} 7 true]]
+             (run-library
+               '[(let [f (fn [] (throw (ex-info "boom" {:code 7} :the-cause)))]
+                   (try (f)
+                        (catch Exception e
+                          [(:yin.k/cause e) (:yin.k/message e)
+                           (get e :yin.k/data) (:code (ex-data e))
+                           (map? e)])))]
+               library-opts lane 1000000))
+          (str lane ": the caught payload answers its own keys"))
+      (is (= [:yin.k/ok [true true]]
+             (run-library
+               '[(let [f (fn [] (throw [1 2 3]))]
+                   (try (f) (catch Exception e [(vector? e) (= e [1 2 3])])))]
+               library-opts lane 1000000))
+          (str lane ": a caught vector payload is a vector, not the wrapper"))
+      (is (= [:yin.k/ok [true true]]
+             (run-library
+               '[(let [f (fn [] (throw "boom"))]
+                   (try (f) (catch Exception e [(string? e) (= e "boom")])))]
+               library-opts lane 1000000))
+          (str lane ": a caught string payload is a string, not the wrapper"))))
+  (testing "P1-2: (:yang.call/reason e) on a caught protocol condition
+            answers the condition's reason"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok :yang.call/not-callable]
+             (run-cell-program
+               '[(defn receive
+                   [f]
+                   (try (f) (catch Exception e (:yang.call/reason e))))
+                 (receive marker-operand)]
+               (cell-entry-node {:yang.call/reason :yang.call/not-callable
+                                 :yang.call/data {:yang.call/callee 5}})
+               lane))
+          (str lane ": the protocol reason is visible on the caught value"))))
+  (testing "P1-2 nested: capture, rethrow of the caught value across a
+            dynamic call, and the second catch sees the original payload"
+    (is (= [:yin.k/ok ["boom" true]]
+           (run-library
+             '[(defn capture
+                 [f]
+                 (try (f) (catch Exception e e)))
+               (defn receive
+                 [f]
+                 (try (f)
+                      (catch Exception e
+                        [(ex-message e)
+                         (= e {:yin.k/message "boom" :yin.k/data {:x 1}})])))
+               (let [e (capture (fn [] (throw (ex-info "boom" {:x 1}))))]
+                 (receive (fn [] (throw e))))])))
+    (is (= [:yin.k/ok ["boom" {:x 1}]]
+           (run-library
+             '[(defn capture
+                 [f]
+                 (try (f) (catch Exception e e)))
+               (defn receive
+                 [f]
+                 (try (f) (catch Exception e [(ex-message e) (ex-data e)])))
+               (let [e (capture (fn [] (throw (ex-info "boom" {:x 1}))))]
+                 (receive (fn [] (throw e))))]))))
+  (testing "P1-2 cross-language guard: a catch receiving a
+            :yang.call/thrown condition whose value is location-independent
+            sees that value unchanged"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok true]
+             (run-cell-program
+               '[(defn receive
+                   [f]
+                   (try (f) (catch Exception e (= e {:foreign/payload :identity}))))
+                 (receive marker-operand)]
+               (cell-entry-node {:yang.call/reason :yang.call/thrown
+                                 :yang.call/value {:foreign/payload :identity}})
+               lane))
+          (str lane ": a foreign thrown value is delivered unchanged")))))
+
+
 (deftest test-exception-r3-token-transplant-refuses
   (testing "1: a token read from a caught exception cannot authenticate a
             different payload. The wrapper is opaque to keyword lookup, so
