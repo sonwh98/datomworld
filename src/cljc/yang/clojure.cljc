@@ -37,6 +37,7 @@
             [dao.jing :as jing]
             [yang.core.call :as call]
             [yang.core.uast :as u]
+            [yang.tails :as tails]
             [yin.vm :as vm]))
 
 
@@ -1310,7 +1311,9 @@
                                   (u/let1 err-val (u/app (u/v 'data/nth) (u/v outcome) (u/lit 1))
                                           (u/if-node
                                             (u/if-node (u/app (u/v 'data/map?) (u/v err-val))
-                                                       (u/app (u/v 'dsg__get) (u/v err-val) (u/lit :dsg__condition))
+                                                       (u/app (u/v 'dsg__equal)
+                                                              (u/app (u/v 'dsg__get) (u/v err-val) (u/lit :dsg__condition))
+                                                              (u/v 'dsg__call_token))
                                                        (u/lit false))
                                             (u/app raise (u/app (u/v 'data/dissoc) (u/v err-val) (u/lit :dsg__condition)))
                                             (u/app raise
@@ -1541,11 +1544,11 @@
                                              (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/unsupported-binding)))))
                                        (outcome-node error-tag
                                                      (u/app (u/v 'dsg__assoc) (u/v condition)
-                                                            (u/lit :dsg__condition) (u/lit true)))
+                                                            (u/lit :dsg__condition) (u/v 'dsg__call_token)))
                                        (outcome-node error-tag
                                                      (u/app (u/v 'dsg__assoc)
                                                             (u/app (u/v 'yang.call/thrown) (u/v condition))
-                                                            (u/lit :dsg__condition) (u/lit true)))))
+                                                            (u/lit :dsg__condition) (u/v 'dsg__call_token)))))
           raise (u/lam [condition]
                        (assoc (u/app (u/v escape)
                                      (u/app (u/v 'dsg__assoc) (u/lit {})
@@ -1564,7 +1567,7 @@
                                   (u/lit :yang.call/not-callable)
                                   (u/app (u/v 'dsg__assoc) (u/lit {})
                                          (u/lit :yang.call/callee) (u/v callee)))
-                           (u/lit :dsg__condition) (u/lit true)))
+                           (u/lit :dsg__condition) (u/v 'dsg__call_token)))
           activation (u/if-node
                        (u/app (u/v 'data/callable?) (u/v escape))
                        common-call
@@ -1583,7 +1586,7 @@
                                   (u/app (u/v 'yang.call/condition)
                                          (u/lit :yang.call/invalid-invocation)
                                          (u/lit {:yang.call/reason :missing-raise-exit}))
-                                  (u/lit :dsg__condition) (u/lit true)))))
+                                  (u/lit :dsg__condition) (u/v 'dsg__call_token)))))
           public-bridge (u/app (u/lam [escape] activation) u/capture)
           bridged (if tail?
                     (u/if-node
@@ -1633,7 +1636,7 @@
                                            (u/app (u/v 'yang.call/condition)
                                                   (u/lit :yang.call/invalid-invocation)
                                                   (u/lit {:yang.call/reason :missing-raise-exit}))
-                                           (u/lit :dsg__condition) (u/lit true))))))
+                                           (u/lit :dsg__condition) (u/v 'dsg__call_token))))))
                        u/capture)
           routed (if (::invoker env)
                    (u/if-node
@@ -2422,13 +2425,21 @@
         top-err (symbol (str reserved-prefix "top_err"))]
     (u/let1 top-res ast
             (u/if-node
-              (u/app (u/v 'dsg__equal)
-                     (u/app (u/v 'data/nth) (u/v top-res) (u/lit 0))
-                     (u/lit error-tag))
+              (u/if-node (u/app (u/v 'data/vector?) (u/v top-res))
+                         (u/if-node (u/app (u/v 'dsg__equal)
+                                           (u/app (u/v 'data/count) (u/v top-res))
+                                           (u/lit 2))
+                                    (u/app (u/v 'dsg__equal)
+                                           (u/app (u/v 'data/nth) (u/v top-res) (u/lit 0))
+                                           (u/lit error-tag))
+                                    (u/lit false))
+                         (u/lit false))
               (u/let1 top-err (u/app (u/v 'data/nth) (u/v top-res) (u/lit 1))
                       (u/if-node
                         (u/if-node (u/app (u/v 'data/map?) (u/v top-err))
-                                   (u/app (u/v 'dsg__get) (u/v top-err) (u/lit :dsg__condition))
+                                   (u/app (u/v 'dsg__equal)
+                                          (u/app (u/v 'dsg__get) (u/v top-err) (u/lit :dsg__condition))
+                                          (u/v 'dsg__call_token))
                                    (u/lit false))
                         (outcome-node error-tag (u/app (u/v 'data/dissoc) (u/v top-err) (u/lit :dsg__condition)))
                         (u/v top-res)))
@@ -2614,7 +2625,7 @@
                                                       (yang.call/condition
                                                         :yang.call/not-callable
                                                         (dsg__assoc {} :yang.call/callee dsg__callee))
-                                                      :dsg__condition true)))))))
+                                                      :dsg__condition dsg__call_token)))))))
            (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
            (outcomes? env) (u/let1
                              'dsg__make_admission
@@ -2671,7 +2682,7 @@
                                           (assoc m k v k2 v2)
                                           (assoc m k v k2 v2 k3 v3))))))
                                (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
-           (outcomes? env) u/mark-tails))))))
+           (outcomes? env) tails/remark-tails))))))
 
 
 ;; =============================================================================
@@ -2791,8 +2802,14 @@
         ;; never published, a forged shape that slipped past the call-site
         ;; routing - refuses as the admission path would. No apply here: a
         ;; guest apply would re-enter the call-site dispatcher and recurse.
-        :else (throw (assoc (yang.call/condition :yang.call/not-callable {:yang.call/callee f})
-                            :dsg__condition true))))
+        ;; This is a SOURCE-LEVEL throw of an UNMARKED condition-shaped map
+        ;; (codex ruling 1794332020000): the value path has no raise exit, so
+        ;; the crossing boundary wraps it per §8.10.7 into a NEW
+        ;; :yang.call/thrown condition and authenticates THAT outer condition
+        ;; with the compiler-held token. The library neither stamps nor can
+        ;; stamp the inner map (codex: "the library does not cause the inner
+        ;; map to be stamped").
+        :else (throw (yang.call/condition :yang.call/not-callable {:yang.call/callee f}))))
     (defn update
       ([m k f] (assoc m k (f (get m k))))
       ([m k f a] (assoc m k (f (get m k) a)))

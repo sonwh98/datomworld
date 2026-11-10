@@ -1443,13 +1443,13 @@
     (testing "a raised condition without a qualified reason still takes the
               §8.10.7 shape: :yang.call/thrown carrying the original value"
       (is (= [:yin.k/ok
-              [:yang.call/thrown
-               {:yin.k/message "Clojure functions do not accept named arguments"
-                :yin.k/data {:yang.call/named [["x" 1]]}}]]
+              {:yang.call/reason :yang.call/thrown
+               :yang.call/value {:yin.k/message "Clojure functions do not accept named arguments"
+                                 :yin.k/data {:yang.call/named [["x" 1]]}}}]
              result)))
     (testing "a condition with a qualified reason is forwarded unchanged"
       (is (= [:yin.k/ok :yang.call/not-callable]
-             (run-outcome
+             (run-profile-outcome
                '[(let [condition (yang.call/invoke 5 [21] [] profile-raise)]
                    (get condition :yang.call/reason))]))))))
 
@@ -2467,7 +2467,8 @@
 
 
 (deftest test-library-failures-flow-through-closures
-  (let [bad [:yin.k/error {:yin.k/message "bad two", :yin.k/data {:x 2}}]
+  (let [bad [:yin.k/error {:yang.call/reason :yang.call/thrown
+                           :yang.call/value {:yin.k/message "bad two", :yin.k/data {:x 2}}}]
         g '(fn [x] (if (= x 2) (throw (ex-info "bad two" {:x x})) x))]
     (testing "a closure's error outcome ends map and reduce with that outcome"
       (is (= bad (run-library [(list 'map g [1 2 3])])))
@@ -2595,8 +2596,9 @@
             re-entering the dispatcher; the vector binder only forces the
             invoker into the library so the routing is actually exercised"
     (doseq [lane [:walker :semantic]]
-      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
-                            :yang.call/data {:yang.call/callee 5}}]
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/thrown
+                            :yang.call/value {:yang.call/reason :yang.call/not-callable
+                                              :yang.call/data {:yang.call/callee 5}}}]
              (run-library '[(let [five 5 v [five]] (five 1))]
                           library-opts lane 1000000))
           "a scalar callee terminates as not-callable")
@@ -2615,8 +2617,9 @@
                               (let [raw (yang.call/entry f) v [raw]] (raw {}))]
                             library-opts lane 1000000)]
         (is (= :yin.k/error tag) "a projected raw closure terminates")
-        (is (= :yang.call/not-callable (:yang.call/reason payload))
-            "a raw closure keeps the adoption's refusal"))
+        (is (= :yang.call/not-callable
+               (-> payload :yang.call/value :yang.call/reason))
+            "a raw closure keeps the adoption's refusal (inside the boundary's §8.10.7 wrap)"))
       (doseq [entry [nil false]]
         (let [[tag payload] (run-library
                               [(list 'let ['m {:yang.call/entry entry :x 42} 'v '[m]]
@@ -2632,8 +2635,8 @@
                          (tail-refusal)]
                        library-opts lane 1000000)]
         (is (= :yang.call/not-callable
-               (:yang.call/reason (second tail-run)))
-            "the refusal survives a tail-position value call"))
+               (-> (second tail-run) :yang.call/value :yang.call/reason))
+            "the refusal survives a tail-position value call (inside the §8.10.7 wrap)"))
       (doseq [[where form] [[1 '(five (boom) 2)] [2 '(five 1 (boom))]]]
         (let [[tag payload] (run-library
                               ['(defn boom
@@ -2732,8 +2735,9 @@
                       2026-11-04 by direct step-count measurement.")))))
   (testing "local shadowing of a top-level defn preserves dynamic admission and routing"
     (doseq [lane [:walker :semantic]]
-      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
-                            :yang.call/data {:yang.call/callee 5}}]
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/thrown
+                            :yang.call/value {:yang.call/reason :yang.call/not-callable
+                                              :yang.call/data {:yang.call/callee 5}}}]
              (run-library '[(defn f
                               [x]
                               (+ x 100))
@@ -2762,8 +2766,9 @@
         (is (= :yin.k/error tag))
         (is (= :yang.call/not-callable (:yang.call/reason payload))
             "entry-present forged local map routes to admission and refuses"))
-      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
-                            :yang.call/data {:yang.call/callee 5}}]
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/thrown
+                            :yang.call/value {:yang.call/reason :yang.call/not-callable
+                                              :yang.call/data {:yang.call/callee 5}}}]
              (run-library '[(defn f
                               [[f]]
                               (f 1))
