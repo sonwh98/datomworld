@@ -47,10 +47,21 @@
     [yin.vm :as vm]))
 
 
+(defn- publish-guest!
+  "Publish guest module `spec` into the harness store, throwing immediately
+   with `result` in ex-data if publication is refused."
+  [spec]
+  (let [result (h/publish-guest-module! spec)]
+    (when (= :refused (:status result))
+      (throw (ex-info (str "Guest module publication refused: " (or (:reason result) (:status result)))
+                      result)))
+    result))
+
+
 (def ^:private published-php
   "`php` published once into `js`'s content store, pinning the same
    `yang.call` revision (as `source-call-test` publishes it)."
-  (delay (h/publish-guest-module!
+  (delay (publish-guest!
            (php-prelude/module-spec (h/registry)
                                     (:call-address @h/published)))))
 
@@ -58,7 +69,7 @@
 (def ^:private published-py
   "`py` published beside `js` and `php`, over the same host registry and
    `yang.call` revision."
-  (delay (h/publish-guest-module!
+  (delay (publish-guest!
            (py-prelude/module-spec (h/registry)
                                    (:call-address @h/published)))))
 
@@ -66,7 +77,7 @@
 (def ^:private published-clj
   "`clj` published beside `js`, `php` and `py`, over the same host registry
    and `yang.call` revision."
-  (delay (h/publish-guest-module!
+  (delay (publish-guest!
            (clj-prelude/module-spec (h/registry)
                                     (:call-address @h/published)))))
 
@@ -187,6 +198,12 @@
   (clj-prelude/admit (php-prelude/admit (h/registry))))
 
 
+(defn- claims-call-sites?
+  "True when map AST `ast` carries the C1 call-site key anywhere."
+  [ast]
+  (boolean (some #(= :yang/call-site %) (tree-seq coll? seq ast))))
+
+
 (defn publish-donor!
   "Publish the donor `source` of `frontend` as the module `module` (default
    `xlang.donor.<frontend>`), exporting `body`, its unmodified lowered unit.
@@ -196,17 +213,20 @@
   ([frontend source module]
    (let [{:keys [runtime address refusal parse unit deps]} (profile frontend)
          [refusal-key reason] refusal
+         ast (let [raw (core-module/module-tree
+                         [(core-module/require-node runtime)
+                          (u/def! 'body (unit (parse source) []))])]
+               (cond-> raw
+                 (claims-call-sites? raw) u/annotate-call-sites))
          spec (core-module/module-spec
                 refusal-key reason (modules)
                 {:name module,
-                 :ast (core-module/module-tree
-                        [(core-module/require-node runtime)
-                         (u/def! 'body (unit (parse source) []))]),
+                 :ast ast,
                  :exports '#{body},
                  :runtime-name runtime,
                  :runtime-address (address),
                  :deps (if deps (deps) {})})
-         result (h/publish-guest-module! spec)]
+         result (publish-guest! spec)]
      {:frontend frontend,
       :module module,
       :address (:address result),
@@ -439,6 +459,12 @@
       #(exception-outcome caller-frontend %))))
 
 
+(defn error-results
+  "Map `e` across each vector VM backend as an operational failure."
+  [e]
+  (into (sorted-map) (map (fn [backend] [backend e]) (keys h/backends))))
+
+
 (defn run-exception-program
   "The exception probes' independent VM runs, concurrent on the JVM. Each
    job owns its registry, task, link pair AND content-serving composition;
@@ -447,17 +473,20 @@
    clojure.test's :error reporting, NEVER relabelled as a guest condition.
    All jobs settle even if one fails. `run-program` is unchanged."
   [donor ast]
-  ;; Resolve publication delays before starting independent readers.
-  (link-source donor)
-  (let [jobs (mapv (fn [backend]
-                     [backend
-                      (future
-                        (try
-                          (vm/value
-                            (h/run-linked backend ast
-                                          {:modules (modules)
-                                           :link-source (link-source donor)}))
-                          (catch Exception e e)))])
-                   (keys h/backends))]
-    (into (sorted-map)
-          (map (fn [[backend job]] [backend @job])) jobs)))
+  (try
+    ;; Resolve publication delays before starting independent readers.
+    (link-source donor)
+    (let [jobs (mapv (fn [backend]
+                       [backend
+                        (future
+                          (try
+                            (vm/value
+                              (h/run-linked backend ast
+                                            {:modules (modules)
+                                             :link-source (link-source donor)}))
+                            (catch Exception e e)))])
+                     (keys h/backends))]
+      (into (sorted-map)
+            (map (fn [[backend job]] [backend @job])) jobs))
+    (catch Throwable e
+      (error-results e))))

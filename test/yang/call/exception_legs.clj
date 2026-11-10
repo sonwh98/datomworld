@@ -210,13 +210,16 @@
 
 (defn run-leg
   [{:keys [donor caller scenario] :as leg}]
-  (let [published @(get published-donors donor)]
-    (kit/run-exception-program
-      published
-      (kit/compose-exception published
-                             (donor-exports donor)
-                             caller (caller-source caller scenario)
-                             (observation-form leg)))))
+  (try
+    (let [published @(get published-donors donor)]
+      (kit/run-exception-program
+        published
+        (kit/compose-exception published
+                               (donor-exports donor)
+                               caller (caller-source caller scenario)
+                               (observation-form leg))))
+    (catch Throwable e
+      (kit/error-results e))))
 
 
 (defn- probe-name
@@ -242,22 +245,27 @@
    escapes; full context snapshot proof remains a frontend gate."
   [donor caller]
   (let [pair-legs (filter #(and (= donor (:donor %)) (= caller (:caller %)))
-                          contract/pair-matrix)
-        published @(get published-donors donor)
-        observations (reduce
-                       (fn [acc {:keys [scenario] :as leg}]
-                         (list 'assoc acc scenario
-                               (observation-form
-                                 (assoc leg :probe-export (probe-name scenario)))))
-                       {} pair-legs)
-        results (kit/run-exception-program
-                  published
-                  (kit/compose-exception published
-                                         (donor-exports donor)
-                                         caller (batch-caller-source caller pair-legs)
-                                         observations))]
-    (if (some #(instance? Throwable %) (vals results))
-      (into {} (for [{:keys [id] :as leg} pair-legs]
-                 [id (run-leg leg)]))
-      (into {} (for [{:keys [id scenario]} pair-legs]
-                 [id (update-vals results #(get % scenario))])))))
+                          contract/pair-matrix)]
+    (try
+      (let [published @(get published-donors donor)
+            observations (reduce
+                           (fn [acc {:keys [scenario] :as leg}]
+                             (list 'assoc acc scenario
+                                   (observation-form
+                                     (assoc leg :probe-export (probe-name scenario)))))
+                           {} pair-legs)
+            results (kit/run-exception-program
+                      published
+                      (kit/compose-exception published
+                                             (donor-exports donor)
+                                             caller (batch-caller-source caller pair-legs)
+                                             observations))]
+        (if (some #(instance? Throwable %) (vals results))
+          (into {} (for [{:keys [id] :as leg} pair-legs]
+                     [id (run-leg leg)]))
+          (into {} (for [{:keys [id scenario]} pair-legs]
+                     [id (update-vals results #(get % scenario))]))))
+      (catch Throwable e
+        (let [err (kit/error-results e)]
+          (into {} (for [{:keys [id]} pair-legs]
+                     [id err])))))))
