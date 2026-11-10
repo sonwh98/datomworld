@@ -1031,6 +1031,24 @@
                    with-ko (data/into with-star ko)]
                (if (get spec :kwstar?) (py/vconj with-ko (get state 2)) with-ko))))))]
     [py/call (fn [f args] (py/call-kw f args []))]
+    [py/condition-exception
+     ;; Identity-owned provenance, separate from source-writable :attrs.
+     ;; Attribute edits and leaving the creating activation preserve it;
+     ;; reachability of the exception retains the entire condition/payload.
+     ;; Only this constructor writes the private slot, never a guest marker
+     ;; or a condition-shaped payload. No ambient identity registry is used.
+     (fn [cls msg condition]
+       (let [e (py/make-exc cls msg)]
+         (do (cell/set! e (assoc (cell/get e) :py/retained-condition condition))
+             e)))]
+    [py/retained-condition
+     ;; The identity-owned slot a generated exception carries, read without
+     ;; ever consulting source-writable :attrs; :py/missing when absent.
+     ;; A local instance only: a foreign or forged value has no slot.
+     (fn [e]
+       (if (= (py/content-type e) :instance)
+         (get (cell/get e) :py/retained-condition :py/missing)
+         :py/missing))]
     [py/call-kw
      (fn [f args kwargs]
        (if (= (get f :py/type) :method)
@@ -1042,7 +1060,18 @@
                f args kwargs
                (fn [condition]
                  (if (= (get condition :yang.call/reason) :yang.call/thrown)
-                   (py/raise (get condition :yang.call/value))
+                   (let [value (get condition :yang.call/value)]
+                     (py/raise
+                       (if (if (= (py/content-type value) :instance)
+                             (py/subclass? (get (cell/get value) :class)
+                                           py.b/BaseException)
+                             false)
+                         value
+                         ;; A local hierarchy and fixed local message: neither
+                         ;; foreign class names nor foreign methods participate.
+                         (py/condition-exception
+                           (py/make-class "ForeignException" py.b/Exception)
+                           {:py/str "foreign exception"} condition))))
                    (py/type-error {:py/str "object is not callable"}))))
              (if (= (py/content-type f) :function)
                (let [fc (cell/get f)]
@@ -3408,6 +3437,9 @@
   '[["len" py.b/len
      (py/make-builtin-function "len" {:params ["obj"], :no-kw true} [] []
                                (fn [args] (py/len (py/arg args 0))))]
+    ["type" py.b/type
+     (py/make-builtin-function "type" {:params ["obj"], :no-kw true} [] []
+                               (fn [args] (py/type-of (py/arg args 0))))]
     ["isinstance" py.b/isinstance
      (py/make-builtin-function "isinstance" {:params ["obj" "cls"], :no-kw true} [] []
                                (fn [args] (py/isinstance (py/arg args 0) (py/arg args 1))))]
