@@ -141,8 +141,8 @@
       (is (= 4 (count logs)))
       (let [events (mapcat second logs)]
         (is (= 3 (count events)) "three recognized calls: two uses and the failure")
-        (is (= [nil :arity nil] (mapv #(:kind (peek %)) events))
-            "the error slot is an event row's last")))
+        (is (= [nil :arity nil] (mapv #(:kind (nth % 10)) events))
+            "the error map occupies event-row slot 10")))
     (testing "rows cross storage by address and still evaluate"
       (let [content (jing.file/create-content-file (str rows-file))]
         (store-rows! content (map second batches))
