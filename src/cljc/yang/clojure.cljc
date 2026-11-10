@@ -903,8 +903,83 @@
   (symbol (str reserved-prefix "o" (swap! (::gen env) inc))))
 
 
+;; =============================================================================
+;; The generated exception wrapper (R3, section 8.10.7; review round 3)
+;; =============================================================================
+;;
+;; A condition crossing a call site is retained in ONE generated wrapper: a
+;; task-owned cell whose contents are [visible condition witness]. The
+;; guest-visible exception is the wrapper, never the condition map, so the
+;; original condition round-trips untouched. The witness authenticates the
+;; COMPLETE contents: it is a closure only this compiler can mint (its body
+;; names the compiler-held token), and the escape boundary rebuilds it from
+;; the visible value and condition and compares, exactly as the descriptor
+;; admission witness does. Copying a witness onto different contents fails;
+;; reading it yields no transferable token. The association is the cell's
+;; identity, so saving and returning the wrapper works, and so does a rethrow
+;; from another activation. Decoding reads cell contents and never applies a
+;; guest value.
+
+(def ^:private condition-witness-form
+  '(fn [dsg__visible dsg__condition]
+     (fn [dsg__query]
+       (if (dsg__equal dsg__query dsg__call_token)
+         (conj (conj [] dsg__visible) dsg__condition)
+         nil))))
+
+
+(def ^:private condition-wrapper-form
+  '(fn [dsg__visible dsg__condition]
+     (cell/new
+       (conj (conj (conj [] dsg__visible) dsg__condition)
+             (dsg__condition_witness dsg__visible dsg__condition)))))
+
+
+(def ^:private condition-retained-form
+  '(fn [dsg__candidate]
+     (if (data/map? dsg__candidate)
+       (if (cell/authentic? dsg__candidate)
+         (let [dsg__contents (cell/get dsg__candidate)]
+           (if (data/vector? dsg__contents)
+             (if (dsg__equal (data/count dsg__contents) 3)
+               (let [dsg__visible (data/nth dsg__contents 0)
+                     dsg__condition (data/nth dsg__contents 1)
+                     dsg__proof (data/nth dsg__contents 2)]
+                 (if (data/callable? dsg__proof)
+                   (if (dsg__equal dsg__proof
+                                   (dsg__condition_witness
+                                     dsg__visible dsg__condition))
+                     (conj (conj [] dsg__visible) dsg__condition)
+                     nil)
+                   nil))
+               nil)
+             nil))
+         nil)
+       nil)))
+
+
+(def ^:private ex-message-form
+  '(fn [dsg__value]
+     (let [dsg__decoded (dsg__condition_retained dsg__value)]
+       (if (dsg__equal dsg__decoded nil)
+         (dsg__get dsg__value :yin.k/message)
+         (dsg__get (data/nth dsg__decoded 0) :yin.k/message)))))
+
+
+(def ^:private ex-data-form
+  '(fn [dsg__value]
+     (let [dsg__decoded (dsg__condition_retained dsg__value)]
+       (if (dsg__equal dsg__decoded nil)
+         (dsg__get dsg__value :yin.k/data)
+         (dsg__get (data/nth dsg__decoded 0) :yin.k/data)))))
+
+
 (defn- rewrite-ex-info
-  "(ex-info msg data cause?) as the portable map holding its parts."
+  "(ex-info msg data cause?) as the portable map holding its parts. The
+   accessors read through the generated exception wrapper: a retained
+   condition's wrapper carries the original payload privately, so
+   (ex-message e)/(ex-data e) answer the payload's parts while a plain
+   value still answers by keyword lookup."
   [form]
   (cond
     (seq? form)
@@ -914,7 +989,7 @@
       (#{'.getMessage 'ex-message 'ex-data} (first form))
       (do (when-not (= 2 (count form))
             (reject! "Error accessor requires one portable error value" {:form form}))
-          (list (if (= 'ex-data (first form)) :yin.k/data :yin.k/message)
+          (list (if (= 'ex-data (first form)) 'dsg__ex_data 'dsg__ex_message)
                 (rewrite-ex-info (second form))))
       (and (symbol? (first form)) (= \. (first (name (first form)))))
       (reject! "Host exception/interop accessor is not portable" {:form form})
@@ -934,6 +1009,9 @@
   (cond
     (keyword? head) :keyword
     (not (symbol? head)) :guest
+    ;; a compiler-internal helper introduced by the pre-pass (the exception
+    ;; accessors): a direct application, never a guest invocation
+    (reserved-name? head) :direct
     (macro-call? env (::macro-env env) head) :macro
     (native-name? env head) (if (contains? (adapters env) head) :adapted :native)
     :else :guest))
@@ -1161,6 +1239,8 @@
             :macro (do (check-macro-operands! env head ops) (ok-form form))
             :keyword (lower-operands env (vec ops)
                                      (fn [vs] (ok-form (rebuild form (cons head vs)))))
+            :direct (lower-operands env (vec ops)
+                                    (fn [vs] (ok-form (rebuild form (cons head vs)))))
             :native (lower-operands env (vec ops)
                                     (fn [vs] (ok-form (rebuild form (cons head vs)))))
             :adapted (lower-operands env (vec ops)
@@ -1307,17 +1387,17 @@
                                        (u/app (u/v 'data/nth) (u/v outcome) (u/lit 0))
                                        (u/lit ok-tag))
                                 (u/app (u/v 'data/nth) (u/v outcome) (u/lit 1))
-                                (let [err-val (symbol (str reserved-prefix "entry_err"))]
+                                (let [err-val (symbol (str reserved-prefix "entry_err"))
+                                      retained (symbol (str reserved-prefix "entry_retained"))]
                                   (u/let1 err-val (u/app (u/v 'data/nth) (u/v outcome) (u/lit 1))
-                                          (u/if-node
-                                            (u/if-node (u/app (u/v 'data/map?) (u/v err-val))
-                                                       (u/app (u/v 'dsg__equal)
-                                                              (u/app (u/v 'dsg__get) (u/v err-val) (u/lit :dsg__condition))
-                                                              (u/v 'dsg__call_token))
-                                                       (u/lit false))
-                                            (u/app raise (u/app (u/v 'data/dissoc) (u/v err-val) (u/lit :dsg__condition)))
-                                            (u/app raise
-                                                   (u/app (u/v 'yang.call/thrown) (u/v err-val))))))))
+                                          (u/let1 retained
+                                                  (u/app (u/v 'dsg__condition_retained) (u/v err-val))
+                                                  (u/if-node
+                                                    (u/app (u/v 'dsg__equal) (u/v retained) (u/lit nil))
+                                                    (u/app raise
+                                                           (u/app (u/v 'yang.call/thrown) (u/v err-val)))
+                                                    (u/app raise
+                                                           (u/app (u/v 'data/nth) (u/v retained) (u/lit 1)))))))))
         ;; The private lane forwards the body's outcome in tail position.
         ;; The public entry still converts outcomes to value/raise normally.
         ;; The compiler's token packet - a two-element vector whose first
@@ -1524,31 +1604,44 @@
           condition (symbol (str reserved-prefix "condition"))
           result (symbol (str reserved-prefix "call_result"))
           reason (symbol (str reserved-prefix "reason"))
+          refusal (symbol (str reserved-prefix "refusal_condition"))
+          missing-exit (symbol (str reserved-prefix "missing_raise_condition"))
           ;; R3 (ruling v2 §R3, §R5; design §8.10.7).
-          ;; An error outcome carries a condition with a qualified reason
-          ;; unchanged (reason, value, and evidence intact), stamped with
-          ;; the compiler's authentic condition marker. Values arriving
-          ;; without a qualified reason are guest throw payloads wrapped in
-          ;; a fresh yang.call/thrown condition.
+          ;; An error outcome carries the generated exception wrapper: the
+          ;; guest-visible value (the original payload for an ordinary
+          ;; exception, the whole condition for a qualified protocol
+          ;; failure) plus the complete condition in the wrapper's private
+          ;; cell. Values arriving without a qualified reason are guest
+          ;; throw payloads wrapped in a fresh yang.call/thrown condition.
           condition->outcome (u/let1 reason (u/app (u/v 'dsg__get) (u/v condition) (u/lit :yang.call/reason))
                                      (u/if-node
+                                       (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/thrown))
+                                       ;; an ordinary exception: the guest catches the
+                                       ;; ORIGINAL payload, while the complete wire
+                                       ;; condition rides the wrapper's private cell.
+                                       (outcome-node error-tag
+                                                     (u/app (u/v 'dsg__condition_wrapper)
+                                                            (u/app (u/v 'dsg__get) (u/v condition)
+                                                                   (u/lit :yang.call/value))
+                                                            (u/v condition)))
                                        (u/if-node
-                                         (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/thrown))
-                                         (u/lit true)
                                          (u/if-node
                                            (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/not-callable))
                                            (u/lit true)
                                            (u/if-node
                                              (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/invalid-invocation))
                                              (u/lit true)
-                                             (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/unsupported-binding)))))
-                                       (outcome-node error-tag
-                                                     (u/app (u/v 'dsg__assoc) (u/v condition)
-                                                            (u/lit :dsg__condition) (u/v 'dsg__call_token)))
-                                       (outcome-node error-tag
-                                                     (u/app (u/v 'dsg__assoc)
-                                                            (u/app (u/v 'yang.call/thrown) (u/v condition))
-                                                            (u/lit :dsg__condition) (u/v 'dsg__call_token)))))
+                                             (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/unsupported-binding))))
+                                         ;; a qualified protocol condition forwards whole
+                                         (outcome-node error-tag
+                                                       (u/app (u/v 'dsg__condition_wrapper)
+                                                              (u/v condition) (u/v condition)))
+                                         ;; a value without a qualified reason is the
+                                         ;; payload of a NEW thrown condition
+                                         (outcome-node error-tag
+                                                       (u/app (u/v 'dsg__condition_wrapper)
+                                                              (u/v condition)
+                                                              (u/app (u/v 'yang.call/thrown) (u/v condition)))))))
           raise (u/lam [condition]
                        (assoc (u/app (u/v escape)
                                      (u/app (u/v 'dsg__assoc) (u/lit {})
@@ -1560,14 +1653,15 @@
                         (u/app (u/v 'yang.call/invoke) (u/v callee) (u/v arguments)
                                (u/lit []) raise)
                         (outcome-node ok-tag (u/v result)))
-          refused (outcome-node
-                    error-tag
-                    (u/app (u/v 'dsg__assoc)
-                           (u/app (u/v 'yang.call/condition)
-                                  (u/lit :yang.call/not-callable)
-                                  (u/app (u/v 'dsg__assoc) (u/lit {})
-                                         (u/lit :yang.call/callee) (u/v callee)))
-                           (u/lit :dsg__condition) (u/v 'dsg__call_token)))
+          refused (u/let1 refusal
+                          (u/app (u/v 'yang.call/condition)
+                                 (u/lit :yang.call/not-callable)
+                                 (u/app (u/v 'dsg__assoc) (u/lit {})
+                                        (u/lit :yang.call/callee) (u/v callee)))
+                          (outcome-node
+                            error-tag
+                            (u/app (u/v 'dsg__condition_wrapper)
+                                   (u/v refusal) (u/v refusal))))
           activation (u/if-node
                        (u/app (u/v 'data/callable?) (u/v escape))
                        common-call
@@ -1580,13 +1674,14 @@
                                        (u/lit :clj/escape-token))
                                 (u/v 'dsg__call_token))
                          (u/app (u/v 'dsg__get) (u/v escape) (u/lit :clj/outcome))
-                         (outcome-node
-                           error-tag
-                           (u/app (u/v 'dsg__assoc)
-                                  (u/app (u/v 'yang.call/condition)
-                                         (u/lit :yang.call/invalid-invocation)
-                                         (u/lit {:yang.call/reason :missing-raise-exit}))
-                                  (u/lit :dsg__condition) (u/v 'dsg__call_token)))))
+                         (u/let1 missing-exit
+                                 (u/app (u/v 'yang.call/condition)
+                                        (u/lit :yang.call/invalid-invocation)
+                                        (u/lit {:yang.call/reason :missing-raise-exit}))
+                                 (outcome-node
+                                   error-tag
+                                   (u/app (u/v 'dsg__condition_wrapper)
+                                          (u/v missing-exit) (u/v missing-exit))))))
           public-bridge (u/app (u/lam [escape] activation) u/capture)
           bridged (if tail?
                     (u/if-node
@@ -1630,13 +1725,14 @@
                                                 (u/lit :clj/escape-token))
                                          (u/v 'dsg__call_token))
                                   (u/app (u/v 'dsg__get) (u/v 'dsg__raise_escape) (u/lit :clj/outcome))
-                                  (outcome-node
-                                    error-tag
-                                    (u/app (u/v 'dsg__assoc)
-                                           (u/app (u/v 'yang.call/condition)
-                                                  (u/lit :yang.call/invalid-invocation)
-                                                  (u/lit {:yang.call/reason :missing-raise-exit}))
-                                           (u/lit :dsg__condition) (u/v 'dsg__call_token))))))
+                                  (u/let1 missing-exit
+                                          (u/app (u/v 'yang.call/condition)
+                                                 (u/lit :yang.call/invalid-invocation)
+                                                 (u/lit {:yang.call/reason :missing-raise-exit}))
+                                          (outcome-node
+                                            error-tag
+                                            (u/app (u/v 'dsg__condition_wrapper)
+                                                   (u/v missing-exit) (u/v missing-exit)))))))
                        u/capture)
           routed (if (::invoker env)
                    (u/if-node
@@ -1748,6 +1844,15 @@
 
     ;; a statically native name: call it directly
     (native-name? env operator)
+    (cond-> {:type :application
+             :operator (cond-> {:type :variable, :name operator}
+                         (seq (meta operator)) (with-meta (meta operator)))
+             :operands (mapv #(compile-form % false env macro-env) operands)}
+      tail? (assoc :tail? true))
+
+    ;; a compiler-internal helper introduced by the pre-pass (the exception
+    ;; accessors): a direct application, never a guest invocation
+    (and (symbol? operator) (reserved-name? operator))
     (cond-> {:type :application
              :operator (cond-> {:type :variable, :name operator}
                          (seq (meta operator)) (with-meta (meta operator)))
@@ -2422,7 +2527,8 @@
 (defn- strip-top-outcome
   [ast]
   (let [top-res (symbol (str reserved-prefix "top_res"))
-        top-err (symbol (str reserved-prefix "top_err"))]
+        top-err (symbol (str reserved-prefix "top_err"))
+        top-retained (symbol (str reserved-prefix "top_retained"))]
     (u/let1 top-res ast
             (u/if-node
               (u/if-node (u/app (u/v 'data/vector?) (u/v top-res))
@@ -2435,14 +2541,14 @@
                                     (u/lit false))
                          (u/lit false))
               (u/let1 top-err (u/app (u/v 'data/nth) (u/v top-res) (u/lit 1))
-                      (u/if-node
-                        (u/if-node (u/app (u/v 'data/map?) (u/v top-err))
-                                   (u/app (u/v 'dsg__equal)
-                                          (u/app (u/v 'dsg__get) (u/v top-err) (u/lit :dsg__condition))
-                                          (u/v 'dsg__call_token))
-                                   (u/lit false))
-                        (outcome-node error-tag (u/app (u/v 'data/dissoc) (u/v top-err) (u/lit :dsg__condition)))
-                        (u/v top-res)))
+                      (u/let1 top-retained
+                              (u/app (u/v 'dsg__condition_retained) (u/v top-err))
+                              (u/if-node
+                                (u/app (u/v 'dsg__equal) (u/v top-retained) (u/lit nil))
+                                (u/v top-res)
+                                (outcome-node
+                                  error-tag
+                                  (u/app (u/v 'data/nth) (u/v top-retained) (u/lit 1))))))
               (u/v top-res)))))
 
 
@@ -2620,12 +2726,13 @@
                                                    (list 'conj '[]
                                                          'dsg__call_token
                                                          'dsg__args))
-                                             '(conj (conj [] :yin.k/error)
-                                                    (dsg__assoc
-                                                      (yang.call/condition
-                                                        :yang.call/not-callable
-                                                        (dsg__assoc {} :yang.call/callee dsg__callee))
-                                                      :dsg__condition dsg__call_token)))))))
+                                             '(let [dsg__refusal
+                                                    (yang.call/condition
+                                                      :yang.call/not-callable
+                                                      (dsg__assoc {} :yang.call/callee dsg__callee))]
+                                                (conj (conj [] :yin.k/error)
+                                                      (dsg__condition_wrapper
+                                                        dsg__refusal dsg__refusal))))))))
            (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
            (outcomes? env) (u/let1
                              'dsg__make_admission
@@ -2635,6 +2742,22 @@
                                     (if (data/callable? dsg__call_token)
                                       (dsg__get dsg__descriptor :yang.call/entry)
                                       nil)))))
+           ;; The wrapper helpers. Dependency order matters: the cond->> chain
+           ;; nests each later binding outside the earlier one, and a binding's
+           ;; value expression sees only the bindings outside it. So the
+           ;; wrapper (which names the witness) precedes the witness, the
+           ;; accessors (which name the decoder) precede the decoder, and the
+           ;; witness (which names the token) precedes the token binding.
+           (outcomes? env) (u/let1 'dsg__condition_wrapper
+                                   (u/sexp->uast condition-wrapper-form))
+           (outcomes? env) (u/let1 'dsg__ex_message
+                                   (u/sexp->uast ex-message-form))
+           (outcomes? env) (u/let1 'dsg__ex_data
+                                   (u/sexp->uast ex-data-form))
+           (outcomes? env) (u/let1 'dsg__condition_retained
+                                   (u/sexp->uast condition-retained-form))
+           (outcomes? env) (u/let1 'dsg__condition_witness
+                                   (u/sexp->uast condition-witness-form))
            (outcomes? env) (u/then
                              (discard-result
                                (u/app (u/lam '[get = assoc empty?] call/uast)
