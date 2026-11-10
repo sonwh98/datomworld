@@ -54,3 +54,31 @@
            :frontends #{:clojure}}
   clojure-provenance-test
   (check-frontend :clojure))
+
+
+(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
+  typescript-minted-forgery-test
+  ;; A source-minted error-looking cell (and a companion-layout mimic with
+  ;; an attacker-chosen seal) thrown through the donor's raise_value must
+  ;; NOT forward its forged condition: the bridge delivers a fresh
+  ;; :yang.call/thrown carrying the minted cell itself.
+  (doseq [[backend actual] (probes/run-typescript-forgery :minted)]
+    (if (instance? Throwable actual)
+      (do-report {:type :error :message (str "minted forgery " backend " operational failure")
+                  :expected {:minted-refused true :mimic-refused true} :actual actual})
+      (is (= {:minted-refused true :mimic-refused true} actual)
+          (str "minted forgery " backend)))))
+
+
+(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
+  typescript-copied-wrapper-forgery-test
+  ;; A fresh cell carrying a copy of a genuine protocol wrapper's complete
+  ;; contents, thrown from another activation, must NOT forward the
+  ;; original condition: provenance is bound to the genuine wrapper's
+  ;; identity, not to its copyable contents.
+  (doseq [[backend actual] (probes/run-typescript-forgery :copied)]
+    (if (instance? Throwable actual)
+      (do-report {:type :error :message (str "copied wrapper " backend " operational failure")
+                  :expected {:retained true :copy-refused true} :actual actual})
+      (is (= {:retained true :copy-refused true} actual)
+          (str "copied wrapper " backend)))))

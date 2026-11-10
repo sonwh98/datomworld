@@ -1583,8 +1583,12 @@
        ;; source exception AND argument-binding failure to it as the
        ;; thrown condition, exactly once. The js/try handler runs only
        ;; after the escape has completed source cleanup and restored the
-       ;; saved handler/depth/frame state (§8.10.8), so the transfer
-       ;; below never reuses a raise exit of a completed call. An
+       ;; saved handler/depth/frame state (§8.10.8): restore-before-
+       ;; transfer establishes that delivery ORDERING (the callee bridge
+       ;; is absent while the caller's exit runs). It does not by itself
+       ;; prove that a resumed suspension cannot reuse a completed call's
+       ;; raise exit; that lifetime claim remains an explicit open
+       ;; obligation pending the suspension probe. An
        ;; unchanged rethrow of a wrapper carrying a retained protocol
        ;; condition forwards that original condition with no new wrapper;
        ;; every other escape (including a thrown condition-shaped map,
@@ -1649,20 +1653,42 @@
     ;; §8.10.7 protocol reception: :yang.call/not-callable,
     ;; :yang.call/invalid-invocation and :yang.call/unsupported-binding map
     ;; to a local TypeError that RETAINS the complete original condition
-    ;; (qualified reason AND plain evidence) in private cell contents,
-    ;; outside source-writable :props. An unchanged rethrow of the same
-    ;; wrapper forwards the original condition through the entry bridge
-    ;; with no new wrapper. Otherwise-foreign :yang.call/thrown payloads
-    ;; are delivered raw (the ruling's js allowance). A returned
-    ;; condition-shaped map stays ordinary data, and forged or
-    ;; source-writable attributes never authenticate a retained condition.
+    ;; (qualified reason AND plain evidence) in a runtime-owned companion
+    ;; provenance cell, outside source-writable :props. The companion
+    ;; holds the condition, a back-reference to this exact wrapper cell,
+    ;; and the task's retained seal: a cell js/init! allocates whose
+    ;; reference no js definition returns, so admitted source cannot
+    ;; obtain it. The wrapper holds only the companion reference.
+    ;; js/retained-condition authenticates all of it: heap-authentic
+    ;; wrapper and companion, the companion's wrapper identical (=) to
+    ;; the candidate, and its seal identical to the runtime's. A minted
+    ;; cell cannot replicate the seal, and a copy of the wrapper's
+    ;; contents into a new cell fails the identity back-reference, so
+    ;; neither authenticates a retained condition (R5). The companion is
+    ;; reachable only through the wrapper, so the association lives
+    ;; exactly as long as the wrapper does, with no ambient registry.
+    ;; An unchanged rethrow of the same wrapper forwards the original
+    ;; condition through the entry bridge with no new wrapper.
+    ;; Otherwise-foreign :yang.call/thrown payloads are delivered raw
+    ;; (the ruling's js allowance). A returned condition-shaped map stays
+    ;; ordinary data.
     [js/retained-condition
      (fn [e]
        (if (js/cell? e)
          (if (cell/authentic? e)
            (let [c (cell/get e)]
              (if (= (get c :js/class) :error)
-               (get c :yang.call/retained-condition)
+               (let [p (get c :yang.call/retained-provenance)]
+                 (if (js/cell? p)
+                   (if (cell/authentic? p)
+                     (let [pc (cell/get p)]
+                       (if (= (get pc :yang.call/wrapper) e)
+                         (if (= (get pc :yang.call/seal) js.rt/retained-seal)
+                           (get pc :yang.call/condition)
+                           nil)
+                         nil))
+                     nil)
+                   nil))
                nil))
            nil)
          nil))]
@@ -1676,8 +1702,15 @@
                    (if (= reason :yang.call/unsupported-binding)
                      {:js/str "unsupported binding profile"}
                      {:js/str "invalid function invocation"})))]
-         (do (cell/set! e (assoc (cell/get e)
-                                 :yang.call/retained-condition condition))
+         (do (cell/set! e
+                        (assoc (cell/get e)
+                               :yang.call/retained-provenance
+                               (cell/new
+                                 (assoc (assoc (assoc {}
+                                                      :yang.call/wrapper e)
+                                               :yang.call/seal
+                                               js.rt/retained-seal)
+                                        :yang.call/condition condition))))
              (js/throw e))))]
     [js/call
      (fn [f this args]
@@ -4097,6 +4130,7 @@
         ['do
          (define 'js.rt/ctx '(cell/new (js/ctx nil)))
          (define 'js.rt/out '(cell/new []))
+         (define 'js.rt/retained-seal '(cell/new :js/retained-seal))
          (define 'js.rt/obj-proto '(js/make-object :js/null))
          (define 'js.rt/fn-proto '(js/make-object js.rt/obj-proto))
          (define 'js.rt/global '(js/make-object js.rt/obj-proto))]
@@ -4256,7 +4290,7 @@
 (def runtime-keys
   "Every key `js/init!` allocates, the ready flag aside, sorted."
   (vec (sort-by str
-                (concat '[js.rt/ctx js.rt/out js.rt/global js.rt/obj-proto
+                (concat '[js.rt/ctx js.rt/out js.rt/retained-seal js.rt/global js.rt/obj-proto
                           js.rt/fn-proto js.rt/symbol-proto js.rt/array-proto]
                         (map second error-classes)
                         (map first primitive-protos)))))
