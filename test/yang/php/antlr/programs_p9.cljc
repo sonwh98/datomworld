@@ -27,7 +27,8 @@
        "417aAz65Ba\\'ba'b")
    (fx :string-offset-write :strings-ii
        "<?php $s = 'abc'; $s[1] = 'XYZ'; $s[-1] = 'Z'; echo $s;"
-       "aXZ")])
+       "aXZ"
+       :diag [[2 "Only the first byte will be assigned to the string offset"]])])
 
 
 (def arrays-ii
@@ -89,8 +90,9 @@
        "<?php $x = 1; $n = extract(['x' => 4, 'y' => 5]); echo $n, $x, $y;"
        "245")
    (fx :extract-skip-and-prefix :dynamic-scope
-       "<?php $x = 1; extract(['x' => 4, 'y' => 5], EXTR_SKIP); extract(['z' => 6], EXTR_PREFIX_ALL, 'p_'); echo $x, $y, $p__z;"
-       "156")
+       "<?php $x = 1; extract(['x' => 4, 'y' => 5], EXTR_SKIP); extract(['z' => 6], EXTR_PREFIX_ALL, 'p_'); echo $x, $y, $p_z;"
+       "15"
+       :diag [[2 "Undefined variable $p_z"]])
    (fx :compact-nested :dynamic-scope
        "<?php $x = 3; $y = 4; $a = compact('x', ['y', 'missing']); echo implode(',', $a);"
        "3,4"

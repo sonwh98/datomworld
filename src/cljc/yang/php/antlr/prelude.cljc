@@ -2327,8 +2327,11 @@
              (if (= (data/str-length text) 0)
                (php/throw-error "Error" "string offset assignment requires at least one byte")
                (if (if (>= j 0) (< j n) false)
-                 (data/str-concat (data/substring s 0 j) (data/substring text 0 1)
-                                  (data/substring s (+ j 1) n))
+                 (do (if (> (data/str-length text) 1)
+                       (php/warn 2 "Only the first byte will be assigned to the string offset")
+                       :php/null)
+                     (data/str-concat (data/substring s 0 j) (data/substring text 0 1)
+                                      (data/substring s (+ j 1) n)))
                  (php/throw-error "Error" "string offset assignment outside the existing string is not supported")))))))]
     [php/assign-into
      ;; the container after `$c[ks...] = v`: a shared instance is separated,
