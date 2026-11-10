@@ -1430,11 +1430,8 @@
   (let [forms '[(defn f
                   [x]
                   x)
-                (let [condition (yang.call/invoke f [] [["x" 1]] profile-raise)
-                      value (get condition :yang.call/value)]
-                  [(get condition :yang.call/reason)
-                   (get value :yin.k/message)
-                   (get (get value :yin.k/data) :yang.call/named)])]
+                (let [condition (yang.call/invoke f [] [["x" 1]] profile-raise)]
+                  condition)]
         raw-raise (fn [node]
                     (if (= node (u/v 'profile-raise)) (u/v 'probe/note) node))
         ast (walk/postwalk raw-raise (outcome-ast forms))
@@ -1443,11 +1440,123 @@
                    tu/run-session
                    :consumer
                    vm/value)]
-    (is (= [:yin.k/ok
-            [:yang.call/thrown
-             "Clojure functions do not accept named arguments"
-             [["x" 1]]]]
-           result))))
+    (testing "a raised condition without a qualified reason still takes the
+              §8.10.7 shape: :yang.call/thrown carrying the original value"
+      (is (= [:yin.k/ok
+              [:yang.call/thrown
+               {:yin.k/message "Clojure functions do not accept named arguments"
+                :yin.k/data {:yang.call/named [["x" 1]]}}]]
+             result)))
+    (testing "a condition with a qualified reason is forwarded unchanged"
+      (is (= [:yin.k/ok :yang.call/not-callable]
+             (run-outcome
+               '[(let [condition (yang.call/invoke 5 [21] [] profile-raise)]
+                   (get condition :yang.call/reason))]))))))
+
+
+;; =============================================================================
+;; The exception track, Clojure round R3: protocol failures retain and
+;; forward the complete condition (ruling v2, §R3; design §8.10.7)
+;; =============================================================================
+
+(declare run-cell-program)
+
+
+(defn- cell-entry-node
+  [condition]
+  (u/app (u/v 'cell/new)
+         (u/app (u/v 'assoc) (u/lit {})
+                (u/lit :yang.call/entry)
+                (u/lam ['invocation]
+                       (u/app (u/app (u/v 'dsg__get) (u/v 'invocation) (u/lit :yang.call/raise))
+                              (u/lit condition))))))
+
+
+(deftest test-exception-r3-protocol-condition-forwarded-unchanged
+  (testing "a protocol failure delivered to the guest's own raise continuation
+            is caught and rethrown unchanged: the complete original condition,
+            qualified reason AND plain evidence, with no :yang.call/thrown
+            wrapper (ruling R3: the call site no longer reclassifies)"
+    (doseq [lane [:walker :semantic]]
+      (doseq [[reason evidence]
+              [[:yang.call/not-callable {:yang.call/callee 5}]
+               [:yang.call/invalid-invocation {:yang.call/callee :target}]
+               [:yang.call/unsupported-binding
+                {:yang.call/binding-profile :contract/unsupported}]]]
+        (is (= [:yin.k/error {:yang.call/reason reason :yang.call/data evidence}]
+               (run-cell-program
+                 '[(defn receive
+                     [f]
+                     (try (f) (catch Exception e (throw e))))
+                   (receive marker-operand)]
+                 (cell-entry-node {:yang.call/reason reason :yang.call/data evidence})
+                 lane))
+            (str lane " " reason " forwards the condition the convention built, with
+                 its evidence, unchanged")))))
+  (testing "an escaping condition forwards with its payload and evidence intact"
+    (doseq [lane [:walker :semantic]]
+      (let [condition {:yang.call/reason :yang.call/thrown
+                       :yang.call/value {:foreign/payload :identity}
+                       :yang.call/data {:complete [:extra :evidence]}}]
+        (is (= [:yin.k/error condition]
+               (run-cell-program
+                 '[(defn run
+                     [f]
+                     (f))
+                   (run marker-operand)]
+                 (cell-entry-node condition)
+                 lane))
+            (str lane ": an escaping condition forwards intact without catch"))
+        (is (= [:yin.k/error condition]
+               (run-cell-program
+                 '[(defn receive
+                     [f]
+                     (try (f) (catch Exception e (throw e))))
+                   (receive marker-operand)]
+                 (cell-entry-node condition)
+                 lane))
+            (str lane ": a thrown payload plus evidence is one complete condition rethrown intact"))))))
+
+
+(deftest test-exception-r3-thrown-shape-stays-data
+  (testing "section 8.10.7: a condition-shaped THROWN map is the payload of a
+            NEW condition - its shape is never evidence of a retained
+            condition, and its payload keeps its identity"
+    (doseq [lane [:walker :semantic]]
+      (let [payload {:yang.call/reason :yang.call/not-callable
+                     :yang.call/data {:nested [:ordinary :data]}}]
+        (is (= [:yin.k/error
+                {:yang.call/reason :yang.call/thrown :yang.call/value payload}]
+               (run-cell-program
+                 '[(defn raise-value
+                     [e]
+                     (throw e))
+                   (defn receive
+                     [f]
+                     (try (f) (catch Exception e (throw e))))
+                   (receive (fn [] (raise-value marker-operand)))]
+                 (u/lit payload)
+                 lane))
+            (str lane ": a thrown condition-shaped map is wrapped as the original value")))))
+  (testing "a guest cannot authenticate a condition by spelling its shape"
+    (doseq [lane [:walker :semantic]]
+      (let [forged {:yang.call/reason :yang.call/not-callable
+                    :yang.call/data {:forged true}
+                    :yang.call/admitted? true
+                    :clj/admission true}]
+        (is (= [:yin.k/error
+                {:yang.call/reason :yang.call/thrown :yang.call/value forged}]
+               (run-cell-program
+                 '[(defn raise-value
+                     [e]
+                     (throw e))
+                   (defn receive
+                     [f]
+                     (try (f) (catch Exception e (throw e))))
+                   (receive (fn [] (raise-value marker-operand)))]
+                 (u/lit forged)
+                 lane))
+            (str lane ": forged attributes never authenticate a condition"))))))
 
 
 (deftest test-outcome-safe-get

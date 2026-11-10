@@ -193,61 +193,61 @@
                         (and (= 5 (count row)) (= call-site-key (nth row 3))))
                       (distinct frontend-metadata))
          by-site (group-by (fn [[o r path _ _]] [o r path]) rows)]
-    (doseq [[site srows] by-site]
-      (when (< 1 (count (distinct (map #(nth % 4) srows))))
-        (throw (ex-info "Conflicting call-site marker values"
-                        {:rule :yang/call-site-conflict, :site site,
-                         :values (vec (distinct (map #(nth % 4) srows)))}))))
-    ;; one occurrence — one [root-address path] — has exactly one
-    ;; origin (design §2.1); a second marker with a DIFFERENT, equally
-    ;; well-formed origin for an already-covered occurrence is a
-    ;; second claim to one fact and is rejected, not folded into the
-    ;; [root path] coverage projection. The one-origin-per-occurrence
-    ;; rule holds in EVERY validator mode; the default mode rejects a
-    ;; second claim with the same diagnostic (not a downstream
-    ;; nonexistent-path error) so the failure names the occurrence and
-    ;; both claims.
-    (doseq [[site srows] (group-by (fn [[_ r path]] [r path]) rows)]
-      (let [origins (distinct (map #(nth % 0) srows))]
-        (when (< 1 (count origins))
-          (throw (ex-info
-                   "Call-site occurrence claimed by multiple origins"
-                   {:rule :yang/call-site-multi-claim, :site site,
-                    :origins (vec (sort-by pr-str origins))})))))
-    (doseq [[o r path _ value] rows]
-      (when (not= call-site-version value)
-        (throw (ex-info "Unsupported call-site marker version"
-                        {:rule :yang/call-site-unsupported-version,
-                         :site [o r path], :value value})))
-      (when (and per-occurrence-origins? (not (vm/occurrence-origin? o)))
-        (throw (ex-info "Call-site marker carries a malformed occurrence origin"
-                        {:rule :yang/call-site-invalid-origin,
-                         :site [o r path], :origin o})))
-      (let [tag (when (and (= r root)
-                           (or per-occurrence-origins? (= o origin)))
-                  (get tag-at [r path]))]
-        (cond
-          (nil? tag)
-          (throw (ex-info "Call-site marker names no occurrence"
-                          {:rule :yang/call-site-nonexistent-path,
-                           :site [o r path]}))
-          (not= :application tag)
-          (throw (ex-info "Call-site marker on a non-application occurrence"
-                          {:rule :yang/call-site-non-application,
-                           :site [o r path], :tag tag})))))
-    (let [marked (if per-occurrence-origins?
-                   (into #{}
-                         (map (fn [[_ r path]] [r path]))
-                         (marked-application-sites frontend-metadata))
-                   (marked-application-sites frontend-metadata))]
-      (when (not= eligible marked)
-        (throw (ex-info "Call-site coverage is not complete"
-                        {:rule :yang/call-site-incomplete-coverage,
-                         :missing (vec (sort-by pr-str
-                                                (remove marked eligible))),
-                         :extra (vec (sort-by pr-str
-                                              (remove eligible marked)))}))))
-    true)))
+     (doseq [[site srows] by-site]
+       (when (< 1 (count (distinct (map #(nth % 4) srows))))
+         (throw (ex-info "Conflicting call-site marker values"
+                         {:rule :yang/call-site-conflict, :site site,
+                          :values (vec (distinct (map #(nth % 4) srows)))}))))
+     ;; one occurrence — one [root-address path] — has exactly one
+     ;; origin (design §2.1); a second marker with a DIFFERENT, equally
+     ;; well-formed origin for an already-covered occurrence is a
+     ;; second claim to one fact and is rejected, not folded into the
+     ;; [root path] coverage projection. The one-origin-per-occurrence
+     ;; rule holds in EVERY validator mode; the default mode rejects a
+     ;; second claim with the same diagnostic (not a downstream
+     ;; nonexistent-path error) so the failure names the occurrence and
+     ;; both claims.
+     (doseq [[site srows] (group-by (fn [[_ r path]] [r path]) rows)]
+       (let [origins (distinct (map #(nth % 0) srows))]
+         (when (< 1 (count origins))
+           (throw (ex-info
+                    "Call-site occurrence claimed by multiple origins"
+                    {:rule :yang/call-site-multi-claim, :site site,
+                     :origins (vec (sort-by pr-str origins))})))))
+     (doseq [[o r path _ value] rows]
+       (when (not= call-site-version value)
+         (throw (ex-info "Unsupported call-site marker version"
+                         {:rule :yang/call-site-unsupported-version,
+                          :site [o r path], :value value})))
+       (when (and per-occurrence-origins? (not (vm/occurrence-origin? o)))
+         (throw (ex-info "Call-site marker carries a malformed occurrence origin"
+                         {:rule :yang/call-site-invalid-origin,
+                          :site [o r path], :origin o})))
+       (let [tag (when (and (= r root)
+                            (or per-occurrence-origins? (= o origin)))
+                   (get tag-at [r path]))]
+         (cond
+           (nil? tag)
+           (throw (ex-info "Call-site marker names no occurrence"
+                           {:rule :yang/call-site-nonexistent-path,
+                            :site [o r path]}))
+           (not= :application tag)
+           (throw (ex-info "Call-site marker on a non-application occurrence"
+                           {:rule :yang/call-site-non-application,
+                            :site [o r path], :tag tag})))))
+     (let [marked (if per-occurrence-origins?
+                    (into #{}
+                          (map (fn [[_ r path]] [r path]))
+                          (marked-application-sites frontend-metadata))
+                    (marked-application-sites frontend-metadata))]
+       (when (not= eligible marked)
+         (throw (ex-info "Call-site coverage is not complete"
+                         {:rule :yang/call-site-incomplete-coverage,
+                          :missing (vec (sort-by pr-str
+                                                 (remove marked eligible))),
+                          :extra (vec (sort-by pr-str
+                                               (remove eligible marked)))}))))
+     true)))
 
 
 (defn validate-ast-call-sites!
@@ -1306,10 +1306,15 @@
                                        (u/app (u/v 'data/nth) (u/v outcome) (u/lit 0))
                                        (u/lit ok-tag))
                                 (u/app (u/v 'data/nth) (u/v outcome) (u/lit 1))
-                                (u/app raise
-                                       (u/app (u/v 'yang.call/thrown)
-                                              (u/app (u/v 'data/nth)
-                                                     (u/v outcome) (u/lit 1))))))
+                                (let [err-val (symbol (str reserved-prefix "entry_err"))]
+                                  (u/let1 err-val (u/app (u/v 'data/nth) (u/v outcome) (u/lit 1))
+                                          (u/if-node
+                                            (u/if-node (u/app (u/v 'data/map?) (u/v err-val))
+                                                       (u/app (u/v 'dsg__get) (u/v err-val) (u/lit :dsg__condition))
+                                                       (u/lit false))
+                                            (u/app raise (u/app (u/v 'data/dissoc) (u/v err-val) (u/lit :dsg__condition)))
+                                            (u/app raise
+                                                   (u/app (u/v 'yang.call/thrown) (u/v err-val))))))))
         ;; The private lane forwards the body's outcome in tail position.
         ;; The public entry still converts outcomes to value/raise normally.
         ;; The compiler's token packet - a two-element vector whose first
@@ -1515,16 +1520,32 @@
           escape (symbol (str reserved-prefix "raise_escape"))
           condition (symbol (str reserved-prefix "condition"))
           result (symbol (str reserved-prefix "call_result"))
-          condition->outcome (u/if-node
-                               (u/app (u/v 'dsg__equal)
-                                      (u/app (u/v 'dsg__get) (u/v condition)
-                                             (u/lit :yang.call/reason))
-                                      (u/lit :yang.call/thrown))
-                               (outcome-node
-                                 error-tag
-                                 (u/app (u/v 'dsg__get) (u/v condition)
-                                        (u/lit :yang.call/value)))
-                               (outcome-node error-tag (u/v condition)))
+          reason (symbol (str reserved-prefix "reason"))
+          ;; R3 (ruling v2 §R3, §R5; design §8.10.7).
+          ;; An error outcome carries a condition with a qualified reason
+          ;; unchanged (reason, value, and evidence intact), stamped with
+          ;; the compiler's authentic condition marker. Values arriving
+          ;; without a qualified reason are guest throw payloads wrapped in
+          ;; a fresh yang.call/thrown condition.
+          condition->outcome (u/let1 reason (u/app (u/v 'dsg__get) (u/v condition) (u/lit :yang.call/reason))
+                                     (u/if-node
+                                       (u/if-node
+                                         (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/thrown))
+                                         (u/lit true)
+                                         (u/if-node
+                                           (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/not-callable))
+                                           (u/lit true)
+                                           (u/if-node
+                                             (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/invalid-invocation))
+                                             (u/lit true)
+                                             (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/unsupported-binding)))))
+                                       (outcome-node error-tag
+                                                     (u/app (u/v 'dsg__assoc) (u/v condition)
+                                                            (u/lit :dsg__condition) (u/lit true)))
+                                       (outcome-node error-tag
+                                                     (u/app (u/v 'dsg__assoc)
+                                                            (u/app (u/v 'yang.call/thrown) (u/v condition))
+                                                            (u/lit :dsg__condition) (u/lit true)))))
           raise (u/lam [condition]
                        (assoc (u/app (u/v escape)
                                      (u/app (u/v 'dsg__assoc) (u/lit {})
@@ -1538,10 +1559,12 @@
                         (outcome-node ok-tag (u/v result)))
           refused (outcome-node
                     error-tag
-                    (u/app (u/v 'yang.call/condition)
-                           (u/lit :yang.call/not-callable)
-                           (u/app (u/v 'dsg__assoc) (u/lit {})
-                                  (u/lit :yang.call/callee) (u/v callee))))
+                    (u/app (u/v 'dsg__assoc)
+                           (u/app (u/v 'yang.call/condition)
+                                  (u/lit :yang.call/not-callable)
+                                  (u/app (u/v 'dsg__assoc) (u/lit {})
+                                         (u/lit :yang.call/callee) (u/v callee)))
+                           (u/lit :dsg__condition) (u/lit true)))
           activation (u/if-node
                        (u/app (u/v 'data/callable?) (u/v escape))
                        common-call
@@ -1556,9 +1579,11 @@
                          (u/app (u/v 'dsg__get) (u/v escape) (u/lit :clj/outcome))
                          (outcome-node
                            error-tag
-                           (u/app (u/v 'yang.call/condition)
-                                  (u/lit :yang.call/invalid-invocation)
-                                  (u/lit {:yang.call/reason :missing-raise-exit})))))
+                           (u/app (u/v 'dsg__assoc)
+                                  (u/app (u/v 'yang.call/condition)
+                                         (u/lit :yang.call/invalid-invocation)
+                                         (u/lit {:yang.call/reason :missing-raise-exit}))
+                                  (u/lit :dsg__condition) (u/lit true)))))
           public-bridge (u/app (u/lam [escape] activation) u/capture)
           bridged (if tail?
                     (u/if-node
@@ -1604,9 +1629,11 @@
                                   (u/app (u/v 'dsg__get) (u/v 'dsg__raise_escape) (u/lit :clj/outcome))
                                   (outcome-node
                                     error-tag
-                                    (u/app (u/v 'yang.call/condition)
-                                           (u/lit :yang.call/invalid-invocation)
-                                           (u/lit {:yang.call/reason :missing-raise-exit}))))))
+                                    (u/app (u/v 'dsg__assoc)
+                                           (u/app (u/v 'yang.call/condition)
+                                                  (u/lit :yang.call/invalid-invocation)
+                                                  (u/lit {:yang.call/reason :missing-raise-exit}))
+                                           (u/lit :dsg__condition) (u/lit true))))))
                        u/capture)
           routed (if (::invoker env)
                    (u/if-node
@@ -2389,6 +2416,25 @@
     (lower-function-body env macro-env [] [form])))
 
 
+(defn- strip-top-outcome
+  [ast]
+  (let [top-res (symbol (str reserved-prefix "top_res"))
+        top-err (symbol (str reserved-prefix "top_err"))]
+    (u/let1 top-res ast
+            (u/if-node
+              (u/app (u/v 'dsg__equal)
+                     (u/app (u/v 'data/nth) (u/v top-res) (u/lit 0))
+                     (u/lit error-tag))
+              (u/let1 top-err (u/app (u/v 'data/nth) (u/v top-res) (u/lit 1))
+                      (u/if-node
+                        (u/if-node (u/app (u/v 'data/map?) (u/v top-err))
+                                   (u/app (u/v 'dsg__get) (u/v top-err) (u/lit :dsg__condition))
+                                   (u/lit false))
+                        (outcome-node error-tag (u/app (u/v 'data/dissoc) (u/v top-err) (u/lit :dsg__condition)))
+                        (u/v top-res)))
+              (u/v top-res)))))
+
+
 (defn compile-program
   "Compile a sequence of Clojure forms into a single Universal AST.
    Top-level defs compile to explicit yin/def store writes, sequenced via lambda.
@@ -2458,170 +2504,173 @@
                        tail? (assoc :tail? true))))))]
        (annotate-call-sites
          (cond->> (go forms initial-macro-env)
-         ;; The two sibling closures share one frame: separate bindings would
-         ;; retain one extra helper environment in every closure a guest
-         ;; captures (the machine-data validation bound notices).
-         (outcomes? env) (#(u/app
-                             (u/lam '[dsg__admitted? dsg__intra_call] %)
-                             (u/sexp->uast
-                               '(fn [dsg__candidate]
-                                  (if (data/map? dsg__candidate)
-                                    ;; A map is offered to the dereference
-                                    ;; only when the heap authenticates it
-                                    ;; (ruling of record, rule 2), as the
-                                    ;; descriptor projection treats a
-                                    ;; cell-backed callable
-                                    ;; (yang.antlr.md 8.10.2), whose entry
-                                    ;; lives in the cell contents. The
-                                    ;; issued format (`:type :cell-ref`,
-                                    ;; `:id`, `:seal`, no other entries, a
-                                    ;; 64-character string seal) is only
-                                    ;; the pre-filter for WHEN to ask;
-                                    ;; `cell/authentic?` — the issuer's
-                                    ;; own heap+seal answer — decides, so
-                                    ;; any `:id` spelling may be asked
-                                    ;; about and the r4 heap-id-language
-                                    ;; discriminator is retired. A shape
-                                    ;; the heap does not authenticate is
-                                    ;; data: it falls to the witness
-                                    ;; branch and, entryless, is no more
-                                    ;; admitted than any other source map,
-                                    ;; so its invocation stays ordinary
-                                    ;; map data. An authenticated
-                                    ;; reference dereferences; an
-                                    ;; authenticated cell whose contents
-                                    ;; carry no callable entry is not
-                                    ;; admitted (authentication is not
-                                    ;; authorization, rule 3), and the
-                                    ;; call-site routing that consulted
-                                    ;; here refuses it as not-callable.
-                                    (let [dsg__cell-ref?
-                                          (if (dsg__equal
-                                                (dsg__get dsg__candidate :type)
-                                                :cell-ref)
-                                            (if (data/contains? dsg__candidate
-                                                                :id)
+           (outcomes? env) strip-top-outcome
+           ;; The two sibling closures share one frame: separate bindings would
+           ;; retain one extra helper environment in every closure a guest
+           ;; captures (the machine-data validation bound notices).
+           (outcomes? env) (#(u/app
+                               (u/lam '[dsg__admitted? dsg__intra_call] %)
+                               (u/sexp->uast
+                                 '(fn [dsg__candidate]
+                                    (if (data/map? dsg__candidate)
+                                      ;; A map is offered to the dereference
+                                      ;; only when the heap authenticates it
+                                      ;; (ruling of record, rule 2), as the
+                                      ;; descriptor projection treats a
+                                      ;; cell-backed callable
+                                      ;; (yang.antlr.md 8.10.2), whose entry
+                                      ;; lives in the cell contents. The
+                                      ;; issued format (`:type :cell-ref`,
+                                      ;; `:id`, `:seal`, no other entries, a
+                                      ;; 64-character string seal) is only
+                                      ;; the pre-filter for WHEN to ask;
+                                      ;; `cell/authentic?` — the issuer's
+                                      ;; own heap+seal answer — decides, so
+                                      ;; any `:id` spelling may be asked
+                                      ;; about and the r4 heap-id-language
+                                      ;; discriminator is retired. A shape
+                                      ;; the heap does not authenticate is
+                                      ;; data: it falls to the witness
+                                      ;; branch and, entryless, is no more
+                                      ;; admitted than any other source map,
+                                      ;; so its invocation stays ordinary
+                                      ;; map data. An authenticated
+                                      ;; reference dereferences; an
+                                      ;; authenticated cell whose contents
+                                      ;; carry no callable entry is not
+                                      ;; admitted (authentication is not
+                                      ;; authorization, rule 3), and the
+                                      ;; call-site routing that consulted
+                                      ;; here refuses it as not-callable.
+                                      (let [dsg__cell-ref?
+                                            (if (dsg__equal
+                                                  (dsg__get dsg__candidate :type)
+                                                  :cell-ref)
                                               (if (data/contains? dsg__candidate
-                                                                  :seal)
-                                                (if (dsg__equal
-                                                      (data/count dsg__candidate)
-                                                      3)
-                                                  (if (data/string?
-                                                        (dsg__get dsg__candidate
-                                                                  :seal))
-                                                    (if (dsg__equal
-                                                          (data/str-length
-                                                            (dsg__get dsg__candidate
-                                                                      :seal))
-                                                          64)
-                                                      true
+                                                                  :id)
+                                                (if (data/contains? dsg__candidate
+                                                                    :seal)
+                                                  (if (dsg__equal
+                                                        (data/count dsg__candidate)
+                                                        3)
+                                                    (if (data/string?
+                                                          (dsg__get dsg__candidate
+                                                                    :seal))
+                                                      (if (dsg__equal
+                                                            (data/str-length
+                                                              (dsg__get dsg__candidate
+                                                                        :seal))
+                                                            64)
+                                                        true
+                                                        false)
                                                       false)
                                                     false)
                                                   false)
                                                 false)
-                                              false)
-                                            false)]
-                                      (if dsg__cell-ref?
-                                        (if (cell/authentic? dsg__candidate)
-                                          (let [dsg__descriptor
-                                                (cell/get dsg__candidate)
-                                                dsg__entry
-                                                (dsg__get dsg__descriptor
-                                                          :yang.call/entry)]
-                                            (data/callable? dsg__entry))
-                                          false)
-                                        (let [dsg__entry
-                                              (dsg__get dsg__candidate
-                                                        :yang.call/entry)
-                                              dsg__witness
-                                              (dsg__get dsg__candidate
-                                                        :clj/admission)]
-                                          (if (data/callable? dsg__entry)
-                                            (if (data/callable? dsg__witness)
-                                              (dsg__equal
+                                              false)]
+                                        (if dsg__cell-ref?
+                                          (if (cell/authentic? dsg__candidate)
+                                            (let [dsg__descriptor
+                                                  (cell/get dsg__candidate)
+                                                  dsg__entry
+                                                  (dsg__get dsg__descriptor
+                                                            :yang.call/entry)]
+                                              (data/callable? dsg__entry))
+                                            false)
+                                          (let [dsg__entry
+                                                (dsg__get dsg__candidate
+                                                          :yang.call/entry)
                                                 dsg__witness
-                                                (dsg__make_admission
-                                                  (dsg__assoc dsg__candidate
-                                                              :clj/admission
-                                                              nil)))
-                                              false)
-                                            false))))
-                                    false)))
-                             ;; The intra-unit dispatcher: resolve the unit's public entry,
-                             ;; apply it with the compiler's token packet [token args] - one
-                             ;; variadic conj and one application, no record construction.
-                             ;; Non-map callees refuse.
+                                                (dsg__get dsg__candidate
+                                                          :clj/admission)]
+                                            (if (data/callable? dsg__entry)
+                                              (if (data/callable? dsg__witness)
+                                                (dsg__equal
+                                                  dsg__witness
+                                                  (dsg__make_admission
+                                                    (dsg__assoc dsg__candidate
+                                                                :clj/admission
+                                                                nil)))
+                                                false)
+                                              false))))
+                                      false)))
+                               ;; The intra-unit dispatcher: resolve the unit's public entry,
+                               ;; apply it with the compiler's token packet [token args] - one
+                               ;; variadic conj and one application, no record construction.
+                               ;; Non-map callees refuse.
+                               (u/sexp->uast
+                                 (list 'fn '[dsg__callee dsg__args]
+                                       (list 'if '(data/map? dsg__callee)
+                                             (list (list (if (contains? (::defined env) 'get)
+                                                           'dsg__get
+                                                           'get)
+                                                         'dsg__callee
+                                                         :yang.call/entry)
+                                                   (list 'conj '[]
+                                                         'dsg__call_token
+                                                         'dsg__args))
+                                             '(conj (conj [] :yin.k/error)
+                                                    (dsg__assoc
+                                                      (yang.call/condition
+                                                        :yang.call/not-callable
+                                                        (dsg__assoc {} :yang.call/callee dsg__callee))
+                                                      :dsg__condition true)))))))
+           (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
+           (outcomes? env) (u/let1
+                             'dsg__make_admission
                              (u/sexp->uast
-                               (list 'fn '[dsg__callee dsg__args]
-                                     (list 'if '(data/map? dsg__callee)
-                                           (list (list (if (contains? (::defined env) 'get)
-                                                         'dsg__get
-                                                         'get)
-                                                       'dsg__callee
-                                                       :yang.call/entry)
-                                                 (list 'conj '[]
-                                                       'dsg__call_token
-                                                       'dsg__args))
-                                           '(conj (conj [] :yin.k/error)
-                                                  (yang.call/condition
-                                                    :yang.call/not-callable
-                                                    (dsg__assoc {} :yang.call/callee dsg__callee))))))))
-         (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
-         (outcomes? env) (u/let1
-                           'dsg__make_admission
-                           (u/sexp->uast
-                             '(fn [dsg__descriptor]
-                                (fn [dsg__candidate]
-                                  (if (data/callable? dsg__call_token)
-                                    (dsg__get dsg__descriptor :yang.call/entry)
-                                    nil)))))
-         (outcomes? env) (u/then
-                           (discard-result
-                             (u/app (u/lam '[get = assoc empty?] call/uast)
-                                    (u/v 'dsg__get) (u/v 'dsg__equal)
-                                    (u/v 'dsg__assoc) (u/v 'dsg__empty))))
-         (outcomes? env) (u/let1 'dsg__call_token (u/lam [] (u/lit nil)))
-         ;; Guest closures keep captured environments portable: binding host
-         ;; primitive values here would make UCF machine-data validation fail.
-         ;; These helpers cover generated map lookups/writes and comparisons;
-         ;; conj/vec are already protected by the convention's binder checks.
-         ;; Evaluate siblings outside each other's bindings to avoid retaining
-         ;; a chain of redundant helper environments.
-         (outcomes? env) (#(u/app
-                             (u/lam '[dsg__get dsg__equal dsg__assoc dsg__empty] %)
-                             (if (contains? (::defined env) 'get)
-                               (u/sexp->uast
-                                 '(fn [m k]
-                                    (if (data/map? m)
-                                      (let [find (fn [self entries]
-                                                   (if (data/content= 0 (data/count entries))
-                                                     nil
-                                                     (let [pair (data/nth entries 0)]
-                                                       (if (data/content= k (data/nth pair 0))
-                                                         (data/nth pair 1)
-                                                         (self self (data/subvec entries 1))))))]
-                                        (find find (vec m)))
-                                      nil)))
-                               (u/sexp->uast '(fn [m k] (get m k))))
-                             (u/sexp->uast '(fn [a b] (data/content= a b)))
-                             (if (contains? (::defined env) 'assoc)
-                               (u/sexp->uast
-                                 '(fn [m k v k2 v2 k3 v3]
-                                    (let [one (conj m (conj [] k v))]
+                               '(fn [dsg__descriptor]
+                                  (fn [dsg__candidate]
+                                    (if (data/callable? dsg__call_token)
+                                      (dsg__get dsg__descriptor :yang.call/entry)
+                                      nil)))))
+           (outcomes? env) (u/then
+                             (discard-result
+                               (u/app (u/lam '[get = assoc empty?] call/uast)
+                                      (u/v 'dsg__get) (u/v 'dsg__equal)
+                                      (u/v 'dsg__assoc) (u/v 'dsg__empty))))
+           (outcomes? env) (u/let1 'dsg__call_token (u/lam [] (u/lit nil)))
+           ;; Guest closures keep captured environments portable: binding host
+           ;; primitive values here would make UCF machine-data validation fail.
+           ;; These helpers cover generated map lookups/writes and comparisons;
+           ;; conj/vec are already protected by the convention's binder checks.
+           ;; Evaluate siblings outside each other's bindings to avoid retaining
+           ;; a chain of redundant helper environments.
+           (outcomes? env) (#(u/app
+                               (u/lam '[dsg__get dsg__equal dsg__assoc dsg__empty] %)
+                               (if (contains? (::defined env) 'get)
+                                 (u/sexp->uast
+                                   '(fn [m k]
+                                      (if (data/map? m)
+                                        (let [find (fn [self entries]
+                                                     (if (data/content= 0 (data/count entries))
+                                                       nil
+                                                       (let [pair (data/nth entries 0)]
+                                                         (if (data/content= k (data/nth pair 0))
+                                                           (data/nth pair 1)
+                                                           (self self (data/subvec entries 1))))))]
+                                          (find find (vec m)))
+                                        nil)))
+                                 (u/sexp->uast '(fn [m k] (get m k))))
+                               (u/sexp->uast '(fn [a b] (data/content= a b)))
+                               (if (contains? (::defined env) 'assoc)
+                                 (u/sexp->uast
+                                   '(fn [m k v k2 v2 k3 v3]
+                                      (let [one (conj m (conj [] k v))]
+                                        (if (data/content= k2 nil)
+                                          one
+                                          (let [two (conj one (conj [] k2 v2))]
+                                            (if (data/content= k3 nil)
+                                              two
+                                              (conj two (conj [] k3 v3))))))))
+                                 (u/sexp->uast
+                                   '(fn [m k v k2 v2 k3 v3]
                                       (if (data/content= k2 nil)
-                                        one
-                                        (let [two (conj one (conj [] k2 v2))]
-                                          (if (data/content= k3 nil)
-                                            two
-                                            (conj two (conj [] k3 v3))))))))
-                               (u/sexp->uast
-                                 '(fn [m k v k2 v2 k3 v3]
-                                    (if (data/content= k2 nil)
-                                      (assoc m k v)
-                                      (if (data/content= k3 nil)
-                                        (assoc m k v k2 v2)
-                                        (assoc m k v k2 v2 k3 v3))))))
-                             (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
+                                        (assoc m k v)
+                                        (if (data/content= k3 nil)
+                                          (assoc m k v k2 v2)
+                                          (assoc m k v k2 v2 k3 v3))))))
+                               (u/sexp->uast '(fn [xs] (data/content= 0 (data/count xs))))))
            (outcomes? env) u/mark-tails))))))
 
 
@@ -2742,7 +2791,8 @@
         ;; never published, a forged shape that slipped past the call-site
         ;; routing - refuses as the admission path would. No apply here: a
         ;; guest apply would re-enter the call-site dispatcher and recurse.
-        :else (throw (yang.call/condition :yang.call/not-callable {:yang.call/callee f}))))
+        :else (throw (assoc (yang.call/condition :yang.call/not-callable {:yang.call/callee f})
+                            :dsg__condition true))))
     (defn update
       ([m k f] (assoc m k (f (get m k))))
       ([m k f a] (assoc m k (f (get m k) a)))
