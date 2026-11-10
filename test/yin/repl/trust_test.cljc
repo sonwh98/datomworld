@@ -13,7 +13,7 @@
         b (sign/generate)
         pa (sign/principal (:public a))
         pb (sign/principal (:public b))
-        initial (repl/create-state {:dht-key a})
+        initial (repl/create-state {:publisher-key a})
         [state _] (repl/eval-input initial (str "(trust " (pr-str pb) ")"))
         [state text] (repl/eval-input state "(trusted)")]
     (is (str/includes? text pa))
@@ -27,7 +27,8 @@
         (is (= (:linker state) (:linker same)))))
     (let [[reset _] (repl/eval-input state "(reset)")]
       (is (= {} (:admission reset))))
-    (let [state (repl/create-state {:dht-key a :admission {:trusted #{pb}}})
+    (let [state (repl/create-state {:publisher-key a
+                                    :admission {:trusted #{pb}}})
           [state _] (repl/eval-input state (str "(untrust " (pr-str pb) ")"))
           [state _] (repl/eval-input state (str "(trust " (pr-str pa) ")"))
           [reset _] (repl/eval-input state "(reset)")]
@@ -60,7 +61,8 @@
 (deftest own-principal-is-always-trusted-test
   (let [key (sign/generate)
         p (sign/principal (:public key))
-        initial (repl/create-state {:dht-key key :admission {:trusted #{p}}})
+        initial (repl/create-state {:publisher-key key
+                                    :admission {:trusted #{p}}})
         [state text] (repl/eval-input initial
                                       (str "(untrust " (pr-str p) ")"))]
     (is (= (str "Own principal " p " is always trusted") text))

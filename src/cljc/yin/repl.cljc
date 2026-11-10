@@ -20,8 +20,8 @@
             [yang.frontend :as frontend]
             [yang.php.antlr.prelude :as php-prelude]
             [yin.repl.ast-index :as ast-index]
-            [yin.repl.dht :as repl.dht]
             [yin.repl.index :as index]
+            [yin.repl.publication :as publication]
             [yin.repl.query :as query]
             [yin.repl.store :as store]
             [yin.repl.state :as config]
@@ -38,7 +38,7 @@
             [yin.vm.integer :as integer]
             [yin.vm.semantic.linearize :as linearize]
             [yin.vm.ucf :as ucf]
-            [yin.vm.linker.interpreter :as link]
+            [yin.vm.linker.pair :as link]
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
@@ -433,15 +433,17 @@
        "  (compile expr)\n"
        "  (reset)\n"
        "  (trust \"ed25519:<64 hex>\") / (untrust \"ed25519:<64 hex>\")\n"
-       "  (trusted)  - own principal and trusted set (--dht-trust)\n"
+       "  (trusted)  - own principal and trusted set\n"
        "  (connect \"daostream:ws://host:port\")\n"
        "  (disconnect)\n"
-       "  (require (quote m))  - link module m; with a dht:<dir> index store"
-       " it may fetch m's code from peers, and stays pending until it has\n"
+       "  (require (quote m))  - link module m; a composition that serves"
+       " remote content may fetch m's code from peers, and the require stays"
+       " pending until it has\n"
        "  (abandon)  - give up a (require ...) that is still pending\n"
        "  (require (quote yin.link)), then (yin.link/publish (quote m)"
        " (quote [f]))  - publish module m exporting f from this session's"
-       " indexed code under the --dht-key principal, and (yin.link/names)"
+       " indexed code under the session's publisher principal, and"
+       " (yin.link/names)"
        "  - the names this node resolves\n"
        "  (require (quote yin.head)), then (yin.head/heads)  - each followed"
        " principal's installed head, and (yin.head/moved)  - the linked"
@@ -827,13 +829,22 @@
    `query-pair` is the session's query call pair
    (`yin.repl.query/make-pair`), supplied as the VM's FFI pair with its
    call-out cursor; with it the registry carries the query bridge, so
-   `(require 'dao.space.query)` activates `dao.space.query/q`."
-  ([vm-type output-stream] (make-vm vm-type output-stream nil nil nil))
+   `(require 'dao.space.query)` activates `dao.space.query/q`.
+
+   `host-modules` is the composition's own module registrations,
+   `{module-name (fn [registry] registry')}`: the generic mechanism a
+   composition registers the host modules it serves through
+   (docs/design/yin.repl.dht-composition.md section 6).  This namespace
+   registers none of its own beyond the query bridge, and never names a
+   module it does not serve."
+  ([vm-type output-stream] (make-vm vm-type output-stream nil nil nil nil))
   ([vm-type output-stream extra-primitives]
-   (make-vm vm-type output-stream extra-primitives nil nil))
+   (make-vm vm-type output-stream extra-primitives nil nil nil))
   ([vm-type output-stream extra-primitives link-pair]
-   (make-vm vm-type output-stream extra-primitives link-pair nil))
+   (make-vm vm-type output-stream extra-primitives link-pair nil nil))
   ([vm-type output-stream extra-primitives link-pair query-pair]
+   (make-vm vm-type output-stream extra-primitives link-pair query-pair nil))
+  ([vm-type output-stream extra-primitives link-pair query-pair host-modules]
    (when-not (contains? vm-constructors vm-type)
      (throw (ex-info "Unknown Yin REPL VM type"
                      {:vm-type vm-type
@@ -850,7 +861,7 @@
                                     {::integer/max-bits 100000
                                      ::integer/max-digits 4300})
                                   php-prelude/admit)
-                        query-pair query/register)
+                        query-pair (query/register host-modules))
              :make-stream make-ring-stream
              ;; the task's capability secret (yin.vm.linker.md 7.3, r10):
              ;; the REPL is the composition, so it mints one from its own
@@ -955,14 +966,20 @@
    session's `:indexer`, and `:ast-indexer` for `$ast` and `$occ`, as they
    stand when it serves.
 
-   A durable store's HEAD write travels with the store handle
-   (`:head-fn`, yin.repl.store): every session the store outlives
-   publishes through the same one."
-  [vm-type output-stream extra-primitives shell-token index-store source]
+   A durable store's HEAD write is the composition's, reached over the
+   publication medium pair (`yin.repl.publication`): every session the
+   store outlives publishes through the same one.
+
+   `host-modules` is the composition's module registrations, installed
+   into every session's registry so a rebuild never drops them
+   (`make-vm`)."
+  [vm-type output-stream extra-primitives shell-token index-store source
+   publication host-modules]
   (let [linker (link/make source)
         pair (:pair linker)
         query-pair (query/make-pair query-pair-capacity)
-        vm (make-vm vm-type output-stream extra-primitives pair query-pair)
+        vm (make-vm vm-type output-stream extra-primitives pair query-pair
+                    host-modules)
         program-in (make-attachment ingress-capacity)
         program-out (make-attachment ingress-capacity)]
     {:vm vm
@@ -977,8 +994,9 @@
      :indexer (index/make-indexer {:observer ((:attach program-out))
                                    :session-token shell-token
                                    :content-store index-store
-                                   :publish-opts (:publish-opts index-store)
-                                   :after-publish (:head-fn index-store)})
+                                   :publish-opts (or (:publication-policy publication)
+                                                     (:publish-opts index-store))
+                                   :publication-media (:media publication)})
      :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
      :linker linker
      :query-pair (dissoc query-pair :out-cursor)}))
@@ -1017,8 +1035,12 @@
    `dao.stream.rpc` client state on a connection whose far end serves
    content) and `name-env` (module name -> manifest address) compose the
    content pair and the name environment the linker interpreter serves
-   `(require ...)` from (yin.vm.linker.interpreter/composition); with
-   neither content source, a require stays `:pending` and says so.
+   `(require ...)` from (yin.vm.linker.pair/composition); with
+   neither content source, a require stays `:pending` and says so.  The
+   engine requires that generic pair machinery and never
+   `yin.vm.linker.interpreter`, whose signed-name serving would load a
+   storage implementation into this namespace's dependency closure
+   (docs/design/yin.repl.dht-composition.md section 2).
 
    `:link-policy` is the session's pending-link rule
    (yin.repl.link-policy.md), kept beside `:link-source` so `(reset)` and
@@ -1029,10 +1051,9 @@
    reserved for phase 2 and refused, as is anything else, at assembly.
 
    `:admission` configures the signed-name source's in-process
-   interpreter (yin.vm.linker.dht.md 7.5,
-   `yin.vm.linker.interpreter/composition`'s option): by default `{}`,
-   which trusts the `:dht-key`'s own principal alone;
-   `{:trusted #{principal}}`, each `ed25519:<hex>`, trusts more;
+   interpreter (`yin.vm.linker.pair/composition`'s option): by
+   default `{}`, which trusts the own principal the composition declared
+   alone; `{:trusted #{principal}}`, each `ed25519:<hex>`, trusts more;
    `:verify`, `:decision` and `:decision-medium` replace the default
    rule.
    `:external` runs no interpreter in process: the questions a require
@@ -1061,30 +1082,31 @@
    carry the index across the rebuild; with the memory store they start
    an empty one, as they always have.
 
-   `{:type :dht :dir dir ...}` is the DHT store (yin.repl.dht): that
-   durable directory store with a `dao.jing.dht` node composed over it.
-   Its step-owner value is `:dht`, advanced only by `yin.repl.dht/step`
-   from the host's ticker; a round publishes against the local store and
-   never waits on it.  It is also the link source
-   (yin.vm.linker.dht.md 4.1): a `(require ...)` of a name `name-env`
-   resolves starts a closure load on the node, which may fetch from
-   peers, and parks until the load ends; `content-store` and
-   `content-client` are refused with it.
+   A storage implementation past `:mem` and `{:type :file :dir dir}` is
+   the composition's, never this namespace's
+   (docs/design/yin.repl.dht-composition.md sections 2 and 3): it opens
+   its own store and hands the engine the prepared `dao.jing` content
+   handle as `:index-store`, what its open recovered as `:recovery`, the
+   publication media it services as `:publication-media` and
+   `:publication-policy`, and the link source it drives as
+   `:link-source`.  The engine steps no transport and holds no node: a
+   round publishes against the injected handle and never waits on a
+   network, and a link the engine cannot serve itself stays pending for
+   its composition to move (`yin.shell.linker/serve-links`).  Supplied
+   together, `:link-source` wins over the generic content options, and
+   `:index-store` wins over `:index-store-spec`.
 
-   `:dht-key` is the publisher's stable key `{:seed :public}`, loaded
-   from its key file by the host (yin.vm.linker.dht.md 6.5); without it
-   `(yin.link/publish ...)` is refused and the node still reads, resolves,
-   loads and links.  `:principals` are the public keys whose signed name
-   assertions the reader honors (7.1); a key's own principal is declared
-   with them.
-
-   A DHT store spec's `:follow` entries are the principals whose
-   published heads the node follows (yin.vm.linker.dht.head.md 5.5);
-   `:ws-host` is the host WebSocket seam (yin.repl.host) the head board
-   is served and dialed over, and `:write-heads!` the file replace
-   `heads.edn` is written with (yin.repl.dht/open).  A `(require ...)` of
-   a name that is absent while a followed principal has no installed
-   head stays pending until that head is installed.
+   `:principals` are the public keys whose signed name assertions the
+   reader honors, and `:follow` the principal ids whose published heads
+   the composition follows.  Both are plain data on the link source; a
+   `(require ...)` of a name that is absent while a followed principal
+   has no installed head stays pending until that head is installed.
+   `:publisher-key` is the session's own signing key `{:seed :public}`,
+   whose principal joins `:principals` and is the `:own` the trust
+   commands always honor.  It is signing material, not transport state:
+   the engine reads only the principal off it, and never signs, resolves
+   or announces.  A prepared `:link-source` already carries all three, so
+   it wins and these are not read.
 
    `:custody` is an optional custody composition value
    (yin.vm.ucf.compose): the shell only carries it, as data, so the
@@ -1107,8 +1129,9 @@
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
-            index-store-spec dht-key principals ws-host write-heads! custody
-            frontends admission]
+            index-store-spec link-source recovery principals follow custody
+            frontends admission publication-policy publication-media
+            host-modules publisher-key]
      :or {lang :yang/clojure vm-type :semantic admission {}}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
@@ -1126,34 +1149,55 @@
                             index-store nil
 
                             :else (store/checked-spec index-store-spec))
-         ;; composed before the store opens: a refused composition never
-         ;; holds a directory lock
-         link-source (link/composition
-                       {:name-env name-env
-                        :content-store content-store
-                        :content-client content-client
-                        :dht? (= :dht (:type index-store-spec))
-                        :principals principals
-                        :key dht-key
-                        :admission (when-not (= :external admission)
-                                     admission)
-                        :follow (when (= :dht (:type index-store-spec))
-                                  (repl.dht/followed-principals
-                                    index-store-spec))})
-         index-store (or index-store
-                         (if (= :dht (:type index-store-spec))
-                           (repl.dht/open index-store-spec
-                                          {:key dht-key
-                                           :ws ws-host
-                                           :write-heads! write-heads!})
-                           (store/open index-store-spec)))]
+         ;; A composition that owns a storage implementation prepares the
+         ;; link source beside the handle and injects both; the engine
+         ;; composes one only from the generic content inputs it was given
+         ;; (docs/design/yin.repl.dht-composition.md section 3).  Composed
+         ;; before the store opens: a refused composition never holds a
+         ;; directory lock.
+         link-source (or link-source
+                         (link/composition
+                           {:name-env name-env
+                            :content-store content-store
+                            :content-client content-client
+                            :principals principals
+                            :key publisher-key
+                            :follow follow
+                            :admission (when-not (= :external admission)
+                                         admission)}))
+         index-store (or index-store (store/open index-store-spec))
+         recovery (or recovery (:recovery index-store))
+         ;; the composition's durable-publication medium: the engine
+         ;; emits a correlated request and promotes only the matching
+         ;; result, and its indexer holds no writer to call
+         ;; (yin.repl.publication).  A store that declares no durable HEAD
+         ;; has no medium, and its round settles locally exactly as an
+         ;; ephemeral composition always has; a composition that wants to
+         ;; observe an ephemeral round injects the media itself.
+         media (or publication-media
+                   (when-let [head-fn (:head-fn index-store)]
+                     (publication/local-media
+                       {:head-fn head-fn
+                        :durability :persistent})))
+         ;; `:media` is the engine's view of the pair -- the request side
+         ;; it appends to, the result side it reads and its cursor -- with
+         ;; the composition's durable HEAD writer stripped off it, so no
+         ;; callback hook sits inside the indexer.  `:local-service` is
+         ;; that stripped half, the medium with its writer, which the
+         ;; round boundary services (`serve-publication`); a composition
+         ;; with transport of its own injects a medium with no `:local`,
+         ;; has no service here, and services the request side itself.
+         publication {:publication-policy publication-policy
+                      :media (some-> media publication/engine-media)
+                      :local-service (when (:local media) media)}]
      (merge
        (update (make-session vm-type output-stream
                              (merge (selected-primitives frontends lang)
                                     primitives)
                              shell-token
-                             index-store link-source)
-               :indexer index/rehydrate (:recovery index-store))
+                             index-store link-source publication
+                             host-modules)
+               :indexer index/rehydrate recovery)
        {:lang lang
         :frontends (or frontends frontend/empty-catalog)
         :vm-type vm-type
@@ -1162,11 +1206,12 @@
         :output-cursor output-cursor
         :ledger {:output :untried}
         :shell-token shell-token
-        :index-store (repl.dht/without-runner index-store)
+        :index-store index-store
         :index-store-spec index-store-spec
-        :dht (:dht index-store)
-        :index-recovery (or (:recovery index-store)
-                            {:manifest nil :datoms nil})
+        :publication publication
+        :host-modules (or host-modules {})
+        :registered-ops (query/registered-ops host-modules)
+        :index-recovery (or recovery {:manifest nil :datoms nil})
         :round 0
         :ingress-loss? false
         :last-value nil
@@ -1177,10 +1222,103 @@
         :admission admission
         :initial-admission admission
         :link-policy (checked-link-policy link-policy)
-        :dht-key dht-key
         :pending-run nil
         :custody custody
         :running? true}))))
+
+
+;; =============================================================================
+;; The composition's explicit engine operations
+;; (docs/design/yin.repl.dht-composition.md section 4)
+;; =============================================================================
+
+(defn pending-publication
+  "The oldest publication request this shell has emitted and no matching
+   result has settled, or nil.  A composition reads it to know what it
+   still owes the engine before it may report the round settled."
+  [state]
+  (index/pending-publication (:indexer state)))
+
+
+(defn pending-publications
+  "Every publication request this shell has emitted that no matching
+   result has settled, oldest first.  A composition services each of them
+   before it reports the round settled: an earlier round's outstanding
+   request keeps its own prepared frontier, and a later round's promotion
+   is reported only once a result settles the request that carries it."
+  [state]
+  (index/pending-publications (:indexer state)))
+
+
+(defn accept-publication-result
+  "`state` after one local publication `result`
+   (`{:op :publication-result :id :round :manifest :status :durability}`)
+   the composition delivered.
+
+   Only the result matching the pending request — identifier, round and
+   manifest address together — settles it: `:published` promotes the
+   frontier that request prepared and `:refused` preserves the previous
+   published frontier, recording the round's failure under its reason.  A
+   duplicate, stale or mismatched result promotes nothing, so a repeated
+   or foreign result can never advance or regress the frontier.  A
+   network dissemination result is not this: local durability alone
+   settles a round."
+  [state result]
+  (update state :indexer index/accept-publication-result result))
+
+
+(defn settle-publication
+  "`state` after every publication result its composition has already
+   appended is consumed.  A composition that services locally leaves
+   nothing to consume; one with transport of its own calls this once it
+   has delivered, before it reports the round settled."
+  [state]
+  (update state :indexer index/settle-publication))
+
+
+(defn serve-publication
+  "Service and settle the composition's local publication medium: every
+   request the indexer reports outstanding
+   (`yin.repl.index/pending-publications`) is written through the durable
+   HEAD writer this construction composed, its `{:op :publication-result
+   ...}` appended to the medium's result side, and the indexer then
+   consumes the results it can match
+   (`yin.repl.publication/service-local!`,
+   `yin.repl.index/settle-publication`).
+
+   The indexer's own outstanding queue is what drives it, so servicing is
+   idempotent: a request already settled is never written twice, and a
+   round rolled back after its index stage leaves nothing to repeat.  A
+   composition that services its own medium — transport of its own, so no
+   `:local` writer was composed here — is answered unchanged, and calls
+   `settle-publication` itself once it has delivered.  This is what keeps
+   local publication synchronous at the round boundary while the indexer
+   holds no writer and calls none: the round emits the request, the
+   service writes the HEAD, and the indexer promotes only on the matching
+   result (docs/design/yin.repl.dht-composition.md sections 3-4)."
+  [state]
+  (if-let [service (get-in state [:publication :local-service])]
+    (let [requests (index/pending-publications (:indexer state))]
+      (if (seq requests)
+        (do (doseq [request requests]
+              (publication/service-local! service request))
+            (update state :indexer index/settle-publication))
+        state))
+    state))
+
+
+(defn install-recovery
+  "Install validated recovery data — `{:manifest address-or-nil :datoms
+   datoms-or-nil}` — as the session's index history, answering the
+   successor state.  The composition validates the manifest and every
+   reachable index closure before it calls this, and calls it before
+   evaluation is admitted: entity and transaction authority are derived
+   from the history, and any saved live cursor is discarded, so the first
+   subsequent publication reconstructs in full."
+  [state {:keys [manifest datoms] :as recovery}]
+  (-> state
+      (update :indexer index/rehydrate {:manifest manifest :datoms datoms})
+      (assoc :index-recovery (or recovery {:manifest nil :datoms nil}))))
 
 
 ;; =============================================================================
@@ -1370,9 +1508,16 @@
   "Drive the code indexer's observer over `program-out`: it commits each
    forwarded packet as one transaction and publishes the covered indexes.
    It runs before the evaluator, so a program is indexed whether its VM
-   returns, parks, or raises; the two observers meet only at the medium."
+   returns, parks, or raises; the two observers meet only at the medium.
+
+   The publication the round emitted is serviced and settled here, before
+   the round reports (`serve-publication`), so a durable round's frontier
+   is promoted — or its refusal recorded, and rendered by
+   `yin.repl.index/notice` — in the round that published it."
   [state]
-  (update state :indexer index/step (:round state)))
+  (-> state
+      (update :indexer index/step (:round state))
+      (serve-publication)))
 
 
 (defn- run-ast-index-stage
@@ -1677,33 +1822,34 @@
                   ::link-origins (:origins vm)
                   ::query-pair (:query-pair state)
                   ::linker (:linker state)
-                  ::dht (:dht state)
                   ::indexer (:indexer state))))
 
 
 (defn- carry-served
   "`state` rolled back by a link raise, keeping what the interpreters
    already concluded: the query pair, the link pair past every request
-   answered, the linker interpreter's past every
-   question settled, the DHT node a load started or forgot on, and the
-   indexer a `yin.link/publish` committed its name envelopes through."
+   answered, the linker interpreter's past every question settled, and
+   the indexer a name publication committed its envelopes through.  These
+   are the settlement identities and cursors of a round that already had
+   effects; nothing else survives the rollback, and no transport state
+   crosses here — a composition's node is its own to retain across the
+   engine's rollback (docs/design/yin.repl.dht-composition.md section 7)."
   [state d]
   (cond-> state
     (::query-pair d) (assoc :query-pair (::query-pair d))
     (::linker d) (assoc :linker (::linker d))
-    (contains? d ::dht) (assoc :dht (::dht d))
     (::indexer d) (assoc :indexer (::indexer d))))
 
 
-(defn- link-context
-  "What a `yin.link` call is answered under (yin.repl.query/serve): the
-   reader's authority, the publisher's key, and the requesting VM's
-   primitives and module registry -- the modules it linked are derived
-   from it, never recorded -- and the round."
+(defn service-context
+  "The explicit request data a composition answers a service call under:
+   the requesting VM's primitives and module registry — the modules it
+   linked are derived from it, never recorded — and the round.  The
+   authority and any publisher key a signed service needs are the
+   composition's to add; the engine holds neither
+   (docs/design/yin.repl.dht-composition.md section 6)."
   [state vm]
-  {:authority (link/authority (:link-source state))
-   :key (:dht-key state)
-   :primitives (:primitives vm)
+  {:primitives (:primitives vm)
    :modules (:modules vm)
    :call-site-tables (call-site-tables state)
    :call-site-admissions (call-site-admissions state)
@@ -1714,7 +1860,10 @@
   "Serve the linker interpreter and run the parked VM alternately, at most
    `link-round-budget` rounds, while `vm` waits on a link.  A round that
    moves nothing ends the drive: a link whose content source cannot
-   answer will not answer by waiting longer.  Returns
+   answer will not answer by waiting longer.  A source only its
+   composition can serve moves nothing here by construction
+   (`yin.vm.linker.pair/round-local`), so the drive ends at once
+   and the run parks for that composition to move.  Returns
    `[state vm pending progress?]`, `pending` the links the interpreter
    reported `:pending`, and `progress?` true when a round moved
    something -- advanced a serve cursor, delivered a response or
@@ -1733,7 +1882,17 @@
    round it is asked, so its rounds are bounded by `query-drive-budget`
    calls instead: a VM still waiting on a call once the drive has
    answered that many raises `query-call-limit-text` as its own error,
-   the unanswered request abandoned with it."
+   the unanswered request abandoned with it.
+
+   The interpreter is handed the session's `:registered-ops` — the
+   operations its composition declared it serves
+   (`yin.repl.query/registered-ops` of the `:host-modules` a composition
+   registered).  A call under one of them is left unread on the pair for
+   that composition to answer, so the drive makes no progress on it and
+   the run parks exactly as it does for a link only its composition can
+   serve; a call under an operation nobody registered is not foreign and
+   is refused at once, `:dao.stream.apply/unknown-operation`
+   (docs/design/yin.repl.dht-composition.md sections 6 and 7)."
   [state vm initial-progress]
   (loop [i 0
          calls 0
@@ -1757,26 +1916,22 @@
 
         :else
         (let [served (when (and link? (not initial?))
-                       (link/round (assoc (:linker state)
-                                          :source (:link-source state))
-                                   (:dht state)))
+                       (link/round-local (assoc (:linker state)
+                                                :source (:link-source state))))
               state (cond-> state
-                      served (assoc :linker (:linker served)
-                                    :dht (:dht served)))
+                      served (assoc :linker (:linker served)))
               answered (when query?
                          (query/serve {:pair (:query-pair state)
                                        :indexer (:indexer state)
                                        :ast-indexer (:ast-indexer state)
-                                       :dht (:dht state)
-                                       :link (link-context state vm)
                                        :limits {:row-limit query-row-limit
                                                 :byte-limit query-byte-limit}
+                                       :registered-ops (:registered-ops state)
                                        :budget (min query-serve-budget
                                                     (- query-drive-budget
                                                        calls))}))
               state (cond-> state
                       answered (assoc :query-pair (:pair answered)
-                                      :dht (:dht answered)
                                       :indexer (:indexer answered)))
               pending (if (seq (:pending served)) (:pending served) pending)]
           (if (or initial? (:progress? served)
@@ -1843,7 +1998,7 @@
    began in, whose store and value history the parked evaluation never
    wrote.  Lines typed while the require was pending are dropped with
    it, and said so.  The linker side retires the run's requests
-   (`yin.vm.linker.interpreter/retire`, yin.vm.linker.dht.md 7.5): each
+   (`yin.vm.linker.pair/retire`): each
    one still unread on the link pair is passed over with no response, and its
    retained question and answer are dropped, so a later require on the
    same pair is served; a response already in flight is skipped as
@@ -2326,7 +2481,13 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                       (:extra-primitives state))
                                (:shell-token state)
                                (:index-store state)
-                               (:link-source state))
+                               (:link-source state)
+                               (cond-> (:publication state)
+                                 (get-in state [:indexer :publication-media])
+                                 (assoc :media
+                                        (get-in state
+                                                [:indexer :publication-media])))
+                               (:host-modules state))
            (store/durable? (:index-store state))
            (update :indexer index/carry-over (:indexer state)))
          {:vm-type vm-type
@@ -2544,27 +2705,42 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    pending.  A re-check that completes the run folds the retained lines
    exactly as a typed line's completion does.  Returns `[state text]`,
    `text` nil when nothing is pending.  It reads no clock and takes no
-   callback; the host decides when to call it."
-  [state]
-  (if (:pending-run state)
-    (recheck-pending* state nil false)
-    [state nil]))
+   callback; the host decides when to call it.
+
+   The three-argument arity is the composition's entry
+   (docs/design/yin.repl.dht-composition.md section 7): a composition
+   that has just answered a request the parked run waits on -- a link
+   response, a service response, a publication result -- passes
+   `initial-progress` true, and the driver runs the VM at once instead of
+   first requiring another round of progress of its own.  `input` is a
+   line to evaluate once the run completes, in the `{:trimmed t :parsed
+   p}` shape the engine's own fold uses; a composition passes nil."
+  ([state] (recheck-pending state nil false))
+  ([state input initial-progress]
+   (if (:pending-run state)
+     (recheck-pending* state input initial-progress)
+     [state nil])))
 
 
 (defn recheck-on-tick
-  "Advance one linker round, carrying its successor before any VM run.
-   Progress resumes the pending driver before another round; otherwise
-   only a relevant load or installed head event rechecks the run."
+  "Advance one linker round the engine serves itself, carrying its
+   successor before any VM run.  Progress resumes the pending driver
+   before another round; otherwise only a generic completion event that
+   matches the parked work rechecks the run, so an unrelated event is
+   ignored and each completion resumes it once.  The two event shapes are
+   `{:op :dependency :manifest address}` — a load the run waits on ended,
+   under either status — and `{:op :principal :principal id}` — a head
+   the run waits on was installed.  No transport keyword crosses inward:
+   a composition translates its own events into these
+   (`yin.shell.completion/completion-events`) and drives the linker round
+   a signed source needs itself (`yin.shell.linker/serve-links`) before
+   it calls this."
   [state events]
-  (let [served (link/round (assoc (:linker state)
-                                  :source (:link-source state))
-                           (:dht state))
-        successor (assoc state :linker (:linker served)
-                         :dht (:dht served))
-        state (if (and (= (:linker state) (:linker served))
-                       (= (:dht state) (:dht served)))
+  (let [served (link/round-local (assoc (:linker state)
+                                        :source (:link-source state)))
+        state (if (= (:linker state) (:linker served))
                 state
-                successor)
+                (assoc state :linker (:linker served)))
         links (get-in state [:pending-run :links])
         waits (set (keep :manifest links))
         heads (set (mapcat :principals links))]
@@ -2573,10 +2749,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       (recheck-pending* state nil true)
 
       (some (fn [e]
-              (or (and (contains? #{:loaded :load-failed}
-                                  (:dao.space.dht/event e))
+              (or (and (= :dependency (:op e))
                        (contains? waits (:manifest e)))
-                  (and (= :installed (:yin.head/event e))
+                  (and (= :principal (:op e))
                        (contains? heads (:principal e)))))
             events)
       (recheck-pending state)

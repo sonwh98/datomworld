@@ -383,8 +383,12 @@
                 (is (= [0 1] (seqs opened @heads))))
             signed [(publish/assertion key {:name 'lib :seq 1
                                             :manifest (first @heads)})]
-            state (assoc state :indexer
-                         (repl.index/commit-names (:indexer state) signed 3))
+            ;; a name transaction committed straight on the indexer emits
+            ;; its publication request; the composition's local service
+            ;; writes the HEAD and the indexer settles on the result
+            state (repl/serve-publication
+                    (assoc state :indexer
+                           (repl.index/commit-names (:indexer state) signed 3)))
             _ (testing "a name transaction raises it"
                 (is (= [0 1 2] (seqs opened @heads))))
             [state message] (repl/eval-input state "(reset)")
@@ -435,8 +439,9 @@
     (let [signed [(publish/assertion (sign/generate)
                                      {:name 'lib :seq 1
                                       :manifest (jing/segment-key "m")})]
-          state (assoc state :indexer
-                       (repl.index/commit-names (:indexer state) signed 3))
+          state (repl/serve-publication
+                  (assoc state :indexer
+                         (repl.index/commit-names (:indexer state) signed 3)))
           _ (testing "the name transaction writes the rows, then one HEAD"
               (is (= [2] (seqs content @heads))))
           _ (evaluate state ["(def c 4103)"])]

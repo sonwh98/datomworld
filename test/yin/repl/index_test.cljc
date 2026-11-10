@@ -287,7 +287,8 @@
         kind
         (fn [initial _backend]
           (let [held-keys #{:observer :local :content-store :session-token
-                            :publish-opts :after-publish :next-e :transactions
+                            :publish-opts :publication-media :publication-seq
+                            :pending-publications :next-e :transactions
                             :published :published-payloads :manifest-address
                             :lost? :failure :allocator :materialization}
                 rounds (reductions
@@ -441,14 +442,17 @@
                 _ (stream/append! writer (literal-packet 30))
                 ;; Stage one authoritative transaction beyond the published frontier.
                 pending (repl.index/commit-names
-                          (assoc second-ix :after-publish (fn [_] (throw (ex-info "HEAD refused" {}))))
+                          (assoc second-ix
+                                 :publication-media
+                                 (fixture/engine-media
+                                   (fixture/refusing-media)))
                           [] 3)
                 cursor (case cursor-kind
                          :stale (get-in first-ix [:materialization :cursor])
                          :ahead (:dao.stream/cursor (stream/cursor (:local pending) :dao.stream/newest))
                          :foreign (:dao.stream/cursor (stream/cursor foreign :dao.stream/oldest)))
                 bad (-> pending
-                        (assoc :after-publish nil)
+                        (assoc :publication-media nil)
                         (assoc-in [:materialization :cursor] cursor))
                 _ (reset! reads [])
                 fixed (repl.index/step bad 4)
@@ -497,15 +501,17 @@
                               (when (and @armed? (= stage :head))
                                 (throw (ex-info "HEAD refused" {})))
                               (swap! heads conj address))
+                media (fixture/head-media write-head!)
                 initial (repl.index/make-indexer
                           {:observer observer :session-token "failure"
-                           :content-store content-store :after-publish write-head!
+                           :content-store content-store
+                           :publication-media media
                            :publish-opts {:branching-factor 4}})
                 _ (stream/append! writer (literal-packet 1))
-                before (repl.index/step initial 1)
+                before (fixture/step media initial 1)
                 _ (reset! armed? true)
                 _ (stream/append! writer (literal-packet 2))
-                failed (repl.index/step before 2)]
+                failed (fixture/step media before 2)]
             (is (false? (:published? (repl.index/status failed))))
             (is (= :publish (get-in failed [:failure :stage])))
             (is (= (:materialization before) (:materialization failed))
@@ -515,7 +521,7 @@
             (reset! armed? false)
             (reset! hidden nil)
             (stream/append! writer (literal-packet 3))
-            (let [retried (repl.index/step failed 3)]
+            (let [retried (fixture/step media failed 3)]
               (is (true? (:published? (repl.index/status retried))))
               (is (nil? (:failure retried)))
               (is (= 3 (:published retried)))
@@ -1079,21 +1085,22 @@
                                 (swap! log conj address)
                                 (when @fail?
                                   (throw (ex-info "HEAD refused" {}))))
+                  media (fixture/head-media write-head!)
                   initial (repl.index/make-indexer
                             {:observer observer :session-token "head-failure"
                              :content-store (:handle backend)
-                             :after-publish write-head!
+                             :publication-media media
                              :publish-opts {:branching-factor 4}})
                   _ (stream/append! writer (literal-packet 1))
-                  ix1 (repl.index/step initial 1)
+                  ix1 (fixture/step media initial 1)
                   f1 (fixture/frontier ix1)
                   _ (reset! fail? true)
                   _ (stream/append! writer (literal-packet 2))
-                  failed (repl.index/step ix1 2)
+                  failed (fixture/step media ix1 2)
                   ff (fixture/frontier failed)
                   _ (reset! fail? false)
                   _ (stream/append! writer (literal-packet 3))
-                  retried (repl.index/step failed 3)
+                  retried (fixture/step media failed 3)
                   f3 (fixture/frontier retried)]
               (is (false? (:published? (:status ff))))
               (is (= (:manifest-address f1) (:manifest-address ff)))
@@ -1349,15 +1356,16 @@
         (fn [backend]
           (let [{:keys [writer observer]} (small-medium 16)
                 heads (atom [])
+                media (fixture/head-media (fn [m] (swap! heads conj m)))
                 initial (repl.index/make-indexer
                           {:observer observer :session-token "settle-once"
                            :content-store (:handle backend)
-                           :after-publish (fn [m] (swap! heads conj m))
+                           :publication-media media
                            :publish-opts {:branching-factor 4}})
                 _ (stream/append! writer (literal-packet 1))
-                ix1 (repl.index/step initial 1)
+                ix1 (fixture/step media initial 1)
                 f1 (fixture/frontier ix1)
-                again (repl.index/step ix1 2)]
+                again (fixture/step media ix1 2)]
             (is (= [(:manifest-address f1)] @heads)
                 "the successful round requested durable publication once")
             (testing "re-stepping a settled frontier settles nothing again"
@@ -1365,9 +1373,12 @@
                      (:materialization (fixture/frontier again))))
               (is (= 1 (count @heads))))
             (testing "a refused publication result cannot settle its round"
-              (let [refused (repl.index/commit-names
-                              (assoc ix1 :after-publish
-                                     (fn [_] (throw (ex-info "HEAD refused" {}))))
+              (let [refusing (fixture/refusing-media)
+                    refused (fixture/commit-names
+                              refusing
+                              (assoc ix1
+                                     :publication-media
+                                     (fixture/engine-media refusing))
                               [] 3)
                     fr (fixture/frontier refused)]
                 (is (= :publish (get-in refused [:failure :stage])))

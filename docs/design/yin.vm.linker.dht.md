@@ -1964,6 +1964,7 @@ lines, and which principals this session names.
 | Lives in | Contents |
 |---|---|
 | `yin.vm.linker.interpreter` (from `yin.repl.link`) | pair minting, `composition`, `authority`, `serve`, `run-descriptor`, `retire`, `formats`, the constants; after AL-2 also `make` and `round`; after AL-3 also `reconfigure` |
+| `yin.vm.linker.pair` (split out of `interpreter` by the DHT-composition refactor, `yin.repl.dht-composition.md` section 2) | the same machinery minus the signed-name source's serving: pair minting, `composition`, `make`, `reconfigure`, `serve`, `serve-requests`, `round-local`, `run-descriptor`, `retire`, `formats` and the constants. It names no transport and no storage implementation, so an engine may require it alone; `interpreter` re-exposes every one of these vars and keeps `authority`, `round` and the signed-name answering, which import `dao.space.dht` and `yin.vm.linker.dht` |
 | `yin.vm.linker.admission` (from `yin.repl.admission`) | the protocol, unchanged: `make-state`, `drain`, `ask`, `asked`, `answer-to`, `judge`, `settle`, `forget`, `context`, `trusted-asserter`, `policy`, `interpreter`, `serve`, `reasons` |
 | `yin.vm.engine` / `yin.vm.module` | the `:admission` registry record as landed (7.5.3); the pinned-dependency check (7.4, with L-d) |
 | `yin.repl` | configuration only: `:link-source`, the `:admission` option, `--dht-trust`, `:external`; one `:linker` value after AL-2; one tick hook (7.5.7); the trust commands (AL-4); display text |

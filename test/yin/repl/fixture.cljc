@@ -41,7 +41,8 @@
             [dao.space.store :as durable]
             [dao.stream :as stream]
             [yin.repl.frontends :as repl.frontends]
-            [yin.repl.index :as repl.index]))
+            [yin.repl.index :as repl.index]
+            [yin.repl.publication :as publication]))
 
 
 (def backend-kinds
@@ -164,6 +165,92 @@
 
       :else
       {:frontier frontier :pending pending :effect :ignored})))
+
+
+;; =============================================================================
+;; The publication medium a test composes (spec section 4, Step 2 form)
+;;
+;; The engine no longer takes an `:after-publish` callback: it emits
+;; `{:op :publish :id :round :manifest}` on the medium's request side and
+;; promotes the prepared frontier only for the matching
+;; `{:op :publication-result ...}` the result side carries.  These helpers
+;; build the medium a test composes over its own HEAD writer, so the
+;; frontier expectations pinned in Step 1 hold against the real stream
+;; seam rather than a synchronous hook.
+;; =============================================================================
+
+(defn head-media
+  "A publication medium pair whose requests are serviced locally through
+   `head-fn`, the composition's durable HEAD writer: `:published` when it
+   returns, `:refused` under its message when it throws.  `durability` is
+   the local claim the result carries (`:persistent` by default; a memory
+   composition passes `:memory` and never claims persistence)."
+  ([head-fn] (head-media head-fn :persistent))
+  ([head-fn durability]
+   (publication/local-media {:head-fn head-fn :durability durability})))
+
+
+(defn refusing-media
+  "A publication medium whose every request is refused by a HEAD writer
+   that throws `message`: the prepared frontier is preserved, never
+   promoted, and the round reports the refusal as its failure."
+  ([] (refusing-media "HEAD refused"))
+  ([message]
+   (head-media (fn [_manifest] (throw (ex-info message {}))))))
+
+
+(defn no-head-media
+  "A publication medium with no durable HEAD writer: an ephemeral
+   composition that acknowledges local completion in memory only."
+  []
+  (head-media nil :memory))
+
+
+(defn engine-media
+  "The engine's view of `media`: the request and result sides with the
+   composition's durable HEAD writer stripped off, which is what an indexer
+   holds.  `make-indexer` strips a supplied medium itself; this is for a
+   test that replaces an indexer's medium in place, so the invariant that
+   no writer sits inside the indexer holds on that path too."
+  [media]
+  (publication/engine-media media))
+
+
+(defn serve-publication
+  "The composition's half of a publication round over `media`: service
+   every request `indexer` emitted and no result has settled through the
+   medium's own durable HEAD writer, appending each result to the medium's
+   result side, then settle those results into the indexer
+   (`yin.repl.publication/service-local!`,
+   `yin.repl.index/settle-publication`).
+
+   Step 2 moved this out of the indexer, which now emits the request and
+   holds the prepared frontier pending without calling any writer, so a
+   test that drives the indexer directly drives the composition's service
+   too — exactly what a composition does at its evaluation boundary
+   (spec sections 3-4)."
+  [media indexer]
+  (doseq [request (repl.index/pending-publications indexer)]
+    (publication/service-local! media request))
+  (repl.index/settle-publication indexer))
+
+
+(defn step
+  "One index round, then the composition's local publication service over
+  `media`: the round emits its request, the service writes the durable HEAD
+  and appends the result, and the indexer promotes on the matching result.
+  The production seam, driven from the side that owns the writer."
+  [media indexer round]
+  (serve-publication media (repl.index/step indexer round)))
+
+
+(defn commit-names
+  "`yin.repl.index/commit-names` with the composition's local publication
+   service over `media` afterwards: a signed envelope commit's publication
+   is settled the same way a round's is, so its promotion — or the refusal
+   its caller must hear — is decided before the commit answers."
+  [media indexer signed round]
+  (serve-publication media (repl.index/commit-names indexer signed round)))
 
 
 ;; =============================================================================

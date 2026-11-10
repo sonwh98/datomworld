@@ -648,7 +648,7 @@
             {:host (or (:adapter opts) (host/websocket))
              :repl (repl.frontends/create-state
                      (cond-> {:index-store-spec (:index-store-spec opts)
-                              :dht-key (:dht-key opts)
+                              :publisher-key (:dht-key opts)
                               :principals (:principals opts)
                               :admission (:admission opts {})
                               :ws-host (:ws-host opts)

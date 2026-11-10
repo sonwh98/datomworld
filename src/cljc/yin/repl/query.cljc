@@ -50,33 +50,28 @@
    Limits are the caller's: `serve` takes the row and encoded-byte bound
    and checks both before it appends a response.
 
-   `(require 'dao.space.dht)` and `(require 'yin.link)` activate two more
-   host modules the same way, answered over the shell's DHT node through
-   the plain functions of `dao.space.dht` and `yin.vm.linker.dht`
-   (yin.vm.linker.dht.md 10): each answer checks its arguments, makes one
-   call into the plain API, and responds; a `yin.link/publish` then
-   commits the envelopes it signed through the session's indexer.
-   `(require 'yin.head)` activates `heads` and `moved`
-   (yin.vm.linker.dht.head.md 6), each one call into
-   `yin.vm.linker.head`: this namespace holds no rule of the head trace,
-   no fold, no verification and no file write."
+   This namespace is the engine's local query surface and nothing more
+   (docs/design/yin.repl.dht-composition.md sections 2 and 6).  A host
+   module a composition serves through — a signed-name publisher, a head
+   follower, a transport's own index loading — is registered by that
+   composition through `register`'s generic module registrations, and its
+   calls are answered composition-side (`yin.shell.query/serve-services`):
+   `serve` leaves a request whose operation is not this namespace's
+   unread on the pair, so a composition serving it never races the engine
+   for the cursor.  The generic answer and limit helpers are public for
+   exactly that composition side; no storage backend is named here."
   (:require [dao.host.bytes :as bytes]
-            [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
-            [dao.space.dht :as dht]
             [dao.space.index :as index]
             [dao.space.query :as query]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [dao.stream.ringbuffer :as ring]
             [yin.repl.ast-index :as ast-index]
-            [yin.repl.dht :as repl.dht]
             [yin.repl.index :as repl.index]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.linker.dht :as linker.dht]
-            [yin.vm.linker.head :as head]
             [yin.vm.module :as module]))
 
 
@@ -86,60 +81,11 @@
 
 
 (def op
-  "The `dao.stream.apply` operation a `q` call requests."
+  "The `dao.stream.apply` operation a `q` call requests.  It is the only
+   operation this namespace answers: a request under any other operation
+   belongs to a host module its composition registered and serves
+   (`serve`)."
   ::q)
-
-
-(def dht-module-name
-  "The module `(require 'dao.space.dht)` activates: the plain Clojure DHT
-   path (`dao.space.dht`) as host functions over the shell's own DHT node."
-  'dao.space.dht)
-
-
-(def dht-ops
-  "The `dao.stream.apply` operations the `dao.space.dht` module requests:
-   `load-index`, `load-status` and `q`, each answered by the
-   `dao.space.dht` function of that name, `retry` and `cancel`,
-   answered by `retry!` and `cancel!`, and `load-module` and
-   `module-status`, answered by the `yin.vm.linker.dht` function of that
-   name (yin.vm.linker.dht.md 10)."
-  {'load-index ::dht-load-index
-   'load-status ::dht-load-status
-   'q ::dht-q
-   'retry ::dht-retry
-   'cancel ::dht-cancel
-   'load-module ::dht-load-module
-   'module-status ::dht-module-status})
-
-
-(def link-module-name
-  "The module `(require 'yin.link)` activates: publishing a module from
-   the session's indexed code and reading the reader's name environment
-   (yin.vm.linker.dht.md 10), over the shell's own DHT node."
-  'yin.link)
-
-
-(def link-ops
-  "The `dao.stream.apply` operations the `yin.link` module requests:
-   `publish`, answered by `yin.vm.linker.dht/publish-name!`, and `names`,
-   answered by `yin.vm.linker.dht/names`."
-  {'publish ::link-publish
-   'names ::link-names})
-
-
-(def head-module-name
-  "The module `(require 'yin.head)` activates: the follower's status and
-   the moved names (yin.vm.linker.dht.head.md 5.6, 5.7), each one call
-   into `yin.vm.linker.head`."
-  'yin.head)
-
-
-(def head-ops
-  "The `dao.stream.apply` operations the `yin.head` module requests:
-   `heads`, answered by `yin.vm.linker.head/heads` of the shell's
-   follower, and `moved`, by `yin.vm.linker.head/moved`."
-  {'heads ::head-heads
-   'moved ::head-moved})
 
 
 (def views
@@ -153,11 +99,19 @@
 ;; The module and its call
 ;; =============================================================================
 
+(def call-effect
+  "The module effect key every export served over the session's query call
+   pair lowers to — this namespace's `q`, and a composition's own host
+   modules alike, so one `call-handler` parks them all on one pair
+   (`register`)."
+  ::call)
+
+
 (defn- q
   "The export: a data constructor.  The effect it returns is answered by
    `call-handler`, which parks the caller on the call pair."
   [& args]
-  (module/make-effect ::call {:args (vec args)}))
+  (module/make-effect call-effect {:args (vec args)}))
 
 
 (def ^:private exports
@@ -165,7 +119,8 @@
 
 
 (def ^:private profiles
-  {'q (vm/primitive-profile 'q :effectful [1 2 :variadic] #{::call} :none)})
+  {'q (vm/primitive-profile 'q :effectful [1 2 :variadic] #{call-effect}
+                            :none)})
 
 
 (defn activate
@@ -174,77 +129,56 @@
   (module/register-host-module registry module-name exports profiles))
 
 
-(defn- dht-export
-  "A `dao.space.dht` export: a data constructor whose effect parks the
-   caller on the call pair under the operation `dht-ops` names."
-  [sym]
-  (fn [& args]
-    (module/make-effect ::call {:op (get dht-ops sym), :args (vec args)})))
+(defn host-modules
+  "The activation map a session's require handler consults: this
+   namespace's own `dao.space.query`, with a composition's registrations
+   `{'module-name (fn [registry] registry')}` merged over it.  A
+   composition registers the host modules it serves and answers their
+   calls itself; this namespace names none of them
+   (docs/design/yin.repl.dht-composition.md section 6)."
+  [registrations]
+  (merge {module-name activate} registrations))
 
 
-(def ^:private dht-arities
-  {'load-index [1] 'load-status [1] 'q [2 :variadic] 'retry [1] 'cancel [1]
-   'load-module [1] 'module-status [1]})
+(defn- registration-activate
+  "The activation function of one registration entry: the function
+   itself, or the `:activate` of the record a composition declares its
+   served operations with (`registered-ops`)."
+  [entry]
+  (if (fn? entry) entry (:activate entry)))
 
 
-(defn activate-dht
-  "`registry` with the `dao.space.dht` host module installed."
-  [registry]
-  (module/register-host-module
-    registry dht-module-name
-    (into {} (map (fn [sym] [sym (dht-export sym)])) (keys dht-ops))
-    (into {} (map (fn [[sym arity]]
-                    [sym (vm/primitive-profile sym :effectful arity #{::call}
-                                               :none)]))
-          dht-arities)))
-
-
-(defn activate-link
-  "`registry` with the `yin.link` host module installed."
-  [registry]
-  (module/register-host-module
-    registry link-module-name
-    (into {} (map (fn [[sym op]]
-                    [sym (fn [& args]
-                           (module/make-effect ::call {:op op, :args (vec args)}))]))
-          link-ops)
-    {'publish (vm/primitive-profile 'publish :effectful [2] #{::call} :none)
-     'names (vm/primitive-profile 'names :effectful [0] #{::call} :none)}))
-
-
-(defn activate-head
-  "`registry` with the `yin.head` host module installed."
-  [registry]
-  (module/register-host-module
-    registry head-module-name
-    (into {} (map (fn [[sym op]]
-                    [sym (fn [& args]
-                           (module/make-effect ::call {:op op, :args (vec args)}))]))
-          head-ops)
-    {'heads (vm/primitive-profile 'heads :effectful [0] #{::call} :none)
-     'moved (vm/primitive-profile 'moved :effectful [0] #{::call} :none)}))
-
-
-(def ^:private host-modules
-  {module-name activate
-   dht-module-name activate-dht
-   link-module-name activate-link
-   head-module-name activate-head})
+(defn registered-ops
+  "The `dao.stream.apply` operations `registrations` declares it serves:
+   the union of the `:ops` of every entry that carries them, empty for
+   registrations that declare none.  A session's local query interpreter
+   defers exactly these to its composition (`serve`'s `:registered-ops`),
+   and an operation no registration declares is not foreign: `answer`
+   refuses it at once under `:dao.stream.apply/unknown-operation`, so a
+   genuinely unknown call still completes locally
+   (docs/design/yin.repl.dht-composition.md sections 6 and 7)."
+  [registrations]
+  (into #{}
+        (comp (keep (fn [entry] (when (map? entry) (:ops entry))))
+              cat)
+        (vals registrations)))
 
 
 (defn- require-handler
   "`:module/require` for a session with the query bridge: the first
-   require of `dao.space.query` or `dao.space.dht` installs that module
-   into the requiring VM's registry value and answers at once; every
-   other require, and a repeated one, is `module/require-handler`'s."
-  [state effect opts]
-  (let [activate (get host-modules (:module effect))]
-    (if (and activate
-             (nil? (module/resolve-module (:modules state) (:module effect))))
-      {:value (:module effect),
-       :state (update state :modules activate),
-       :blocked? false}
-      (module/require-handler state effect opts))))
+   require of a module `modules` activates installs that module into the
+   requiring VM's registry value and answers at once; every other require,
+   and a repeated one, is `module/require-handler`'s."
+  [modules]
+  (fn [state effect opts]
+    (let [activate (registration-activate (get modules (:module effect)))]
+      (if (and activate
+               (nil? (module/resolve-module (:modules state)
+                                            (:module effect))))
+        {:value (:module effect),
+         :state (update state :modules activate),
+         :blocked? false}
+        (module/require-handler state effect opts)))))
 
 
 (defn- blocked
@@ -301,12 +235,25 @@
 
 (defn register
   "`registry` with the bridge's effect handlers: the session's
-   `:module/require`, and the `q` call.  The module itself is not
-   installed."
-  [registry]
-  (-> registry
-      (module/register-effect-handler :module/require require-handler)
-      (module/register-effect-handler ::call call-handler)))
+   `:module/require`, and the call parked under `call-effect`.  The module
+   itself is not installed.
+
+   `registrations` is a composition's own host modules,
+   `{'module-name (fn [registry] registry')}`, whose first require the
+   handler answers the same way it answers `dao.space.query`'s and whose
+   calls it parks on the same pair — the composition serves them
+   (`serve`).  A registration may instead be the record
+   `{:activate (fn [registry] registry') :ops #{op ...}}`, naming the
+   `dao.stream.apply` operations the composition answers for that module
+   (`registered-ops`): those, and only those, are deferred to it rather
+   than refused locally as unknown.  It is optional, and nil leaves the
+   session with the query bridge alone."
+  ([registry] (register registry nil))
+  ([registry registrations]
+   (-> registry
+       (module/register-effect-handler
+         :module/require (require-handler (host-modules registrations)))
+       (module/register-effect-handler call-effect call-handler))))
 
 
 (defn waiting?
@@ -379,17 +326,22 @@
 ;; Answering one request
 ;; =============================================================================
 
-(defn- refusal
+(defn refusal
+  "The FFI error envelope of a refused call, its `code` printed with its
+   message so the guest sees both.  Public because a composition's own
+   host modules refuse in the same shape the engine's do."
   [code message data]
   (merge (apply2/error code (str message " (" code ")")) data))
 
 
-(defn- refused?
+(defn refused?
+  "Whether `x` is a `refusal`."
   [x]
   (and (map? x) (contains? x apply2/code-key)))
 
 
-(defn- unavailable
+(defn unavailable
+  "The refusal naming the code index unavailable, with `reason`."
   [reason]
   (refusal ::index-unavailable
            (str "the code index is unavailable: " reason
@@ -397,12 +349,29 @@
            nil))
 
 
-(defn- invalid
+(defn invalid
+  "The refusal of a call whose arguments are not what it takes."
   [message]
   (refusal ::invalid-input message nil))
 
 
-(defn- snapshot
+(defn response
+  "The `dao.stream.apply` envelope answering `id`: `value` when it is not
+   a `refusal`, the error envelope when it is.  The one shape both the
+   engine's and a composition's answers land on the pair in."
+  [id value]
+  (cond
+    (refused? value)
+    {apply2/id-key id, apply2/error-key value}
+
+    (and (map? value) (contains? value :ok))
+    (apply2/success-response id (:ok value))
+
+    :else
+    (apply2/success-response id value)))
+
+
+(defn snapshot
   "The database a call reads, or a refusal: the latest manifest the
    indexer published, read back from its store.  Committed code must all
    be published, so no older manifest stands in for the current one."
@@ -459,8 +428,10 @@
   (bytes/length bs))
 
 
-(defn- encoded-size
-  "The canonical CBOR size of `x`, or nil when `x` is not portable data."
+(defn encoded-size
+  "The canonical CBOR size of `x`, or nil when `x` is not portable data.
+   Public because a composition checks its own module's arguments against
+   the same portability rule before it answers them."
   [x]
   (try
     (byte-length (cbor/encode x))
@@ -555,10 +526,11 @@
     1))
 
 
-(defn- bounded
+(defn bounded
   "The collected result `run` answers, `{:ok value}`, or a refusal: a
    query the engine rejects, a result over `limits`, or one that is not
-   portable Yin data."
+   portable Yin data.  Public because a composition's own query-shaped
+   answer is bounded by the same two limits, on the same pair."
   [run {:keys [row-limit byte-limit]}]
   (let [result (try
                  {:value (run)}
@@ -640,284 +612,70 @@
                       (refused? sources) sources
                       :else (evaluate db view (with-index query)
                                       (into sources inputs) limits))))]
-     (if (refused? answer)
-       {apply2/id-key id, apply2/error-key answer}
-       (apply2/success-response id (:ok answer))))))
-
-
-(defn- host-status
-  "A load status as the host answers it: the status without its loaded
-   value, which an index load counts under `:datoms` instead."
-  [status]
-  (when status
-    (cond-> (dissoc status :value)
-      (and (= :loaded (:status status)) (= dht/index-kind (:kind status)))
-      (assoc :datoms (count (:value status))))))
-
-
-(defn- refusable-call
-  "`[node' answer]` of the plain function `f` on `node` and `manifest`:
-   `(ok node')` answers; a `:dao.space.dht/refused` of any code is
-   answered under its own code, the node unchanged."
-  [node manifest f ok]
-  (try (let [node (f node manifest)] [node {:ok (ok node)}])
-       (catch #?(:cljd Object :clj Exception :cljs :default) e
-         (if-let [code (:dao.space.dht/refused (ex-data e))]
-           [node (refusal code (ex-message e) nil)]
-           (throw e)))))
-
-
-(defn- publication-call
-  "`[node' answer]` of `retry!` or `cancel!` on `manifest`: `ok` answers
-   `ok`; the plain function's refusal is answered under its own code."
-  [node manifest f ok]
-  (refusable-call node manifest f (constantly ok)))
-
-
-(defn- dht-answer
-  "The response to one `dao.space.dht` call, answered from `node` — the
-   shell's DHT node — by the `dao.space.dht` function the operation
-   names, and the node after it: `load-index` starts a load and answers
-   its status at once, never waiting, or the plain function's refusal
-   under its own code (`load-module` likewise); `load-status` answers the load's
-   status map; `q` answers `dao.space.dht/q` under `limits`, refused
-   until the index is loaded; `retry` and `cancel` answer `:retrying`
-   and `:cancelled`, or the plain function's refusal; `load-module`
-   starts a closure load and answers its status, and `module-status`
-   answers it without the loaded closure.  Answers
-   `[node response]`."
-  [node limits request]
-  (let [id (apply2/request-id request)
-        [manifest & more] (apply2/request-args request)
-        [node answer]
-        (cond
-          (nil? node)
-          [node (unavailable (str "the shell has no DHT node; start it with "
-                                  "--index-store dht:<dir> and --dht-peer"))]
-
-          (nil? (encoded-size (apply2/request-args request)))
-          [node (invalid "dao.space.dht takes portable Yin data only")]
-
-          (not (jing/segment-address? manifest))
-          [node (invalid (str "dao.space.dht expects a manifest address, got "
-                              (pr-str manifest)))]
-
-          :else
-          (case (apply2/request-op request)
-            ::dht-load-index
-            (refusable-call node manifest dht/load-index
-                            #(:status (dht/load-status % manifest)))
-
-            ::dht-load-status
-            [node {:ok (host-status (dht/load-status node manifest))}]
-
-            ::dht-load-module
-            (refusable-call node manifest linker.dht/load-module
-                            #(:status (linker.dht/module-status % manifest)))
-
-            ::dht-module-status
-            [node {:ok (host-status (linker.dht/module-status node manifest))}]
-
-            ::dht-retry
-            (publication-call node manifest dht/retry! :retrying)
-
-            ::dht-cancel
-            (publication-call node manifest dht/cancel! :cancelled)
-
-            ::dht-q
-            (let [status (dht/load-status node manifest)
-                  [query & inputs] more]
-              [node (if (= :loaded (:status status))
-                      (bounded #(apply dht/q node manifest query inputs) limits)
-                      (refusal ::index-unavailable
-                               (str "the index " manifest " is not loaded ("
-                                    (if status (name (:status status)) "never asked")
-                                    "); (dao.space.dht/load-index " manifest
-                                    ") loads it")
-                               nil))])))]
-    [node (if (refused? answer)
-            {apply2/id-key id, apply2/error-key answer}
-            (apply2/success-response id (:ok answer)))]))
-
-
-(defn- dht-op?
-  [request]
-  (contains? (set (vals dht-ops)) (apply2/request-op request)))
-
-
-(defn- head-op?
-  [request]
-  (contains? (set (vals head-ops)) (apply2/request-op request)))
-
-
-(defn- link-op?
-  [request]
-  (contains? (set (vals link-ops)) (apply2/request-op request)))
-
-
-(defn- session-modules
-  "`[linked hosts]` of the requesting VM's module `registry`: the modules
-   it linked through the linker, `{name manifest-address}` -- a linked
-   entry carries its manifest's address -- and the names of its host
-   modules, which carry none."
-  [registry]
-  [(repl.dht/linked-registry registry)
-   (set (keep (fn [[n e]] (when (nil? (:address e)) n))
-              (module/module-entries registry)))])
-
-
-(defn- link-answer
-  "The response to one `yin.link` call, from `node` -- the shell's DHT
-   node -- and `indexer`, the session's code indexer, under the session
-   composition `ctx` (`:authority`, `:key`, `:primitives`, `:modules`,
-   `:round`): `names` answers `yin.vm.linker.dht/names`; `publish` answers
-   `yin.vm.linker.dht/publish-name!` over the published index, whose
-   name envelopes the indexer then commits and publishes as one
-   transaction, the HEAD write announcing the round's publication.  A
-   refusal is answered under its own reason.  Answers `[node indexer
-   response]`."
-  [node indexer ctx request]
-  (let [id (apply2/request-id request)
-        args (apply2/request-args request)
-        [indexer answer]
-        (cond
-          (nil? node)
-          [indexer (unavailable (str "the shell has no DHT node; start it with "
-                                     "--index-store dht:<dir>"))]
-
-          (nil? (encoded-size args))
-          [indexer (invalid "yin.link takes portable Yin data only")]
-
-          (= ::link-names (apply2/request-op request))
-          [indexer {:ok (linker.dht/names node (:authority ctx))}]
-
-          :else
-          (let [[name exports] args
-                db (when (and (symbol? name) (sequential? exports)
-                              (every? symbol? exports))
-                     (snapshot indexer))]
-            (cond
-              (nil? db)
-              [indexer (invalid (str "yin.link/publish expects a module name "
-                                     "and a vector of export names, got "
-                                     (pr-str args)))]
-
-              (refused? db) [indexer db]
-
-              :else
-              (let [[linked hosts] (session-modules (:modules ctx))
-                    res (linker.dht/publish-name!
-                          node db {:name name
-                                   :exports (vec exports)
-                                   :key (:key ctx)
-                                   :primitives (:primitives ctx)
-                                   :modules linked
-                                   :call-site-tables (:call-site-tables ctx)
-                                   :call-site-admissions (:call-site-admissions ctx)
-                                   :host-modules hosts})
-                    indexer' (if (seq (:envelopes res))
-                               (repl.index/commit-names indexer (:envelopes res)
-                                                        (:round ctx))
-                               indexer)]
-                (cond
-                  (= :refused (:status res))
-                  [indexer (refusal (:reason res)
-                                    (str "yin.link/publish refused: "
-                                         (pr-str (dissoc res :status :reason)))
-                                    nil)]
-
-                  (not= (:failure indexer) (:failure indexer'))
-                  [indexer' (unavailable "the name assertion was not indexed")]
-
-                  :else
-                  [indexer'
-                   {:ok {:module name
-                         :address (:address res)
-                         :links (into {}
-                                      (map (fn [[f o]]
-                                             [f (if (= :ok (:status o))
-                                                  :ok
-                                                  (:reason o))]))
-                                      (:links res))}}])))))]
-    [node indexer (if (refused? answer)
-                    {apply2/id-key id, apply2/error-key answer}
-                    (apply2/success-response id (:ok answer)))]))
-
-
-(defn- head-answer
-  "The response to one `yin.head` call, from `node`, the shell's DHT
-   node, under the session composition `ctx`: `heads` answers
-   `yin.vm.linker.head/heads` of the node's follower (`{}` when it
-   follows nothing), `moved` answers `yin.vm.linker.head/moved` of the
-   node's names against the requesting VM's linked modules.  It holds no
-   rule: each is one call."
-  [node ctx request]
-  (let [id (apply2/request-id request)
-        answer (cond
-                 (nil? node)
-                 (unavailable (str "the shell has no DHT node; start it with "
-                                   "--index-store dht:<dir>"))
-
-                 (= ::head-heads (apply2/request-op request))
-                 {:ok (if-some [f (repl.dht/follower node)] (head/heads f) {})}
-
-                 :else
-                 {:ok (head/moved (linker.dht/names node (:authority ctx))
-                                  (first (session-modules (:modules ctx))))})]
-    (if (refused? answer)
-      {apply2/id-key id, apply2/error-key answer}
-      (apply2/success-response id (:ok answer)))))
+     (response id answer))))
 
 
 ;; =============================================================================
 ;; The interpreter
 ;; =============================================================================
 
+(defn foreign-request?
+  "Whether `request` is a call this namespace defers to its composition:
+   a request envelope under an operation that is not its own `op`, AND
+   is one of the operations registered by a composition (`registered-ops`).
+   An unknown operation is not foreign: no registered module handles it,
+   so `answer` refuses it under `:dao.stream.apply/unknown-operation`
+   without deferring."
+  ([request] (foreign-request? nil request))
+  ([registered-ops request]
+   (and (apply2/request? request)
+        (not= op (apply2/request-op request))
+        (or (nil? registered-ops)
+            (contains? (set registered-ops) (apply2/request-op request))))))
+
+
 (defn serve
-  "One serve round of the query interpreter over `pair`: answer every
-   request its cursor has not consumed, from `indexer` and `ast-indexer`
-   as they stand now, at most `budget` of them.  A response is appended before the cursor
-   moves past its request; one the call-out refuses leaves the request to
-   be re-read.  A value that is not a request envelope is consumed
-   unanswered: no call made it.  A `dao.space.dht` call is answered from
-   `dht`, the shell's DHT node, which a `load-index` advances.  A
-   `yin.link` call is answered from `dht` and `indexer` under `link`, the
-   session composition `link-answer` reads; a publish advances both.  A
-   `yin.head` call reads the follower `dht` carries.  Returns `{:pair pair :dht node :indexer indexer :progress? bool
-   :answered n}`, `n` the responses appended."
-  [{:keys [pair indexer ast-indexer dht limits budget link]}]
+  "One serve round of the engine's local query interpreter over `pair`:
+   answer every request its cursor has not consumed, from `indexer` and
+   `ast-indexer` as they stand now, at most `budget` of them.  A response
+   is appended before the cursor moves past its request; one the call-out
+   refuses leaves the request to be re-read.
+
+   A `foreign-request?` under `registered-ops` ends the round and stays
+   unread, answered under `:deferred`: the composition that registered its
+   module reads it from the same cursor and answers it there.  An unknown
+   operation is answered with a refusal on the spot, preserving local
+   request/response completion.
+
+   Returns `{:pair pair :indexer indexer :progress? bool :answered n
+   :deferred request-or-nil}`, `n` the responses appended."
+  [{:keys [pair indexer ast-indexer limits budget registered-ops]}]
   (loop [pair pair
-         node dht
          indexer indexer
          remaining budget
          progress? false
          answered 0]
-    (let [r (when (pos? remaining)
-              (stream/next (:call-in pair) (:cursor pair)))
-          done (fn [pair node indexer progress? answered]
-                 {:pair pair, :dht node, :indexer indexer,
-                  :progress? progress?, :answered answered})]
+    (let [done (fn [deferred]
+                 {:pair pair, :indexer indexer, :progress? progress?,
+                  :answered answered, :deferred deferred})
+          r (when (pos? remaining)
+              (stream/next (:call-in pair) (:cursor pair)))]
       (if-not (= :dao.stream/ok (:dao.stream/outcome r))
-        (done pair node indexer progress? answered)
-        (let [request (:dao.stream/value r)
-              [node' indexer' response]
-              (cond
-                (not (apply2/request? request)) [node indexer nil]
-                (dht-op? request) (let [[n response] (dht-answer node limits request)]
-                                    [n indexer response])
-                (link-op? request) (link-answer node indexer link request)
-                (head-op? request) [node indexer (head-answer node link request)]
-                :else [node indexer (answer indexer ast-indexer limits request)])
-              landed? (or (nil? response)
-                          (= :dao.stream/ok
-                             (:dao.stream/outcome
-                               (apply2/put-response! (:call-out pair)
-                                                     response))))]
-          (if landed?
+        (done nil)
+        (let [request (:dao.stream/value r)]
+          (cond
+            (and registered-ops (foreign-request? registered-ops request))
+            (done request)
+
+            (not (apply2/request? request))
             (recur (assoc pair :cursor (:dao.stream/cursor r))
-                   node'
-                   indexer'
-                   (dec remaining)
-                   true
-                   (cond-> answered response inc))
-            (done pair node indexer progress? answered)))))))
+                   indexer (dec remaining) true answered)
+
+            :else
+            (let [response (answer indexer ast-indexer limits request)]
+              (if (= :dao.stream/ok
+                     (:dao.stream/outcome
+                       (apply2/put-response! (:call-out pair) response)))
+                (recur (assoc pair :cursor (:dao.stream/cursor r))
+                       indexer (dec remaining) true (inc answered))
+                (done nil)))))))))

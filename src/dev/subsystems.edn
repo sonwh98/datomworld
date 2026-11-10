@@ -51,6 +51,12 @@
    :prefixes ["yin.repl"]
    :layer 3}
 
+  ;; Layer 3: the shell compositions outside the engine tree
+  ;; (docs/design/yin.repl.dht-composition.md sections 2-3, 7)
+  {:name "yin.shell"
+   :prefixes ["yin.shell"]
+   :layer 3}
+
   {:name "yang.python"
    :prefixes ["yang.python" "yang.antlr"]
    :layer 3}

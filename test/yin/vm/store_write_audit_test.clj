@@ -338,13 +338,14 @@
    {["inject-last-value" "update"] 1
     ["make-expander" :map] 1}
    ;; the content source descriptor: `:store` names a dao.jing byte-store
-   ;; handle the linker interpreter serves content from, never a VM store;
-   ;; and the link-time stage's context, whose `:store` is that same
-   ;; byte-store handle
-   "src/cljc/yin/vm/linker/interpreter.cljc"
+   ;; handle the linker interpreter serves content from, never a VM store
+   "src/cljc/yin/vm/linker/pair.cljc"
    {["composition" :map] 1
-    ["dht-context" :map] 1
     ["answer" :map] 1}
+   ;; the link-time stage's context, whose `:store` is that same byte-store
+   ;; handle
+   "src/cljc/yin/vm/linker/interpreter.cljc"
+   {["dht-context" :map] 1}
    ;; the stage load's context: `:store` is the load's content handle
    "src/cljc/yin/vm/linker/dht.cljc"
    {["stage-walk" "assoc"] 1}

@@ -62,12 +62,12 @@
             [yin.repl.connect :as connect]
             [yin.repl.index :as index]
             [yin.repl.store :as store]
+            [yin.shell.registry :as shell.registry]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.head :as head]
             [yin.vm.linker.head.board :as head.board]
             [yin.vm.linker.interpreter :as link]
-            [yin.vm.linker.sign :as sign]
-            [yin.vm.module :as module]))
+            [yin.vm.linker.sign :as sign]))
 
 
 (def default-max-inbound-bytes
@@ -900,11 +900,12 @@
 (defn linked-registry
   "`{name manifest-address}` of the modules a VM module `registry` holds
    linked through the linker: a linked entry carries its manifest's
-   address, a host module none."
+   address, a host module none.  The projection itself is the neutral
+   helper's (`yin.shell.registry`); it is restated here only as this
+   composition's own name for it, so neither side reaches it through a
+   storage implementation."
   [registry]
-  (into {}
-        (keep (fn [[n e]] (when (some? (:address e)) [n (:address e)])))
-        (module/module-entries registry)))
+  (shell.registry/linked-registry registry))
 
 
 (defn moved

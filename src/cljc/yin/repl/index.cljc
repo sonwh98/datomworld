@@ -20,11 +20,37 @@
    publication folds only the committed suffix into the previous covered
    roots and emits their dirty subgraph through `dao.space.index`.
 
-   Publication still completes synchronously every evaluation. Initial
-   publication and recovery reconstruct the full authoritative history;
-   no saved process cursor or allocator is trusted on restart. Incremental
-   tree mutation removes repeated prefix construction, but does not promise
-   a fixed wall-time bound on hashing, storage or other round work.
+   A round publishes as data, never through a callback
+   (docs/design/yin.repl.dht-composition.md sections 3-4): once its
+   content materialized and its manifest read back, it appends a
+   correlated `{:op :publish :id :round :manifest}` request to the
+   composition's publication medium and holds the frontier it prepared on
+   `:pending-publications`.  Only the matching `{:op :publication-result
+   ... :status :published}` read back from that medium promotes it; a
+   `:refused` result preserves the previous frontier and reports the
+   round unpublished, and a duplicate, stale or mismatched result
+   promotes nothing.  This namespace holds no writer and calls none: the
+   medium it is given is `yin.repl.publication/engine-media`, the request
+   and result sides with the composition's durable HEAD writer stripped
+   off, and whoever owns the medium services the request — a composition
+   that services locally does so in the round that emitted it, so local
+   publication still completes synchronously, and one with transport of
+   its own delivers its result later, and no round waits on it.  Requests
+   are serialized: a round settles every result already on the medium
+   before it emits its own, and an outstanding request keeps its prepared
+   frontier until a matching result settles it, so a newer commit never
+   discards an older round's success.  An indexer given no medium — a
+   store that declares no durable HEAD — settles its own round at once,
+   exactly as an ephemeral composition always has.  Stream append success
+   means the request was accepted, never that publication completed, and a
+   network dissemination result is a different outcome from local
+   durability: only the latter settles a round.
+
+   Initial publication and recovery reconstruct the full authoritative
+   history; no saved process cursor or allocator is trusted on restart.
+   Incremental tree mutation removes repeated prefix construction, but
+   does not promise a fixed wall-time bound on hashing, storage or other
+   round work.
 
    Every `e` is a transactor-local entity id; the only durable name in the
    projection is the `:yin/address` fact each node occurrence carries back
@@ -53,6 +79,7 @@
             [dao.stream :as stream]
             [dao.stream.memory-log :as memory-log]
             [dao.stream.observer :as observer]
+            [yin.repl.publication :as publication]
             [yin.vm :as vm]
             [yin.vm.macro :as macro]))
 
@@ -145,24 +172,35 @@
    materialize into.  `session-token` is the shell's stable token, recorded
    as provenance; `publish-opts` reach `transactor/publish!` as-is.
 
-   `after-publish` is `(fn [manifest-address])`, called after a round's
-   manifest is read back from the store and before the round is reported
-   published: the durable store's HEAD write, which is what makes the
-   round durably published (docs/design/yin.repl.dao.space-index.md).
-   Nil — the memory store — publishes exactly as before.
+   `publication-media` is the composition's durable-publication medium
+   (`yin.repl.publication`): the request side a round appends its
+   `{:op :publish ...}` to and the result side it reads the matching
+   `{:op :publication-result ...}` from.  Only those two sides and the
+   result cursor are retained here — a `:local` durable HEAD writer on the
+   supplied medium is the composition's to keep and service
+   (`yin.repl.publication/service-local!`), never the indexer's to call —
+   so the indexer holds no callback.  Nil, a store that declares no durable
+   HEAD, settles every round locally at once.
 
    `:allocator` retains only the transactor authority, with its intake
    detached. `:materialization` retains verified coverage as plain data:
    `{:cursor c :transactions n :manifest-address a :manifest m :max-t t}`.
-   A round's fresh `:publication` intake, pool and tree builder are dropped
-   at its end; no earlier publication payload is retained."
-  [{:keys [observer session-token content-store publish-opts after-publish]}]
+   `:publication-seq` is the session's publication-request counter, so
+   every `:id` it emits is unique within the session;
+   `:pending-publications` is the serialized queue of the requests no
+   result has settled yet, oldest first, each `{:request r :promotes
+   frontier}`.  A round's fresh `:publication` intake, pool and
+   tree builder are dropped at its end; no earlier publication payload is
+   retained."
+  [{:keys [observer session-token content-store publish-opts publication-media]}]
   {:observer observer
    :local (memory-log)
    :content-store content-store
    :session-token session-token
    :publish-opts publish-opts
-   :after-publish after-publish
+   :publication-media (some-> publication-media publication/engine-media)
+   :publication-seq 0
+   :pending-publications []
    :next-e datom/first-user-id
    :transactions 0
    :published 0
@@ -416,15 +454,170 @@
         (assoc result :cursor (:dao.stream/cursor tail))))))
 
 
+(defn- promote-frontier
+  "`ix` with the frontier `promotes` reported: the manifest address,
+   published counts and verified coverage a settled publication prepared
+   become the round's, and a `:publish` failure that promotion answers is
+   cleared.  Reached only for a matching `:published` result, or at once
+   for an indexer with no medium, so a frontier never moves for a
+   publication nobody settled."
+  [ix promotes]
+  (let [promoted (merge ix promotes)]
+    (cond-> promoted
+      (= :publish (:stage (:failure promoted))) (assoc :failure nil))))
+
+
+(defn- advances?
+  "Whether the frontier `promotes` is ahead of `ix`'s published one.  A
+   publication covers the whole committed suffix, so a later one
+   supersedes an earlier: a result delivered out of order behind a newer
+   promotion has nothing left to promote, and answering it must neither
+   regress the frontier nor report a failure that newer publication
+   already answered."
+  [ix promotes]
+  (> (or (:published promotes) 0) (or (:published ix) 0)))
+
+
+(defn- outstanding
+  "The entry of `:pending-publications` the `result` answers — identifier,
+   round and manifest address together — or nil: a duplicate, stale or
+   foreign result matches nothing."
+  [indexer result]
+  (some (fn [entry]
+          (let [request (:request entry)]
+            (when (and (= (:id result) (:id request))
+                       (= (:round result) (:round request))
+                       (= (:manifest result) (:manifest request)))
+              entry)))
+        (:pending-publications indexer)))
+
+
+(defn- settled-without
+  "`indexer` with `entry`'s request off its outstanding queue."
+  [indexer entry]
+  (update indexer :pending-publications
+          (fn [entries]
+            (vec (remove #(= (:request %) (:request entry)) entries)))))
+
+
+(defn accept-publication-result
+  "`indexer` after one local publication `result`
+   (`{:op :publication-result :id :round :manifest :status :durability}`)
+   its composition delivered.
+
+   Only a result matching an outstanding request — identifier, round and
+   manifest address together — settles it: `:published` promotes the
+   frontier that request prepared, exactly once, and `:refused` preserves
+   the previous published frontier, recording the round's failure under
+   the refusal's reason.  A duplicate, stale or mismatched result settles
+   nothing, so a repeated or foreign result can never advance or regress
+   the frontier; neither can a result delivered out of order behind a
+   newer promotion, whose own frontier already covered its suffix.  Every
+   other outstanding request keeps its place in the queue.  A network
+   dissemination result is not this: local durability alone settles a
+   round."
+  [indexer result]
+  (if-let [entry (outstanding indexer result)]
+    (let [settled (settled-without indexer entry)
+          promotes (:promotes entry)]
+      (cond
+        (not (advances? indexer promotes))
+        settled
+
+        (= :published (:status result))
+        (promote-frontier settled promotes)
+
+        (= :refused (:status result))
+        (assoc settled
+               :failure {:round (:round (:request entry))
+                         :stage :publish
+                         :message (or (:reason result)
+                                      "the composition refused the publication")})
+
+        :else
+        settled))
+    indexer))
+
+
+(defn settle-publication
+  "`indexer` after every publication result its medium already carries is
+   consumed, oldest first.  A composition that services locally leaves
+   nothing unread past its own round; one with transport of its own calls
+   this once it has delivered, before it reports the round settled.  An
+   indexer with no medium has no result side to read and answers itself."
+  [indexer]
+  (if-let [media (:publication-media indexer)]
+    (if-let [[result cursor] (publication/next-result media)]
+      (recur (accept-publication-result
+               (assoc indexer
+                      :publication-media (publication/advance media cursor))
+               result))
+      indexer)
+    indexer))
+
+
+(defn pending-publication
+  "The oldest publication request this indexer emitted and no matching
+   result has settled, or nil.  A composition reads it to know what it
+   still owes the engine before it may report the round settled
+   (docs/design/yin.repl.dht-composition.md section 4)."
+  [indexer]
+  (:request (first (:pending-publications indexer))))
+
+
+(defn pending-publications
+  "Every publication request this indexer emitted that no matching result
+   has settled, oldest first.  A composition owes the engine each of them:
+   one that services locally, in the round that emitted; one with
+   transport of its own, before it reports the round settled.  An
+   outstanding request of an earlier round is why a later round's own
+   promotion has not been reported yet
+   (docs/design/yin.repl.dht-composition.md sections 3-4)."
+  [indexer]
+  (mapv :request (:pending-publications indexer)))
+
+
+(defn- emit-publication
+  "Emit `round`'s publication request for the frontier `promotes` and hold
+   that frontier on the outstanding queue until a matching result settles
+   it.  Results already on the medium are consumed first, so a success the
+   composition delivered promotes before a newer request is emitted over
+   it, and a round still outstanding keeps its own prepared frontier
+   beside this one instead of losing it.  A medium that refuses the append
+   leaves the round reported unpublished, never promoting a frontier
+   nobody was asked to publish.  Nothing here services the request:
+   whoever owns the medium reads it and appends its result
+   (`yin.repl/serve-publication`).  An indexer with no medium has no HEAD
+   to ask: it promotes its own round, as an ephemeral composition always
+   has."
+  [ix round promotes]
+  (if-let [media (:publication-media ix)]
+    (let [ix (settle-publication ix)
+          id (inc (:publication-seq ix))
+          request (publication/request id round (:manifest-address promotes))]
+      (if (publication/emit! media request)
+        (assoc ix
+               :publication-seq id
+               :pending-publications (conj (:pending-publications ix)
+                                           {:request request
+                                            :promotes promotes}))
+        (assoc ix
+               :failure {:round round
+                         :stage :publish
+                         :message "the publication medium refused the request"})))
+    (promote-frontier ix promotes)))
+
+
 (defn- publish
   "Publish the covered indexes over every committed transaction, using
    the retained frontier when valid, drain the intake, and read the
    manifest back from it.  Only a publication whose manifest the store
-   answers becomes the reported one, covering `:published` transactions;
-   in durable mode the HEAD pointer moves — `after-publish` — only after
-   that read-back, so a HEAD never names a manifest the store cannot
-   answer, and a HEAD that cannot be written leaves the round reported
-   unpublished."
+   answers is offered for promotion, covering `:published` transactions;
+   the durable HEAD moves — the composition's, over the publication
+   medium — only after that read-back, so a HEAD never names a manifest
+   the store cannot answer, and a HEAD that cannot be written leaves the
+   round reported unpublished.  What this answers is the frontier
+   prepared and its request emitted; `settle-publication` promotes it."
   [ix round]
   (try
     (let [{:keys [pool]} (:publication ix)
@@ -433,18 +626,18 @@
       (if defect
         (assoc ix :failure {:round round :stage :materialize :outcome defect})
         (do (index/read-manifest (:content-store ix) manifest-address)
-            (when-some [write-head! (:after-publish ix)]
-              (write-head! manifest-address))
-            (cond-> (assoc ix
-                           :manifest-address manifest-address
-                           :published (:transactions ix)
-                           :published-payloads n
-                           :materialization {:cursor cursor
-                                             :transactions (:transactions ix)
-                                             :manifest-address manifest-address
-                                             :manifest manifest
-                                             :max-t (dec (transactor/watermark (:allocator ix)))})
-              (= :publish (:stage (:failure ix))) (assoc :failure nil)))))
+            (emit-publication
+              ix
+              round
+              {:manifest-address manifest-address
+               :published (:transactions ix)
+               :published-payloads n
+               :materialization {:cursor cursor
+                                 :transactions (:transactions ix)
+                                 :manifest-address manifest-address
+                                 :manifest manifest
+                                 :max-t (dec (transactor/watermark
+                                               (:allocator ix)))}}))))
     (catch #?(:cljd Object :clj Exception :cljs js/Error) e
       (assoc ix
              :failure {:round round :stage :publish :message (ex-message e)}))))
@@ -468,11 +661,17 @@
 (defn step
   "The round's index step: observe every packet `program-out` still holds
    for this observer, commit each through the round's publication, publish
-   when any was committed, then drop the publication's intake, pool and
-   temporary trees. Only the detached allocator and verified covered
-   frontier continue into the next round. A gap is counted on the observer's
-   `:ingress-gaps`, and marks the indexer lost: the missing packet and
-   every later one are never called indexed."
+   when any was committed, settle every publication result the medium
+   already carries, then drop the publication's intake, pool and temporary
+   trees. Only the detached allocator, the verified covered frontier and
+   the publication medium continue into the next round. A gap is counted on
+   the observer's `:ingress-gaps`, and marks the indexer lost: the missing
+   packet and every later one are never called indexed.
+
+   Servicing the request this round emitted is the medium owner's, not
+   this namespace's: an unsettled request stays outstanding on
+   `:pending-publications`, its prepared frontier with it, until the
+   composition delivers a matching result."
   [indexer round]
   (let [ix (consume indexer
                     (fn [ix packet]
@@ -480,21 +679,32 @@
         committed? (> (:transactions ix) (:transactions indexer))
         ;; this round's rows and any an earlier round could not write,
         ;; before any publication: no announcement names a missing row
-        ix (if committed? (write-rows ix round) ix)]
-    (dissoc (if (and committed? (empty? (:unwritten ix)))
-              (publish ix round)
-              ix)
-            :publication)))
+        ix (if committed? (write-rows ix round) ix)
+        ;; a round that published settles here, and so does a result a
+        ;; composition with transport of its own delivered since the last
+        ;; round — a step that committed nothing still consumes it
+        ix (settle-publication (if (and committed? (empty? (:unwritten ix)))
+                                 (publish ix round)
+                                 ix))]
+    (dissoc ix :publication)))
 
 
 (defn commit-names
   "Commit the signed name envelopes `signed` -- each `{:envelope e :proof
-   p}` -- as ONE transaction, then publish the covered indexes at once,
-   the HEAD write included (docs/design/yin.vm.linker.dht.md 6.1): one
-   entity per envelope carrying `:yin.module/envelope` and
-   `:yin.module/proof`, with the session's metadata entity -- `:db/op`,
-   the session token and `round`, no program root -- in `m`.  A
-   transaction refused is recorded as the failure, like a packet's."
+   p}` -- as ONE transaction, then publish the covered indexes at once
+   (docs/design/yin.vm.linker.dht.md 6.1): one entity per envelope
+   carrying `:yin.module/envelope` and `:yin.module/proof`, with the
+   session's metadata entity -- `:db/op`, the session token and `round`,
+   no program root -- in `m`.  A transaction refused is recorded as the
+   failure, like a packet's.
+
+   The publication this emits is a request on the composition's medium,
+   settled by the result that composition delivers
+   (`accept-publication-result`): what answers here is the frontier
+   prepared and the request outstanding, never a completed HEAD write.  A
+   signed publication whose completion the caller must hear about services
+   and settles the medium before it answers
+   (docs/design/yin.repl.dht-composition.md sections 3-4)."
   [indexer signed round]
   (let [ix (open-publication indexer)
         meta-e (:next-e ix)
@@ -517,7 +727,9 @@
                            (assoc :next-e (+ meta-e 1 (count signed)))
                            (update :transactions inc)
                            (write-rows round))]
-                (cond-> ix (empty? (:unwritten ix)) (publish round)))
+                (if (empty? (:unwritten ix))
+                  (settle-publication (publish ix round))
+                  ix))
               (assoc ix
                      :failure {:round round
                                :stage :transact
@@ -548,10 +760,14 @@
 
 (defn notice
   "What the round from `before` to `after` must tell the user, or nil: a
-   lost indexer (the round's code was not indexed), or a new failure (the
-   round's code was not committed or its publication is not readable).
-   A failure's `:stage` is `:project`, `:transact`, `:materialize` or
-   `:publish`."
+   lost indexer (the round's code was not indexed), the note that rows an
+   earlier round could not write are now written, or a new failure (the
+   round's code was not committed, or its publication was not readable or
+   was refused).  A failure's `:stage` is `:project`, `:transact`,
+   `:materialize` or `:publish`.  A round that cleared an earlier failure
+   — a refused publication its retry settled — says nothing: there is
+   nothing left to report, and rendering the cleared failure as a warning
+   would roll the retry back."
   [before after]
   (let [{:keys [stage outcome message]} (:failure after)]
     (cond
@@ -559,13 +775,14 @@
       (str "Warning: the code index lost a program batch; this round's code"
            " was not indexed, and indexing is suspended until (reset)")
 
-      (and (= :materialize (:stage (:failure before))) (nil? (:failure after)))
-      (str "Note: the code index caught up: rows of earlier rounds are now"
-           " written, and this round is published")
+      (nil? (:failure after))
+      (when (= :materialize (:stage (:failure before)))
+        (str "Note: the code index caught up: rows of earlier rounds are now"
+             " written, and this round is published"))
 
       (not= (:failure before) (:failure after))
       (str "Warning: this round's code is not in the published code index ("
-           (name stage) " failed"
+           (name (or stage :publication)) " failed"
            (when-let [detail (or message (some-> outcome name))]
              (str ": " detail))
            ")"))))
