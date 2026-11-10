@@ -163,11 +163,14 @@
    A fresh task prevents a deliberately broken bridge from poisoning the
    next fixture's handler context."
   [{:keys [frontend source] :as fixture}]
-  (let [donor @boundary-donor]
-    (kit/run-exception-program
-      donor
-      (kit/compose-exception donor ["boundary_target"] frontend source
-                             (observation-form fixture)))))
+  (try
+    (let [donor @boundary-donor]
+      (kit/run-exception-program
+        donor
+        (kit/compose-exception donor ["boundary_target"] frontend source
+                               (observation-form fixture))))
+    (catch Throwable e
+      (kit/error-results e))))
 
 
 (defn run-frontend
@@ -177,19 +180,24 @@
    must finish retain before entering later. `run-fixture` remains available
    for an isolated diagnostic when a frontend's broken state poisons a batch."
   [frontend]
-  (let [fixtures (filter #(= frontend (:frontend %)) contract/fixtures)
-        donor @boundary-donor
-        observations (reduce (fn [acc fixture]
-                               (list 'assoc acc (:id fixture) (observation-form fixture)))
-                             {} fixtures)
-        results (kit/run-exception-program
-                  donor
-                  (kit/compose-exception donor ["boundary_target"] frontend
-                                         (contract/sources frontend) observations))]
-    (if (some #(instance? Throwable %) (vals results))
-      ;; An operational defect is not a source exception. Isolate fixtures
-      ;; so one host refusal neither erases nor invents the other outcomes.
-      (into {} (for [{:keys [id] :as fixture} fixtures]
-                 [id (run-fixture fixture)]))
-      (into {} (for [{:keys [id]} fixtures]
-                 [id (update-vals results #(get % id))])))))
+  (let [fixtures (filter #(= frontend (:frontend %)) contract/fixtures)]
+    (try
+      (let [donor @boundary-donor
+            observations (reduce (fn [acc fixture]
+                                   (list 'assoc acc (:id fixture) (observation-form fixture)))
+                                 {} fixtures)
+            results (kit/run-exception-program
+                      donor
+                      (kit/compose-exception donor ["boundary_target"] frontend
+                                             (contract/sources frontend) observations))]
+        (if (some #(instance? Throwable %) (vals results))
+          ;; An operational defect is not a source exception. Isolate fixtures
+          ;; so one host refusal neither erases nor invents the other outcomes.
+          (into {} (for [{:keys [id] :as fixture} fixtures]
+                     [id (run-fixture fixture)]))
+          (into {} (for [{:keys [id]} fixtures]
+                     [id (update-vals results #(get % id))]))))
+      (catch Throwable e
+        (let [err (kit/error-results e)]
+          (into {} (for [{:keys [id]} fixtures]
+                     [id err])))))))
