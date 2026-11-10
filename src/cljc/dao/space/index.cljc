@@ -16,6 +16,20 @@
        walk its EAVT node graph eagerly; `restored-indexes` re-attaches the
        manifest's trees lazily.
 
+   It also owns the generic publication policy those paths are built under
+   (docs/design/yin.repl.dht-composition.md section 5): an immutable
+   `{:branching-factor n :max-payload-bytes b}`, where a nil byte ceiling
+   declares none. The transport composition states how many bytes a message
+   may carry and this library decides where pages are cut inside it — a
+   bounded build repeats at halved count caps until every payload fits and
+   refuses, naming `::oversize-payload`, when none does, so an oversized
+   datom or separator terminates instead of escaping as a successful
+   publication. Reuse of an already-published graph is permitted only under
+   the same policy: `restore` certifies a reused closure whose policy
+   changed or is unknown, and a session `publish!` refuses one nobody
+   certified. The policy never enters the manifest, whose schema is
+   unchanged by it.
+
    It owns the index *realization* both sides share:
 
      - the sort orders (`eavt-cmp`/`aevt-cmp`/`avet-cmp`/`vaet-cmp` over
@@ -43,6 +57,7 @@
   (:require [dao.data.btree :as bt]
             [dao.data.btree.storage :as bts]
             [dao.datom :as datom]
+            [dao.host.bytes :as bytes]
             [dao.host.integer :as host-integer]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
@@ -525,6 +540,179 @@
   branching)
 
 
+;; =============================================================================
+;; The generic publication policy
+;; (docs/design/yin.repl.dht-composition.md section 5)
+;; =============================================================================
+
+(def default-branching-factor
+  "The count cap a publication cuts at when its policy declares none -- the
+   generic default every B-tree construction and restoration already answers
+   to.  It is a count cap, never a byte capability: a byte ceiling is
+   declared beside it and is not derived from it."
+  512)
+
+
+(def minimum-page-cut
+  "The smallest count cap a byte-bounded publication may cut pages at.
+   Branch construction must reduce the node count or explicitly refuse
+   (dao.data.btree/from-sorted-array), and no cap below four leaves a
+   smaller one that still reduces, so halving stops here: an unrepresentable
+   payload refuses rather than looping."
+  4)
+
+
+(defn- validate-max-payload-bytes!
+  "The declared byte ceiling of one publication payload: nil, meaning no
+   declared ceiling, or a positive integer.  Answered as given, so a policy
+   carries the ceiling it was declared with."
+  [ceiling]
+  (when-not (or (nil? ceiling) (and (integer? ceiling) (pos? ceiling)))
+    (throw (ex-info
+             "publication policy :max-payload-bytes must be nil or a positive integer"
+             {:max-payload-bytes ceiling})))
+  ceiling)
+
+
+(defn publication-policy
+  "The immutable generic publication policy of section 5:
+   `{:branching-factor n :max-payload-bytes b}`, where a nil byte ceiling
+   means no declared byte ceiling.  `opts` may carry either key; both are
+   validated, and an answer always carries both, so two policies compare
+   with `same-policy?` and never against an absent key.
+
+   The branching factor is an index construction policy, not an intrinsic
+   byte-store capacity.  Neither key enters the manifest, which stays
+   exactly `{:indexes … :count … :branching-factor …}` with its branching
+   factor still meaning the count cap used for construction and restoration;
+   budget compatibility is tracked in live composition state instead."
+  [opts]
+  {:branching-factor
+   (validate-branching! (or (:branching-factor opts)
+                            default-branching-factor))
+   :max-payload-bytes (validate-max-payload-bytes!
+                        (:max-payload-bytes opts))})
+
+
+(defn same-policy?
+  "Whether `a` and `b` declare the same publication policy: the same count
+   cap and the same byte ceiling, nil ceilings included.  A published graph
+   or clean subgraph may be reused only under the same policy; a changed or
+   unknown one -- nil, which no normalized policy ever is -- requires the
+   closure to be verified or rebuilt before publishing (section 5)."
+  [a b]
+  (and (map? a)
+       (map? b)
+       (= (:branching-factor a) (:branching-factor b))
+       (= (:max-payload-bytes a) (:max-payload-bytes b))))
+
+
+(defn- oversize-record
+  "The first `[address bs]` of a recording handle's order whose canonical
+   byte length exceeds `ceiling`, or nil.  The recorded bytes ARE the
+   canonical bytes `dao.jing/materialize!` put, so this is section 5's
+   encode-once accounting with no second encode."
+  [ceiling order]
+  (loop [order order]
+    (if-let [[address bs] (first order)]
+      (let [n (bytes/length bs)]
+        (if (< ceiling n)
+          {:address address, :bytes n, :max-payload-bytes ceiling}
+          (recur (rest order))))
+      nil)))
+
+
+(defn- oversize-manifest
+  "The manifest's own encoded length against `ceiling`, or nil: the manifest
+   is a publication payload like any node blob and is appended last, so it
+   answers to the same budget (R2, 'validate the manifest too')."
+  [ceiling manifest]
+  (let [n (bytes/length (jing/canonical-bytes manifest))]
+    (when (< ceiling n)
+      {:address nil, :bytes n, :max-payload-bytes ceiling
+       :payload :manifest})))
+
+
+(defn- oversize-payload
+  "The first staged payload -- a recorded node blob, else the manifest --
+   that exceeds the declared `ceiling`, or nil.  A nil ceiling declares no
+   byte budget, so nothing is oversize and nothing is measured or encoded."
+  [ceiling order manifest]
+  (when ceiling
+    (or (oversize-record ceiling order)
+        (oversize-manifest ceiling manifest))))
+
+
+(defn- oversize-refusal
+  "The throw for a publication payload the declared byte budget cannot carry
+   at any page cut storage can make: section 5's terminating refusal, and
+   R1's rule that an oversized singleton may exist during planning but must
+   never escape as a successful publication."
+  [oversize branching]
+  (ex-info "a publication payload exceeds the declared byte budget"
+           (assoc oversize
+                  :reason ::oversize-payload
+                  :branching-factor branching)))
+
+
+(defn- build-at
+  "One publication build at the count cap `branching`: the four covered
+   trees over `datoms`, stored through a FRESH recording handle, and the
+   manifest naming their roots.  Fresh per attempt, so a rejected attempt's
+   blobs and minted addresses cannot leak into the build that replaces it
+   (R2's clean staging)."
+  [datoms branching]
+  (let [handle (recording-content-handle)
+        storage (bts/kv-storage handle {:branching-factor branching})
+        build-tree
+        (fn [cmp]
+          (bt/from-sequential cmp datoms {:branching-factor branching}))
+        trees {:eavt (build-tree eavt-cmp),
+               :aevt (build-tree aevt-cmp),
+               :avet (build-tree avet-cmp),
+               :vaet (build-tree vaet-cmp)}
+        root-addr (fn [tree]
+                    ;; an empty index has no root node; nil is the explicit
+                    ;; "nothing here" (walk of nil => ())
+                    (when (seq datoms) (bt/store-tree tree storage)))]
+    {:handle handle
+     :manifest {:indexes {:eavt (root-addr (:eavt trees)),
+                          :aevt (root-addr (:aevt trees)),
+                          :avet (root-addr (:avet trees)),
+                          :vaet (root-addr (:vaet trees))},
+                ;; Covered indexes are sets. Their count must describe
+                ;; the distinct tuples actually stored, not duplicate
+                ;; occurrences in the source stream.
+                :count (bt/count (:eavt trees)),
+                :branching-factor branching}}))
+
+
+(defn- bounded-build
+  "The build of `datoms` whose every recorded blob and whose manifest fit
+   the declared `ceiling`, cutting pages within that budget by halving the
+   count cap until they do: the transport composition states how many bytes
+   a message may carry, and storage decides where pages are cut inside it
+   (section 5).
+
+   Terminating by construction.  The cap strictly decreases and stops at
+   `minimum-page-cut`, where a payload still oversize is unrepresentable at
+   any cut storage can make and refuses with a named reason; one datom or
+   separator larger than the budget refuses on the same path, and branch
+   construction that cannot reduce the node count refuses inside
+   dao.data.btree rather than recurring.  A nil ceiling declares no byte
+   budget: one build at the declared cap, measured against nothing."
+  [datoms branching ceiling]
+  (loop [cut branching]
+    (let [{:keys [handle manifest], :as built} (build-at datoms cut)
+          oversize (oversize-payload ceiling
+                                     (:order @(:state handle))
+                                     manifest)]
+      (cond
+        (nil? oversize) built
+        (<= cut minimum-page-cut) (throw (oversize-refusal oversize cut))
+        :else (recur (quot cut 2))))))
+
+
 (defn- select-intake-stream!
   [intake-pool select-fn]
   (when-not (coll? intake-pool)
@@ -570,16 +758,22 @@
    2. Builds the four covered indexes into a temporary recording content
       handle through dao.data.btree.storage/kv-storage, so addresses are
       minted by jing/materialize! and equal blobs deduplicate in
-      children-before-parent first-insertion order.
+      children-before-parent first-insertion order. Under a declared byte
+      ceiling the build is repeated at halved count caps until every
+      recorded blob and the manifest fit it (bounded-build), so nothing is
+      appended before the whole publication is known to fit.
    3. Appends every unique node blob in that recorded order, then the
       manifest, all to exactly the intake stream selected from the pool.
    4. Returns {:manifest-address (jing/segment-key manifest) :manifest
-      manifest}.
+      manifest}. The manifest's :branching-factor is the cap the successful
+      build actually cut at, which a byte ceiling may have lowered.
 
    The manifest address is derived from the manifest alone and never depends
    on which intake stream carried it. A partial immutable prefix on a full
    intake stream is acceptable and retry-safe: the manifest is always
-   appended last, so a :full failure can only have left node blobs.
+   appended last, so a :full failure can only have left node blobs. A
+   publication the declared byte budget cannot carry appends nothing at all
+   and throws naming :dao.space.index/oversize-payload.
 
    Success acknowledges that every payload was appended to the selected
    intake stream. It does not acknowledge that an asynchronous DaoJing
@@ -594,37 +788,20 @@
      (publish-index! local-stream intake-pool
                      {:branching-factor n, :select-stream f})
 
-   opts: {:branching-factor n — max keys per node, at least 2 (default 512)
+   opts: the generic publication policy of section 5 plus intake selection —
+         {:branching-factor n — max keys per node, at least 2 (default 512)
+          :max-payload-bytes b — declared byte ceiling of one publication
+                               payload, or nil for no declared ceiling
+                               (default nil)
           :select-stream f   — receives the pool and returns the intake
                                stream to append to (default first)}"
   ([local-stream intake-pool] (publish-index! local-stream intake-pool nil))
   ([local-stream intake-pool opts]
-   (let [branching (validate-branching! (:branching-factor opts 512))
+   (let [{:keys [branching-factor max-payload-bytes]} (publication-policy opts)
          intake (select-intake-stream! intake-pool (:select-stream opts first))
          datoms (snapshot-datoms local-stream)
-         handle (recording-content-handle)
-         storage (bts/kv-storage handle {:branching-factor branching})
-         build-tree
-         (fn [cmp]
-           (bt/from-sequential cmp datoms {:branching-factor branching}))
-         trees {:eavt (build-tree eavt-cmp),
-                :aevt (build-tree aevt-cmp),
-                :avet (build-tree avet-cmp),
-                :vaet (build-tree vaet-cmp)}
-         root-addr (fn [tree]
-                     ;; an empty index has no root node; nil is the
-                     ;; explicit
-                     ;; "nothing here" (walk of nil => ())
-                     (when (seq datoms) (bt/store-tree tree storage)))
-         manifest {:indexes {:eavt (root-addr (:eavt trees)),
-                             :aevt (root-addr (:aevt trees)),
-                             :avet (root-addr (:avet trees)),
-                             :vaet (root-addr (:vaet trees))},
-                   ;; Covered indexes are sets. Their count must describe
-                   ;; the distinct tuples actually stored, not duplicate
-                   ;; occurrences in the source stream.
-                   :count (bt/count (:eavt trees)),
-                   :branching-factor branching}]
+         {:keys [handle manifest]}
+         (bounded-build datoms branching-factor max-payload-bytes)]
      (doseq [[address bs] (:order @(:state handle))]
        (append-ok! intake (jing/segment-value address bs)))
      (append-ok! intake manifest)
@@ -648,6 +825,14 @@
 ;;                                                          manifest
 ;;    :branching-factor n                             ; every node the session folds or
 ;;                                                          restores splits at
+;;    :publication-policy {:branching-factor n        ; section 5's immutable generic policy:
+;;                         :max-payload-bytes b|nil}  ; the count cap above beside the declared
+;;                                                          byte ceiling one payload may not
+;;                                                          exceed, nil declaring none
+;;    :policy-certified b                             ; whether every blob now reachable is known
+;;                                                          to fit that ceiling — trivially true for
+;;                                                          a fresh session, established by restore's
+;;                                                          closure walk for a reused one
 ;;    :mode     :resolved | :unresolved               ; fixed at construction (§3.1)
 ;;    :ids      nil | {:next-eid n :ownership k}      ; allocator; :unresolved only
 ;;    :batch    n                                     ; ordinal of the next batch,
@@ -789,6 +974,11 @@
                                       folds but cannot publish (publish!
                                       throws until an intake is supplied)
       :branching-factor n              at least 2 (default 512)
+      :max-payload-bytes b             the declared byte ceiling of one
+                                      publication payload, or nil for no
+                                      declared ceiling (default nil); the
+                                      two together are the session's
+                                      immutable generic publication policy
       :ids {:next-eid n,               :unresolved only; defaults
            :ownership :owned|:shared}  datom/first-user-id / :owned
       :ref-type k                      the recording storage's ref-type;
@@ -797,19 +987,24 @@
    The trees carry Settings with ref-type :strong over the session's
    recording storage, so nothing a session holds can evict and refault —
    §4.1's invariant that a tree's refaults resolve against durable content,
-   never the recording handle."
-  [{:keys [mode schema intake branching-factor ids ref-type]}]
+   never the recording handle.
+
+   A fresh session's trees are empty, so no clean subgraph is reachable and
+   its policy needs no certification; `restore` is where a reused closure is
+   certified against a declared byte ceiling."
+  [{:keys [mode schema intake branching-factor max-payload-bytes ids ref-type]}]
   (validate-mode! mode)
   (validate-schema! schema)
   (when (and (some? intake) (not (stream/writer? intake)))
     (throw (ex-info "index session :intake must be a dao.stream writer"
                     {:intake intake})))
-  (validate-branching! (or branching-factor 512))
+  (validate-branching! (or branching-factor default-branching-factor))
+  (validate-max-payload-bytes! max-payload-bytes)
   (when (and (= :resolved mode) (some? ids))
     (throw (ex-info
              "a :resolved index session allocates nothing; :ids belongs to :unresolved sessions"
              {:mode mode, :ids ids})))
-  (let [branching (or branching-factor 512)
+  (let [branching (or branching-factor default-branching-factor)
         recorder (recording-content-handle)
         storage (bts/kv-storage recorder
                                 {:branching-factor branching,
@@ -827,6 +1022,9 @@
      :storage storage,
      :recorder recorder,
      :branching-factor branching,
+     :publication-policy {:branching-factor branching,
+                          :max-payload-bytes max-payload-bytes},
+     :policy-certified true,
      :mode mode,
      :ids (when (= :unresolved mode)
             (validate-ids! (or ids {}))),
@@ -1147,14 +1345,37 @@
    subgraph dirty since the last publication is recorded, and the staged
    payloads are those recorded blobs in store order with the manifest last.
 
-   Returns {:status :ok, :state s'} on success, or {:status :full, :state
-   s', :next i} when the intake refused payload i — the staged publication
-   is still held (the consumer is not ready; flush-staged resumes at i), and
-   a payload already accepted is never appended again by an ordinary retry.
-   A terminal intake outcome after accepted blobs throws carrying :next and
-   the successor :consumer, so the caller can resume publication from a
+   Returns {:status :ok, :state s'} on success, {:status :full, :state s',
+   :next i} when the intake refused payload i — the staged publication is
+   still held (the consumer is not ready; flush-staged resumes at i), and a
+   payload already accepted is never appended again by an ordinary retry —
+   or {:status :refused, :state s', :reason r} when the session's own
+   publication policy will not carry this publication at all. A terminal
+   intake outcome after accepted blobs throws carrying :next and the
+   successor :consumer, so the caller can resume publication from a
    restored session. Calling publish! while a publication is still staged is
-   a caller error — a staged publication is never replaced, only resumed."
+   a caller error — a staged publication is never replaced, only resumed.
+
+   The two policy refusals are section 5's, and neither stages nor appends
+   anything, so the intake stays clean for the replacement publication its
+   caller makes through the bounded bulk path (R2):
+
+     :dao.space.index/oversize-payload  a recorded blob or the manifest
+                                       exceeds the declared byte ceiling. An
+                                       incremental session cannot recut
+                                       pages its trees were folded at, so it
+                                       refuses rather than emitting a
+                                       payload the budget cannot carry.
+     :dao.space.index/uncertified-reuse a byte ceiling is declared over a
+                                       reused closure nobody certified
+                                       against it; restore certifies, and a
+                                       state that skipped it publishes
+                                       nothing.
+
+   A refusal answers the state unchanged, so a retry refuses identically:
+   the refusal terminates instead of looping. A state carrying no
+   :publication-policy declares no byte ceiling and is measured against
+   nothing."
   [index-state]
   (when-some [staged (get-in index-state [:publish :staged])]
     (throw (ex-info
@@ -1177,14 +1398,29 @@
                   ;; distinct tuples actually stored
                   :count (bt/count (:eavt trees)),
                   :branching-factor (:branching-factor index-state)}
-        payloads (conj (mapv (fn [[address bs]]
-                               (jing/segment-value address bs))
-                             (:order @(:state (:recorder index-state))))
-                       manifest)]
-    (attempt-publication
-      (-> index-state
-          (assoc-in [:publish :staged] {:payloads payloads, :next 0})
-          (assoc-in [:publish :manifest] manifest)))))
+        policy (:publication-policy index-state)
+        ceiling (:max-payload-bytes policy)
+        order (:order @(:state (:recorder index-state)))
+        refusal (if (and ceiling (not (true? (:policy-certified index-state))))
+                  {:status :refused,
+                   :state index-state,
+                   :reason ::uncertified-reuse,
+                   :publication-policy policy}
+                  (when-let [oversize (oversize-payload ceiling order manifest)]
+                    {:status :refused,
+                     :state index-state,
+                     :reason ::oversize-payload,
+                     :oversize oversize}))]
+    (if refusal
+      refusal
+      (let [payloads (conj (mapv (fn [[address bs]]
+                                   (jing/segment-value address bs))
+                                 order)
+                           manifest)]
+        (attempt-publication
+          (-> index-state
+              (assoc-in [:publish :staged] {:payloads payloads, :next 0})
+              (assoc-in [:publish :manifest] manifest)))))))
 
 
 (defn flush-staged
@@ -1341,6 +1577,46 @@
       nil)))
 
 
+(defn- certify-closure!
+  "Certify a reused clean subgraph against a declared byte ceiling
+   (section 5).  The recorder consulted for reuse holds emitted dirty blobs,
+   not necessarily every reachable blob, so checking it alone cannot
+   certify a graph restored under a lowered — or a previously undeclared —
+   budget.  Every blob reachable from the manifest's four roots is therefore
+   read back through the durable store's own verified read path and
+   measured: one re-encode per blob, which a recorder length check does not
+   need and a reused closure does.  The re-encoding is the measure on
+   purpose — it is the same canonical length the publishing path measures a
+   freshly recorded blob at, so one declared ceiling means the same number
+   of bytes on both sides.  Throws on the first blob the budget cannot
+   carry and on content the store cannot answer, so the closure is
+   verified or its caller rebuilds it; a nil ceiling declares no byte
+   budget, certifies nothing and walks nothing."
+  [content-store storage manifest ceiling]
+  (when ceiling
+    (let [refused (volatile! nil)]
+      (doseq [root (vals (:indexes manifest))]
+        (bt/walk-addresses
+          storage
+          root
+          (fn [address]
+            (when (nil? @refused)
+              (let [blob (jing/get content-store address content-missing)]
+                (if (identical? blob content-missing)
+                  (vreset! refused {:address address, :reason ::absent-content})
+                  (let [n (bytes/length (jing/canonical-bytes blob))]
+                    (when (< ceiling n)
+                      (vreset! refused {:address address,
+                                        :bytes n,
+                                        :max-payload-bytes ceiling,
+                                        :reason ::oversize-payload}))))))
+            (nil? @refused))))
+      (when-some [refusal @refused]
+        (throw (ex-info
+                 "a reused index closure does not satisfy the declared publication policy"
+                 refusal))))))
+
+
 (defn restore
   "Rebuild the consumer half of a session from a *verified* checkpoint
    candidate (§4.2; verify-candidate is the gate — restore re-reads the
@@ -1368,8 +1644,26 @@
       :schema s          ditto; its schema address must match candidate's
       :ref-type k        the restored trees' ref-type, default :strong (the
                          btree :test seam pins the F2 hazard deterministically)
-      :verify? b         kv-storage integrity option (default false)}"
-  [candidate {:keys [content-store intake mode schema ref-type verify?]}]
+      :verify? b         kv-storage integrity option (default false)
+      :branching-factor n  the count cap the composition publishes with;
+                         refused when it differs from the manifest's, since
+                         reuse is permitted only under the same policy
+                         (default: adopt the manifest's)
+      :max-payload-bytes b the declared byte ceiling of one publication
+                         payload, nil for no declared ceiling (default nil).
+                         Beside :branching-factor this is the restored
+                         publisher's immutable generic publication policy,
+                         threaded here separately from the manifest's count
+                         cap so bulk, incremental and restore all see the
+                         same number (§5)
+      :published-policy p the policy the reused graph was published under,
+                         when the composition knows it. Absent, nil, or a
+                         different policy is an unknown or changed one, and
+                         a declared byte ceiling then certifies the whole
+                         reachable closure here, before the restored session
+                         may publish any of it again}"
+  [candidate {:keys [content-store intake mode schema ref-type verify?
+                     branching-factor max-payload-bytes published-policy]}]
   (when-not (and (map? candidate) (jing/segment-address? (:manifest-address candidate)))
     (throw (ex-info "restore takes a checkpoint candidate carrying a manifest address"
                     {:candidate candidate})))
@@ -1389,6 +1683,9 @@
              {:ids (:ids candidate)})))
   (let [manifest (read-manifest content-store (:manifest-address candidate))
         branching (:branching-factor manifest)
+        policy (publication-policy
+                 {:branching-factor (or branching-factor branching),
+                  :max-payload-bytes max-payload-bytes})
         durable (bts/kv-storage content-store
                                 {:branching-factor branching,
                                  :ref-type (or ref-type :strong),
@@ -1396,6 +1693,18 @@
         restore-tree (fn [cmp address]
                        (bt/restore-tree cmp address durable (:count manifest)))
         recorder (recording-content-handle)]
+    (when-not (= branching (:branching-factor policy))
+      (throw (ex-info
+               "restore refuses a publication policy whose count cap differs from the reused manifest's"
+               {:manifest-branching-factor branching,
+                :publication-policy policy})))
+    ;; The manifest certifies its count cap and nothing else: budget
+    ;; compatibility lives in composition state, never in a content-hashed
+    ;; manifest field (§5). A changed or unknown policy therefore certifies
+    ;; the reused closure here, or the caller reconstructs it.
+    (when-not (same-policy? policy published-policy)
+      (certify-closure! content-store durable manifest
+                        (:max-payload-bytes policy)))
     {:indexes {:eavt (restore-tree eavt-cmp (get-in manifest [:indexes :eavt])),
                :aevt (restore-tree aevt-cmp (get-in manifest [:indexes :aevt])),
                :avet (restore-tree avet-cmp (get-in manifest [:indexes :avet])),
@@ -1404,6 +1713,8 @@
                               {:branching-factor branching, :ref-type :strong}),
      :recorder recorder,
      :branching-factor branching,
+     :publication-policy policy,
+     :policy-certified true,
      :mode (:mode candidate),
      :ids (:ids candidate),
      :batch (:batch candidate),

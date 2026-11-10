@@ -52,6 +52,17 @@
    does not promise a fixed wall-time bound on hashing, storage or other
    round work.
 
+   Every publication path — the bulk reconstruction, the incremental suffix
+   fold, and the `dao.space.index/restore` between them — carries the one
+   immutable generic publication policy its composition declared
+   (`make-indexer`), so a declared byte ceiling is the same number
+   everywhere and a retained frontier is reused only under the policy that
+   published it (docs/design/yin.repl.dht-composition.md section 5).  A
+   publication the budget refuses is rebuilt through the bounded bulk path,
+   and one that path cannot carry either is refused with a named reason: the
+   round reports it and nothing is published, rather than an oversized
+   payload escaping or a page cut that cannot shrink looping.
+
    Every `e` is a transactor-local entity id; the only durable name in the
    projection is the `:yin/address` fact each node occurrence carries back
    to its row address.  `m` is a local metadata entity, one per program,
@@ -170,7 +181,20 @@
    transactions are committed to (dao.space.transactor requires memory-log
    retention); and `content-store`, the `dao.jing` byte store publications
    materialize into.  `session-token` is the shell's stable token, recorded
-   as provenance; `publish-opts` reach `transactor/publish!` as-is.
+   as provenance.
+
+   `publication-policy` is the composition's immutable generic publication
+   policy (docs/design/yin.repl.dht-composition.md section 5):
+   `{:branching-factor n :max-payload-bytes b}`, where a nil byte ceiling
+   means no declared ceiling.  It is validated here, at assembly, so a
+   policy storage would refuse is refused before any round publishes with
+   it, and it reaches every publication path the indexer takes — the bulk
+   reconstruction, the incremental suffix fold, and the `index/restore`
+   between them — so all of them see the same numbers.  The map is retained
+   verbatim under `:publish-opts`, which `transactor/publish!` takes as-is:
+   it may also carry the caller's `:select-stream`, which is intake
+   selection and not policy.  `:publish-opts` is the older spelling of the
+   same input and is still accepted; `publication-policy` wins.
 
    `publication-media` is the composition's durable-publication medium
    (`yin.repl.publication`): the request side a round appends its
@@ -184,32 +208,48 @@
 
    `:allocator` retains only the transactor authority, with its intake
    detached. `:materialization` retains verified coverage as plain data:
-   `{:cursor c :transactions n :manifest-address a :manifest m :max-t t}`.
-   `:publication-seq` is the session's publication-request counter, so
-   every `:id` it emits is unique within the session;
-   `:pending-publications` is the serialized queue of the requests no
-   result has settled yet, oldest first, each `{:request r :promotes
+   `{:cursor c :transactions n :manifest-address a :manifest m :max-t t
+   :policy p}`, `p` being the policy that publication actually cut at — the
+   declared byte ceiling beside the manifest's own count cap, which a
+   bounded bulk build may have lowered. `:publication-seq` is the session's
+   publication-request counter, so every `:id` it emits is unique within the
+   session; `:pending-publications` is the serialized queue of the requests
+   no result has settled yet, oldest first, each `{:request r :promotes
    frontier}`.  A round's fresh `:publication` intake, pool and
    tree builder are dropped at its end; no earlier publication payload is
    retained."
-  [{:keys [observer session-token content-store publish-opts publication-media]}]
-  {:observer observer
-   :local (memory-log)
-   :content-store content-store
-   :session-token session-token
-   :publish-opts publish-opts
-   :publication-media (some-> publication-media publication/engine-media)
-   :publication-seq 0
-   :pending-publications []
-   :next-e datom/first-user-id
-   :transactions 0
-   :published 0
-   :published-payloads 0
-   :manifest-address nil
-   :allocator nil
-   :materialization nil
-   :lost? false
-   :failure nil})
+  [{:keys [observer session-token content-store publish-opts publication-media]
+    :as spec}]
+  (let [opts (or (:publication-policy spec) publish-opts)
+        _ (index/publication-policy opts)]
+    {:observer observer
+     :local (memory-log)
+     :content-store content-store
+     :session-token session-token
+     :publish-opts opts
+     :publication-media (some-> publication-media publication/engine-media)
+     :publication-seq 0
+     :pending-publications []
+     :next-e datom/first-user-id
+     :transactions 0
+     :published 0
+     :published-payloads 0
+     :manifest-address nil
+     :allocator nil
+     :materialization nil
+     :lost? false
+     :failure nil}))
+
+
+(defn publication-policy
+  "The indexer's immutable generic publication policy
+   (docs/design/yin.repl.dht-composition.md section 5), normalized from what
+   its composition declared.  Derived at each publication rather than
+   retained as a snapshot, so the count cap the frontier is compared with,
+   the byte ceiling `index/restore` receives, and the policy the bulk path
+   publishes under are always one policy's."
+  [indexer]
+  (index/publication-policy (:publish-opts indexer)))
 
 
 (defn- next-entity-id
@@ -391,27 +431,62 @@
         [n signal]))))
 
 
+(defn- restore-session
+  "The reused-frontier half of a publication: `index/restore` of the
+   retained manifest under the indexer's declared publication policy, so
+   the restored publisher sees the same count cap and the same byte ceiling
+   the bulk path does (docs/design/yin.repl.dht-composition.md section 5 —
+   the byte policy is threaded through bulk, session, restore and
+   incremental publication so both paths see the same number).
+
+   `published` is the policy that frontier was published under.  Reuse is
+   permitted only under the same policy: when it matches, the clean
+   subgraph it names was already certified against the declared ceiling and
+   restore re-walks nothing; when it is unknown or changed, restore
+   certifies the whole reachable closure itself and throws over any reused
+   blob the budget cannot carry — which the caller reads as 'reconstruct in
+   full', never as 'publish an uncertified suffix'."
+  [ix candidate intake published]
+  (let [policy (publication-policy ix)]
+    (index/restore candidate
+                   {:content-store (:content-store ix)
+                    :intake intake
+                    :mode :resolved
+                    :schema {}
+                    :branching-factor (:branching-factor policy)
+                    :max-payload-bytes (:max-payload-bytes policy)
+                    :published-policy published})))
+
+
 (defn- suffix-state
   "Restore verified roots and fold only records after their cursor. The
    expected record count independently validates the cursor against this
    composition's one-record-per-transaction log. A stale/foreign cursor,
-   mismatched frontier or rejected record returns nil: the caller must
+   mismatched frontier, rejected record, or a publication policy the
+   retained frontier was not published under returns nil: the caller must
    reconstruct in full, never publish an uncertain suffix."
   [ix intake]
-  (let [{:keys [cursor transactions manifest-address manifest max-t]}
-        (:materialization ix)]
+  (let [{:keys [cursor transactions manifest-address manifest max-t policy]}
+        (:materialization ix)
+        declared (publication-policy ix)]
     (when (and manifest-address
                (= manifest-address (:manifest-address ix))
                (= transactions (:published ix))
                (= (:branching-factor manifest)
-                  (:branching-factor (:publish-opts ix) 512)))
+                  (:branching-factor declared))
+               ;; Reuse only under the same policy: the frontier this round
+               ;; would fold into must carry the byte ceiling the
+               ;; composition declares now. One published under a higher
+               ;; ceiling — or retained before any ceiling was declared —
+               ;; reuses clean subgraphs nobody certified against the
+               ;; lowered budget, so it reconstructs instead of folding.
+               (= (:max-payload-bytes policy)
+                  (:max-payload-bytes declared)))
       (try
         (let [candidate {:manifest-address manifest-address
                          :mode :resolved :schema-address (jing/segment-key {})
                          :ids nil :batch transactions :max-t max-t :rejected 0}
-              consumer (index/restore candidate
-                                      {:content-store (:content-store ix)
-                                       :intake intake :mode :resolved :schema {}})
+              consumer (restore-session ix candidate intake policy)
               expected (- (:transactions ix) transactions)]
           (loop [cursor cursor, consumer consumer, n 0]
             (let [r (stream/next (:local ix) cursor)]
@@ -431,9 +506,27 @@
 
 (defn- enqueue-publication
   "Full reconstruction when no validated frontier is available; otherwise
-   publication of the suffix-folded trees through the existing indexer."
+   publication of the suffix-folded trees through the existing indexer.
+
+   An incremental publication the declared byte budget refuses is rebuilt
+   through the bounded bulk path (docs/design/yin.repl.dht-composition.md
+   section 5, R2), which cuts pages inside the budget instead of emitting a
+   payload it cannot carry.  A refusal stages and appends nothing, so the
+   round's intake is still clean for that replacement and the refused
+   consumer — its recorder, its folded trees and every address it minted —
+   is dropped whole rather than leaking into it.  A `:full` intake is not
+   that: it stopped mid-append, so it stays a failure here and is retried
+   where it stopped."
   [ix]
-  (let [{:keys [transactor intake]} (:publication ix)]
+  (let [{:keys [transactor intake]} (:publication ix)
+        bulk! (fn []
+                (let [result (transactor/publish! transactor (:publish-opts ix))
+                      tail (stream/cursor (:local ix) :dao.stream/newest)]
+                  (when-not (and (stream/valid-outcome? :cursor tail)
+                                 (= :dao.stream/ok (:dao.stream/outcome tail)))
+                    (throw (ex-info "published log frontier could not be read"
+                                    {:result tail})))
+                  (assoc result :cursor (:dao.stream/cursor tail))))]
     (if-let [{:keys [cursor consumer]} (suffix-state ix intake)]
       (let [;; A fresh round has exactly one intake; still honor the
             ;; caller's selection function and its pool-membership rule.
@@ -441,17 +534,21 @@
             selected (when (fn? select-stream) (select-stream [intake]))
             _ (when-not (identical? selected intake)
                 (throw (ex-info "publication must select its round's intake" {})))
-            {:keys [status state]} (index/publish! consumer)
-            manifest (get-in state [:publish :manifest])]
-        (when-not (= :ok status)
-          (throw (ex-info "complete-retention publication intake refused" {:status status})))
-        {:cursor cursor :manifest manifest :manifest-address (jing/segment-key manifest)})
-      (let [result (transactor/publish! transactor (:publish-opts ix))
-            tail (stream/cursor (:local ix) :dao.stream/newest)]
-        (when-not (and (stream/valid-outcome? :cursor tail)
-                       (= :dao.stream/ok (:dao.stream/outcome tail)))
-          (throw (ex-info "published log frontier could not be read" {:result tail})))
-        (assoc result :cursor (:dao.stream/cursor tail))))))
+            {:keys [status state reason oversize]} (index/publish! consumer)]
+        (cond
+          (= :ok status)
+          (let [manifest (get-in state [:publish :manifest])]
+            {:cursor cursor
+             :manifest manifest
+             :manifest-address (jing/segment-key manifest)})
+
+          (= :refused status)
+          (bulk!)
+
+          :else
+          (throw (ex-info "complete-retention publication intake refused"
+                          {:status status, :reason reason, :oversize oversize}))))
+      (bulk!))))
 
 
 (defn- promote-frontier
@@ -636,6 +733,16 @@
                                  :transactions (:transactions ix)
                                  :manifest-address manifest-address
                                  :manifest manifest
+                                 ;; The policy this publication actually cut
+                                 ;; at: the declared byte ceiling beside the
+                                 ;; manifest's own count cap, which a bounded
+                                 ;; bulk build may have halved to fit it. The
+                                 ;; next round compares it with the policy it
+                                 ;; declares now, and reuses this frontier only
+                                 ;; under the same one (§5).
+                                 :policy (assoc (publication-policy ix)
+                                                :branching-factor
+                                                (:branching-factor manifest))
                                  :max-t (dec (transactor/watermark
                                                (:allocator ix)))}}))))
     (catch #?(:cljd Object :clj Exception :cljs js/Error) e

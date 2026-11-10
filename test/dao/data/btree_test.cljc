@@ -426,3 +426,41 @@
         (is (== (count o') (bt/count s')))
         (is (= (seq o') (bt/seq s')))
         (check-set s')))))
+
+
+;; ---------------------------------------------------------------------------
+;; Terminating branch construction
+;; (docs/design/yin.repl.dht-composition.md section 5, R1)
+;; ---------------------------------------------------------------------------
+
+(defn- refusal-message
+  "The message of the exception `f` throws, or nil when it answers.  This
+   file refers only deftest/is/testing from clojure.test, so the throw is
+   caught here rather than asserted with thrown-with-msg?."
+  [f]
+  (try (f) nil
+       (catch #?(:cljd Object :clj Exception :cljs js/Error) e (ex-message e))))
+
+
+(deftest branch-construction-reduces-the-node-count-or-refuses
+  ;; A fill policy whose average group holds a single node — a branching
+  ;; factor of two, or any byte-derived grouping a large separator datom
+  ;; will not split — groups n nodes into n branches. Without a guard that
+  ;; construction never reaches a root: it is a hang, not a slow answer, so
+  ;; an explicit refusal is the only outcome a test can observe.
+  (testing "a cap whose grouping cannot reduce the node count refuses"
+    (doseq [n [2 3 4 17]]
+      (let [message (refusal-message
+                      #(bt/from-sequential compare (range n)
+                                           {:branching-factor 2}))]
+        (is (some? message)
+            (str "branching factor 2 over " n " elements must refuse, not loop"))
+        (is (some? (re-find #"cannot reduce" (or message "")))
+            "the refusal names the grouping that could not reduce"))))
+  (testing "a tree that needs no branch runs no grouping at all"
+    (is (= [7] (bt/seq (bt/from-sequential compare [7] {:branching-factor 2}))))
+    (is (nil? (bt/seq (bt/from-sequential compare [] {:branching-factor 2})))))
+  (testing "the smallest cap that still reduces builds normally"
+    (is (= (range 8)
+           (bt/seq (bt/from-sequential compare (range 8)
+                                       {:branching-factor 3}))))))

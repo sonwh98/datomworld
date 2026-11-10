@@ -970,6 +970,15 @@
    publication medium pair (`yin.repl.publication`): every session the
    store outlives publishes through the same one.
 
+   `publication` carries that medium pair beside the composition's
+   immutable generic publication policy — `:publication-policy`,
+   `{:branching-factor n :max-payload-bytes b}`, a nil byte ceiling
+   declaring none (docs/design/yin.repl.dht-composition.md section 5).
+   The policy the composition injected wins over one the store handle
+   declares; the indexer threads whichever it is given through the bulk,
+   incremental and restore publication paths alike, and no transport's
+   page size is hardcoded here.
+
    `host-modules` is the composition's module registrations, installed
    into every session's registry so a rebuild never drops them
    (`make-vm`)."
@@ -994,8 +1003,10 @@
      :indexer (index/make-indexer {:observer ((:attach program-out))
                                    :session-token shell-token
                                    :content-store index-store
-                                   :publish-opts (or (:publication-policy publication)
-                                                     (:publish-opts index-store))
+                                   :publication-policy
+                                   (or (:publication-policy publication)
+                                       (:publication-policy index-store)
+                                       (:publish-opts index-store))
                                    :publication-media (:media publication)})
      :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
      :linker linker
@@ -1087,8 +1098,12 @@
    (docs/design/yin.repl.dht-composition.md sections 2 and 3): it opens
    its own store and hands the engine the prepared `dao.jing` content
    handle as `:index-store`, what its open recovered as `:recovery`, the
-   publication media it services as `:publication-media` and
-   `:publication-policy`, and the link source it drives as
+   publication media it services as `:publication-media`, the immutable
+   generic publication policy its transport can carry as
+   `:publication-policy` — `{:branching-factor n :max-payload-bytes b}`,
+   a nil byte ceiling declaring none, and the engine's one policy for
+   every publication path it takes (docs/design/yin.repl.dht-composition.md
+   section 5) — and the link source it drives as
    `:link-source`.  The engine steps no transport and holds no node: a
    round publishes against the injected handle and never waits on a
    network, and a link the engine cannot serve itself stays pending for

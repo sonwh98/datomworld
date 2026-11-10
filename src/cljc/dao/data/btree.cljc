@@ -2040,20 +2040,33 @@
                       (split-ranges len avg mx))]
      (loop [level 1
             nodes leaves]
-       (condp == (clojure.core/count nodes)
-         0 (BTSet. (:meta opts) cmp nil nil (empty-root sett) 0 0 sett nil)
-         1 (BTSet. (:meta opts) cmp nil nil (nodes 0) len 0 sett nil)
-         (recur (inc level)
-                (mapv (fn [[from to]]
-                        (let [n (- to from)
-                              ks (arr/anew n)
-                              cs (arr/anew n)]
-                          (dotimes [i n]
-                            (let [c (nodes (+ from i))]
-                              (arr/aset ks i (node-lim-key c))
-                              (arr/aset cs i c)))
-                          (Branch. level n ks cs nil sett)))
-                      (split-ranges (clojure.core/count nodes) avg mx))))))))
+       (let [n (clojure.core/count nodes)]
+         (if (<= n 1)
+           (if (zero? n)
+             (BTSet. (:meta opts) cmp nil nil (empty-root sett) 0 0 sett nil)
+             (BTSet. (:meta opts) cmp nil nil (nodes 0) len 0 sett nil))
+           (let [ranges (split-ranges n avg mx)]
+             ;; Branch construction must reduce the node count or explicitly
+             ;; refuse (docs/design/yin.repl.dht-composition.md section 5,
+             ;; R1).  A fill policy whose average group holds a single node
+             ;; -- a branching factor of two, or any byte-derived grouping a
+             ;; large separator datom will not split -- groups n nodes into n
+             ;; branches and would recur forever; this terminates it.
+             (when-not (< (clojure.core/count ranges) n)
+               (throw (ex-info
+                        "btree branch construction cannot reduce the node count"
+                        {:branching-factor mx, :level level, :nodes n})))
+             (recur (inc level)
+                    (mapv (fn [[from to]]
+                            (let [c (- to from)
+                                  ks (arr/anew c)
+                                  cs (arr/anew c)]
+                              (dotimes [i c]
+                                (let [child (nodes (+ from i))]
+                                  (arr/aset ks i (node-lim-key child))
+                                  (arr/aset cs i child)))
+                              (Branch. level c ks cs nil sett)))
+                          ranges)))))))))
 
 
 (defn from-sequential

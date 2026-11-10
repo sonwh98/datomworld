@@ -1308,6 +1308,63 @@
                                                (:manifest-address f4))))))))))))
 
 
+(deftest a-newly-declared-byte-ceiling-reconstructs-and-refuses-terminally
+  ;; Spec section 5: reuse is permitted only under the same policy, and a
+  ;; publication the budget cannot carry at any page cut refuses instead of
+  ;; escaping or looping. The retained frontier here was published with no
+  ;; declared ceiling, so its clean subgraphs were never certified against
+  ;; one; the round must reconstruct in full, and a ceiling of one byte is
+  ;; one no cut can satisfy, so the round is reported and the frontier stays
+  ;; exactly where the last certified publication left it.
+  (doseq [kind fixture/backend-kinds]
+    (testing (str kind)
+      (fixture/call-with-backend
+        kind
+        (fn [backend]
+          (let [{:keys [writer observer]} (small-medium 16)
+                reads (atom [])
+                initial (update (repl.index/make-indexer
+                                  {:observer observer :session-token "budget"
+                                   :content-store (:handle backend)
+                                   :publish-opts {:branching-factor 4}})
+                                :local #(->CountingLocal % reads))
+                _ (stream/append! writer (literal-packet 1))
+                ix1 (repl.index/step initial 1)
+                _ (stream/append! writer (literal-packet 2))
+                ix2 (repl.index/step ix1 2)
+                _ (reset! reads [])
+                _ (stream/append! writer (literal-packet 3))
+                ix3 (repl.index/step ix2 3)
+                same-policy-reads (vec @reads)
+                bounded (assoc ix3 :publish-opts {:branching-factor 4
+                                                  :max-payload-bytes 1})
+                _ (reset! reads [])
+                _ (stream/append! writer (literal-packet 4))
+                ix4 (repl.index/step bounded 4)]
+            (is (nil? (:failure ix3)))
+            (is (true? (:published? (repl.index/status ix3))))
+            (testing "under the same policy the suffix folds without reopening"
+              (is (not-any? #(= [:cursor :dao.stream/oldest] %) same-policy-reads)
+                  "the same-policy round folded only its suffix"))
+            (testing "a newly declared ceiling reconstructs instead of folding"
+              (is (some #(= [:cursor :dao.stream/oldest] %) @reads)
+                  "an uncertified frontier is never folded into"))
+            (testing "and a ceiling no page cut can carry refuses the round"
+              (is (= :publish (:stage (:failure ix4))))
+              (is (some? (re-find #"byte budget"
+                                  (or (:message (:failure ix4)) "")))
+                  "the refusal names the budget it could not fit")
+              (is (some? (repl.index/notice ix3 ix4))
+                  "the round reports that its code is not published")
+              (is (= (:manifest-address ix3) (:manifest-address ix4))
+                  "a refused publication never advances the frontier")
+              (is (= (:materialization ix3) (:materialization ix4))
+                  "nor the verified coverage that reuse is certified by")
+              (is (= 3 (:published ix4)))
+              (is (= 4 (:transactions ix4))
+                  "the commit stands; only its publication was refused"))))))))
+
+
 (deftest the-suffix-folded-is-exactly-the-unpublished-suffix
   ;; Expected suffix length (spec section 8): with a valid frontier, a
   ;; round folds exactly the records past the retained cursor -- here

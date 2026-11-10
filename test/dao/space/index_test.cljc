@@ -16,6 +16,7 @@
             [clojure.test :refer [deftest is testing]]
             [dao.data.btree :as bt]
             [dao.datom :as datom]
+            [dao.host.bytes :as bytes]
             [dao.jing :as jing]
             [dao.jing.coordinate :as jing-coordinate]
             [dao.space.index :as index]
@@ -1850,3 +1851,157 @@
                 "the query read path takes the host default — why restore never uses it")
        :default (is (= :strong read-path-ref-type)
                     "off the JVM the read path already pins :strong"))))
+
+
+;; ---------------------------------------------------------------------------
+;; The generic publication policy: byte budgets, page cuts, reuse
+;; (docs/design/yin.repl.dht-composition.md section 5)
+;; ---------------------------------------------------------------------------
+
+(deftest the-generic-publication-policy-is-whole-data-and-fails-closed
+  (testing "a normalized policy always carries both keys"
+    (is (= {:branching-factor index/default-branching-factor
+            :max-payload-bytes nil}
+           (index/publication-policy nil))
+        "no declaration is the generic default with no byte ceiling")
+    (is (= {:branching-factor index/default-branching-factor
+            :max-payload-bytes nil}
+           (index/publication-policy {})))
+    (is (= {:branching-factor 4, :max-payload-bytes 4096}
+           (index/publication-policy {:branching-factor 4
+                                      :max-payload-bytes 4096}))))
+  (testing "reuse is permitted only under the same policy"
+    (is (index/same-policy? (index/publication-policy {:branching-factor 4})
+                            (index/publication-policy {:branching-factor 4})))
+    (is (not (index/same-policy?
+               (index/publication-policy {:branching-factor 4})
+               (index/publication-policy {:branching-factor 8})))
+        "a changed count cap is a different policy")
+    (is (not (index/same-policy?
+               (index/publication-policy {:branching-factor 4})
+               (index/publication-policy {:branching-factor 4
+                                          :max-payload-bytes 4096})))
+        "a newly declared byte ceiling is a different policy")
+    (is (not (index/same-policy? (index/publication-policy {}) nil))
+        "an unknown policy is never the same as a declared one"))
+  (testing ":max-payload-bytes must be nil or a positive integer"
+    (doseq [bad [0 -1 3.5 "4096"]]
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"max-payload-bytes"
+            (index/publication-policy {:max-payload-bytes bad}))
+          (str "must reject the byte ceiling " (pr-str bad))))))
+
+
+(deftest a-declared-byte-budget-cuts-pages-and-refuses-what-it-cannot-carry
+  (let [local (open-local (datoms 64))
+        plain-intake (open-intake)
+        plain (index/publish-index! local [plain-intake])
+        plain-payloads (intake-values plain-intake)
+        ;; Derived from the publication under test rather than a magic
+        ;; number, so the cut is forced by whatever the canonical encoder
+        ;; actually produces on this host: half the largest uncut payload
+        ;; cannot be carried uncut, and a cap of 32 always fits inside it.
+        ceiling (quot (reduce max 0
+                              (map (comp bytes/length jing/canonical-bytes)
+                                   plain-payloads))
+                      2)]
+    (is (pos? ceiling))
+    (testing "no declared ceiling measures nothing and changes nothing"
+      (is (= (:manifest plain)
+             (:manifest (index/publish-index! local [(open-intake)]
+                                              {:max-payload-bytes nil}))))
+      (is (= (:manifest plain)
+             (:manifest (index/publish-index! local [(open-intake)]
+                                              {:max-payload-bytes 1048576})))
+          "a ceiling every payload already fits cuts no page"))
+    (testing "a tight ceiling cuts pages finer, inside the same manifest schema"
+      (let [intake (open-intake)
+            {:keys [manifest]} (index/publish-index! local [intake]
+                                                     {:max-payload-bytes ceiling})
+            payloads (intake-values intake)]
+        (is (= #{:indexes :count :branching-factor} (set (keys manifest)))
+            "the manifest schema is unchanged by the byte budget")
+        (is (= (:count manifest) (:count (:manifest plain)))
+            "page cutting changes the tree shape, never its contents")
+        (is (< (:branching-factor manifest)
+               (:branching-factor (:manifest plain)))
+            "the count cap was halved until the payloads fit")
+        (is (< (count plain-payloads) (count payloads))
+            "finer pages are more pages")
+        (is (every? (fn [payload]
+                      (<= (bytes/length (jing/canonical-bytes payload)) ceiling))
+                    payloads)
+            "every staged payload, the manifest included, fits the budget")
+        (is (= (set (index/read-datoms (materialize-through-observer [intake])
+                                       (jing/segment-key manifest)))
+               (set (index/read-datoms
+                      (materialize-through-observer [plain-intake])
+                      (:manifest-address plain))))
+            "the finer-cut publication reads back the same datoms")))
+    (testing "a ceiling no page cut can satisfy refuses and appends nothing"
+      (let [intake (open-intake)]
+        (is (thrown-with-msg? #?(:cljs js/Error
+                                 :cljd Object
+                                 :default Exception)
+                              #"exceeds the declared byte budget"
+              (index/publish-index! local [intake] {:max-payload-bytes 8})))
+        (is (empty? (intake-values intake))
+            "a refused publication leaves the intake clean for the rebuild")))))
+
+
+(deftest an-incremental-publication-the-byte-budget-refuses-is-never-emitted
+  (let [intake (open-intake)
+        st (index/fold-batch
+             (index/session {:mode :resolved, :schema {}, :intake intake,
+                             :branching-factor 4, :max-payload-bytes 8})
+             (datoms 4))
+        result (index/publish! st)]
+    (is (= :refused (:status result)))
+    (is (= :dao.space.index/oversize-payload (:reason result)))
+    (is (some? (:oversize result)) "the refusal names what it measured")
+    (is (= st (:state result))
+        "a refusal answers the state unchanged, so a retry refuses identically")
+    (is (nil? (get-in result [:state :publish :staged])) "nothing was staged")
+    (is (empty? (intake-values intake))
+        "nothing was appended: the intake stays clean for the bounded bulk path")
+    (is (= :refused (:status (index/publish! (:state result))))
+        "the refusal terminates rather than looping")))
+
+
+(deftest restore-certifies-a-reused-closure-against-the-declared-byte-budget
+  (let [intake (open-intake)
+        local (open-local (datoms 16))
+        session (driven local (resolved-session intake {:branching-factor 4}))
+        published (:state (index/publish! (:consumer session)))
+        store (materialize-through-observer [intake])
+        candidate (index/checkpoint {:observer (:observer session),
+                                     :consumer published})
+        biggest (reduce max 0 (map bytes/length (vals @(:store store))))
+        opts {:content-store store, :intake (open-intake),
+              :mode :resolved, :schema {}}]
+    (is (some? (index/verify-candidate candidate store)))
+    (is (pos? biggest))
+    (testing "a declared count cap other than the manifest's is a foreign policy"
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"count cap differs"
+            (index/restore candidate (assoc opts :branching-factor 8)))))
+    (testing "a lowered ceiling no reused blob fits is refused, not published"
+      (is (thrown-with-msg? #?(:cljs js/Error
+                               :cljd Object
+                               :default Exception)
+                            #"does not satisfy the declared publication policy"
+            (index/restore candidate (assoc opts :max-payload-bytes 8)))))
+    (testing "a ceiling every reused blob fits certifies the closure"
+      (let [restored (index/restore candidate
+                                    (assoc opts :max-payload-bytes biggest))]
+        (is (= {:branching-factor 4, :max-payload-bytes biggest}
+               (:publication-policy restored))
+            "the byte policy reaches the restored publisher separately")
+        (is (true? (:policy-certified restored)))
+        (is (= (:branching-factor (get-in published [:publish :manifest]))
+               (:branching-factor restored))
+            "the manifest's count-cap meaning is unchanged by the policy")))))
