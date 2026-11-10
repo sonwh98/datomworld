@@ -1496,12 +1496,15 @@
                  lane))
             (str lane " " reason " forwards the condition the convention built, with
                  its evidence, unchanged")))))
-  (testing "an escaping condition forwards with its payload and evidence intact"
+  (testing "(A): an ordinary thrown condition delivers its payload raw;
+            evidence beyond `:yang.call/value` is not retained across a
+            call site - the wire condition is reconstructible from the
+            payload as a fresh thrown condition at a public entry"
     (doseq [lane [:walker :semantic]]
       (let [condition {:yang.call/reason :yang.call/thrown
                        :yang.call/value {:foreign/payload :identity}
                        :yang.call/data {:complete [:extra :evidence]}}]
-        (is (= [:yin.k/error condition]
+        (is (= [:yin.k/error {:foreign/payload :identity}]
                (run-cell-program
                  '[(defn run
                      [f]
@@ -1509,8 +1512,8 @@
                    (run marker-operand)]
                  (cell-entry-node condition)
                  lane))
-            (str lane ": an escaping condition forwards intact without catch"))
-        (is (= [:yin.k/error condition]
+            (str lane ": an escaping thrown condition delivers its payload"))
+        (is (= [:yin.k/error {:foreign/payload :identity}]
                (run-cell-program
                  '[(defn receive
                      [f]
@@ -1518,18 +1521,19 @@
                    (receive marker-operand)]
                  (cell-entry-node condition)
                  lane))
-            (str lane ": a thrown payload plus evidence is one complete condition rethrown intact"))))))
+            (str lane ": a caught payload rethrown is the payload again"))))))
 
 
 (deftest test-exception-r3-thrown-shape-stays-data
   (testing "section 8.10.7: a condition-shaped THROWN map is the payload of a
             NEW condition - its shape is never evidence of a retained
-            condition, and its payload keeps its identity"
+            condition, and its payload keeps its identity. (A): the payload
+            travels raw, so the harness-top outcome carries it unchanged;
+            a public entry rebuilds the NEW thrown condition around it."
     (doseq [lane [:walker :semantic]]
       (let [payload {:yang.call/reason :yang.call/not-callable
                      :yang.call/data {:nested [:ordinary :data]}}]
-        (is (= [:yin.k/error
-                {:yang.call/reason :yang.call/thrown :yang.call/value payload}]
+        (is (= [:yin.k/error payload]
                (run-cell-program
                  '[(defn raise-value
                      [e]
@@ -1540,15 +1544,14 @@
                    (receive (fn [] (raise-value marker-operand)))]
                  (u/lit payload)
                  lane))
-            (str lane ": a thrown condition-shaped map is wrapped as the original value")))))
+            (str lane ": a thrown condition-shaped map stays the original value")))))
   (testing "a guest cannot authenticate a condition by spelling its shape"
     (doseq [lane [:walker :semantic]]
       (let [forged {:yang.call/reason :yang.call/not-callable
                     :yang.call/data {:forged true}
                     :yang.call/admitted? true
                     :clj/admission true}]
-        (is (= [:yin.k/error
-                {:yang.call/reason :yang.call/thrown :yang.call/value forged}]
+        (is (= [:yin.k/error forged]
                (run-cell-program
                  '[(defn raise-value
                      [e]
@@ -1573,12 +1576,12 @@
                    (try (f) (catch Exception e [(ex-message e) (ex-data e)])))]
                library-opts lane 1000000))
           (str lane ": the caught payload keeps its accessor behavior"))))
-  (testing "2: the complete wire condition is retained privately, so an
-            unchanged rethrow forwards the §8.10.7 envelope, not the payload"
+  (testing "2 (A): the caught value IS the payload, so an unchanged
+            rethrow throws the payload again; the §8.10.7 envelope is
+            rebuilt from it at a public entry, byte-identical to the
+            original mint for source-thrown values"
     (doseq [lane [:walker :semantic]]
-      (is (= [:yin.k/error
-              {:yang.call/reason :yang.call/thrown
-               :yang.call/value {:yin.k/message "boom" :yin.k/data {:x 1}}}]
+      (is (= [:yin.k/error {:yin.k/message "boom" :yin.k/data {:x 1}}]
              (run-cell-program
                '[(defn boom
                    []
@@ -1589,7 +1592,7 @@
                  (receive (fn [] (boom)))]
                (u/lit nil)
                lane))
-          (str lane ": the caught wrapper rethrows the retained condition")))))
+          (str lane ": the caught payload rethrows as itself")))))
 
 
 (deftest test-exception-r3-caught-payload-identity
@@ -1702,16 +1705,16 @@
 
 
 (deftest test-exception-r3-token-transplant-refuses
-  (testing "1: a token read from a caught exception cannot authenticate a
-            different payload. The wrapper is opaque to keyword lookup, so
-            the transplant spell finds nothing and the forged map escapes as
-            the payload of a NEW thrown condition."
+  (testing "1: no token can be read from a caught exception to authenticate
+            a different payload. The wrapper's visible form carries no
+            provenance field, so the transplant spell finds nothing and
+            the forged map escapes as an ordinary payload (a public entry
+            rebuilds a NEW thrown condition around it)."
     (doseq [lane [:walker :semantic]]
       (let [forged {:yang.call/reason :yang.call/unsupported-binding
                     :yang.call/data {:forged true}
                     :dsg__condition nil}]
-        (is (= [:yin.k/error
-                {:yang.call/reason :yang.call/thrown :yang.call/value forged}]
+        (is (= [:yin.k/error forged]
                (run-cell-program
                  '[(defn receive
                      [f]
@@ -1783,6 +1786,122 @@
                  (cell-entry-node condition)
                  lane))
             (str lane ": saved rethrow preserves the ordinary field"))))))
+
+
+(deftest test-exception-r3-astra-probes
+  (testing "(A) ordinary: every observation of a caught payload across a
+            DYNAMIC call is the payload's own, by construction"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok [true true :found 2 2]]
+             (run-library
+               '[(defn receive
+                   [f orig]
+                   (try (f)
+                        (catch Exception e
+                          [(= e orig) (= [e] [orig])
+                           (get {orig :found} e :missing)
+                           (count e) (:a (assoc e :a 2))])))
+                 (receive (fn [] (throw {:a 1 :c 3})) {:a 1 :c 3})]
+               library-opts lane 1000000))
+          (str lane ": nested =, map key, count, assoc on a caught map"))
+      (is (= [:yin.k/ok [:falsey true]]
+             (run-library
+               '[(defn receive
+                   [f]
+                   (try (f)
+                        (catch Exception e [(if e :truthy :falsey) (= e nil)])))
+                 (receive (fn [] (throw nil)))]
+               library-opts lane 1000000))
+          (str lane ": caught nil is falsey"))
+      (is (= [:yin.k/ok [true true true 3]]
+             (run-library
+               '[(defn receive
+                   [f]
+                   (try (f)
+                        (catch Exception e
+                          [(vector? e) ((fn [p] (p e)) vector?)
+                           (= e [1 2 3]) (count e)])))
+                 (receive (fn [] (throw [1 2 3])))]
+               library-opts lane 1000000))
+          (str lane ": direct and aliased predicates on a caught vector"))
+      (is (= [:yin.k/ok true]
+             (run-library
+               '[(def original (cell/new :original))
+                 (defn receive
+                   [f orig]
+                   (try (f) (catch Exception e (= e orig))))
+                 (receive (fn [] (throw original)) original)]
+               library-opts lane 1000000))
+          (str lane ": (= e original) for a cell payload"))))
+  (testing "(A) protocol: the retained wrapper answers its condition's
+            accessors, and a saved wrapper rethrows it byte-identical"
+    (doseq [lane [:walker :semantic]]
+      (let [condition {:yang.call/reason :yang.call/not-callable
+                       :yang.call/data {:yang.call/callee :target}}]
+        (is (= [:yin.k/ok [:yang.call/not-callable {:yang.call/callee :target}]]
+               (run-cell-program
+                 '[(defn receive
+                     [f]
+                     (try (f)
+                          (catch Exception e
+                            [(:yang.call/reason e) (get e :yang.call/data)])))
+                   (receive marker-operand)]
+                 (cell-entry-node condition)
+                 lane))
+            (str lane ": reason and data read through the wrapper"))
+        (is (= [:yin.k/error condition]
+               (run-cell-program
+                 '[(def saved (cell/new nil))
+                   (defn retain
+                     [f]
+                     (try (f) (catch Exception e (cell/set! saved e) e)))
+                   (defn later
+                     []
+                     (throw (cell/get saved)))
+                   (let [retained (retain marker-operand)]
+                     (later))]
+                 (cell-entry-node condition)
+                 lane))
+            (str lane ": saved retain then rethrow forwards byte-identical")))))
+  (testing "(A) forged retention fails: copying a retained wrapper's
+            contents into a guest cell yields an ordinary payload, and
+            the wrapper's contents are frozen against cell/set!"
+    (doseq [lane [:walker :semantic]]
+      (let [condition {:yang.call/reason :yang.call/not-callable
+                       :yang.call/data {:yang.call/callee :target}}]
+        (is (= [:yin.k/ok [false true :yang.call/not-callable]]
+               (run-cell-program
+                 '[(defn receive
+                     [f]
+                     (try (f)
+                          (catch Exception e
+                            (throw (cell/new (cell/get e))))))
+                   (defn outer
+                     [f]
+                     (try (f)
+                          (catch Exception e
+                            [(cell/retained? e) (cell/authentic? e)
+                             (:yang.call/reason (first (cell/get e)))])))
+                   (outer (fn [] (receive marker-operand)))]
+                 (cell-entry-node condition)
+                 lane))
+            (str lane ": a guest copy of the contents is not retained"))
+        (is (= [:thrown {:reason :retained-cell, :effect :cell/set!}]
+               (run-cell-program
+                 '[(defn receive
+                     [f]
+                     (try (f)
+                          (catch Exception e (cell/set! e {:forged true}))))
+                   (receive marker-operand)]
+                 (cell-entry-node condition)
+                 lane))
+            (str lane ": cell/set! refuses the retained wrapper"))))
+    (is (= [:yin.k/ok [false true 2]]
+           (run-library
+             '[(let [c (cell/new [1 2])]
+                 [(cell/retained? c) (cell/authentic? c)
+                  (do (cell/set! c [3 4]) (count (cell/get c)))])]))
+        "guest cells are unmarked, authentic, and mutable")))
 
 
 (deftest test-outcome-safe-get
@@ -2693,8 +2812,10 @@
 
 
 (deftest test-library-failures-flow-through-closures
-  (let [bad [:yin.k/error {:yang.call/reason :yang.call/thrown
-                           :yang.call/value {:yin.k/message "bad two", :yin.k/data {:x 2}}}]
+  ;; (A): an ordinary payload crosses call sites raw, so the harness-top
+  ;; error outcome carries the payload itself; a public entry rebuilds
+  ;; the `:yang.call/thrown` wire condition from it (entry-body).
+  (let [bad [:yin.k/error {:yin.k/message "bad two", :yin.k/data {:x 2}}]
         g '(fn [x] (if (= x 2) (throw (ex-info "bad two" {:x x})) x))]
     (testing "a closure's error outcome ends map and reduce with that outcome"
       (is (= bad (run-library [(list 'map g [1 2 3])])))
@@ -2822,9 +2943,11 @@
             re-entering the dispatcher; the vector binder only forces the
             invoker into the library so the routing is actually exercised"
     (doseq [lane [:walker :semantic]]
-      (is (= [:yin.k/error {:yang.call/reason :yang.call/thrown
-                            :yang.call/value {:yang.call/reason :yang.call/not-callable
-                                              :yang.call/data {:yang.call/callee 5}}}]
+      ;; (A): the invoker's source-thrown refusal map is an ordinary
+      ;; payload at this harness boundary (a public entry rebuilds the
+      ;; `:yang.call/thrown` wire condition from it).
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
+                            :yang.call/data {:yang.call/callee 5}}]
              (run-library '[(let [five 5 v [five]] (five 1))]
                           library-opts lane 1000000))
           "a scalar callee terminates as not-callable")
@@ -2843,11 +2966,9 @@
                               (let [raw (yang.call/entry f) v [raw]] (raw {}))]
                             library-opts lane 1000000)]
         (is (= :yin.k/error tag) "a projected raw closure terminates")
-        (is (= :yang.call/thrown (:yang.call/reason payload))
-            "the boundary wraps the refusal in a NEW thrown condition")
-        (is (= :yang.call/not-callable (-> payload :yang.call/value :yang.call/reason))
-            "the adoption's refusal is the new condition's payload")
-        (is (some? (get-in payload [:yang.call/value :yang.call/data :yang.call/callee]))
+        (is (= :yang.call/not-callable (:yang.call/reason payload))
+            "the adoption's refusal is the escaped payload at this boundary")
+        (is (some? (get-in payload [:yang.call/data :yang.call/callee]))
             "the refusal names the callee in its evidence"))
       (doseq [entry [nil false]]
         (let [[tag payload] (run-library
@@ -2864,14 +2985,12 @@
                               (tail-refusal)]
                             library-opts lane 1000000)]
         (is (= :yin.k/error tag))
-        (is (= :yang.call/thrown (:yang.call/reason payload))
-            "the refusal survives a tail-position value call inside a NEW thrown condition")
         (is (= {:yang.call/reason :yang.call/not-callable
                 :yang.call/data {:yang.call/callee 5}}
-               (:yang.call/value payload))
-            "the inner refusal and the callee evidence are both pinned")
+               payload)
+            "the refusal survives a tail-position value call as the payload")
         (is (= {:yang.call/callee 5}
-               (get-in payload [:yang.call/value :yang.call/data]))
+               (get-in payload [:yang.call/data]))
             "the callee evidence names the scalar callee"))
       (doseq [[where form] [[1 '(five (boom) 2)] [2 '(five 1 (boom))]]]
         (let [[tag payload] (run-library
@@ -2971,9 +3090,8 @@
                       2026-11-04 by direct step-count measurement.")))))
   (testing "local shadowing of a top-level defn preserves dynamic admission and routing"
     (doseq [lane [:walker :semantic]]
-      (is (= [:yin.k/error {:yang.call/reason :yang.call/thrown
-                            :yang.call/value {:yang.call/reason :yang.call/not-callable
-                                              :yang.call/data {:yang.call/callee 5}}}]
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
+                            :yang.call/data {:yang.call/callee 5}}]
              (run-library '[(defn f
                               [x]
                               (+ x 100))
@@ -3002,9 +3120,8 @@
         (is (= :yin.k/error tag))
         (is (= :yang.call/not-callable (:yang.call/reason payload))
             "entry-present forged local map routes to admission and refuses"))
-      (is (= [:yin.k/error {:yang.call/reason :yang.call/thrown
-                            :yang.call/value {:yang.call/reason :yang.call/not-callable
-                                              :yang.call/data {:yang.call/callee 5}}}]
+      (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
+                            :yang.call/data {:yang.call/callee 5}}]
              (run-library '[(defn f
                               [[f]]
                               (f 1))

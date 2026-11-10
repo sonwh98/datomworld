@@ -904,36 +904,31 @@
 
 
 ;; =============================================================================
-;; The generated exception wrapper (R3, section 8.10.7; review round 3)
+;; The generated exception wrapper (R3, section 8.10.7; (A) split)
 ;; =============================================================================
 ;;
-;; A condition crossing a call site is retained in ONE generated wrapper: a
-;; task-owned cell whose contents are [visible condition witness]. The
-;; guest-visible exception is the wrapper, never the condition map, so the
-;; original condition round-trips untouched. The witness authenticates the
-;; COMPLETE contents: it is a closure only this compiler can mint (its body
-;; names the compiler-held token), and the escape boundary rebuilds it from
-;; the visible value and condition and compares, exactly as the descriptor
-;; admission witness does. Copying a witness onto different contents fails;
-;; reading it yields no transferable token. The association is the cell's
-;; identity, so saving and returning the wrapper works, and so does a rethrow
-;; from another activation. Decoding reads cell contents and never applies a
-;; guest value.
-
-(def ^:private condition-witness-form
-  '(fn [dsg__visible dsg__condition]
-     (fn [dsg__query]
-       (if (dsg__equal dsg__query dsg__call_token)
-         (conj (conj [] dsg__visible) dsg__condition)
-         nil))))
-
-
-(def ^:private visible-predicate-heads
-  "Library predicate heads whose argument must observe a caught value's
-   visible payload rather than its generated wrapper."
-  #{'map? 'vector? 'set? 'seq? 'coll? 'sequential? 'list? 'string?
-    'boolean? 'int? 'keyword? 'symbol? 'var? 'fn? 'reduced?})
-
+;; An ORDINARY `:yang.call/thrown` payload crosses a call site RAW: the
+;; error-outcome slot carries the payload itself, so the caught value IS
+;; the payload and every guest observation (equality in any position, map
+;; keys, count, assoc, truthiness, predicates under any spelling, passage
+;; to another unit) is correct by construction, with no compiler routing.
+;; No wrapper, no retention: the wire condition is reconstructible from
+;; the payload as a fresh `:yang.call/thrown` at the public boundary.
+;;
+;; The wrapper survives ONLY as clojure's documented local form for
+;; QUALIFIED protocol conditions (`:yang.call/not-callable`,
+;; `:invalid-invocation`, `:unsupported-binding`): a task-owned cell whose
+;; contents are [visible condition], minted through the issuer-only
+;; retained mint (`cell/dsg__new-retained`, a name guest source cannot
+;; spell). Retention is bound to heap identity, not contents: the engine
+;; marks the wrapper's heap entry `:retained`, `cell/set!` refuses marked
+;; entries (contents frozen for the wrapper's lifetime), and the pure
+;; `cell/retained?` query answers from the heap, so a guest copy of the
+;; contents in a fresh cell decodes as an ordinary payload, never as a
+;; retained condition. The association is the cell's identity, so saving
+;; and returning the wrapper works, and so does a rethrow from another
+;; activation. Decoding reads cell contents and never applies a guest
+;; value.
 
 (def ^:private visible-of-form
   '(fn [dsg__value]
@@ -947,10 +942,8 @@
 
 (def ^:private condition-wrapper-form
   '(fn [dsg__visible dsg__condition]
-     (let [dsg__vis (dsg__visible_of dsg__visible)]
-       (cell/new
-         (conj (conj (conj [] dsg__vis) dsg__condition)
-               (dsg__condition_witness dsg__vis dsg__condition))))))
+     (cell/dsg__new-retained
+       (conj (conj [] dsg__visible) dsg__condition))))
 
 
 (def ^:private condition-retained-form
@@ -961,20 +954,12 @@
            (if (data/contains? dsg__candidate :seal)
              (if (data/string? (dsg__get dsg__candidate :seal))
                (if (dsg__equal (data/str-length (dsg__get dsg__candidate :seal)) 64)
-                 (if (cell/authentic? dsg__candidate)
+                 (if (cell/retained? dsg__candidate)
                    (let [dsg__contents (cell/get dsg__candidate)]
                      (if (data/vector? dsg__contents)
-                       (if (dsg__equal (data/count dsg__contents) 3)
-                         (let [dsg__visible (data/nth dsg__contents 0)
-                               dsg__condition (data/nth dsg__contents 1)
-                               dsg__proof (data/nth dsg__contents 2)]
-                           (if (data/callable? dsg__proof)
-                             (if (dsg__equal dsg__proof
-                                             (dsg__condition_witness
-                                               dsg__visible dsg__condition))
-                               (conj (conj [] dsg__visible) dsg__condition)
-                               nil)
-                             nil))
+                       (if (dsg__equal (data/count dsg__contents) 2)
+                         (conj (conj [] (data/nth dsg__contents 0))
+                               (data/nth dsg__contents 1))
                          nil)
                        nil))
                    nil)
@@ -1274,17 +1259,7 @@
             :adapted (lower-operands env (vec ops)
                                      (fn [vs] (rebuild form (cons (get (adapters env) head) vs))))
             :guest (lower-operands env (into [head] ops)
-                                   (fn [vs]
-                                     (rebuild form
-                                              (if (and (symbol? head)
-                                                       (not (contains? (locals env) head))
-                                                       (or (and (contains? visible-predicate-heads head)
-                                                                (= 1 (count ops)))
-                                                           (and (= 'contains? head)
-                                                                (= 2 (count ops)))))
-                                                (assoc (vec vs) 1
-                                                       (list 'dsg__visible_of (second vs)))
-                                                vs))))))))
+                                   (fn [vs] (rebuild form vs)))))))
     (or (vector? form) (set? form) (map? form))
     (if (failing? env form)
       (cond
@@ -1644,24 +1619,21 @@
           reason (symbol (str reserved-prefix "reason"))
           refusal (symbol (str reserved-prefix "refusal_condition"))
           missing-exit (symbol (str reserved-prefix "missing_raise_condition"))
-          ;; R3 (ruling v2 §R3, §R5; design §8.10.7).
-          ;; An error outcome carries the generated exception wrapper: the
-          ;; guest-visible value (the original payload for an ordinary
-          ;; exception, the whole condition for a qualified protocol
-          ;; failure) plus the complete condition in the wrapper's private
-          ;; cell. Values arriving without a qualified reason are guest
-          ;; throw payloads wrapped in a fresh yang.call/thrown condition.
+          ;; R3 (ruling v2 §R3, §R5; design §8.10.7), (A) split.
+          ;; An ordinary `:yang.call/thrown` condition delivers its payload
+          ;; RAW: the error-outcome slot carries `(:yang.call/value
+          ;; condition)`, so the caught value IS the payload. A value
+          ;; arriving without a qualified reason IS a guest throw payload
+          ;; and likewise travels raw. Only a QUALIFIED protocol condition
+          ;; is retained in the generated wrapper (visible = the whole
+          ;; condition), whose heap-bound retention forwards it unchanged.
           condition->outcome (u/let1 reason (u/app (u/v 'dsg__get) (u/v condition) (u/lit :yang.call/reason))
                                      (u/if-node
                                        (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/thrown))
-                                       ;; an ordinary exception: the guest catches the
-                                       ;; ORIGINAL payload, while the complete wire
-                                       ;; condition rides the wrapper's private cell.
+                                       ;; an ordinary exception: the payload itself
                                        (outcome-node error-tag
-                                                     (u/app (u/v 'dsg__condition_wrapper)
-                                                            (u/app (u/v 'dsg__get) (u/v condition)
-                                                                   (u/lit :yang.call/value))
-                                                            (u/v condition)))
+                                                     (u/app (u/v 'dsg__get) (u/v condition)
+                                                            (u/lit :yang.call/value)))
                                        (u/if-node
                                          (u/if-node
                                            (u/app (u/v 'dsg__equal) (u/v reason) (u/lit :yang.call/not-callable))
@@ -1674,12 +1646,9 @@
                                          (outcome-node error-tag
                                                        (u/app (u/v 'dsg__condition_wrapper)
                                                               (u/v condition) (u/v condition)))
-                                         ;; a value without a qualified reason is the
-                                         ;; payload of a NEW thrown condition
-                                         (outcome-node error-tag
-                                                       (u/app (u/v 'dsg__condition_wrapper)
-                                                              (u/v condition)
-                                                              (u/app (u/v 'yang.call/thrown) (u/v condition)))))))
+                                         ;; a value without a qualified reason is
+                                         ;; itself the payload of a thrown condition
+                                         (outcome-node error-tag (u/v condition)))))
           raise (u/lam [condition]
                        (assoc (u/app (u/v escape)
                                      (u/app (u/v 'dsg__assoc) (u/lit {})
@@ -1812,17 +1781,13 @@
                         env tail?)))
 
 
-(def ^:private visible-all-operands-ops
-  "Native equality operations whose every operand must observe a caught
-   value's visible payload rather than its generated wrapper."
-  #{'= '==})
-
-
 (def ^:private visible-first-operand-ops
-  "Native lookup/predicate operations whose collection operand must
-   observe a caught value's visible payload rather than its wrapper."
-  #{'get 'nil? 'empty? 'data/map? 'data/vector? 'data/string?
-    'data/number? 'data/callable? 'data/contains?})
+  "The one native operation whose collection operand must observe a
+   retained protocol condition's visible form rather than its wrapper:
+   `get`, the lookup the documented local exception form's accessors are
+   built from. Ordinary payloads travel raw, so they need no routing;
+   a non-retained value passes through `dsg__visible_of` unchanged."
+  #{'get})
 
 
 (defn- visible-node
@@ -1901,20 +1866,16 @@
                         (compile-form (vec operands) false env macro-env)]}
       tail? (assoc :tail? true))
 
-    ;; a statically native name: call it directly. Under the outcome
-    ;; model a caught value is the generated wrapper, so equality, lookup
-    ;; and predicate operations observe its visible payload instead.
+    ;; a statically native name: call it directly. Only `get` still
+    ;; routes through the visible form, and only so a retained protocol
+    ;; wrapper answers lookups as its condition; ordinary payloads are
+    ;; raw and pass through unchanged.
     (native-name? env operator)
     (let [compiled (mapv #(compile-form % false env macro-env) operands)
-          compiled (if (outcomes? env)
-                     (cond
-                       (contains? visible-all-operands-ops operator)
-                       (mapv visible-node compiled)
-                       (contains? visible-first-operand-ops operator)
-                       (if (seq compiled)
-                         (assoc compiled 0 (visible-node (first compiled)))
-                         compiled)
-                       :else compiled)
+          compiled (if (and (outcomes? env)
+                            (contains? visible-first-operand-ops operator)
+                            (seq compiled))
+                     (assoc compiled 0 (visible-node (first compiled)))
                      compiled)]
       (cond-> {:type :application
                :operator (cond-> {:type :variable, :name operator}
@@ -2817,9 +2778,9 @@
            ;; The wrapper helpers. Dependency order matters: the cond->> chain
            ;; nests each later binding outside the earlier one, and a binding's
            ;; value expression sees only the bindings outside it. So the
-           ;; wrapper (which names the witness) precedes the witness, the
-           ;; accessors (which name the decoder) precede the decoder, and the
-           ;; witness (which names the token) precedes the token binding.
+           ;; wrapper (which names only the retained mint) comes first, the
+           ;; accessors and the visible form (which name the decoder) precede
+           ;; the decoder, and the decoder precedes the token binding.
            (outcomes? env) (u/let1 'dsg__condition_wrapper
                                    (u/sexp->uast condition-wrapper-form))
            (outcomes? env) (u/let1 'dsg__visible_of
@@ -2830,8 +2791,6 @@
                                    (u/sexp->uast ex-data-form))
            (outcomes? env) (u/let1 'dsg__condition_retained
                                    (u/sexp->uast condition-retained-form))
-           (outcomes? env) (u/let1 'dsg__condition_witness
-                                   (u/sexp->uast condition-witness-form))
            (outcomes? env) (u/then
                              (discard-result
                                (u/app (u/lam '[get = assoc empty?] call/uast)
