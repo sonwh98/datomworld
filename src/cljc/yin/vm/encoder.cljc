@@ -100,6 +100,9 @@
   (vm/ast->semantic-bytecode (vm/datoms->ast datoms)))
 
 
+(declare check-projected-claim!)
+
+
 (defn- project-member
   [member origin member-index]
   (cond
@@ -109,8 +112,16 @@
              (vm/ast-side-tables member tree origin)))
 
     (and (map? member) (contains? member :root) (contains? member :rows))
-    {:tree member, :source-positions [], :frontend-metadata [],
-     :entity-occurrences []}
+    (let [metadata (:frontend-metadata member)]
+      (when (and (some? metadata) (not (sequential? metadata)))
+        (throw (ex-info "Supplied frontend-metadata is not a row sequence"
+                        {:rule :frontend-metadata, :member-index member-index,
+                         :metadata metadata})))
+      (check-projected-claim! metadata member)
+      {:tree member,
+       :source-positions (vec (or (:source-positions member) [])),
+       :frontend-metadata (vec (or metadata [])),
+       :entity-occurrences []})
 
     (sequential? member)
     (let [datoms (vec member)
@@ -292,6 +303,62 @@
                                                     (remove eligible claimed)))}))))
           true)
       false)))
+
+
+(defn- check-projected-claim!
+  "Refuse an already-projected member whose caller-supplied C1 rows do
+   not exactly cover its tree, as `check-call-site-claim!` refuses a
+   map-AST member's markers: a member carrying no C1 rows makes no
+   claim and passes. A claimed row is held to the FULL row shape —
+   exactly five coordinates, a ruled occurrence origin
+   (`vm/occurrence-origin?`), version 1 — and to unique occurrence
+   ownership (no duplicate row, no two origins claiming one
+   application), alongside exact `[root path]` coverage; any defect
+   refuses the projection instead of dropping or laundering the claim."
+  [metadata tree]
+  (let [claimed-rows (filter (fn [row]
+                               (and (sequential? row)
+                                    (<= 4 (count row))
+                                    (= call-site-key (nth row 3))))
+                             (or metadata []))]
+    (when (seq claimed-rows)
+      (doseq [row claimed-rows]
+        (when (not= 5 (count row))
+          (throw (ex-info "Malformed call-site marker row"
+                          {:rule :yang/call-site-malformed, :row row})))
+        (when-not (vm/occurrence-origin? (nth row 0))
+          (throw (ex-info "Call-site marker carries a malformed occurrence origin"
+                          {:rule :yang/call-site-invalid-origin,
+                           :path (nth row 2), :origin (nth row 0)})))
+        (when (not= 1 (nth row 4 nil))
+          (throw (ex-info "Unsupported call-site marker version"
+                          {:rule :yang/call-site-unsupported-version,
+                           :path (nth row 2), :value (nth row 4 nil)}))))
+      (doseq [[row n] (frequencies claimed-rows)]
+        (when (< 1 n)
+          (throw (ex-info "Duplicate call-site marker in a declared table"
+                          {:rule :yang/call-site-duplicate-entry,
+                           :site (vec (take 3 row)), :row row}))))
+      (doseq [[site rs] (group-by (fn [row] [(nth row 1) (nth row 2)])
+                                  claimed-rows)]
+        (let [origins (distinct (map first rs))]
+          (when (< 1 (count origins))
+            (throw (ex-info "Call-site occurrence claimed by multiple origins"
+                            {:rule :yang/call-site-multi-claim, :site site,
+                             :origins (vec (sort-by pr-str origins))})))))
+      (let [eligible (into #{}
+                           (map (fn [[r p]] [r p]))
+                           (vm/application-occurrences tree))
+            claimed (into #{}
+                          (map (fn [row] [(nth row 1) (nth row 2)]))
+                          claimed-rows)]
+        (when (not= eligible claimed)
+          (throw (ex-info "Call-site markers do not cover the projected tree"
+                          {:rule :yang/call-site-incomplete-coverage,
+                           :missing (vec (sort-by pr-str
+                                                  (remove claimed eligible))),
+                           :extra (vec (sort-by pr-str
+                                                (remove eligible claimed)))})))))))
 
 
 (defn program-batch

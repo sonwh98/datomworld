@@ -22,6 +22,9 @@
   (merge {:status :refused :reason reason} data))
 
 
+(declare recovered-call-site-claim)
+
+
 (defn- definitions
   [ast]
   (letfn [(scan
@@ -283,7 +286,10 @@
         claim (when (and tree (not defect) (not requirement)
                          (not= :refused (:status tree))
                          (not= :refused (:status fp)))
-                (call-site-claim ast tree admission))]
+                (if (contains? spec :call-site-rows)
+                  (recovered-call-site-claim (:call-site-rows spec)
+                                              tree admission)
+                  (call-site-claim ast tree admission)))]
     (cond
       undefined
       (refusal :yin.link.publish/undefined-export {:export undefined})
@@ -524,6 +530,143 @@
   {:type :literal :value nil})
 
 
+(def ^:private call-site-key
+  "The reserved frontend-metadata key of the call-site occurrence
+   contract C1, enforced at the publication boundary but not owned
+   by it."
+  :yang/call-site)
+
+
+(defn- mark-call-sites
+  "The map AST `node` with `:yang/call-site 1` on every `:application`
+   node, at every depth the row grammar knows. This mirrors the
+   frontends' shared finalization walk locally: this namespace sits
+   below every frontend and must not import one."
+  [node]
+  (let [walked (reduce (fn [n [field kind]]
+                         (case kind
+                           :node (update n field mark-call-sites)
+                           :nodes (update n field
+                                          (fn [children]
+                                            (mapv mark-call-sites children)))
+                           n))
+                       node
+                       (get vm/semantic-bytecode-grammar (:type node)))]
+    (cond-> walked
+      (= :application (:type node)) (assoc :yang/call-site 1))))
+
+
+(defn- retained-call-site-rows
+  "The retained C1 rows of the indexed `program` (`{:t t :ast ast}`),
+   or nil when its proof is unavailable. Proof is resolved by the
+   program's ACTUAL admission identity, the same `[admission-origin
+   final-root]` key the expander retains tables under
+   (`yin.vm.macro/call-site-table`): the index transaction `t` and the
+   admitting expansion's source-batch counter both number the
+   session's program stream in admission order, so the program's own
+   table is the entry keyed `[[:source _ t _] root]` for its canonical
+   `root`. A table keyed by any other admission — identical content
+   admitted again, claimed or not — is another admission's evidence
+   and is never borrowed; when no entry matches exactly (a stale
+   admission, a stream whose counters have drifted), the association
+   is unavailable and recovery is refused. A matched table must still
+   prove itself: full five-coordinate rows, ruled origins, version 1,
+   unique ownership of each application, exact coverage."
+  [program tables]
+  (let [tree (vm/ast->semantic-bytecode (:ast program))
+        root (:root tree)
+        eligible (into #{}
+                       (map (fn [[r p]] [r p]))
+                       (vm/application-occurrences tree))
+        candidates (into []
+                         (filter (fn [[[origin r] _rows]]
+                                   (and (= r root)
+                                        (vector? origin)
+                                        (= :source (first origin))
+                                        (= (:t program) (nth origin 2 nil))
+                                        (vm/occurrence-origin? origin))))
+                         (or tables {}))]
+    (when (= 1 (count candidates))
+      (let [rows (filterv (fn [row]
+                            (and (sequential? row)
+                                 (<= 4 (count row))
+                                 (= call-site-key (nth row 3))))
+                          (second (first candidates)))
+            claimed (into #{}
+                          (map (fn [row] [(nth row 1) (nth row 2)]))
+                          rows)]
+        (when (and (every? (fn [row]
+                             (and (= 5 (count row))
+                                  (vm/occurrence-origin? (nth row 0))
+                                  (= root (nth row 1))
+                                  (= 1 (nth row 4))))
+                           rows)
+                   (= (count rows) (count claimed))
+                   (= eligible claimed))
+          rows)))))
+
+
+(defn- sequenced-prefixes
+  "The path prefix of each of `n` programs inside `(sequenced asts)`:
+   the first program is the outermost wrapper's operand, the rest
+   nest under each wrapper operator's body, the last innermost."
+  [n]
+  (if (<= n 1)
+    (vec (repeat n []))
+    (into [[[3 0]]]
+          (map (fn [p] (into [2 3] p)))
+          (sequenced-prefixes (dec n)))))
+
+
+(defn- recovered-call-site-claim
+  "The C1 claim of a spec carrying `:call-site-rows` — the per-occurrence
+   rows `module-from-index` recovered and shifted into the assembled
+   tree's coordinates: those rows keep their own retained origins
+   through publication, and the assembled tree's remaining eligible
+   applications (the `sequenced` wrappers assembly synthesized) are
+   claimed separately under the publication admission `origin`. Same
+   answer shapes as `call-site-claim`; a recovered row of any other
+   version, or rows that claim a place the tree does not apply at,
+   refuse the claim instead of publishing it."
+  [rows tree admission]
+  (let [origin (publication-origin admission)
+        eligible (into #{}
+                       (map (fn [[r p]] [r p]))
+                       (vm/application-occurrences tree))
+        claimed-rows (filterv (fn [row]
+                                (and (sequential? row)
+                                     (<= 4 (count row))
+                                     (= call-site-key (nth row 3))))
+                              (or rows []))]
+    (or (when-let [[v p] (some (fn [row]
+                                 (when (not= 1 (nth row 4 nil))
+                                   [(nth row 4 nil) (nth row 2 nil)]))
+                               claimed-rows)]
+          {:unsupported-version v, :path p})
+        (let [well-formed? (and (every? (fn [row]
+                                          (and (= 5 (count row))
+                                               (vm/occurrence-origin? (nth row 0))
+                                               (= (:root tree) (nth row 1))))
+                                        claimed-rows)
+                                (= (count claimed-rows)
+                                   (count (into #{}
+                                                (map (fn [row]
+                                                       [(nth row 1) (nth row 2)]))
+                                                claimed-rows))))
+              covered (into #{}
+                            (map (fn [row] [(nth row 1) (nth row 2)]))
+                            claimed-rows)]
+          (if (and well-formed? (empty? (remove eligible covered)))
+            {:origin origin,
+             :rows (vec (sort jing/canonical-compare
+                              (into claimed-rows
+                                    (map (fn [[r p]]
+                                           [origin r p call-site-key 1]))
+                                    (remove covered eligible))))}
+            {:missing (vec (sort-by pr-str (remove covered eligible))),
+             :extra (vec (sort-by pr-str (remove eligible covered)))})))))
+
+
 (defn- sequenced
   "One tree running `asts` in order: `((fn [_] second) first)`, nested.
    A program root in operand position is not a tail call.  No programs
@@ -576,8 +719,22 @@
    a module of `modules` -- `{name manifest-address}`, the modules the
    session linked -- (declared under `:requires`).  A name qualified by
    one of `host-modules` refuses `:yin.link.publish/host-module`, any
-   other `:yin.link.publish/undeclared-free`."
-  [db {:keys [name exports modules] :as opts}]
+   other `:yin.link.publish/undeclared-free`.
+
+   Indexed programs are reconstructed from datoms and carry no C1
+   markers. With `opts`' `:call-site-tables` — the expander's retained
+   tables (`yin.vm.macro/call-site-table` custody) — proof is resolved
+   per collected program by its actual admission identity
+   (`retained-call-site-rows`): a program proven C1-finalized has its
+   markers recovered and its retained rows shifted into the assembled
+   tree's coordinates on the spec's `:call-site-rows`, keeping each
+   occurrence's own origin through assembly; the `sequenced` wrappers
+   this derivation synthesizes are claimed separately at publication
+   under the publication admission origin (`publish-module!`'s
+   recovered claim). Without such proof for every collected program
+   the tree stays unmarked and publishes without a C1 claim; markers
+   are never minted for a recovered tree."
+  [db {:keys [name exports modules call-site-tables] :as opts}]
   (let [programs (mapv (fn [p]
                          (assoc p
                                 :defines (definitions (:ast p))
@@ -624,15 +781,37 @@
                                              (distinct (mapcat :free collected))))))]
         (or (when (map? collected) collected)
             (some #(when (map? %) %) declared)
-            {:name name
-             :ast (sequenced (mapv :ast collected))
-             :exports (set exports)
+            (let [asts (mapv :ast collected)
+                  recovered (mapv #(retained-call-site-rows % call-site-tables)
+                                  collected)
+                  proven? (and (seq asts) (every? some? recovered))
+                  assembled (sequenced asts)
+                  final-root (when proven?
+                               (:root (vm/ast->semantic-bytecode assembled)))
+                  shifted (when proven?
+                            (vec (sort jing/canonical-compare
+                                       (into []
+                                             (mapcat (fn [[prefix rows]]
+                                                       (map (fn [[o _r p k v]]
+                                                              [o final-root
+                                                               (into prefix p)
+                                                               k v])
+                                                            rows)))
+                                             (map vector
+                                                  (sequenced-prefixes
+                                                    (count asts))
+                                                  recovered)))))]
+              (cond-> {:name name
+                       :ast (cond-> assembled proven? mark-call-sites)
+                       :exports (set exports)
              :requires (into {}
                              (keep (fn [[k n a]] (when (= :requires k) [n a])))
                              declared)
-             :primitives (into {}
-                               (keep (fn [[k n p]] (when (= :primitives k) [n p])))
-                               declared)})))))
+                       :primitives (into {}
+                                     (keep (fn [[k n p]]
+                                             (when (= :primitives k) [n p])))
+                                     declared)}
+                proven? (assoc :call-site-rows shifted))))))))
 
 
 ;; =============================================================================

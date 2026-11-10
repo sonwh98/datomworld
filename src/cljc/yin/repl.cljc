@@ -1202,6 +1202,16 @@
     [state text]))
 
 
+(defn call-site-tables
+  "The C1 side tables the session's expander retains, keyed by
+   `[admission-origin final-root]` (`yin.vm.macro/call-site-table`
+   custody): the retained record a session publication recovers its
+   claim from (`yin.vm.linker.publish/module-from-index`'
+   `:call-site-tables` option). Nil before any claimed expansion."
+  [state]
+  (:call-site-tables (:expander state)))
+
+
 (defn- run-expander-stage
   "Drive the expander over `program-in` and drain its summary.  It expands
    each observed batch and appends the tree packet to `program-out`; a
@@ -1304,6 +1314,7 @@
    :key (:dht-key state)
    :primitives (:primitives vm)
    :modules (:modules vm)
+   :call-site-tables (call-site-tables state)
    :round (:round state)})
 
 
@@ -1812,13 +1823,15 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    preview; its context is discarded, so nothing is committed."
   [state ast]
   (let [batch (encoder/program-batch ast)
-        {:keys [tree error log]}
+        {:keys [tree error log frontend-metadata]}
         (macro/expand-batch batch (get-in state [:expander :ctx]))]
     (str "AST:\n" (format-value ast)
          "\n\nInput rows:\n" (format-value batch)
          (if tree
            (str "\n\nExpanded rows:\n" (format-value tree))
            (str "\n\nExpansion error:\n" (format-value error)))
+         (when (seq frontend-metadata)
+           (str "\n\nCall sites:\n" (format-value frontend-metadata)))
          "\n\nEvents:\n" (format-value (second log)))))
 
 

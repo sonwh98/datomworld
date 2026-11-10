@@ -812,6 +812,7 @@
                                    :key (:key ctx)
                                    :primitives (:primitives ctx)
                                    :modules linked
+                                   :call-site-tables (:call-site-tables ctx)
                                    :host-modules hosts})
                     indexer' (if (seq (:envelopes res))
                                (repl.index/commit-names indexer (:envelopes res)
