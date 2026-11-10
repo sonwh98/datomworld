@@ -1578,22 +1578,43 @@
      (fn [name length this-mode kind code nt?]
        ;; Ordinary calls enter through yang.call; construction still applies
        ;; the private code with its explicit new.target below.
+       ;; §8.10.7 callee bridge: installed BEFORE argument binding, it
+       ;; reads the supplied :yang.call/raise and delivers every escaping
+       ;; source exception AND argument-binding failure to it as the
+       ;; thrown condition, exactly once. The js/try handler runs only
+       ;; after the escape has completed source cleanup and restored the
+       ;; saved handler/depth/frame state (§8.10.8), so the transfer
+       ;; below never reuses a raise exit of a completed call. An
+       ;; unchanged rethrow of a wrapper carrying a retained protocol
+       ;; condition forwards that original condition with no new wrapper;
+       ;; every other escape (including a thrown condition-shaped map,
+       ;; which is the payload of a FRESH condition per §8.10.7) becomes
+       ;; :yang.call/thrown carrying the original value.
        (let [entry
              (fn [invocation]
-               (let [callee (get invocation :yang.call/callee)
-                     c (cell/get callee)
-                     k (get c :kind)
-                     receiver (if (data/contains? invocation :yang.call/receiver)
-                                (get invocation :yang.call/receiver)
-                                :js/undefined)]
-                 (if (if (= k :class) true (= k :derived))
-                   (js/throw-type-error
-                     {:js/str "Class constructor cannot be invoked without 'new'"})
-                   (let [t (if (= (get c :this-mode) :lexical) :js/undefined receiver)
-                         args (get invocation :yang.call/positional)]
-                     (if (= (get c :nt?) true)
-                       ((get c :code) t args :js/undefined)
-                       ((get c :code) t args))))))]
+               (let [raise-exit (get invocation :yang.call/raise)]
+                 (js/try
+                   (fn []
+                     (let [callee (get invocation :yang.call/callee)
+                           c (cell/get callee)
+                           k (get c :kind)
+                           receiver (if (data/contains? invocation :yang.call/receiver)
+                                      (get invocation :yang.call/receiver)
+                                      :js/undefined)]
+                       (if (if (= k :class) true (= k :derived))
+                         (js/throw-type-error
+                           {:js/str "Class constructor cannot be invoked without 'new'"})
+                         (let [t (if (= (get c :this-mode) :lexical) :js/undefined receiver)
+                               args (get invocation :yang.call/positional)]
+                           (if (= (get c :nt?) true)
+                             ((get c :code) t args :js/undefined)
+                             ((get c :code) t args))))))
+                   (fn [e]
+                     (let [retained (js/retained-condition e)]
+                       (if (nil? retained)
+                         (raise-exit (assoc (assoc {} :yang.call/reason :yang.call/thrown)
+                                            :yang.call/value e))
+                         (raise-exit retained)))))))]
          (let [f (cell/new
                    (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
                                                                                                 :js/type
@@ -1624,6 +1645,40 @@
                                        (js/slot f true false true))))
                  :js/undefined)
                f))))]
+    ;; ------------------------------------------- protocol-condition retention
+    ;; §8.10.7 protocol reception: :yang.call/not-callable,
+    ;; :yang.call/invalid-invocation and :yang.call/unsupported-binding map
+    ;; to a local TypeError that RETAINS the complete original condition
+    ;; (qualified reason AND plain evidence) in private cell contents,
+    ;; outside source-writable :props. An unchanged rethrow of the same
+    ;; wrapper forwards the original condition through the entry bridge
+    ;; with no new wrapper. Otherwise-foreign :yang.call/thrown payloads
+    ;; are delivered raw (the ruling's js allowance). A returned
+    ;; condition-shaped map stays ordinary data, and forged or
+    ;; source-writable attributes never authenticate a retained condition.
+    [js/retained-condition
+     (fn [e]
+       (if (js/cell? e)
+         (if (cell/authentic? e)
+           (let [c (cell/get e)]
+             (if (= (get c :js/class) :error)
+               (get c :yang.call/retained-condition)
+               nil))
+           nil)
+         nil))]
+    [js/raise-protocol
+     (fn [condition]
+       (let [reason (get condition :yang.call/reason)
+             e (js/make-error
+                 js.rt/type-error-proto
+                 (if (= reason :yang.call/not-callable)
+                   {:js/str "value is not a function"}
+                   (if (= reason :yang.call/unsupported-binding)
+                     {:js/str "unsupported binding profile"}
+                     {:js/str "invalid function invocation"})))]
+         (do (cell/set! e (assoc (cell/get e)
+                                 :yang.call/retained-condition condition))
+             (js/throw e))))]
     [js/call
      (fn [f this args]
        (yang.call/invoke-with
@@ -1631,10 +1686,7 @@
          (fn [condition]
            (if (= (get condition :yang.call/reason) :yang.call/thrown)
              (js/throw (get condition :yang.call/value))
-             (js/throw-type-error
-               (if (= (get condition :yang.call/reason) :yang.call/not-callable)
-                 {:js/str "value is not a function"}
-                 {:js/str "invalid function invocation"}))))
+             (js/raise-protocol condition)))
          (assoc {} :yang.call/receiver this)))]
     [js/is-constructor?
      ;; [[Construct]] exists on :normal functions, class constructors and the

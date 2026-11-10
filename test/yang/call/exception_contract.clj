@@ -52,7 +52,7 @@
         "globalThis.donor_raise = function() { throw original; };"
         "globalThis.make_exploder = function() { return () => { throw original; }; };"
         "globalThis.receive = function(f) { try { return f(); } catch (e) { throw e; } };"
-        "globalThis.retain = function(f) { try { return f(); } catch (e) { saved = e; return e; } };"
+        "globalThis.retain = function(f) { try { return f(); } catch (e) { globalThis.saved = e; return e; } };"
         "globalThis.later = function() { throw saved; };"
         "globalThis.raise_value = function(e) { throw e; };"
         "globalThis.echo = function(e) { return e; };")
