@@ -909,8 +909,17 @@
                               ((get fc :code)
                                (py/bind-args fc positional named))))
                  (fn [e]
-                   (raise-exit (assoc {:yang.call/reason :yang.call/thrown}
-                                      :yang.call/value e)))
+                   ;; A retained generated exception forwards its original
+                   ;; condition unchanged (no new wrapper); a fresh source
+                   ;; exception still becomes the plain §8.10.7 thrown
+                   ;; condition. Retention rides the exception's identity,
+                   ;; outside source-writable attributes.
+                   (let [retained (py/retained-condition e)]
+                     (raise-exit
+                       (if (= retained :py/missing)
+                         (assoc {:yang.call/reason :yang.call/thrown}
+                                :yang.call/value e)
+                         retained))))
                  (fn [] (cell/get result))))))))]
     [py/function-cell
      (fn [name spec defaults kwdefaults code entry?]

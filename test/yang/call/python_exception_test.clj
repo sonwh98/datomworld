@@ -49,3 +49,12 @@
   (check-fixture :python/saved-protocol-not-callable)
   (check-fixture :python/saved-protocol-invalid-invocation)
   (check-fixture :python/saved-protocol-unsupported-binding))
+
+
+(deftest ^:slow python-egress-sanity-test
+  ;; Egress forwards a retained generated exception's original condition and
+  ;; still produces the plain thrown condition for fresh/forged payloads.
+  (check-fixture :python/fresh-named)       ; stays green
+  (check-fixture :python/fresh-closure)     ; stays green
+  (check-fixture :python/binding)           ; stays green
+  (check-fixture :python/forged-retention)) ; stays green (R5: no source-writable forgery)
