@@ -1,7 +1,7 @@
 (ns yang.php.antlr.programs-p5b2
   "P5b2 request-lifecycle completions: hand-derived PHP 8.3 expectations for
-  the request merge, header/cookie/status and error-triggering fixes. Every
-  The oracle column records the shiva php:8.3 docker pass (2026-11-11).")
+  the request merge, header/cookie/status and error-triggering fixes. The
+  oracle column records the shiva php:8.3 docker pass (2026-11-11).")
 
 
 (defn request-array
