@@ -1072,7 +1072,10 @@
                          (py/condition-exception
                            (py/make-class "ForeignException" py.b/Exception)
                            {:py/str "foreign exception"} condition))))
-                   (py/type-error {:py/str "object is not callable"}))))
+                   (py/raise
+                     (py/condition-exception py.b/TypeError
+                                             {:py/str "object is not callable"}
+                                             condition)))))
              (if (= (py/content-type f) :function)
                (let [fc (cell/get f)]
                  ((get fc :code) (py/bind-args fc args kwargs)))

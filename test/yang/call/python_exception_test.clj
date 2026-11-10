@@ -38,3 +38,14 @@
   (check-leg [:clojure :python :typed-catch])
   (check-leg [:clojure :python :unchanged-rethrow])
   (check-leg [:clojure :python :retained-lifetime]))
+
+
+(deftest ^:slow python-protocol-reception-test
+  ;; R3: not-callable / invalid-invocation / unsupported-binding retain the
+  ;; complete condition instead of collapsing into a bare TypeError.
+  (check-fixture :python/protocol-not-callable)
+  (check-fixture :python/protocol-invalid-invocation)
+  (check-fixture :python/protocol-unsupported-binding)
+  (check-fixture :python/saved-protocol-not-callable)
+  (check-fixture :python/saved-protocol-invalid-invocation)
+  (check-fixture :python/saved-protocol-unsupported-binding))
