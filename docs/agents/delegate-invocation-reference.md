@@ -114,6 +114,19 @@ map in the codex recipe section). Practical consequence: parking a muse or
 qwen round by switching hosts does NOT escape its quota — only waiting for the
 reset (or switching PROVIDER) does.
 
+**A second, INDEPENDENT reason to switch hosts: co-locating the agent with the
+failing tests.** Long-running tests live on shiva and jupiter (suite-scale runs
+never execute on the laptop). When a test fails there, running the coding agent
+ON THAT HOST makes debugging faster and easier: the agent can iterate the
+fix-verify loop directly against the failing test (edit → run the one failing
+test → edit) without an ssh round-trip per cycle, can read the full failure
+logs in place, and can reproduce exactly the environment (toolchain, cache
+state, ANTLR outputs) the failure occurred in. This holds regardless of quota:
+even a provider whose meter is shared across hosts benefits, because the
+BENEFIT is local iteration speed, not quota escape. Prefer the host where the
+test fails; fall back to the laptop only when the agent cannot reach that host
+(sandboxed delegates) or the fix needs no test runs.
+
 **Host availability (deepseek wrapper `~/.local/bin/deepseek`):** laptop
 (darkstar), shiva, and jupiter — all three hosts. Jupiter was added 2026-11-11
 (wrapper copied from shiva via scp; `~/.claude-deepseek/` rsynced with it; live
