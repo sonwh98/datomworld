@@ -456,11 +456,13 @@ qwen --resume <uuid> --approval-mode auto-edit "<follow-up prompt>" < /dev/null 
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
   > collab/<topic>/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 
-# Codex — TWO INDEPENDENT INSTALLS / TWO QUOTA POOLS (2026-11-10):
-#   laptop      : standalone at ~/.codex/packages/standalone (via
-#                 ~/.local/bin/codex) — the original account
+# Codex — TWO INSTALLS / TWO QUOTA POOLS (2026-11-10; pool sharing corrected 2026-11-11):
+#   laptop (darkstar) : standalone at ~/.codex/packages/standalone (via
+#                 ~/.local/bin/codex) — original account
 #   shiva       : standalone at ~/.codex/packages/standalone (via
-#                 ~/.local/bin/codex) — same account as the laptop
+#                 ~/.local/bin/codex) — SAME ACCOUNT AS THE LAPTOP: shares its
+#                 quota pool. A laptop session and a shiva session together
+#                 draw one meter.
 #   jupiter     : standalone at ~/.codex/packages/standalone (via
 #                 ~/.local/bin/codex) — SECOND ChatGPT account, SEPARATE quota
 #                 pool (installed 2026-11-10 via the official
@@ -470,15 +472,21 @@ codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
 # Both installs are the standalone (non-npm) packaging: PATH-independent,
 # headless-safe, self-updating via the `current` symlink.
 #
-# WHY TWO POOLS: (1) when one account's rolling quota exhausts (observed:
-# astra cut mid-review, and a full 429 with ~5h reset), dispatch on the OTHER
-# host instead — the work continues without waiting for the reset; (2) two
-# codex agents can run CONCURRENTLY on different hosts without sharing the
-# meter (e.g. shiva implements while jupiter reviews).
+# POOL MAP (the one that matters for dispatch):
+#   POOL 1 = laptop (darkstar) + shiva   — shared meter
+#   POOL 2 = jupiter                     — independent meter
 #
-# DISPATCH CONVENTION: pick the host by the worktree you need. Jupiter's
-# account is fresh and typically has more headroom; shiva's carries the
-# session history for resume. Route accordingly:
+# WHY TWO POOLS: (1) when POOL 1 exhausts (observed: astra cut mid-review,
+# and a full 429 with ~5h reset), dispatch on JUPITER instead — the work
+# continues without waiting for the reset; (2) two codex agents can run
+# CONCURRENTLY without sharing the meter only if they are on DIFFERENT
+# pools — e.g. shiva implements while jupiter reviews is fine, but laptop +
+# shiva concurrently is one meter drawn twice.
+#
+# DISPATCH CONVENTION: pick the host by the worktree you need; pick the POOL
+# by quota headroom. Jupiter's account is fresh and typically has more
+# headroom; shiva's carries the session history for resume (resume must run
+# on shiva — the conversation lives in its ~/.codex). Route accordingly:
 #   shiva   : ssh shiva 'codex exec -m <model> -s <flag> --json - < <prompt>'
 #   jupiter : ssh jupiter '~/.local/bin/codex exec -m <model> -s <flag> --json - < <prompt>'
 # (jupiter's ~/.local/bin is NOT on headless PATH — use the full path, or
