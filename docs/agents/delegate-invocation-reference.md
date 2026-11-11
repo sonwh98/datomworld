@@ -95,6 +95,12 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | deepseek     | `~/.claude-deepseek`        | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
+**Host availability (deepseek wrapper `~/.local/bin/deepseek`):** laptop
+(darkstar), shiva, and jupiter — all three hosts. Jupiter was added 2026-11-11
+(wrapper copied from shiva via scp; `~/.claude-deepseek/` rsynced with it; live
+smoke test passed with `MODEL=deepseek-flash`, the benign
+`claude-code:unrecognized_model` warning expected as everywhere else).
+Shiva remains the canonical reference install; update the other hosts from it.
 | glm          | `~/.claude-glm`             | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
