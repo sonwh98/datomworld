@@ -76,7 +76,40 @@
        "3212-2")
    (fx :sqrt-pow-minmax :math-ii
        "<?php echo sqrt(9), pow(2, 3), min(3, 1, 2), max(3, 1, 2), is_finite(1.0), is_infinite(INF);"
-       "381311")])
+       "381311")
+   ;; round's precision and the four PHP 8.3 modes (docs examples #1-#4)
+   (fx :round-precision :math-ii
+       "<?php echo round(3.4), ' ', round(3.5), ' ', round(5.045, 2), ' ', round(5.055, 2), ' ', round(345, -2), ' ', round(678, -2), ' ', round(678, -3), ' ', round(135.79, 1), ' ', round(135.79, -1), ' ', round(135.79, -3);"
+       "3 4 5.05 5.06 300 700 1000 135.8 140 0")
+   (fx :round-modes :math-ii
+       "<?php echo round(9.5, 0, 1), round(9.5, 0, 2), round(9.5, 0, 3), round(9.5, 0, 4), round(8.5, 0, 1), round(8.5, 0, 2), round(8.5, 0, 3), round(8.5, 0, 4), round(1.55, 1, 1), round(-1.55, 1, 1), round(1.55, 1, 2), round(-1.55, 1, 2), round(1.55, 1, 3), round(1.55, 1, 4);"
+       "10910998891.6-1.61.5-1.51.61.5")
+   ;; abs saturates the integer range per PHP 8.3: only PHP_INT_MIN crosses
+   ;; to float(-(double)PHP_INT_MIN)
+   (fx :abs-int-min :math-ii
+       "<?php var_dump(abs(PHP_INT_MIN), abs(PHP_INT_MIN - 1));"
+       "float(9.223372036854776E+18)\nfloat(9.223372036854776E+18)\n")
+   ;; sqrt is correctly rounded over the whole double range, NAN on negatives
+   (fx :sqrt-accuracy :math-ii
+       "<?php var_dump(sqrt(2), sqrt(3), sqrt(1e16), sqrt(4e300), sqrt(pow(2.0, -200)));"
+       "float(1.4142135623730951)\nfloat(1.7320508075688772)\nfloat(100000000)\nfloat(2.0E+150)\nfloat(7.888609052210118E-31)\n")
+   (fx :sqrt-domain :math-ii
+       "<?php echo sqrt(-1), sqrt(INF), sqrt(0.25), sqrt(1e-16);"
+       "NANINF0.51.0E-8")
+   ;; a single array argument is scanned; standard comparison, first of
+   ;; equals wins; empty is a ValueError, a lone scalar a TypeError
+   (fx :minmax-array-scan :math-ii
+       "<?php echo min([3, 1, 2]), max([3, 1, 2]), min(['x' => 5, 'y' => 1, 'z' => 9]), max(range(1, 5)), min(2, 3, 1, 6, 7), max(1, '1');"
+       "131511")
+   (fx :minmax-comparison-and-errors :math-ii
+       (str "<?php var_dump(min(-10, false, 10), min(0, true), min('hello', -1), max(1, '1')); "
+            "try { min([]); } catch (ValueError $e) { echo $e->getMessage(); } echo '|'; "
+            "try { max([]); } catch (ValueError $e) { echo $e->getMessage(); } echo '|'; "
+            "try { min(5); } catch (TypeError $e) { echo $e->getMessage(); }")
+       (str "bool(false)\nint(0)\nint(-1)\nint(1)\n"
+            "min(): Argument #1 ($value) must contain at least one element"
+            "|max(): Argument #1 ($value) must contain at least one element"
+            "|min(): Argument #1 ($value) must be of type array, int given"))])
 
 
 (def dynamic-scope

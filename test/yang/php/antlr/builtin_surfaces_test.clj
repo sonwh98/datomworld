@@ -118,6 +118,52 @@
       (is (= "9" (out "<?php namespace N; function compact($a) { return 9; } echo compact('x');"))))))
 
 
+(deftest p9-math-contracts-test
+  (let [out (fn [source] (:php/out (h/run-raw source)))]
+    (testing "round keeps PHP's pre-round scale so decimal ties hold"
+      (is (= "5.05" (out "<?php echo round(5.045, 2);")))
+      (is (= "5.06" (out "<?php echo round(5.055, 2);")))
+      (is (= "1.5" (out "<?php echo round(1.4999999999999998, 1);")))
+      (is (= "0.29" (out "<?php echo round(0.285, 2);"))))
+    (testing "round modes are HALF_UP, HALF_DOWN, HALF_EVEN, HALF_ODD"
+      (is (= "109109" (out "<?php echo round(9.5, 0, 1), round(9.5, 0, 2), round(9.5, 0, 3), round(9.5, 0, 4);")))
+      (is (= "9889" (out "<?php echo round(8.5, 0, 1), round(8.5, 0, 2), round(8.5, 0, 3), round(8.5, 0, 4);")))
+      (is (= "2" (out "<?php echo round(2.5, 0, 3);")))
+      (is (= "4" (out "<?php echo round(3.5, 0, 3);")))
+      (is (= "3" (out "<?php echo round(2.5, 0, 4);")))
+      (is (= "3" (out "<?php echo round(3.5, 0, 4);")))
+      (is (= "-8-10" (out "<?php echo round(-8.5, 0, 3), round(-9.5, 0, 3);")))
+      (is (= "-9-9" (out "<?php echo round(-8.5, 0, 4), round(-9.5, 0, 4);"))))
+    (testing "an invalid mode silently rounds half up in 8.3, never throwing"
+      (is (= "3" (out "<?php echo round(2.5, 0, 0);")))
+      (is (= "3" (out "<?php echo round(2.5, 0, 99);"))))
+    (testing "round answers a float and passes specials through"
+      (is (= "float(5)\n" (out "<?php var_dump(round(5));")))
+      (is (= "float(1.6)\n" (out "<?php var_dump(round(1.55, 1));")))
+      (is (= "float(-0)\n" (out "<?php var_dump(round(-0.4));")))
+      (is (= "NAN" (out "<?php echo round(NAN);")))
+      (is (= "INF" (out "<?php echo round(INF, 2);"))))
+    (testing "round handles deep and out-of-range precision per PHP"
+      (is (= "1.5E-8" (out "<?php echo round(1.5e-8, 12);")))
+      (is (= "2.5E-13" (out "<?php echo round(2.5e-13, 25);")))
+      (is (= "1.5" (out "<?php echo round(1.5, 400);"))))
+    (testing "abs keeps int for ints, float for floats and PHP_INT_MIN's edge"
+      (is (= "int(5)\n" (out "<?php var_dump(abs(-5));")))
+      (is (= "float(4.2)\n" (out "<?php var_dump(abs(-4.2));")))
+      (is (= "bool(true)\n" (out "<?php var_dump(abs(PHP_INT_MIN) == 9223372036854775808);")))
+      (is (= "int(9223372036854775807)\n" (out "<?php var_dump(abs(PHP_INT_MAX));"))))
+    (testing "sqrt is exact on perfect squares across magnitudes"
+      (is (= "bool(true)\n" (out "<?php var_dump(sqrt(1e16) == 1e8);")))
+      (is (= "bool(true)\n" (out "<?php var_dump(sqrt(4e300) == 2e150);")))
+      (is (= "bool(true)\n" (out "<?php var_dump(sqrt(pow(2.0, -200)) == pow(2.0, -100));")))
+      (is (= "bool(true)\n" (out "<?php var_dump(sqrt(pow(2.0, 600)) == pow(2.0, 300));"))))
+    (testing "min/max scan a single array and keep the first of equals"
+      (is (= "13" (out "<?php echo min([3, 1, 2]), max([3, 1, 2]);")))
+      (is (= "int(2)\n" (out "<?php var_dump(max(2, 2.0));")))
+      (is (= "float(2)\n" (out "<?php var_dump(min(2.0, 2));")))
+      (is (= "int(42)\n" (out "<?php var_dump(min('string', [2, 5, 7], 42));"))))))
+
+
 (deftest p9-compile-refusals-test
   (doseq [[source reason]
           [["<?php eval('$x = 1;');" :eval]

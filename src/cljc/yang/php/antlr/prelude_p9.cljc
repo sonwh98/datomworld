@@ -953,20 +953,213 @@
                                (php/json-fail st "Syntax error")))))))))))]
 
     ;; math II
-    [php/abs (fn [x] (if (php/int? x) (if (< x 0) (integer/neg x) x) (php/f (php/abs-h (php/fl x)))))]
-    [php/bi-abs (fn [args] (php/abs (get args 0)))]
+    [php/abs
+     ;; an int stays int; only PHP_INT_MIN's negation escapes the integer
+     ;; range, and PHP 8.3 answers the exact float 2^63 for it
+     (fn [x] (if (php/int? x) (if (< x 0) (php/int-result (integer/neg x)) x) (php/f (php/abs-h (php/fl x)))))]
+    [php/bi-abs
+     (fn [args] (do (php/arity-between "abs" args 1 1 "exactly 1") (php/abs (get args 0))))]
     [php/bi-ceil
      (fn [args] (let [x (php/to-float (get args 0)) h (php/h x) i (integer/from-float h)] (php/f (if (> h (integer/to-float i)) (integer/to-float (integer/add i 1)) (integer/to-float i)))))]
     [php/bi-floor
      (fn [args] (let [x (php/to-float (get args 0)) h (php/h x) i (integer/from-float h)] (php/f (if (< h (integer/to-float i)) (integer/to-float (integer/sub i 1)) (integer/to-float i)))))]
+    [php/p9-floor-h
+     ;; the floor of a finite host double, exactly: from-float truncates
+     ;; toward zero, so a negative non-integer steps down one
+     (fn [x]
+       (let [i (integer/from-float x) f (integer/to-float i)]
+         (if (= f x) f (if (> x 0) f (integer/to-float (integer/sub i 1))))))]
+    [php/p9-ceil-h (fn [x] (php/neg-h (php/p9-floor-h (php/neg-h x))))]
+    [php/p9-iabs (fn [n] (if (< n 0) (integer/neg n) n))]
+    [php/p9-min-i (fn [a b] (if (> (integer/compare a b) 0) b a))]
+    [php/p9-pow10
+     ;; 10^n exactly at arbitrary precision, rounded once to the nearest
+     ;; double like C's pow; past the double range the conversion refuses
+     ;; and C's pow overflows to infinity, and the 310 clamp bounds the
+     ;; exponent's own size
+     (fn [n]
+       (let [h (integer/to-float (integer/pow 10 (php/p9-min-i n 310)))]
+         (if (= h :yin.vm.integer/float-overflow) (php/inf) h)))]
+    [php/p9-log10-small
+     (fn [x n] (if (< x 1) (php/p9-log10-small (* x (data/float-value 10)) (+ n 1)) (- 0 n)))]
+    [php/p9-log10-large
+     (fn [x n] (if (>= x (data/float-value 10)) (php/p9-log10-large (/ x (data/float-value 10)) (+ n 1)) n))]
+    [php/p9-log10-down
+     ;; floor(log10(x)) for a positive finite host double, by decimal
+     ;; shifting (php_intlog10abs's binary search is a speed trick only)
+     (fn [x] (if (< x 1) (php/p9-log10-small x 0) (php/p9-log10-large x 0)))]
+    [php/p9-half-odd?
+     ;; the parity of an integer-valued finite host double
+     (fn [t] (= (get (integer/floor-div-mod (integer/from-float t) 2) 1) 1))]
+    [php/p9-half-adjust?
+     ;; at an exact half: HALF_DOWN always steps toward zero; HALF_EVEN
+     ;; steps when the rounded value is odd, HALF_ODD when it is even; any
+     ;; other mode is HALF_UP, which never steps (PHP 8.3 stays silent)
+     (fn [t mode]
+       (if (= mode 2) true
+           (if (= mode 3) (php/p9-half-odd? t)
+               (if (= mode 4) (not (php/p9-half-odd? t)) false))))]
+    [php/p9-round-half
+     ;; php_round_helper: a host double rounded to an integer-valued host
+     ;; double per the mode, halves away from zero by default
+     (fn [v mode]
+       (if (if (php/nan? v) true (= (php/abs-h v) (php/inf)))
+         v
+         (if (>= v 0)
+           (let [t (php/p9-floor-h (+ v (data/float-value 0.5)))]
+             (if (if (= v (- t (data/float-value 0.5))) (php/p9-half-adjust? t mode) false)
+               (- t (data/float-value 1)) t))
+           (let [t (php/p9-ceil-h (- v (data/float-value 0.5)))]
+             (if (if (= v (+ t (data/float-value 0.5))) (php/p9-half-adjust? t mode) false)
+               (+ t (data/float-value 1)) t)))))]
+    [php/p9-round-text
+     ;; %15fe%d of an integer-valued host double, the C tail's decimal
+     ;; round-trip text: the digits, six decimals, the exponent -places
+     (fn [t places]
+       (data/str-concat (integer/format (integer/from-float t))
+                        (data/str-concat ".000000e" (integer/format (integer/neg places)))))]
+    [php/p9-round-tail
+     ;; moving the decimal point back: |places| below 23 scales by 10^|places|
+     ;; directly, deeper places parse the decimal text (strtod's single
+     ;; rounding); a text that is not a full number keeps the operand
+     (fn [t places f1 v]
+       (if (if (php/nan? t) true (= (php/abs-h t) (php/inf)))
+         t
+         (if (< (php/p9-iabs places) 23)
+           (if (> places 0) (/ t f1) (* t f1))
+           (let [r (php/numeric-string (php/p9-round-text t places))]
+             (if (php/full-num? r) (php/h (php/to-float (get r 1))) v)))))]
+    [php/p9-round-direct
+     ;; the plain scale: beyond-precision magnitudes (1e15) answer the
+     ;; operand unchanged, like _php_math_round's early return
+     (fn [v places mode f1]
+       (let [t0 (if (>= places 0) (* v f1) (/ v f1))]
+         (if (>= (php/abs-h t0) (data/float-value 1e15))
+           v
+           (php/p9-round-tail (php/p9-round-half t0 mode) places f1 v))))]
+    [php/p9-round-pre
+     ;; the pre-round: FP arithmetic guarantees ~15 significant decimal
+     ;; digits, so a places just under that precision rounds at the
+     ;; guaranteed digit count first, then finishes
+     (fn [v places pp mode f1]
+       (let [f2 (php/p9-pow10 (php/p9-iabs pp))
+             t0 (if (>= pp 0) (* v f2) (/ v f2))
+             t1 (/ (php/p9-round-half t0 mode)
+                   (php/p9-pow10 (php/p9-iabs (integer/sub places pp))))]
+         (php/p9-round-tail (php/p9-round-half t1 mode) places f1 v)))]
+    [php/p9-math-round
+     ;; _php_math_round: a non-finite or zero operand passes through
+     ;; untouched; otherwise pre-round or scale directly per places, round
+     ;; per the mode, and put the decimal point back
+     (fn [v places mode]
+       (if (if (php/nan? v) true (= (php/abs-h v) (php/inf)))
+         v
+         (if (= v (php/zero-h))
+           v
+           (let [pp (- 14 (php/p9-log10-down (php/abs-h v)))
+                 f1 (php/p9-pow10 (php/p9-iabs places))
+                 preround (if (> (integer/compare pp places) 0)
+                            (< (integer/compare (integer/sub pp 15) places) 0)
+                            false)]
+             (if preround
+               (php/p9-round-pre v places pp mode f1)
+               (php/p9-round-direct v places mode f1))))))]
     [php/bi-round
-     (fn [args] (let [h (php/h (php/to-float (get args 0))) a (php/abs-h h) i (integer/from-float a) f (- a (integer/to-float i)) r (if (>= f (data/float-value 0.5)) (integer/add i 1) i)] (php/f (if (< h 0) (php/neg-h (integer/to-float r)) (integer/to-float r)))))]
-    [php/p9-sqrt-loop (fn [x guess i] (if (< i 40) (php/p9-sqrt-loop x (/ (+ guess (/ x guess)) (data/float-value 2)) (+ i 1)) guess))]
-    [php/bi-sqrt (fn [args] (let [x (php/h (php/to-float (get args 0)))] (if (< x 0) (php/nan-const) (if (= x 0) (php/f x) (php/f (php/p9-sqrt-loop x (if (> x 1) x 1) 0))))))]
+     (fn [args]
+       (do (php/arity-between "round" args 1 3 "at least 1")
+           (php/f (php/p9-math-round (php/h (php/to-float (get args 0)))
+                                     (php/to-int (php/arg-or args 1 0))
+                                     (php/to-int (php/arg-or args 2 1))))))]
+    [php/p9-sqrt-scale-up
+     ;; a positive double below 1 scaled into [1,4) by exact *4 steps; the
+     ;; answer is [xs e] with x = xs * 4^-e, every step exact
+     (fn [x e]
+       (if (< x 1) (php/p9-sqrt-scale-up (* x (data/float-value 4)) (+ e 1)) (php/pair x e)))]
+    [php/p9-sqrt-scale-down
+     ;; a positive double at or above 4 scaled into [1,4) by exact /4 steps
+     (fn [x e]
+       (if (>= x (data/float-value 4))
+         (php/p9-sqrt-scale-down (/ x (data/float-value 4)) (+ e 1))
+         (php/pair x e)))]
+    [php/p9-isqrt
+     ;; floor(sqrt(t)) for a positive integer by integer Newton: from a
+     ;; start above the root the steps decrease strictly and never cross
+     ;; it, so the first non-decreasing step leaves the root in hand
+     (fn [t g]
+       (let [g2 (get (integer/quot-rem
+                       (integer/add g (get (integer/quot-rem t g) 0)) 2) 0)]
+         (if (> (integer/compare g2 g) -1) g (php/p9-isqrt t g2))))]
+    [php/p9-sqrt-near
+     ;; the integer nearest to sqrt(t), ties to even (IEEE), given
+     ;; s = floor(sqrt(t)): compare the exact squared distances
+     (fn [t s]
+       (let [d1 (integer/sub t (integer/mul s s))
+             s1 (integer/add s 1)
+             d2 (integer/sub (integer/mul s1 s1) t)]
+         (if (< (integer/compare d1 d2) 0) s
+             (if (> (integer/compare d1 d2) 0) s1
+                 (if (= (get (integer/floor-div-mod s 2) 1) 0) s s1)))))]
+    [php/p9-sqrt-exact
+     ;; the correctly rounded square root of a positive finite host double:
+     ;; scale into [1,4) by powers of four (exact), read the 52-bit
+     ;; mantissa as an exact integer, take the integer square root at
+     ;; double precision, and scale back — every step is exact, so the
+     ;; only rounding is the mantissa's nearest-integer step, the same one
+     ;; IEEE sqrt makes; the engine's exact integers are what the host's
+     ;; sqrt hardware buys C
+     (fn [x]
+       (let [r (if (< x 1) (php/p9-sqrt-scale-up x 0) (php/p9-sqrt-scale-down x 0))
+             xs (get r 0) e (get r 1)
+             m (integer/from-float (* xs (data/float-value 4503599627370496)))
+             t (integer/shift-left m 52)
+             s (php/p9-isqrt t (integer/shift-left 1 53))
+             mant (php/p9-sqrt-near t s)
+             root (/ (integer/to-float mant) (data/float-value 4503599627370496))
+             scale (integer/to-float (integer/pow 2 e))]
+         (if (< x 1) (/ root scale) (* root scale))))]
+    [php/bi-sqrt
+     ;; negative operands answer NAN (no diagnostic in 8.3), +INF answers
+     ;; +INF, and +-0 keeps its sign
+     (fn [args]
+       (do (php/arity-between "sqrt" args 1 1 "exactly 1")
+           (let [x (php/h (php/to-float (get args 0)))]
+             (if (php/nan? x) (php/f x)
+                 (if (< x 0) (php/nan-const)
+                     (if (= (php/abs-h x) (php/inf)) (php/f x)
+                         (if (= x (php/zero-h)) (php/f x)
+                             (php/f (php/p9-sqrt-exact x)))))))))]
     [php/bi-pow (fn [args] (php/pow (get args 0) (get args 1)))]
-    [php/p9-minmax (fn [args i best want-max] (if (< i (data/count args)) (let [v (get args i) c (php/cmp v best)] (php/p9-minmax args (+ i 1) (if (if want-max (> c 0) (< c 0)) v best) want-max)) best))]
-    [php/bi-min (fn [args] (php/p9-minmax args 1 (get args 0) false))]
-    [php/bi-max (fn [args] (php/p9-minmax args 1 (get args 0) true))]
+    [php/p9-minmax
+     ;; the variadic scan: standard comparison, replacing only on strictly
+     ;; smaller (min) or larger (max), so the first of equals stays
+     (fn [args i best want-max] (if (< i (data/count args)) (let [v (get args i) c (php/cmp v best)] (php/p9-minmax args (+ i 1) (if (if want-max (> c 0) (< c 0)) v best) want-max)) best))]
+    [php/p9-array-minmax
+     ;; the single-array scan over insertion order
+     (fn [a i n best want-max]
+       (if (< i n)
+         (let [v (php/array-get a (get (php/array-order a) i)) c (php/cmp v best)]
+           (php/p9-array-minmax a (+ i 1) n (if (if want-max (> c 0) (< c 0)) v best) want-max))
+         best))]
+    [php/p9-bi-minmax
+     ;; min and max share the shape: no arguments is the count error, a
+     ;; lone argument must be a non-empty array (PHP 8.3's own texts), two
+     ;; or more scan the argument list
+     (fn [name args want-max]
+       (if (= (data/count args) 0)
+         (php/throw-error
+           "ArgumentCountError"
+           (data/str-concat name "() expects at least 1 argument, 0 given"))
+         (if (> (data/count args) 1)
+           (php/p9-minmax args 1 (get args 0) want-max)
+           (let [a (php/arg-array (get args 0) name 1 "value")]
+             (if (= (php/array-count a) 0)
+               (php/throw-error
+                 "ValueError"
+                 (data/str-concat name "(): Argument #1 ($value) must contain at least one element"))
+               (php/p9-array-minmax a 1 (php/array-count a)
+                                    (php/array-get a (get (php/array-order a) 0)) want-max))))))]
+    [php/bi-min (fn [args] (php/p9-bi-minmax "min" args false))]
+    [php/bi-max (fn [args] (php/p9-bi-minmax "max" args true))]
     [php/bi-is-finite (fn [args] (let [h (php/h (php/to-float (get args 0)))] (if (php/nan? h) false (not (= (php/abs-h h) (php/inf))))))]
     [php/bi-is-infinite (fn [args] (= (php/abs-h (php/h (php/to-float (get args 0)))) (php/inf)))]
     [php/bi-array-multisort (fn [args] (php/throw-error "Error" "array_multisort is a prefer-ref builtin and is not supported (corner C6)"))]])
