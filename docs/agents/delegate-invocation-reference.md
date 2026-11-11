@@ -356,6 +356,18 @@ caller-UUID agent like the Claude family and Muse):
   `--approval-mode auto-edit` (measured: file writes complete, DONE,
   rc=0) or `auto` (LLM-classifier approval); read-only review uses
   `plan`. Never `yolo` — same rule as every delegate.
+- **Argument order with array flags (observed 2026-11-11, JS R1+R3 round):**
+  `--include-directories` is a VARIADIC array option: a positional prompt
+  placed AFTER it (even comma-separated as one value) is swallowed as another
+  directory, and the run dies headless with "No input provided via stdin"
+  (three identical failures measured before the cause was read out of
+  `qwen --help`). Canonical one-shot form when extra directories are needed:
+  POSITIONAL PROMPT FIRST, then the flags (`qwen "<prompt>" --session-id
+  <uuid> --approval-mode plan --include-directories <dir>
+  --include-directories <dir2>`), and omit the `< /dev/null` redirect in that
+  combination — the recipe's redirect form is verified only for the no-array-flag
+  case. The `Warning: Tool "skill" requires user approval…` line that follows a
+  plan-mode dispatch is benign for read-only reviews.
 
 > [!CAUTION]
 > **`bl config agent --agent claude-code` is a global takeover — do not
@@ -666,6 +678,16 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   [`routing-status.md`](routing-status.md) before dispatching. Do not work
   around a geo-restriction or login failure by adding `--yolo`,
   `--disable-approval`, or `--disable-sandbox`.
+- **Muse headless denies writes outside the dispatch cwd — stage findings in
+  the worktree (measured four rounds in a row, 2026-11-11, JS R1+R3):** with
+  `--approval-mode never` the delegate cannot write to `collab/` in ANOTHER
+  checkout (e.g. the main tree while it works in a linked worktree), and
+  `--disable-write`-less rounds still hit the denial silently — the deliverable
+  appears lost while stdout ends clean. The working contract: the brief names
+  the canonical `collab/…` findings path AND says "if the sandbox blocks the
+  copy, stage the file at the worktree root with the same name and say so" —
+  the orchestrator copies it into place; four rounds landed this way (each
+  delegate self-declared the denial in its report).
 - **The same benign startup warning can precede a real outage, not just a
   successful fallback.** The warning alone never distinguishes them — only
   what follows it does. If it's followed by a completed response (even after
