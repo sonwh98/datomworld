@@ -6,6 +6,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [dao.jing.file :as jing.file]
             [dao.jing.mem :as mem]
             [dao.space.index :as index]
@@ -548,6 +549,39 @@
     (is (= (count committed) (:count (index/read-manifest store address))))
     (is (= committed (set (index/read-datoms store address)))
         "the manifest and every node blob are read back from the store")))
+
+
+(deftest a-retention-only-failure-is-reported-though-indexing-succeeds
+  ;; cc3 r8 F1/F4: the store refuses only provenance writes, so the
+  ;; indexer publishes and has nothing to report; the round must still
+  ;; warn — through the retention diagnostic, not the indexer.
+  (doseq [[label fail-key]
+          [["relation write" :yin.vm.provenance/schema]
+           ["record write" :yin.repl.call-provenance/schema]]]
+    (testing label
+      (let [inner (mem/create-content-mem)
+            store (assoc inner
+                         :put-bytes-fn
+                         (fn [address bs]
+                           (let [v (try (cbor/decode bs)
+                                        (catch #?(:cljd Object :clj Exception
+                                                  :cljs :default) _ nil))]
+                             (when (and (map? v) (contains? v fail-key))
+                               (throw (ex-info "store refused the provenance write"
+                                               {})))
+                             ((:put-bytes-fn inner) address bs))))
+            [state [text]] (evaluate
+                             (repl.frontends/create-state {:index-store store})
+                             ["(+ 1 2)"])
+            status (get-in (repl/repl-state state) [:index])]
+        (is (str/starts-with? text "3\nWarning: "))
+        (is (str/includes? text "call provenance was not retained"))
+        (is (str/includes? text (str label " failed")))
+        (is (true? (:published? status)) "indexing itself succeeded")
+        (is (nil? (:failure status)) "the indexer has no failure to report")
+        (is (empty? (repl/call-provenance-handles state))
+            "no handle is advertised for the failed retention")
+        (is (= 1 (count (repl/call-provenance-failures state))))))))
 
 
 (deftest a-publication-failure-is-reported-in-the-round-and-repl-state

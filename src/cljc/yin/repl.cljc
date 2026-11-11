@@ -215,6 +215,20 @@
                          (:call-provenance register))}))))
 
 
+(defn- retention-throw
+  "Rethrow `error` from retention `stage` (`:validation`, `:relation`
+   or `:record`) tagged with the admission and root it failed for, so
+   the loader can record an admission-scoped failure diagnostic (r8
+   F1) instead of the blanket catch discarding it."
+  [stage admission root error]
+  (throw (ex-info (or (ex-message error) (str error))
+                  (assoc (or (ex-data error) {})
+                         :yin.repl/retention-stage stage
+                         :yin.repl/retention-admission admission
+                         :yin.repl/retention-root root)
+                  error)))
+
+
 (defn retain-packet-call-provenance!
   "Persist one packet's admission-scoped call provenance (cc3 r2
    item 4) as a side artifact in the session's content store
@@ -229,19 +243,29 @@
    session has no content store (absence, never invention)."
   [state packet admission]
   (when-let [store (:index-store state)]
-    (when-let [prov (packet-call-provenance state packet admission)]
+    (when-let [prov (try (packet-call-provenance state packet admission)
+                         (catch #?(:cljd Object :clj Exception :cljs :default) e
+                           (retention-throw :validation admission
+                                            (first packet) e)))]
       (let [relation {:yin.vm.provenance/schema 1
                       :yin.vm.provenance/admission admission
                       :yin.vm.provenance/root (first packet)
                       :yin.vm.provenance/semantic (:semantic prov)
                       :yin.vm.provenance/stack (:stack prov)
                       :yin.vm.provenance/register (:register prov)}
-            relation-address (jing/materialize! store relation)
+            relation-address (try (jing/materialize! store relation)
+                                  (catch #?(:cljd Object :clj Exception
+                                            :cljs :default) e
+                                    (retention-throw :relation admission
+                                                     (first packet) e)))
             record {:yin.repl.call-provenance/schema 1
                     :yin.repl.call-provenance/admission admission
                     :yin.repl.call-provenance/root (first packet)
                     :yin.repl.call-provenance/relation relation-address}]
-        {:handle (jing/materialize! store record)
+        {:handle (try (jing/materialize! store record)
+                      (catch #?(:cljd Object :clj Exception :cljs :default) e
+                        (retention-throw :record admission
+                                         (first packet) e)))
          :relation relation-address
          :admission admission
          :root (first packet)
@@ -287,6 +311,38 @@
    durable store is reopened. Empty before any claimed load."
   [state]
   (:call-provenance-handles state))
+
+
+(defn call-provenance-failures
+  "The admission-scoped retention failures this session's production
+   loaders recorded (r8 F1): `[{:admission a :root r :stage s
+   :message m} …]` in round order, `:stage` one of `:validation`,
+   `:relation` or `:record`. A claimed admission whose retention
+   threw appears here and advertises no handle in
+   `call-provenance-handles`; an unclaimed admission appears in
+   neither (absence, never invention). Empty before any failure."
+  [state]
+  (:call-provenance-failures state))
+
+
+
+
+(defn- retention-notice
+  "The round's Warning line for its retention `failures`, or nil."
+  [failures]
+  (when (seq failures)
+    (str "Warning: this round's call provenance was not retained ("
+         (str/join "; "
+                   (map (fn [{:keys [stage message]}]
+                          (str (case stage
+                                 :relation "relation write"
+                                 :record "record write"
+                                 :validation "provenance validation"
+                                 "retention")
+                               " failed"
+                               (when message (str ": " message))))
+                        failures))
+         "); the program's value is unaffected")))
 
 
 (defn- append-stack-image
@@ -1226,7 +1282,11 @@
 (defn- finalize-eval
   "Drain the round's output and its result from the output medium.  Only a
    result stamped with this round's identity is this round's value; the
-   evaluator answers once per halted program, after its prints.  A missing
+   evaluator answers once per halted program, after its prints.  The
+   render hook and the default result formatting are host code
+   executing at the round's very end; a raise from either reaches the
+   round recovery, which reads retention evidence only from the
+   shell-owned accumulator, never from the raise payload (r11).  A missing
    or foreign-round result is loss, reported with the append outcome the
    runner recorded.  The program halted, so its VM state survives and a
    frontend's staged session is committed; a frontend with a `:render`
@@ -1327,11 +1387,19 @@
 (defn- with-index-notice
   "Append what the round's index steps lost, if anything, to its result
    text, one line per notice in the order given; the evaluation's own
-   answer is unchanged."
+   answer is unchanged. A retention failure the evaluator stage
+   recorded for this round (`:call-provenance-round-failures`, r8 F1)
+   rides as a further Warning line and is consumed here, so a failed
+   retention is observable in the round even when indexing succeeded
+   and the indexer has nothing to report."
   [[state text] notices]
-  (if-let [notice (some->> (remove nil? notices) seq (str/join "\n"))]
-    [state (if (str/blank? text) notice (str text "\n" notice))]
-    [state text]))
+  (let [retention (retention-notice (:call-provenance-round-failures state))
+        state (dissoc state :call-provenance-round-failures)
+        notices (cond-> (vec (remove nil? notices))
+                  retention (conj retention))]
+    (if-let [notice (some->> notices seq (str/join "\n"))]
+      [state (if (str/blank? text) notice (str text "\n" notice))]
+      [state text])))
 
 
 (defn call-site-tables
@@ -1470,8 +1538,13 @@
   "Drive the evaluator's observer over `program-out`: it loads each
    expanded tree packet into the VM, runs it, and answers its value on the
    output medium.  The two stages meet only at `program-out`; neither calls
-   the other."
-  [{:keys [load-program output-stream] :as state}]
+   the other.  `latest` is the round's shell-owned accumulator (r11):
+   when the run throws, the handles and failures this stage's loaders
+   completed -- the empty record included -- are merged into it before
+   the program error is rethrown as itself, so recovery reads retention
+   evidence from that shell-owned record alone, never from the
+   exception payload."
+  [{:keys [load-program output-stream] :as state} latest]
   (let [;; cc3 r2 item 4: every production loader passes through this
         ;; wrapper, so admission-scoped provenance production is
         ;; connected to durable retention on the ordinary REPL path —
@@ -1481,16 +1554,40 @@
         ;; out (`call-provenance-handles`). Unclaimed packets retain
         ;; nothing (absence, never invention).
         handles (volatile! {})
+        failures (volatile! [])
         retaining-load (fn [vm packet]
-                         (when-let [admission
-                                    (get (:call-site-round-claims state)
-                                         (first packet))]
-                           (when-let [retained
-                                      (retain-packet-call-provenance!
-                                        state packet admission)]
-                             (vswap! handles assoc
-                                     [admission (first packet)]
-                                     (:handle retained))))
+                         ;; r7+r8: retention is a side artifact
+                         ;; outside every manifest hash; its failure
+                         ;; must never change the program's value or
+                         ;; error text, but a FAILED retention of a
+                         ;; CLAIMED admission must stay observable
+                         ;; (r8 F1): record an admission-scoped
+                         ;; failure diagnostic (which admission, root
+                         ;; and stage) on the session state and as
+                         ;; the round's Warning line, advertise no
+                         ;; handle for it, and load as before. An
+                         ;; unclaimed packet records nothing
+                         ;; (absence, never invention).
+                         (let [admission (get (:call-site-round-claims state)
+                                              (first packet))]
+                           (when admission
+                             (try
+                               (when-let [retained
+                                          (retain-packet-call-provenance!
+                                            state packet admission)]
+                                 (vswap! handles assoc
+                                         [admission (first packet)]
+                                         (:handle retained)))
+                               (catch #?(:cljd Object
+                                         :clj Exception
+                                         :cljs :default) error
+                                 (vswap! failures conj
+                                         {:admission admission
+                                          :root (first packet)
+                                          :stage (:yin.repl/retention-stage
+                                                   (ex-data error))
+                                          :message (or (ex-message error)
+                                                       (str error))})))))
                          (load-program vm packet))
         {:keys [observer] vm :consumer}
         (try (observer/run-on-stream {:observer (:row-observer state),
@@ -1499,21 +1596,33 @@
                                      retaining-load
                                      (make-runner output-stream (round-id state)))
              (catch #?(:cljd Object :clj Exception :cljs js/Error) error
-               ;; r3 F4: retention already persisted its artifacts
-               ;; before this throw; carry the completed handles on
-               ;; the error so the recovery path merges them into the
-               ;; recovered session instead of dropping them with
-               ;; this local volatile
-               (throw (if (seq @handles)
-                        (ex-info (or (ex-message error) (str error))
-                                 (assoc (ex-data error)
-                                        ::call-provenance-handles @handles)
-                                 error)
-                        error))))]
+               ;; r11: what this stage's retention completed and
+               ;; recorded -- handles AND failures, the empty record
+               ;; included -- is merged into the shell accumulator
+               ;; (`latest`), the record recovery reads; the program
+               ;; error travels as itself, carrying no retention
+               ;; evidence: a guest or host throw with forged
+               ;; ::call-provenance-* keys cannot fabricate handles,
+               ;; diagnostics or a Warning
+               (vswap! latest
+                       (fn [stage-state]
+                         (cond-> stage-state
+                           (seq @handles)
+                           (update :call-provenance-handles merge @handles)
+                           (seq @failures)
+                           (-> (update :call-provenance-failures
+                                       (fnil into []) @failures)
+                               (assoc :call-provenance-round-failures
+                                      @failures)))))
+               (throw error)))]
     (cond-> (-> state
                 (assoc :row-observer observer :vm vm)
                 (dissoc :call-site-round-claims))
-      (seq @handles) (update :call-provenance-handles merge @handles))))
+      (seq @handles) (update :call-provenance-handles merge @handles)
+      (seq @failures) (-> (update :call-provenance-failures
+                                  (fnil into []) @failures)
+                          (assoc :call-provenance-round-failures
+                                 @failures)))))
 
 
 (defn- format-expansion-errors
@@ -1555,25 +1664,21 @@
    cannot reuse it.  It carries the query interpreter's pair too: the
    requests it has answered stay answered when the shell rolls back.
    The linker successor carries every cursor and settled question.
-   It also carries the call-provenance handles completed retention
-   had already persisted before the resume (r4 F4): a program that
-   returned from the evaluator stage waiting on a query/link has its
-   handles on `state`, and a throw when `drive-links` resumes it
-   must not drop them with the interrupted run."
+   It carries no retention evidence (r11): the handles and failures
+   completed retention persisted are on the session state the
+   recovery reads -- a program that returned from the evaluator stage
+   waiting on a query/link has its handles on `state`, and a throw
+   when `drive-links` resumes it drops nothing -- so nothing a guest
+   or host throw carries is retention evidence."
   [error vm state]
   (ex-info (or (ex-message error) "Link failed")
-           (cond-> (assoc (or (ex-data error) {})
-                          ::link-counter (:id-counter vm)
-                          ::link-origins (:origins vm)
-                          ::query-pair (:query-pair state)
-                          ::linker (:linker state)
-                          ::dht (:dht state)
-                          ::indexer (:indexer state))
-             (seq (:call-provenance-handles state))
-             (assoc ::call-provenance-handles
-                    (merge (::call-provenance-handles
-                             (ex-data error))
-                           (:call-provenance-handles state))))))
+           (assoc (or (ex-data error) {})
+                  ::link-counter (:id-counter vm)
+                  ::link-origins (:origins vm)
+                  ::query-pair (:query-pair state)
+                  ::linker (:linker state)
+                  ::dht (:dht state)
+                  ::indexer (:indexer state))))
 
 
 (defn- carry-served
@@ -1885,7 +1990,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   (let [latest (volatile! expanded)]
     (try
     (let [gaps-before (ingress-gaps expanded)
-          evaluated (do (vreset! latest (run-evaluator-stage expanded))
+          evaluated (do (vreset! latest (run-evaluator-stage expanded latest))
                         @latest)
           vm (:vm evaluated)]
       (cond
@@ -1917,7 +2022,13 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
     (catch #?(:cljd Object :clj Exception :cljs js/Error) error
       ;; a link raise rolls the shell back to the round's base; the
       ;; identity the interrupted VM had minted rides on it, so nothing
-      ;; is minted twice on the surviving pair
+      ;; is minted twice on the surviving pair.  Retention evidence
+      ;; is read EXCLUSIVELY from @latest (r11) -- the shell-owned
+      ;; accumulator this evaluation's stages merged, the evaluator
+      ;; stage recording what its loaders completed before rethrowing
+      ;; -- and never from the exception payload: no throw a program,
+      ;; its renderer or its result formatting produces can fabricate
+      ;; handles, diagnostics or a Warning
       (let [d (ex-data error)
             base (query/discard-answers
                    (if (or (::link-counter d) (::link-origins d))
@@ -1929,22 +2040,28 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                    (:query-pair expanded))]
         (consume-failed-round (carry-served
                                 (cond-> (assoc expanded :vm base)
-                                  ;; r3+r4 F4: provenance handles
-                                  ;; completed before the throw ride
-                                  ;; the recovered session — carried
-                                  ;; on the error (evaluator-stage and
-                                  ;; link raises) and, failing that,
-                                  ;; read from the latest known state
-                                  ;; of this evaluation, never only
-                                  ;; from the pre-evaluator `expanded`
-                                  (or (::call-provenance-handles d)
-                                      (seq (:call-provenance-handles
-                                             @latest)))
+                                  ;; r3+r4 F4: handles completed
+                                  ;; before the throw ride the recovered
+                                  ;; session: @latest is the latest known
+                                  ;; state of this evaluation, never only
+                                  ;; the pre-evaluator `expanded`
+                                  (seq (:call-provenance-handles @latest))
                                   (update :call-provenance-handles
                                           merge
-                                          (::call-provenance-handles d)
-                                          (:call-provenance-handles
-                                            @latest)))
+                                          (:call-provenance-handles @latest))
+                                  ;; r8 F1: failures the stages recorded
+                                  ;; before the throw ride recovery the
+                                  ;; same way, so the diagnostic -- and
+                                  ;; its round Warning -- survives exactly
+                                  ;; once
+                                  (seq (:call-provenance-failures @latest))
+                                  (assoc :call-provenance-failures
+                                         (:call-provenance-failures @latest))
+                                  (seq (:call-provenance-round-failures
+                                        @latest))
+                                  (assoc :call-provenance-round-failures
+                                         (:call-provenance-round-failures
+                                           @latest)))
                                 d)
                               error))))))
 
@@ -2397,21 +2514,21 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       (catch #?(:cljd Object :clj Exception :cljs js/Error) error
         (let [[st text] (drain-output state)
               d (ex-data error)]
+          ;; retention evidence rides the shell-owned session state
+          ;; (r11): st carries every handle and failure the parked
+          ;; run's loaders recorded before it parked, so no exception
+          ;; payload is read here -- a late throw from the resumed
+          ;; run, its renderer or its result formatting cannot
+          ;; fabricate handles, diagnostics or a Warning
           (fold-queued
-            [(carry-served (cond-> (assoc st
-                                          :vm (query/discard-answers
-                                                (carry-link-identity
-                                                  (:base parked)
-                                                  {:id-counter (::link-counter d)
-                                                   :origins (::link-origins d)})
-                                                (:query-pair st))
-                                          :pending-run nil)
-                             ;; r4 F4: handles a link raise carried
-                             ;; out of the resumed run ride recovery
-                             (::call-provenance-handles d)
-                             (update :call-provenance-handles
-                                     merge
-                                     (::call-provenance-handles d)))
+            [(carry-served (assoc st
+                                  :vm (query/discard-answers
+                                        (carry-link-identity
+                                          (:base parked)
+                                          {:id-counter (::link-counter d)
+                                           :origins (::link-origins d)})
+                                        (:query-pair st))
+                                  :pending-run nil)
                            d)
              (str text
                   (format-error error)
