@@ -121,6 +121,26 @@
   (contains? reserved-names x))
 
 
+(def reserved-prefix
+  "The compiler-private name prefix (`dsg__`). Every name it begins is a
+   host or compiler temporary, never a guest name: the provenance doors
+   (`cell/dsg__new-provenance`, `cell/dsg__provenance`) and the Clojure
+   frontend's own temporaries. Source admission and macro admission refuse
+   it in any executable position — a variable, a binder, or a definition
+   target. A quoted symbol carrying it stays inert data."
+  "dsg__")
+
+
+(defn reserved-prefix-name?
+  "True when `x` is a symbol whose local name begins with `reserved-prefix`,
+   whatever its namespace: a compiler-private name no guest code may spell
+   or construct."
+  [x]
+  (and (symbol? x)
+       (= reserved-prefix
+          (subs (name x) 0 (min (count (name x)) (count reserved-prefix))))))
+
+
 (defn reserved-name-defect
   "The data of a Rule R refusal: `role` names where the reserved name
    appeared (`:variable`, `:binder`, `:store-key`, `:definition-key`,

@@ -410,9 +410,33 @@
   (make-effect :cell/authentic? {:cell c}))
 
 
+(defn new-provenance-cell
+  "The privileged mint: allocate a fresh sealed cell holding `value` with
+   `provenance` installed in its private `:provenance` sibling, atomically.
+   `provenance` must be non-nil and is otherwise opaque to the VM. Only the
+   mint attaches provenance, and only at allocation. Not a guest surface:
+   the name is compiler-private (`dsg__`)."
+  [value provenance]
+  (make-effect :cell/new-provenance {:val value, :provenance provenance}))
+
+
+(defn provenance-cell
+  "The private reader: the `:provenance` a live, authenticated, marked cell
+   carries, or nil for anything else — an unmarked cell, a forged or dead
+   reference, or a non-reference. Never fatal, never mutating, and the
+   engine learns no frontend semantics from the slot. Not a guest surface:
+   the name is compiler-private (`dsg__`)."
+  [candidate]
+  (make-effect :cell/provenance {:cell candidate}))
+
+
 (def cell-module
-  "The `cell` module definition. Registering it is a composition step."
-  {'new new-cell, 'get get-cell, 'set! set-cell!, 'authentic? authentic-cell?})
+  "The `cell` module definition. Registering it is a composition step. The
+   two `dsg__` bindings are the compiler-private provenance mint and reader:
+   guest code may neither spell nor construct their names."
+  {'new new-cell, 'get get-cell, 'set! set-cell!, 'authentic? authentic-cell?,
+   'dsg__new-provenance new-provenance-cell,
+   'dsg__provenance provenance-cell})
 
 
 (def cell-profiles
@@ -422,7 +446,13 @@
    'get (vm/primitive-profile 'get :effectful [1] #{:cell/get} :none)
    'set! (vm/primitive-profile 'set! :effectful [2] #{:cell/set!} :none)
    'authentic? (vm/primitive-profile 'authentic? :effectful [1]
-                                     #{:cell/authentic?} :none)})
+                                     #{:cell/authentic?} :none)
+   'dsg__new-provenance (vm/primitive-profile 'dsg__new-provenance
+                                              :effectful [2]
+                                              #{:cell/new-provenance} :none)
+   'dsg__provenance (vm/primitive-profile 'dsg__provenance
+                                          :effectful [1]
+                                          #{:cell/provenance} :none)})
 
 
 (defn register-cell-module

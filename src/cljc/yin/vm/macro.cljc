@@ -568,6 +568,18 @@
   (throw (ex-info msg (assoc data :yin.macro/prelude true))))
 
 
+(defn- check-guest-name!
+  "Refuse `sym`, a guest-supplied name in `op`'s position, when it is
+   compiler-private (`dsg__`-prefixed): such names belong to the host and
+   compiler — the provenance doors and the frontend temporaries — so a macro
+   may construct no executable reference, binder, or definition target
+   carrying one. A quoted symbol stays inert data."
+  [op sym]
+  (when (vm/reserved-prefix-name? sym)
+    (throw-prelude (str op " refuses the compiler-private name " sym)
+                   {:op op, :name sym})))
+
+
 (defn- packet?
   [x]
   (and (vector? x) (= 2 (count x)) (jing/segment-address? (first x))
@@ -808,6 +820,7 @@
   ([params body lineage]
    (when-not (and (sequential? params) (every? symbol? params))
      (throw-prelude "yin/lambda params must be symbols" {:op 'yin/lambda}))
+   (doseq [p params] (check-guest-name! 'yin/lambda p))
    (construct [:lambda (vec params) (first body)] [body] lineage)))
 
 
@@ -948,6 +961,7 @@
         'yin/variable (fn [sym]
                         (when-not (symbol? sym)
                           (throw-prelude "yin/variable expects a symbol" {:op 'yin/variable}))
+                        (check-guest-name! 'yin/variable sym)
                         (construct [:variable sym] [] lineage)),
         'yin/lambda (fn [params body]
                       (lambda-packet params (need-packet 'yin/lambda body)
@@ -973,11 +987,13 @@
                                             (need-packet 'yin/make-lambda body)
                                             lineage))),
         'yin/make-def (fn [name-tree value-tree]
-                        (application-packet
-                          (construct [:variable 'yin/def] [] lineage)
-                          [(literal-packet (name-of name-tree) lineage)
-                           (need-packet 'yin/make-def value-tree)]
-                          lineage)),
+                        (let [n (name-of name-tree)]
+                          (check-guest-name! 'yin/make-def n)
+                          (application-packet
+                            (construct [:variable 'yin/def] [] lineage)
+                            [(literal-packet n lineage)
+                             (need-packet 'yin/make-def value-tree)]
+                            lineage))),
         'yin/name-of name-of,
         'yin/gensym-sym gensym}))))
 

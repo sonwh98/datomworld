@@ -2443,9 +2443,11 @@
 
 (defn- heap-write
   "`state` with heap cell `id` holding `v` under `seal`: allocation when the
-   cell is new, a write (the seal unchanged) when it is live."
+   cell is new, a write (the seal unchanged) when it is live. A write
+   preserves the entry's `:provenance` sibling; only the mint attaches one,
+   and only at allocation."
   [state id seal v]
-  (assoc-in state [:heap id] {:value v, :seal seal}))
+  (update-in state [:heap id] (fn [entry] (assoc entry :value v, :seal seal))))
 
 
 ;; =============================================================================
@@ -2576,7 +2578,8 @@
                              (children-of x))
                   work (cond-> work
                          (and new-id? follow?)
-                         (conj [:data (:value (get heap id))])
+                         (-> (conj [:data (:value (get heap id))])
+                             (conj [:data (:provenance (get heap id))]))
                          (values/host-typed? x)
                          (conj [:kernel (values/payload x)])
                          (some? children)
@@ -2614,12 +2617,16 @@
 
 (defn- mark
   "The ids of `heap` live from `roots` and from the `pinned` ids: a pinned
-   cell is a root, so its content is traced too, as data."
+   cell is a root, so its content — value and provenance — is traced too,
+   as data."
   [vm heap roots pinned]
   (let [pins (filterv #(contains? heap %) pinned)]
     (trace vm
            heap
-           (update roots :data into (map #(:value (get heap %))) pins)
+           (update roots :data
+                   into (mapcat (fn [id] (let [e (get heap id)]
+                                           [(:value e) (:provenance e)]))
+                                pins))
            (set pins)
            true)))
 
@@ -2658,13 +2665,14 @@
 
 (defn- count-allocation
   "`state` with one allocation counted, collected first when the count
-   reaches the threshold. `v`, the value being boxed, is held by no
-   register yet, so it is traced as an extra root."
-  [state v]
+   reaches the threshold. `roots`, the values being boxed (the content, and
+   for a mint the provenance), are held by no register yet, so each is
+   traced as an extra root."
+  [state & roots]
   (let [gc (gc-of state)
         since (inc (:since gc))]
     (if (>= since (:threshold gc))
-      (collect state [v])
+      (collect state (vec roots))
       (assoc state :gc (assoc gc :since since)))))
 
 
@@ -2797,6 +2805,29 @@
           {:state state,
            :value (authentic-ref? state :cell-ref (:cell effect)),
            :blocked? false}
+          ;; The privileged mint: a fresh sealed cell with `:value` and a
+          ;; private `:provenance` sibling installed atomically. Provenance
+          ;; is opaque to the engine; it is answered only by `:cell/provenance`.
+          :cell/new-provenance
+          (let [[id s'] (gensym (count-allocation state
+                                                  (:val effect)
+                                                  (:provenance effect))
+                                "cell")
+                ref (issue-ref s' :cell-ref id)]
+            {:state (assoc-in s' [:heap id] {:value (:val effect),
+                                             :seal (:seal ref),
+                                             :provenance (:provenance effect)}),
+             :value ref,
+             :blocked? false})
+          ;; The private reader: authenticate before consulting the slot, so
+          ;; an unauthenticated candidate answers nil instead of refusing.
+          ;; Never fatal, never mutating.
+          :cell/provenance
+          (let [ref (:cell effect)]
+            {:state state,
+             :value (when (authentic-ref? state :cell-ref ref)
+                      (get-in state [:heap (:id ref) :provenance])),
+             :blocked? false})
           (let [[id s'] (gensym state "effect")
                 handler (module/get-effect-handler (:modules state)
                                                    (:effect effect))]
