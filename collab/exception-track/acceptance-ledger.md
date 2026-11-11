@@ -437,3 +437,16 @@ prelude) and cannot establish any earlier python row state. Scanner goldens rege
 `428bbdd7` (deferred `:py` set single mover, three-run byte-identical, abort-gate verified).
 Step-7 verification of the adoption wiring: dispatched to glm-5.3 (non-deepseek family, per
 independence after sol/deepseek authorship). Python merge hold releases on its verdict.
+
+### Python adoption MERGED — `8018005d` (glm-5.3 step-7: APPROVE WITH FINDINGS, 3×P3 follow-up grade)
+
+Step-7 verdict: the adoption is a clean minimal rewiring; the forgeable stamp fully retired as an
+authority source; every forwarding decision authenticates through the sealed-heap reader; R2
+lifetime rules hold clause-by-clause; export surface exposes no mint path; no assertion weakened.
+Findings disposition (all P3, DEFERRED to follow-up rounds, none weakens the authenticity
+guarantee): F1 — mint nil-guard behavior split (nil fatal vs other garbage opaque) to be
+shape-checked at reception or recorded as explicit contract; F2 — python export-surface audit pin
+(mirroring the ts twin's module-exports/runtime-keys assertion) to close the future-regression
+gap; F3 — stale scanner-deferred comment rewrite at scanner-golden-c4.generate.clj:47-53.
+**Python merge hold RELEASED.** Two of the four frontends now hold the full authentic-retention
+stack on master (python + js); php in flight; clojure port queued on cc3.
