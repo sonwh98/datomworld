@@ -456,6 +456,38 @@ qwen --resume <uuid> --approval-mode auto-edit "<follow-up prompt>" < /dev/null 
 codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
   > collab/<topic>/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 
+# Codex — TWO INDEPENDENT INSTALLS / TWO QUOTA POOLS (2026-11-10):
+#   laptop      : standalone at ~/.codex/packages/standalone (via
+#                 ~/.local/bin/codex) — the original account
+#   shiva       : standalone at ~/.codex/packages/standalone (via
+#                 ~/.local/bin/codex) — same account as the laptop
+#   jupiter     : standalone at ~/.codex/packages/standalone (via
+#                 ~/.local/bin/codex) — SECOND ChatGPT account, SEPARATE quota
+#                 pool (installed 2026-11-10 via the official
+#                 chatgpt.com/codex/install.sh; the npm-under-nvm install was
+#                 removed the same day — it required an interactive nvm shell
+#                 and was unusable headless)
+# Both installs are the standalone (non-npm) packaging: PATH-independent,
+# headless-safe, self-updating via the `current` symlink.
+#
+# WHY TWO POOLS: (1) when one account's rolling quota exhausts (observed:
+# astra cut mid-review, and a full 429 with ~5h reset), dispatch on the OTHER
+# host instead — the work continues without waiting for the reset; (2) two
+# codex agents can run CONCURRENTLY on different hosts without sharing the
+# meter (e.g. shiva implements while jupiter reviews).
+#
+# DISPATCH CONVENTION: pick the host by the worktree you need. Jupiter's
+# account is fresh and typically has more headroom; shiva's carries the
+# session history for resume. Route accordingly:
+#   shiva   : ssh shiva 'codex exec -m <model> -s <flag> --json - < <prompt>'
+#   jupiter : ssh jupiter '~/.local/bin/codex exec -m <model> -s <flag> --json - < <prompt>'
+# (jupiter's ~/.local/bin is NOT on headless PATH — use the full path, or
+#  `bash -lc` which loads ~/.profile.)
+# Reminder: team.md's one-pool note applies WITHIN each account; with two
+# accounts the meter is per-account, so the sequencing constraint softens to
+# "sequence dispatches on the SAME account".
+
+
 # Kimi Code — native CLI for every Kimi model
 # New implementation session; for a read-only review, add --agent explore
 # (builtin profiles: plan, agent, coder, explore).
