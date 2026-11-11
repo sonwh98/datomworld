@@ -104,9 +104,10 @@
   typescript-store-root-unreachability-test
   ;; Guest side: a genuine wrapper carries no provenance, condition or
   ;; seal slot, and no global name holds the store or a seal.
-  ;; Host side: the private store is not a runtime key and no module
-  ;; export names a store, seal or provenance registration surface, so
-  ;; admitted source cannot reach it by enumerating either.
+  ;; Host side: the private store is not a runtime key and neither
+  ;; installed retention name is a module export, so admitted source
+  ;; cannot reach it by enumerating either, and no frozen pre-init
+  ;; export binding can silently answer for it.
   (doseq [[backend actual] (probes/run-typescript-identity-store :store-root)]
     (if (instance? Throwable actual)
       (do-report {:type :error :message (str "store-root unreachability " backend " operational failure")
@@ -115,10 +116,10 @@
           (str "store-root unreachability " backend))))
   (is (not-any? #(str/includes? (str %) "retained") js-prelude/runtime-keys)
       "no retained store/seal runtime key for admitted source to name")
-  (is (empty? (filter #{'retained-store 'retained-seal 'retained-provenance
-                        'provenance-store 'register-retained}
-                      js-prelude/module-exports))
-      "no exported store/seal/provenance registration name"))
+  (is (not (contains? js-prelude/module-exports 'retained-condition))
+      "retained-condition is not a module export: no frozen pre-init binding")
+  (is (not (contains? js-prelude/module-exports 'raise-protocol))
+      "raise-protocol is not a module export: no frozen pre-init binding"))
 
 
 (deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
