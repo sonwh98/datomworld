@@ -1,5 +1,6 @@
 (ns yin.vm.semantic.linearize-test
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
             [yin.vm :as vm]
             [yin.vm.parity-test :as parity]
             [yin.vm.semantic :as sr]
@@ -392,3 +393,78 @@
          (throws-ex-data #(linearize/project-datoms
                             [[-20 :yin/root true 0 :db/add]
                              [-20 :yin/type :no/such 0 :db/add]])))))
+
+
+(deftest call-provenance-resolves-per-occurrence-origins
+  ;; cc3 item 1: a tree whose applications carry DIFFERENT validated
+  ;; origins (one admitted, one expansion-generated) resolves each call
+  ;; instruction to its own [origin root path]; an occurrence with no
+  ;; validated row yields no entry; Rule R lowers to :define and yields
+  ;; no fictitious call event; the vector/address never move.
+  (let [src [:source :medium :batch 0]
+        exp [:expansion (jing/segment-key [:cc3-test-record 1])]
+        ast (app (v 'f) (app (v 'g) (v 'x)) (def! 'k (lit 1)))
+        bc (vm/ast->semantic-bytecode ast)
+        root (:root bc)
+        apps (vm/application-occurrences bc)
+        ;; the root application is admitted; every other application
+        ;; occurrence is expansion-generated — never one blanket origin
+        rows (mapv (fn [[r p]] [(if (= p []) src exp) r p :yang/call-site 1])
+                   (sort-by second apps))
+        plain (linearize/project-rows bc)
+        resolved (linearize/project-rows bc nil rows)
+        call-pcs (into [] (keep-indexed (fn [pc t] (when (= :call (first t)) pc)))
+                       (:vector resolved))
+        define-pcs (into [] (keep-indexed (fn [pc t] (when (= :define (first t)) pc)))
+                         (:vector resolved))]
+    (testing "canonical invariance: provenance never moves code"
+      (is (= (:vector plain) (:vector resolved)))
+      (is (= (:address plain) (:address resolved))))
+    (testing "every call pc resolves to its own occurrence's origin"
+      (is (seq call-pcs))
+      (is (= (count call-pcs) (count (:call-provenance resolved))))
+      (doseq [[pc origin r path] (:call-provenance resolved)]
+        (is (= :call (first (nth (:vector resolved) pc))))
+        (is (= root r))
+        (is (= (if (= path []) src exp) origin)
+            (str "pc " pc " at " (pr-str path) " keeps its own origin"))))
+    (testing "Rule R: the yin/def application emits :define, no call row"
+      (is (seq define-pcs))
+      (is (not-any? (fn [[pc]] (contains? (set define-pcs) pc))
+                    (:call-provenance resolved))))
+    (testing "absence, never invention: a missing row drops that call only"
+      (let [partial (linearize/project-rows bc nil (subvec rows 1))]
+        (is (= (dec (count (:call-provenance resolved)))
+               (count (:call-provenance partial)))))
+      ;; a blanket caller origin never stamps call provenance: only
+      ;; validated C1 rows do (the full :provenance table keeps the
+      ;; caller-supplied origin, one row per pc)
+      (is (= [] (:call-provenance (linearize/project-rows bc src))))
+      (is (= [] (:call-provenance (linearize/project-rows bc)))))
+    (testing "refusals: conflicting, alien, and malformed rows throw"
+      (is (= :call-site-conflict
+             (:rule (throws-ex-data
+                      #(linearize/project-rows
+                         bc nil (conj rows [exp root [] :yang/call-site 1]))))))
+      (is (= :call-site-row
+             (:rule (throws-ex-data
+                      #(linearize/project-rows
+                         bc nil [[src root [[9 9]] :yang/call-site 1]])))))
+      (is (= :call-site-row
+             (:rule (throws-ex-data
+                      #(linearize/project-rows
+                         bc nil [[src root [] :yang/call-site 2]])))))
+      (is (= :call-site-row
+             (:rule (throws-ex-data
+                      #(linearize/project-rows
+                         bc nil [[[:oracle/fixture 1] root [] :yang/call-site 1]]))))))))
+
+
+(deftest datom-lane-provenance-names-entities-only
+  ;; cc3 item 4 (restriction): the datom lane's provenance stays
+  ;; [pc entity]; it carries NO occurrence key K. The entity->occurrence
+  ;; bridge is D1's stated dependency, recorded in the cc3 findings —
+  ;; this lane must not silently grow a half-bridge.
+  (let [d (datom-lane (app (v 'f) (lit 1)))]
+    (is (every? (fn [row] (= 2 (count row))) (:provenance d)))
+    (is (not (contains? d :call-provenance)))))

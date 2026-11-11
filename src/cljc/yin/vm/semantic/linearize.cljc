@@ -185,6 +185,48 @@
    :check (fn [_id])})
 
 
+(defn- validated-call-origins
+  "The occurrence key map `{[root path] origin}` a C1 side table
+   (`[origin root path :yang/call-site 1]` rows, as validated by the
+   cc2 producers) claims over canonical tree `bc` — cc3 item 1. Every
+   row is held to the contract before any of it is believed: a
+   malformed row, an unsupported marker version, a non-occurrence
+   origin (`[:oracle/fixture <id>]` included), a foreign root, or a
+   path that names no `:application` occurrence of this tree refuses
+   with `:rule :call-site-row`; two rows for one occurrence refuse
+   with `:rule :call-site-conflict`. Nothing is invented: an
+   occurrence with no row is simply absent from the result."
+  [bc rows]
+  (let [eligible (vm/application-occurrences bc)
+        ;; only the C1 key is this contract's business: other frontend
+        ;; metadata in the same relation is preserved independently
+        ;; (design §2.2) and is neither believed nor refused here
+        rows (filter (fn [row]
+                       (and (vector? row) (< 3 (count row))
+                            (= :yang/call-site (nth row 3))))
+                     rows)]
+    (reduce
+      (fn [m row]
+        (when-not (and (vector? row) (= 5 (count row))
+                       (= :yang/call-site (nth row 3))
+                       (integer? (nth row 4)) (= 1 (nth row 4))
+                       (vm/occurrence-origin? (nth row 0))
+                       (vector? (nth row 2)))
+          (throw (ex-info "Cannot project rows with a malformed call-site row"
+                          {:rule :call-site-row, :row row})))
+        (let [[origin root path] row
+              key [root path]]
+          (when-not (and (= root (:root bc)) (contains? eligible key))
+            (throw (ex-info "Call-site row names no application occurrence of this tree"
+                            {:rule :call-site-row, :row row})))
+          (when (contains? m key)
+            (throw (ex-info "Conflicting call-site rows for one occurrence"
+                            {:rule :call-site-conflict, :key key, :row row})))
+          (assoc m key origin)))
+      {}
+      rows)))
+
+
 (defn project-rows
   "Project one canonical row set (`vm/ast->semantic-bytecode`'s `{:root
    id, :rows {id row}}`) to the register-shaped vector. The rows are
@@ -195,9 +237,23 @@
    one provenance row per pc, `path` being the emitting node's §2.5
    structural path from the root row (row-position steps; a `nodes` item
    is a `[position i]` pair); a body's `:return` carries its lambda's
-   path."
-  ([bc] (project-rows bc nil))
-  ([{:keys [root rows], :as bc} origin]
+   path.
+
+   The three-argument form additionally resolves `:call-provenance` —
+   `[[pc origin root path] …]`, one row per `:call` instruction — from
+   the validated C1 side table `call-site-rows`: each call occurrence
+   resolves to ITS OWN origin (a tree mixing `[:source …]` and
+   `[:expansion …]` applications is never stamped with one blanket
+   origin), and a call occurrence with no validated row yields NO
+   entry (absence, never invention). Without a side table the relation
+   is empty: a caller-supplied single `origin` never stamps it — that
+   origin belongs to the full `:provenance` table alone. Rule R
+   applications lower to `:define` and yield no call row. Provenance is
+   a side table: the vector and its address are identical with or
+   without it."
+  ([bc] (project-rows bc nil nil))
+  ([bc origin] (project-rows bc origin nil))
+  ([{:keys [root rows], :as bc} origin call-site-rows]
    (when-not (or (nil? origin) (vm/occurrence-origin? origin))
      (throw (ex-info "Cannot project rows with a malformed occurrence origin"
                      {:rule :origin, :origin origin})))
@@ -206,12 +262,24 @@
                      (cond-> {:rule rule}
                        path (assoc :path path)
                        id (assoc :id id)))))
-   (let [{:keys [code sources]} (flatten-tree (row-reader rows) root)]
+   (let [{:keys [code sources]} (flatten-tree (row-reader rows) root)
+         by-occurrence (when (some? call-site-rows)
+                         (validated-call-origins bc call-site-rows))]
      {:vector code,
       :address (ucf/code-address code),
       :provenance (mapv (fn [pc [_ path]] [pc origin root path])
                         (range)
-                        sources)})))
+                        sources),
+      :call-provenance
+      (if (nil? by-occurrence)
+        []
+        (into []
+              (keep (fn [pc]
+                      (when (= :call (first (nth code pc)))
+                        (let [path (second (nth sources pc))]
+                          (when-let [o (get by-occurrence [root path])]
+                            [pc o root path])))))
+              (range (count code))))})))
 
 
 (defn project
@@ -288,7 +356,14 @@
 
    Returns `{:vector v :address A :provenance [[pc entity] …]}`, one row
    per pc naming the AST entity the instruction came from (the stack
-   lane's `:yin.code/source`)."
+   lane's `:yin.code/source`).
+
+   cc3 restriction (item 4, recorded in the cc3 findings): this lane
+   carries NO occurrence key K. The entity→occurrence bridge (design
+   §2.4: explicit entity-to-occurrence mapping with owning batch/root/
+   path, refusing ambiguity) is D1's stated dependency; until it lands,
+   cc3's provenance claims cover the row lane only, and this lane's
+   `[pc entity]` shape must not be read as a K bridge."
   [datoms]
   (let [{:keys [get-attr root-id error]} (vm/index-datoms (vec datoms))]
     (when error

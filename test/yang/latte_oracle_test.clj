@@ -9,6 +9,7 @@
    manifest in yang/latte_oracle/."
   (:require [clojure.java.io :as io]
             [clojure.edn :as edn]
+            [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [clojure.walk :as walk]
@@ -27,6 +28,7 @@
             [yin.vm.ucf.rows-support :as rows-support]
             [yin.vm.values :as values]
             [yin.vm.semantic :as semantic]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.semantic.linearize :as linearize]
             [yin.vm.ucf :as ucf]))
 
@@ -2040,6 +2042,11 @@
                (and (map? call) (= :application (:type call))
                     (= :variable (:type (:operator call)))
                     (= 'dsg__intra_call (:name (:operator call)))
+                    ;; the wrapper's helper is gate-site! itself, not
+                    ;; any application in wrapper shape (r3 F1)
+                    (let [helper (first (:operands call))]
+                      (and (map? helper) (= :variable (:type helper))
+                           (= 'gate-site! (:name helper))))
                     (let [args (get-in call [:operands 1])]
                       (and (map? args) (= :application (:type args))
                            (= :variable (:type (:operator args)))
@@ -2446,10 +2453,54 @@
         "ordinary source edits still invalidate the hash")))
 
 
+(defn- fresh-admission-run
+  "Allocate ONE admission run, at the run composition (the top of an
+   evidence/binding run): a fresh scope supplied as plain data plus a
+   run-local ordinal allocator. Thread the returned run through
+   `kernel-row` / `kernel-compile` via the `-in-run` callers, which
+   assign DISTINCT ordinals within this run. Fresh runs call this
+   again and get distinct scopes; replay does NOT call this — it
+   explicitly re-supplies the retained run's scope+ordinal (or reuses
+   the retained compilation). No global counter: the atom is created
+   per run, held only by the run map the composition threads."
+  [label]
+  {:scope (str (name label) "-" (java.util.UUID/randomUUID))
+   :next-ordinal (atom 0)})
+
+
+(defn- admission-run-ordinal
+  [run]
+  (let [ordinal @(:next-ordinal run)]
+    (swap! (:next-ordinal run) inc)
+    ordinal))
+
+
 (defn- kernel-compile
-  [fixture]
-  (let [call (kernel-c-program fixture)
-        forms (kernel-closure call)
+  "Compile one oracle fixture under an explicit admission coordinate.
+
+   The admitting composition supplies `admission-scope` and the
+   per-scope `admission-ordinal` (both plain data); the batch token
+   of the admission origin `[:source :program batch-token j]` is the
+   pair `[admission-scope admission-ordinal]` and the member index
+   `j` is zero, because each admission here is a separately admitted
+   single-member batch — the ordinal therefore distinguishes
+   admissions through the token, and projected keys (reconstructed
+   from a single-member envelope, member index always zero) agree
+   with the recorded origin for every ordinal. Both coordinates are
+   recorded WHEN ADMITTING, before compilation, validated by the
+   same origin-shape rules as every source origin
+   (`vm/source-origin`), and retained with the compilation as
+   `:admission-origin` plain data. There is no per-JVM global
+   counter (r3 F2) and no default admission stamping every admission
+   alike (r4 F2): every caller supplies its coordinates explicitly,
+   and replay of one retained compilation reuses its recorded
+   coordinate."
+  ([fixture admission-scope admission-ordinal]
+   (let [call (kernel-c-program fixture)
+         forms (kernel-closure call)
+         source-hash (kernel-canonical-source-hash forms call)
+         admission-origin (vm/source-origin
+                            :program [admission-scope admission-ordinal] 0)
         program (into (into ['(def gate-execution-trace (stream/make 1000000))]
                             kernel-site-prelude)
                       (concat (map kernel-trace-form forms) [call]))
@@ -2468,11 +2519,21 @@
       {:status :blocked :phase :admission :blocked-by (vec (sort missing))
        :owners (into {} (for [s missing]
                           [s (mapv second (filter #(some #{s} (tree-seq coll? seq %)) program))]))}
-      {:status :compiled :ast stamped :forms forms
+      {:status :compiled :ast stamped :forms forms :compiled-ast compiled
+       :admission-origin admission-origin
+       :admission-scope admission-scope
+       :admission-ordinal admission-ordinal
        :site-table (into {} (map (juxt :site identity)) sites)
-       :site-table-hash (kernel-canonical-source-hash forms call)
+       :site-table-hash source-hash
        :sites sites
-       :canonical-source-hash (kernel-canonical-source-hash forms call)})))
+       :canonical-source-hash source-hash}))))
+
+
+(defn- kernel-compile-in-run
+  "Compile `fixture` as the next admission of `run`: the run's scope
+   with a distinct ordinal assigned by the run composition."
+  [run fixture]
+  (kernel-compile fixture (:scope run) (admission-run-ordinal run)))
 
 
 (defn- kernel-c
@@ -2494,7 +2555,8 @@
 
 (deftest test-kernel-proof-fresh-supply
   (testing "explicit have types advance the supply; inferred types and prior contexts are preserved"
-    (doseq [[name next-name] [['h 'h2] ['_ '_]]
+    (let [run (fresh-admission-run :proof-fresh-supply)]
+     (doseq [[name next-name] [['h 'h2] ['_ '_]]
             [ty allocations] [['A 1] ['_ 0]]]
       (let [fixture
             {:call
@@ -2517,13 +2579,14 @@
                                          (inc (* 2 allocations)) (+ 2 (* 2 allocations))]
                       (if (= name '_) [0 0 0 0 0] [0 1 2 2 2])
                       true true]
-            compiled (kernel-compile fixture)]
+            compiled (kernel-compile-in-run run fixture)]
         (is (= {:value expected} (:outcome (kernel-b fixture))))
         (doseq [lane [:walker :semantic]]
           (let [c (kernel-c compiled lane)]
-            (is (= [:yin.k/ok expected] (:outcome c)) (str name " " lane " " c)))))))
+            (is (= [:yin.k/ok expected] (:outcome c)) (str name " " lane " " c))))))))
   (testing "the proof loop carries the returned supply to the next step and qed"
-    (doseq [[script fresh]
+    (let [run (fresh-admission-run :proof-loop)]
+     (doseq [[script fresh]
             [['((:have h A x {}) (:have h2 A x {}) (:qed x {})) 2]
              ['((:have _ A x {}) (:have _ A x {}) (:qed x {})) 2]
              ['((:declare z A {}) (:have h A z {}) (:declare w A {}) (:have h2 A w {}) (:qed w {})) 4]]]
@@ -2531,10 +2594,10 @@
                                                 (list 'quote script))]
                                  '[(first r) (:fresh (first (second r))) (:fresh env) (:definitions env)])}
             expected [:ok fresh 0 [{} {}]]
-            compiled (kernel-compile fixture)]
+            compiled (kernel-compile-in-run run fixture)]
         (is (= {:value expected} (:outcome (kernel-b fixture))))
         (doseq [lane [:walker :semantic]]
-          (is (= [:yin.k/ok expected] (:outcome (kernel-c compiled lane))) (str lane))))))
+          (is (= [:yin.k/ok expected] (:outcome (kernel-c compiled lane))) (str lane)))))))
   (testing "check-proof keeps the rebuilt context under its own def-env' binding"
     ;; Observe the context passed to the final comparison: check-proof's public
     ;; result contains only the proof term and type, so it cannot expose :fresh.
@@ -2543,9 +2606,10 @@
                          '(defn gate-norm-beta-eq?
                             [def-env ctx t1 t2]
                             (= 1 (:fresh def-env))))]
-      (let [fixture {:call '(latte-kernel.proof/check-proof env '[[A ✳] [x A]] 't 'A '[[:qed x {}]])}
+      (let [run (fresh-admission-run :check-proof)
+            fixture {:call '(latte-kernel.proof/check-proof env '[[A ✳] [x A]] 't 'A '[[:qed x {}]])}
             expected [:ok ['x 'A]]
-            compiled (kernel-compile fixture)]
+            compiled (kernel-compile-in-run run fixture)]
         (is (= {:value expected} (:outcome (kernel-b fixture))))
         (doseq [lane [:walker :semantic]]
           (is (= [:yin.k/ok expected] (:outcome (kernel-c compiled lane))) (str lane)))))))
@@ -2856,10 +2920,16 @@
 
 
 (defn- kernel-row
-  [fixture]
+  "One fixture row, admitted under an explicit coordinate: the
+   admitting run composition supplies `run-scope` and the fixture's
+   distinct `admission-ordinal` within that run (see
+   `fresh-admission-run` / `kernel-row-in-run`). The retained
+   admission origin is recorded on the row so caller-path tests can
+   pin per-fixture distinctness within one run."
+  [fixture run-scope admission-ordinal]
   (let [a (kernel-a fixture)
         b (kernel-b fixture)
-        compiled (kernel-attempt #(kernel-compile fixture))
+        compiled (kernel-attempt #(kernel-compile fixture run-scope admission-ordinal))
         compiled (if (and (= :blocked (:status compiled)) (not (:blocked-by compiled)))
                    (assoc compiled :phase :compile
                           :blocked-by (if-let [n (get-in compiled [:data :name])] [n] [:compiler-exception])
@@ -2884,6 +2954,8 @@
                      deviation :recorded-deviation
                      :else :mismatch)]
     {:id (:id fixture) :mode (:mode fixture) :negative? (boolean (:negative? fixture)) :status status
+     :admission-origin (:admission-origin compiled)
+     :admission-scope run-scope :admission-ordinal admission-ordinal
      :recorded-deviation deviation
      :recorded-upstream-failure upstream-failure
      :dependency-of (:dependency-of fixture)
@@ -2903,6 +2975,13 @@
      :included-functions (mapv second (kernel-closure (kernel-c-program fixture)))}))
 
 
+(defn- kernel-row-in-run
+  "The next fixture row of `run`: the run's scope with a distinct
+   ordinal assigned by the run composition."
+  [run fixture]
+  (kernel-row fixture (:scope run) (admission-run-ordinal run)))
+
+
 (deftest test-kernel-unused-arity-execution
   (let [fixture (first (filter #(= :parse-to-normalize-to-type (:id %)) (:fixtures kernel-gate-corpus)))
         fname 'gate-presyntax-parse
@@ -2914,7 +2993,7 @@
                                  (list (first arity) '(throw (ex-info "Uncalled parse/1 entered" {})))
                                  arity)) (drop 2 source)))
         row (with-redefs [kernel-sources (assoc kernel-sources fname poisoned)]
-              (kernel-row fixture))
+              (kernel-row-in-run (fresh-admission-run :kernel-unused-arity) fixture))
         inventory [{:symbol 'latte-kernel.presyntax/parse :arities [1 2] :disposition :admitted}]
         entries (kernel-exercise-entries inventory [fixture] [row])]
     (is (= :pass (:status row)))
@@ -2968,9 +3047,10 @@
       (is (= ['(<a>) 'A] [term ty]))
       (is (= '#{<a>} (set (keys (second def-env)))))))
   (testing "both C lanes record the predicted arities of the passing integrations"
-    (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
-          f3 (kernel-row (by-id :h3-2-elab-discharge-states))
-          f2 (kernel-row (by-id :h3-2-elab-inferred-anonymous))]
+    (let [run (fresh-admission-run :h3-2-proof-elaboration)
+          by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
+          f3 (kernel-row-in-run run (by-id :h3-2-elab-discharge-states))
+          f2 (kernel-row-in-run run (by-id :h3-2-elab-inferred-anonymous))]
       (is (= :pass (:status f3)))
       (is (= :pass (:status f2)))
       (doseq [[sym n] '[[latte-kernel.proof/elab-declare 7] [latte-kernel.proof/elab-have 8]
@@ -3004,7 +3084,8 @@
                 :h3-3-unregister-unparser-absent]]
       (is (:negative? (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus)))) id)))
   (testing "each credited primary passes and records its exact arity in both C lanes"
-    (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))]
+    (let [run (fresh-admission-run :h3-3-twenty-arity)
+          by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))]
       (doseq [[id sym n] [[:h3-3-axiom-true 'latte-kernel.defenv/axiom? 1]
                           [:h3-3-nbe-evaluation-one 'latte-kernel.nbe/evaluation 1]
                           [:h3-3-nbe-instantiate-def 'latte-kernel.nbe/instantiate-def 3]
@@ -3024,14 +3105,15 @@
                           [:h3-3-readable-term-2 'latte-kernel.syntax/readable-term- 2]
                           [:h3-3-readable-term-3 'latte-kernel.syntax/readable-term- 3]
                           [:h3-3-unregister-unparser 'latte-kernel.unparser/unregister-unparser! 1]]
-              :let [row (kernel-row (by-id id))]]
+              :let [row (kernel-row-in-run run (by-id id))]]
         (is (= :pass (:status row)) (str id " passes"))
         (is (kernel-executed-arity? row sym n) (str id " witnesses " sym "/" n)))))
   (testing "F2's ambient /1 credits through the ruled query; negative credit follows the accepted rule"
-    (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
-          f2 (kernel-row (by-id :h3-3-registered-definition-ambient))
-          r2 (kernel-row (by-id :h3-3-registered-definition-nonsymbol))
-          r10 (kernel-row (by-id :h3-3-unregister-unparser-absent))
+    (let [run (fresh-admission-run :h3-3-ambient-credit)
+          by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
+          f2 (kernel-row-in-run run (by-id :h3-3-registered-definition-ambient))
+          r2 (kernel-row-in-run run (by-id :h3-3-registered-definition-nonsymbol))
+          r10 (kernel-row-in-run run (by-id :h3-3-unregister-unparser-absent))
           ambient-site (fn [row]
                          (some (fn [[k s]]
                                  (when (and (= 'registered-definition? (:callee s))
@@ -3063,12 +3145,13 @@
   "The ruling's seven-case refusal battery plus the stale-table
    diagnostic (R2b), each case a real executed check of the ruled
    attribution over caller-site-tagged traces."
-  (let [by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
-        f2 (kernel-row (by-id :h3-3-registered-definition-ambient))
-        explicit-2 (kernel-row {:id :battery-explicit-2
+  (let [run (fresh-admission-run :attribution-battery)
+        by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
+        f2 (kernel-row-in-run run (by-id :h3-3-registered-definition-ambient))
+        explicit-2 (kernel-row-in-run run {:id :battery-explicit-2
                                 :call '(latte-kernel.defenv/registered-definition?
                                          env (quote gate-no-such-definition))})
-        unexecuted-1 (kernel-row {:id :battery-unexecuted-ambient
+        unexecuted-1 (kernel-row-in-run run {:id :battery-unexecuted-ambient
                                   :call '(if false
                                            (latte-kernel.defenv/registered-definition?
                                              (quote gate-no-such-definition))
@@ -3089,7 +3172,7 @@
       (is (not (kernel-executed-arity? unexecuted-1 'latte-kernel.defenv/registered-definition? 1))
           "the ambient site exists in the table but was never entered"))
     (testing "case 3: mismatched program/adaptation evidence refuses"
-      (let [r2 (kernel-row (by-id :h3-3-registered-definition-nonsymbol))
+      (let [r2 (kernel-row-in-run run (by-id :h3-3-registered-definition-nonsymbol))
             swapped (assoc f2 :canonical-source-hash (:canonical-source-hash r2))]
         (is (not (kernel-executed-arity? swapped 'latte-kernel.defenv/registered-definition? 1))
             "a trace read against another fixture's canonical-source-hash refuses")))
@@ -3120,7 +3203,7 @@
         (is (not (kernel-ambient-site? (:site-table explicit-2) variable-site))
             "the compile-time verification refuses a non-literal argument")))
     (testing "case 6: indirect-origin body entries refuse"
-      (let [indirect (kernel-row (by-id :nbe-beta))
+      (let [indirect (kernel-row-in-run run (by-id :nbe-beta))
             table (:site-table indirect)
             dynamic (some (fn [[k s]]
                             (when (and (= :dynamic (:callee s))
@@ -3172,8 +3255,12 @@
    VM errors are blockers, never successful LaTTe rejections. Exact arities
    require recorded body entry in both C lanes of a passing fixture."
   []
-  (let [results (mapv (fn [fixture]
-                        (let [row (kernel-row fixture)]
+  ;; The evidence run is the run composition: it allocates its scope
+  ;; ONCE here and threads it through every fixture row, each taking
+  ;; a distinct ordinal within this run.
+  (let [run (fresh-admission-run :kernel-gate-evidence)
+        results (mapv (fn [fixture]
+                        (let [row (kernel-row-in-run run fixture)]
                           (println "KERNEL-FIXTURE" (:id row) (:status row))
                           row)) (:fixtures kernel-gate-corpus))
         inventory (mapv #(select-keys % [:symbol :kind :arities :disposition :admission-reason]) kernel-entries)
@@ -3298,7 +3385,12 @@
          (print "{")
          (doseq [[k v] (dissoc evidence :fixtures)] (pr k) (print " ") (prn v))
          (println ":fixtures [")
-         (doseq [row (:fixtures evidence)] (prn (dissoc row :site-table)))
+         (doseq [row (:fixtures evidence)]
+           ;; the per-run admission coordinate (fresh scope per run) is
+           ;; retained on the in-memory row for caller-path pins, not
+           ;; landed in the versioned evidence file
+           (prn (dissoc row :site-table :admission-origin
+                        :admission-scope :admission-ordinal)))
          (println "]}")))
      (select-keys evidence [:gate-status :counts :fixture-count :manifest-bindings :function-arity-candidates :coverage :attribution]))))
 
@@ -3417,3 +3509,631 @@
         (run! #(let [f (java.io.File. (str dir "/" %))] (when (.exists f) (.delete f)))
               ["slice9_evidence.edn" "slice9_unexercised.edn" "slice9_site_tables.edn"])
         (let [d (java.io.File. dir)] (when (.exists d) (.delete d)))))))
+
+
+;; =============================================================================
+;; cc3: oracle integer sites bound to post-expansion C1 occurrence keys
+;; =============================================================================
+
+(defn- cc3-walk
+  "[[row-path node] ...] over a map AST, paths in the row grammar's
+   positions (the same convention as `vm/occurrences`)."
+  [node path acc]
+  (if (and (map? node) (:type node))
+    (reduce (fn [acc [j [field kind]]]
+              (let [pos (+ j 2)
+                    value (get node field)]
+                (case kind
+                  :node (if (map? value)
+                          (cc3-walk value (conj path pos) acc)
+                          acc)
+                  :nodes (reduce (fn [a [i child]]
+                                   (cc3-walk child (conj path [pos i]) a))
+                                 acc
+                                 (map-indexed vector (or value [])))
+                  acc)))
+            (conj acc [path node])
+            (map-indexed vector
+                         (get vm/semantic-bytecode-grammar (:type node))))
+    acc))
+
+
+(defn- cc3-assoc-at
+  "Replace the node at grammar `path` in `node` with `(f node-at-path)`."
+  [node path f]
+  (if (empty? path)
+    (f node)
+    (let [step (first path)
+          grammar (get vm/semantic-bytecode-grammar (:type node))
+          field-at (fn [pos] (first (nth grammar (- pos 2))))]
+      (if (vector? step)
+        (let [field (field-at (first step))
+              i (second step)]
+          (update node field
+                  (fn [children]
+                    (assoc (vec children) i
+                           (cc3-assoc-at (nth children i)
+                                         (rest path) f)))))
+        (let [field (field-at step)]
+          (update node field
+                  (fn [child]
+                    (cc3-assoc-at child (rest path) f))))))))
+
+
+(defn- cc3-stamp-site-id
+  "The integer site a stamping wrapper carries, or nil."
+  [wrapper]
+  (when (kernel-stamped-args? wrapper)
+    (let [k (get-in wrapper [:operands 0 :operands 1 :operands 1 :value])]
+      (when (integer? k) k))))
+
+
+(defn- cc3-correspond
+  "The explicit stamped→pre-stamp path correspondence (cc3 r2 item 1):
+   `{stamped-path pre-stamp-path}` over the grammar positions of both
+   trees, built by traversing them together and removing the
+   recognized stamping wrappers (`kernel-stamped-args?` — the three
+   applications a stamp inserts around an argument node). A stamped
+   site inside a stamped argument therefore maps to the path it held
+   before stamping, never to the unrelated application its stamped
+   path would name in the pre-stamp tree. A type mismatch, a child
+   count mismatch, or a wrapper where the pre-stamp tree already
+   carries one refuses with `:rule :cc3-stamp-correspondence` —
+   mismatched or ambiguous correspondence is never guessed."
+  [pre stamped pre-path stamped-path acc]
+  (cond
+    (kernel-stamped-args? stamped)
+    (do (when (kernel-stamped-args? pre)
+          (throw (ex-info "Stamped wrapper over a pre-stamp wrapper is ambiguous"
+                          {:rule :cc3-stamp-correspondence
+                           :pre-stamp-path pre-path
+                           :stamped-path stamped-path})))
+        ;; the wrapped argument node sits at operands[0]/operands[1]/
+        ;; operands[2] of the wrapper — application operands are
+        ;; grammar position 3
+        (cc3-correspond pre (kernel-stamped-args? stamped)
+                        pre-path (conj stamped-path [3 0] [3 1] [3 2])
+                        acc))
+
+    (and (map? pre) (:type pre) (map? stamped) (:type stamped))
+    (do (when (not= (:type pre) (:type stamped))
+          (throw (ex-info "Stamped tree diverges from the compiled tree"
+                          {:rule :cc3-stamp-correspondence
+                           :pre-stamp-path pre-path
+                           :stamped-path stamped-path
+                           :pre-type (:type pre)
+                           :stamped-type (:type stamped)})))
+        (reduce (fn [acc [j [field kind]]]
+                  (let [pos (+ j 2)
+                        pv (get pre field)
+                        sv (get stamped field)]
+                    (case kind
+                      :node (if (or (map? pv) (map? sv))
+                              (cc3-correspond pv sv
+                                              (conj pre-path pos)
+                                              (conj stamped-path pos)
+                                              acc)
+                              acc)
+                      :nodes (do (when (not= (count (or pv []))
+                                             (count (or sv [])))
+                                   (throw (ex-info
+                                            "Stamped tree diverges from the compiled tree"
+                                            {:rule :cc3-stamp-correspondence
+                                             :pre-stamp-path pre-path
+                                             :stamped-path stamped-path})))
+                                 (reduce (fn [a i]
+                                           (cc3-correspond (nth pv i)
+                                                           (nth sv i)
+                                                           (conj pre-path [pos i])
+                                                           (conj stamped-path [pos i])
+                                                           a))
+                                         acc
+                                         (range (count (or pv [])))))
+                      ;; scalar grammar data (:data/:sym/:syms/:bool/
+                      ;; :kw/:key/:str/:int) must be unchanged at the
+                      ;; translated position — a same-shape mutation
+                      ;; (callee name, literal value, lambda params)
+                      ;; is no correspondence (r3 F1)
+                      (if (= pv sv)
+                        acc
+                        (throw (ex-info
+                                 "Stamped tree diverges from the compiled tree"
+                                 {:rule :cc3-stamp-correspondence
+                                  :pre-stamp-path pre-path
+                                  :stamped-path stamped-path
+                                  :field field
+                                  :pre-value pv
+                                  :stamped-value sv}))))))
+                (assoc acc stamped-path pre-path)
+                (map-indexed vector
+                             (get vm/semantic-bytecode-grammar
+                                  (:type pre)))))
+
+    (or (map? pre) (map? stamped))
+    (throw (ex-info "Stamped tree diverges from the compiled tree"
+                    {:rule :cc3-stamp-correspondence
+                     :pre-stamp-path pre-path
+                     :stamped-path stamped-path}))
+
+    :else (if (= pre stamped)
+            acc
+            (throw (ex-info "Stamped tree diverges from the compiled tree"
+                            {:rule :cc3-stamp-correspondence
+                             :pre-stamp-path pre-path
+                             :stamped-path stamped-path
+                             :pre-value pre
+                             :stamped-value stamped})))))
+
+
+(defn- cc3-oracle-binding
+  "Bind each stamped oracle site id to its post-expansion C1 key
+   K = [origin root path] in the COMPILED (pre-stamp) tree.
+
+   Chronology (mob condition 2): `kernel-compile` compiles FIRST and
+   stamps by insertion afterward, so the stamped tree is a NEW tree.
+   Stamped paths are NOT pre-stamp paths (cc3 r2 item 1): the binding
+   translates each stamped site path through the explicit
+   `cc3-correspond` transformation mapping before combining it with
+   the pre-stamp root, and refuses a site whose mapped key is no
+   validated C1 occurrence. The origin is the admission coordinate
+   `kernel-compile` recorded WHEN ADMITTING the fixture and retained
+   with the compilation (`:admission-origin`, cc3 r2 item 2) — never
+   synthesized from content after compilation; a compilation without
+   a retained record refuses with `:rule :cc3-admission-record`, and
+   [:oracle/fixture <id>] is never minted."
+  [compiled]
+  (let [admission (:admission-origin compiled)]
+    (when-not (vm/occurrence-origin? admission)
+      (throw (ex-info "Oracle binding requires the compilation's retained admission record"
+                      {:rule :cc3-admission-record
+                       :admission admission})))
+    (let [ast (:compiled-ast compiled)
+          token (nth admission 2)
+          origin admission
+          projected (fn [tree-ast]
+                      (encoder/project
+                        (encoder/source-envelope :program token [tree-ast])))
+          {:keys [tree rows marked eligible]}
+          (let [p (projected ast)
+                t (first (:yin/batch p))
+                r (:yin/frontend-metadata p)]
+            {:tree t :rows r
+             :marked (into #{}
+                           (comp (filter #(= :yang/call-site (nth % 3)))
+                                 (map (fn [[o rr pth _ _]] [o rr pth])))
+                           r)
+             :eligible (into #{}
+                             (map (fn [[rr pth]] [origin rr pth]))
+                             (vm/application-occurrences t))})
+          ;; the POST-transformation tree verified separately (item 5)
+          {:keys [stamped-tree stamped-rows stamped-marked stamped-eligible]}
+          (let [p (projected (:ast compiled))
+                t (first (:yin/batch p))
+                r (:yin/frontend-metadata p)]
+            {:stamped-tree t :stamped-rows r
+             :stamped-marked (into #{}
+                                   (comp (filter #(= :yang/call-site (nth % 3)))
+                                         (map (fn [[o rr pth _ _]] [o rr pth])))
+                                   r)
+             :stamped-eligible (into #{}
+                                     (map (fn [[rr pth]] [origin rr pth]))
+                                     (vm/application-occurrences t))})
+          correspondence (cc3-correspond ast (:ast compiled) [] [] {})
+          ;; site entries are collected BEFORE any map is built: a
+          ;; duplicate site id refuses here, never overwrites an
+          ;; earlier occurrence in a map under construction (r3 F1)
+          site-entries (into []
+                             (comp (filter (fn [[_ node]]
+                                             (= :application (:type node))))
+                                   (keep (fn [[path node]]
+                                           (let [direct (cc3-stamp-site-id
+                                                          (second (:operands node)))
+                                                 inner (kernel-routed-call? node)
+                                                 routed (when inner
+                                                          (cc3-stamp-site-id
+                                                            (first (:operands inner))))]
+                                             (when-let [k (or direct routed)]
+                                               (let [pre-path (get correspondence
+                                                                   path
+                                                                   ::unmapped)]
+                                                 (when (= ::unmapped pre-path)
+                                                   (throw (ex-info
+                                                            "Stamped site has no pre-stamp correspondence"
+                                                            {:rule :cc3-stamp-correspondence
+                                                             :site k
+                                                             :stamped-path path})))
+                                                 (let [key [origin (:root tree) pre-path]]
+                                                   (when-not (contains? marked key)
+                                                     (throw (ex-info
+                                                              "Stamped site maps to no validated C1 occurrence"
+                                                              {:rule :cc3-stamp-correspondence
+                                                               :site k
+                                                               :key key})))
+                                                   [k path key])))))))
+                             (cc3-walk (:ast compiled) [] []))
+          _ (when (not= (count site-entries)
+                        (count (into #{} (map first site-entries))))
+              (throw (ex-info "Duplicate stamped site id"
+                              {:rule :cc3-duplicate-stamp-site
+                               :sites (vec (sort (into []
+                                                       (comp (filter (fn [[_ n]]
+                                                                       (< 1 n)))
+                                                             (map first))
+                                                       (frequencies
+                                                         (map first
+                                                              site-entries)))))})))
+          stamped-paths (into {}
+                              (map (fn [[k path _key]] [k path]))
+                              site-entries)
+          stamped-sites (into {}
+                              (map (fn [[k _path key]] [k key]))
+                              site-entries)]
+      (when (not= (count stamped-sites)
+                  (count (into #{} (vals stamped-sites))))
+        (throw (ex-info "Two stamped sites map to one pre-stamp occurrence"
+                        {:rule :cc3-ambiguous-stamp-correspondence
+                         :binding stamped-sites})))
+      {:origin origin :tree tree :rows rows :marked marked
+       :eligible eligible :binding stamped-sites
+       :correspondence correspondence
+       :stamped-paths stamped-paths
+       :stamped-tree stamped-tree :stamped-rows stamped-rows
+       :stamped-marked stamped-marked
+       :stamped-eligible stamped-eligible})))
+
+
+(deftest test-cc3-oracle-site-c1-binding
+  ;; Bounds for this tagged run are recorded in the cc3 findings'
+  ;; PREFLIGHT BOUNDS section before this test was first run:
+  ;; 4,000,000 guest instructions and 1,000,000 trace records per C
+  ;; lane, restated and not raised.
+  (let [;; this binding run allocates its enclosing run identity ONCE
+        ;; here; the compilation is its ordinal-0 admission
+        run (fresh-admission-run :cc3-binding-run)
+        fixture {:id :cc3-binding :call '(latte-kernel.utils/vectorn? [1 2 3] 2)}
+        compiled (kernel-compile-in-run run fixture)]
+    (is (= :compiled (:status compiled)))
+    (is (= [(:scope run) 0] (nth (:admission-origin compiled) 2))
+        "the binding run's scope is the enclosing run identity, threaded in")
+    (let [{:keys [origin tree rows marked eligible binding correspondence
+                  stamped-paths stamped-tree stamped-marked stamped-eligible]}
+          (cc3-oracle-binding compiled)
+          sites (:sites compiled)]
+      (testing "the origin is the retained admission record, not content synthesis"
+        (is (= (:admission-origin compiled) origin)
+            "the binding consumes the coordinate recorded when admitting")
+        (is (true? (vm/occurrence-origin? origin)))
+        (is (= :program (nth origin 1)))
+        (is (not= [:source :program (:canonical-source-hash compiled) 0]
+                  origin)
+            "identical content alone no longer constructs the origin")
+        (is (false? (vm/occurrence-origin? [:oracle/fixture :cc3-binding]))
+            "a fixture id alone is not a persisted origin")
+        (is (= :cc3-admission-record
+               (try (cc3-oracle-binding (dissoc compiled :admission-origin))
+                    ::no-failure
+                    (catch Exception e (:rule (ex-data e)))))
+            "a compilation with no retained admission record refuses"))
+      (testing "replay: rebinding one retained compilation is the same history"
+        (is (= binding (:binding (cc3-oracle-binding compiled)))))
+      (testing "coverage separation: the full C1 set is verified independently"
+        (is (= eligible marked)
+            "every final application occurrence carries exactly its marker")
+        (is (< (count binding) (count marked))
+            "uncredited helpers and generated applications are C1 occurrences but NOT oracle sites"))
+      (testing "post-transformation coverage: the stamped tree as executed (item 5)"
+        ;; independently derived inserted helpers: each stamped site
+        ;; wraps its argument node in three new applications
+        ;; (data/nth, dsg__intra_call, conj) — applications of the
+        ;; stamped tree that are not C1 occurrences of the compiled
+        ;; program, accounted for here as their own set
+        (let [wrapper-paths (into #{}
+                                  (comp (filter (fn [[_ node]]
+                                                  (kernel-stamped-args? node)))
+                                        (map first))
+                                  (cc3-walk (:ast compiled) [] []))
+              inserted (into #{}
+                             (mapcat (fn [p]
+                                       [(conj p) (conj p [3 0])
+                                        (conj p [3 0] [3 1])]))
+                             wrapper-paths)
+              inserted-keys (into #{}
+                                  (map (fn [p] [origin
+                                                (:root stamped-tree) p]))
+                                  inserted)]
+          (is (= (count sites) (count wrapper-paths))
+              "one stamping wrapper per oracle site")
+          (is (empty? (set/intersection stamped-marked inserted-keys))
+              "inserted helpers are not marked occurrences")
+          (is (= stamped-eligible
+                 (set/union stamped-marked inserted-keys))
+              "the stamped application set is exactly the marked occurrences plus the inserted helpers")
+          (is (= (+ (count marked) (* 3 (count sites)))
+                 (count stamped-eligible))
+              "stamping inserted three applications per site and nothing else")))
+      (testing "stamped paths are translated, never reused as pre-stamp paths (item 1)"
+        (is (every? (fn [[k [_ _ pre-path]]]
+                      (= pre-path (get correspondence (get stamped-paths k))))
+                    binding)
+            "every bound key's path is its stamped path through the correspondence"))
+      (testing "bijection: stamped guest sites <-> selected compiled occurrences"
+        (is (= (set (map :site sites)) (set (keys binding))))
+        (is (= (count binding) (count (into #{} (vals binding))))
+            "no two sites share an occurrence (duplicate content keeps distinct paths)")
+        (is (every? marked (vals binding))
+            "every bound key is a validated post-expansion C1 occurrence"))
+      (testing "Rule R: yin/def occurrences are marked but emit no call event"
+        (let [sem (linearize/project-rows tree nil rows)
+              define-paths (into #{}
+                                 (keep (fn [[pc _o _r p]]
+                                         (when (= :define (first (nth (:vector sem) pc)))
+                                           p)))
+                                 (:provenance sem))
+              call-keys (set (map (fn [[_ o r p]] [o r p])
+                                  (:call-provenance sem)))]
+          (is (seq define-paths))
+          (is (every? (fn [k] (not (contains? call-keys k)))
+                      (filter (fn [[_ _ p]] (contains? define-paths p)) marked))
+              "a :define occurrence never appears as a call-provenance key")))
+      (testing "lowering: exact call-PC coverage and multiplicities (item 5)"
+        (let [sem (linearize/project-rows tree nil rows)
+              cp (:call-provenance sem)
+              stack (derive/stack-image
+                      (:vector sem) {:segment-address :seg/stack
+                                     :call-provenance cp})
+              register (derive/register-image
+                         (:vector sem) {:segment-address :seg/register
+                                        :call-provenance cp})
+              ;; independently derived expected occurrences: every
+              ;; marked application of the compiled tree except the
+              ;; Rule-R `yin/def` applications (they lower to :define)
+              define-paths (into #{}
+                                 (comp (filter (fn [[_ node]]
+                                                 (and (= :application (:type node))
+                                                      (= :variable (:type (:operator node)))
+                                                      (= 'yin/def (:name (:operator node))))))
+                                       (map first))
+                                 (cc3-walk (:compiled-ast compiled) [] []))
+              expected (frequencies
+                         (map (fn [[o r p]] [o r p])
+                              (remove (fn [[_ _ p]] (contains? define-paths p))
+                                      marked)))
+              keys-of (fn [prov] (map (fn [[_ _ o r p]] [o r p]) prov))
+              call-pcs (fn [instructions]
+                         (into []
+                               (keep-indexed (fn [pc ins]
+                                               (when (= :call (first ins)) pc)))
+                               instructions))]
+          (is (seq define-paths) "the fixture carries Rule-R definitions")
+          (is (= expected (frequencies (map (fn [[_ o r p]] [o r p]) cp)))
+              "semantic call provenance is exactly the expected occurrence multiset")
+          (is (= expected (frequencies (keys-of (:call-provenance stack)))))
+          (is (= expected (frequencies (keys-of (:call-provenance register)))))
+          (is (= (call-pcs (:vector sem)) (mapv first cp))
+              "every semantic :call pc carries provenance, in pc order")
+          (is (= (call-pcs (:image stack))
+                 (mapv second (:call-provenance stack)))
+              "every stack :call pc carries provenance, in pc order")
+          (is (= (call-pcs (:instructions register))
+                 (mapv second (:call-provenance register)))
+              "every register :call pc carries provenance, in pc order")))
+      (testing "both C lanes resolve each executed call to the identical K"
+        (let [lane-keys (fn [lane]
+                          (let [row (kernel-c compiled lane)]
+                            (is (= :completed (:status row)) (str lane))
+                            (into #{}
+                                  (comp (map #(nth % 2 nil))
+                                        (filter integer?)
+                                        (map (fn [k]
+                                               (is (contains? binding k)
+                                                   (str "executed site " k " is bound"))
+                                               (get binding k))))
+                                  (:executed-calls row))))]
+          (is (= (lane-keys :c-walker) (lane-keys :c-semantic))))))))
+
+
+(deftest test-cc3-stamp-correspondence-nested
+  ;; cc3 r2 item 1, synthetic and fast: a guest call nested inside
+  ;; another stamped call's argument vector moves under stamping; the
+  ;; correspondence must map its stamped path back to the pre-stamp
+  ;; path of THAT application, and mismatched trees must refuse.
+  (let [lit (fn [v] {:type :literal :value v})
+        var* (fn [n] {:type :variable :name n})
+        app (fn [op ops] {:type :application :operator op :operands ops})
+        intra (fn [f args] (app (var* 'dsg__intra_call) [(var* f) args]))
+        conj-args (fn [& xs] (app (var* 'conj) (into [(lit [])] xs)))
+        inner (intra 'f (conj-args (lit 41)))
+        outer (intra 'g (conj-args inner (lit 7)))
+        {stamped :ast sites :sites} (kernel-stamp-sites outer #{'f 'g})
+        by-path (fn [tree] (into {} (cc3-walk tree [] [])))
+        correspondence (cc3-correspond outer stamped [] [] {})
+        ;; the inner call's two addresses, derived by walking each tree
+        site-path (fn [entries]
+                    (some (fn [[p node]]
+                            (when (and (= :application (:type node))
+                                       (= 'f (get-in node [:operands 0 :name])))
+                              p))
+                          entries))
+        pre-path (site-path (by-path outer))
+        stamped-path (site-path (by-path stamped))]
+    (is (= 2 (count sites)))
+    (is (some? pre-path) (str "pre-stamp inner path " pre-path))
+    (is (some? stamped-path) (str "stamped inner path " stamped-path))
+    (is (not= pre-path stamped-path)
+        "precondition: stamping really moved the nested argument site")
+    (is (= pre-path (get correspondence stamped-path))
+        "the nested site resolves to its own pre-stamp application")
+    (is (= :cc3-stamp-correspondence
+           (try (cc3-correspond outer (assoc stamped :type :lambda) [] [] {})
+                ::no-failure
+                (catch Exception e (:rule (ex-data e)))))
+        "a divergent tree refuses instead of guessing a correspondence")))
+
+
+(deftest test-cc3-correspondence-verifies-grammar-data
+  ;; cc3 r3 item F1: correspondence must verify scalar grammar data at
+  ;; translated positions, the wrapper recognizer must verify the
+  ;; helper is gate-site!, and duplicate site ids must refuse before
+  ;; any site map is constructed.
+  (let [lit (fn [v] {:type :literal :value v})
+        var* (fn [n] {:type :variable :name n})
+        app (fn [op ops] {:type :application :operator op :operands ops})
+        intra (fn [f args] (app (var* 'dsg__intra_call) [(var* f) args]))
+        conj-args (fn [& xs] (app (var* 'conj) (into [(lit [])] xs)))
+        inner (intra 'f (conj-args (lit 41)))
+        outer (intra 'g (conj-args inner (lit 7)))
+        {stamped :ast} (kernel-stamp-sites outer #{'f 'g})
+        refusal (fn [pre stamped-tree]
+                  (try (cc3-correspond pre stamped-tree [] [] {})
+                       ::no-failure
+                       (catch Exception e (:rule (ex-data e)))))]
+    (testing "same-shape scalar mutations refuse"
+      (is (= :cc3-stamp-correspondence
+             (refusal (var* 'f) (var* 'h)))
+          "a changed callee variable name preserves shape but not grammar data")
+      (is (= :cc3-stamp-correspondence
+             (refusal (lit 41) (lit 42)))
+          "a changed literal value preserves shape but not grammar data")
+      (is (= :cc3-stamp-correspondence
+             (refusal {:type :lambda :params '[x] :body (lit 1)}
+                      {:type :lambda :params '[y] :body (lit 1)}))
+          "changed lambda parameters preserve shape but not grammar data")
+      (let [entries (cc3-walk stamped [] [])
+            callee-path (some (fn [[p node]]
+                                (when (and (= :application (:type node))
+                                           (= 'f (get-in node [:operands 0 :name])))
+                                  p))
+                              entries)
+            mutated (cc3-assoc-at stamped callee-path
+                                   (fn [node]
+                                     (assoc-in node [:operands 0 :name] 'h)))]
+        (is (some? callee-path))
+        (is (= :cc3-stamp-correspondence (refusal outer mutated))
+            "a renamed nested callee refuses through the stamped tree")))
+    (testing "the wrapper recognizer verifies the gate-site! helper"
+      (let [wrapper (some (fn [[_ node]]
+                            (when (kernel-stamped-args? node) node))
+                          (cc3-walk stamped [] []))
+            mutated (assoc-in wrapper [:operands 0 :operands 0 :name]
+                              'not-gate-site!)]
+        (is (some? wrapper) "precondition: a real stamping wrapper exists")
+        (is (nil? (kernel-stamped-args? mutated))
+            "a 3-arg application around another helper is no wrapper")
+        (is (= :cc3-stamp-correspondence (refusal outer
+                                                  (cc3-assoc-at
+                                                    stamped
+                                                    (some (fn [[p node]]
+                                                            (when (identical? node wrapper) p))
+                                                          (cc3-walk stamped [] []))
+                                                    (fn [_] mutated))))
+            "correspondence refuses when the wrapper helper is not gate-site!")))
+    (testing "duplicate site ids refuse before map construction"
+      (let [fixture {:id :cc3-binding
+                     :call '(latte-kernel.utils/vectorn? [1 2 3] 2)}
+            compiled (kernel-compile-in-run
+                       (fresh-admission-run :cc3-duplicate-run) fixture)
+            wrappers (into []
+                           (filter (fn [[_ node]]
+                                     (kernel-stamped-args? node)))
+                           (cc3-walk (:ast compiled) [] []))
+            [p2 _] (second wrappers)
+            k (cc3-stamp-site-id (second (first wrappers)))
+            duplicated (cc3-assoc-at (:ast compiled) p2
+                                      (fn [w]
+                                        (assoc-in w [:operands 0 :operands 1
+                                                     :operands 1 :value]
+                                                  k)))]
+        (is (= :compiled (:status compiled)))
+        (is (<= 2 (count wrappers)) "precondition: at least two stamped sites")
+        (is (some? k))
+        (is (= :cc3-duplicate-stamp-site
+               (try (cc3-oracle-binding (assoc compiled :ast duplicated))
+                    ::no-failure
+                    (catch Exception e (:rule (ex-data e)))))
+            "two wrappers carrying one site id refuse, never overwrite")))))
+
+
+(deftest test-cc3-distinct-admissions-distinct-origins
+  ;; cc3 r3 item F2 + r4 residue: the admission coordinate is an
+  ;; explicit, composition-supplied batch token
+  ;; `[run-scope admission-ordinal]` with member index zero, retained
+  ;; with the compilation as plain data — no per-JVM global counter
+  ;; and no default admission that stamps every admission alike.
+  ;; Distinct scopes with restarted ordinals AND distinct ordinals
+  ;; within one scope, admitting identical content, mint distinct
+  ;; origins; every ordinal (including a nonzero one) binds
+  ;; end-to-end, projected and searched keys agreeing; replaying one
+  ;; retained admission keeps its one origin.
+  (let [fixture {:id :cc3-binding
+                 :call '(latte-kernel.utils/vectorn? [1 2 3] 2)}
+        a (kernel-compile fixture "run-a" 0)
+        b (kernel-compile fixture "run-b" 0)
+        a1 (kernel-compile fixture "run-a" 1)]
+    (is (= :compiled (:status a)))
+    (is (= :compiled (:status b)))
+    (is (= :compiled (:status a1)))
+    (is (= (:canonical-source-hash a) (:canonical-source-hash b)
+           (:canonical-source-hash a1))
+        "precondition: the content really is identical")
+    (is (= ["run-a" 0] (nth (:admission-origin a) 2))
+        "the batch token carries both the scope and the ordinal")
+    (is (= ["run-b" 0] (nth (:admission-origin b) 2)))
+    (is (= ["run-a" 1] (nth (:admission-origin a1) 2))
+        "a nonzero ordinal rides the token, not the member index")
+    (is (= 0 (nth (:admission-origin a) 3)
+             (nth (:admission-origin b) 3)
+             (nth (:admission-origin a1) 3))
+        "separately admitted single-member batches keep member index 0")
+    (is (not= (:admission-origin a) (:admission-origin b))
+        "distinct scopes with restarted ordinals mint distinct origins")
+    (is (not= (:admission-origin a) (:admission-origin a1))
+        "same scope, different ordinal mints a distinct origin")
+    (let [ba (cc3-oracle-binding a)
+          bb (cc3-oracle-binding b)
+          ba1 (cc3-oracle-binding a1)]
+      (is (= (:admission-origin a) (:origin ba)))
+      (is (= (:admission-origin b) (:origin bb)))
+      (is (= (:admission-origin a1) (:origin ba1))
+          "a nonzero ordinal binds end-to-end: projected and searched keys agree")
+      (is (= (:binding ba) (:binding (cc3-oracle-binding a)))
+          "replay reuses the recorded coordinate of scope run-a")
+      (is (= (set (keys (:binding ba))) (set (keys (:binding bb)))
+             (set (keys (:binding ba1)))))
+      (is (not= (set (vals (:binding ba))) (set (vals (:binding bb))))
+          "the same sites bind under each admission's own origin")
+      (is (not= (set (vals (:binding ba))) (set (vals (:binding ba1))))
+          "the same sites bind under each ordinal's own origin"))))
+
+
+(deftest test-cc3-caller-run-threads-distinct-admissions
+  ;; cc3 r5 F2 residue: pin through the ACTUAL caller path. One
+  ;; evidence run allocates its scope ONCE; `kernel-row` (the caller
+  ;; every fixture row goes through) assigns DISTINCT ordinals within
+  ;; that run, so identical content admitted twice in one run mints
+  ;; distinct origins. A fresh run supplies a distinct scope (ordinal
+  ;; restarting at 0 still mints a new origin), and replay explicitly
+  ;; re-supplies the retained run's scope+ordinal.
+  (let [fixture {:id :cc3-binding
+                 :call '(latte-kernel.utils/vectorn? [1 2 3] 2)}
+        run (fresh-admission-run :caller-evidence-run)
+        row-0 (kernel-row-in-run run fixture)
+        row-1 (kernel-row-in-run run fixture)
+        fresh-row (kernel-row-in-run
+                    (fresh-admission-run :caller-evidence-run) fixture)
+        replay-row (kernel-row fixture (:scope run) 0)]
+    (is (= :pass (:status row-0)))
+    (is (= :pass (:status row-1)))
+    (is (= [(:scope run) 0] (nth (:admission-origin row-0) 2))
+        "the first fixture in the run takes ordinal 0 under the run scope")
+    (is (= [(:scope run) 1] (nth (:admission-origin row-1) 2))
+        "the second fixture in the same run takes a distinct ordinal")
+    (is (not= (:admission-origin row-0) (:admission-origin row-1))
+        "identical content admitted twice in one run mints distinct origins")
+    (is (not= (:scope run) (nth (:admission-origin fresh-row) 2))
+        "a fresh run supplies a distinct scope")
+    (is (= 0 (nth (nth (:admission-origin fresh-row) 2) 1))
+        "the fresh run restarts its ordinals")
+    (is (not= (:admission-origin row-0) (:admission-origin fresh-row))
+        "a restarted ordinal under a fresh scope still mints a new origin")
+    (is (= (:admission-origin row-0) (:admission-origin replay-row))
+        "replay explicitly re-supplies the retained scope+ordinal")))

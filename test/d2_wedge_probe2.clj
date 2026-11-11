@@ -141,6 +141,19 @@
 
 ;; ---------------------------------------------------------------- stage A
 
+(defn- compile-fixture
+  "Compile `fixture` under scoped admission coordinates (the r5
+   pattern): this composition allocates ONE fresh admission run and
+   admits the fixture as that run's next admission, so the compilation
+   retains its run scope and distinct ordinal as plain data
+   (`:admission-origin` / `:admission-scope` / `:admission-ordinal`).
+   Every stage here is a separate run composition and allocates a
+   fresh scope; no shared default identity is restored."
+  [fixture]
+  (let [run ((deref #'latte/fresh-admission-run) :d2-wedge-probe2)]
+    ((deref #'latte/kernel-compile-in-run) run fixture)))
+
+
 (defn- make-load-rows
   []
   (vm/fresh-code-loader
@@ -174,7 +187,7 @@
                                (:fixtures (deref #'latte/kernel-gate-corpus))))
         ;; round 1 compiled the fixture and never used the result; the call
         ;; itself is kept so stage A matches that run's cost shape
-        _ ((deref #'latte/kernel-compile) fixture)
+        _ (compile-fixture fixture)
         lm (deref #'compiler-test/library-modules)
         machine (semantic/create-vm {:make-stream tu/make-stream
                                      :capability-secret tu/secret
@@ -246,7 +259,7 @@
   (reset-instrumentation!)
   (let [fixture (first (filter #(= :check-assume-have-discharge (:id %))
                                (:fixtures (deref #'latte/kernel-gate-corpus))))
-        compiled ((deref #'latte/kernel-compile) fixture)
+        compiled (compile-fixture fixture)
         _ (when-not (= :compiled (:status compiled))
             (println :STAGE-B-BLOCKED-AT-COMPILE
                      (select-keys compiled [:status :blocked-by]))
@@ -458,7 +471,7 @@
   (reset-instrumentation!)
   (let [fixture (first (filter #(= :check-assume-have-discharge (:id %))
                                (:fixtures (deref #'latte/kernel-gate-corpus))))
-        compiled ((deref #'latte/kernel-compile) fixture)
+        compiled (compile-fixture fixture)
         ast (:ast compiled)
         modules ((deref #'latte/oracle-registry) yang/kind-module)
         result (atom {:kind :none})
@@ -536,7 +549,7 @@
   (reset-instrumentation!)
   (let [fixture (first (filter #(= :check-assume-have-discharge (:id %))
                                (:fixtures (deref #'latte/kernel-gate-corpus))))
-        compiled ((deref #'latte/kernel-compile) fixture)
+        compiled (compile-fixture fixture)
         ast (:ast compiled)
         modules ((deref #'latte/oracle-registry) yang/kind-module)
         result (atom {:kind :none})

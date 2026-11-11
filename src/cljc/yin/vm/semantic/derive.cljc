@@ -57,12 +57,45 @@
           v)))
 
 
+(defn- call-key-map
+  "The `{semantic-pc [origin root path]}` map a `:call-provenance`
+   relation (`linearize/project-rows`' rows) names over vector `v` —
+   cc3 item 2. A row naming a pc that holds no `:call` in `v` refuses:
+   native provenance is reconstructed through each format's own PC
+   derivation, never assumed from PC equality across formats."
+  [v call-provenance]
+  (reduce (fn [m row]
+            (when-not (and (vector? row) (= 4 (count row))
+                           (integer? (nth row 0))
+                           (<= 0 (nth row 0)) (< (nth row 0) (count v))
+                           (= :call (first (nth v (nth row 0)))))
+              (throw (ex-info "Call provenance names a non-call semantic pc"
+                              {:rule :call-provenance, :row row})))
+            (assoc m (nth row 0) (subvec row 1)))
+          {}
+          call-provenance))
+
+
 (defn stack-image
   "Stackify A's parsed expressions, placing closure bodies in FIFO order.
-   Labels and diagnostics are derived solely from A."
-  [v]
-  (let [{rv :vector bodies :bodies} (resolve v)
+   Labels and diagnostics are derived solely from A.
+
+   The two-argument form reconstructs call provenance through the
+   stack derivation's own PC mapping: `opts`' `:call-provenance` is
+   the semantic vector's `[[pc origin root path] …]` and its
+   `:segment-address` is the segment coordinate the caller supplies
+   for this image. The result then carries `:call-provenance`
+   `[[segment-address pc origin root path] …]` for its `:call` pcs
+   and a `{:kind :call …}` side-table diagnostic at each (the existing
+   `:closure`/`:var` diagnostic shapes are undisturbed). The image
+   itself is identical with or without provenance."
+  ([v] (stack-image v nil))
+  ([v {:keys [segment-address call-provenance]}]
+   (let [{rv :vector bodies :bodies} (resolve v)
         by-start (into {} (map (juxt :start identity)) bodies)
+        keys-by-pc (when (some? call-provenance)
+                     (call-key-map v call-provenance))
+        call-rows (volatile! [])
         image (volatile! [])
         side (volatile! {})
         labels (volatile! {})
@@ -90,6 +123,11 @@
                   :var (do (diagnostic! {:kind :var :source pc})
                            (emit! (if (= op :load-bound) [:load-bound x y] [:load-free x])))
                   :call (do (doseq [child children] (walk child) (emit! [:push]))
+                            (when-let [[o r p] (get keys-by-pc pc)]
+                              (diagnostic! {:kind :call :source pc
+                                            :origin o :root r :path p})
+                              (vswap! call-rows conj
+                                      [segment-address (count @image) o r p]))
                             (emit! [:call (count y) z]))
                   :ffi-call (do (doseq [child children] (walk child) (emit! [:push]))
                                 (emit! [:ffi-call x (count y)]))
@@ -112,12 +150,13 @@
       (loop [i 0]
         (when-let [[l body] (get @queue i)]
           (mark! l) (body! body) (recur (inc i))))
-      {:image (mapv (fn [t]
-                      (case (first t)
-                        (:jump :branch-false) (assoc t 1 (get @labels (nth t 1)))
-                        :closure (assoc t 2 (get @labels (nth t 2)))
-                        t)) @image)
-       :side-table @side})))
+      (cond-> {:image (mapv (fn [t]
+                              (case (first t)
+                                (:jump :branch-false) (assoc t 1 (get @labels (nth t 1)))
+                                :closure (assoc t 2 (get @labels (nth t 2)))
+                                t)) @image)
+               :side-table @side}
+        (some? call-provenance) (assoc :call-provenance @call-rows))))))
 
 
 (defn- allocation
@@ -153,9 +192,18 @@
 
 (defn register-image
   "Allocate temporaries by linear scan over A's live points; preserve A's
-   layout and fill saved windows using the register format's liveness."
-  [v]
-  (let [{rv :vector bodies :bodies} (resolve v)
+   layout and fill saved windows using the register format's liveness.
+
+   The two-argument form reconstructs call provenance: layout is
+   preserved, so a semantic `:call` pc IS the register pc — the result
+   then carries `:call-provenance`
+   `[[segment-address pc origin root path] …]` under `opts`'
+   caller-supplied `:segment-address`, mapped from `opts`'
+   `:call-provenance` (the semantic vector's rows). The image itself
+   is identical with or without provenance."
+  ([v] (register-image v nil))
+  ([v {:keys [segment-address call-provenance]}]
+   (let [{rv :vector bodies :bodies} (resolve v)
         a (analysis/analyze v)
         allocations (mapv #(allocation v a %) bodies)
         instructions
@@ -175,10 +223,16 @@
                                                x)))) fields))))
               (range (count rv)) rv)
         image {:bodies (mapv #(select-keys % [:locals :registers :start :end]) allocations)
-               :instructions instructions}]
-    (reduce (fn [image bi]
-              (reduce (fn [image [pc live]]
-                        (assoc-in image [:instructions pc
-                                         (rcode/live-slot-index (first (nth instructions pc)))] live))
-                      image (rcode/body-liveness image bi)))
-            image (range (count bodies)))))
+               :instructions instructions}
+        image (reduce (fn [image bi]
+                        (reduce (fn [image [pc live]]
+                                  (assoc-in image [:instructions pc
+                                                   (rcode/live-slot-index (first (nth instructions pc)))] live))
+                                image (rcode/body-liveness image bi)))
+                      image (range (count bodies)))]
+    (if (some? call-provenance)
+      (let [keys-by-pc (call-key-map v call-provenance)]
+        (assoc image :call-provenance
+               (mapv (fn [[pc [o r p]]] [segment-address pc o r p])
+                     (sort-by first keys-by-pc))))
+      image))))

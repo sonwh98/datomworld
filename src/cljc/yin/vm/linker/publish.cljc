@@ -322,10 +322,27 @@
 
       :else
       (let [tree-address (vm/materialize-tree! handle tree)
-            sem-vector (:vector (linearize/project-rows tree))
+            ;; cc3 item 3: a claimed publication projects WITH its
+            ;; validated C1 rows so every image's call provenance is
+            ;; resolved per-occurrence at lowering time; an unclaimed
+            ;; publication projects exactly as before
+            sem-proj (if (:rows claim)
+                       (linearize/project-rows tree nil (:rows claim))
+                       (linearize/project-rows tree))
+            sem-vector (:vector sem-proj)
             sem (code/materialize-vector! handle sem-vector)
-            h-image (:image (derive/stack-image sem-vector))
-            r-image (derive/register-image sem-vector)
+            stack-full (when (:rows claim)
+                         (derive/stack-image
+                           sem-vector {:segment-address sem
+                                       :call-provenance (:call-provenance sem-proj)}))
+            h-image (:image (or stack-full (derive/stack-image sem-vector)))
+            register-full (when (:rows claim)
+                            (derive/register-image
+                              sem-vector {:segment-address sem
+                                          :call-provenance (:call-provenance sem-proj)}))
+            r-image (if register-full
+                      (dissoc register-full :call-provenance)
+                      (derive/register-image sem-vector))
             h (dcode/image-hash h-image)
             r (rcode/register-hash r-image)
             h-address (jing/materialize! handle h-image)
@@ -368,13 +385,36 @@
             ;; of one specification keeps its own record and table
             call-sites (when (:rows claim)
                          (let [table (jing/materialize! handle (:rows claim))
+                               ;; cc3 item 3: the instruction-provenance
+                               ;; relation of all three images, persisted
+                               ;; as a side artifact OUTSIDE the schema-1
+                               ;; manifest hash (the record names it; the
+                               ;; manifest never names the record)
+                               provenance (jing/materialize!
+                                            handle
+                                            {:yin.vm.provenance/schema 1
+                                             :yin.vm.provenance/root (:root tree)
+                                             :yin.vm.provenance/semantic
+                                             (mapv (fn [[pc o r p]]
+                                                     [sem pc o r p])
+                                                   (:call-provenance sem-proj))
+                                             :yin.vm.provenance/stack
+                                             (mapv (fn [row]
+                                                     (assoc row 0 h-address))
+                                                   (:call-provenance stack-full))
+                                             :yin.vm.provenance/register
+                                             (mapv (fn [row]
+                                                     (assoc row 0 r-address))
+                                                   (:call-provenance register-full))})
                                record {:yang.call-site/schema 1
                                        :yang.call-site/manifest address
                                        :yang.call-site/root (:root tree)
                                        :yang.call-site/origin (:origin claim)
-                                       :yang.call-site/table table}]
+                                       :yang.call-site/table table
+                                       :yang.call-site/provenance provenance}]
                            {:record (jing/materialize! handle record)
                             :table table
+                            :provenance provenance
                             :origin (:origin claim)
                             :root (:root tree)
                             :manifest address}))
@@ -491,6 +531,53 @@
                    {:origin (:yang.call-site/origin record),
                     :root (:root tree), :rows stored-rows,
                     :tree tree}))))))))))
+
+
+(defn published-instruction-provenance
+  "The durable instruction provenance a C1-claiming publication
+   persisted beside its manifest (cc3 item 3): `{:root r :semantic
+   [[segment pc origin root path] …] :stack […] :register […]}` with
+   one row per call instruction of each image, every key a claimed
+   occurrence of the module's tree — or nil when no record verifies
+   or the publication claimed no C1 (legacy unannotated publications
+   persist none and remain fully loadable). Accepts the
+   `publish-module!` result map or the publication record's address,
+   held to the same manifest/root linkage as
+   `published-call-site-table`. The relation lives OUTSIDE the
+   schema-1 manifest hash: the record names it, the manifest never
+   names the record."
+  ([handle record-or-result]
+   (if (map? record-or-result)
+     (published-instruction-provenance handle
+                                       (:address record-or-result)
+                                       (get-in record-or-result
+                                               [:call-sites :record]))
+     (published-instruction-provenance handle nil record-or-result)))
+  ([handle manifest-address record-address]
+   (when (jing/segment-address? record-address)
+     (let [record (jing/get handle record-address nil)]
+       (when (and (map? record)
+                  (= 1 (:yang.call-site/schema record))
+                  (jing/segment-address? (:yang.call-site/manifest record))
+                  (or (nil? manifest-address)
+                      (= manifest-address (:yang.call-site/manifest record)))
+                  (jing/segment-address? (:yang.call-site/provenance record)))
+         (let [manifest (jing/get handle
+                                  (:yang.call-site/manifest record) nil)]
+           (when (and (map? manifest)
+                      (= (:yang.call-site/root record)
+                         (:yin.module/tree manifest)))
+             (let [relation (jing/get handle
+                                      (:yang.call-site/provenance record)
+                                      nil)]
+               (when (and (map? relation)
+                          (= 1 (:yin.vm.provenance/schema relation))
+                          (= (:yang.call-site/root record)
+                             (:yin.vm.provenance/root relation)))
+                 {:root (:yin.vm.provenance/root relation)
+                  :semantic (:yin.vm.provenance/semantic relation)
+                  :stack (:yin.vm.provenance/stack relation)
+                  :register (:yin.vm.provenance/register relation)})))))))))
 
 
 ;; =============================================================================

@@ -13,6 +13,7 @@
             #?(:cljd [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
             [clojure.string :as str]
+            [dao.jing :as jing]
             [dao.pretty :as pretty]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
@@ -36,6 +37,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
             [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.ucf :as ucf]
             [yin.vm.linker.interpreter :as link]
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]
@@ -154,9 +156,137 @@
    :register "DebruijnRegisterVM"})
 
 
+(defn- packet->projection
+  "The full row-lane projection of one expanded tree packet — vector,
+   address, and provenance side tables together (cc3 item 3: this
+   choke point used to select `(:vector …)` and discard the rest)."
+  [packet]
+  (linearize/project-rows (macro/packet->row-set packet)))
+
+
 (defn- packet->vector
   [packet]
-  (:vector (linearize/project-rows (macro/packet->row-set packet))))
+  (:vector (packet->projection packet)))
+
+
+(defn packet-call-provenance
+  "The call provenance of one expanded tree `packet` under the
+   packet's retained admission identity `admission` (cc3 r2 item 3),
+   resolved from the expander's retained C1 side tables
+   (`call-site-tables`, keyed `[admission-origin final-root]`) by
+   `[admission root]` exactly: `{:semantic [[segment pc origin root
+   path] …] :stack […] :register […]}` over the same images the
+   loaders derive, or nil when THAT admission claimed no C1 for the
+   packet's root (absence, never invention — a table is never
+   borrowed across admissions, so an unclaimed admission with
+   canonical content identical to a claimed one still answers nil,
+   aligning with `record-call-site-admissions`' refusal to assign old
+   evidence to new programs). A malformed admission identity refuses
+   with `:rule :call-site-admission`. Segment coordinates are the
+   images' own content identities, as the loaders compute them."
+  [state packet admission]
+  (when-not (vm/occurrence-origin? admission)
+    (throw (ex-info "Packet provenance requires a retained admission origin"
+                    {:rule :call-site-admission, :admission admission})))
+  (let [root (first packet)
+        tables (:call-site-tables (:expander state))
+        rows (get tables [admission root])]
+    (when (some? rows)
+      (let [rows (vec rows)
+            proj (linearize/project-rows (macro/packet->row-set packet)
+                                         nil rows)
+            v (:vector proj)
+            sem-address (ucf/code-address v)
+            ;; each image is derived ONCE, provenance attached: the
+            ;; segment coordinate is the image own content identity
+            ;; (unchanged by provenance), patched into the rows as the
+            ;; loaders compute it
+            stack (derive/stack-image
+                    v {:call-provenance (:call-provenance proj)})
+            stack-address (dcode/image-hash (:image stack))
+            register (derive/register-image
+                       v {:call-provenance (:call-provenance proj)})
+            register-address (rcode/register-hash register)]
+        {:semantic (mapv (fn [[pc o r p]] [sem-address pc o r p])
+                         (:call-provenance proj))
+         :stack (mapv (fn [row] (assoc row 0 stack-address))
+                      (:call-provenance stack))
+         :register (mapv (fn [row] (assoc row 0 register-address))
+                         (:call-provenance register))}))))
+
+
+(defn retain-packet-call-provenance!
+  "Persist one packet's admission-scoped call provenance (cc3 r2
+   item 4) as a side artifact in the session's content store
+   (`:index-store`, the durable `dao.jing` handle a file/DHT session
+   reopens): the relation `{:yin.vm.provenance/schema 1 :admission …
+   :root … :semantic […] :stack […] :register […]}` and a record
+   naming it, both content-addressed OUTSIDE any manifest hash.
+   Answers `{:handle record-address :relation address :admission a
+   :root r :provenance relation}` — the handle is the retrievable
+   lookup key `call-provenance-handles` carries on the session state —
+   or nil when the admission claimed nothing for the packet or the
+   session has no content store (absence, never invention)."
+  [state packet admission]
+  (when-let [store (:index-store state)]
+    (when-let [prov (packet-call-provenance state packet admission)]
+      (let [relation {:yin.vm.provenance/schema 1
+                      :yin.vm.provenance/admission admission
+                      :yin.vm.provenance/root (first packet)
+                      :yin.vm.provenance/semantic (:semantic prov)
+                      :yin.vm.provenance/stack (:stack prov)
+                      :yin.vm.provenance/register (:register prov)}
+            relation-address (jing/materialize! store relation)
+            record {:yin.repl.call-provenance/schema 1
+                    :yin.repl.call-provenance/admission admission
+                    :yin.repl.call-provenance/root (first packet)
+                    :yin.repl.call-provenance/relation relation-address}]
+        {:handle (jing/materialize! store record)
+         :relation relation-address
+         :admission admission
+         :root (first packet)
+         :provenance prov}))))
+
+
+(defn retained-packet-call-provenance
+  "The durable packet provenance retained under `handle` (a
+   `retain-packet-call-provenance!` record address) in `store`,
+   verified through its record linkage: `{:admission a :root r
+   :semantic […] :stack […] :register […]}`, or nil when the handle
+   names no verifying retained relation (a legacy session persisted
+   none). Works against a freshly reopened durable store: the handle
+   alone is the lookup key."
+  [store handle]
+  (when (jing/segment-address? handle)
+    (let [record (jing/get store handle nil)]
+      (when (and (map? record)
+                 (= 1 (:yin.repl.call-provenance/schema record))
+                 (jing/segment-address?
+                   (:yin.repl.call-provenance/relation record)))
+        (let [relation (jing/get store
+                                 (:yin.repl.call-provenance/relation record)
+                                 nil)]
+          (when (and (map? relation)
+                     (= 1 (:yin.vm.provenance/schema relation))
+                     (= (:yin.repl.call-provenance/admission record)
+                        (:yin.vm.provenance/admission relation))
+                     (= (:yin.repl.call-provenance/root record)
+                        (:yin.vm.provenance/root relation)))
+            {:admission (:yin.vm.provenance/admission relation)
+             :root (:yin.vm.provenance/root relation)
+             :semantic (:yin.vm.provenance/semantic relation)
+             :stack (:yin.vm.provenance/stack relation)
+             :register (:yin.vm.provenance/register relation)}))))))
+
+
+(defn call-provenance-handles
+  "The `{[admission root] record-address}` lookup handles of the
+   packet provenance this session's production loaders durably
+   retained (cc3 r2 item 4), for retrieval through
+   `retained-packet-call-provenance` — including after the session's
+   durable store is reopened. Empty before any claimed load."
+  [state]
+  (:call-provenance-handles state))
 
 
 (defn- append-stack-image
@@ -1342,13 +1472,48 @@
    output medium.  The two stages meet only at `program-out`; neither calls
    the other."
   [{:keys [load-program output-stream] :as state}]
-  (let [{:keys [observer] vm :consumer}
-        (observer/run-on-stream {:observer (:row-observer state),
-                                 :consumer (:vm state)}
-                                engine/ready-for-ingress?
-                                load-program
-                                (make-runner output-stream (round-id state)))]
-    (assoc state :row-observer observer :vm vm)))
+  (let [;; cc3 r2 item 4: every production loader passes through this
+        ;; wrapper, so admission-scoped provenance production is
+        ;; connected to durable retention on the ordinary REPL path —
+        ;; a packet whose root this round's expansion claimed under
+        ;; exactly one new admission is retained in the session's
+        ;; content store, and its lookup handle rides the session state
+        ;; out (`call-provenance-handles`). Unclaimed packets retain
+        ;; nothing (absence, never invention).
+        handles (volatile! {})
+        retaining-load (fn [vm packet]
+                         (when-let [admission
+                                    (get (:call-site-round-claims state)
+                                         (first packet))]
+                           (when-let [retained
+                                      (retain-packet-call-provenance!
+                                        state packet admission)]
+                             (vswap! handles assoc
+                                     [admission (first packet)]
+                                     (:handle retained))))
+                         (load-program vm packet))
+        {:keys [observer] vm :consumer}
+        (try (observer/run-on-stream {:observer (:row-observer state),
+                                      :consumer (:vm state)}
+                                     engine/ready-for-ingress?
+                                     retaining-load
+                                     (make-runner output-stream (round-id state)))
+             (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+               ;; r3 F4: retention already persisted its artifacts
+               ;; before this throw; carry the completed handles on
+               ;; the error so the recovery path merges them into the
+               ;; recovered session instead of dropping them with
+               ;; this local volatile
+               (throw (if (seq @handles)
+                        (ex-info (or (ex-message error) (str error))
+                                 (assoc (ex-data error)
+                                        ::call-provenance-handles @handles)
+                                 error)
+                        error))))]
+    (cond-> (-> state
+                (assoc :row-observer observer :vm vm)
+                (dissoc :call-site-round-claims))
+      (seq @handles) (update :call-provenance-handles merge @handles))))
 
 
 (defn- format-expansion-errors
@@ -1389,16 +1554,26 @@
    interrupted, whose every earlier run is in them -- so a rollback
    cannot reuse it.  It carries the query interpreter's pair too: the
    requests it has answered stay answered when the shell rolls back.
-   The linker successor carries every cursor and settled question."
+   The linker successor carries every cursor and settled question.
+   It also carries the call-provenance handles completed retention
+   had already persisted before the resume (r4 F4): a program that
+   returned from the evaluator stage waiting on a query/link has its
+   handles on `state`, and a throw when `drive-links` resumes it
+   must not drop them with the interrupted run."
   [error vm state]
   (ex-info (or (ex-message error) "Link failed")
-           (assoc (or (ex-data error) {})
-                  ::link-counter (:id-counter vm)
-                  ::link-origins (:origins vm)
-                  ::query-pair (:query-pair state)
-                  ::linker (:linker state)
-                  ::dht (:dht state)
-                  ::indexer (:indexer state))))
+           (cond-> (assoc (or (ex-data error) {})
+                          ::link-counter (:id-counter vm)
+                          ::link-origins (:origins vm)
+                          ::query-pair (:query-pair state)
+                          ::linker (:linker state)
+                          ::dht (:dht state)
+                          ::indexer (:indexer state))
+             (seq (:call-provenance-handles state))
+             (assoc ::call-provenance-handles
+                    (merge (::call-provenance-handles
+                             (ex-data error))
+                           (:call-provenance-handles state))))))
 
 
 (defn- carry-served
@@ -1703,9 +1878,15 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    `expanded` already carries the expander's progress, which a failing
    evaluation keeps."
   [state expanded]
-  (try
+  ;; r4 F4: the latest known state of this evaluation, so recovery
+  ;; consults it — not only the pre-evaluator `expanded` — when a
+  ;; resumed query/link (or any later step) throws after the
+  ;; evaluator stage already completed retention.
+  (let [latest (volatile! expanded)]
+    (try
     (let [gaps-before (ingress-gaps expanded)
-          evaluated (run-evaluator-stage expanded)
+          evaluated (do (vreset! latest (run-evaluator-stage expanded))
+                        @latest)
           vm (:vm evaluated)]
       (cond
         (> (ingress-gaps evaluated) gaps-before)
@@ -1717,7 +1898,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                        (engine/restore-initial-env (:env (:vm expanded)) vm))
 
         (or (link-waiting? vm) (query/waiting? vm))
-        (let [[state' vm' pending] (drive-links evaluated vm false)]
+        (let [[state' vm' pending] (drive-links evaluated vm false)
+              _ (vreset! latest state')]
           (cond
             (vm/halted? vm')
             (finalize-eval state
@@ -1745,8 +1927,26 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                         :origins (::link-origins d)})
                      (:vm state))
                    (:query-pair expanded))]
-        (consume-failed-round (carry-served (assoc expanded :vm base) d)
-                              error)))))
+        (consume-failed-round (carry-served
+                                (cond-> (assoc expanded :vm base)
+                                  ;; r3+r4 F4: provenance handles
+                                  ;; completed before the throw ride
+                                  ;; the recovered session — carried
+                                  ;; on the error (evaluator-stage and
+                                  ;; link raises) and, failing that,
+                                  ;; read from the latest known state
+                                  ;; of this evaluation, never only
+                                  ;; from the pre-evaluator `expanded`
+                                  (or (::call-provenance-handles d)
+                                      (seq (:call-provenance-handles
+                                             @latest)))
+                                  (update :call-provenance-handles
+                                          merge
+                                          (::call-provenance-handles d)
+                                          (:call-provenance-handles
+                                            @latest)))
+                                d)
+                              error))))))
 
 
 (defn- eval-program
@@ -1801,6 +2001,33 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                   run-index-stage
                                   run-ast-index-stage
                                   (assoc :call-site-commit-evidence evidence)
+                                  ;; cc3 r2 item 4: this round's
+                                  ;; provenance claims — the roots the
+                                  ;; expander newly retained under
+                                  ;; exactly one admission — ride the
+                                  ;; state into the evaluator stage,
+                                  ;; whose loader wrapper retains each
+                                  ;; claimed packet's provenance
+                                  (assoc :call-site-round-claims
+                                         (let [new-entries
+                                               (into {}
+                                                     (remove
+                                                       (fn [[k _]]
+                                                         (contains?
+                                                           (or tables-before {})
+                                                           k)))
+                                                     (or (call-site-tables
+                                                           expanded)
+                                                         {}))
+                                               by-root
+                                               (group-by (fn [[k _]]
+                                                           (second k))
+                                                         new-entries)]
+                                           (into {}
+                                                 (keep (fn [[root entries]]
+                                                         (when (= 1 (count entries))
+                                                           [root (first (ffirst entries))])))
+                                                 by-root)))
                                   ((fn [s]
                                      (record-call-site-admissions
                                        tables-before s)))))
@@ -2171,14 +2398,20 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
         (let [[st text] (drain-output state)
               d (ex-data error)]
           (fold-queued
-            [(carry-served (assoc st
-                                  :vm (query/discard-answers
-                                        (carry-link-identity
-                                          (:base parked)
-                                          {:id-counter (::link-counter d)
-                                           :origins (::link-origins d)})
-                                        (:query-pair st))
-                                  :pending-run nil)
+            [(carry-served (cond-> (assoc st
+                                          :vm (query/discard-answers
+                                                (carry-link-identity
+                                                  (:base parked)
+                                                  {:id-counter (::link-counter d)
+                                                   :origins (::link-origins d)})
+                                                (:query-pair st))
+                                          :pending-run nil)
+                             ;; r4 F4: handles a link raise carried
+                             ;; out of the resumed run ride recovery
+                             (::call-provenance-handles d)
+                             (update :call-provenance-handles
+                                     merge
+                                     (::call-provenance-handles d)))
                            d)
              (str text
                   (format-error error)

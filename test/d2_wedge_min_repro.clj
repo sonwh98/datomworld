@@ -49,12 +49,25 @@
   (swap! steps inc)
   (original-step machine))
 
+(defn- compile-fixture
+  "Compile `fixture` under scoped admission coordinates (the r5
+   pattern): this composition allocates ONE fresh admission run and
+   admits the fixture as that run's next admission, so the compilation
+   retains its run scope and distinct ordinal as plain data
+   (`:admission-origin` / `:admission-scope` / `:admission-ordinal`).
+   Every call here is a separate run composition and allocates a fresh
+   scope; no shared default identity is restored."
+  [fixture]
+  (let [run ((deref #'latte/fresh-admission-run) :d2-wedge-min-repro)]
+    ((deref #'latte/kernel-compile-in-run) run fixture)))
+
+
 (defn- fixture-ast
   "The D2-compiled check-assume-have-discharge fixture, as kernel-c sees it."
   []
   (let [fixture (first (filter #(= :check-assume-have-discharge (:id %))
                                (:fixtures (deref #'latte/kernel-gate-corpus))))
-        compiled ((deref #'latte/kernel-compile) fixture)]
+        compiled (compile-fixture fixture)]
     (when-not (= :compiled (:status compiled))
       (throw (ex-info "fixture no longer compiles" {:status (:status compiled)})))
     (:ast compiled)))

@@ -17,6 +17,7 @@
             [yang.tails :as tails]
             [yin.repl :as repl]
             [yin.repl.frontends :as repl-frontends]
+            [yin.repl.store]
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.encoder :as encoder]
@@ -1963,3 +1964,234 @@
                   (dissoc spec :call-site-wrappers-evidence))]
         (is (= :refused (:status res)) (pr-str res))
         (is (= :yin.link.publish/wrapper-provenance (:reason res)))))))
+
+
+(deftest published-instruction-provenance-test
+  ;; cc3 item 3: when a publication claims C1, the instruction
+  ;; provenance of all three images is persisted as a side artifact
+  ;; OUTSIDE the schema-1 manifest hash, retrievable alongside the
+  ;; images; an unclaimed publication persists none.
+  (let [store (mem/create-content-mem)
+        ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+        spec {:name 'cc3-provenance
+              :ast ast
+              :exports #{'f}
+              :requires {}
+              :primitives {'inc {:yin.k/profile :yin.k/pure
+                                 :yin.k/effects #{}}}}
+        result (publish/publish-module! store spec)
+        table (publish/published-call-site-table store result)
+        prov (publish/published-instruction-provenance store result)]
+    (is (some? (:address result)))
+    (is (some? prov) "the claimed publication persists instruction provenance")
+    (is (= (:root table) (:root prov)))
+    (testing "every persisted row resolves to a claimed occurrence key"
+      (doseq [lane [:semantic :stack :register]
+              [_seg _pc o r p] (get prov lane)]
+        (is (contains? (marked (:rows table)) [o r p])
+            (str lane " row names a claimed C1 occurrence"))))
+    (testing "all three lanes are present and non-empty where calls exist"
+      (is (seq (:semantic prov)))
+      (is (seq (:stack prov)))
+      (is (seq (:register prov))))
+    (testing "the manifest stays the closed schema-1 key set"
+      (is (not (contains? (:manifest result) :yang.call-site/provenance)))
+      (is (= 1 (:yin.module/schema (:manifest result))))))
+  (testing "legacy unannotated packets remain fully loadable"
+    (let [store (mem/create-content-mem)
+          result (publish/publish-module!
+                   store {:name 'cc3-legacy
+                          :ast {:type :lambda :params '[x]
+                                :body {:type :variable :name 'x}}
+                          :exports #{}
+                          :requires {}
+                          :primitives {}})]
+      (is (some? (:address result)))
+      (is (nil? (publish/published-instruction-provenance store result))))))
+
+
+(deftest repl-packet-call-provenance-test
+  ;; cc3 r2 item 3 (repl lane): provenance is selected by the packet's
+  ;; retained admission identity `[admission root]`, never by root
+  ;; alone; an admission with no claim for the root yields absence even
+  ;; when another admission claimed identical canonical content.
+  (let [{:keys [ctx result]} (expand-like-the-repl
+                               (yang/compile-program
+                                 '[(defn f [x] (+ x 1)) (f 2)]))
+        {:keys [status tree frontend-metadata]} result
+        packet tree
+        admission [:source :program-in (:t ctx) 0]
+        other [:source :program-in :other-admission 0]
+        state {:expander {:call-site-tables {[admission (first packet)]
+                                             frontend-metadata}}}]
+    (is (= :ok status))
+    (is (seq frontend-metadata) "precondition: the expansion claimed C1")
+    (let [prov (repl/packet-call-provenance state packet admission)]
+      (is (some? prov))
+      (is (seq (:semantic prov)))
+      (doseq [[_seg _pc o r _p] (:semantic prov)]
+        (is (= (first packet) r))
+        (is (= admission o))))
+    (is (nil? (repl/packet-call-provenance {:expander {}} packet admission))
+        "no retained table: absence, never invention")
+    (testing "claimed-A / unclaimed-B with an identical root: B gets absence"
+      (is (nil? (repl/packet-call-provenance state packet other))
+          "B never borrows A's table through the shared root"))
+    (testing "two retained admissions for one root each resolve their own"
+      (let [other-rows (mapv (fn [row] (assoc row 0 other)) frontend-metadata)
+            both (assoc-in state [:expander :call-site-tables
+                                  [other (first packet)]]
+                           other-rows)
+            prov-b (repl/packet-call-provenance both packet other)]
+        (is (some? prov-b))
+        (is (every? (fn [[_seg _pc o _r _p]] (= other o)) (:semantic prov-b)))))
+    (testing "a malformed admission identity refuses"
+      (is (= :call-site-admission
+             (failure-rule
+               #(repl/packet-call-provenance state packet [:oracle/fixture 1])))))))
+
+
+#?(:clj
+   (deftest repl-packet-provenance-survives-failure-test
+     ;; cc3 r3 item F4: a claimed program that throws after loading
+     ;; has already persisted its provenance relation; the lookup
+     ;; handle completed before the throw must survive the
+     ;; exception/recovery path and stay retrievable after reopening.
+     (let [dir (str "target/test-cc3-provenance-fail-" (random-uuid))
+           cleanup (fn [] (let [f (java.io.File. dir)]
+                            (when (.exists f)
+                              (run! #(.delete %) (reverse (file-seq f))))))]
+       (try
+         (let [state (reduce (fn [s line] (first (repl/eval-input s line)))
+                             (repl-frontends/create-state
+                               {:index-store-spec {:type :file :dir dir}})
+                             ["(def k (fn [] 1))"
+                              "(def g (fn [] (+ (k) 41)))"])
+               handles-before (repl/call-provenance-handles state)
+               [state' failed] (repl/eval-input state "(+ (g) (/ 1 0))")
+               handles (repl/call-provenance-handles state')]
+           (is (seq handles-before))
+           (is (str/includes? failed "Error: ")
+               "precondition: the claimed program really threw")
+           (is (< (count handles-before) (count handles))
+               "the throwing round's completed retention is not dropped")
+           (let [new-handles (into {}
+                                   (remove (fn [[k _]]
+                                             (contains? handles-before k)))
+                                   handles)
+                 [[admission root] handle before]
+                 (first (keep (fn [[[a r] h]]
+                                (let [rel (repl/retained-packet-call-provenance
+                                            (:index-store state') h)]
+                                  (when (seq (:semantic rel))
+                                    [[a r] h rel])))
+                              new-handles))]
+             (is (some? before)
+                 "the throwing round retained a retrievable relation")
+             (is (= root (:root before)))
+             (is (= admission (:admission before)))
+             (yin.repl.store/close! (:index-store state'))
+             (let [reopened (yin.repl.store/open {:type :file :dir dir})
+                   after (repl/retained-packet-call-provenance
+                           reopened handle)]
+               (is (= before after)
+                   "the throwing round's handle retrieves after reopening")
+               (yin.repl.store/close! reopened))))
+         (finally (cleanup))))))
+
+
+#?(:clj
+   (deftest repl-packet-provenance-survives-link-resume-failure-test
+     ;; cc3 r4 item F4: a claimed program that returns from the
+     ;; evaluator stage waiting on a query, then THROWS when
+     ;; drive-links resumes it, has already persisted its provenance
+     ;; relation; the lookup handle completed before the resume must
+     ;; survive the link-raise recovery path and stay retrievable
+     ;; after reopening.
+     (let [dir (str "target/test-cc3-provenance-resume-" (random-uuid))
+           cleanup (fn [] (let [f (java.io.File. dir)]
+                            (when (.exists f)
+                              (run! #(.delete %) (reverse (file-seq f))))))]
+       (try
+         (let [state (reduce (fn [s line] (first (repl/eval-input s line)))
+                             (repl-frontends/create-state
+                               {:index-store-spec {:type :file :dir dir}})
+                             ["(def k (fn [] 1))"
+                              "(def g (fn [] (+ (k) 41)))"
+                              "(require (quote dao.space.query))"])
+               handles-before (repl/call-provenance-handles state)
+               [state' failed]
+               (repl/eval-input
+                 state
+                 (str "(let [r (dao.space.query/q "
+                      "(quote [:find (count ?e) . "
+                      ":where [?e :yin/name ?n]]))] (/ 1 0))"))
+               handles (repl/call-provenance-handles state')]
+           (is (seq handles-before))
+           (is (str/includes? failed "Error: ")
+               "precondition: the resumed program really threw")
+           (is (< (count handles-before) (count handles))
+               "the resume-failing round's completed retention is not dropped")
+           (let [new-handles (into {}
+                                   (remove (fn [[k _]]
+                                             (contains? handles-before k)))
+                                   handles)
+                 [[admission root] handle before]
+                 (first (keep (fn [[[a r] h]]
+                                (let [rel (repl/retained-packet-call-provenance
+                                            (:index-store state') h)]
+                                  (when (seq (:semantic rel))
+                                    [[a r] h rel])))
+                              new-handles))]
+             (is (some? before)
+                 "the resume-failing round retained a retrievable relation")
+             (is (= root (:root before)))
+             (is (= admission (:admission before)))
+             (yin.repl.store/close! (:index-store state'))
+             (let [reopened (yin.repl.store/open {:type :file :dir dir})
+                   after (repl/retained-packet-call-provenance
+                           reopened handle)]
+               (is (= before after)
+                   "the resume-failing round's handle retrieves after reopening")
+               (yin.repl.store/close! reopened))))
+         (finally (cleanup))))))
+
+
+#?(:clj
+   (deftest repl-packet-provenance-durable-test
+     ;; cc3 r2 item 4: ordinary REPL loading retains admission-scoped
+     ;; provenance in the session's durable store under a lookup handle
+     ;; the session state carries; the relation is retrievable from a
+     ;; freshly reopened store by that handle alone.
+     (let [dir (str "target/test-cc3-provenance-" (random-uuid))
+           cleanup (fn [] (let [f (java.io.File. dir)]
+                            (when (.exists f)
+                              (run! #(.delete %) (reverse (file-seq f))))))]
+       (try
+         (let [state (reduce (fn [s line] (first (repl/eval-input s line)))
+                             (repl-frontends/create-state
+                               {:index-store-spec {:type :file :dir dir}})
+                             ["(def k (fn [] 1))"
+                              "(def g (fn [] (+ (k) 41)))"
+                              "(g)"])
+               handles (repl/call-provenance-handles state)]
+           (is (seq handles) "production loading retained provenance handles")
+           (is (every? (fn [[_k v]] (jing/segment-address? v)) handles))
+           (let [[[admission root] handle before]
+                 (first (keep (fn [[[a r] h]]
+                                (let [rel (repl/retained-packet-call-provenance
+                                            (:index-store state) h)]
+                                  (when (seq (:semantic rel))
+                                    [[a r] h rel])))
+                              handles))]
+             (is (some? before))
+             (is (= root (:root before)))
+             (is (= admission (:admission before)))
+             (is (seq (:semantic before)))
+             (yin.repl.store/close! (:index-store state))
+             (let [reopened (yin.repl.store/open {:type :file :dir dir})
+                   after (repl/retained-packet-call-provenance reopened handle)]
+               (is (= before after)
+                   "retrieval after reopening the store answers the same relation")
+               (yin.repl.store/close! reopened))))
+         (finally (cleanup))))))
