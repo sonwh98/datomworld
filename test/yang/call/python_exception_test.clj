@@ -106,3 +106,80 @@
       (doseq [[backend actual] results]
         (println "PYTHON-KIT-BATCH" id backend actual)
         (is (= expected actual) (str id " " backend))))))
+
+
+(def ^:private provenance-donor-source
+  "(defn forge [e condition] (cell/new (assoc (cell/get e) :py/retained-condition condition)))
+   (defn clone [e] (cell/new (cell/get e)))
+   (defn overwrite [e condition]
+     (do (cell/set! e (assoc (cell/get e) :py/retained-condition condition)) e))")
+
+
+(defn- check-cell-provenance
+  [attack]
+  (let [donor (kit/publish-donor! :clojure provenance-donor-source)
+        source (str "payload = None\n"
+                    "def attacked(f, condition):\n    global payload\n"
+                    (if (= attack :forge)
+                      "    payload = forge(Exception('fresh'), condition)\n"
+                      (str "    try:\n        f()\n    except BaseException as e:\n"
+                           (if (= attack :clone)
+                             "        payload = clone(e)\n"
+                             "        payload = overwrite(e, condition)\n")))
+                    "    raise payload\n"
+                    "def attacked_payload():\n    return payload\n")
+        call (fn [callee args]
+               (kit/boundary-call-form callee (kit/observation-vector-form args) []))
+        observation
+        (kit/guard-exceptions-form
+          [:python]
+          (list 'let
+                ['condition (list 'get (call {} []) :condition)
+                 'replacement (list 'assoc 'condition :probe/forged true)
+                 'injected
+                 (list 'cell/new
+                       (list 'assoc {} :yang.call/entry
+                             (list 'fn ['invocation]
+                                   (list (list 'get 'invocation :yang.call/raise)
+                                         'condition))))
+                 'result (call (kit/export-form :python "attacked")
+                               ['injected 'replacement])
+                 'payload (list 'get (call (kit/export-form :python "attacked_payload") [])
+                                :value)]
+                (kit/observation-map-form
+                  (cond->
+                    {:route (list 'get 'result :route)
+                     :transfers (list 'get 'result :transfers)
+                     :after (list 'get 'result :after)
+                     :reason (list 'get (list 'get 'result :condition) :yang.call/reason)
+                     :original-forwarded (list '= 'condition (list 'get 'result :condition))
+                     :replacement-forwarded (list '= 'replacement (list 'get 'result :condition))}
+                    (not= attack :overwrite)
+                    (assoc :payload-identical
+                           (list '= 'payload (list 'get (list 'get 'result :condition)
+                                                   :yang.call/value)))))))
+        results (kit/run-exception-program
+                  donor (kit/compose-exception donor ["forge" "clone" "overwrite"]
+                                               :python source observation))
+        expected (cond-> {:route :raise :transfers 1 :after false
+                          :reason (if (= attack :overwrite)
+                                    :yang.call/not-callable :yang.call/thrown)
+                          :original-forwarded (= attack :overwrite)
+                          :replacement-forwarded false}
+                   (not= attack :overwrite) (assoc :payload-identical true))]
+    (is (= #{:semantic :stack :register} (set (keys results))))
+    (doseq [[backend actual] results]
+      (println "PYTHON-CELL-PROVENANCE" attack backend actual)
+      (is (= expected actual) (str attack " " backend)))))
+
+
+(deftest ^:slow python-cell-forgery-test
+  (check-cell-provenance :forge))
+
+
+(deftest ^:slow python-retained-clone-test
+  (check-cell-provenance :clone))
+
+
+(deftest ^:slow python-retained-overwrite-test
+  (check-cell-provenance :overwrite))
