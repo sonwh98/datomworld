@@ -105,6 +105,30 @@
   (into {} (map (fn [[k v]] [(:address-id v) k])) registry))
 
 
+(defn max-segment-address
+  "The longest content address the closed registry can mint: the widest
+   `:address-id` beside the longest digest it registers, spelled with the
+   last hexadecimal digit.  Derived from `registry`, never hardcoded, so
+   an algorithm added there widens this with it.
+
+   A transport that sizes a message envelope against an address uses this
+   one: it is the worst case, so an envelope measured with it is never
+   under-counted for an address the registry actually mints."
+  []
+  (reduce (fn [widest {:keys [address-id digest-bytes]}]
+            (let [candidate (keyword "segment"
+                                     (str address-id "-"
+                                          (apply str
+                                                 (repeat (* 2 digest-bytes)
+                                                         "f"))))]
+              (if (or (nil? widest)
+                      (> (count (name candidate)) (count (name widest))))
+                candidate
+                widest)))
+          nil
+          (vals registry)))
+
+
 (def ^:private algorithm-id-pattern
   "Algorithm address identifiers are lowercase ASCII alphanumeric strings."
   #"[a-z0-9]+")

@@ -46,6 +46,25 @@
     :awaiting {}}))
 
 
+(defn transport-state
+  "The session's transport half: everything a composition carries across
+   ticks apart from the engine — its `node`, the publisher's key, the query
+   bounds and the service round's own `:awaiting` correlations.
+
+   A host entry point keeps this beside the engine value its driver reads,
+   and joins the two into `make`'s shape for each composition round
+   (`yin.repl.main/session-of`), so a node never lives inside the engine map
+   and no composition function has to guess which key hides one.  It is
+   `make`'s answer minus `:engine`, and nothing else."
+  ([node] (transport-state node nil nil))
+  ([node publisher-key] (transport-state node publisher-key nil))
+  ([node publisher-key limits]
+   {:node node
+    :key publisher-key
+    :limits limits
+    :awaiting {}}))
+
+
 (defn serve
   "One composition round over both media the engine parks on: the link
   request media (`yin.shell.linker/serve-links`) and the query call media

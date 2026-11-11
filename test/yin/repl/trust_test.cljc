@@ -3,8 +3,8 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [yin.repl :as repl]
-            [yin.repl.main :as main]
             [yin.repl.state :as config]
+            [yin.shell.cli :as cli]
             [yin.vm.linker.sign :as sign]))
 
 
@@ -34,14 +34,14 @@
           [reset _] (repl/eval-input state "(reset)")]
       (is (= #{pb} (get-in reset [:admission :trusted]))))
     (is (str/includes? repl/help-text "(trusted)"))
-    (is (str/includes? (str/join "\n" main/help-lines) "(trusted)"))))
+    (is (str/includes? (str/join "\n" cli/help-lines) "(trusted)"))))
 
 
 (deftest cli-and-session-share-the-principal-parser-test
   (let [hex (:public (sign/generate))
         p (sign/principal hex)]
-    (is (= p (config/parse-trust hex) (main/parse-trust hex)))
-    (is (= p (config/parse-trust p) (main/parse-trust p)))))
+    (is (= p (config/parse-trust hex) (cli/parse-trust hex)))
+    (is (= p (config/parse-trust p) (cli/parse-trust p)))))
 
 
 (deftest external-trust-records-configuration-test

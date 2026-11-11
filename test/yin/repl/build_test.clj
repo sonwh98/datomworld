@@ -1,6 +1,14 @@
 (ns yin.repl.build-test
   "The REPL's host entry points are named by build configuration, so the
-   entries are checked here."
+   entries are checked here.
+
+   The shipped entry point is the composition's, `yin.shell.main`, not the
+   engine driver's: a storage composition's flags, store, transport and
+   lifecycle reach the driver as plain data from the outside, so the
+   engine's own dependency closure stays free of any storage implementation
+   (docs/design/yin.repl.dht-composition.md sections 2, 6 and 10, Gate A).
+   `yin.repl.main/-main` still exists — it drives the engine alone, over
+   `mem` and `file:<dir>` — and is deliberately not what these aliases run."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]))
@@ -13,11 +21,11 @@
 
 (deftest deps-edn-carries-the-four-additive-aliases
   (let [aliases (:aliases (read-config "deps.edn"))]
-    (is (= ["-m" "yin.repl.main"] (:main-opts (:clj-yin-repl aliases))))
+    (is (= ["-m" "yin.shell.main"] (:main-opts (:clj-yin-repl aliases))))
     (is (= ["-m" "yin.repl.node-runner"]
            (:main-opts (:cljs-yin-repl aliases))))
     (is (= ["-m" "yin.repl.runner"] (:main-opts (:cljd-yin-repl aliases))))
-    (is (= 'yin.repl.main (:main (:cljd/opts (:cljd-yin-repl-build aliases)))))
+    (is (= 'yin.shell.main (:main (:cljd/opts (:cljd-yin-repl-build aliases)))))
     (testing "the v1 aliases are deleted"
       (is (not (contains? aliases :telemetry-server))))))
 
@@ -25,12 +33,12 @@
 (deftest shadow-cljs-edn-carries-the-additive-node-build
   (let [builds (:builds (read-config "shadow-cljs.edn"))]
     (is (= :node-script (:target (:yin-repl builds))))
-    (is (= 'yin.repl.main/-main (:main (:yin-repl builds))))
+    (is (= 'yin.shell.main/-main (:main (:yin-repl builds))))
     (testing "the v1 node builds are deleted"
       (is (not (contains? builds :telemetry-server))))))
 
 
 (deftest the-cljd-entry-point-exists-and-names-the-namespace
   (let [entry (slurp (io/file "bin/yin_repl_main.dart"))]
-    (is (re-find #"cljd-out/yin/repl/main\.dart" entry))
-    (is (re-find #"repl\.main\(args\)" entry))))
+    (is (re-find #"cljd-out/yin/shell/main\.dart" entry))
+    (is (re-find #"shell\.main\(args\)" entry))))

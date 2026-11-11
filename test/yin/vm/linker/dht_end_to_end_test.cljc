@@ -27,7 +27,7 @@
             [dao.space.index :as index]
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
-            [yin.repl.dht :as repl.dht]
+            [yin.shell.dht :as repl.dht]
             [yin.repl.store :as store]
             [yin.vm :as vm]
             [yin.vm.linker.closure-test :as ct]

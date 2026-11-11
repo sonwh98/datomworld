@@ -1,9 +1,9 @@
 import 'dart:io';
-import '../lib/cljd-out/yin/repl/main.dart' as repl;
+import '../lib/cljd-out/yin/shell/main.dart' as shell;
 
 void main(List<String> args) async {
   try {
-    await repl.main(args);
+    await shell.main(args);
   } catch (e) {
     stderr.writeln(e.toString());
     exit(1);

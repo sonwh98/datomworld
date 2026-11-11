@@ -7,31 +7,35 @@
    source, and returns; one ticker owns the state value and calls
    `repl-step` serially at the interval `cadence-step` computes.  There is
    no second state owner, and no line handler evaluates, requests, polls,
-   or prints."
+   or prints.
+
+   A storage composition past the engine's own two stores reaches this
+   driver as plain data — the `composition` of `startup`'s options — and is
+   never named here: no transport, no peer, no publisher key file, no
+   `--index-store` scheme of its own past `mem` and `file:<dir>`, and no
+   flag of a composition's it parses itself.  The host entry point that
+   carries a composition supplies it (`yin.shell.main`); a host that
+   carries none drives the engine alone.  Every key of that value is
+   optional, and an absent one is the engine's own behaviour, so this
+   namespace has exactly one dependency direction: a composition may
+   require it, and it requires no composition."
   (:require #?@(:cljd [["dart:async" :as async]
                        ["dart:convert" :as convert]
                        ["dart:core" :as dart-core]
                        ["dart:io" :as io]]
-                :jolt [[dao.host.text :as text]
-                       [dao.posix.file :as posix-file]
-                       [yang.python.antlr.parser :as python.antlr.parser]
+                :jolt [[yang.python.antlr.parser :as python.antlr.parser]
                        [yin.repl.host.common :as host-common]])
             [clojure.string :as str]
-            [dao.space.store.fs :as fs]
-            [dao.stream.datagram :as datagram]
-            [dao.stream.remote-channel :as remote-channel]
             [dao.stream.waitset.cadence :as cadence]
             [dao.stream.waitset.driver :as wake]
             [yin.repl :as shell]
             [yin.repl.connect :as connect]
-            [yin.repl.dht :as repl.dht]
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.driver :as driver]
             [yin.repl.host :as host]
             [yin.repl.serve :as serve]
             [yin.repl.state :as state]
             [yin.repl.store :as store]
-            [yin.vm.linker.sign :as sign]
             [yin.vm.ucf.compose :as compose]))
 
 
@@ -63,11 +67,14 @@
        "this shell is not, so the flags are rejected rather than ignored"))
 
 
-(defn- parse-int
+(defn parse-int
   "The decimal integer `text` names, or nil: total on every host.  At
    most 15 digits, so the value is exact on every host (below 2^53) and
    no host parser can overflow; a longer number is nil, which each flag
-   refuses as data."
+   refuses as data.
+
+   A composition's flag parser reads this too (`yin.shell.cli`): one
+   integer grammar on every host, engine and composition alike."
   [text]
   (when (and (string? text) (re-matches #"-?\d{1,15}" text))
     #?(:cljd (int/parse text)
@@ -75,398 +82,17 @@
        :clj (Long/parseLong text))))
 
 
-(defn parse-peer
-  "A `--dht-peer` value, `host:port` or `[v6-host]:port`, as the DHT's
-   bootstrap contact `{:host h :port p}`.  The host must be an IP
-   literal: the DHT resolves no names."
-  [text]
-  (let [[_ v6 v4 port] (re-matches #"(?:\[([^\]]+)\]|([^:\[\]]+)):(\d+)"
-                                   (str text))
-        host (or v6 v4)
-        port (parse-int port)]
-    (cond
-      (not (datagram/valid-port? port))
-      (throw (ex-info (str "--dht-peer takes host:port with a port from 1 "
-                           "to 65535, not " (pr-str text))
-                      {:value text}))
-
-      (not (datagram/ip-literal? host))
-      (throw (ex-info (str "--dht-peer host must be an IP literal, not "
-                           (pr-str host))
-                      {:value text}))
-
-      :else {:host host :port port})))
-
-
-(defn- parse-manifest
-  "A `--dht-manifest` value (the address as printed, with or without its
-   leading colon) as the segment address keyword."
-  [text]
-  (when (string? text)
-    (keyword (if (str/starts-with? text ":") (subs text 1) text))))
-
-
-(def ^:private dht-flags
-  #{"--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
-    "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key" "--dht-principal"
-    "--dht-trust" "--dht-follow"})
-
-
-(def max-follow
-  "The most principals one node follows (yin.vm.linker.dht.head.md 7)."
-  64)
-
-
-(defn parse-follow
-  "A `--dht-follow` value, `<64 hex>@<host:port>`, as `{:principal hex
-   :host h :port p}`: the principal whose published head is followed, at
-   the one address its board is dialed at.  The host must be a loopback
-   IP literal (`localhost` is 127.0.0.1): following off loopback is
-   not in this release (yin.vm.linker.dht.head.md 5.1, 8.3)."
-  [text]
-  (let [[_ principal v6 v4 port]
-        (re-matches #"(?:ed25519:)?([0-9a-f]{64})@(?:\[([^\]]+)\]|([^:\[\]@]+)):(\d+)"
-                    (str/replace-first (str text) #"@localhost:" "@127.0.0.1:"))
-        host (or v6 v4)
-        port (parse-int port)]
-    (cond
-      (nil? principal)
-      (throw (ex-info (str "--dht-follow takes <64 lowercase hex>@<host:port>,"
-                           " not " (pr-str text))
-                      {:value text}))
-
-      (not (datagram/valid-port? port))
-      (throw (ex-info (str "--dht-follow takes a port from 1 to 65535, not "
-                           (pr-str text))
-                      {:value text}))
-
-      (not (remote-channel/loopback-literal? host))
-      (throw (ex-info (str "--dht-follow " (pr-str text) ": a head board is "
-                           "followed on loopback only (127.0.0.1 or ::1)")
-                      {:value text}))
-
-      :else {:principal principal :host host :port port})))
-
-
-(defn parse-principal
-  "A `--dht-principal` value: a declared publisher's public key, exactly
-   64 lowercase hexadecimal characters (yin.vm.linker.dht.md 6.2)."
-  [text]
-  (if (and (string? text) (re-matches #"^[0-9a-f]{64}$" text))
-    text
-    (throw (ex-info (str "--dht-principal takes a public key of 64 lowercase "
-                         "hexadecimal characters, not " (pr-str text))
-                    {:value text}))))
-
-
-(defn parse-trust
-  "Parse the shared CLI/session trust configuration principal."
-  [text]
-  (state/parse-trust text))
-
-
-;; =============================================================================
-;; The publisher's key file (yin.vm.linker.dht.md 6.5)
-;; =============================================================================
-
-(defn- split-path
-  "`[dir name]` of a file path."
-  [path]
-  (if-let [i (str/last-index-of path "/")]
-    [(subs path 0 i) (subs path (inc i))]
-    ["." path]))
-
-
-(defn load-key
-  "The publisher key `{:seed :public}` the key file at `path` holds, or a
-   refusal of startup with the reason: a file that does not exist, or one
-   `yin.vm.linker.sign/key-from-text` refuses.  Nothing falls back to a
-   fresh key, and no refusal carries the file's content."
-  [path]
-  (let [[dir name] (split-path path)
-        text (fs/read-file-text dir name)
-        key (when text (sign/key-from-text text))]
-    (cond
-      (nil? text)
-      (throw (ex-info (str "--dht-key " path ": the key file does not exist; "
-                           "nothing falls back to a fresh key (create one with "
-                           "--dht-keygen " path ")")
-                      {:path path}))
-
-      (= :refused (:status key))
-      (throw (ex-info (str "--dht-key " path ": the key file is refused ("
-                           (:reason key) ")")
-                      {:path path :reason (:reason key)}))
-
-      :else key)))
-
-
-(defn- ensure-parent!
-  "Create the missing directories above `path`."
-  [path]
-  (let [[dir _] (split-path path)]
-    #?(:cljd (.createSync (io/Directory. dir) .recursive true)
-       :clj (.mkdirs (java.io.File. ^String dir))
-       :cljs (.mkdirSync (js/require "fs") dir #js {:recursive true}))))
-
-
-(defn- write-new-file!
-  "Create `path` holding `text`, readable by its owner only where the host
-   can set that, refusing an existing file: a key file is never
-   overwritten.  The directories above it are created."
-  [path text]
-  (ensure-parent! path)
-  (let [exists (fn []
-                 (ex-info (str "--dht-keygen " path ": the file exists; "
-                               "a key file is never overwritten")
-                          {:path path}))]
-    #?(:cljd (let [f (io/File. path)]
-               (when (.existsSync f) (throw (exists)))
-               (try (.createSync f .exclusive true)
-                    (catch Object _ (throw (exists))))
-               (.writeAsStringSync f text))
-       ;; O_CREAT | O_EXCL at 0600 in one call: owner-only from creation,
-       ;; never an existing file; written whole, fsynced, closed checked
-       :jolt (when (= :exists (posix-file/write-new-private! path (text/utf8-encode text)))
-               (throw (exists)))
-       :clj (let [p (.toPath (java.io.File. ^String path))
-                  owner-only
-                  (java.nio.file.attribute.PosixFilePermissions/asFileAttribute
-                    (java.nio.file.attribute.PosixFilePermissions/fromString
-                      "rw-------"))]
-              (try
-                (try (java.nio.file.Files/createFile
-                       p (into-array java.nio.file.attribute.FileAttribute
-                                     [owner-only]))
-                     (catch UnsupportedOperationException _
-                       (java.nio.file.Files/createFile
-                         p (make-array java.nio.file.attribute.FileAttribute
-                                       0))))
-                (catch java.nio.file.FileAlreadyExistsException _
-                  (throw (exists))))
-              (spit path text))
-       :cljs (let [fs-module (js/require "fs")]
-               (try (.writeFileSync fs-module path text #js {:flag "wx" :mode
-                                                             384})
-                    (catch :default e
-                      (if (= "EEXIST" (.-code e))
-                        (throw (exists))
-                        (throw (ex-info (str "--dht-keygen " path ": "
-                                             (.-message e))
-                                        {:path path})))))))))
-
-
-(defn keygen!
-  "Write a new key, from the host CSPRNG, to a new key file at `path`
-   (`--dht-keygen`), and answer the lines to print and the exit status.
-   The seed is never printed."
-  [path]
-  (let [key (sign/generate)]
-    (write-new-file! path (str (sign/key-text key) "\n"))
-    {:lines (cond-> [(str "dht: wrote a new Ed25519 key to " path
-                          "; its principal is "
-                          (sign/principal (:public key))
-                          ". Keep the file: a lost key "
-                          "can never sign again, and a new key is a new "
-                          "principal.")]
-              ;; dart:io sets no file permissions (yin.vm.linker.dht.md 6.5)
-              #?(:cljd true :default false)
-              (conj (str "dht: WARNING: this host cannot restrict the k"
-                         "ey file's "
-                         "permissions; it is readable as the process um"
-                         "ask allows. "
-                         "Restrict it now: chmod 600 " path)))
-     :exit 0}))
-
-
-(defn- dht-spec
-  "Fold the `--dht-*` flags into the `dht:<dir>` spec, checked by
-   `yin.repl.store/checked-spec`.  They mean nothing to any other store,
-   and a bind address means nothing to a solo node, so each such use is
-   refused rather than ignored."
-  [spec {:keys [flags peers publish? bind-host bind-port max-inbound-bytes
-                manifest follow principals]}]
-  (cond
-    (and (seq flags) (not= :dht (:type spec)))
-    (throw (ex-info (str (str/join ", " (sort flags))
-                         " need --index-store dht:<dir>")
-                    {:flags (vec (sort flags))}))
-
-    (not= :dht (:type spec)) spec
-
-    (and (empty? peers) (or bind-host bind-port))
-    (throw (ex-info (str "--dht-bind and --dht-port need a --dht-peer: "
-                         "with no peers the DHT store is solo and opens "
-                         "no socket")
-                    {}))
-
-    (and bind-host (not (datagram/ip-literal? bind-host)))
-    (throw (ex-info (str "--dht-bind must be an IP literal, not "
-                         (pr-str bind-host))
-                    {:value bind-host}))
-
-    (and (seq follow) (empty? peers))
-    (throw (ex-info (str "--dht-follow needs a --dht-peer: a followed head's "
-                         "index is fetched over the DHT")
-                    {}))
-
-    (some #(not (contains? (set principals) (:principal %))) follow)
-    (let [p (:principal (first (remove #(contains? (set principals)
-                                                   (:principal %))
-                                       follow)))]
-      (throw (ex-info (str "--dht-follow " p " follows a principal that is not"
-                           " declared: add --dht-principal " p)
-                      {:principal p})))
-
-    (not= (count follow) (count (distinct (map :principal follow))))
-    (throw (ex-info "--dht-follow names each principal once: one source each"
-                    {}))
-
-    (> (count follow) max-follow)
-    (throw (ex-info (str "at most " max-follow " principals may be followed")
-                    {:count (count follow)}))
-
-    :else
-    (store/checked-spec
-      (cond-> (assoc spec :peers (vec peers) :publish? (boolean publish?))
-        bind-host (assoc :bind-host bind-host)
-        bind-port (assoc :bind-port bind-port)
-        max-inbound-bytes (assoc :max-inbound-bytes max-inbound-bytes)
-        manifest (assoc :manifest manifest)
-        ;; a pin wins for the run: it follows nothing (5.6)
-        (and (seq follow) (not manifest)) (assoc :follow (vec follow))
-        (and (seq follow) manifest) (assoc :follow-suspended true)))))
-
-
-(defn- dht-number
-  [flag text]
-  (or (parse-int text)
-      (throw (ex-info (str flag " takes an integer of at most 15 digits, not "
-                           (pr-str text))
-                      {:value text}))))
-
-
-;; =============================================================================
-;; The subcommands: `keygen` and `dht init|serve|join`
-;; =============================================================================
-
 (defn- home-dir*
-  "The user's home directory, or nil where the host has none (ClojureDart)."
+  "The user's home directory, or nil where the host has none (ClojureDart).
+   The node directory the saved state lives in is under it; a composition's
+   own subcommand paths are its own to derive (`yin.shell.cli`)."
   []
   #?(:cljd nil
      :clj (System/getProperty "user.home")
      :cljs (some-> js/process .-env .-HOME)))
 
 
-(defn- home-dir
-  []
-  (or (home-dir*)
-      (throw (ex-info (str "no home directory on this host: give --dir and "
-                           "--key explicitly")
-                      {}))))
-
-
-(defn- state-path
-  "`~/.yin/<name><suffix>`."
-  [name suffix]
-  (str (home-dir) "/.yin/" name suffix))
-
-
-(defn- peer-text
-  "A peer as the DHT takes it: `localhost` is the loopback IP literal."
-  [text]
-  (str/replace-first (str text) #"^localhost:" "127.0.0.1:"))
-
-
-(defn parse-token
-  "A join token `yin:<host:port>/<principal>` as `[peer principal]` flag
-   values; the principal accepts an `ed25519:` prefix.  A token with a
-   third part is refused: a manifest is a pin and belongs to
-   `--dht-manifest` (yin.vm.linker.dht.head.md 5.8)."
-  [text]
-  (let [[_ peer principal more]
-        (re-matches #"yin:([^/]+)/(?:ed25519:)?([^/]+)(/.*)?" (str text))]
-    (cond
-      (and peer more)
-      (throw (ex-info (str "a join token has two parts, yin:<host:port>/"
-                           "<principal>; " (pr-str text) " has a third: a "
-                           "manifest is a pin and belongs to --dht-manifest")
-                      {:value text}))
-
-      (not peer)
-      (throw (ex-info (str "a join token looks like yin:<host:port>/"
-                           "<principal>, as `dht: join token:` prints it, "
-                           "not " (pr-str text))
-                      {:value text}))
-
-      :else [peer principal])))
-
-
-(defn- keygen-args
-  [args]
-  (loop [args (seq args) name nil file nil]
-    (if-let [arg (first args)]
-      (if (= "--name" arg)
-        (recur (nnext args) (second args) file)
-        (recur (next args) name arg))
-      ["--dht-keygen" (or file (state-path (or name "publisher") ".key"))])))
-
-
-(defn- dht-args
-  "The legacy flags of `dht init|serve|join`.  `init` publishes (its key is
-   made on first use); `serve` stores for others; `join <token>` reads,
-   declaring and following the token's principal at its address.
-   Every node needs a `--peer` to open a socket (the two-node start in
-   yin.repl.md); `--listen [ip:]port` is the node's own address.  Returns
-   `[args {:new-key path}]`."
-  [[verb & args]]
-  (when-not (#{"init" "serve" "join"} verb)
-    (throw (ex-info "usage: yin-repl dht init|serve|join [token] [options]"
-                    {})))
-  (loop [args (seq args)
-         o {:name "node" :peers [] :rest []}]
-    (if-let [arg (first args)]
-      (let [v (second args)]
-        (case arg
-          "--name" (recur (nnext args) (assoc o :name v))
-          "--dir" (recur (nnext args) (assoc o :dir v))
-          "--key" (recur (nnext args) (assoc o :key v))
-          "--peer" (recur (nnext args) (update o :peers conj (peer-text v)))
-          "--listen" (recur (nnext args) (assoc o :listen v))
-          (if (and (= "join" verb) (not (:token o))
-                   (not (str/starts-with? arg "-")))
-            (recur (next args) (assoc o :token arg))
-            (recur (next args) (update o :rest conj arg)))))
-      (let [{:keys [name dir key peers listen token rest]} o
-            [tpeer principal] (when (= "join" verb)
-                                (parse-token token))
-            tpeer (some-> tpeer peer-text)
-            peers (cond-> peers tpeer (conj tpeer))
-            [_ lhost lport] (when listen
-                              (re-matches #"(?:(.+):)?(\d+)" listen))
-            key (or key (when (= "init" verb) (state-path name ".key")))]
-        [(cond-> ["--index-store" (str "dht:" (or dir (state-path name "")))]
-           (= "init" verb) (conj "--dht-publish")
-           key (into ["--dht-key" key])
-           lhost (into ["--dht-bind" lhost])
-           lport (into ["--dht-port" lport])
-           ;; join follows the principal's head at the token's address and
-           ;; passes no manifest: its first manifest is the first head it
-           ;; installs (yin.vm.linker.dht.head.md 5.8)
-           principal (into ["--dht-principal" principal
-                            "--dht-follow" (str principal "@" tpeer)])
-           true (into (mapcat #(vector "--dht-peer" %)) peers)
-           true (into rest))
-         {:new-key (when (= "init" verb) key)
-          :name name
-          :dir (or dir (state-path name ""))
-          ;; only `init` publishes and signs by default: a saved --dht-publish
-          ;; or --dht-key must not survive `serve` or `join` (explicit flags
-          ;; named on that command line still stand)
-          :unset (when-not (= "init" verb) #{"--dht-publish" "--dht-key"})}]))))
-
-
-(defn- plain-args
+(defn plain-args
   "The plain form's `--name n` and `--dir d`, which name the node directory
    its state file lives in (default `~/.yin/node`), removed from `args`.
    Answers `[args extra]`."
@@ -485,17 +111,21 @@
 
 
 (defn expand-args
-  "Turn the subcommand surface into the flags `parse-args` reads:
-   `keygen [--name n | file]` and `dht init|serve|join`.  Anything else
-   passes through unchanged.  Answers `[args extra]`, `extra` carrying what
-   the arguments say beyond flags: `:new-key` (a key file `init` makes),
-   `:name` and `:dir` (the node directory), and `:unset` (saved flags the
-   subcommand clears)."
-  [args]
-  (case (first args)
-    "keygen" [(keygen-args (rest args)) nil]
-    "dht" (dht-args (rest args))
-    (plain-args args)))
+  "Turn a subcommand surface into the flags `parse-args` reads, answering
+   `[args extra]`: `extra` carries what the arguments say beyond flags —
+   `:new-key` (a key file a subcommand makes), `:name` and `:dir` (the node
+   directory), and `:unset` (saved flags the subcommand clears).
+
+   The engine's own surface is the plain form alone (`plain-args`: `--name`
+   and `--dir`, which name the node directory the saved state lives in).  A
+   composition's subcommands are its own, and reach this driver as its
+   `:expand-args` hook — one that falls back to the plain form for anything
+   it does not own.  So a host carrying no composition has no subcommand
+   surface at all, and one carrying a composition never has this namespace
+   parse a word of it."
+  ([args] (expand-args args nil))
+  ([args composition]
+   ((or (:expand-args composition) plain-args) args)))
 
 
 (defn- parse-vm
@@ -524,137 +154,294 @@
 
 
 (defn parse-args
-  "Parse the host arguments.  `--telemetry` and `--telemetry-stream` are
-   rejected rather than ignored.  `--index-store` is parsed into
-   `:index-store-spec`: `:mem` (also what omission means),
-   `{:type :file :dir dir}`, or the DHT store `{:type :dht :dir dir ...}`;
-   and a missing value, an unknown scheme, or an empty directory is
-   refused here, by `yin.repl.store/parse-arg`, before any host composes.
+  "Parse the host arguments this driver owns.  `--telemetry` and
+   `--telemetry-stream` are rejected rather than ignored.  `--index-store`
+   is parsed into `:index-store-spec`: `:mem` (also what omission means),
+   or `{:type :file :dir dir}`; a missing value, an unknown scheme, or an
+   empty directory is refused here, by `yin.repl.store/parse-arg`, before
+   any host composes.
 
-   The DHT store's options are their own flags (yin.repl.dht):
-   `--dht-peer host:port`, repeatable, the bootstrap contacts; none
-   means solo, with no socket; `--dht-publish`, the separate declaration
-   that shares the store; `--dht-bind ip` and `--dht-port p`, the
-   socket's address, loopback and ephemeral unless given;
-   `--dht-max-inbound-bytes n`, the inbound storage bound; and
-   `--dht-manifest address`, a remote index to hydrate before the first
-   evaluation; `--dht-key file`, the publisher's stable key file
-   (yin.vm.linker.dht.md 6.5); `--dht-principal hex`, repeatable, a
-   publisher whose signed names this node honors (7.1);
-   `--dht-trust ed25519:hex`, repeatable, a principal whose modules the
-   session's admission interpreter admits (7.5), apart from the
-   declarations; and
-   `--dht-follow hex@host:port`, repeatable, a declared publisher whose
-   published head this node follows at that loopback address
-   (yin.vm.linker.dht.head.md 5.5, 5.8).  Any of them
-   without `dht:<dir>` is refused.  `--dht-keygen file` writes a new key
-   file and exits."
-  [args]
-  (loop [args (seq args)
-         opts {:headless? false :host nil :port nil :rejected []
-               :index-store-spec :mem}
-         dht {:flags #{} :peers []}]
-    (if-let [arg (first args)]
-      (let [dht (cond-> dht (dht-flags arg) (update :flags conj arg))
-            value (second args)]
-        (case arg
-          "--port" (recur (nnext args)
-                          (assoc opts :port (when-some [p (second args)]
-                                              (let [n (parse-int p)]
-                                                (if (and n (<= 0 n 65535))
-                                                  n
-                                                  (throw (ex-info
-                                                           (str "--port takes a "
-                                                                "port from 0 to "
-                                                                "65535, not "
-                                                                (pr-str p))
-                                                           {:value p}))))))
-                          dht)
-          "--host" (throw (ex-info (str "--host is gone: --port serves on all "
-                                        "interfaces, so it answers on "
-                                        "localhost and on this machine's IP")
-                                   {}))
-          "--codec" (recur (nnext args)
-                           (assoc opts :codec (parse-codec value))
-                           dht)
-          "--headless" (recur (next args) (assoc opts :headless? true) dht)
-          "--vm" (recur (nnext args)
-                        (assoc opts :vm-type (parse-vm (second args)))
-                        dht)
-          "--index-store" (recur (nnext args)
-                                 (assoc opts
-                                        :index-store-spec
-                                        (store/parse-arg (second args)))
-                                 dht)
-          "--dht-peer" (recur (nnext args) opts
-                              (update dht :peers conj (parse-peer value)))
-          "--dht-publish" (recur (next args) opts (assoc dht :publish? true))
-          "--dht-bind" (recur (nnext args) opts
-                              (assoc dht :bind-host (str value)))
-          "--dht-port" (recur (nnext args) opts
-                              (assoc dht :bind-port (dht-number arg value)))
-          "--dht-max-inbound-bytes" (recur (nnext args) opts
-                                           (assoc dht :max-inbound-bytes
-                                                  (dht-number arg value)))
-          "--dht-manifest" (recur (nnext args) opts
-                                  (assoc dht :manifest (parse-manifest value)))
-          "--dht-key" (recur (nnext args)
-                             (assoc opts :dht-key-file
-                                    (or value
-                                        (throw (ex-info
-                                                 "--dht-key needs a key file"
-                                                 {}))))
-                             dht)
-          "--dht-principal" (recur (nnext args)
-                                   (update opts :principals (fnil conj [])
-                                           (parse-principal value))
-                                   dht)
-          "--dht-trust" (recur (nnext args)
-                               (update-in opts [:admission :trusted]
-                                          (fnil conj #{}) (parse-trust value))
-                               dht)
-          "--dht-follow" (recur (nnext args) opts
-                                (update dht :follow (fnil conj [])
-                                        (parse-follow value)))
-          "--dht-keygen" (recur (nnext args)
-                                (assoc opts :dht-keygen
-                                       (or value
-                                           (throw (ex-info
-                                                    "--dht-keygen needs a file"
-                                                    {}))))
-                                dht)
-          "--telemetry" (recur (next args) (update opts :rejected conj arg) dht)
-          "--telemetry-stream" (recur (nnext args)
-                                      (update opts :rejected conj arg) dht)
-          (recur (next args) (update opts :extra (fnil conj []) arg) dht)))
-      (update opts :index-store-spec dht-spec
-              (assoc dht :principals (:principals opts))))))
+   `composition` is the plain-data contribution of a storage composition
+   (`startup`'s option of the same name), and every way one widens this
+   surface arrives through it — statically, as data, on every host:
+
+   * `:parse-store-arg` parses an `--index-store` value over the engine's
+     schemes and the composition's own, so an operator's refusal names
+     every store this build can open;
+   * `:flag-parser` reads one flag this driver does not own:
+     `(f arg value args opts extra)` answers `{:opts opts' :extra extra'
+     :advance n}`, `n` the arguments consumed including the flag itself, or
+     nil for a flag it does not own, which this driver then reads itself;
+   * `:finalize` folds what the parse gathered into the resolved options,
+     `(f opts extra)`, once every argument has been read;
+   * `:initial-extra` is the accumulator `extra` starts as.
+
+   A host carrying no composition parses the engine's own flags and nothing
+   else, and an argument nobody owns is collected under `:extra` exactly as
+   it always was."
+  ([args] (parse-args args nil))
+  ([args composition]
+   (let [flag-parser (:flag-parser composition)
+         parse-store-arg (or (:parse-store-arg composition) store/parse-arg)
+         finalize (:finalize composition)]
+     (loop [args (seq args)
+            opts {:headless? false :host nil :port nil :rejected []
+                  :index-store-spec :mem}
+            extra (:initial-extra composition)]
+       (if-let [arg (first args)]
+         (let [value (second args)
+               hooked (when flag-parser
+                        (flag-parser arg value args opts extra))]
+           (if (some? hooked)
+             (recur (drop (:advance hooked 1) args)
+                    (or (:opts hooked) opts)
+                    (get hooked :extra extra))
+             (case arg
+               "--port" (recur (nnext args)
+                               (assoc opts :port (when-some [p (second args)]
+                                                   (let [n (parse-int p)]
+                                                     (if (and n (<= 0 n 65535))
+                                                       n
+                                                       (throw (ex-info
+                                                                (str "--port takes a "
+                                                                     "port from 0 to "
+                                                                     "65535, not "
+                                                                     (pr-str p))
+                                                                {:value p}))))))
+                               extra)
+               "--host" (throw (ex-info (str "--host is gone: --port serves on all "
+                                             "interfaces, so it answers on "
+                                             "localhost and on this machine's IP")
+                                        {}))
+               "--codec" (recur (nnext args)
+                                (assoc opts :codec (parse-codec value))
+                                extra)
+               "--headless" (recur (next args) (assoc opts :headless? true) extra)
+               "--vm" (recur (nnext args)
+                             (assoc opts :vm-type (parse-vm (second args)))
+                             extra)
+               "--index-store" (recur (nnext args)
+                                      (assoc opts
+                                             :index-store-spec
+                                             (parse-store-arg (second args)))
+                                      extra)
+               "--telemetry" (recur (next args) (update opts :rejected conj arg)
+                                    extra)
+               "--telemetry-stream" (recur (nnext args)
+                                           (update opts :rejected conj arg)
+                                           extra)
+               (recur (next args) (update opts :extra (fnil conj []) arg)
+                      extra))))
+         (if finalize (finalize opts extra) opts))))))
+
+
+(defn- release-store!
+  "Release what a failed construction had already acquired: the
+   composition's transport state first (its boards, dials and socket), then
+   the store handle (a durable directory's exclusive lock), each exactly
+   once.  A cleanup never throws over the refusal that caused it, and never
+   replaces it."
+  [composition opened]
+  (let [close (:close! composition)
+        session (:session opened)]
+    (when (and close session)
+      (try (close session)
+           (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+    (try ((or (:close-store! composition) store/close!)
+          (:index-store opened))
+         (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))))
 
 
 (defn boot
   "Create the composition: one shell, one input medium, one cursor held only by
    the step owner, and the host WebSocket adapter `(connect ...)` attaches
-   through.  The parsed `:index-store-spec` reaches the shell's store
-   selection, which resolves and opens it once at construction.  A custody
-   composition (:custody, yin.vm.ucf.compose) rides the shell as data; the
-   step owner below is the only thing that steps it.
+   through.  A custody composition (:custody, yin.vm.ucf.compose) rides the
+   shell as data; the step owner below is the only thing that steps it.
 
-   `:admission` is the session's admission policy (yin.vm.linker.dht.md
-   7.5; `--dht-trust` sets its `:trusted`), by default `{}`: the key's
-   own principal only.  It is apart from `:principals`: a declared
-   publisher is not a trusted one."
-  ([] (boot {}))
-  ([opts] (driver/create-state
-            {:host (or (:adapter opts) (host/websocket))
-             :repl (repl.frontends/create-state
-                     (cond-> {:index-store-spec (:index-store-spec opts)
-                              :publisher-key (:dht-key opts)
-                              :principals (:principals opts)
-                              :admission (:admission opts {})
-                              :ws-host (:ws-host opts)
-                              :write-heads! (:write-heads! opts)
-                              :custody (:custody opts)}
-                       (:vm-type opts) (assoc :vm-type (:vm-type opts))))})))
+   `composition` is the plain-data contribution of a storage composition
+   past the engine's own two stores.  When it names the parsed
+   `:index-store-spec` as one of its own (`:composition-spec?`), `:open`
+   opens it and answers the two values of the ownership split: `:index-store`,
+   the generic `dao.jing` handle the engine is constructed with, and
+   `:session`, the transport state the composition keeps and steps beside
+   the engine — never inside it.  What the engine additionally needs to
+   drive that store arrives as `:engine-inputs` of the same answer (a
+   prepared `:link-source`, the composition's `:host-modules`), so a
+   `(reset)` or a `(vm ...)` rebuild reconstructs a session that still
+   resolves signed names and still serves the composition's modules.
+
+   The engine value lands at `:repl`, where the driver and the endpoint
+   read it, and the composition's transport state at `:session`; there is
+   no third place a node could hide.  A construction that fails after the
+   store was opened releases what it acquired (`release-store!`) and
+   answers its own refusal.
+
+   `:admission` is the session's admission policy, by default `{}`: the
+   publisher key's own principal only.  It is apart from `:principals`: a
+   declared publisher is not a trusted one."
+  ([opts] (boot opts nil))
+  ([opts composition]
+   (let [spec (:index-store-spec opts)
+         open (:open composition)
+         composition-spec? (:composition-spec? composition)
+         comp-store (when (and open composition-spec?
+                               (composition-spec? spec))
+                      (open spec opts))
+         repl-inputs (cond-> (if comp-store
+                               (merge {:index-store (:index-store comp-store)
+                                       :recovery (:recovery comp-store)
+                                       :publication-policy
+                                       (:publication-policy comp-store)}
+                                      (:engine-inputs comp-store))
+                               {:index-store-spec spec})
+                       true (assoc :publisher-key (:publisher-key opts)
+                                   :principals (:principals opts)
+                                   :admission (:admission opts {})
+                                   :custody (:custody opts))
+                       (:vm-type opts) (assoc :vm-type (:vm-type opts)))
+         state (try
+                 (driver/create-state
+                   {:host (or (:adapter opts) (host/websocket))
+                    :repl (repl.frontends/create-state repl-inputs)})
+                 (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                   (when comp-store (release-store! composition comp-store))
+                   (throw e)))]
+     (cond-> (assoc state :composition composition)
+       (:session comp-store) (assoc :session (:session comp-store))))))
+
+
+;; =============================================================================
+;; The composition session
+;; =============================================================================
+
+(defn session-of
+  "The composition session this host state carries: the engine at `:repl`
+   beside the transport state its composition owns at `:session`, joined as
+   the one value every composition function takes
+   (`yin.shell.session/make`'s shape).  Nil when the host drives no
+   composition.
+
+   The two halves live apart in the host state because the driver and the
+   served endpoint read the engine at `:repl` and know nothing of a
+   session, while the composition reads both.  A node is never inside the
+   engine value, so nothing engine-side can step one, and nothing
+   composition-side has to guess which key a session hides its node under."
+  [state]
+  (when-some [transport (:session state)]
+    (assoc transport :engine (:repl state))))
+
+
+(defn with-session
+  "The host state after one composition round: the engine back at `:repl`,
+   where the driver reads it, and the transport state carried beside it at
+   `:session`."
+  [state session]
+  (-> state
+      (assoc :repl (:engine session))
+      (assoc :session (dissoc session :engine))))
+
+
+(defn- composition-step
+  "One transport step of the composition this host carries, at the host's
+   clock reading: `[state lines events]`, the events in the composition's
+   own vocabulary.  A host with no composition answers itself unchanged and
+   no events, so the engine's own tick path is the one that runs."
+  [state now]
+  (if-some [step (:step (:composition state))]
+    (if-some [session (session-of state)]
+      (let [[session' lines events] (step session now)]
+        [(with-session state session') lines events])
+      [state [] []])
+    [state [] []]))
+
+
+(defn- composition-recheck
+  "One re-check of a parked run after this tick's transport events:
+   `[state text]`.
+
+   A composition drives its own re-check (`yin.shell.session`): it serves
+   the link and call media the engine parks on and translates its events
+   before they cross inward, so the engine re-checks only the generic
+   completions correlated to the work it parked and never decodes a
+   transport keyword.  A host with no composition calls the engine's own
+   tick re-check, which advances the one linker round the engine serves
+   itself and matches the same two generic event shapes."
+  [state events]
+  (if-some [recheck (:recheck-on-tick (:composition state))]
+    (if-some [session (session-of state)]
+      (let [[session' text] (recheck session events)]
+        [(with-session state session') text])
+      [state nil])
+    (let [[repl text] (shell/recheck-on-tick (:repl state) events)]
+      [(assoc state :repl repl) text])))
+
+
+(defn- composition-stop
+  "Ask the composition's transport state to stop, once: its board server,
+   its dials and its socket are asked here and completed by `step`, and a
+   host never reaches past the composition to any of them."
+  [state]
+  (if-some [stop! (:stop! (:composition state))]
+    (if-some [session (session-of state)]
+      (with-session state (stop! session))
+      state)
+    state))
+
+
+(defn- composition-stopped?
+  "True when the composition owes nothing at exit — no transport state, or
+   transport state whose own exit condition is met.  A host with no
+   composition owes nothing."
+  [state]
+  (if-some [stopped? (:stopped? (:composition state))]
+    (boolean (stopped? (session-of state)))
+    true))
+
+
+(defn- composition-refusal
+  "The text that refused the composition's store after startup (a socket
+   that could not bind, a hydration that could not complete), or nil."
+  [state]
+  (when-some [refusal (:refusal (:composition state))]
+    (refusal (session-of state))))
+
+
+(defn- composition-admitting?
+  "Whether the shell may evaluate: a composition with a hydration still
+   outstanding, or one whose hydration was refused, admits nothing, and
+   every typed line waits in the input medium.  A host with no composition
+   always admits."
+  [state]
+  (if-some [admitting? (:admitting? (:composition state))]
+    (boolean (admitting? (session-of state)))
+    true))
+
+
+(defn- composition-busy?
+  "True while the composition owes the shell a line, which keeps the tick
+   owner at its base cadence."
+  [state]
+  (boolean (when-some [busy? (:busy? (:composition state))]
+             (busy? (session-of state)))))
+
+
+(defn- composition-close!
+  "The bounded drain's last resort: whatever the composition still owes
+   after `stop!` and its budget of `step`s is asked for once more and not
+   awaited."
+  [state]
+  (when-some [close! (:close! (:composition state))]
+    (close! (session-of state))))
+
+
+(defn- composition-startup-lines
+  "What the composition states at startup about the session it opened —
+   where it follows a published head, and whether one is installed yet —
+   or nothing for a host that carries no composition."
+  [state]
+  (if-some [lines (:startup-lines (:composition state))]
+    (vec (lines (session-of state)))
+    []))
 
 
 (def bind-all-host
@@ -718,34 +505,21 @@
 
 
 (def help-lines
-  "What `--help` prints: every subcommand and flag `parse-args` and
-   `expand-args` read."
+  "What `--help` prints for a host that carries no storage composition:
+   every flag `parse-args` and `expand-args` read.  A composition states
+   its own subcommands, its own flags and its own stores through its
+   `:help-lines` hook, so a build that composes one prints that instead."
   ["yin-repl: the interface to datom.world"
    ""
    "usage: yin-repl [flags]"
-   "       yin-repl dht init|serve|join [token] [options]"
-   "       yin-repl keygen [--name n | file]"
-   ""
-   "subcommands:"
-   "  dht init          publish: share the store, make the key on first run"
-   "  dht serve         storing peer: fetch only, no key"
-   "  dht join <token>  reader: follow the head of the token's principal;"
-   "                    the token is yin:<host:port>/<principal>"
-   "  keygen            write a new Ed25519 key file and exit"
-   ""
-   "dht options:"
-   "  --name n          state under ~/.yin/<n> (default: node)"
-   "  --dir d           state directory, instead of ~/.yin/<name>"
-   "  --key file        key file (init: default ~/.yin/<name>.key)"
-   "  --listen [ip:]port  this node's DHT socket"
-   "  --peer host:port  a peer to contact; repeatable; localhost or an IP"
    ""
    "flags:"
    "  --port n          serve this shell to other shells over WebSockets, on"
    "                    all interfaces: localhost and this machine's IP"
    "  --codec c         wire codec served: cbor (default) or transit"
    "  --headless        no prompt, endpoint only; needs --port"
-   "  --index-store s   mem (default), file:<dir> or dht:<dir>"
+   "  --index-store s   mem (default), file:<dir>, or a store the host's"
+   "                    storage composition registers"
    "  --vm type         ast-walker, semantic (default), stack or register"
    "  --name n, --dir d the node directory holding the saved state"
    "                    (default ~/.yin/node)"
@@ -755,41 +529,34 @@
    ""
    "saved state: the flags a node starts with are kept in <node dir>/state.edn,"
    "and a bare `yin-repl` starts that node again. Flags change it: a repeated"
-   "flag (--dht-peer, --dht-principal, --dht-trust, --dht-follow) replaces"
-   "its saved values, and the result is saved. --dht-manifest and"
-   "--dht-keygen are never saved. A followed head is kept in"
-   "<dht dir>/heads.edn."
-   ""
-   "dht flags (need --index-store dht:<dir>, except --dht-keygen):"
-   "  --dht-peer host:port        bootstrap contact (IP literal); repeatable"
-   "  --dht-publish               share the store's content with peers"
-   "  --dht-bind ip               socket address; needs a peer"
-   "  --dht-port p                socket port; needs a peer"
-   "  --dht-max-inbound-bytes n   inbound payload bound (default 64 MiB)"
-   "  --dht-manifest :segment/... remote index to hydrate first; needs a peer;"
-   "                              a pin: this run follows nothing"
-   "  --dht-key file              the publisher's key file"
-   "  --dht-principal hex         a publisher whose signed names to honor;"
-   "                              repeatable"
-   "  --dht-trust ed25519:hex     a principal whose modules to admit (not"
-   "                              implied by --dht-principal); repeatable"
-   "  (trust p), (untrust p), (trusted) edit/show session trust; reset"
-   "                              restores the configured --dht-trust set"
-   "  --dht-follow hex@host:port  follow a declared publisher's head at its"
-   "                              loopback address; repeatable"
-   "  --dht-keygen file           write a new key file and exit"
+   "flag replaces its saved values, and the result is saved."
    ""
    "--telemetry and --telemetry-stream are rejected."
    "Unrecognized arguments are ignored."
    "See src/cljc/yin/vm/docs/yin.repl.md for the walk-through."])
 
 
+(defn- composition-flag-table
+  "The saved-flag table this run reads, splits, describes and writes its
+   `state.edn` by: the composition's own when it declares one, so a saved
+   flag of a composition's is resumed beside the engine's, and the
+   engine's own table otherwise.
+
+   `yin.repl.state` resolves nothing and reaches for no composition, so the
+   table is handed to it from here — and `startup`'s `:flag-table` option
+   hands one in explicitly, which is what a test or a second composition
+   does."
+  [composition]
+  (or (:flag-table composition) (state/flag-table)))
+
+
 (defn- save-state!
   "Save the flags this run resolved to the node directory's state file when
    they differ from what was saved (nothing is written for a bare run with
    nothing saved), and answer the banner's lines about it.  A file that
-   cannot be written is a warning, never a refusal: the node still starts."
-  [dir saved resolved reset?]
+   cannot be written is a warning, never a refusal: the node still starts.
+   `table` is the `state/flag-table` the file is described and written by."
+  [dir saved resolved reset? table]
   (let [path (state/path dir)
         changed (state/changed (or saved {}) resolved)]
     (try
@@ -798,18 +565,18 @@
         []
 
         (nil? saved)
-        (do (state/save! dir resolved)
+        (do (state/save! dir resolved table)
             [(str "state: " (if reset? "reset, " "") "saved to " path
                   "; a bare yin-repl starts this node again")])
 
         (seq changed)
-        (do (state/save! dir resolved)
-            [(str "state: resumed from " path " (" (state/describe saved)
+        (do (state/save! dir resolved table)
+            [(str "state: resumed from " path " (" (state/describe saved table)
                   "); the command line changed " (str/join ", " changed)
                   "; saved")])
 
         :else
-        [(str "state: resumed from " path " (" (state/describe resolved) ")")])
+        [(str "state: resumed from " path " (" (state/describe resolved table) ")")])
       (catch #?(:cljd Object
                 :clj Throwable
                 :cljs :default)
@@ -829,35 +596,49 @@
    Only a designed refusal is answered: an error carrying no ex-info
    keeps its stack trace, because it is a defect, not an operator error.
 
-   `--dht-keygen` composes nothing: it writes the key file and answers
-   `{:lines [...] :exit 0}` for the host to print and exit with.  A
-   `--dht-key` file is loaded here (`load-key`); the key reaches the
-   shell, and only its principal reaches the options the banner reads.
-   An `:adapter` option is the host WebSocket adapter the shell, the head
-   board and the endpoint compose over (else `host/websocket`)."
+   `:composition` is the plain-data contribution of a storage composition
+   (`parse-args`' and `boot`'s argument of the same name): its flags, its
+   subcommands, its key file, its help and banner text, its store and its
+   transport lifecycle.  Every one of those reaches this gate through that
+   value and none of them is named here, so a host that carries no
+   composition has the engine's own surface and nothing more.  A
+   composition's `:keygen-flag` names the one argument that composes
+   nothing at all: it writes a key file through `:keygen!` and answers
+   `{:lines [...] :exit 0}` for the host to print and exit with, and no
+   state file is read or written for such a run.  A key file named on the
+   command line is loaded by `:load-key` here, and reaches `boot` as
+   `:publisher-key`.
+
+   `:adapter` is the host WebSocket adapter the shell, the composition's
+   own endpoints and the served endpoint compose over (else
+   `host/websocket`).  `:flag-table` is the `state/flag-table` the saved
+   state is read, split, described and written by: an explicit table when
+   the caller hands one in, else the composition's, else the engine's own."
   ([args] (startup args nil))
-  ([args {:keys [persist? home adapter]}]
+  ([args {:keys [persist? home adapter flag-table composition]}]
    (try
      (if (some #{"--help" "-h"} args)
-       {:lines help-lines :exit 0}
+       {:lines (or (:help-lines composition) help-lines) :exit 0}
        (let [reset? (boolean (some #{"--reset"} args))
              no-state? (boolean (some #{"--no-state"} args))
+             table (or flag-table (composition-flag-table composition))
+             keygen-flag (:keygen-flag composition)
              [args {:keys [new-key unset] node-name :name dir :dir}]
-             (expand-args (remove #{"--reset" "--no-state"} args))
+             (expand-args (remove #{"--reset" "--no-state"} args) composition)
              node-dir (when (and persist? (not no-state?)
-                                 (not (some #{"--dht-keygen"} args)))
+                                 (not (and keygen-flag
+                                           (some #{keygen-flag} args))))
                         (or dir
                             (some-> (or home (home-dir*))
                                     (str "/.yin/" node-name))))
-             saved (when (and node-dir (not reset?)) (state/load-flags node-dir))
-             {:keys [flags rest]} (state/split-args args)
+             saved (when (and node-dir (not reset?))
+                     (state/load-flags node-dir table))
+             {:keys [flags rest]} (state/split-args args table)
              resolved (state/resolve-flags saved flags unset)
-             args (into (state/flags->args resolved) rest)
-             made (when (and new-key (nil? (fs/read-file-text
-                                             (first (split-path new-key))
-                                             (second (split-path new-key)))))
-                    (:lines (keygen! new-key)))
-             opts (cond-> (try (parse-args args)
+             args (into (state/flags->args resolved table) rest)
+             made (when (and new-key (:ensure-key! composition))
+                    ((:ensure-key! composition) new-key))
+             opts (cond-> (try (parse-args args composition)
                                (catch #?(:cljd Object
                                          :clj Throwable
                                          :cljs :default)
@@ -871,21 +652,20 @@
                                           e))))
                     made (assoc :startup-lines made)
                     adapter (assoc :adapter adapter))]
-         (if-some [path (:dht-keygen opts)]
-           (keygen! path)
-           (let [key (some-> (:dht-key-file opts) load-key)
-                 opts (cond-> opts
-                        key (assoc :publisher (sign/principal (:public key))))
-                 ;; the head board is served and dialed over the host's
-                 ;; WebSocket seam (yin.vm.linker.dht.head.md 5.1)
+         (if-some [path (:keygen opts)]
+           ((:keygen! composition) path)
+           (let [key (when-some [path (:publisher-key-file opts)]
+                       ((:load-key composition) path))
+                 opts (cond-> opts key (assoc :publisher-key key))
                  state' (boot (assoc opts
-                                     :dht-key key
                                      :ws-host (or (:adapter opts)
-                                                  (host/websocket))))
+                                                  (host/websocket)))
+                              composition)
                  server (boot-server opts)
-                 lines (into (vec (repl.dht/follow-lines (:repl state')))
+                 lines (into (composition-startup-lines state')
                              (when node-dir
-                               (save-state! node-dir saved resolved reset?)))]
+                               (save-state! node-dir saved resolved reset?
+                                            table)))]
              {:opts (cond-> opts
                       (seq lines) (update :startup-lines
                                           #(into (vec %) lines)))
@@ -920,18 +700,19 @@
   "Release the composition's lifecycle resources before the host exits:
    the custody composition's journals first (compose/close! -- the
    authority and every journal backend the composition opened; it never
-   throws, so a failed close never blocks the exit), then the index
-   store's own resources (in durable mode, the exclusive directory
-   lock).  The shell has already stopped when a host calls this; the
-   memory store has nothing to release.  A DHT store's head board and
-   dials have been asked to stop and drained by then (`stop-tick`);
-   `yin.repl.dht/close!` is the last resort for whatever the budget
-   left."
+   throws, so a failed close never blocks the exit), then whatever a
+   storage composition still owes, then the index store's own resources
+   (in durable mode, the exclusive directory lock).  The shell has already
+   stopped when a host calls this; the memory store has nothing to
+   release.  A composition's endpoints have been asked to stop and drained
+   by then (`stop-tick`), and its own `:close!` is the last resort for
+   whatever the budget left — one resource owner, one close each."
   [state]
   (when-some [c (custody-of state)]
     (compose/close! c))
-  (repl.dht/close! (:repl state))
-  (store/close! (get-in state [:repl :index-store])))
+  (composition-close! state)
+  ((or (:close-store! (:composition state)) store/close!)
+   (get-in state [:repl :index-store])))
 
 
 (defn- entry-text
@@ -941,57 +722,49 @@
 
 (defn banner
   "Text the composition prints before the first prompt, given parsed
-   options.  A DHT store states here (before its node steps once, so
-   before anything is shared) what it will share: the whole store when
-   `--dht-publish` is given, nothing otherwise (yin.repl.dht/banner)."
-  [opts]
-  (let [spec (:index-store-spec opts)
-        dht? (= :dht (:type spec))]
-    (cond-> (vec (:startup-lines opts))
-      (seq (:rejected opts)) (conj telemetry-text)
-      (and (:port opts) (zero? (:port opts)))
-      (conj (str "serving on all interfaces on an ephemeral port; the Serving"
-                 " line names it once bound. Anyone who can reach this port"
-                 " can evaluate code in this shell; there is no"
-                 " authentication."))
+   options.  A storage composition states its own share of it through its
+   `:banner-lines` hook — what it will share, and what it will refuse —
+   before its transport steps once, so before anything leaves the process;
+   this namespace states only the engine's own lines and never names a
+   store."
+  ([opts] (banner opts nil))
+  ([opts composition]
+   (cond-> (vec (:startup-lines opts))
+     (seq (:rejected opts)) (conj telemetry-text)
+     (and (:port opts) (zero? (:port opts)))
+     (conj (str "serving on all interfaces on an ephemeral port; the Serving"
+                " line names it once bound. Anyone who can reach this port"
+                " can evaluate code in this shell; there is no"
+                " authentication."))
 
-      (and (:port opts) (not (zero? (:port opts))))
-      (conj (str "serving on all interfaces: ws://127.0.0.1:" (:port opts)
-                 (let [ip (local-ip)]
-                   (if (= "127.0.0.1" ip)
-                     " and ws://<this machine's IP>:"
-                     (str " and ws://" ip ":")))
-                 (:port opts)
-                 ". Anyone who can reach this port can evaluate code in this"
-                 " shell; there is no authentication."))
-      (and (:headless? opts) (not (:port opts)))
-      (conj "--headless has nothing to attend without a served endpoint")
-      dht? (into (repl.dht/banner spec))
-      (and dht? (:publish? spec))
-      (conj (str "dht: the code index and the code itself are shared: every"
-                 " evaluated program's rows are written to the index store"
-                 " each round"))
-      (and dht? (:publisher opts))
-      (conj (str "dht: names published here are signed by principal "
-                 (:publisher opts) " (key from " (:dht-key-file opts) ")"))
-      (and dht? (not (:publisher opts)))
-      (conj (str "dht: no --dht-key: (yin.link/publish ...) is refused; names"
-                 " are still read, resolved, loaded and linked"))
-      #?(:cljd false :jolt true :default false)
-      (into [shell/host-text
-             ;; J5: the native parser is disclosed; with no usable library
-             ;; Python is left out of the catalog and the reason is printed
-             #?(:jolt (if (python.antlr.parser/available?)
-                        (str "python: the native C++ ANTLR4 parser"
-                             " (native/jolt-parser), in process; no process"
-                             " crash isolation")
-                        "python: unavailable-parser (the native parser library is missing or incompatible; bb build:jolt-native)")
-                :default nil)]))))
+     (and (:port opts) (not (zero? (:port opts))))
+     (conj (str "serving on all interfaces: ws://127.0.0.1:" (:port opts)
+                (let [ip (local-ip)]
+                  (if (= "127.0.0.1" ip)
+                    " and ws://<this machine's IP>:"
+                    (str " and ws://" ip ":")))
+                (:port opts)
+                ". Anyone who can reach this port can evaluate code in this"
+                " shell; there is no authentication."))
+     (and (:headless? opts) (not (:port opts)))
+     (conj "--headless has nothing to attend without a served endpoint")
+     (:banner-lines composition)
+     (into ((:banner-lines composition) opts))
+     #?(:cljd false :jolt true :default false)
+     (into [shell/host-text
+            ;; J5: the native parser is disclosed; with no usable library
+            ;; Python is left out of the catalog and the reason is printed
+            #?(:jolt (if (python.antlr.parser/available?)
+                       (str "python: the native C++ ANTLR4 parser"
+                            " (native/jolt-parser), in process; no process"
+                            " crash isolation")
+                       "python: unavailable-parser (the native parser library is missing or incompatible; bb build:jolt-native)")
+               :default nil)]))))
 
 
 (defn- exit-with!
-  "Print a composition that ends at startup -- `--dht-keygen` -- and end
-   the process with its status."
+  "Print a composition that ends at startup -- a key file written and
+   nothing composed -- and end the process with its status."
   [{:keys [lines exit]}]
   (doseq [line lines]
     (println line))
@@ -1049,13 +822,13 @@
 
 (defn step-all
   "One tick of the single step owner: the local shell first, then the served
-   endpoint, against the same shell value.  A DHT index store's node is stepped
-   first (yin.repl.dht/step): its lines print before the shell's, a
-   hydration still outstanding leaves every typed line waiting in the
-   input medium, and a refused one stops the shell.  The custody control
-   plane is stepped next, before the refusal and admission branches, so
-   renewals, pending releases and request retries continue during
-   hydration and past a refusal.  A `--port` process
+   endpoint, against the same shell value.  A storage composition's
+   transport state is stepped first (`composition-step`): its lines print
+   before the shell's, a hydration still outstanding leaves every typed
+   line waiting in the input medium, and a refused one stops the shell.
+   The custody control plane is stepped next, before the refusal and
+   admission branches, so renewals, pending releases and request retries
+   continue during hydration and past a refusal.  A `--port` process
    serves one shared shell, as v1's atom made it: the driver evaluates this
    tick's local
    lines first, so a definition typed at the local prompt is already in the
@@ -1064,27 +837,27 @@
    before the next tick.  The custody program step follows the driver's own
    step and precedes the endpoint's; once the shell has stopped it is
    replaced by the stop latch, so no custody program call runs after
-   `:running?` turns false.  A require parked on a closure load the node
-   ended this tick is re-checked once, before any typed line, with no line
-   of its own (yin.repl/recheck-on-tick, yin.vm.linker.dht.md 8.2),
-   and linker progress resumes a parked run (7.5): its text prints after the
-   node's lines.  Returns `[state server lines]`;
-   the caller only prints."
+   `:running?` turns false.  A run parked on a completion this tick's
+   transport step produced is re-checked once, before any typed line and
+   with no line of its own, by the composition's own re-check — which
+   serves the link and call media the engine parks on and translates the
+   events before they cross inward, so linker progress resumes a parked run
+   and its text prints after the composition's lines.  Returns
+   `[state server lines]`; the caller only prints."
   [state server now]
-  (let [[repl dht-lines events] (repl.dht/step (:repl state) now)
-        state (custody-control-step (assoc state :repl repl))]
+  (let [[state comp-lines events] (composition-step state now)
+        state (custody-control-step state)]
     (cond
-      (repl.dht/refusal repl)
-      [(custody-stop (assoc state :running? false)) server dht-lines]
+      (composition-refusal state)
+      [(custody-stop (assoc state :running? false)) server comp-lines]
 
-      (not (repl.dht/admitting? repl))
-      [state server dht-lines]
+      (not (composition-admitting? state))
+      [state server comp-lines]
 
       :else
-      (let [[repl rechecked] (shell/recheck-on-tick (:repl state) events)
-            dht-lines (cond-> dht-lines
-                        (seq rechecked) (conj rechecked))
-            state (assoc state :repl repl)
+      (let [[state rechecked] (composition-recheck state events)
+            comp-lines (cond-> comp-lines
+                         (seq rechecked) (conj rechecked))
             stepped (driver/repl-step state now)
             stepped (if (:running? stepped)
                       (custody-program-step stepped)
@@ -1097,7 +870,7 @@
                                         (serve/take-outbox server')
                                         [[] nil])
             state'' (if server'' (assoc state' :repl (:repl server'')) state')]
-        [state'' server'' (into dht-lines
+        [state'' server'' (into comp-lines
                                 (map entry-text)
                                 (into (vec entries) server-entries))]))))
 
@@ -1106,13 +879,14 @@
   "The tick owner's cadence bit, computed from this tick's own results: true
    when there are lines to print, when the endpoint reports movement (a
    woken probe, a published notice), or when either composition still owes a
-   write -- the shell's own or a custody control-plane one.  A pending write
+   write -- the shell's own, a storage composition's, or a custody
+   control-plane one.  A pending write
    keeps cadence at the base interval; it must never wait out a backoff
    ceiling."
   [state server lines]
   (boolean (or (seq lines)
                (driver/pending-write? state)
-               (repl.dht/busy? (:repl state))
+               (composition-busy? state)
                (custody-owed? state)
                (and server (serve/moved? server)))))
 
@@ -1127,11 +901,11 @@
 
 
 (defn exit-status
-  "The process status a host exits with once the shell stops: 1 when the
-   DHT store refused after startup (a failed bind, a hydration that could
-   not complete), else 0."
+  "The process status a host exits with once the shell stops: 1 when a
+   storage composition's store refused after startup (a socket that could
+   not bind, a hydration that could not complete), else 0."
   [state]
-  (if (repl.dht/refusal (:repl state)) 1 0))
+  (if (composition-refusal state) 1 0))
 
 
 ;; =============================================================================
@@ -1179,57 +953,57 @@
 
 
 (defn stop-tick
-  "One shutdown tick for the shell's head board and the endpoint, both of
-   which have already been asked to stop (`yin.repl.dht/stop!`,
-   `serve/stop!`).  Returns `[state server lines stopped?]`, the node's
-   lines before the endpoint's.
+  "One shutdown tick for a storage composition's transport state and the
+   served endpoint, both of which have already been asked to stop
+   (`composition-stop`, `serve/stop!`).  Returns `[state server lines
+   stopped?]`, the composition's lines before the endpoint's.
 
-   `serve/stopped?` is the whole of the endpoint's exit condition, and
-   `yin.repl.dht/stopped?` for the shell's head board: an endpoint that never
-   bound is done on the first tick, because no host exists to report a
-   `:stopped` fact for it, an absent endpoint -- a shell run without
-   `--port` -- never had one, and so is a shell with no board.  The custody
+   `serve/stopped?` is the whole of the endpoint's exit condition, and the
+   composition's own `:stopped?` is the whole of its transport's: an
+   endpoint that never bound is done on the first tick, because no host
+   exists to report a `:stopped` fact for it, an absent endpoint -- a shell
+   run without `--port` -- never had one, and so is a shell whose
+   composition has no endpoint of its own.  The custody
    composition is not stepped here: `shutdown-tick` is the drain tick that
    wraps this one with the custody control plane."
   [state server now]
-  (let [[repl dht-lines _] (repl.dht/step (:repl state) now)
-        state (assoc state :repl repl)
+  (let [[state comp-lines _] (composition-step state now)
         [server' entries] (if server
                             (let [[entries server'] (serve/take-outbox
                                                       (serve/step server now))]
                               [server' entries])
                             [nil []])]
     [state server'
-     (into (vec dht-lines) (map entry-text) entries)
+     (into (vec comp-lines) (map entry-text) entries)
      (and (or (nil? server') (serve/stopped? server'))
-          (repl.dht/stopped? repl))]))
+          (composition-stopped? state))]))
 
 
 (defn shutdown-enter?
   "Whether a shell that just stopped enters the bounded shutdown drain at
    all (r3 1.12 as amended by residual 4 and the D15 gate's shutdown row):
-   there is an endpoint to stop, a head board that still owes its
-   stop-and-drain, or a custody composition that still owes a
-   control-plane write.  A REPL run without --port enters the drain on its
-   owed custody writes alone -- a release owed at quit is sent, never
+   there is an endpoint to stop, a storage composition's transport state
+   that still owes its stop-and-drain, or a custody composition that still
+   owes a control-plane write.  A REPL run without --port enters the drain
+   on its owed custody writes alone -- a release owed at quit is sent, never
    dropped by the process exit."
   [state server]
   (boolean (or server
-               (get-in state [:repl :dht])
+               (:session state)
                (custody-owed? state))))
 
 
 (defn shutdown-drained?
   "The bounded shutdown drain's exit condition, the one every host loop
    tests: the endpoint has stopped -- an absent endpoint owes nothing --
-   AND the shell's head board owes nothing at exit, AND the custody
-   composition owes no further control-plane write.  A pending release,
-   renewal or undelivered reply still owed keeps the drain stepping
-   within its `stop-ticks` budget; the budget, not this predicate, is
-   what bounds a write that can never complete."
+   AND the storage composition's transport state owes nothing at exit, AND
+   the custody composition owes no further control-plane write.  A pending
+   release, renewal or undelivered reply still owed keeps the drain
+   stepping within its `stop-ticks` budget; the budget, not this predicate,
+   is what bounds a write that can never complete."
   [state server]
   (boolean (and (serve/stopped? server)
-                (repl.dht/stopped? (:repl state))
+                (composition-stopped? state)
                 (not (custody-owed? state)))))
 
 
@@ -1271,7 +1045,7 @@
         resend.  Answers the drained state."
   [state server now sleep!]
   (if (shutdown-enter? state server)
-    (loop [state (update state :repl repl.dht/stop!)
+    (loop [state (composition-stop state)
            server (some-> server serve/stop!)
            remaining stop-ticks]
       (let [[state' server' lines _stopped?]
@@ -1354,40 +1128,41 @@
            (do (driver/submit-line! input "(quit)")
                (wake/nudge! w)))))
 
-     (defn -main
-       [& args]
-       (let
-         [started (startup args {:persist? true})]
+     (defn main!
+       "The JVM entry point body: compose from `args` and this host's
+        `composition`, print the banner, and run the reader thread beside
+        the one owned poller thread until the poller exits the process.
+
+        `composition` is the plain-data contribution of a storage
+        composition, nil for a host that carries none.  `yin.shell.main`
+        supplies the one this project ships; `-main` here drives the
+        engine alone."
+       [args composition]
+       (let [started (startup args {:persist? true
+                                    :composition composition})]
          (when (contains? started :exit) (exit-with! started))
-         (if-some
-           [refusal (:refusal started)]
+         (if-some [refusal (:refusal started)]
            (refuse! refusal)
-           (let
-             [{:keys [opts state server]} started
-              headless? (boolean (:headless? opts))
-              w (wake/make-wake)]
-             (doseq [line (banner opts)]
+           (let [{:keys [opts state server]} started
+                 headless? (boolean (:headless? opts))
+                 w (wake/make-wake)]
+             (doseq [line (banner opts composition)]
                (println line))
-             (let
-               [poller (Thread.
-                         ^Runnable (fn []
-                                     (poll-loop!
-                                       state
-                                       server
-                                       headless?
-                                       #(.halt
-                                          (Runtime/getRuntime) 0)
-                                       w)))]
+             (let [poller (Thread.
+                            ^Runnable (fn []
+                                        (poll-loop!
+                                          state
+                                          server
+                                          headless?
+                                          #(.halt (Runtime/getRuntime) 0)
+                                          w)))]
                (.setDaemon poller true)
                (.start poller)
                ;; Headless attends the endpoint only: there is no reader, so the
                ;; step owner is joined until it stops, and the explicit stop
-               ;; trigger
-               ;; is the host signal a shutdown hook observes.  The hook appends
-               ;; a
-               ;; line like any producer, nudges, and then waits for the one
-               ;; step
-               ;; owner.
+               ;; trigger is the host signal a shutdown hook observes.  The hook
+               ;; appends a line like any producer, nudges, and then waits for
+               ;; the one step owner.
                (if headless?
                  (do (.addShutdownHook
                        (Runtime/getRuntime)
@@ -1399,58 +1174,77 @@
                  (do (print-prompt!)
                      ;; End-of-input is one way to stop; a typed `(quit)` is the
                      ;; other, and the step owner has already exited the process
-                     ;; by
-                     ;; the time this join is reached in that case.
-                     ;; The join is unbounded: lines read before end-of-input
-                     ;; still evaluate ahead of its `(quit)`, and the step
-                     ;; owner bounds its own shutdown drain (`stop-ticks`)
-                     ;; and exits the process itself.
+                     ;; by the time this join is reached in that case.  The join
+                     ;; is unbounded: lines read before end-of-input still
+                     ;; evaluate ahead of its `(quit)`, and the step owner bounds
+                     ;; its own shutdown drain (`stop-ticks`) and exits the
+                     ;; process itself.
                      (read-loop! (:input state) w)
                      (.join poller))))
-             (.halt (Runtime/getRuntime) 0)))))))
+             (.halt (Runtime/getRuntime) 0)))))
+
+     (defn -main
+       "The engine's own JVM entry point: the `mem` and `file:<dir>` stores
+        and no storage composition.  The shipped product entry point is
+        `yin.shell.main/-main`, which supplies one."
+       [& args]
+       (main! args nil))))
 
 
 #?(:jolt
-   (defn -main
-     "One plain-thread owner. Stdin deposits only; EOF deposits (quit).
-      One host WebSocket instance serves the shell, the head board and
-      --port; every owner round polls its sockets (headless included) and
-      the instance is closed before exit, however the drain ended.
-      Saved flags persist in the node directory, as on the JVM (J4d):
-      --reset forgets them and --no-state neither reads nor writes them."
-     [& args]
-     (let [adapter (host/websocket)
-           started (startup args {:persist? true :adapter adapter})]
-       (when (contains? started :exit) (exit-with! started))
-       (if-some [refusal (:refusal started)]
-         (refuse! refusal)
-         (let [{:keys [opts state server]} started
-               headless? (boolean (:headless? opts))
-               eof? (atom false)
-               w (wake/make-wake)
-               line! (fn [line]
-                       (if (nil? line)
-                         (do (reset! eof? true)
-                             (driver/submit-line! (:input state) "(quit)"))
-                         (driver/submit-line! (:input state) line)))
-               sleep! (fn [ms]
-                        (wake/sleep-fds! w ms (:pump adapter)
-                                         (when-not (or headless? @eof?) line!)))]
-           (doseq [line (banner opts)] (println line))
-           (when-not headless? (print prompt))
-           (flush)
-           ;; the exit status leaves through System/exit, which skips the
-           ;; finally, so the exit path closes the instance itself too
-           (try
-             (run-owner! state server headless? #(System/currentTimeMillis)
-                         sleep! (fn [status]
-                                  ((:close-host! adapter))
-                                  (wake/close! w)
-                                  (flush)
-                                  (System/exit status)))
-             (finally
-               ((:close-host! adapter))
-               (wake/close! w))))))))
+   (do
+     (defn main!
+       "One plain-thread owner. Stdin deposits only; EOF deposits (quit).
+        One host WebSocket instance serves the shell, a storage
+        composition's own endpoints and --port; every owner round polls its
+        sockets (headless included) and the instance is closed before exit,
+        however the drain ended.  Saved flags persist in the node
+        directory, as on the JVM (J4d): --reset forgets them and --no-state
+        neither reads nor writes them.
+
+        `composition` is the plain-data contribution of a storage
+        composition, nil for a host that carries none."
+       [args composition]
+       (let [adapter (host/websocket)
+             started (startup args {:persist? true :adapter adapter
+                                    :composition composition})]
+         (when (contains? started :exit) (exit-with! started))
+         (if-some [refusal (:refusal started)]
+           (refuse! refusal)
+           (let [{:keys [opts state server]} started
+                 headless? (boolean (:headless? opts))
+                 eof? (atom false)
+                 w (wake/make-wake)
+                 line! (fn [line]
+                         (if (nil? line)
+                           (do (reset! eof? true)
+                               (driver/submit-line! (:input state) "(quit)"))
+                           (driver/submit-line! (:input state) line)))
+                 sleep! (fn [ms]
+                          (wake/sleep-fds! w ms (:pump adapter)
+                                           (when-not (or headless? @eof?) line!)))]
+             (doseq [line (banner opts composition)] (println line))
+             (when-not headless? (print prompt))
+             (flush)
+             ;; the exit status leaves through System/exit, which skips the
+             ;; finally, so the exit path closes the instance itself too
+             (try
+               (run-owner! state server headless? #(System/currentTimeMillis)
+                           sleep! (fn [status]
+                                    ((:close-host! adapter))
+                                    (wake/close! w)
+                                    (flush)
+                                    (System/exit status)))
+               (finally
+                 ((:close-host! adapter))
+                 (wake/close! w)))))))
+
+     (defn -main
+       "The engine's own jolt entry point: the `mem` and `file:<dir>` stores
+        and no storage composition.  The shipped product entry point is
+        `yin.shell.main/-main`, which supplies one."
+       [& args]
+       (main! args nil))))
 
 
 ;; =============================================================================
@@ -1518,7 +1312,7 @@
 
                              (shutdown-enter? state' server')
                              (do (swap! box assoc
-                                        :state (update state' :repl repl.dht/stop!)
+                                        :state (composition-stop state')
                                         :server (when server'
                                                   (serve/stop! server'))
                                         :stopping stop-ticks)
@@ -1540,9 +1334,18 @@
           (wake/arm! @wake-ref tick-millis)
           @wake-ref)))
 
-     (defn -main
-       [& args]
-       (let [started (startup args {:persist? true})]
+     (defn main!
+       "The Node entry point body: compose from `args` and this host's
+        `composition`, print the banner, and arm the one tick owner, wiring
+        each line producer to the nudge it hands back.
+
+        `composition` is the plain-data contribution of a storage
+        composition, nil for a host that carries none.  `yin.shell.main`
+        supplies the one this project ships; `-main` here drives the engine
+        alone."
+       [args composition]
+       (let [started (startup args {:persist? true
+                                    :composition composition})]
          (when (contains? started :exit) (exit-with! started))
          (if-some [refusal (:refusal started)]
            (refuse! refusal)
@@ -1553,12 +1356,11 @@
                                         #js {:input (.-stdin js/process)
                                              :output (.-stdout js/process)
                                              :prompt prompt}))]
-             (doseq [line (banner opts)]
+             (doseq [line (banner opts composition)]
                (js/console.log line))
              ;; The tick owner arms its first round, and the composition wires
-             ;; the
-             ;; deposit it hands each line producer with the nudge: a typed line
-             ;; ends the idle sleep at once.
+             ;; the deposit it hands each line producer with the nudge: a typed
+             ;; line ends the idle sleep at once.
              (let [w (run-node! state server rl)]
                (if rl
                  (do (.on rl "line" (fn [line]
@@ -1570,13 +1372,19 @@
                                        (wake/nudge! w)))
                      (.prompt rl))
                  ;; Headless has no reader, so the explicit stop trigger is the
-                 ;; host
-                 ;; signal: it appends a line, nudges, and returns, like any
-                 ;; producer.
+                 ;; host signal: it appends a line, nudges, and returns, like
+                 ;; any producer.
                  (doseq [signal ["SIGINT" "SIGTERM"]]
                    (.on js/process signal (fn []
                                             (request-stop! state
-                                                           w))))))))))))
+                                                           w))))))))))
+
+     (defn -main
+       "The engine's own Node entry point: the `mem` and `file:<dir>` stores
+        and no storage composition.  The shipped product entry point is
+        `yin.shell.main/-main`, which supplies one."
+       [& args]
+       (main! args nil))))
 
 
 ;; =============================================================================
@@ -1656,7 +1464,7 @@
 
                              (shutdown-enter? state' server')
                              (do (swap! box assoc
-                                        :state (update state' :repl repl.dht/stop!)
+                                        :state (composition-stop state')
                                         :server (when server'
                                                   (serve/stop! server'))
                                         :stopping stop-ticks)
@@ -1680,27 +1488,35 @@
           (wake/arm! @wake-ref tick-millis)
           @wake-ref)))
 
-     (defn -main
-       [& args]
-       (let [started (startup args {:persist? true})]
+     (defn main!
+       "The Dart entry point body: compose from `args` and this host's
+        `composition`, print the banner, and arm the one timer owner,
+        wiring each line producer to the nudge it hands back.
+
+        `composition` is the plain-data contribution of a storage
+        composition, nil for a host that carries none.  `yin.shell.main`
+        supplies the one this project ships; `-main` here drives the engine
+        alone."
+       [args composition]
+       (let [started (startup args {:persist? true
+                                    :composition composition})]
          (when (contains? started :exit) (exit-with! started))
          (if-some [refusal (:refusal started)]
            (refuse! refusal)
            (let [{:keys [opts state server]} started
                  headless? (boolean (:headless? opts))]
-             (doseq [line (banner opts)]
+             (doseq [line (banner opts composition)]
                (write-line! line))
              ;; The tick owner arms its first round, and the composition wires
-             ;; the
-             ;; deposit it hands each line producer with the nudge: a typed line
-             ;; ends the idle sleep at once.  A timer fires only on the event
-             ;; loop, so arming before the producers are wired races nothing.
+             ;; the deposit it hands each line producer with the nudge: a typed
+             ;; line ends the idle sleep at once.  A timer fires only on the
+             ;; event loop, so arming before the producers are wired races
+             ;; nothing.
              (let [w (run-dart! state server headless?)]
                (if headless?
                  ;; Headless has no reader, so the explicit stop trigger is the
                  ;; host signal: it appends a line, nudges, and returns, like
-                 ;; any
-                 ;; producer.
+                 ;; any producer.
                  (-> (.watch io/ProcessSignal.sigint)
                      (.listen (fn [_signal] (request-stop! state w))))
                  (do (-> io/stdin
@@ -1714,6 +1530,13 @@
                                                                  "(quit)")
                                             (wake/nudge! w))))
                      (print-prompt!))))))))
+
+     (defn -main
+       "The engine's own Dart entry point: the `mem` and `file:<dir>` stores
+        and no storage composition.  The shipped product entry point is
+        `yin.shell.main/-main`, which supplies one."
+       [& args]
+       (main! args nil))
 
      (defn ^{:dart/name main} run-main
        [args]

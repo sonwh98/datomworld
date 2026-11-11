@@ -10,8 +10,8 @@
    record through a `dao.space.transactor`, which allocates `t`; this
    namespace supplies no clock.  Every row of a committed packet is
    materialized into the `dao.jing` store in the same round, so its
-   `:yin/address` facts name content the store holds (yin.vm.linker.dht.md
-   5.1, rows every round).  After a round that committed, the covered
+   `:yin/address` facts name content the store holds — rows every round,
+   the owner's decision 1.  After a round that committed, the covered
    indexes are published through `dao.space.index` into that round's
    own fresh intake, the intake is drained into the `dao.jing` store, the
    manifest is read back, and the intake is dropped. Between rounds the
@@ -351,8 +351,8 @@
 
 (defn- write-rows
   "Put the rows of every committed program not yet written into the index
-   store, oldest first (yin.vm.linker.dht.md 5.1, owner decision 1: rows
-   every round), so `:yin/address` facts name content the store holds.
+   store, oldest first (the owner's decision 1: rows every round), so
+   `:yin/address` facts name content the store holds.
    `:unwritten` holds those programs' row sets.  A put that fails stops
    the writing: it and every later row set stay `:unwritten`, and the
    round's failure is stage `:materialize`.  Once nothing is unwritten, a
@@ -798,12 +798,17 @@
 
 (defn commit-names
   "Commit the signed name envelopes `signed` -- each `{:envelope e :proof
-   p}` -- as ONE transaction, then publish the covered indexes at once
-   (docs/design/yin.vm.linker.dht.md 6.1): one entity per envelope
+   p}` -- as ONE transaction, then publish the covered indexes at once:
+   one entity per envelope
    carrying `:yin.module/envelope` and `:yin.module/proof`, with the
    session's metadata entity -- `:db/op`, the session token and `round`,
    no program root -- in `m`.  A transaction refused is recorded as the
    failure, like a packet's.
+
+   The envelopes arrive already signed and resolved: this namespace signs
+   nothing, resolves nothing and announces nothing, and the composition
+   that supplied them is the one whose transport carries the publication
+   (docs/design/yin.repl.dht-composition.md sections 6-7).
 
    The publication this emits is a request on the composition's medium,
    settled by the result that composition delivers

@@ -1871,6 +1871,11 @@
    :round (:round state)})
 
 
+(def ^{:doc "Backwards-compatible alias for service-context during refactoring."}
+  link-context
+  service-context)
+
+
 (defn- drive-links
   "Serve the linker interpreter and run the parked VM alternately, at most
    `link-round-budget` rounds, while `vm` waits on a link.  A round that
@@ -2183,7 +2188,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                      (engine/restore-initial-env
                                        (:env (:vm expanded)) vm')))
 
-            (link-waiting? vm')
+            (or (link-waiting? vm') (query/waiting? vm'))
             (pending-eval state state' vm' pending)
 
             :else (throw (wedged-program state))))

@@ -254,6 +254,14 @@
         opts
         [requests answers facts ticks traffic ledger] (repeatedly 6 ring)
         socket? (boolean (seq peers))
+        ;; The effective transport configuration, resolved once here and
+        ;; used consistently by every consumer of it: the DHT state, the
+        ;; store front's own oversize refusal, and the payload capability
+        ;; a storage composition declares (`payload-budget`).  Three
+        ;; consumers reading three defaults is how a bound and a budget
+        ;; come to disagree.
+        message-bound (or (::dht/max-message-bytes opts)
+                          (::dht/max-message-bytes dht/defaults))
         composition (cond-> {:local local
                              :requests requests
                              :answers answers
@@ -281,10 +289,11 @@
         front (dht/store-handle
                 {:local local
                  :requests (ring 1)
-                 :max-message-bytes (::dht/max-message-bytes dht/defaults)})
+                 :max-message-bytes message-bound})
         closed? (volatile! false)]
     {:peers (vec peers)
      :publish? publish?
+     :message-bound message-bound
      :limits (select-keys opts [:max-backlog :repair-batch :max-open
                                 :repair-slots :repair-ticks :repair-max-ticks
                                 :max-repairing])
@@ -372,6 +381,32 @@
   "The node's own local `dao.jing` store."
   [node]
   (get-in node [:composition :local]))
+
+
+(defn message-bound
+  "The effective transport message bound `node` composes under: the most
+   encoded bytes one DHT message carries.  Resolved once, at `join`, and
+   the same number the store front's oversize refusal uses, so a caller
+   that sizes anything against the transport reads the transport's own
+   answer instead of a default it guessed
+   (docs/design/yin.repl.dht-composition.md section 5)."
+  [node]
+  (:message-bound node))
+
+
+(defn payload-budget
+  "The payload capability `node`'s transport declares: the most payload
+   bytes one `:store` message can carry inside `message-bound`, derived by
+   the transport's own encoder and envelope (`dao.jing.dht/payload-budget`)
+   and never hardcoded.
+
+   This is the number a storage composition over this node declares as its
+   generic `:max-payload-bytes`, so the bound the transport enforces, the
+   refusal the store front answers and the ceiling storage cuts pages
+   inside are one configuration's
+   (docs/design/yin.repl.dht-composition.md section 5)."
+  [node]
+  (dht/payload-budget (message-bound node)))
 
 
 (defn node-id

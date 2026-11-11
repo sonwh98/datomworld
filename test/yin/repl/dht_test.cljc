@@ -27,7 +27,9 @@
             [dao.stream.datagram :as datagram]
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
-            [yin.repl.dht :as repl.dht]
+            [yin.shell.dht :as repl.dht]
+            [yin.shell.main :as shell.main]
+            [yin.shell.store :as shell.store]
             [yin.repl.driver :as driver]
             [yin.repl.main :as main]
             [yin.repl.store :as store]
@@ -49,6 +51,25 @@
 (defn- temp-dir
   []
   (str "target/test-dht-store-" (random-uuid)))
+
+
+(defn- create-state
+  ([] (create-state {}))
+  ([opts]
+   (if (and (:index-store-spec opts)
+            (shell.store/composition-spec? (:index-store-spec opts)))
+     (let [opened (shell.store/open (:index-store-spec opts) opts)
+           inputs (merge (dissoc opts :index-store-spec)
+                         {:index-store (:index-store opened)
+                          :recovery (:recovery opened)
+                          :publication-policy (:publication-policy opened)}
+                         (:engine-inputs opened))
+           state (repl.frontends/create-state inputs)]
+       (assoc state
+              :dht (:node opened)
+              :node (:node opened)
+              :session (:session opened)))
+     (repl.frontends/create-state opts))))
 
 
 (defn- cleanup-dir!
@@ -271,7 +292,7 @@
         net (mesh/mesh)
         binds (atom 0)]
     (try
-      (let [shell (repl.frontends/create-state
+      (let [shell (create-state
                     {:index-store-spec (dht-spec dir {:bind! (mesh-bind net 9
                                                                         binds)
                                                       :publish? true})})
@@ -302,7 +323,7 @@
         binds (atom 0)]
     (try
       (let [shells (mapv (fn [dir port]
-                           (repl.frontends/create-state
+                           (create-state
                              {:index-store-spec
                               (dht-spec dir {:bind! (mesh-bind net port binds)
                                              :peers [{:host "127.0.0.1" :port
@@ -364,7 +385,7 @@
   "A shell over a dht store at mesh `port`, with `peer-ports` as its
    bootstrap contacts."
   [net dir port peer-ports opts]
-  (repl.frontends/create-state
+  (create-state
     {:index-store-spec
      (dht-spec dir (merge {:bind! (mesh-bind net port (atom 0))
                            :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
@@ -433,7 +454,7 @@
      refuse (atom (rows-refuser manifest))]
     (try
       (let
-        [shell (repl.frontends/create-state
+        [shell (create-state
                  {:index-store-spec
                   (dht-spec dir {:bind! (refusing-bind net 120 refuse)
                                  :peers [{:host "127.0.0.1" :port 121}
@@ -498,7 +519,7 @@
      refuse (atom (constantly false))]
     (try
       (let
-        [shell (repl.frontends/create-state
+        [shell (create-state
                  {:index-store-spec
                   (dht-spec dir {:bind! (refusing-bind net 123 refuse)
                                  :peers [{:host "127.0.0.1" :port 124}
@@ -647,7 +668,7 @@
             [pub _] (repl/eval-input pub "(def answer 4242)")
             manifest (get-in pub [:indexer :manifest-address])
             published (seq-at pub manifest)
-            reader (repl.frontends/create-state
+            reader (create-state
                      {:index-store
                       (recorded-dht-store
                         (spec 72 {:manifest manifest})
@@ -662,7 +683,7 @@
                  (head/seq-of (get-in reader [:index-recovery :datoms])))))
         (close! reader)
         (testing "the same manifest: no load, no HEAD write, admitted at once"
-          (let [reader (repl.frontends/create-state
+          (let [reader (create-state
                          {:index-store (recorded-dht-store
                                          (spec 73 {:manifest manifest})
                                          heads)})]
@@ -734,7 +755,8 @@
                               (dht-spec rdir {:bind! (mesh-bind net 72 (atom 0))
                                               :peers [{:host "127.0.0.1" :port
                                                        70}]
-                                              :manifest manifest})})
+                                              :manifest manifest})}
+                             shell.main/composition)
             _ (driver/submit-line! (:input state) "(+ 1 2)")
             [state _ lines] (main/step-all state nil 0)]
         (is (not (some #{"3"} lines)) "the line waits in the input medium")
@@ -779,14 +801,15 @@
       (let [state (main/boot {:index-store-spec
                               (dht-spec dir {:bind! failing-bind
                                              :peers [{:host "127.0.0.1" :port
-                                                      1}]})})
+                                                      1}]})}
+                             shell.main/composition)
             _ (driver/submit-line! (:input state) "(+ 1 2)")
             [state _ lines] (main/step-all state nil 0)]
         (is (line-with lines "could not bind"))
         (is (line-with lines "address in use"))
         (is (not (some #{"3"} lines))
             "nothing is evaluated over a node that never bound")
-        (is (not (repl.dht/admitting? (:repl state))))
+        (is (not (repl.dht/admitting? (or (:session state) (:repl state)))))
         (is (false? (:running? state)) "the shell stops")
         (is (= 1 (main/exit-status state)) "and the host exits failing")
         (main/close-index-store! state))
@@ -874,13 +897,13 @@
 (deftest a-plain-join-and-the-repl-store-exclude-each-other
   (let [dir (temp-dir)]
     (try
-      (let [shell (repl.frontends/create-state {:index-store-spec (dht-spec dir {})})
+      (let [shell (create-state {:index-store-spec (dht-spec dir {})})
             e (refusal-of #(space.dht/join {:dir dir}))]
         (is (some? e) "the plain join cannot open a directory the REPL holds")
         (is (str/includes? (str (ex-message e)) dir))
         (close! shell))
       (let [node (space.dht/join {:dir dir})
-            e (refusal-of #(repl.frontends/create-state
+            e (refusal-of #(create-state
                              {:index-store-spec (dht-spec dir {})}))]
         (is (some? e) "nor the REPL one a plain node holds")
         (is (str/includes? (str (ex-message e)) dir))
@@ -950,7 +973,8 @@
                                  :peers (mapv (fn [p]
                                                 {:host "127.0.0.1" :port
                                                  p})
-                                              peer-ports)})})
+                                              peer-ports)})}
+                 shell.main/composition)
       (assoc-in [:repl :link-source :name-env] names)))
 
 
@@ -989,7 +1013,9 @@
 
 (defn- node-of
   [state]
-  (get-in state [:repl :dht]))
+  (or (get-in state [:session :node])
+      (:dht state)
+      (get-in state [:repl :dht])))
 
 
 (defn- parked
@@ -1635,11 +1661,11 @@
 (deftest a-dht-store-refuses-a-second-content-source
   (let [dir (temp-dir)]
     (try
-      (is (some? (refusal-of #(repl.frontends/create-state
+      (is (some? (refusal-of #(create-state
                                 {:index-store-spec (dht-spec dir {})
                                  :content-store (mem/create-content-mem)}))))
       (testing "and the refusal left the directory unlocked"
-        (close! (repl.frontends/create-state {:index-store-spec (dht-spec dir {})})))
+        (close! (create-state {:index-store-spec (dht-spec dir {})})))
       (finally
         (cleanup-dir! dir)))))
 
@@ -1647,7 +1673,7 @@
 (deftest the-banner-and-help-say-a-require-may-fetch-from-peers
   (let [banner (str/join "\n" (main/banner (main/parse-args
                                              ["--index-store" "dht:idx"])))
-        [_ help] (repl/eval-input (repl.frontends/create-state) "(help)")]
+        [_ help] (repl/eval-input (create-state) "(help)")]
     (is (str/includes? banner "require"))
     (is (str/includes? banner "may fetch"))
     (is (str/includes? help "require"))
@@ -1672,8 +1698,10 @@
                               :publish? true
                               :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
                                            peer-ports)})
+               :publisher-key key
                :dht-key key
-               :principals principals})))
+               :principals principals}
+              shell.main/composition)))
 
 
 (defn- value-of
@@ -1887,7 +1915,7 @@
   "A publishing shell over a dht store at `dir`, socket `bind!`, contacts
    `peer-ports`, holding `key` and declaring and trusting `principals`."
   [dir bind! peer-ports key principals]
-  (repl.frontends/create-state
+  (create-state
     {:index-store-spec (dht-spec dir {:bind! bind!
                                       :publish? true
                                       :peers (mapv (fn [p]
@@ -2108,8 +2136,9 @@
                       ;; These are manifest addresses, not clock readings:
                       ;; every round must publish before its ack is awaited.
                       (is (= 8 (count (distinct ms))))
-                      (is (= 64 (get-in w [:shells :p :indexer :materialization
-                                           :manifest :branching-factor])))
+                      (is (= space.index/default-branching-factor
+                             (get-in w [:shells :p :indexer :materialization
+                                        :manifest :branching-factor])))
                       (is (every? #(< space.dht/max-pending-writes (:blobs %)) reports)
                           (pr-str (map :blobs reports)))
                       (is (= (repeat 8 :acknowledged) (mapv :result reports)))

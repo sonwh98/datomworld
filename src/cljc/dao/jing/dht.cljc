@@ -240,6 +240,38 @@
   (> (store-message-size address bs) max-message-bytes))
 
 
+(defn payload-budget
+  "The most payload bytes one `:store` message can carry inside
+  `max-message-bytes`: the transport's own statement of the payload
+  capability a storage composition declares as its byte ceiling.
+
+  Derived, never hardcoded, and derived from the same encoder and the same
+  envelope the refusal uses (`store-message-size`): the maximal query
+  identifier, a full cookie, the longest address form the registry can
+  mint (`dao.jing/max-segment-address`) and the byte-string header widths.
+  A header widens with the payload it heads, so the empty-payload envelope
+  alone under-counts: the candidate is measured with the real encoder and
+  reduced until the whole message fits.  Terminating — the candidate
+  strictly decreases and `0` is always encodable — and exact, so a payload
+  of this length is never refused by `oversize?` and one byte longer
+  always is.
+
+  `max-message-bytes` must be a positive integer; a bound no envelope fits
+  answers `0`, which declares that this transport carries no payload at
+  all rather than silently falling back to an unbounded ceiling."
+  ([max-message-bytes] (payload-budget max-message-bytes (jing/max-segment-address)))
+  ([max-message-bytes address]
+   (when-not (and (integer? max-message-bytes) (pos? max-message-bytes))
+     (throw (ex-info "payload-budget needs a positive message bound"
+                     {:max-message-bytes max-message-bytes})))
+   (let [envelope (store-message-size address (zero-bytes 0))]
+     (loop [n (max 0 (- max-message-bytes envelope))]
+       (cond
+         (zero? n) 0
+         (<= (store-message-size address (zero-bytes n)) max-message-bytes) n
+         :else (recur (dec n)))))))
+
+
 (defn- send-bytes!
   [state host port bs]
   (:dao.stream/outcome

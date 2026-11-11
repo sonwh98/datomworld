@@ -22,6 +22,7 @@
             [yin.repl :as repl]
             [yin.repl.frontends :as repl-frontends]
             [yin.repl.store]
+            [yin.shell.query :as shell-query]
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.encoder :as encoder]
@@ -127,14 +128,22 @@
                   (filter #(= :yang/call-site (nth % 3)) metadata)))))
   (testing "compile-program, native and argument-vector/outcome paths"
     (doseq [ast [(yang/compile-program
-                   '[(defn f [x] (+ x 1)) (defn g [x] (f (* x 2))) (g 21)])
+                   '[(defn f
+                       [x]
+                       (+ x 1)) (defn g
+                                  [x]
+                                  (f (* x 2))) (g 21)])
                  (yang/compile-program
-                   '[(defn f [x] (+ x 1)) (f 2)] true yang/unit-opts)]]
+                   '[(defn f
+                       [x]
+                       (+ x 1)) (f 2)] true yang/unit-opts)]]
       (let [{:keys [tree metadata]} (project ast)]
         (is (= (eligible tree) (marked metadata)))
         (is (true? (yang/validate-call-site-coverage! tree metadata origin))))))
   (testing "lower-unit: the linked production path, library included"
-    (let [ast (yang/lower-unit '[(defn f [x] (+ x 1)) (f 2)])
+    (let [ast (yang/lower-unit '[(defn f
+                                   [x]
+                                   (+ x 1)) (f 2)])
           {:keys [tree metadata]} (project ast)]
       (is (< 10 (count (marked metadata))))
       (is (= (eligible tree) (marked metadata)))
@@ -285,9 +294,12 @@
 
 (deftest canonical-invariance-test
   (testing "marking changes no canonical row, root, or outcome input"
-    (let [form '(defn f [x] (+ (* x 2) 1))
+    (let [form '(defn f
+                  [x]
+                  (+ (* x 2) 1))
           marked (yang/compile-program [form '(f 21)])
-          strip (fn strip [node]
+          strip (fn strip
+                  [node]
                   (let [slots (get vm/semantic-bytecode-grammar (:type node))]
                     (reduce (fn [n [field kind]]
                               (case kind
@@ -336,7 +348,9 @@
 (deftest post-expansion-coverage-test
   (testing "the marker set covers the tree the REPL pipeline actually executes"
     (let [ast (yang/compile-program
-                '[(defmacro unless [c a b] (yin/if c b a))
+                '[(defmacro unless
+                    [c a b]
+                    (yin/if c b a))
                   (unless false (+ 1 2) 0)])
           {:keys [ctx result]} (expand-like-the-repl ast)
           {:keys [status tree frontend-metadata log]} result
@@ -392,9 +406,12 @@
               with the recorded expansion record's origin (design §2.1,
               §2.3: the correspondence is explicit, never fabricated)"
       (let [ast (yang/compile-program
-                  '[(defmacro make-call [x]
+                  '[(defmacro make-call
+                      [x]
                       (yin/application (yin/variable 'f) [x]))
-                    (defn f [y] (+ y 1))
+                    (defn f
+                      [y]
+                      (+ y 1))
                     (make-call 2)])
             {:keys [ctx result]} (expand-like-the-repl ast)
             {:keys [status tree frontend-metadata log]} result
@@ -422,7 +439,9 @@
       ;; no macro call at all: the pipeline boundary alone (tail
       ;; marking) changes the root without a generating event, so the
       ;; final rows legitimately keep the admission's source origin
-      (let [ast (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
+      (let [ast (yang/compile-program '[(defn f
+                                          [x]
+                                          (+ x 1)) (f 2)])
             {:keys [ctx result]} (expand-like-the-repl ast)
             {:keys [status tree frontend-metadata]} result
             final (macro/packet->row-set tree)
@@ -443,8 +462,11 @@
       ;; application must still carry the source origin, never the
       ;; enclosing expansion's origin
       (let [ast (yang/compile-program
-                  '[(defmacro pass [x] x)
-                    (defmacro wrap [x]
+                  '[(defmacro pass
+                      [x]
+                      x)
+                    (defmacro wrap
+                      [x]
                       (yin/application (yin/variable 'pass) [x]))
                     (wrap (+ 1 2))])
             {:keys [ctx result]} (expand-like-the-repl ast)
@@ -469,7 +491,9 @@
           ctx (macro/make-ctx {:token "callsite-test"
                                :source-medium :program-in
                                :store store})
-          ast (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
+          ast (yang/compile-program '[(defn f
+                                        [x]
+                                        (+ x 1)) (f 2)])
           consumer (macro/load (macro/make-expander ctx nil)
                                (encoder/program-batch ast))
           final (macro/packet->row-set (:out-staged consumer))
@@ -492,11 +516,14 @@
             admitted one with its incoming source origin, the
             constructed one naming its expansion record"
     (let [ast (yang/compile-program
-                '[(defmacro twin [x]
+                '[(defmacro twin
+                    [x]
                     (yin/if (yin/literal true)
-                            x
-                            (yin/application (yin/variable 'f) [(yin/literal 1)])))
-                  (defn f [y] y)
+                      x
+                      (yin/application (yin/variable 'f) [(yin/literal 1)])))
+                  (defn f
+                    [y]
+                    y)
                   (twin (f 1))])
           {:keys [ctx result]} (expand-like-the-repl ast)
           {:keys [status tree frontend-metadata log]} result
@@ -518,7 +545,7 @@
       (let [twin-app (get (:rows final) (nth if-row 3))
             twin-paths (into #{} (comp (filter (fn [[_ _ id]] (= twin-app (get (:rows final) id))))
                                        (map (fn [[_ path _]] path)))
-                              (vm/occurrences final))
+                             (vm/occurrences final))
             twin-origins (into #{} (comp (filter #(contains? twin-paths (nth % 2)))
                                          (map #(nth % 0)))
                                rows)]
@@ -559,13 +586,17 @@
           after-first (macro/load consumer
                                   (encoder/program-batch
                                     (yang/compile-program
-                                      '[(defn f [x] (+ x 1)) (f 2)])))
+                                      '[(defn f
+                                          [x]
+                                          (+ x 1)) (f 2)])))
           first-tree (:out-staged after-first)
           second-origin [:source :program-in (:t (:ctx after-first)) 0]
           consumer (macro/load after-first
                                (encoder/program-batch
                                  (yang/compile-program
-                                   '[(defmacro unless [c a b] (yin/if c b a))
+                                   '[(defmacro unless
+                                       [c a b]
+                                       (yin/if c b a))
                                      (unless false (+ 1 2) 0)])))
           second-tree (:out-staged consumer)]
       (is (not= (first first-tree) (first second-tree))
@@ -632,7 +663,9 @@
           ctx (macro/make-ctx {:token "callsite-test"
                                :source-medium :program-in
                                :store store})
-          ast (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
+          ast (yang/compile-program '[(defn f
+                                        [x]
+                                        (+ x 1)) (f 2)])
           first-origin [:source :program-in (:t ctx) 0]
           consumer (macro/make-expander ctx nil)
           consumer (macro/load consumer (encoder/program-batch ast))
@@ -669,9 +702,12 @@
                                  :source-medium :program-in
                                  :store store})
             ast (yang/compile-program
-                  '[(defmacro make-call [x]
+                  '[(defmacro make-call
+                      [x]
                       (yin/application (yin/variable 'f) [x]))
-                    (defn f [y] (+ y 1))
+                    (defn f
+                      [y]
+                      (+ y 1))
                     (make-call 2)])
             first-origin [:source :program-in (:t ctx) 0]
             consumer (macro/make-expander ctx nil)
@@ -720,7 +756,9 @@
           ctx (macro/make-ctx {:token "callsite-test"
                                :source-medium :program-in
                                :store store})
-          claimed (yang/compile-program '[(defn f [x] (+ x 1)) (f 2)])
+          claimed (yang/compile-program '[(defn f
+                                            [x]
+                                            (+ x 1)) (f 2)])
           unmarked (strip-call-sites claimed)
           first-origin [:source :program-in (:t ctx) 0]
           consumer (macro/make-expander ctx nil)
@@ -803,7 +841,9 @@
     (doseq [bad-value [false nil 0 "1" true]]
       (testing (pr-str bad-value)
         (let [store (mem/create-content-mem)
-              ast (assoc (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+              ast (assoc (yang/compile-program '[(defn f
+                                                   [x]
+                                                   (inc x)) (f 2)])
                          :yang/call-site bad-value)
               res (publish/publish-module!
                     store {:name 'bad-version-value
@@ -836,7 +876,7 @@
           call-address (:address call-result)
           clj-result (publish/publish-module!
                        store (clj-prelude/module-spec publish-registry
-                                                       call-address))
+                                                      call-address))
           clj-address (:address clj-result)]
       (is (some? call-address))
       (is (some? clj-address))
@@ -860,7 +900,9 @@
             never a hidden counter), and a retrieval replays the one
             recorded admission it names"
     (let [store (mem/create-content-mem)
-          ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+          ast (yang/compile-program '[(defn f
+                                        [x]
+                                        (inc x)) (f 2)])
           spec {:name 'twin-admissions
                 :ast ast
                 :exports #{'f}
@@ -1018,12 +1060,15 @@
                                  tree rows origin {:declared? true})))))))))))
   (testing "a version-2 table is a claim rejection, not a silent nil"
     (let [store (mem/create-content-mem)
-          bump (fn bump [node]
+          bump (fn bump
+                 [node]
                  (if (and (map? node) (= 1 (:yang/call-site node)))
                    (assoc node :yang/call-site 2)
                    node))
           ast (clojure.walk/postwalk bump
-                (yang/compile-program '[(defn f [x] (inc x)) (f 2)]))
+                                     (yang/compile-program '[(defn f
+                                                               [x]
+                                                               (inc x)) (f 2)]))
           res (publish/publish-module!
                 store {:name 'bad-version
                        :ast ast
@@ -1046,7 +1091,9 @@
             publisher namespace, so two fresh publisher processes (or
             restarts of one) publishing the same specification never
             unknowingly share or split one admission identity"
-    (let [ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+    (let [ast (yang/compile-program '[(defn f
+                                        [x]
+                                        (inc x)) (f 2)])
           spec {:name 'scoped-twin
                 :ast ast
                 :exports #{'f}
@@ -1079,6 +1126,7 @@
           (is (true? (yang/validate-call-site-coverage!
                        tree rows origin {:declared? true}))))))))
 
+
 (defn- correspondences
   "Every expansion correspondence the log recorded."
   [log]
@@ -1088,7 +1136,8 @@
 (deftest p1-packet-provenance-test
   (testing "packet reassembly retains the incoming origin (P1-1)"
     (let [ast (yang/compile-program
-                '[(defmacro repack [x]
+                '[(defmacro repack
+                    [x]
                     (conj [] (first x) (first (rest x))))
                   (repack (+ 1 2))])
           {:keys [ctx result]} (expand-like-the-repl ast)
@@ -1108,11 +1157,14 @@
                    {:declared? true :per-occurrence-origins? true})))))
   (testing "a reassembled packet inserted as a child retains its origin (P1-1)"
     (let [ast (yang/compile-program
-                '[(defmacro repack-call [x]
+                '[(defmacro repack-call
+                    [x]
                     (yin/application (yin/variable 'f)
                                      [(conj [] (first x)
                                             (first (rest x)))]))
-                  (defn f [y] y)
+                  (defn f
+                    [y]
+                    y)
                   (repack-call (+ 1 2))])
           {:keys [ctx result]} (expand-like-the-repl ast)
           {:keys [status tree frontend-metadata log]} result
@@ -1140,13 +1192,17 @@
     ;; `feed` expansion; recovering `a`'s origin for `b` is the
     ;; ambiguous row-level match this pin refuses.
     (let [ast (yang/compile-program
-                '[(defmacro pick-second [a b]
+                '[(defmacro pick-second
+                    [a b]
                     (conj [] (first b) (first (rest b))))
-                  (defmacro feed [x]
+                  (defmacro feed
+                    [x]
                     (yin/application (yin/variable 'pick-second)
-                      [x (yin/application (yin/variable 'f)
-                                           [(yin/literal 1)])]))
-                  (defn f [y] y)
+                                     [x (yin/application (yin/variable 'f)
+                                                         [(yin/literal 1)])]))
+                  (defn f
+                    [y]
+                    y)
                   (feed (f 1))])
           {:keys [ctx result]} (expand-like-the-repl ast)
           {:keys [status tree frontend-metadata log]} result
@@ -1175,14 +1231,20 @@
     ;; occurrence. The rebuilt packet must instead recover the feed
     ;; expansion's origin from its actual (root, rows) lineage.
     (let [ast (yang/compile-program
-                '[(defmacro pick-second [a b]
+                '[(defmacro pick-second
+                    [a b]
                     (assoc a 0 (first b) 1 (first (rest b))))
-                  (defmacro feed [x]
+                  (defmacro feed
+                    [x]
                     (yin/application (yin/variable 'pick-second)
-                      [x (yin/application (yin/variable 'g)
-                                           [(yin/literal 2)])]))
-                  (defn f [y] y)
-                  (defn g [y] y)
+                                     [x (yin/application (yin/variable 'g)
+                                                         [(yin/literal 2)])]))
+                  (defn f
+                    [y]
+                    y)
+                  (defn g
+                    [y]
+                    y)
                   (feed (f 1))])
           {:keys [ctx result]} (expand-like-the-repl ast)
           {:keys [status tree frontend-metadata log]} result
@@ -1206,7 +1268,9 @@
                    {:declared? true :per-occurrence-origins? true})))))
   (testing "a packet entering a literal slot encodes cleanly (P1-2)"
     (let [ast (yang/compile-program
-                '[(defmacro packet-data [x] (yin/literal x))
+                '[(defmacro packet-data
+                    [x]
+                    (yin/literal x))
                   (packet-data (+ 1 2))])
           {:keys [result]} (expand-like-the-repl ast)
           {:keys [status tree]} result
@@ -1229,7 +1293,9 @@
             and a string's type are part of the id, so :a/publisher,
             :b/publisher and \"publisher\" mint distinct tokens even at
             the same ordinal"
-    (let [ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+    (let [ast (yang/compile-program '[(defn f
+                                        [x]
+                                        (inc x)) (f 2)])
           spec {:name 'scoped-ids
                 :ast ast
                 :exports #{'f}
@@ -1398,7 +1464,7 @@
           tree (vm/ast->semantic-bytecode ast)
           tables (vm/ast-side-tables ast tree origin)
           member (assoc tree :frontend-metadata (:frontend-metadata tables)
-                             :source-positions (:source-positions tables))
+                        :source-positions (:source-positions tables))
           projected (encoder/project
                       (encoder/source-envelope :program "batch-1" [member]))]
       (is (= (:frontend-metadata tables) (:yin/frontend-metadata projected))
@@ -1469,10 +1535,11 @@
             "the publication retains the recovered claim's side table")
         (is (seq (:call-site-rows spec))
             "assembly preserves the recovered per-occurrence rows")
-        (is (every? (fn [row] (contains? (into #{} (map first)
-                                                 (mapcat val tables))
-                                           (first row)))
-                      (:call-site-rows spec))
+        (is (every? (fn [row]
+                      (contains? (into #{} (map first)
+                                       (mapcat val tables))
+                                 (first row)))
+                    (:call-site-rows spec))
             "recovered rows keep their retained origins, none restamped")
         (let [{:keys [tree origin rows]}
               (publish/published-call-site-table store res)
@@ -1531,8 +1598,9 @@
     (let [tables {[origin :segment/root] []}]
       (is (= tables (:call-site-tables
                       (#'repl/link-context
-                        {:expander {:call-site-tables tables}}
-                        {:primitives {} :modules {}})))))))
+                       {:expander {:call-site-tables tables}}
+                       {:primitives {} :modules {}})))))))
+
 
 ;; =============================================================================
 ;; cc2 fix round r2: adversarial cases (astra review)
@@ -1570,7 +1638,7 @@
     (let [input (sp-projected exit-site-ast)
           {:keys [envelope correspondence]}
           (safepoint/derive-envelope input {:return {:hook 'h/return
-                                                      :operands true}}
+                                                     :operands true}}
                                      :m' {:injected-origin sp-injected-origin})
           derived-tree (first (:yin/batch envelope))
           md (:yin/frontend-metadata envelope)
@@ -1611,14 +1679,14 @@
     (let [input (sp-projected nested-exit-site-ast)
           {:keys [envelope correspondence]}
           (safepoint/derive-envelope input {:return {:hook 'h/return
-                                                      :operands true}}
+                                                     :operands true}}
                                      :m' {:injected-origin sp-injected-origin})
           derived-tree (first (:yin/batch envelope))
           surviving (entry-set correspondence :surviving)]
       (is (= {[3] [3 [3 1]]
               [3 2 3] [3 [3 1] 2 3 [3 1]]}
              (into {} (map (fn [e] [(nth (:input e) 2) (nth (:output e) 2)]))
-                     surviving))
+                   surviving))
           "the outer application and the inner (g) track through both wraps")
       (is (= (occurrence-pairs derived-tree)
              (marked-pairs (:yin/frontend-metadata envelope)))))))
@@ -1630,9 +1698,9 @@
     (let [input (sp-projected exit-site-ast)
           tree (first (:yin/batch input))
           hooks (#'safepoint/selected-hooks
-                  (safepoint/sites (:yin/frontend-metadata input)
-                                   sp-origin (:root tree))
-                  {:return {:hook 'h/return :operands true}})
+                 (safepoint/sites (:yin/frontend-metadata input)
+                                  sp-origin (:root tree))
+                 {:return {:hook 'h/return :operands true}})
           ;; the derived tree handed to derivation is the UNTRANSFORMED
           ;; tree: tracking maps the body to [3 [3 1]], which names no
           ;; application there, so the correspondence must be refused
@@ -1716,7 +1784,7 @@
                                      [k (if (zero? i)
                                           (assoc-in rs [0 4] 2)
                                           rs)])
-                      tables))
+                                   tables))
             spec (publish/module-from-index
                    db {:name 'closed :exports '[g] :primitives vm/primitives
                        :call-site-tables bad
@@ -1726,7 +1794,7 @@
       (let [bad (into {}
                       (map-indexed (fn [i [k rs]]
                                      [k (if (zero? i) (pop rs) rs)])
-                      tables))
+                                   tables))
             spec (publish/module-from-index
                    db {:name 'closed :exports '[g] :primitives vm/primitives
                        :call-site-tables bad
@@ -1740,26 +1808,27 @@
   ;; that spy; the rest of the namespace stays dart-runnable
   #?(:cljd nil
      :default
-     (testing "yin.repl.query/link-answer forwards the link context's
-            :call-site-tables to publish-name!"
-      (let [{:keys [state]} (session-index ["(def k (fn [] 1))"])
-            tables (repl/call-site-tables state)
-            captured (atom nil)]
-        (with-redefs [linker-dht/publish-name!
-                      (fn [_node _db opts]
-                        (reset! captured opts)
-                        {:status :ok :address :segment/test
-                         :links {} :envelopes []})]
-          (let [[_ _ response]
-                (#'repl-query/link-answer
+     (testing "yin.shell.query/link-answer forwards the link context's
+             :call-site-tables to publish-name!"
+       (let [{:keys [state]} (session-index ["(def k (fn [] 1))"])
+             tables (repl/call-site-tables state)
+             captured (atom nil)]
+         (with-redefs [linker-dht/publish-name!
+                       (fn [_node _db opts]
+                         (reset! captured opts)
+                         {:status :ok :address :segment/test
+                          :links {} :envelopes []})]
+           (let [[_ _ response]
+                 (#'shell-query/link-answer
                   {} (:indexer state)
                   {:authority nil :key {} :primitives vm/primitives
                    :modules {} :call-site-tables tables :round 1}
-                  (apply2/request 1 (get repl-query/link-ops 'publish)
+                  {}
+                  (apply2/request 1 (get shell-query/link-ops 'publish)
                                   ['closed '[k]]))]
-            (is (some? response))
-            (is (= tables (:call-site-tables @captured))
-                "ordinary yin.link/publish now carries the retained tables")))))))
+             (is (some? response))
+             (is (= tables (:call-site-tables @captured))
+                 "ordinary yin.link/publish now carries the retained tables")))))))
 
 ;; =============================================================================
 ;; cc2 fix round r3: admission identity + explicit wrappers (astra r2 confirm)
@@ -1777,11 +1846,13 @@
          (jing/segment-address? (:address res))
          (not (contains? res :call-sites)))))
 
+
 (defn- r3-programs
   "The indexed programs of `db` as `[m root t]` rows."
   [db]
   (query/collect
     (query/q '[:find ?m ?r ?t :where [?m :yin.repl/root ?r ?t _]] db)))
+
 
 (deftest module-from-index-c1-r3-test
   (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"
@@ -1795,9 +1866,10 @@
                         :call-site-tables ts :call-site-admissions ads}))]
     (is (seq admissions)
         "the session records an explicit indexed-program admission mapping")
-    (is (every? (fn [[m o]] (and (contains? (set (map first programs)) m)
-                                 (vm/occurrence-origin? o)))
-                  admissions)
+    (is (every? (fn [[m o]]
+                  (and (contains? (set (map first programs)) m)
+                       (vm/occurrence-origin? o)))
+                admissions)
         "the mapping is keyed by indexed program, valued by full origin")
     (testing "(a) a sole foreign table with the same root and batch but a
               different medium/member is not accepted"
@@ -1875,11 +1947,12 @@
    before indexing (`:programs-before`, `:indexer-before`)."
   [ix evidence crafted-tables]
   (#'repl/record-call-site-admissions
-    {}
-    {:expander {:call-site-tables crafted-tables}
-     :call-site-admissions {}
-     :indexer ix
-     :call-site-commit-evidence evidence}))
+   {}
+   {:expander {:call-site-tables crafted-tables}
+    :call-site-admissions {}
+    :indexer ix
+    :call-site-commit-evidence evidence}))
+
 
 (deftest record-call-site-admissions-r4-test
   (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"])
@@ -1944,6 +2017,7 @@
         (is (= 1 (count roots2)) "precondition: both rounds share one root")
         (is (= {} (:call-site-admissions result))
             "an admission with two committed candidates stays unmapped")))))
+
 
 (deftest wrapper-provenance-r4-test
   (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"

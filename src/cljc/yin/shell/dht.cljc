@@ -1,10 +1,23 @@
-(ns yin.repl.dht
-  "The REPL's DHT index store, `--index-store dht:<dir>` (DHT epic slice
-   S5: docs/design/dao.jing.dht.md section 10; docs/design/
-   yin.repl.dao.space-index.md, \"DHT store\").  It is composed with the
-   plain Clojure path, `dao.space.dht`, and adds only what the shell owns:
-   the durable directory, the lines it prints, and when it admits
-   evaluation.
+
+(ns yin.shell.dht
+  "The DHT index-store composition, `--index-store dht:<dir>` (DHT epic
+   slice S5: docs/design/dao.jing.dht.md section 10; docs/design/
+   yin.repl.dao.space-index.md, \"DHT store\"), relocated out of the
+   engine tree by docs/design/yin.repl.dht-composition.md sections 2, 6
+   and 7.
+
+   This namespace is the storage implementation the engine never names.
+   It owns store selection and opening, HEAD persistence, announce,
+   signed-head deposit and following, hydration, transport stepping,
+   scheduling, banners, refusal rendering and shutdown — the whole of
+   section 3's \"Composition ownership\" row — and it crosses inward only
+   what section 4 allows: a generic `dao.jing` content handle, validated
+   recovery data, an immutable publication policy, and correlated generic
+   completions.
+
+   It is composed with the plain Clojure path, `dao.space.dht`, and adds
+   only what the shell owns: the durable directory, the lines it prints,
+   and when it admits evaluation.
 
    `open` opens `<dir>` exactly as `file:<dir>` does: the exclusive lock,
    the content log, HEAD, the validated snapshot (dao.space.store), and
@@ -12,10 +25,15 @@
    The indexer publishes through the node's store: each put inserts
    locally and appends one replicate request, and the manifest reads back
    locally, so a round never waits on the network.  The HEAD write then
-   announces the publication to the node.
+   announces the publication to the node.  Section 3's ordering contract
+   is what that write preserves — materialize/read-back, then durable HEAD
+   success, then announce and deposit — and nothing here restates or
+   reorders it: `open` answers the engine's handle and the composition's
+   node as two separate values, so the engine is never handed something
+   whose transport state it could step.
 
    `step` is the node's one step owner, called by the host's single
-   ticker (yin.repl.main/step-all) with the host's clock reading; it
+   ticker (yin.shell.main/step-all) with the host's clock reading; it
    renders the node's events as the lines the REPL prints: where the
    socket bound, and for each publication its result (acknowledged,
    sent to N peers, or partial or not acknowledged with the count of
@@ -30,8 +48,11 @@
    answers the remote run's facts.  A load that cannot complete, or a
    socket that cannot bind, refuses the shell (`refusal`); it never
    starts over an empty index.  Remote indexes are also reachable at the
-   prompt, through the `dao.space.dht` host module (yin.repl.query), over
-   the same node.
+   prompt, through the `dao.space.dht` host module (yin.shell.query),
+   over the same node.  Hydration gates evaluation input
+   (`admitting?`); head following never does — following updates the
+   resolver, and only an explicit pinned hydration installs recovery
+   before evaluation is admitted (section 3).
 
    The published head trace (docs/design/yin.vm.linker.dht.head.md,
    slice H3) is composed here too, the shell owning the file, the lines
@@ -47,32 +68,46 @@
      loopback host) restores `<dir>/heads.edn` before any connection
      (5.7), dials each principal's board at the address it was given and
      nowhere else, steps the follower after the node, and installs a
-     confirmed head only after `heads.edn` holds it."
+     confirmed head only after `heads.edn` holds it.
+
+   Shutdown closes each of those resources once, under this namespace's
+   ownership: `stop!` asks, `step` completes, `stopped?` reports, and
+   `close!` is the bounded drain's last resort.  A host never reaches
+   past this seam to a board, a dial or a socket."
   (:require #?(:cljd [clojure.edn :as edn]
                :clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
             [clojure.string :as str]
+            [dao.jing :as jing]
             [dao.space.dht :as dht]
             [dao.space.index :as space.index]
             [dao.space.store :as durable]
             [dao.space.store.fs :as fs]
             [dao.stream :as stream]
+            [dao.stream.datagram :as datagram]
             [dao.stream.remote-channel :as remote-channel]
             [dao.stream.ringbuffer :as ringbuffer]
+            [yin.repl :as repl]
             [yin.repl.connect :as connect]
-            [yin.repl.index :as index]
-            [yin.repl.store :as store]
             [yin.shell.registry :as shell.registry]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.head :as head]
             [yin.vm.linker.head.board :as head.board]
             [yin.vm.linker.interpreter :as link]
+            [yin.vm.linker.pair :as link.pair]
             [yin.vm.linker.sign :as sign]))
 
 
 (def default-max-inbound-bytes
-  "The CLI default of the inbound storage bound; `dao.space.dht`'s."
+  "The inbound storage bound `dao.space.dht` itself defaults to."
   dht/default-max-inbound-bytes)
+
+
+(def cli-max-inbound-bytes
+  "The CLI default of the inbound storage bound: 64 MiB of payload a
+   publishing node accepts from peers' `:store` requests before it
+   refuses them explicitly.  `--dht-max-inbound-bytes` overrides it."
+  (* 64 1024 1024))
 
 
 (def default-repair-slots
@@ -87,7 +122,12 @@
    cycle's own period, the node's queues never empty, and the host ticker
    never leaves its base cadence (`busy?`, yin.repl.main/moved?).  One
    cycle drains inside the shortest period again at three times the
-   slots."
+   slots.
+
+   Repair capacity stays measurement-driven
+   (docs/design/yin.repl.dht-composition.md sections 6 and 12, R4/R6):
+   no entitlement attaches to this number, and step 5 of that sequence
+   re-measures it in this composition."
   48)
 
 
@@ -113,6 +153,120 @@
 
 
 ;; =============================================================================
+;; The store spec (docs/design/yin.repl.dht-composition.md section 6: the
+;; scheme parsing and the checked spec move out of the engine's store
+;; selection into the composition's own factory)
+;; =============================================================================
+
+(def dht-scheme
+  "The `--index-store` scheme prefix naming this composition's store: the
+   durable directory store of `file:<dir>` composed under a
+   `dao.jing.dht` node."
+  "dht:")
+
+
+(def ^:private supported-args
+  [(str dht-scheme "<dir>")])
+
+
+(defn parse-arg
+  "A `dht:<dir>` `--index-store` value as the spec `{:type :dht :dir
+   dir}`, or nil when `value` does not name this composition's store.  An
+   empty directory is refused here — with the supported form named — so
+   the arguments parser refuses a bad flag before anything composes."
+  [value]
+  (when (and (string? value) (str/starts-with? value dht-scheme))
+    (let [dir (subs value (count dht-scheme))]
+      (if (str/blank? dir)
+        (throw (ex-info "--index-store dht:<dir> needs a directory"
+                        {:value value
+                         :supported supported-args}))
+        {:type :dht :dir dir}))))
+
+
+(defn- dht-refusal
+  "Why a `{:type :dht ...}` spec is not a DHT store composition, or nil.
+   A spec with no peers is solo: it opens no socket, so a manifest to
+   fetch has nothing to fetch through and is refused rather than
+   ignored."
+  [{:keys [dir peers publish? bind-host bind-port max-inbound-bytes manifest
+           bind!]}]
+  (cond
+    (not (and (string? dir) (not (str/blank? dir))))
+    "--index-store dht:<dir> needs a directory"
+
+    (not (and (vector? peers)
+              (every? #(and (map? %)
+                            (datagram/ip-literal? (:host %))
+                            (datagram/valid-port? (:port %)))
+                      peers)))
+    "DHT peers must be {:host <IP literal> :port <1 to 65535>}"
+
+    (not (boolean? publish?))
+    "the DHT publication declaration must be true or false"
+
+    (not (datagram/ip-literal? bind-host))
+    "the DHT bind host must be an IP literal"
+
+    (not (and (integer? bind-port) (<= 0 bind-port 65535)))
+    "the DHT bind port must be 0 (ephemeral) or 1 to 65535"
+
+    (not (and (integer? max-inbound-bytes) (<= 0 max-inbound-bytes)))
+    "--dht-max-inbound-bytes must be a nonnegative integer"
+
+    (and (empty? peers) (some? manifest))
+    (str "--dht-manifest needs a --dht-peer to fetch from: with no peers "
+         "the DHT store is solo and opens no socket")
+
+    (not (or (nil? manifest) (jing/segment-address? manifest)))
+    "--dht-manifest must be a segment manifest address"
+
+    (not (or (nil? bind!) (fn? bind!)))
+    ":bind! must be a dao.stream.datagram host seam function"))
+
+
+(def dht-defaults
+  "The DHT store spec's defaults: solo (no peers), publishing off, bound
+   to loopback on an ephemeral port, the default inbound bound, and no
+   manifest to hydrate."
+  {:peers []
+   :publish? false
+   :bind-host "127.0.0.1"
+   :bind-port 0
+   :max-inbound-bytes cli-max-inbound-bytes
+   :manifest nil})
+
+
+(defn checked-spec
+  "Validate a `{:type :dht :dir dir}` spec as this composition takes it,
+   `dht-defaults` filled in.  Anything else — a spec of another store's
+   shape, or one this build cannot compose — is refused with the reason.
+
+   The engine's own store selection (`yin.repl.store/checked-spec`) knows
+   `:mem` and `{:type :file :dir dir}` and nothing else: a transport
+   composition checks its own spec here, so the two never disagree about
+   what a `dht:` store is
+   (docs/design/yin.repl.dht-composition.md section 6)."
+  [spec]
+  ;; jolt: a :file store opens since J4; this composition needs J7's UDP
+  ;; transport, so it is refused here, where a spec is checked for
+  ;; composition, after every flag has been parsed and validated as on
+  ;; the other hosts
+  #?(:jolt
+     (throw (ex-info "the dht: index store arrives at J7 on jolt"
+                     {:spec spec})))
+  (if (and (map? spec) (= :dht (:type spec)))
+    (let [spec (merge dht-defaults spec)]
+      (if-some [refusal (dht-refusal spec)]
+        (throw (ex-info refusal {:spec (dissoc spec :bind!)}))
+        spec))
+    (throw (ex-info (str "not a dht store spec: " (pr-str spec)
+                         "; supported: {:type :dht :dir <dir> ...}")
+                    {:spec spec
+                     :supported [{:type :dht :dir "<dir>"}]}))))
+
+
+;; =============================================================================
 ;; heads.edn (5.7)
 ;; =============================================================================
 
@@ -131,7 +285,7 @@
    reads is the whole vector only when the text is exactly one complete
    form (whitespace and comments around it allowed)."
   [text]
-  (let [end (keyword "yin.repl.dht" (str "end-" (random-uuid)))
+  (let [end (keyword "yin.shell.dht" (str "end-" (random-uuid)))
         ;; a newline ends a trailing comment; no whitespace precedes the
         ;; closer (ClojureDart's reader refuses one)
         forms (read-edn (str "[" text "\n" end "]"))]
@@ -269,6 +423,60 @@
   (mapv #(sign/principal (:principal %)) (:follow spec)))
 
 
+(def default-branching-factor
+  "The count cap this composition declares: `dao.space.index`'s own
+   default.  The hardcoded 64 the coupled composition carried as a
+   message-size workaround is retired and not relocated as permanent
+   policy — the byte ceiling is what bounds a publication now, and a count
+   cap is an index construction policy, not a transport's capacity
+   (docs/design/yin.repl.dht-composition.md sections 5 and 12, R3)."
+  space.index/default-branching-factor)
+
+
+(defn publication-policy
+  "The immutable generic publication policy this composition declares over
+   `node` (docs/design/yin.repl.dht-composition.md section 5):
+   `{:branching-factor n :max-payload-bytes b}`.
+
+   Both halves come from the transport composition rather than from a
+   constant here.  The count cap is storage's own default; the byte
+   ceiling is the payload capability of the message bound `node` actually
+   composes under (`dao.space.dht/payload-budget`), so the bound the
+   transport enforces, the store front's oversize refusal and the ceiling
+   storage cuts pages inside are one configuration's and cannot disagree.
+   A publication too large for that ceiling is cut into smaller pages
+   inside storage (`dao.space.index`'s bounded build), which is where §5
+   puts the decision: the transport states how many bytes a message may
+   carry, and storage decides where the pages are cut."
+  [node]
+  {:branching-factor default-branching-factor
+   :max-payload-bytes (dht/payload-budget node)})
+
+
+(defn link-source
+  "The signed-name link source this composition drives, prepared for the
+   engine's `:link-source` input
+   (docs/design/yin.repl.dht-composition.md sections 3 and 7).  A
+   `(require ...)` of a name this source resolves starts a closure load on
+   the node its composition is handed each round, so the engine is given no
+   content store to read through and never names a node: it holds this
+   value as plain data, and `yin.shell.linker/serve-links` owns the round
+   that supplies the transport.
+
+   `spec` is the store spec (`checked-spec` validates and fills it), and
+   `opts` carries the session's own link inputs — `:key`, the publisher's
+   key; `:principals`, the declared publishers; `:admission`, the admission
+   policy; `:name-env`, a bare name environment."
+  [spec {:keys [key principals admission name-env]}]
+  (link.pair/composition
+    {:dht? true
+     :name-env name-env
+     :principals principals
+     :key key
+     :follow (followed-principals (checked-spec spec))
+     :admission (when-not (= :external admission) admission)}))
+
+
 (defn- checked-follow
   "The `:follow` entries of `spec`, each `{:principal hex :host h :port
    p}` with a loopback literal host, one per principal; throws a refusal
@@ -335,9 +543,14 @@
 
 
 (defn- compose
-  "The store handle of `open`, over the joined `node`: the publisher's
-   board, the follower restored from `records`, a pinned hydration, and
-   the HEAD write that announces and deposits."
+  "The two values `open` answers, over the joined `node`: `[handle node]`,
+   the generic `dao.jing` content handle the engine is handed and the
+   transport step-owner value this composition keeps.  The publisher's
+   board, the follower restored from `records`, a pinned hydration and the
+   HEAD write that announces and deposits are all on the node's side of
+   that split; only the handle, the recovery it read back and the
+   publication policy cross inward
+   (docs/design/yin.repl.dht-composition.md sections 3 and 6)."
   [node base {:keys [dir manifest] :as checked} follow records
    {:keys [key ws write-heads!]}]
   (let [pub (publisher checked key base)
@@ -363,26 +576,28 @@
     ;; round (5.4)
     (when-some [recovered (and pub (get-in base [:recovery :manifest]))]
       (deposit-head! pub recovered))
-    (assoc (dht/store node)
-           ;; The generic publication policy this composition declares
-           ;; (docs/design/yin.repl.dht-composition.md section 5), threaded
-           ;; to the engine as policy so nothing downstream hardcodes a
-           ;; transport's page size. The count cap is still R3's
-           ;; message-size override: §5 retires it once the store
-           ;; composition derives :max-payload-bytes from the effective
-           ;; transport bound instead (R5), and the slow DHT fixture that
-           ;; pins both this cap and the per-round blob count it produces
-           ;; has been re-measured against the derived budget (R6). The
-           ;; store's own full-message refusal stays the last resort
-           ;; meanwhile, exactly as §5 preserves it.
-           :publication-policy {:branching-factor 64}
-           :head-fn (fn [manifest-address]
-                      ((:head-fn base) manifest-address)
-                      (dht/announce! node manifest-address)
-                      (when pub (deposit-head! pub manifest-address)))
-           :recovery (:recovery base)
-           :durable-dir dir
-           :dht node)))
+    [(assoc (dht/store node)
+            ;; The generic publication policy this composition declares
+            ;; (docs/design/yin.repl.dht-composition.md section 5), read
+            ;; off the injected handle by the engine so nothing
+            ;; downstream hardcodes a transport's page size.  Both halves
+            ;; are the transport's own answer (`publication-policy`): the
+            ;; count cap is storage's default, never this composition's
+            ;; message-size override, and the byte ceiling is derived from
+            ;; the bound the node actually composes under.  The store's own
+            ;; full-message refusal stays the last resort, exactly as §5
+            ;; preserves it.
+            :publication-policy (publication-policy node)
+            :head-fn (fn [manifest-address]
+                       ((:head-fn base) manifest-address)
+                       (dht/announce! node manifest-address)
+                       (when pub (deposit-head! pub manifest-address)))
+            :recovery (:recovery base)
+            ;; the reset-retention policy stated explicitly, so the engine
+            ;; never derives it from this composition's directory
+            ;; (docs/design/yin.repl.dht-composition.md section 6)
+            :retain-on-reset? true)
+     node]))
 
 
 (defn- quietly!
@@ -394,12 +609,21 @@
 
 
 (defn open
-  "Open a `dht:<dir>` store from its spec (yin.repl.store/checked-spec):
-   the durable directory store, and the `dao.space.dht` node joined over
-   it.  Answers the store handle the shell keeps (the node's store, with
-   the durable HEAD write announcing each publication, the recovery, and
-   the directory), carrying the node under `:dht`, which the shell moves
-   onto its own state (yin.repl/create-state).
+  "Open a `dht:<dir>` store from its spec (`checked-spec`): the durable
+   directory store, and the `dao.space.dht` node joined over it.
+
+   Answers the two values of section 3's ownership split, and never one
+   value carrying both:
+
+   ```clojure
+   {:index-store <the generic dao.jing handle the engine is constructed
+                  with, carrying :head-fn, :recovery, :publication-policy
+                  and :retain-on-reset?>
+    :node <this composition's transport step-owner value>
+    :recovery <what the open validated, {:manifest :datoms}>
+    :publication-policy <the immutable generic policy of section 5>
+    :retain-index-on-reset? true}
+   ```
 
    `opts`: `:key`, the publisher key `{:seed :public}`, which makes a
    publishing node deposit its head; `:ws`, the host WebSocket seam
@@ -417,7 +641,7 @@
   ([spec {:keys [key ws write-heads! open-store]}]
    (let [{:keys [dir peers publish? bind-host bind-port max-inbound-bytes
                  manifest bind!]
-          :as checked} (store/checked-spec spec)
+          :as checked} (checked-spec spec)
          follow (checked-follow checked)
          base ((or open-store durable/open) dir)
          [node records]
@@ -436,48 +660,50 @@
                          :bind! (or bind! (dht/default-bind))})
               records])
            (catch #?(:cljd Object :clj Throwable :cljs :default) e
-             (quietly! #(store/close! base))
+             (quietly! #(durable/close! base))
              (throw e)))]
      ;; from here the node owns the store and holds a socket
      (try
-       (compose node base checked follow records
-                {:key key :ws ws :write-heads! write-heads!})
+       (let [[index-store node]
+             (compose node base checked follow records
+                      {:key key :ws ws :write-heads! write-heads!})]
+         {:index-store index-store
+          :node node
+          :recovery (:recovery index-store)
+          :publication-policy (:publication-policy index-store)
+          :retain-index-on-reset? true})
        (catch #?(:cljd Object :clj Throwable :cljs :default) e
          (quietly! #(dht/close! node))
          (throw e))))))
 
 
-(defn without-runner
-  "The store handle the shell keeps: `open`'s answer without the node,
-   which the shell carries as its own `:dht`.  Any other handle is
-   answered as it is."
-  [handle]
-  (dissoc handle :dht))
-
-
 (defn follower
-  "The head follower the shell's DHT `node` carries, or nil when it
+  "The head follower a composition's `node` carries, or nil when it
    follows nothing."
   [node]
   (get node ::follower))
 
 
 (defn stop!
-  "Initiate the head composition's exit on the shell's node: the board's
+  "Initiate the head composition's exit on `session`'s node: the board's
    server is asked to stop (`head.board/stop!`), every follow dial is
    closed and no dial is composed again, and the node is marked
    stopping.  Performs no other I/O; `step` completes the stop and
-   `stopped?` reports it.  A shell without a node, or already stopping,
-   is answered unchanged.  The board serves a read-only ring that stop
-   does not end, so a reader has nothing to be told but the reattachable
-   close its connection observes."
-  [shell]
-  (let [node (:dht shell)]
+   `stopped?` reports it.  A session without a node, or one already
+   stopping, is answered unchanged.  The board serves a read-only ring
+   that stop does not end, so a reader has nothing to be told but the
+   reattachable close its connection observes.
+
+   This composition is the one resource owner: a host asks once, here,
+   and never closes a board, a dial or the store itself
+   (docs/design/yin.repl.dht-composition.md sections 3 and 6)."
+  [session]
+  (let [node (:node session)]
     (if (or (nil? node) (::stopping? node))
-      shell
+      session
       (do (doseq [[_ {:keys [dial]}] (get-in node [::follow :links])]
             (when dial (head.board/close! dial)))
-          (assoc shell :dht
+          (assoc session :node
                  (cond-> (assoc node ::stopping? true)
                    (get-in node [::publisher :server])
                    (update-in [::publisher :server] head.board/stop!)
@@ -489,8 +715,8 @@
 (defn stopped?
   "True when the head composition owes nothing at exit: no node, no
    board server, or a board server that is stopped or refused."
-  [shell]
-  (let [server (get-in shell [:dht ::publisher :server])]
+  [session]
+  (let [server (get-in session [:node ::publisher :server])]
     (or (nil? server) (head.board/stopped? server))))
 
 
@@ -498,13 +724,18 @@
   "The last resort after the exit drain's budget
    (`yin.repl.main/stop-ticks`): whatever the board still owes is asked
    for once more and not awaited.  The ordinary exit is `stop!`, then
-   `step` until `stopped?`.  A shell never stopped is stopped first, so a
-   direct caller (a test, an embedder without a drain) still closes the
+   `step` until `stopped?`.  A session never stopped is stopped first, so
+   a direct caller (a test, an embedder without a drain) still closes the
    dials; the board's stopping tick runs at the node's last tick reading
-   only when the board is not already `stopped?`."
-  [shell]
-  (let [shell (stop! shell)
-        node (:dht shell)
+   only when the board is not already `stopped?`.
+
+   The store's own resources are the durable handle's `:close-fn`, which
+   the composition's single resource owner releases after this
+   (`yin.shell.main/close-composition!`), so nothing here is closed
+   twice."
+  [session]
+  (let [session (stop! session)
+        node (:node session)
         server (get-in node [::publisher :server])]
     (when (and server (not (head.board/stopped? server)))
       (head.board/serve-step server (or (::now node) 0)))
@@ -550,7 +781,9 @@
 (defn- result-text
   "A publication's result (yin.vm.linker.dht.md 5.5.6): when it is not
    acknowledged, the count of failed blobs, the first reason, and whether
-   the node is retrying."
+   the node is retrying.  Local durability is stated apart from the
+   network's answer: a dissemination failure never reads back as a lost
+   publication (docs/design/yin.repl.dht-composition.md section 3)."
   [node {:keys [result blobs peers failed repairing? ended]}]
   (if (= :acknowledged result)
     (str "acknowledged: sent to " peers " peers")
@@ -735,17 +968,24 @@
 (defn- hydrated
   "Install the loaded remote index as this directory's: HEAD first, then
    the indexer, exactly as a restart's recovery is installed.  A
-   publisher deposits the hydrated HEAD's trace once (5.4)."
-  [shell node]
+   publisher deposits the hydrated HEAD's trace once (5.4).
+
+   The HEAD write precedes the installation, so a crash between the two
+   restarts from a HEAD that names content the store already holds; and
+   the installation is the engine's own generic recovery operation
+   (`yin.repl/install-recovery`, docs/design/yin.repl.dht-composition.md
+   section 4), never a direct write into the engine's index state.  Only
+   the generic content handle and the validated recovery data cross
+   inward."
+  [session node]
   (let [manifest (::hydrating node)
         recovery {:manifest manifest :datoms (dht/loaded-datoms node manifest)}]
     ((:head-fn (dht/local node)) manifest)
     (when-some [pub (::publisher node)]
       (deposit-head! pub manifest))
-    (-> shell
-        (update :indexer index/rehydrate recovery)
-        (assoc :index-recovery recovery
-               :dht (dissoc node ::hydrating)))))
+    (-> session
+        (update :engine repl/install-recovery recovery)
+        (assoc :node (dissoc node ::hydrating)))))
 
 
 ;; =============================================================================
@@ -916,11 +1156,11 @@
 
 
 (defn moved
-  "The linked names of the shell's session whose resolved address
+  "The linked names of the session's engine whose resolved address
    differs now (`yin.vm.linker.head/moved`): derived, stored nowhere."
-  [shell node]
-  (head/moved (ld/names node (link/authority (:link-source shell)))
-              (linked-registry (get-in shell [:vm :modules]))))
+  [engine node]
+  (head/moved (ld/names node (link/authority (:link-source engine)))
+              (linked-registry (get-in engine [:vm :modules]))))
 
 
 (defn- movers
@@ -931,10 +1171,10 @@
    or not at all.  Derived from the two nodes, stored nowhere.  One
    install moved every name; a name no single install accounts for is
    given every install."
-  [shell before node installed moves]
+  [engine before node installed moves]
   (if (< (count installed) 2)
     (into {} (map (fn [m] [(:name m) installed])) moves)
-    (let [authority (link/authority (:link-source shell))
+    (let [authority (link/authority (:link-source engine))
           without (fn [{:keys [principal]}]
                     (let [put-back (get-in before [ld/installed-key principal])]
                       (:names (ld/names
@@ -967,13 +1207,13 @@
    (`before`, the node then), so a name is reported once per new
    address, and nothing is stored.  `installed` is the step's
    `:installed` events."
-  [shell before node installed]
+  [engine before node installed]
   (when (seq installed)
-    (let [standing (set (map (juxt :name :resolved) (moved shell before)))
+    (let [standing (set (map (juxt :name :resolved) (moved engine before)))
           moves (into []
                       (remove #(contains? standing [(:name %) (:resolved %)]))
-                      (moved shell node))
-          by-name (movers shell before node installed moves)]
+                      (moved engine node))
+          by-name (movers engine before node installed moves)]
       (mapv (fn [{n :name :keys [linked resolved]}]
               (str "dht: " n " moved: linked " linked
                    ", now resolves to " resolved " (head of "
@@ -991,9 +1231,10 @@
   "One pass of the follower after the node: dials, `head/step`, and for
    each confirmed head the write that precedes its install.  Answers
    `[node lines events]`."
-  [shell node now]
+  [session node now]
   (if-some [follower (::follower node)]
-    (let [before node
+    (let [engine (:engine session)
+          before node
           ;; a stopping node composes and steps no dial
           [follower links dial-lines] (if (::stopping? node)
                                         [follower (get-in node [::follow :links]) []]
@@ -1027,7 +1268,7 @@
       [node
        (-> dial-lines
            (into (keep head-line) events)
-           (into (moved-lines shell before node installed)))
+           (into (moved-lines engine before node installed)))
        events])
     [node [] []]))
 
@@ -1037,17 +1278,23 @@
 ;; =============================================================================
 
 (defn step
-  "Advance the shell's node once at the host's clock reading `now`
-   (dao.space.dht/step) and answer `[shell' lines events]`: its events as
-   lines, and as the data the ticker reads to re-check a pending require
-   (yin.repl/recheck-on-tick), a completed hydration installed, a
-   failed one or a failed bind recorded as the shell's refusal.  The
-   head composition steps after the node: the board's endpoint (and the
-   join token once it is bound), then the follower, whose events join
-   the node's.  A shell without a DHT store is answered unchanged."
-  [shell now]
+  "Advance the composition's node once at the host's clock reading `now`
+   (dao.space.dht/step) and answer `[session' lines events]`: its events
+   as lines, and as the data the ticker reads to re-check a pending
+   require, a completed hydration installed, a failed one or a failed
+   bind recorded as the session's refusal.  The head composition steps
+   after the node: the board's endpoint (and the join token once it is
+   bound), then the follower, whose events join the node's.  A session
+   without a transport is answered unchanged.
+
+   `events` stay in this composition's own vocabulary: the host translates
+   them before anything crosses inward
+   (`yin.shell.completion/completion-events`), so the engine re-checks
+   only correlated generic completions and never decodes a transport
+   keyword (docs/design/yin.repl.dht-composition.md section 7)."
+  [session now]
   (if-let
-    [node (:dht shell)]
+    [node (:node session)]
     (let
       [[node events] (dht/step node now)
        node (assoc node ::now now)
@@ -1062,7 +1309,7 @@
                             (let [[pub ls] (step-board pub node events now)]
                               [(assoc node ::publisher pub) ls])
                             [node []])
-       [node follow-lines head-events] (step-follow shell node now)
+       [node follow-lines head-events] (step-follow session node now)
        lines (-> lines (into board-lines) (into follow-lines))
        hydrating (::hydrating node)
        status (when hydrating (:status (dht/load-status node hydrating)))
@@ -1078,25 +1325,35 @@
                                    lines)))
               (dht/refusal node)
               (assoc ::refusal (dht/refusal node)))
-       shell (assoc shell :dht node)]
-      [(if (= :loaded status) (hydrated shell node) shell)
+       session (assoc session :node node)]
+      [(if (= :loaded status) (hydrated session node) session)
        lines
        (into (vec events) head-events)])
-    [shell [] []]))
+    [session [] []]))
 
 
 (defn refusal
-  "The text that refused the shell's DHT store after startup (a failed
-   bind or a hydration that could not complete), or nil."
-  [shell]
-  (get-in shell [:dht ::refusal]))
+  "The text that refused the composition's store after startup (a failed
+   bind or a hydration that could not complete), or nil.
+
+   `session` is the composition session this namespace's every function
+   takes — `{:engine … :node … :key …}`, `yin.shell.session/make`'s shape —
+   and the node is read off its `:node` key and nowhere else: one contract
+   for `step`, `stop!`, `stopped?`, `close!`, `busy?`, `follow-lines`,
+   `refusal` and `admitting?`, so a host cannot step one of them into
+   silence by storing the node under a name only another of them reads."
+  [session]
+  (get (:node session) ::refusal))
 
 
 (defn admitting?
-  "True when the shell may evaluate: no hydration is outstanding and none
-   was refused.  Following never holds evaluation back (5.8)."
-  [shell]
-  (let [node (:dht shell)]
+  "True when the session may evaluate: no hydration is outstanding and
+   none was refused.  Following never holds evaluation back (5.8) — head
+   following updates the external resolver, and only an explicit pinned
+   hydration installs recovery before evaluation is admitted
+   (docs/design/yin.repl.dht-composition.md section 3)."
+  [session]
+  (let [node (:node session)]
     (or (nil? node)
         (and (nil? (::hydrating node)) (nil? (::refusal node))))))
 
@@ -1105,15 +1362,15 @@
   "True while the node owes the REPL a line; the ticker keeps its base
    cadence then.  Following alone is never busy (section 7): only a
    candidate's load is, as a load of the node."
-  [shell]
-  (boolean (some-> (:dht shell) dht/busy?)))
+  [session]
+  (boolean (some-> (:node session) dht/busy?)))
 
 
 (defn follow-lines
   "What the shell states at startup per followed principal: where it is
    followed, and whether a head is installed (5.8)."
-  [shell]
-  (let [node (:dht shell)]
+  [session]
+  (let [node (:node session)]
     (when-some [follower (::follower node)]
       (mapv (fn [[p {:keys [manifest floor]}]]
               (let [{:keys [host port]} (get-in node [::follow :sources p])]
@@ -1127,7 +1384,9 @@
 
 (defn banner
   "What the REPL states at startup about a DHT store spec, before the
-   node steps once, and so before anything is shared."
+   node steps once, and so before anything is shared.  This text is the
+   composition's, never the engine's
+   (docs/design/yin.repl.dht-composition.md section 6)."
   [{:keys [dir peers publish? bind-host bind-port follow-suspended]}]
   (let [content (durable/content-path dir)
         peers-text (str/join ", " (map #(address-text (:host %) (:port %))

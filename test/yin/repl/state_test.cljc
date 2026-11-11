@@ -1,13 +1,31 @@
 (ns yin.repl.state-test
   "The node's saved configuration (yin.repl.state): the flags a node was last
    started with, kept in `<node dir>/state.edn` and resumed by a bare
-   `yin-repl`, changed by the command line."
+   `yin-repl`, changed by the command line.
+
+   Two tables are in play and every assertion says which one it means.  The
+   engine's own — `(state/flag-table)`, what the default arity answers —
+   carries `--index-store`, `--vm`, `--port`, `--codec` and `--headless`,
+   and the assertions that use it pin that a build carrying no composition
+   reads, writes and refuses by those flags alone.  `table` below is the
+   DHT composition's (`yin.shell.cli/flag-table`), handed in explicitly
+   rather than discovered: `yin.repl.state` resolves no composition, so a
+   `--dht-*` assertion that did not pass one would be reading the engine's
+   table and failing for the wrong reason."
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.space.store.fs :as fs]
             [yin.repl.main :as repl]
-            [yin.repl.state :as state]))
+            [yin.repl.state :as state]
+            [yin.shell.cli :as cli]
+            [yin.shell.main :as shell.main]))
+
+
+(def ^:private table
+  "The composition's saved-flag table, passed explicitly wherever an
+   assertion names a `--dht-*` flag."
+  cli/flag-table)
 
 
 (defn- temp-dir
@@ -20,17 +38,42 @@
   (try (thunk) nil (catch #?(:cljd Object :clj Throwable :cljs :default) e e)))
 
 
+(deftest the-engine-s-table-carries-no-composition-flag
+  (let [own (state/flag-table)
+        engine-flags (mapv first (:saved-flags own))]
+    (is (= ["--index-store" "--vm" "--port" "--codec" "--headless"]
+           engine-flags)
+        "the engine's own flags, in the order a state file re-emits them")
+    (is (empty? (filter #(str/starts-with? % "--dht-") engine-flags))
+        "yin.repl.state resolves no composition, so its table has no --dht-*")
+    (is (= #{} (:one-shot-flags own)) "the engine has no one-shot flag")
+    (testing "a composition's contribution is appended to the engine's"
+      (is (= (into engine-flags
+                   (remove (set engine-flags))
+                   (map first (:saved-flags cli/state-table)))
+             (mapv first (:saved-flags table)))
+          "the engine's first, then the composition's, each flag once")
+      (is (= #{"--dht-manifest" "--dht-keygen"} (:one-shot-flags table))
+          "a composition's one-shot flags travel in the same table")
+      (is (= :many (get (:kinds table) "--dht-peer"))))
+    (testing "a flag named in both keeps the engine's kind"
+      (is (= :value (get (:kinds (state/flag-table
+                                   {:saved-flags [["--port" :many]]}))
+                         "--port"))))))
+
+
 (deftest args-split-into-saved-flags-and-the-rest
   (let [{:keys [flags rest]}
         (state/split-args ["--port" "8080" "--headless" "--dht-peer" "a:1"
                            "--dht-peer" "b:2" "--dht-manifest" ":segment/x"
-                           "--telemetry"])]
+                           "--telemetry"]
+                          table)]
     (is (= {"--port" "8080" "--headless" true "--dht-peer" ["a:1" "b:2"]}
            flags))
     (testing "one-shot flags and unknown arguments pass through, in order"
       (is (= ["--dht-manifest" ":segment/x" "--telemetry"] rest)))
     (is (= ["--port" "8080" "--headless" "--dht-peer" "a:1" "--dht-peer" "b:2"]
-           (state/flags->args flags))
+           (state/flags->args flags table))
         "a fixed order, a repeated flag once per value")))
 
 
@@ -38,7 +81,7 @@
   (doseq [args [["--port"] ["--port" "--headless"] ["--vm"] ["--dht-peer"]
                 ["--dht-peer" "a:1" "--dht-peer"] ["--dht-manifest"]
                 ["--dht-keygen" "--help"]]]
-    (let [e (refusal-of #(state/split-args args))]
+    (let [e (refusal-of #(state/split-args args table))]
       (is (some? (ex-data e)) (pr-str args))
       (is (str/includes? (ex-message e) "needs a value") (pr-str args)))))
 
@@ -67,15 +110,17 @@
         flags {"--index-store" "dht:/tmp/x" "--headless" true
                "--dht-peer" ["127.0.0.1:4001" "127.0.0.1:4002"]
                "--dht-publish" true "--port" "8080"}]
-    (is (nil? (state/load-flags dir)) "no file, no state")
-    (state/save! dir flags)
-    (is (= flags (state/load-flags dir)))
+    (is (nil? (state/load-flags dir table)) "no file, no state")
+    (state/save! dir flags table)
+    (is (= flags (state/load-flags dir table)))
     (let [text (fs/read-file-text dir state/file-name)]
       (is (str/starts-with? text "{:version 1"))
       (is (not (re-find #"\s[\]\}]" text))
           "no space before a closer: ClojureDart's EDN reader refuses one"))
-    (state/save! dir {"--vm" "stack"})
-    (is (= {"--vm" "stack"} (state/load-flags dir)) "a save replaces the file")))
+    (state/save! dir {"--vm" "stack"} table)
+    (is (= {"--vm" "stack"} (state/load-flags dir table)) "a save replaces the file")
+    (is (= {"--vm" "stack"} (state/load-flags dir))
+        "a file holding only engine flags is read by the engine's own table")))
 
 
 (deftest an-unreadable-state-file-is-refused-not-skipped
@@ -90,9 +135,9 @@
                        "vector of strings"]
                       ["{:version 1 :config {:headless false}}" "must be true"]]]
     (let [dir (temp-dir)]
-      (state/save! dir {})
+      (state/save! dir {} table)
       (fs/atomic-replace! dir state/file-name text)
-      (let [e (refusal-of #(state/load-flags dir))]
+      (let [e (refusal-of #(state/load-flags dir table))]
         (is (some? (ex-data e)) text)
         (is (str/includes? (ex-message e) why) text)
         (is (str/includes? (ex-message e) "--reset") text)))))
@@ -137,10 +182,10 @@
 
 (deftest a-value-that-begins-with-two-dashes-is-a-missing-value
   (is (= {"--dht-key" "./--x.key"}
-         (:flags (state/split-args ["--dht-key" "./--x.key"])))
+         (:flags (state/split-args ["--dht-key" "./--x.key"] table)))
       "a path that really begins with -- is written ./--name")
   (is (some? (ex-data (refusal-of #(state/split-args
-                                     ["--dht-key" "--x.key"]))))))
+                                     ["--dht-key" "--x.key"] table))))))
 
 
 (deftest a-missing-value-never-starts-with-the-saved-one
@@ -212,29 +257,33 @@
   (testing "saved --dht flags with a store that is not a DHT's refuse, with the
             saved state named so --reset is the obvious way out"
     (let [dir (temp-dir)]
-      (state/save! dir {"--dht-peer" ["127.0.0.1:4001"]})
-      (let [started (repl/startup ["--dir" dir] {:persist? true})]
+      (state/save! dir {"--dht-peer" ["127.0.0.1:4001"]} table)
+      (let [started (repl/startup ["--dir" dir]
+                                  {:persist? true :flag-table table
+                                   :composition shell.main/composition})]
         (is (str/includes? (:refusal started) "--index-store dht:<dir>"))
         (is (str/includes? (:refusal started) "with the saved state in"))
         (is (str/includes? (:refusal started) "--reset forgets it")))
       (is (some? (:state (repl/startup ["--dir" dir "--reset"]
-                                       {:persist? true})))
+                                       {:persist? true :flag-table table
+                                        :composition shell.main/composition})))
           "--reset clears the clash"))))
 
 
 (deftest a-dht-subcommand-resumes-and-serve-stops-publishing
   (let [dir (temp-dir)
-        start (fn [& args] (repl/expand-args args))]
+        start (fn [& args] (shell.main/expand-args args))]
     (testing "init saves publishing; serve unsets it"
       (let [[args extra] (start "dht" "init" "--dir" dir "--key" "k"
                                 "--peer" "localhost:4002")
-            {:keys [flags]} (state/split-args args)]
+            {:keys [flags]} (state/split-args args table)]
         (is (true? (get flags "--dht-publish")))
         (is (= dir (:dir extra))))
       (let [[args extra] (start "dht" "serve" "--dir" dir "--peer"
                                 "localhost:4002")
             saved {"--dht-publish" true "--dht-peer" ["127.0.0.1:4002"]}
-            resolved (state/resolve-flags saved (:flags (state/split-args args))
+            resolved (state/resolve-flags saved
+                                          (:flags (state/split-args args table))
                                           (:unset extra))]
         (is (not (contains? resolved "--dht-publish")))
         (is (= ["127.0.0.1:4002"] (get resolved "--dht-peer")))))
@@ -245,10 +294,9 @@
             saved {"--dht-publish" true "--dht-key" "~/.yin/a.key"
                    "--dht-peer" ["127.0.0.1:4002"]}
             resolve (fn [& args]
-                      (let [[args' extra] (repl/expand-args args)]
-                        (state/resolve-flags saved
-                                             (:flags (state/split-args args'))
-                                             (:unset extra))))]
+                      (let [[args' extra] (shell.main/expand-args args)
+                            flags (:flags (state/split-args args' table))]
+                        (state/resolve-flags saved flags (:unset extra))))]
         (is (not (contains? (resolve "dht" "serve" "--dir" dir
                                      "--peer" "localhost:4002")
                             "--dht-key")))
@@ -272,10 +320,10 @@
    :default (deftest dht-join-saves-its-follow-and-a-bare-start-resumes-it
               (let [dir (temp-dir)
                     hex (apply str (repeat 64 "b"))
-                    joined (repl/startup ["dht" "join" (str "yin:localhost:4001/" hex)
-                                          "--dir" dir]
-                                         {:persist? true})
-                    saved (state/load-flags dir)]
+                    joined (shell.main/startup ["dht" "join" (str "yin:localhost:4001/" hex)
+                                                "--dir" dir]
+                                               {:persist? true :flag-table table})
+                    saved (state/load-flags dir table)]
                 (is (nil? (:refusal joined)) (:refusal joined))
                 (testing "join saves --dht-follow beside the principal, and no manifest"
                   (is (= [(str hex "@127.0.0.1:4001")] (get saved "--dht-follow")))
@@ -289,7 +337,8 @@
                                           " at 127.0.0.1:4001; no head installed yet"))
                       (banner-of joined)))
                 (repl/close-index-store! (:state joined))
-                (let [bare (repl/startup ["--dir" dir] {:persist? true})]
+                (let [bare (shell.main/startup ["--dir" dir]
+                                               {:persist? true :flag-table table})]
                   (is (nil? (:refusal bare)) (:refusal bare))
                   (is (= [{:principal hex :host "127.0.0.1" :port 4001}]
                          (get-in bare [:opts :index-store-spec :follow]))

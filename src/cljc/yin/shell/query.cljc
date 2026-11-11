@@ -42,7 +42,7 @@
             ;; the follower accessor lives in the composition module that
             ;; section 6 relocates to yin.shell.dht; this require moves
             ;; with it
-            [yin.repl.dht :as repl.dht]))
+            [yin.shell.dht :as repl.dht]))
 
 
 (def dht-module-name

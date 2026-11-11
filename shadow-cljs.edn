@@ -30,5 +30,5 @@
                      :output-to "target/vm-bench.js"}
 
           :yin-repl {:target :node-script
-                        :main yin.repl.main/-main
+                        :main yin.shell.main/-main
                         :output-to "target/yin-repl.js"}}}

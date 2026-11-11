@@ -22,8 +22,11 @@
             [dao.stream :as stream]
             [dao.stream.loopback-net :as net]
             [yin.repl :as repl]
-            [yin.repl.dht :as repl.dht]
+            [yin.shell.dht :as repl.dht]
             [yin.repl.main :as main]
+            [yin.shell.cli :as cli]
+            [yin.shell.main :as shell.main]
+            [yin.shell.session :as shell.session]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.head :as head]
             [yin.vm.linker.sign :as sign])
@@ -68,17 +71,23 @@
 
 
 (defn- quick
-  "The follower's delays shortened to the test's cadence."
+  "The follower's delays shortened to the test's cadence.  The node lives
+   at `[:session :node]`, beside the engine at `:repl` and never inside it:
+   the composition session is the one value the composition's functions
+   take (docs/design/yin.repl.dht-composition.md sections 3 and 7)."
   [state]
-  (if (get-in state [:repl :dht ::repl.dht/follower])
-    (update-in state [:repl :dht ::repl.dht/follower]
+  (if (get-in state [:session :node ::repl.dht/follower])
+    (update-in state [:session :node ::repl.dht/follower]
                assoc :poll-ticks 50 :repair-ticks 200 :repair-max-ticks 800)
     state))
 
 
 (defn- shell
   "The step owner's state of a shell over `dir` at mesh `port`, trusting
-   the principals it declares."
+   the principals it declares.  The store is opened by the composition's
+   own factory, which `yin.shell.main/composition` hands `main/boot`: the
+   engine is constructed from the prepared handle and the inputs the
+   composition injects, and the node is carried beside it at `:session`."
   [{:keys [mesh ws dir port peers key principals follow write! bind-host
            bind!]}]
   (quick
@@ -91,14 +100,15 @@
                                               peers)}
                           bind-host (assoc :bind-host bind-host)
                           (seq follow) (assoc :follow follow))
-                        :dht-key key
+                        :publisher-key key
                         :principals principals
                         ;; the shells import their declared publishers'
                         ;; modules: trusted explicitly (7.5)
                         :admission {:trusted (set (map sign/principal
                                                        principals))}
                         :ws-host (when ws (ws-host ws))}
-                 write! (assoc :write-heads! write!)))))
+                 write! (assoc :write-heads! write!))
+               shell.main/composition)))
 
 
 (defn- follow-of
@@ -163,7 +173,7 @@
 
 (defn- heads-of
   [w k key]
-  (get (head/heads (get-in w [k :repl :dht ::repl.dht/follower]))
+  (get (head/heads (get-in w [k :session :node ::repl.dht/follower]))
        (sign/principal (:public key))))
 
 
@@ -212,11 +222,11 @@
         (pr-str (get-in w [:lines :a])))
     (testing "the token parses back to the peer and the principal"
       (is (= [(str "127.0.0.1:" pub-port) (:public key)]
-             (main/parse-token (subs (first tokens)
-                                     (count "dht: join token: "))))))
+             (cli/parse-token (subs (first tokens)
+                                    (count "dht: join token: "))))))
     (testing "every HEAD move deposits its trace on the board"
       (let [w (publish! w 1)
-            board (get-in w [:a :repl :dht ::repl.dht/publisher :board])
+            board (get-in w [:a :session :node ::repl.dht/publisher :board])
             c (stream/cursor board :dao.stream/oldest)
             trace (:dao.stream/value (stream/next board (:dao.stream/cursor c)))]
         (is (head/verify trace))
@@ -257,7 +267,7 @@
                                 :port pub-port :peers [reader-port]
                                 :principals []}))
           w (run w 20 (fn [_] false))]
-      (is (nil? (get-in w [:a :repl :dht ::repl.dht/publisher])))
+      (is (nil? (get-in w [:a :session :node ::repl.dht/publisher])))
       (is (empty? (lines-with w :a "join token")))
       (close! w))))
 
@@ -336,7 +346,7 @@
                                   :port reader-port :peers [pub-port]
                                   :principals [(:public key)]
                                   :follow (follow-of key)})
-                        node (get-in b [:repl :dht])]
+                        node (get-in b [:session :node])]
                     (is (= m2 (get (ld/installed-heads node) principal))
                         "installed at open, before any step")
                     (is (= :ok (:status (ld/resolve-name
@@ -398,7 +408,7 @@
       (is (seq (lines-with w :b "again in 200 ticks")) "the delay is in ticks")
       (is (nil? (:manifest (heads-of w :b key))))
       (is (= :confirmed (get-in (heads-of w :b key) [:candidate :state])))
-      (is (empty? (ld/installed-heads (get-in w [:b :repl :dht])))
+      (is (empty? (ld/installed-heads (get-in w [:b :session :node])))
           "nothing reads a confirmed head before the write"))
     (reset! mode :ok)
     (let [w (run w 3000 (installed? :b key))]
@@ -459,7 +469,7 @@
                 _ (close! w)
                 b (reader w key dir-b)]
             (is (and confirmed (not= m1 confirmed)))
-            (is (= m1 (get (ld/installed-heads (get-in b [:repl :dht])) principal)))
+            (is (= m1 (get (ld/installed-heads (get-in b [:session :node])) principal)))
             (main/close-index-store! b)))
         (testing "a real write interrupted before its rename leaves the old
               heads.edn bytes untouched and a stale temp file, which startup
@@ -482,7 +492,7 @@
                   w (assoc w
                            :a (publisher w key dir-a)
                            :b (reader w key dir-b))]
-              (is (= m1 (get (ld/installed-heads (get-in w [:b :repl :dht]))
+              (is (= m1 (get (ld/installed-heads (get-in w [:b :session :node]))
                              principal))
                   "startup reads heads.edn and ignores the temp file")
               (let [newest (get-in w [:a :repl :indexer :manifest-address])
@@ -505,7 +515,7 @@
                       "not installed in this process")
                 _ (close! w)
                 b (reader w key dir-b)]
-            (is (= newest (get (ld/installed-heads (get-in b [:repl :dht])) principal))
+            (is (= newest (get (ld/installed-heads (get-in b [:session :node])) principal))
                 "the restart is at the head the file holds")
             (main/close-index-store! b)))))))
 
@@ -582,7 +592,7 @@
       (let [dir (temp-dir)
             b (open-reader dir key)]
         (is (= {:records {:version 1 :heads {}}} (repl.dht/read-heads dir)))
-        (is (nil? (:manifest (get (head/heads (get-in b [:repl :dht
+        (is (nil? (:manifest (get (head/heads (get-in b [:session :node
                                                          ::repl.dht/follower]))
                                   principal))))
         (main/close-index-store! b)))
@@ -711,7 +721,7 @@
         w (assoc w
                  :a (publisher w key (temp-dir))
                  :b (reader w key (temp-dir)))
-        w (run w 100 #(= :attached (get-in % [:b :repl :dht
+        w (run w 100 #(= :attached (get-in % [:b :session :node
                                               ::repl.dht/follow :links
                                               (sign/principal (:public key))
                                               :dial :status])))]
@@ -732,7 +742,7 @@
         w (assoc w
                  :a (publisher w key (temp-dir))
                  :b (reader w key (temp-dir)))]
-    (run w 100 #(= :attached (get-in % [:b :repl :dht ::repl.dht/follow :links
+    (run w 100 #(= :attached (get-in % [:b :session :node ::repl.dht/follow :links
                                         (sign/principal (:public key))
                                         :dial :status])))))
 
@@ -742,23 +752,23 @@
         principal (sign/principal (:public key))
         w (attached-pair key)
         _ (is (seq (:listeners @(:ws w))) "the board is bound")
-        w (update-in w [:a :repl] repl.dht/stop!)
-        _ (is (false? (repl.dht/stopped? (:repl (:a w))))
+        w (update-in w [:a :session] repl.dht/stop!)
+        _ (is (false? (repl.dht/stopped? (:session (:a w))))
               "stop! initiates; the board still owes its release")
         ;; the reader reports the loss once, by its dial or its follower
         losses (fn [w]
                  (+ (count (lines-with w :b (str "lost the head board of " principal)))
                     (count (lines-with w :b (str "cannot follow " principal)))))
         lost-before (losses w)
-        w (run w 5 #(repl.dht/stopped? (:repl (:a %))))]
-    (is (true? (repl.dht/stopped? (:repl (:a w)))) (pr-str (get-in w [:lines :a])))
+        w (run w 5 #(repl.dht/stopped? (:session (:a %))))]
+    (is (true? (repl.dht/stopped? (:session (:a w)))) (pr-str (get-in w [:lines :a])))
     (is (empty? (:listeners @(:ws w))) "no listener")
     (is (= ["dht: the head board stopped"]
            (lines-with w :a "dht: the head board stopped"))
         (pr-str (get-in w [:lines :a])))
     (let [w (tick w)]
       (is (< lost-before (losses w)) (pr-str (get-in w [:lines :b])))
-      (is (empty? (get-in w [:a :repl :dht ::repl.dht/follow :links]))
+      (is (empty? (get-in w [:a :session :node ::repl.dht/follow :links]))
           "the stopping node composes no dial")
       (close! w))))
 
@@ -766,22 +776,22 @@
 (deftest close-is-the-last-resort-and-idempotent
   (testing "a shell never stopped: close! closes the dials and the board"
     (let [w (attached-pair (sign/generate))]
-      (is (nil? (repl.dht/close! (:repl (:a w)))))
-      (is (nil? (repl.dht/close! (:repl (:b w)))))
+      (is (nil? (repl.dht/close! (:session (:a w)))))
+      (is (nil? (repl.dht/close! (:session (:b w)))))
       (net/pump! (:ws w))
       (is (empty? (:listeners @(:ws w))) "nothing listens")
       (is (every? #(deref (:closed? %)) (:conns @(:ws w))) "every connection closed")
-      (is (nil? (repl.dht/close! (:repl (:a w)))) "close! again does not throw")
+      (is (nil? (repl.dht/close! (:session (:a w)))) "close! again does not throw")
       (close! w)))
   (testing "a shell already stopped: close! runs no stopping step"
     (let [w (attached-pair (sign/generate))
-          w (update-in w [:a :repl] repl.dht/stop!)
-          w (run w 5 #(repl.dht/stopped? (:repl (:a %))))
-          _ (is (true? (repl.dht/stopped? (:repl (:a w)))))
+          w (update-in w [:a :session] repl.dht/stop!)
+          w (run w 5 #(repl.dht/stopped? (:session (:a %))))
+          _ (is (true? (repl.dht/stopped? (:session (:a w)))))
           unbinds (atom 0)
-          w (assoc-in w [:a :repl :dht ::repl.dht/publisher :server :host :unbind!]
+          w (assoc-in w [:a :session :node ::repl.dht/publisher :server :host :unbind!]
                       (fn [& _] (swap! unbinds inc) nil))]
-      (is (nil? (repl.dht/close! (:repl (:a w)))))
+      (is (nil? (repl.dht/close! (:session (:a w)))))
       (is (zero? @unbinds) "a stopped board is not unbound again")
       (close! w))))
 
@@ -909,14 +919,15 @@
   (let [key (sign/generate)
         w (world)
         w (run (assoc w :a (publisher w key (temp-dir))) 2 (fn [_] false))
-        notes (get-in w [:a :repl :dht ::repl.dht/publisher :notes])
+        notes (get-in w [:a :session :node ::repl.dht/publisher :notes])
         note! (fn [i]
                 (stream/append! notes {:status :refused
                                        :reason :yin.head/test
                                        :manifest (str "m" i)}))
         step! (fn [w now]
-                (let [[repl lines] (repl.dht/step (get-in w [:a :repl]) now)]
-                  [(assoc-in w [:a :repl] repl) lines]))]
+                (let [[session lines] (repl.dht/step (main/session-of (:a w))
+                                                     now)]
+                  [(update w :a main/with-session session) lines]))]
     (run! note! (range 65))
     (let [[w lines] (step! w 100)
           reported (filterv #(str/includes? % "was not deposited") lines)]
@@ -935,7 +946,7 @@
 (defn- board-trace
   "The trace on the publisher's board now, or nil."
   [w]
-  (let [board (get-in w [:a :repl :dht ::repl.dht/publisher :board])
+  (let [board (get-in w [:a :session :node ::repl.dht/publisher :board])
         c (stream/cursor board :dao.stream/oldest)]
     (when (= :dao.stream/ok (:dao.stream/outcome c))
       (:dao.stream/value (stream/next board (:dao.stream/cursor c))))))
@@ -952,7 +963,7 @@
         w (publish! w 1)
         t1 (board-trace w)
         s1 (get-in t1 [:yin.head/envelope :yin.head/seq])
-        board (get-in w [:a :repl :dht ::repl.dht/publisher :board])
+        board (get-in w [:a :session :node ::repl.dht/publisher :board])
         forged (keyword (str "segment/blake3-" (apply str (repeat 64 "f"))))
         _ (stream/append! board (head/trace key forged (+ s1 1000)))
         ;; one evaluation, one HEAD move
@@ -1032,7 +1043,7 @@
               (type! :b (str "(require (quote " c-name "))"))
               (run 3000 #(not (pending? % :b))))
         _ (is (= (symbol c-name) (value w :b)) (pr-str (get-in w [:lines :b])))
-        before (get-in w [:b :repl :dht])
+        before (get-in w [:b :session :node])
         w (-> w
               (publish :a "alib" a-code')
               (publish :c c-name c-code')
@@ -1043,7 +1054,7 @@
                    {:yin.head/event :installed :principal p2
                     :trace (:installed (heads-of w :b other))}]
         lines (repl.dht/moved-lines (get-in w [:b :repl]) before
-                                    (get-in w [:b :repl :dht]) installed)]
+                                    (get-in w [:b :session :node]) installed)]
     (close! w)
     lines))
 
@@ -1125,7 +1136,7 @@
           w (run (assoc w :b (reader w key (temp-dir))) 200 (fn [_] false))
           failures (lines-with w :b "dht: cannot follow ")]
       (is (<= 3 (count (:dialed @(:ws w))))
-          (pr-str (get-in w [:b :repl :dht ::repl.dht/follow :links])))
+          (pr-str (get-in w [:b :session :node ::repl.dht/follow :links])))
       (is (= 1 (count failures)) (pr-str (get-in w [:lines :b])))
       (is (str/includes? (str (first failures)) (str "127.0.0.1:" pub-port)))
       (close! w)))
@@ -1218,32 +1229,32 @@
           (testing "nothing leaks: the directory opens again"
             (write-heads! dir (repl.dht/render-heads {:version 1 :heads {}}))
             (let [handle (open! dir (atom {}) false false)]
-              (is (some? (:dht handle)))
-              (durable/close! handle))))))))
+              (is (some? (:node handle)))
+              (durable/close! (:index-store handle))))))))
 
 
-#?(:cljd nil
-   :clj
-   (deftest ^:slow a-fifo-at-heads-edn-is-refused-not-waited-on
-     ;; In a child JVM, bounded: a regression blocks the child, not this
-     ;; test, and fails at the deadline.
-     (let [dir (temp-dir)
-           fifo (str dir "/" repl.dht/heads-file)
-           _ (mkdirs! dir)
-           made (.waitFor (.start (ProcessBuilder. ^java.util.List ["mkfifo" fifo])))
-           child (.start (doto (ProcessBuilder.
-                                 ^java.util.List
-                                 [(str (System/getProperty "java.home") "/bin/java")
-                                  "-cp" (System/getProperty "java.class.path")
-                                  "clojure.main" "-e"
-                                  (str "(require 'yin.repl.dht)"
-                                       "(prn (yin.repl.dht/read-heads " (pr-str dir) "))"
-                                       "(shutdown-agents)")])
-                           (.redirectErrorStream true)))
-           done? (.waitFor child 240 java.util.concurrent.TimeUnit/SECONDS)
-           out (if done?
-                 (slurp (.getInputStream child))
-                 (do (.destroyForcibly child) "the child blocked"))]
-       (is (zero? made) "mkfifo made the FIFO")
-       (is done? "the read did not block on the FIFO")
-       (is (str/includes? out "it is not a regular file") out))))
+  #?(:cljd nil
+     :clj
+     (deftest ^:slow a-fifo-at-heads-edn-is-refused-not-waited-on
+       ;; In a child JVM, bounded: a regression blocks the child, not this
+       ;; test, and fails at the deadline.
+       (let [dir (temp-dir)
+             fifo (str dir "/" repl.dht/heads-file)
+             _ (mkdirs! dir)
+             made (.waitFor (.start (ProcessBuilder. ^java.util.List ["mkfifo" fifo])))
+             child (.start (doto (ProcessBuilder.
+                                   ^java.util.List
+                                   [(str (System/getProperty "java.home") "/bin/java")
+                                    "-cp" (System/getProperty "java.class.path")
+                                    "clojure.main" "-e"
+                                    (str "(require 'yin.shell.dht)"
+                                         "(prn (yin.shell.dht/read-heads " (pr-str dir) "))"
+                                         "(shutdown-agents)")])
+                             (.redirectErrorStream true)))
+             done? (.waitFor child 240 java.util.concurrent.TimeUnit/SECONDS)
+             out (if done?
+                   (slurp (.getInputStream child))
+                   (do (.destroyForcibly child) "the child blocked"))]
+         (is (zero? made) "mkfifo made the FIFO")
+         (is done? "the read did not block on the FIFO")
+         (is (str/includes? out "it is not a regular file") out)))))

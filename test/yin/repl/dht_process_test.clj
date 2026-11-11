@@ -1,6 +1,6 @@
 (ns yin.repl.dht-process-test
   "DHT epic S5 across real processes and real loopback sockets
-   (docs/design/dao.jing.dht.md section 10): separate `yin.repl.main`
+   (docs/design/dao.jing.dht.md section 10): separate `yin.shell.main`
    JVMs, each over its own locked `dht:<dir>`, exchange content through
    their UDP sockets.
 
@@ -47,7 +47,7 @@
             [dao.stream.datagram :as datagram]
             [dao.stream.datagram.jvm :as datagram.jvm]
             [dao.stream.ringbuffer :as ringbuffer]
-            [yin.repl.main :as main]
+            [yin.shell.cli :as cli]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.debruijn.register :as rvm]
@@ -196,15 +196,18 @@
 
 
 (defn- jvm-command
-  "`yin.repl.main` on a JVM over this test's classpath."
+  "`yin.shell.main` on a JVM over this test's classpath: the shipped entry
+   point, the engine driver over the DHT composition.  The engine's own
+   `yin.repl.main/-main` composes no storage past `mem` and `file:<dir>`, so
+   a process test of the DHT store spawns this one."
   []
   [(str (System/getProperty "java.home") "/bin/java")
    "-cp" (System/getProperty "java.class.path")
-   "clojure.main" "-m" "yin.repl.main"])
+   "clojure.main" "-m" "yin.shell.main"])
 
 
 (def ^:private node-script
-  "The Node build of `yin.repl.main` (shadow-cljs build `:yin-repl`),
+  "The Node build of `yin.shell.main` (shadow-cljs build `:yin-repl`),
    built by `bb build:yin-repl-node`."
   "target/yin-repl.js")
 
@@ -233,7 +236,7 @@
 
 
 (defn- spawn!
-  "Start one REPL process (`command`, a `yin.repl.main` JVM by default),
+  "Start one REPL process (`command`, a `yin.shell.main` JVM by default),
    then `args`.  `--no-state` keeps it from reading or writing the user's
    saved node state."
   ([label args] (spawn! label (jvm-command) args))
@@ -885,7 +888,7 @@
     (when-not
       (some :failure anchors)
       (try
-        (main/keygen! key-file)
+        (cli/keygen! key-file)
         (let
           [[x y] (map :port anchors)
            a (spawn! "publisher-a" ["--index-store" (str "dht:" (dirs 0))
@@ -1098,7 +1101,7 @@
     (when-not
       (:failure anchor)
       (try
-        (main/keygen! key-file)
+        (cli/keygen! key-file)
         (let
           [x (:port anchor)
            a-args ["--index-store" (str "dht:" (dirs 0)) "--dht-peer" (peer x)

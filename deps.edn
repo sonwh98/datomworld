@@ -83,7 +83,7 @@
            :server {:extra-deps {http-kit/http-kit {:mvn/version "2.8.0"}}
                     :jvm-opts ["-Dconfig=config.clj"]
                     :main-opts ["-m" "world.server"]}
-           :clj-yin-repl {:main-opts ["-m" "yin.repl.main"]}
+           :clj-yin-repl {:main-opts ["-m" "yin.shell.main"]}
            ;; jolt host configuration (docs/design/yin.repl-jolt-implementation.md
            ;; §4.2-4.3), run through build/tools/jolt/bin/jolt -Srepro -M:jolt.
            ;; src/jolt precedes src/cljc so a host override wins; src/clj is
@@ -94,7 +94,7 @@
            ;; needs one.
            :jolt {:replace-paths ["src/jolt" "src/cljc" "src/clj"]
                   :replace-deps {}}
-           :jolt-yin-repl {:main-opts ["-m" "yin.repl.main"]}
+           :jolt-yin-repl {:main-opts ["-m" "yin.shell.main"]}
            ;; composed after :jolt (-M:jolt:jolt-test): the oracle tests and
            ;; src/dev (src/dev/jolt_test_runner.clj and its sentinel)
            :jolt-test {:extra-paths ["test" "src/dev"]}
@@ -133,7 +133,7 @@
            :cljd-yin-repl-build
            {:main-opts  ["-m" "cljd.build"]
             :cljd/opts  {:kind       :dart
-                         :main       yin.repl.main
+                         :main       yin.shell.main
                          :output-dir "build/yin-repl"
                          :output-to  "build/yin-repl/yin_repl.dart"}}
            :dep-graph {:extra-paths ["src/dev"]
