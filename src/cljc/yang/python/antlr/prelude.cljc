@@ -202,7 +202,8 @@
 
 (def host-names
   "Module exports the prelude calls."
-  (into '#{cell/new cell/get cell/set! data/count data/into data/subvec
+  (into '#{cell/new cell/get cell/set! cell/dsg__new-provenance cell/dsg__provenance
+           data/count data/into data/subvec
            data/number? data/contains? data/dissoc data/str-concat data/str-length
            data/str-index-of data/str->code-points data/code-points->str
            data/float64 data/float-value data/content=
@@ -914,9 +915,9 @@
                    ;; exception still becomes the plain §8.10.7 thrown
                    ;; condition. Retention rides the exception's identity,
                    ;; outside source-writable attributes.
-                   (let [retained (py/retained-condition e)]
+                   (let [retained (cell/dsg__provenance e)]
                      (raise-exit
-                       (if (= retained :py/missing)
+                       (if (nil? retained)
                          (assoc {:yang.call/reason :yang.call/thrown}
                                 :yang.call/value e)
                          retained))))
@@ -1040,24 +1041,16 @@
                    with-ko (data/into with-star ko)]
                (if (get spec :kwstar?) (py/vconj with-ko (get state 2)) with-ko))))))]
     [py/call (fn [f args] (py/call-kw f args []))]
-    [py/condition-exception
-     ;; Identity-owned provenance, separate from source-writable :attrs.
-     ;; Attribute edits and leaving the creating activation preserve it;
-     ;; reachability of the exception retains the entire condition/payload.
-     ;; Only this constructor writes the private slot, never a guest marker
-     ;; or a condition-shaped payload. No ambient identity registry is used.
+    [dsg__condition-exception
+     ;; The privileged mint: a generated exception whose complete original
+     ;; condition rides the VM provenance slot, outside source-writable
+     ;; :attrs. Attribute edits and leaving the creating activation preserve
+     ;; it; reachability of the exception retains the whole condition/payload.
+     ;; Only this constructor mints through the reserved door; it is a
+     ;; compiler-private (`dsg__`) name, outside guest exports, projections,
+     ;; and aliases, so no guest can mint arbitrary provenance.
      (fn [cls msg condition]
-       (let [e (py/make-exc cls msg)]
-         (do (cell/set! e (assoc (cell/get e) :py/retained-condition condition))
-             e)))]
-    [py/retained-condition
-     ;; The identity-owned slot a generated exception carries, read without
-     ;; ever consulting source-writable :attrs; :py/missing when absent.
-     ;; A local instance only: a foreign or forged value has no slot.
-     (fn [e]
-       (if (= (py/content-type e) :instance)
-         (get (cell/get e) :py/retained-condition :py/missing)
-         :py/missing))]
+       (cell/dsg__new-provenance (cell/get (py/make-exc cls msg)) condition))]
     [py/call-kw
      (fn [f args kwargs]
        (if (= (get f :py/type) :method)
@@ -1078,13 +1071,13 @@
                          value
                          ;; A local hierarchy and fixed local message: neither
                          ;; foreign class names nor foreign methods participate.
-                         (py/condition-exception
+                         (dsg__condition-exception
                            (py/make-class "ForeignException" py.b/Exception)
                            {:py/str "foreign exception"} condition))))
                    (py/raise
-                     (py/condition-exception py.b/TypeError
-                                             {:py/str "object is not callable"}
-                                             condition)))))
+                     (dsg__condition-exception py.b/TypeError
+                                               {:py/str "object is not callable"}
+                                               condition)))))
              (if (= (py/content-type f) :function)
                (let [fc (cell/get f)]
                  ((get fc :code) (py/bind-args fc args kwargs)))
