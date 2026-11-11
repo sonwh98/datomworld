@@ -1,0 +1,18 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc2 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc2/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10 23:18:31 GMT
+Completed-Local: 2026-11-11 06:18:31 Asia/Ho_Chi_Minh
+
+All three r3 items fixed, nothing committed.
+
+**F2 P0:** [publish.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/vm/linker/publish.cljc:560) no longer matches root + batch counter — `retained-call-site-rows` resolves `(get tables [origin root])` exactly from the explicit mapping recorded in [repl.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/repl.cljc:1247) at the round where expander and indexer commit the same staged packet, forwarded by [query.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/repl/query.cljc:816); absent mapping publishes claim-free.
+
+**New P0:** assembly now emits the explicit `:call-site-wrappers` set ([publish.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/vm/linker/publish.cljc:620)), and [recovered-call-site-claim](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/vm/linker/publish.cljc:630) requires rows ∪ wrappers to cover the tree exactly — a deleted row refuses with `:missing` naming it, and `[]`/nil rows publish claim-free.
+
+**Tests:** red-first 29 tests / 334 assertions / 9 failures, then green at 29/334; publish+safepoint+query 48/453, repl+index 73/510, DHT 69/827, kondo 0 errors, all observed in this session.
+
+Findings are in [1794352090000-engineer-cc2-fix-r3.muse-wonder-1.0.findings.md](/Users/sto/workspace/datomworld-cc2/collab/yang-clojure/1794352090000-engineer-cc2-fix-r3.muse-wonder-1.0.findings.md) — written to the worktree mirror because the sandbox denied writes to the external collab path (`Operation not permitted`); it needs one verbatim move to `/Users/sto/workspace/datomworld/collab/yang-clojure/`.

@@ -1,0 +1,3 @@
+error: Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 2h23m36s.
+AGY_ERROR: {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 2h23m36s.","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true,"error_id":"a864759f-ee91-4afe-8e92-a48c9762e2bc-1"}
+{"conversation_id":"f3c91f17-b805-4c26-a9a5-63e204a42935","status":"ERROR","response":"","error":"Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 2h23m36s.","duration_seconds":0,"num_turns":1,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},"finished_reason":"error"}

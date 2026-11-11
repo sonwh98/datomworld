@@ -1,0 +1,50 @@
+Permission deny rule "MultiEdit" matches no known tool — check for typos.
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I have read all the context and inspected the source. Here is my findings response.
+
+---
+
+Completed-GMT: 2026-11-10 21:08:00 GMT
+Completed-Local: 2026-11-11 04:08:00 +0700
+
+## Q1 VERDICT: SUFFICIENT — route (a) meets the cc3 acceptance bar, treating native-image PC→K reconstruction as **cc3 scope** (derive.cljc is lowering, not an evaluator), with the §2.4 runtime-origin-retention clause deferred (it is a production concern the oracle's single-origin fixtures never exercise).
+
+**Why it is sufficient.** The oracle already records the caller site at actual dispatch: `kernel-stamp-sites` assigns compile-time-unique integer ids at post-macroexpansion application expressions (`latte_oracle_test.clj:2192-2320`), threads them through `gate-site!` after operand evaluation (`:1988-2009`), and the trace shape is `[fname arity caller-site]` (`:3230`). The runtime side of §2.5 ("capture the caller K at actual dispatch") is therefore *already done at the integer-site level*; route (a) does not need to re-instrument the runtime. It only needs to bind integer site → K off-line, and that is a static AST-correspondence job, not an evaluator job.
+
+The static binding is mechanically sound because:
+- `linearize/project-rows` already emits `:provenance [[pc origin root path] …]` per instruction (`linearize.cljc:212-214`), one row per pc, `path` the emitting node's structural path.
+- Every stamped integer site sits at exactly one post-expansion `:application` node, and every `:application` lowers to exactly one `:call` instruction (`linearize.cljc:106-116`). The bijection integer-site ↔ C1 occurrence `K = [origin root-address path]` is therefore verifiable — and must be *verified*, not assumed (§2.3 warns transforms may delete/duplicate/merge occurrences; the cc3 scoping already demands "verifying 1-to-1 bijection between stamped guest call sites and post-expansion C1 guest-call occurrences"). This is the one real risk to surface, and it is *inside* route (a)'s scope to discharge.
+
+**Native-image PC→K reconstruction is cc3 scope, not a boundary item.** `semantic/derive.cljc` (`stack-image`/`register-image`) is *lowering*, not runtime evaluation. The surface registry cedes only "yin/vm evaluators: ast_walker/semantic/stack/register" (`exception-track/…surface-registry.md:9`), and the clojure seat's cc3 commitment of record is explicitly "linearizer side only (route (a): semantic/linearize + derive, no evaluator changes)" (`…registry.md:27-31`). So extending `derive.cljc` is on the authorized side. It is also real work, not free: `stack-image`'s `:side-table` currently records only `:closure`/`:var` diagnostics with `:source pc`, never `:call` provenance (`derive.cljc:79-120`); `register-image` emits none (`derive.cljc:154-184`). Both must learn to carry `[segment-address pc origin root-address path]` back through their new PC sequences (stack "emits a new sequence", register "preserves layout" — design §2.4).
+
+**The only §2.4 clause that belongs to the continuation seat is deferred, not blocking.** Design §2.4's "Segment+PC alone is insufficient when identical code is loaded under two origins; the runtime must retain its load/admission origin" is a *production runtime* requirement. The oracle compiles each fixture once under one origin, so cc3's bridging never hits the multi-origin case. Defer that clause to a later production round; it is not a cc3 acceptance gate.
+
+## Q2 VERDICT: (ii) separate companion file `slice9_correspondence.edn` (more precisely, a separately-addressed D1 record referencing the v1 tables verbatim). Do **not** upgrade `slice9_site_tables.edn` in place.
+
+**Compat argument — who reads v1 today.** Grep across the tree shows exactly two readers, both inside `latte_oracle_test.clj`:
+- the round-trip test `test-kernel-gate-evidence-writer-round-trip` (`:3412-3415`), which asserts only `(= 1 (:version tables))` and fixture-count equality;
+- the `:attribution` manifest's `:site-tables-file "slice9_site_tables.edn"` string (`:3247`).
+
+No production consumer, linker, or other namespace reads `slice9_site_tables.edn`; the site table is consumed in-memory via `:site-table` on the evidence rows (keyed by integer `:site`, `:2472`), and the file is a checked-in durable artifact named only by that string. So neither reader constrains the choice — the decision must rest on the *principles*, not on reader pressure.
+
+**Failure-mode argument.** Design §4.1 is unambiguous: D1 is "a new separately addressed plain-data object" whose `:yang.correspondence/evidence` resolves to "OracleEvidence **verbatim** — same EDN data shape, schema/version, field names, vectors, site ids… do not project a subset or copy its rows into a second durable site-table shape" and "preserve the original checked-in EDN bytes separately." §4.2 adds "D1 does not revise old site tables… do not rewrite its tables behind an unchanged version." Choice (i) — even "additively" — rewrites the v1 file's bytes, changes its content address and canonical-source-hash, conflates two schemas (`:version 1` and `:yang.correspondence/schema 1`) in one file, and makes any error in the K-keyed bindings capable of corrupting the oracle's *historical* evidence itself. Choice (ii) keeps v1 immutable and git-byte-stable, and places the ephemeral→K bindings (`:yang.correspondence/origin-bindings`) in a separate record whose failure is independently diagnosable and cannot contaminate the oracle's verbatim evidence. That is exactly the "never rewrite history" / "OracleEvidence verbatim" bar the design §4.1 sets, and it matches the writer's own comment at `latte_oracle_test.clj:3281-3283` ("stable across refreshes so the later durable correspondence record lands **additively**").
+
+## Q3 VERDICT: CONFIRM cc3 → cc4 → D1. No reordering is required; cc4 and D1 are mutually independent and each depends only on cc3.
+
+**Dependency facts.** cc3 is the common prerequisite: cc4 needs cc3's linearize/derive provenance so there *is* a C1 side-table/provenance artifact to compare across hosts; D1 needs cc3's provenance to reconstruct the ephemeral→K bindings (design §4.4 step 5 requires "Reconstruct every claimed ephemeral-to-persisted binding… instruction mapping"). Neither cc4 nor D1 needs the other:
+
+- **cc4 does not depend on D1.** cc4 is the Clojure frontend's own four-host cross-host equality + budget gate (§5.1–§5.3). It proves the *compiler/lowering* produces byte-identical C1 side tables on JVM/Node/Dart/Jolt. It relies on C1 (delivered by cc1–cc3), not on the oracle's durable correspondence record.
+- **D1 does not depend on cc4.** D1's 7-step independent reconstruction (design §4.4) is single-host: it re-derives correspondences, re-compiles fixtures under a pinned `:recipe`, recomputes C1 occurrence sets, re-derives `:callee`/`:arg-shapes`/`:def`/`:delegation?`, verifies trace digests, and re-runs the attribution query. None of that requires the cross-host equality result; D1 pins an exact compiler revision via `:yang.correspondence/compiler-revision`, so it is insensitive to whether cc4 has already run.
+
+**Re the design §8 ordering concern.** §8 step 4 says D1 verification precedes acceptance of "the first relying consumer" — but the first consumer *that relies on D1* is the oracle's attribution-as-query, not the Clojure frontend's cc4 acceptance. §5 (A3) states explicitly: "a frontend may adopt static annotation without consuming oracle attribution, but cannot call that durable correspondence acceptance." cc4 does not cite D1, so the §8 step-4→5 ordering does not force D1 before cc4.
+
+**Recommendation.** Keep the owner's queue cc3 → cc4 → D1. The only marginal reason to sequence cc4 before D1 (rather than parallelize) is that D1 then reconstructs against the *final*, post-cc4-bug-fix compiler — a weak but real hygiene benefit since D1 pins a compiler revision. If the owner wants to overlap, cc4 and D1 may run concurrently after cc3 lands, with D1's compiler-revision pin made explicit before dispatch.
+
+## Risks to surface to the owner
+
+1. **The 1:1 bijection is the load-bearing assumption of cc3, and it is not free.** `kernel-stamp-sites` runs post-macroexpansion but before `lower-unit`'s `publish-to-globals` rewrite (which `cc1` documented at `clojure.cljc:3171-3221` rewrites top-level defs/reads into `clj/define-global!`/`clj/global-get` applications). cc3 must prove the stamped-site set and the final C1 `:application` set are a genuine bijection after *all* transformations, or the binding silently mis-attributes. This is a correctness gate, not a formality.
+2. **`project-datoms` still has no bridge to K** (`linearize.cljc:283-302` returns `[pc entity]`). If any cc3/D1 path routes through the datom lane rather than the row lane, the ephemeral→K binding has no source. Route (a) must either restrict cc3 to the row lane or land the entity→occurrence bridge (design §2.4 already flags this).
+3. **`publish-closure!` and `yin.repl` discard `:provenance` today** (`publish.cljc:312`, `repl.cljc:158`). cc3's "emit durable call-instruction provenance" is only durable if it stops selecting `(:vector …)` and persists the provenance as a side artifact outside the schema-1 manifest hash (as cc1 already did for the C1 side table at `publish.cljc:352-367`).
+4. **Single-origin scope of cc3 is a stated limitation, not a hole.** The §2.4 multi-origin runtime-origin-retention clause remains unaddressed by cc3 and should be explicitly queued for the production-runtime round so it is not mistaken for done.
+
+Unverified: I could not byte-read the full `slice9_site_tables.edn` (877k tokens) to confirm the integer-keyed `:site-table` shape from the file itself; I infer it from the writer (`latte_oracle_test.clj:3286-3292`) and the `:site-table` construction `(map (juxt :site identity) sites)` at `:2472`, which is consistent with the scoping-of-record's stated shape `{:site-table {1 {:site 1 …}}}`.

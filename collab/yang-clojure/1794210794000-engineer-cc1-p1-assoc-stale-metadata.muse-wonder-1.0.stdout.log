@@ -1,0 +1,36 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-09 07:56:05 GMT
+Completed-Local: 2026-11-09 14:56:05 +0700
+
+P1-4 is fixed in `/tmp/cc1-p1`, uncommitted.
+
+**Base note:** `f440a2fb` is not present locally and fetching is barred (no ssh). The worktree therefore remains on `fa70516f` with the previous P1 fix already uncommitted in it. I built on that state rather than resetting and destroying it.
+
+**Design choice:** the structural invariant, not an `assoc`-only patch. In [macro.cljc](/tmp/cc1-p1/src/cljc/yin/vm/macro.cljc:884), tracking metadata is now valid only for the exact vector object it was attached to. Every content-changing prelude primitive (`assoc`, `conj`, `vec`) routes its result through the single choke point `recover-rebuilt-packet` at [macro.cljc](/tmp/cc1-p1/src/cljc/yin/vm/macro.cljc:903), which drops `::origin-of` before lineage recovery. Extractive primitives (`first`, `get`) return the very tagged object, so they alone still trust its metadata. A rebuilt packet is re-provenanced only from its actual root/rows lineage; if no lineage entry accounts for it, it carries no provenance and is refused downstream as `:missing-provenance` rather than relabelled. In the repro, `(assoc a 0 (first b) 1 (first (rest b)))` now recovers `b`'s rows object from lineage and records the feed expansion's origin instead of `a`'s stale `[:source :program-in 0 0]`.
+
+**Regression:** added the exact codex case as a new `testing` block in `p1-packet-provenance-test` at [clojure_callsite_test.cljc](/tmp/cc1-p1/test/yang/clojure_callsite_test.cljc:1130), asserting `:ok`, a retained feed-expansion origin, never the stale source admission, and full call-site coverage validation.
+
+**`git diff --stat`** (against `fa70516f`; includes the prior uncommitted P1 fix):
+
+```
+ src/cljc/yin/vm/macro.cljc           | 408 +++++++++++++++++++++++++++--------
+ test/yang/clojure_callsite_test.cljc | 145 +++++++++++++
+ 2 files changed, 466 insertions(+), 87 deletions(-)
+```
+
+This round's increment is only the choke-point routing/doc in `macro.cljc` and the one regression block. `git diff --check` passes.
+
+**Verification (not run locally, per the no-local-slow-tests constraint — for the orchestrator):**
+
+```bash
+cd /tmp/cc1-p1
+clojure -M:test -e "(require 'yang.clojure-callsite-test 'yang.core.call-test 'yin.vm.encoder-test) (let [{:keys [fail error] :as r} (clojure.test/run-tests 'yang.clojure-callsite-test 'yang.core.call-test 'yin.vm.encoder-test)] (System/exit (if (zero? (+ fail error)) 0 1)))"
+bb test:cljs   # Node lane for the same three namespaces
+```
+
+No test result is claimed; the new pin and the existing `p1-packet-provenance-test` blocks should be confirmed green on JVM and Node before landing.

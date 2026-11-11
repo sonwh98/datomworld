@@ -1,0 +1,20 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10T17:52:19Z
+Completed-Local: 2026-11-11T00:52:19 +07
+
+**STOP-and-report, per the task's rule 2: no edit made.** The record semantics legitimately changed under U1, so I did not change the test. Full reasoning is in [the findings file](/Users/sto/workspace/datomworld/collab/yang-clojure/1794332997000-engineer-macro-build-event-fix.muse-wonder-1.0.findings.md).
+
+Top finding: the `:arity` event is recorded — both prime suspects are refuted. The preceding `(= 3 (count events))` passes; P1-1 suppression and the P1-2 strip are not involved.
+
+The mechanism is slot order in [event-row](/Users/sto/workspace/datomworld/src/cljc/yin/vm/macro.cljc:1290). Before cc1 it ended `[… output-root error]`, which `peek` reads. Commit `847aa885` (U1, signed-off ruling `368297c3`) appended `correspondence` after `error`, so `peek` now reads correspondence (nil on failure) and yields `[nil nil nil]`.
+
+The new shape is pinned by two green, approved test files: [clojure_callsite_test.cljc](/Users/sto/workspace/datomworld/test/yang/clojure_callsite_test.cljc:523) reads correspondence at `(nth event 11)`, and [macro_test.cljc](/Users/sto/workspace/datomworld/test/yin/vm/macro_test.cljc:569) reads error at `(nth e 10)`. Moving error back to last would break both. Only [macro_build_test.clj](/Users/sto/workspace/datomworld/test/yin/vm/macro_build_test.clj:144) is stale, and §8.2 of the design doc predates the ruling.
+
+Proposed one-line fix for an approver, assertion strength unchanged: `(mapv #(:kind (nth % 10)) events)`.
+
+Verified: the failing test reproduces exactly as reported (1 failure, 13 assertions). The cc1 battery passes: `clojure -M:test -n yin.vm.macro-build-test -v yin.vm.macro-build-test/a-build-expands-between-file-backed-media`, then `clojure -M:test -n yang.clojure-callsite-test -n yin.vm.encoder-test -n yin.vm.macro-test` — 49 tests, 447 assertions, 0 failures. `git diff --stat` on tracked files is empty. I did not reuse `/tmp/cc1-p1`: its uncommitted diff is the pre-landing cc1 work already on master `8cd9fc92`.

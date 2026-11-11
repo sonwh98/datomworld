@@ -1,0 +1,18 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc2 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc2/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10 23:31:08 GMT
+Completed-Local: 2026-11-11 06:31:08 Asia/Ho_Chi_Minh
+
+All three r4 work items are done and verified; nothing was committed.
+
+**F2 — commit-evidence recorder:** [repl.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/repl.cljc:1790) captures programs-before and the indexer before the index stage, records only after `index-round-succeeded?` verifies a clean, fully published round, pairs only entities absent before the round, and requires uniqueness on both sides per root (multiple admissions or candidates refuse all). The docstring states rehydration policy explicitly: the mapping starts empty and is not reconstructed, so rehydrated sessions recover claim-free.
+
+**F6 — wrapper provenance:** [publish.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/vm/linker/publish.cljc:905) retains the computed wrapper set as `:call-site-wrappers-evidence`; publication requires the spec's wrapper set to equal it, otherwise refusing `:yin.link.publish/wrapper-provenance`. A moved recovered occurrence or an evidence-free caller-supplied set is never accepted. No forbidden files were needed, so no STOP was recorded.
+
+**F5 — tests:** red first at 31 tests / 348 assertions / 10 failures (all in the new r4 cases), then green at 0 failures in [clojure_callsite_test.cljc](/Users/sto/workspace/datomworld-cc2/test/yang/clojure_callsite_test.cljc:1861). Also green: publish/safepoint/query (48/453), repl/index (73/510), dht suites (69/827), and kondo on the three r4-changed files at 0 errors, 0 warnings.
+
+The deliverable was written to the worktree mirror [1794353007000-engineer-cc2-fix-r4.muse-wonder-1.0.findings.md](/Users/sto/workspace/datomworld-cc2/collab/yang-clojure/1794353007000-engineer-cc2-fix-r4.muse-wonder-1.0.findings.md) because the sandbox denies the external path `/Users/sto/workspace/datomworld/collab/yang-clojure/`, as in r3; the orchestrator can move it verbatim.

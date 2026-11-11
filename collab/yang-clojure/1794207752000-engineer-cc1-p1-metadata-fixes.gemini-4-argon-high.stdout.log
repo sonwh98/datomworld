@@ -1,0 +1,2 @@
+error: interrupted
+{"conversation_id":"9921d414-9cd0-4bf4-a29f-2a92a5c7985b","status":"ERROR","response":"","error":"interrupted","duration_seconds":42.068347,"num_turns":1,"usage":{"input_tokens":26784,"output_tokens":770,"thinking_tokens":492,"cache_read_tokens":60445,"total_tokens":27554},"finished_reason":"interrupted"}

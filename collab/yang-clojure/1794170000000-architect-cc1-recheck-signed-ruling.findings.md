@@ -1,0 +1,1 @@
+The signed ruling is present at `368297c3`, and the diff to `fa70516f` matches the stated 14 files and +2158/−116 lines. I’m tracing round 5’s construction provenance and publication custody against U1–U3.

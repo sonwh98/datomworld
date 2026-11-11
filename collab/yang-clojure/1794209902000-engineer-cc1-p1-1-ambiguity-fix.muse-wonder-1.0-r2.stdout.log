@@ -1,0 +1,39 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-09 07:41 GMT
+Completed-Local: 2026-11-09 14:41 +0700
+
+P1-1 is closed in the uncommitted worktree at `/tmp/cc1-p1`. P1-2 is untouched.
+
+**The fix** — [macro.cljc:684](/tmp/cc1-p1/src/cljc/yin/vm/macro.cljc:684) (`lineage-origin-for`, the single recovery point used by `construct`, `slot-of`, the prelude's `recover-packet`, and `invoke*`):
+
+- Exact container lineage is checked first: a registered packet whose rows vector is `identical?` to the candidate's wins. Host decomposition (`first`/`rest`) hands that very vector object to reassembly, so this match is occurrence-specific. In the repro, reassembling `b` now recovers `b`'s own entry — the feed-expansion origin — instead of `a`'s.
+- Row-level (elementwise) recovery no longer returns the first match. It returns a function only when exactly one distinct origin function matches; when distinct occurrences of identical content both match, it returns nil. Downstream that nil is the existing missing-provenance path (`expand-call` refuses the output as `:missing-provenance`), so ambiguity is explicitly refused rather than guessed.
+- Content equality alone still recovers nothing, per ruling U1.
+
+**The pin** — [clojure_callsite_test.cljc:1096](/tmp/cc1-p1/test/yang/clojure_callsite_test.cljc:1096), a new block in `p1-packet-provenance-test` using astra's exact repro (`pick-second`/`feed`/`f`, `(feed (f 1))`). It asserts the reassembled occurrence's correspondence is `[:retained [:expansion <recorded-feed-event>]]`, that `{[] [:retained <source-admission>]}` never appears, and that final C1 coverage validates per-occurrence. Against the old first-match code the correspondence was `{[] [:retained admission]}`, so the pin fails before and passes after. All existing pins are preserved; `strip-tracking`/`construct` (P1-2) were not modified.
+
+**Worktree state** — changes remain uncommitted over `fa70516f`:
+
+```
+src/cljc/yin/vm/macro.cljc           | 392 +++++++++++++++++++++++++++--------
+test/yang/clojure_callsite_test.cljc | 109 ++++++++++
+2 files changed, 414 insertions(+), 87 deletions(-)
+```
+
+(The macro total includes the prior round's patch; this round's delta is the `lineage-origin-for` rewrite plus the one test block.)
+
+**Verification** — per the execution constraint, no tests were run locally and no ssh was used; a paren-balance check on both edited files passes (balance 0). Exact commands for the confirming run:
+
+```
+cd /tmp/cc1-p1
+clojure -M:test -n yang.clojure-callsite-test
+clojure -M:test -n yin.vm.macro-test -n yang.clojure-test
+git diff --check
+```
+
+Expected: the new equal-content block passes, the three prior P1-1/P1-2 blocks in `p1-packet-provenance-test` stay green, and no other namespace regresses.

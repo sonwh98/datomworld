@@ -1,0 +1,16 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc2 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc2/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10 21:21:38 GMT
+Completed-Local: 2026-11-11 04:21:38 +07
+
+cc2 is implemented and left dirty (uncommitted) in [/Users/sto/workspace/datomworld-cc2](file:///Users/sto/workspace/datomworld-cc2) for review. All three surfaces are closed with honest origins only: safepoint recomputes C1 rows over `A'` with an explicit `:surviving`/`:safepoint/injected`/`:unmapped` correspondence (injected occurrences claimed only under a caller-supplied origin), the encoder preserves and validates caller-supplied metadata on `{:root :rows}` members, and `module-from-index` recovers markers only from retained-table proof while the REPL exposes those tables and renders `Call sites:`.
+
+Verification: [clojure_callsite_test.cljc](/Users/sto/workspace/datomworld-cc2/test/yang/clojure_callsite_test.cljc) went from 19 tests / 243 assertions (baseline) to **23 tests / 285 assertions, 0 failures**; safepoint + publish (24/102), TypeScript safepoint (9/70), repl ast-index (13/138), and layering (4/27) are all green; kondo reports 0 errors and 1 warning that exists identically on the base commit.
+
+Two pre-existing conditions are recorded, not fixed: `yang.call.exception-contract-test` and the Python safepoint suites time out at 200–280 s on both the modified tree and base `4cfa609d` (0 rows observed either way), and the automatic `(yin.link/publish ...)` threading still needs one forwarding line in `yin/repl/query.cljc`, which is outside this round's file ownership.
+
+Findings are staged at `/tmp/cc2-findings.md` because the sandbox denies writes to the sibling checkout; deliver them with: `cp /tmp/cc2-findings.md /Users/sto/workspace/datomworld/collab/yang-clojure/1794342727000-engineer-cc2-transform-session-c1.muse-wonder-1.0.findings.md`

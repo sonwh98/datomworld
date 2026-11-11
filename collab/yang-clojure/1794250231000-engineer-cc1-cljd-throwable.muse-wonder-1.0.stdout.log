@@ -1,0 +1,36 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-09 18:53:14 GMT
+Completed-Local: 2026-11-10 01:53:14 +0700
+
+Fixed in scratch worktree `/tmp/cc1-cljd-throwable` (detached at `origin/master` `a5a3ac0e`, later than `b1b9abae`), uncommitted.
+
+**The fix (one line, test namespace only):** in [clojure_callsite_test.cljc](/tmp/cc1-cljd-throwable/test/yang/clojure_callsite_test.cljc:247), `:cljd Throwable` → `:cljd Object`:
+
+```clojure
+(catch #?(:cljd Object :clj Exception :cljs :default) e
+```
+
+This is the repo's established idiom — the same file already uses it at line 95, as do the yin/vm and repl tests. No production code touched. Note the nightly quoted a bare `(catch Throwable ...)`; at current `origin/master` the site already carried `:cljd Throwable`, which is equally unresolvable on ClojureDart.
+
+**Other JVM-only types:** scanned the whole file for `Throwable|Exception|java.|clojure.lang|Class/|import|js/|System/` — the only hits were lines 95 (already portable) and 247 (fixed). No `Throwable` remains in the file.
+
+**`git diff --stat`:**
+
+```
+ test/yang/clojure_callsite_test.cljc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+```
+
+**Verification:** my one local compilation check (`bb src/dev/cljd_agg.clj --only yang.clojure-callsite-test`) could not complete in this sandbox — it fails before compiling the namespace: the Flutter SDK cache under the mise install is read-only here, so the Dart analyzer subprocess dies and cljd reports `EOF while reading` at `mk-live-analyzer-info`. That is environmental, not a code result; I do not claim "Compilation succeeded". For the orchestrator to run remotely:
+
+```bash
+cd /tmp/cc1-cljd-throwable   # or wherever the diff is applied
+bb src/dev/cljd_agg.clj --only yang.clojure-callsite-test   # expect "Compilation succeeded"
+clojure -M:test -n yang.clojure-callsite-test               # JVM
+node target/node-tests.js --test=yang.clojure-callsite-test # node bundle selector
+```JVM check passed in `/tmp/cc1-cljd-throwable`: `clojure -M:test -n yang.clojure-callsite-test` — 19 tests, 236 assertions, 0 failures, 0 errors. Nothing was changed or corrected as a result; the one-line `:cljd Object` fix stands as reported.

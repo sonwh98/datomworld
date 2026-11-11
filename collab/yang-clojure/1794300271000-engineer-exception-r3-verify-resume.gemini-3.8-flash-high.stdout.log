@@ -1,0 +1,3 @@
+root agent idle; waiting for 1 background task(s) to finish
+error: interrupted
+{"conversation_id":"3a26bb47-060e-48ec-807b-fc0cbc63093b","status":"ERROR","response":"Running `clj -M:test -n yang.clojure-test` in `/Users/sto/workspace/datomworld-r3-orch` in the background; waiting for it to complete.\nRunning `git grep \"data/dissoc\"` in background...\nRunning `clj -M:test -n yang.clojure-test` in background to collect failures...\nRunning test command in background...\n","error":"interrupted","duration_seconds":10936.437716,"num_turns":1,"usage":{"input_tokens":298477,"output_tokens":33547,"thinking_tokens":29294,"cache_read_tokens":3695379,"total_tokens":332024},"finished_reason":"interrupted"}

@@ -1,0 +1,22 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc2 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc2/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10 21:53:00 GMT
+Completed-Local: 2026-11-11 04:53:00 ICT
+
+All five astra findings are fixed, verified, and left uncommitted in the worktree (6 files: round-1's five plus the one granted line in [query.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/repl/query.cljc:815)).
+
+**P0 safepoint** — [safepoint.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yang/safepoint.cljc:262) computes the exit body operand as `(count (:operands exit))` instead of hardcoded 0, and `derive-call-sites` verifies every mapped output path against the derived tree's application occurrences, refusing unverified places as `:unmapped` / `:output-not-an-application`.
+
+**P0 publish** — [publish.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/vm/linker/publish.cljc:559) replaces origin-blind `proven-call-sites?` with `retained-call-site-rows`, keyed by the program's actual `[admission-origin final-root]` identity; recovered rows are shifted into assembled coordinates on `:call-site-rows` with their own origins, and `recovered-call-site-claim` claims only the synthesized wrappers under the publication admission origin.
+
+**P1 encoder** — [encoder.cljc](/Users/sto/workspace/datomworld-cc2/src/cljc/yin/vm/encoder.cljc:308) validates full row shape: 5 coordinates, `vm/occurrence-origin?`, version 1, no duplicates, no multi-origin claims, exact coverage. **P1 repl** — the single forwarding line above; the `dht/publish-name!` custody item is recorded as cc3 in the findings, untouched.
+
+Verification: new tests first reproduced the review (17 failures, 1 error), then `yang.clojure-callsite-test` passes **28 tests / 313 assertions**, `yang.safepoint-test` + `yin.vm.linker.publish-test` **24/102**, `yin.repl.query-test` **24/351**, and kondo reports 0 errors (only the exempt pre-existing `load` warning).
+
+One caveat, noted in the findings: the admission association fails closed — if the expander and index counters drift, recovery is refused and the module publishes claim-free rather than borrowing a table.
+
+The findings file is staged at `/tmp/cc2-fix-r2-findings.md` because the sandbox denies writes to the sibling checkout (same as round 1); deliver it with: `cp /tmp/cc2-fix-r2-findings.md /Users/sto/workspace/datomworld/collab/yang-clojure/1794346100000-engineer-cc2-fix-r2.muse-wonder-1.0.findings.md`

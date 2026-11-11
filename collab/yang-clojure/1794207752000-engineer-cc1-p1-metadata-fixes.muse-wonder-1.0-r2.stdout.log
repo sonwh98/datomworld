@@ -1,0 +1,36 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT / Completed-Local: 2026-11-09 07:31 GMT / 2026-11-09 14:31 +0700
+
+Both P1 defects are fixed in the scratch worktree. No commits were made. No tests were run locally, per the execution constraint.
+
+Changed [macro.cljc](/tmp/cc1-p1/src/cljc/yin/vm/macro.cljc) and added pins in [clojure_callsite_test.cljc](/tmp/cc1-p1/test/yang/clojure_callsite_test.cljc).
+
+Fix summary:
+
+- P1-1 reassembly: the prelude collection ops are now provenance-aware. Decomposition registers packet lineage by rows-object identity. Reassembly reattaches the retained origin only when root matches and every row is `identical?` to the registered packet's rows. Content twins recover nothing, so ruling U1 holds. Unaccounted children answer a missing marker. The expander refuses such outputs as `:missing-provenance` instead of fabricating `:constructed`.
+- P1-1 child insertion: constructed packets delegate through the recovered child origin. The correspondence, walk, and side table now read retained origins correctly.
+- P1-2 literal encoding: values entering `:data`/`:key` slots are stripped of only `:yin.vm.macro/origin-of`, recursively through elements, keys, values, and metadata. Legitimate user metadata is preserved. Stripping was chosen over moving tracking fully outside the value because direct pass-through already threads provenance on packets correctly. The defect was only the data-slot boundary.
+
+New pins cover `repack`, reassembled-child insertion, and `packet-data`. They assert retained correspondence, source origins, recorded expansion origins, and clean literal encoding.
+
+```text
+ src/cljc/yin/vm/macro.cljc           | 379 +++++++++++++++++++++++++++--------
+ test/yang/clojure_callsite_test.cljc |  75 ++++++++
+ 2 files changed, 367 insertions(+), 87 deletions(-)
+```
+
+Run these after applying the diff:
+
+```bash
+cd /tmp/cc1-p1
+DATOM_SLOW_TESTS=1 clojure -M:test -n yang.clojure-callsite-test -n yang.core.call-test -n yin.vm.encoder-test
+clj -M:cljs -m shadow.cljs.devtools.cli compile test --config-merge "{:autorun false}"
+DATOM_SLOW_TESTS=1 node target/node-tests.js --test=yang.clojure-callsite-test,yang.core.call-test,yin.vm.encoder-test
+```
+
+The new pins are unverified until that run.

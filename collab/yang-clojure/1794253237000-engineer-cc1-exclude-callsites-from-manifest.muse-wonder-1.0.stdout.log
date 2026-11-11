@@ -1,0 +1,96 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Work is implemented in the scratch worktree; the final dht-import verification is still running and I will report its result when it completes.
+
+Completed-GMT: pending final verification
+Completed-Local: pending final verificationVerification is in progress in the scratch worktree; the dht-import suite is still running and its terminal result is pending.
+Awaiting the full dht-import namespace run to complete before the final report.
+Awaiting the full dht-import namespace terminal result before delivering the final report.
+Completed-GMT: 2026-11-09 20:48:54 UTC
+Completed-Local: 2026-11-10 03:48:54 +0700
+
+Done. Implemented in scratch worktree `/tmp/cc1-exclude-callsites` (from `origin/master`, uncommitted).
+
+**Part B — exclude from hashed manifest**
+
+- [publish.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/linker/publish.cljc): `publish-closure!` materializes the manifest first with only the closed schema-1 keys, then builds the record `{:yang.call-site/schema 1 :yang.call-site/manifest manifest-address :yang.call-site/root (:root tree) :yang.call-site/origin origin :yang.call-site/table table-address}` and returns `:call-sites {:record :table :origin :root :manifest}` from `publish-module!`. `published-call-site-table` now accepts a record address, a `publish-module!` result, or `(handle manifest-address record-address)`, validating `:yang.call-site/manifest` against the manifest asked about, plus root and origin.
+- [linker.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/linker.cljc): reverted `:yin.module/call-sites` from `manifest-keys`/`manifest-defect`; schema-1 is the closed 10-key set again.
+- [closure.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/linker/closure.cljc): removed `walk-call-sites` from `walk-manifest`.
+
+**Part A — canonicalize row ordering**
+
+- Added `jing/canonical-compare` (unsigned byte-wise order over `jing/canonical-bytes`) in [jing.cljc](/tmp/cc1-exclude-callsites/src/cljc/dao/jing.cljc), and replaced `sort-by pr-str` with it in [publish.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/linker/publish.cljc) `call-site-claim`, [clojure.cljc](/tmp/cc1-exclude-callsites/src/cljc/yang/clojure.cljc) `call-site-metadata`, and [macro.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/macro.cljc) at the correspondence sort and `final-call-site-metadata`.
+
+**Test update**
+
+- Only [clojure_callsite_test.cljc](/tmp/cc1-exclude-callsites/test/yang/clojure_callsite_test.cljc): `published-module-test` now asserts the manifest excludes `:yin.module/call-sites`, the record names the manifest, identical specs under different scopes share one address `(= (:address via-a) (:address via-b))` with distinct `:record`/`:origin`/`:table`, and the side table travels only when carried explicitly. Retrieval call sites in `publisher-scope-admission-identity-test` were mechanically switched to the new result/record form.
+
+**Protected files untouched**: `dht-import-v1.edn`, `linked_prelude_test.cljc`, `yang.core.call/module-uast`, and `test/yang/call/conformance.clj` — confirmed by `git diff --name-only`.
+
+**Scoped verification (JVM, run locally)**
+
+- `yang.clojure-callsite-test`: 19 tests, 243 assertions, 0 failures.
+- `yang.python.antlr.linked-prelude-test/manifest-address-test`: 1 test, 9 assertions, 0 failures (golden addresses intact).
+- `yang.python.antlr.dht-import-test` (full namespace): 5 tests, 158 assertions, 0 failures.
+- Supporting: linker-manifest/linker/jing suites 127 tests/953 assertions and macro suite 25 tests/188 assertions, all 0 failures.
+
+Node lane was not run locally; the commands above are the ones for the orchestrator to re-run remotely.
+
+**git diff --stat**
+
+```
+ src/cljc/dao/jing.cljc               |  24 +++++
+ src/cljc/yang/clojure.cljc           |  12 ++-
+ src/cljc/yin/vm/linker.cljc          |  17 +---
+ src/cljc/yin/vm/linker/closure.cljc  |  46 +--------
+ src/cljc/yin/vm/linker/publish.cljc  | 179 +++++++++++++++++++----------------
+ src/cljc/yin/vm/macro.cljc           |  19 ++--
+ test/yang/clojure_callsite_test.cljc |  78 ++++++++++-----
+ 7 files changed, 197 insertions(+), 178 deletions(-)
+```
+Completed-GMT: 2026-11-09 20:50:25 UTC
+Completed-Local: 2026-11-10 03:50:25 +0700
+
+Done. Implemented in scratch worktree `/tmp/cc1-exclude-callsites` (from `origin/master`, uncommitted).
+
+**Part B — exclude `:yin.module/call-sites` from the hashed manifest**
+
+- [publish.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/linker/publish.cljc): `publish-closure!` materializes the manifest first with only the closed schema-1 keys, then builds the record `{:yang.call-site/schema 1 :yang.call-site/manifest manifest-address :yang.call-site/root (:root tree) :yang.call-site/origin origin :yang.call-site/table table-address}` and returns `:call-sites {:record :table :origin :root :manifest}` from `publish-module!`. `published-call-site-table` now accepts a record address, a `publish-module!` result, or `(handle manifest-address record-address)`, validating `:yang.call-site/manifest` against the manifest asked about, plus root and origin.
+- [linker.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/linker.cljc): reverted `:yin.module/call-sites` from `manifest-keys`/`manifest-defect`; schema-1 is the closed 10-key set again.
+- [closure.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/linker/closure.cljc): removed `walk-call-sites` from `walk-manifest`.
+
+**Part A — canonicalize row ordering**
+
+- Added `jing/canonical-compare` (unsigned byte-wise order over `jing/canonical-bytes`) in [jing.cljc](/tmp/cc1-exclude-callsites/src/cljc/dao/jing.cljc), and replaced `sort-by pr-str` with it in [publish.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/linker/publish.cljc) `call-site-claim`, [clojure.cljc](/tmp/cc1-exclude-callsites/src/cljc/yang/clojure.cljc) `call-site-metadata`, and [macro.cljc](/tmp/cc1-exclude-callsites/src/cljc/yin/vm/macro.cljc) at the correspondence sort and `final-call-site-metadata`.
+
+**Test update**
+
+- Only [clojure_callsite_test.cljc](/tmp/cc1-exclude-callsites/test/yang/clojure_callsite_test.cljc): `published-module-test` now asserts the manifest excludes `:yin.module/call-sites`, the record names the manifest, identical specs under different scopes share one address `(= (:address via-a) (:address via-b))` with distinct `:record`/`:origin`/`:table`, and the side table travels only when carried explicitly. Retrieval call sites in `publisher-scope-admission-identity-test` were mechanically switched to the new result/record form.
+
+**Protected files untouched**: `dht-import-v1.edn`, `linked_prelude_test.cljc`, `yang.core.call/module-uast`, and `test/yang/call/conformance.clj` — confirmed by `git diff --name-only`.
+
+**Scoped verification (JVM, run locally)**
+
+- `yang.clojure-callsite-test`: 19 tests, 243 assertions, 0 failures.
+- `yang.python.antlr.linked-prelude-test/manifest-address-test`: 1 test, 9 assertions, 0 failures (golden addresses intact).
+- `yang.python.antlr.dht-import-test` (full namespace): 5 tests, 158 assertions, 0 failures.
+- Supporting: linker-manifest/linker/jing suites 127 tests/953 assertions and macro suite 25 tests/188 assertions, all 0 failures.
+
+Node lane was not run locally; the commands above are the ones for the orchestrator to re-run remotely.
+
+**git diff --stat**
+
+```
+ src/cljc/dao/jing.cljc               |  24 +++++
+ src/cljc/yang/clojure.cljc           |  12 ++-
+ src/cljc/yin/vm/linker.cljc          |  17 +---
+ src/cljc/yin/vm/linker/closure.cljc  |  46 +--------
+ src/cljc/yin/vm/linker/publish.cljc  | 179 +++++++++++++++++++----------------
+ src/cljc/yin/vm/macro.cljc           |  19 ++--
+ test/yang/clojure_callsite_test.cljc |  78 ++++++++++-----
+ 7 files changed, 197 insertions(+), 178 deletions(-)
+```

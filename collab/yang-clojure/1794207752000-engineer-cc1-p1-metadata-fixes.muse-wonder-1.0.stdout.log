@@ -1,0 +1,41 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT / Completed-Local: 2026-11-09 07:12 GMT / 2026-11-09 14:12 +0700
+
+Done in scratch worktree `/tmp/cc1-p1` at `fa70516f` (detached, no commits). Only two files changed.
+
+**Fixes — [macro.cljc](/tmp/cc1-p1/src/cljc/yin/vm/macro.cljc)**
+
+- P1-1, retained provenance through reassembly: `with-origin-of` now carries the origin function on both the packet and its rows vector. Ordinary decomposition drops the outer vector's metadata but extracts the rows themselves, so `(conj [] (first x) (first (rest x)))` still carries the incoming provenance. `origin-of-fn` reads the rows' function first (it names the rows actually present). The prelude's `first`/`conj`/`vec`/`assoc`/`get` are packet-aware wrappers over the same primitive profiles: a packet-shaped result reassembled from retained parts is re-tagged from its rows, never invented.
+- P1-1, no fabricated construction: a child spliced into a constructed node, a `yin/slot` extraction, or a whole output with no provenance for an application occurrence now answers a `[:provenance ::missing]` sentinel. `expand-call` refuses such outputs as `:invalid-output` / `:missing-provenance` instead of classifying them `:constructed`. Outputs with no application occurrence are unaffected.
+- P1-2, literal/data entry: `strip-tracking-meta` removes only `::origin-of`, recursively through nested collections and metadata maps, preserving legitimate user metadata. It runs in `literal-packet` and again on any body entering `construct`, before interning/hashing and validation, so `(yin/literal x)` on a tracked packet encodes cleanly. Choice justified: tracking stays as expansion-time metadata because construction history must distinguish identical-content twins by identity, which an outside value-keyed table would collapse; stripping only at the data boundary keeps that history while keeping the function out of Jing.
+
+**Pins — [clojure_callsite_test.cljc](/tmp/cc1-p1/test/yang/clojure_callsite_test.cljc)**
+
+New `packet-provenance-regressions-test` with three blocks: the `repack` form asserting correspondence `{[] [:retained admission]}`; an `embed` child-insertion form asserting `{[] :constructed, [[3 0]] [:retained admission]}`; and the `packet-data` form asserting `:ok`, the packet surviving as literal data, and `jing/segment-key` succeeding on it. By static trace against the verdict, the `repack` pin fails before (`:constructed`) and the `packet-data` pin fails before (body-error), and both pass after. Not run locally, per the execution constraint.
+
+**Diff stat**
+
+```text
+ src/cljc/yin/vm/macro.cljc           | 219 +++++++++++++++++++++++++++++++----
+ test/yang/clojure_callsite_test.cljc |  78 +++++++++++++
+ 2 files changed, 273 insertions(+), 24 deletions(-)
+```
+
+Local checks observed: paren balance on both edited files, `git diff --check` clean. No tests run locally.
+
+**Exact commands for the orchestrator**
+
+```sh
+cd /tmp/cc1-p1
+clojure -M:test -e :slow -n yang.clojure-callsite-test -v yang.clojure-callsite-test/packet-provenance-regressions-test
+clojure -M:test -e :slow -n yang.clojure-callsite-test -n yang.core.call-test -n yin.vm.encoder-test
+clj -M:cljs -m shadow.cljs.devtools.cli compile test
+node target/node-tests.js --test=yang.clojure-callsite-test
+node target/node-tests.js --test=yang.core.call-test
+node target/node-tests.js --test=yin.vm.encoder-test
+```

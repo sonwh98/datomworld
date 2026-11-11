@@ -1,0 +1,1 @@
+The delta confirms that cc1 adds call-site tables to the hashed manifest and transfers them with the module closure. I’m checking how it constructs those tables and their origins to distinguish an intentional address change from a cross-host mismatch.
