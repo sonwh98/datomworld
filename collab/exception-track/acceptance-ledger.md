@@ -408,3 +408,32 @@ rt-rename, private identity-store provenance, re-derived pins), merged to master
 `xtrack-js5` at source confirmed zero ts failures at that head. Also recorded: the P2 `type`
 builtin (python prelude.cljc:3452) is ACCEPTED per the steward's sequencing authority (python
 seat recommendation; required by the acceptance probe; already in scanner goldens).
+
+## Round deltas — 2026-11-12 (python adoption; measured xtrack-py3 at `428bbdd7`, no overlay, clone-verified)
+
+### Round python provenance adoption — branch `exception-py-r2r3` @ `428bbdd7` (python seat; sol spec, deepseek-v4-pro implementation + adoption wiring)
+
+24 rows flip red→green (8 fixtures × 3 backends), all three backends identical, measured on the
+FULL adoption tree (reception `d9a73150`-lineage + egress + the provenance adoption `00ca2d1c` on
+the rebased branch):
+
+| Fixture | Was | Now |
+| --- | --- | --- |
+| `:python/protocol-not-callable` | red | green |
+| `:python/protocol-invalid-invocation` | red | green |
+| `:python/protocol-unsupported-binding` | red | green |
+| `:python/saved-protocol-not-callable` | red | green |
+| `:python/saved-protocol-invalid-invocation` | red | green |
+| `:python/saved-protocol-unsupported-binding` | red | green |
+| `:python/foreign-reception` | red | green |
+| `:python/retained-foreign-lifetime` | red | green |
+
+The three forgery contract pins (committed RED at `0f0ab852`) also flip green — forge pair →
+fresh `:yang.call/thrown` with the clone as payload; clone-of-genuine → no retention;
+overwrite → original condition forwards. Measured: `xtrack-py3` cmd2 (720s, 0F/0E) and cmd3 row
+extraction, clone at `428bbdd7` clean, gen:antlr first, no overlay. Prior python row measurements
+(xtrack-py, xtrack-py2) are VOID — they overlaid incomplete worktree states (mid-recovery
+prelude) and cannot establish any earlier python row state. Scanner goldens regenerated at
+`428bbdd7` (deferred `:py` set single mover, three-run byte-identical, abort-gate verified).
+Step-7 verification of the adoption wiring: dispatched to glm-5.3 (non-deepseek family, per
+independence after sol/deepseek authorship). Python merge hold releases on its verdict.
