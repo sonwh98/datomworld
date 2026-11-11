@@ -619,6 +619,7 @@
         py.b/ArithmeticError
         data/float-value
         hash-modulus
+        cell/dsg__new-provenance
         int-op
         cell/get
         num
@@ -662,7 +663,6 @@
         zero-digits?
         frame
         contains
-        condition-exception
         data/content=
         sum-from
         py.rt/limit
@@ -738,7 +738,6 @@
         snapshot-exc
         py.b/gen-throw
         gen-start
-        retained-condition
         index-type-error
         integer/bit-and
         make-exc
@@ -767,6 +766,7 @@
         tuple
         slice-positions
         strip-space
+        cell/dsg__provenance
         py.b/reload
         not
         attr-error
@@ -834,6 +834,7 @@
         snapshot
         star-copy-public
         py.b/object
+        dsg__condition-exception
         float-parts-down
         py.b/MemoryError
         fmod-pos
@@ -1219,11 +1220,9 @@
        [get true]
        [get true]
        [call-kw true]
-       [make-exc true]
-       [= true]
-       [content-type true]
-       [get true]
+       [cell/dsg__new-provenance true]
        [cell/get true]
+       [make-exc true]
        [= true]
        [get true]
        [call-kw true]
@@ -2259,14 +2258,11 @@
        [+ true]
        [data/count true]
        [get true]
-       [cell/set! true]
-       [assoc true]
-       [cell/get true]
        [= true]
        [get true]
        [get true]
        [raise true]
-       [condition-exception true]
+       [dsg__condition-exception true]
        [py.b/TypeError true]
        [get true]
        [bind-args true]
@@ -3089,7 +3085,7 @@
        [get true]
        [cell/get true]
        [py.b/BaseException true]
-       [condition-exception true]
+       [dsg__condition-exception true]
        [make-class true]
        [py.b/Exception true]
        [= true]
@@ -4498,7 +4494,7 @@
        [cell/set! true]
        [get true]
        [bind-args true]
-       [retained-condition true]
+       [cell/dsg__provenance true]
        [cell/get true]
        [data/into true]
        [= true]
@@ -4511,7 +4507,7 @@
        [vconj true]
        [vconj true]
        [vconj true]
-       [= true]
+       [nil? true]
        [assoc true]
        [get true]
        [vconj true]
@@ -4732,8 +4728,7 @@
        [fill-kwdefaults false]
        [bind-args false]
        [call false]
-       [condition-exception false]
-       [retained-condition false]
+       [dsg__condition-exception false]
        [call-kw false]
        [instantiate false]
        [extend false]
@@ -5031,7 +5026,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 4046,
+      :application-count 4039,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5171,7 +5166,6 @@
          zero-digits?
          frame
          contains
-         condition-exception
          sum-from
          py.rt/limit
          call-kw
@@ -5250,7 +5244,6 @@
          snapshot-exc
          py.b/gen-throw
          gen-start
-         retained-condition
          kw-extend
          unpack
          index-type-error
@@ -5348,6 +5341,7 @@
          snapshot
          star-copy-public
          py.b/object
+         dsg__condition-exception
          float-parts-down
          py.b/MemoryError
          fmod-pos
@@ -5599,8 +5593,7 @@
         [get true]
         [get true]
         [get true]
-        [= true]
-        [get true]
+        [cell/dsg__new-provenance true]
         [cell/get true]
         [= true]
         [get true]
@@ -6111,9 +6104,6 @@
         [+ true]
         [data/count true]
         [get true]
-        [cell/set! true]
-        [assoc true]
-        [cell/get true]
         [= true]
         [get true]
         [get true]
@@ -7324,6 +7314,7 @@
         [+ true]
         [cell/set! true]
         [get true]
+        [cell/dsg__provenance true]
         [cell/get true]
         [data/into true]
         [= true]
@@ -7331,7 +7322,7 @@
         [= true]
         [get true]
         [+ true]
-        [= true]
+        [nil? true]
         [assoc true]
         [get true]
         [get true]
