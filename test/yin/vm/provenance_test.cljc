@@ -312,6 +312,28 @@
       (is (re-find #"dsg__provenance" (str (:error r)))))))
 
 
+(deftest macro-cannot-construct-the-mint-door-test
+  (testing "a macro body that builds the door as a variable for indirect
+            application is refused at invocation, not at expansion"
+    (let [macro-ast (lam []
+                         (app (v 'yin/variable)
+                              (lit 'cell/dsg__new-provenance)))
+          entry (m/macro-entry (m/ast->packet macro-ast) vm/ast-contract)
+          d (refusal-of #(m/invoke entry [] (m/make-ctx {:token "t"})))]
+      (is (= :body-error (:kind d)))
+      (is (re-find #"dsg__new-provenance" (str (:message d)))))))
+
+
+(deftest identity-macro-preserves-retained-syntax-test
+  (testing "a compiler-generated dsg__ temporary passing through an
+            identity macro is retained syntax, not a forged door"
+    (doseq [form ['(id (let [[x] [42]] x))
+                  '(id (fn [[x]] x))
+                  '(id (loop [x 0] x))]]
+      (let [r (expand-door-batch (yang/compile form) {'id '(fn [x] x)})]
+        (is (= :ok (:status r)) (str form))))))
+
+
 (deftest mint-refuses-nil-provenance-test
   (doseq [k (keys builders)]
     (testing (str k)
