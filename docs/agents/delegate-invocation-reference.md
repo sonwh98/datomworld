@@ -95,6 +95,14 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | deepseek     | `~/.claude-deepseek`        | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
+**Host availability matrix (verified live 2026-11-11):** claude, codex,
+muse, agy, deepseek, glm, qwen on ALL THREE hosts (laptop darkstar, shiva,
+jupiter). kimi: laptop only, DECOMMISSIONED until further notice (owner relay
+2026-11-11). jupiter caveats: `codex`, `qwen`, and `agy` resolve under the nvm
+tree (`~/.nvm/versions/node/v24.13.0/bin/`) or `~/.local/bin` — headless shells
+may need `export PATH=$HOME/.nvm/versions/node/v24.13.0/bin:$PATH` (symptom:
+`node: No such file or directory`).
+
 **Host availability (deepseek wrapper `~/.local/bin/deepseek`):** laptop
 (darkstar), shiva, and jupiter — all three hosts. Jupiter was added 2026-11-11
 (wrapper copied from shiva via scp; `~/.claude-deepseek/` rsynced with it; live
