@@ -1578,22 +1578,47 @@
      (fn [name length this-mode kind code nt?]
        ;; Ordinary calls enter through yang.call; construction still applies
        ;; the private code with its explicit new.target below.
+       ;; §8.10.7 callee bridge: installed BEFORE argument binding, it
+       ;; reads the supplied :yang.call/raise and delivers every escaping
+       ;; source exception AND argument-binding failure to it as the
+       ;; thrown condition, exactly once. The js/try handler runs only
+       ;; after the escape has completed source cleanup and restored the
+       ;; saved handler/depth/frame state (§8.10.8): restore-before-
+       ;; transfer establishes that delivery ORDERING (the callee bridge
+       ;; is absent while the caller's exit runs). It does not by itself
+       ;; prove that a resumed suspension cannot reuse a completed call's
+       ;; raise exit; that lifetime claim remains an explicit open
+       ;; obligation pending the suspension probe. An
+       ;; unchanged rethrow of a wrapper carrying a retained protocol
+       ;; condition forwards that original condition with no new wrapper;
+       ;; every other escape (including a thrown condition-shaped map,
+       ;; which is the payload of a FRESH condition per §8.10.7) becomes
+       ;; :yang.call/thrown carrying the original value.
        (let [entry
              (fn [invocation]
-               (let [callee (get invocation :yang.call/callee)
-                     c (cell/get callee)
-                     k (get c :kind)
-                     receiver (if (data/contains? invocation :yang.call/receiver)
-                                (get invocation :yang.call/receiver)
-                                :js/undefined)]
-                 (if (if (= k :class) true (= k :derived))
-                   (js/throw-type-error
-                     {:js/str "Class constructor cannot be invoked without 'new'"})
-                   (let [t (if (= (get c :this-mode) :lexical) :js/undefined receiver)
-                         args (get invocation :yang.call/positional)]
-                     (if (= (get c :nt?) true)
-                       ((get c :code) t args :js/undefined)
-                       ((get c :code) t args))))))]
+               (let [raise-exit (get invocation :yang.call/raise)]
+                 (js/try
+                   (fn []
+                     (let [callee (get invocation :yang.call/callee)
+                           c (cell/get callee)
+                           k (get c :kind)
+                           receiver (if (data/contains? invocation :yang.call/receiver)
+                                      (get invocation :yang.call/receiver)
+                                      :js/undefined)]
+                       (if (if (= k :class) true (= k :derived))
+                         (js/throw-type-error
+                           {:js/str "Class constructor cannot be invoked without 'new'"})
+                         (let [t (if (= (get c :this-mode) :lexical) :js/undefined receiver)
+                               args (get invocation :yang.call/positional)]
+                           (if (= (get c :nt?) true)
+                             ((get c :code) t args :js/undefined)
+                             ((get c :code) t args))))))
+                   (fn [e]
+                     (let [retained (js.rt/retained-condition e)]
+                       (if (nil? retained)
+                         (raise-exit (assoc (assoc {} :yang.call/reason :yang.call/thrown)
+                                            :yang.call/value e))
+                         (raise-exit retained)))))))]
          (let [f (cell/new
                    (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
                                                                                                 :js/type
@@ -1624,6 +1649,66 @@
                                        (js/slot f true false true))))
                  :js/undefined)
                f))))]
+    ;; ------------------------------------------- protocol-condition retention
+    ;; §8.10.7 protocol reception: :yang.call/not-callable,
+    ;; :yang.call/invalid-invocation and :yang.call/unsupported-binding map
+    ;; to a local TypeError that RETAINS the complete original condition
+    ;; (qualified reason AND plain evidence). Retention is a private,
+    ;; task-owned identity association (the architect's round-2 narrow
+    ;; exception to the registry prohibition): js/init! allocates the
+    ;; store cell inside a closure (see retained-store-install in
+    ;; init-form) and installs the two closures below over it. The store
+    ;; holds [wrapper condition] pairs, keyed by the genuine wrapper
+    ;; reference itself: cell identity is `=` on sealed cell refs (same
+    ;; heap id and seal), so a copied or newly minted cell never matches
+    ;; a stored key. Membership is established ONLY by the installed
+    ;; js.rt/raise-protocol when it creates the wrapper; the installed
+    ;; js.rt/retained-condition answers the stored condition for a member
+    ;; wrapper and nil for everything else. No wrapper-supplied or
+    ;; wrapper-reachable metadata is consulted: the wrapper cell carries
+    ;; no provenance, condition or seal slot, so mutating its contents,
+    ;; minting a look-alike, copying its contents, or stamping a new
+    ;; cell with any seal a holder can read cannot create or replace a
+    ;; membership (R5). The store root is a lexical capture of the two
+    ;; installed closures only: it is not a runtime key, not reachable
+    ;; through the wrapper cell or its :props, and the two installed
+    ;; names are not module exports: they live under `js.rt/*`, whose
+    ;; namespace `core/exports` never takes, so the linked path's frozen
+    ;; export slice can never carry a pre-init binding for them. No
+    ;; exported operation exists whose contract is to register or
+    ;; replace an association; `js.rt/raise-protocol` registers only as
+    ;; a side effect of raising, and only its post-init installed
+    ;; closure does so. What admitted
+    ;; source CAN reach is the wrapper cell itself (and may mutate its
+    ;; JS-visible contents); that grants retaining and rethrowing that
+    ;; wrapper, never altering what it forwards.
+    ;; Retention/reclamation policy: associations are preserved across
+    ;; completed calls and catches for the life of the task and are
+    ;; reclaimed only at task teardown, when the task's heap (store
+    ;; cell included) dies; there is no process-global or cross-task
+    ;; registry. An unchanged rethrow of a member wrapper forwards the
+    ;; original condition through the entry bridge with no new wrapper.
+    ;; Otherwise-foreign :yang.call/thrown payloads are delivered raw
+    ;; (the ruling's js allowance). A returned condition-shaped map stays
+    ;; ordinary data. The two definitions below are pre-init stubs (no
+    ;; store exists yet) under the internal `js.rt/*` names: js/init!
+    ;; replaces both before any guest code runs, under the same names
+    ;; the intra-module readers below and in the entry bridge use.
+    ;; Because the namespace is `js.rt`, not `js`, `core/exports` never
+    ;; sees them: no module export and no frozen linked slice can carry
+    ;; a pre-init binding that silently answers nil.
+    [js.rt/retained-condition (fn [e] nil)]
+    [js.rt/raise-protocol
+     (fn [condition]
+       (let [reason (get condition :yang.call/reason)]
+         (js/throw
+           (js/make-error
+             js.rt/type-error-proto
+             (if (= reason :yang.call/not-callable)
+               {:js/str "value is not a function"}
+               (if (= reason :yang.call/unsupported-binding)
+                 {:js/str "unsupported binding profile"}
+                 {:js/str "invalid function invocation"}))))))]
     [js/call
      (fn [f this args]
        (yang.call/invoke-with
@@ -1631,10 +1716,7 @@
          (fn [condition]
            (if (= (get condition :yang.call/reason) :yang.call/thrown)
              (js/throw (get condition :yang.call/value))
-             (js/throw-type-error
-               (if (= (get condition :yang.call/reason) :yang.call/not-callable)
-                 {:js/str "value is not a function"}
-                 {:js/str "invalid function invocation"}))))
+             (js.rt/raise-protocol condition)))
          (assoc {} :yang.call/receiver this)))]
     [js/is-constructor?
      ;; [[Construct]] exists on :normal functions, class constructors and the
@@ -4029,8 +4111,63 @@
     [["toString" 0 'js/symbol-to-string] ["valueOf" 0 'js/symbol-value-of]]]])
 
 
+(def ^:private retained-store-install
+  "The guest form `js/init!` runs to create the private retained-condition
+   identity store and install the real `js.rt/retained-condition` /
+   `js.rt/raise-protocol` closures over it. The install keys are the
+   `js.rt/*` names the stub definitions and the intra-module readers
+   (the entry bridge and `js/call`) use: variable lookup is exact-symbol
+   in the live store, and the linked emitter's `strip` leaves `js.rt/*`
+   qualified in definition keys, quoted install keys and reads alike,
+   so all three coincide in both the bundled and the linked store.
+   Because their namespace is `js.rt`, not `js`, they are never module
+   exports and no frozen export slice can carry a pre-init binding for
+   them. The store cell itself is bound only by this `let`, so its root
+   lives solely in the two installed closures' lexical captures: it is
+   allocated once per task (inside the uninit guard), is never written
+   to a runtime key, a wrapper cell, or a `:props` map, and no other
+   form returns it. The lookup walks [wrapper condition] pairs
+   comparing keys with `=` — sealed cell-ref identity (heap id plus
+   seal) — so membership is wrapper identity, never wrapper-supplied
+   metadata."
+  '(let [retained-store (cell/new [])
+         retained-lookup
+         (fn [self pairs e]
+           (if (= (data/count pairs) 0)
+             nil
+             (if (= (get (get pairs 0) 0) e)
+               (get (get pairs 0) 1)
+               (self self (data/subvec pairs 1 (data/count pairs)) e))))]
+     (do (yin/def (quote js.rt/retained-condition)
+           (fn [e]
+             (if (js/cell? e)
+               ;; `cell/authentic?` is load-bearing here: an alias map `=` to a held wrapper passes it and returns the genuine condition, which is harmless (holding the wrapper already grants rethrow).
+               (if (cell/authentic? e)
+                 (retained-lookup retained-lookup
+                                   (cell/get retained-store) e)
+                 nil)
+               nil)))
+         (yin/def (quote js.rt/raise-protocol)
+           (fn [condition]
+             (let [reason (get condition :yang.call/reason)
+                   e (js/make-error
+                       js.rt/type-error-proto
+                       (if (= reason :yang.call/not-callable)
+                         {:js/str "value is not a function"}
+                         (if (= reason :yang.call/unsupported-binding)
+                           {:js/str "unsupported binding profile"}
+                           {:js/str "invalid function invocation"})))]
+               (do (cell/set! retained-store
+                              (conj (cell/get retained-store)
+                                    (js/pair e condition)))
+                   (js/throw e)))))
+         :js/undefined)))
+
+
 (defn- init-form
-  "`js/init!`'s body: the context and out cells, the prototypes in
+  "`js/init!`'s body: the context and out cells, the private
+   retained-condition identity store (retained-store-install, a closure
+   capture, never a runtime key), the prototypes in
    dependency order (`%Object.prototype%`, `%Function.prototype%`, then the
    rest), the intrinsic methods, the Error family, the global object and
    its bindings, then the ready flag, under the uninit guard."
@@ -4045,6 +4182,7 @@
         ['do
          (define 'js.rt/ctx '(cell/new (js/ctx nil)))
          (define 'js.rt/out '(cell/new []))
+         retained-store-install
          (define 'js.rt/obj-proto '(js/make-object :js/null))
          (define 'js.rt/fn-proto '(js/make-object js.rt/obj-proto))
          (define 'js.rt/global '(js/make-object js.rt/obj-proto))]

@@ -158,6 +158,217 @@
         :else (throw (ex-info "unknown provenance fixture" {:scenario scenario}))))))
 
 
+(defn- refused-as-thrown?
+  "Guest form: the boundary result refused retained-condition forwarding —
+   one raise carrying a fresh :yang.call/thrown whose payload is `thrown`
+   itself, never the forged condition."
+  [result thrown]
+  (list 'if (list '= :raise (list 'get result :route))
+        (list 'if (list '= 1 (list 'get result :transfers))
+              (list 'if (list '= :yang.call/thrown (reason result))
+                    (list '= thrown (payload result))
+                    false)
+              false)
+        false))
+
+
+(defn forgery-observation-form
+  "The architect's two R5 forgery probes against the TypeScript donor.
+   :minted — admitted Clojure source mints an error-looking cell (and a
+   second cell mimicking a companion-provenance layout with an
+   attacker-chosen seal) and throws each through the donor's raise_value.
+   :copied — the probe copies a genuine protocol wrapper's complete cell
+   contents into a fresh cell and throws the copy from a new activation.
+   Both must refuse: a fresh :yang.call/thrown carrying the thrown cell
+   itself as payload, never the forged/original condition forwarded."
+  [kind]
+  (let [export #(read-export :typescript %)
+        forged-condition {:yang.call/reason :yang.call/not-callable
+                          :yang.call/data {:forged true}}]
+    (kit/guard-exceptions-form
+      [:python :typescript]
+      (case kind
+        :minted
+        (list 'let ['forged (list 'cell/new
+                                  (list 'assoc
+                                        (list 'assoc
+                                              (list 'assoc {} :js/type :object)
+                                              :js/class :error)
+                                        :yang.call/retained-condition forged-condition))
+                    'minted-result (call (export "raise_value") ['forged])
+                    'wannabe (list 'cell/new
+                                   (list 'assoc
+                                         (list 'assoc {} :js/type :object)
+                                         :js/class :error))
+                    'companion (list 'cell/new
+                                     (list 'assoc
+                                           (list 'assoc
+                                                 (list 'assoc {}
+                                                       :yang.call/wrapper 'wannabe)
+                                                 :yang.call/seal (list 'cell/new :attacker-seal))
+                                           :yang.call/condition forged-condition))
+                    'armed (list 'do
+                                 (list 'cell/set! 'wannabe
+                                       (list 'assoc (list 'cell/get 'wannabe)
+                                             :yang.call/retained-provenance 'companion))
+                                 'wannabe)
+                    'mimic-result (call (export "raise_value") ['armed])]
+              (kit/observation-map-form
+                {:minted-refused (refused-as-thrown? 'minted-result 'forged)
+                 :mimic-refused (refused-as-thrown? 'mimic-result 'armed)}))
+        :copied
+        (list 'let ['probe.condition (protocol-condition :yang.call/not-callable)
+                    'probe.injected (injected 'probe.condition)
+                    'retained (call (export "retain") ['probe.injected])
+                    'wrapper (list 'get 'retained :value)
+                    'copy (list 'cell/new (list 'cell/get 'wrapper))
+                    'result (call (export "raise_value") ['copy])]
+              (kit/observation-map-form
+                {:retained (list '= :return (list 'get 'retained :route))
+                 :copy-refused (refused-as-thrown? 'result 'copy)}))))))
+
+
+(defn- cell-ref?
+  "Guest form: `x` is a cell reference (the `js/cell?` test, inlined so
+   the probe needs no runtime-private name)."
+  [x]
+  (list '= (list 'get x :type) :cell-ref))
+
+
+(defn- genuine-wrapper-bindings
+  "Guest bindings shared by the identity-store probes: a genuine
+   protocol wrapper obtained through `retain`, returned normally and
+   therefore alive across activations, plus its original condition."
+  [export]
+  ['probe.condition (protocol-condition :yang.call/not-callable)
+   'probe.injected (injected 'probe.condition)
+   'retained (call (export "retain") ['probe.injected])
+   'wrapper (list 'get 'retained :value)])
+
+
+(defn identity-store-observation-form
+  "The architect's round-2 R5 probes against the TypeScript donor.
+   :mutated — obtain a genuine wrapper via `retain`, then perform the
+   round-2 attack: overwrite the wrapper-reachable provenance path
+   (companion cell contents and/or the provenance slot itself) with a
+   forged condition, and rethrow the same wrapper from a new
+   activation. The ORIGINAL condition must still forward.
+   :extracted-seal — read whatever seal the wrapper's references expose,
+   mint a NEW wrapper stamped with that seal and a companion whose
+   back-reference names the new wrapper itself, and throw it. It must
+   end as ordinary :yang.call/thrown carrying the minted cell.
+   :store-root — no admitted path reaches the private store: the
+   wrapper carries no provenance/condition/seal slot, and no global
+   name holds the store or a seal."
+  [kind]
+  (let [export #(read-export :typescript %)
+        forged-condition {:yang.call/reason :yang.call/not-callable
+                          :yang.call/data {:forged true}}]
+    (kit/guard-exceptions-form
+      [:python :typescript]
+      (case kind
+        :mutated
+        (list 'let (into (genuine-wrapper-bindings export)
+                         ['provenance (list 'get (list 'cell/get 'wrapper)
+                                            :yang.call/retained-provenance)
+                          'attack (list 'do
+                                        (list 'if (cell-ref? 'provenance)
+                                              (list 'cell/set! 'provenance
+                                                    (list 'assoc (list 'cell/get 'provenance)
+                                                          :yang.call/condition forged-condition))
+                                              :no-companion)
+                                        (list 'cell/set! 'wrapper
+                                              (list 'assoc (list 'cell/get 'wrapper)
+                                                    :yang.call/retained-condition forged-condition))
+                                        :attacked)
+                          'result (call (export "raise_value") ['wrapper])])
+              (kit/observation-map-form
+                {:retained (list '= :return (list 'get 'retained :route))
+                 :original-forwarded
+                 (list 'if (list '= :raise (list 'get 'result :route))
+                       (list 'if (list '= 1 (list 'get 'result :transfers))
+                             (list '= 'probe.condition (list 'get 'result :condition))
+                             false)
+                       false)}))
+        :extracted-seal
+        (list 'let (into (genuine-wrapper-bindings export)
+                         ['provenance (list 'get (list 'cell/get 'wrapper)
+                                            :yang.call/retained-provenance)
+                          'seal (list 'if (cell-ref? 'provenance)
+                                      (list 'get (list 'cell/get 'provenance) :yang.call/seal)
+                                      :no-seal-exposed)
+                          'wannabe (list 'cell/new
+                                         (list 'assoc
+                                               (list 'assoc {} :js/type :object)
+                                               :js/class :error))
+                          'companion (list 'cell/new
+                                           (list 'assoc
+                                                 (list 'assoc
+                                                       (list 'assoc {}
+                                                             :yang.call/wrapper 'wannabe)
+                                                       :yang.call/seal 'seal)
+                                                 :yang.call/condition forged-condition))
+                          'armed (list 'do
+                                       (list 'cell/set! 'wannabe
+                                             (list 'assoc (list 'cell/get 'wannabe)
+                                                   :yang.call/retained-provenance 'companion))
+                                       'wannabe)
+                          'result (call (export "raise_value") ['armed])])
+              (kit/observation-map-form
+                {:retained (list '= :return (list 'get 'retained :route))
+                 :stamped-refused (refused-as-thrown? 'result 'armed)}))
+        :store-root
+        (list 'let (into (genuine-wrapper-bindings export)
+                         ['contents (list 'cell/get 'wrapper)])
+              (kit/observation-map-form
+                {:retained (list '= :return (list 'get 'retained :route))
+                 :wrapper-clean
+                 (list 'if (list 'nil? (list 'get 'contents :yang.call/retained-provenance))
+                       (list 'if (list 'nil? (list 'get 'contents :yang.call/retained-condition))
+                             (list 'nil? (list 'get 'contents :yang.call/seal))
+                             false)
+                       false)
+                 :globals-clean
+                 (list 'if (list '= {:js/str "undefined"}
+                                 (list 'js/global-typeof {:js/str "retained-store"}))
+                       (list 'if (list '= {:js/str "undefined"}
+                                       (list 'js/global-typeof {:js/str "retained-seal"}))
+                             (list '= {:js/str "undefined"}
+                                   (list 'js/global-typeof {:js/str "retained-provenance"}))
+                             false)
+                       false)}))))))
+
+
+(defn run-typescript-forgery
+  "Run one forgery probe kind against the TypeScript donor on all three
+   linked vector VMs; answers {backend observation}."
+  [kind]
+  (try
+    (let [donor @boundary-donor]
+      (kit/run-exception-program
+        donor
+        (kit/compose-exception donor ["boundary_target"] :typescript
+                               (contract/sources :typescript)
+                               (forgery-observation-form kind))))
+    (catch Throwable e
+      (kit/error-results e))))
+
+
+(defn run-typescript-identity-store
+  "Run one identity-store probe kind against the TypeScript donor on
+   all three linked vector VMs; answers {backend observation}."
+  [kind]
+  (try
+    (let [donor @boundary-donor]
+      (kit/run-exception-program
+        donor
+        (kit/compose-exception donor ["boundary_target"] :typescript
+                               (contract/sources :typescript)
+                               (identity-store-observation-form kind))))
+    (catch Throwable e
+      (kit/error-results e))))
+
+
 (defn run-fixture
   "One source-created receiver per task. All three linked vector VMs run.
    A fresh task prevents a deliberately broken bridge from poisoning the
