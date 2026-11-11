@@ -1,0 +1,404 @@
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index 6e625ab4..d257cdeb 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -1653,65 +1653,52 @@
+     ;; §8.10.7 protocol reception: :yang.call/not-callable,
+     ;; :yang.call/invalid-invocation and :yang.call/unsupported-binding map
+     ;; to a local TypeError that RETAINS the complete original condition
+-    ;; (qualified reason AND plain evidence) in a runtime-owned companion
+-    ;; provenance cell, outside source-writable :props. The companion
+-    ;; holds the condition, a back-reference to this exact wrapper cell,
+-    ;; and the task's retained seal: a cell js/init! allocates whose
+-    ;; reference no js definition returns, so admitted source cannot
+-    ;; obtain it. The wrapper holds only the companion reference.
+-    ;; js/retained-condition authenticates all of it: heap-authentic
+-    ;; wrapper and companion, the companion's wrapper identical (=) to
+-    ;; the candidate, and its seal identical to the runtime's. A minted
+-    ;; cell cannot replicate the seal, and a copy of the wrapper's
+-    ;; contents into a new cell fails the identity back-reference, so
+-    ;; neither authenticates a retained condition (R5). The companion is
+-    ;; reachable only through the wrapper, so the association lives
+-    ;; exactly as long as the wrapper does, with no ambient registry.
+-    ;; An unchanged rethrow of the same wrapper forwards the original
+-    ;; condition through the entry bridge with no new wrapper.
++    ;; (qualified reason AND plain evidence). Retention is a private,
++    ;; task-owned identity association (the architect's round-2 narrow
++    ;; exception to the registry prohibition): js/init! allocates the
++    ;; store cell inside a closure (see retained-store-install in
++    ;; init-form) and installs the two closures below over it. The store
++    ;; holds [wrapper condition] pairs, keyed by the genuine wrapper
++    ;; reference itself: cell identity is `=` on sealed cell refs (same
++    ;; heap id and seal), so a copied or newly minted cell never matches
++    ;; a stored key. Membership is established ONLY by the installed
++    ;; js/raise-protocol when it creates the wrapper; the installed
++    ;; js/retained-condition answers the stored condition for a member
++    ;; wrapper and nil for everything else. No wrapper-supplied or
++    ;; wrapper-reachable metadata is consulted: the wrapper cell carries
++    ;; no provenance, condition or seal slot, so mutating its contents,
++    ;; minting a look-alike, copying its contents, or stamping a new
++    ;; cell with any seal a holder can read cannot create or replace a
++    ;; membership (R5). The store root is a lexical capture of the two
++    ;; installed closures only: it is not a runtime key, not a module
++    ;; export, not reachable through the wrapper cell or its :props,
++    ;; and no exported operation registers or replaces an association.
++    ;; What admitted source CAN reach is the wrapper cell itself (and
++    ;; may mutate its JS-visible contents); that grants retaining and
++    ;; rethrowing that wrapper, never altering what it forwards.
++    ;; Retention/reclamation policy: associations are preserved across
++    ;; completed calls and catches for the life of the task and are
++    ;; reclaimed only at task teardown, when the task's heap (store
++    ;; cell included) dies; there is no process-global or cross-task
++    ;; registry. An unchanged rethrow of a member wrapper forwards the
++    ;; original condition through the entry bridge with no new wrapper.
+     ;; Otherwise-foreign :yang.call/thrown payloads are delivered raw
+     ;; (the ruling's js allowance). A returned condition-shaped map stays
+-    ;; ordinary data.
+-    [js/retained-condition
+-     (fn [e]
+-       (if (js/cell? e)
+-         (if (cell/authentic? e)
+-           (let [c (cell/get e)]
+-             (if (= (get c :js/class) :error)
+-               (let [p (get c :yang.call/retained-provenance)]
+-                 (if (js/cell? p)
+-                   (if (cell/authentic? p)
+-                     (let [pc (cell/get p)]
+-                       (if (= (get pc :yang.call/wrapper) e)
+-                         (if (= (get pc :yang.call/seal) js.rt/retained-seal)
+-                           (get pc :yang.call/condition)
+-                           nil)
+-                         nil))
+-                     nil)
+-                   nil))
+-               nil))
+-           nil)
+-         nil))]
++    ;; ordinary data. The two definitions here are pre-init stubs (no
++    ;; store exists yet); js/init! replaces both before any guest code
++    ;; runs.
++    [js/retained-condition (fn [e] nil)]
+     [js/raise-protocol
+      (fn [condition]
+-       (let [reason (get condition :yang.call/reason)
+-             e (js/make-error
+-                 js.rt/type-error-proto
+-                 (if (= reason :yang.call/not-callable)
+-                   {:js/str "value is not a function"}
+-                   (if (= reason :yang.call/unsupported-binding)
+-                     {:js/str "unsupported binding profile"}
+-                     {:js/str "invalid function invocation"})))]
+-         (do (cell/set! e
+-                        (assoc (cell/get e)
+-                               :yang.call/retained-provenance
+-                               (cell/new
+-                                 (assoc (assoc (assoc {}
+-                                                      :yang.call/wrapper e)
+-                                               :yang.call/seal
+-                                               js.rt/retained-seal)
+-                                        :yang.call/condition condition))))
+-             (js/throw e))))]
++       (let [reason (get condition :yang.call/reason)]
++         (js/throw
++           (js/make-error
++             js.rt/type-error-proto
++             (if (= reason :yang.call/not-callable)
++               {:js/str "value is not a function"}
++               (if (= reason :yang.call/unsupported-binding)
++                 {:js/str "unsupported binding profile"}
++                 {:js/str "invalid function invocation"}))))))]
+     [js/call
+      (fn [f this args]
+        (yang.call/invoke-with
+@@ -4114,8 +4101,54 @@
+     [["toString" 0 'js/symbol-to-string] ["valueOf" 0 'js/symbol-value-of]]]])
+ 
+ 
++(def ^:private retained-store-install
++  "The guest form `js/init!` runs to create the private retained-condition
++   identity store and install the real `js/retained-condition` /
++   `js/raise-protocol` closures over it. The store cell is bound only by
++   this `let`, so its root lives solely in the two installed closures'
++   lexical captures: it is allocated once per task (inside the uninit
++   guard), is never written to a `js.rt/*` key, a wrapper cell, or a
++   `:props` map, and no other form returns it. The lookup walks
++   [wrapper condition] pairs comparing keys with `=` — sealed cell-ref
++   identity (heap id plus seal) — so membership is wrapper identity,
++   never wrapper-supplied metadata."
++  '(let [retained-store (cell/new [])
++         retained-lookup
++         (fn [self pairs e]
++           (if (= (data/count pairs) 0)
++             nil
++             (if (= (get (get pairs 0) 0) e)
++               (get (get pairs 0) 1)
++               (self self (data/subvec pairs 1 (data/count pairs)) e))))]
++     (do (yin/def (quote js/retained-condition)
++           (fn [e]
++             (if (js/cell? e)
++               (if (cell/authentic? e)
++                 (retained-lookup retained-lookup
++                                   (cell/get retained-store) e)
++                 nil)
++               nil)))
++         (yin/def (quote js/raise-protocol)
++           (fn [condition]
++             (let [reason (get condition :yang.call/reason)
++                   e (js/make-error
++                       js.rt/type-error-proto
++                       (if (= reason :yang.call/not-callable)
++                         {:js/str "value is not a function"}
++                         (if (= reason :yang.call/unsupported-binding)
++                           {:js/str "unsupported binding profile"}
++                           {:js/str "invalid function invocation"})))]
++               (do (cell/set! retained-store
++                              (conj (cell/get retained-store)
++                                    (js/pair e condition)))
++                   (js/throw e)))))
++         :js/undefined)))
++
++
+ (defn- init-form
+-  "`js/init!`'s body: the context and out cells, the prototypes in
++  "`js/init!`'s body: the context and out cells, the private
++   retained-condition identity store (retained-store-install, a closure
++   capture, never a runtime key), the prototypes in
+    dependency order (`%Object.prototype%`, `%Function.prototype%`, then the
+    rest), the intrinsic methods, the Error family, the global object and
+    its bindings, then the ready flag, under the uninit guard."
+@@ -4130,7 +4163,7 @@
+         ['do
+          (define 'js.rt/ctx '(cell/new (js/ctx nil)))
+          (define 'js.rt/out '(cell/new []))
+-         (define 'js.rt/retained-seal '(cell/new :js/retained-seal))
++         retained-store-install
+          (define 'js.rt/obj-proto '(js/make-object :js/null))
+          (define 'js.rt/fn-proto '(js/make-object js.rt/obj-proto))
+          (define 'js.rt/global '(js/make-object js.rt/obj-proto))]
+@@ -4290,7 +4323,7 @@
+ (def runtime-keys
+   "Every key `js/init!` allocates, the ready flag aside, sorted."
+   (vec (sort-by str
+-                (concat '[js.rt/ctx js.rt/out js.rt/retained-seal js.rt/global js.rt/obj-proto
++                (concat '[js.rt/ctx js.rt/out js.rt/global js.rt/obj-proto
+                           js.rt/fn-proto js.rt/symbol-proto js.rt/array-proto]
+                         (map second error-classes)
+                         (map first primitive-protos)))))
+diff --git a/test/yang/call/exception_contract_test.clj b/test/yang/call/exception_contract_test.clj
+index c5ac50ec..a98d1f57 100644
+--- a/test/yang/call/exception_contract_test.clj
++++ b/test/yang/call/exception_contract_test.clj
+@@ -1,9 +1,11 @@
+ (ns yang.call.exception-contract-test
+   "Intentionally red until exception rounds 1–4 repair the runtimes. Never
+    invert assertions or encode today's divergences as expected behavior."
+-  (:require [clojure.test :refer [deftest is testing do-report]]
++  (:require [clojure.string :as str]
++            [clojure.test :refer [deftest is testing do-report]]
+             [yang.call.exception-contract :as contract]
+-            [yang.call.exception-probes :as probes]))
++            [yang.call.exception-probes :as probes]
++            [yang.typescript.antlr.prelude :as js-prelude]))
+ 
+ 
+ (defn- check-frontend
+@@ -70,6 +72,55 @@
+           (str "minted forgery " backend)))))
+ 
+ 
++(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
++  typescript-mutation-substitution-test
++  ;; The architect's round-2 attack: a genuine wrapper obtained via
++  ;; `retain`, its wrapper-reachable provenance overwritten with a
++  ;; forged condition, rethrown from a new activation. The ORIGINAL
++  ;; condition must still forward; the forged one must not cross.
++  (doseq [[backend actual] (probes/run-typescript-identity-store :mutated)]
++    (if (instance? Throwable actual)
++      (do-report {:type :error :message (str "mutation substitution " backend " operational failure")
++                  :expected {:retained true :original-forwarded true} :actual actual})
++      (is (= {:retained true :original-forwarded true} actual)
++          (str "mutation substitution " backend)))))
++
++
++(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
++  typescript-extracted-seal-stamping-test
++  ;; A new wrapper stamped with whatever seal a genuine wrapper's
++  ;; references expose, with a companion back-referencing itself, must
++  ;; end as ordinary :yang.call/thrown carrying the minted cell, never
++  ;; as a retained forwarding.
++  (doseq [[backend actual] (probes/run-typescript-identity-store :extracted-seal)]
++    (if (instance? Throwable actual)
++      (do-report {:type :error :message (str "extracted-seal stamping " backend " operational failure")
++                  :expected {:retained true :stamped-refused true} :actual actual})
++      (is (= {:retained true :stamped-refused true} actual)
++          (str "extracted-seal stamping " backend)))))
++
++
++(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
++  typescript-store-root-unreachability-test
++  ;; Guest side: a genuine wrapper carries no provenance, condition or
++  ;; seal slot, and no global name holds the store or a seal.
++  ;; Host side: the private store is not a runtime key and no module
++  ;; export names a store, seal or provenance registration surface, so
++  ;; admitted source cannot reach it by enumerating either.
++  (doseq [[backend actual] (probes/run-typescript-identity-store :store-root)]
++    (if (instance? Throwable actual)
++      (do-report {:type :error :message (str "store-root unreachability " backend " operational failure")
++                  :expected {:retained true :wrapper-clean true :globals-clean true} :actual actual})
++      (is (= {:retained true :wrapper-clean true :globals-clean true} actual)
++          (str "store-root unreachability " backend))))
++  (is (not-any? #(str/includes? (str %) "retained") js-prelude/runtime-keys)
++      "no retained store/seal runtime key for admitted source to name")
++  (is (empty? (filter #{'retained-store 'retained-seal 'retained-provenance
++                        'provenance-store 'register-retained}
++                      js-prelude/module-exports))
++      "no exported store/seal/provenance registration name"))
++
++
+ (deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
+   typescript-copied-wrapper-forgery-test
+   ;; A fresh cell carrying a copy of a genuine protocol wrapper's complete
+diff --git a/test/yang/call/exception_probes.clj b/test/yang/call/exception_probes.clj
+index fe51dc7d..76ddd3af 100644
+--- a/test/yang/call/exception_probes.clj
++++ b/test/yang/call/exception_probes.clj
+@@ -228,6 +228,117 @@
+                  :copy-refused (refused-as-thrown? 'result 'copy)}))))))
+ 
+ 
++(defn- cell-ref?
++  "Guest form: `x` is a cell reference (the `js/cell?` test, inlined so
++   the probe needs no runtime-private name)."
++  [x]
++  (list '= (list 'get x :type) :cell-ref))
++
++
++(defn- genuine-wrapper-bindings
++  "Guest bindings shared by the identity-store probes: a genuine
++   protocol wrapper obtained through `retain`, returned normally and
++   therefore alive across activations, plus its original condition."
++  [export]
++  ['probe.condition (protocol-condition :yang.call/not-callable)
++   'probe.injected (injected 'probe.condition)
++   'retained (call (export "retain") ['probe.injected])
++   'wrapper (list 'get 'retained :value)])
++
++
++(defn identity-store-observation-form
++  "The architect's round-2 R5 probes against the TypeScript donor.
++   :mutated — obtain a genuine wrapper via `retain`, then perform the
++   round-2 attack: overwrite the wrapper-reachable provenance path
++   (companion cell contents and/or the provenance slot itself) with a
++   forged condition, and rethrow the same wrapper from a new
++   activation. The ORIGINAL condition must still forward.
++   :extracted-seal — read whatever seal the wrapper's references expose,
++   mint a NEW wrapper stamped with that seal and a companion whose
++   back-reference names the new wrapper itself, and throw it. It must
++   end as ordinary :yang.call/thrown carrying the minted cell.
++   :store-root — no admitted path reaches the private store: the
++   wrapper carries no provenance/condition/seal slot, and no global
++   name holds the store or a seal."
++  [kind]
++  (let [export #(read-export :typescript %)
++        forged-condition {:yang.call/reason :yang.call/not-callable
++                          :yang.call/data {:forged true}}]
++    (kit/guard-exceptions-form
++      [:python :typescript]
++      (case kind
++        :mutated
++        (list 'let (into (genuine-wrapper-bindings export)
++                         ['provenance (list 'get (list 'cell/get 'wrapper)
++                                            :yang.call/retained-provenance)
++                          'attack (list 'do
++                                        (list 'if (cell-ref? 'provenance)
++                                              (list 'cell/set! 'provenance
++                                                    (list 'assoc (list 'cell/get 'provenance)
++                                                          :yang.call/condition forged-condition))
++                                              :no-companion)
++                                        (list 'cell/set! 'wrapper
++                                              (list 'assoc (list 'cell/get 'wrapper)
++                                                    :yang.call/retained-condition forged-condition))
++                                        :attacked)
++                          'result (call (export "raise_value") ['wrapper])])
++              (kit/observation-map-form
++                {:retained (list '= :return (list 'get 'retained :route))
++                 :original-forwarded
++                 (list 'if (list '= :raise (list 'get 'result :route))
++                       (list 'if (list '= 1 (list 'get 'result :transfers))
++                             (list '= 'probe.condition (list 'get 'result :condition))
++                             false)
++                       false)}))
++        :extracted-seal
++        (list 'let (into (genuine-wrapper-bindings export)
++                         ['provenance (list 'get (list 'cell/get 'wrapper)
++                                            :yang.call/retained-provenance)
++                          'seal (list 'if (cell-ref? 'provenance)
++                                      (list 'get (list 'cell/get 'provenance) :yang.call/seal)
++                                      :no-seal-exposed)
++                          'wannabe (list 'cell/new
++                                         (list 'assoc
++                                               (list 'assoc {} :js/type :object)
++                                               :js/class :error))
++                          'companion (list 'cell/new
++                                           (list 'assoc
++                                                 (list 'assoc
++                                                       (list 'assoc {}
++                                                             :yang.call/wrapper 'wannabe)
++                                                       :yang.call/seal 'seal)
++                                                 :yang.call/condition forged-condition))
++                          'armed (list 'do
++                                       (list 'cell/set! 'wannabe
++                                             (list 'assoc (list 'cell/get 'wannabe)
++                                                   :yang.call/retained-provenance 'companion))
++                                       'wannabe)
++                          'result (call (export "raise_value") ['armed])])
++              (kit/observation-map-form
++                {:retained (list '= :return (list 'get 'retained :route))
++                 :stamped-refused (refused-as-thrown? 'result 'armed)}))
++        :store-root
++        (list 'let (into (genuine-wrapper-bindings export)
++                         ['contents (list 'cell/get 'wrapper)])
++              (kit/observation-map-form
++                {:retained (list '= :return (list 'get 'retained :route))
++                 :wrapper-clean
++                 (list 'if (list 'nil? (list 'get 'contents :yang.call/retained-provenance))
++                       (list 'if (list 'nil? (list 'get 'contents :yang.call/retained-condition))
++                             (list 'nil? (list 'get 'contents :yang.call/seal))
++                             false)
++                       false)
++                 :globals-clean
++                 (list 'if (list '= {:js/str "undefined"}
++                                 (list 'js/global-typeof {:js/str "retained-store"}))
++                       (list 'if (list '= {:js/str "undefined"}
++                                       (list 'js/global-typeof {:js/str "retained-seal"}))
++                             (list '= {:js/str "undefined"}
++                                   (list 'js/global-typeof {:js/str "retained-provenance"}))
++                             false)
++                       false)}))))))
++
++
+ (defn run-typescript-forgery
+   "Run one forgery probe kind against the TypeScript donor on all three
+    linked vector VMs; answers {backend observation}."
+@@ -243,6 +354,21 @@
+       (kit/error-results e))))
+ 
+ 
++(defn run-typescript-identity-store
++  "Run one identity-store probe kind against the TypeScript donor on
++   all three linked vector VMs; answers {backend observation}."
++  [kind]
++  (try
++    (let [donor @boundary-donor]
++      (kit/run-exception-program
++        donor
++        (kit/compose-exception donor ["boundary_target"] :typescript
++                               (contract/sources :typescript)
++                               (identity-store-observation-form kind))))
++    (catch Throwable e
++      (kit/error-results e))))
++
++
+ (defn run-fixture
+   "One source-created receiver per task. All three linked vector VMs run.
+    A fresh task prevents a deliberately broken bridge from poisoning the

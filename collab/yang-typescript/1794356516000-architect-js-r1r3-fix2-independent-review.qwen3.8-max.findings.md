@@ -1,0 +1,133 @@
+Created-GMT: 2026-11-11 00:52:41 GMT
+Created-Local: 2026-11-11 07:52:41 +07 (Asia/Ho_Chi_Minh)
+Coding-Agent: qwen
+Session-ID: 9DFAF853-45DB-4B9D-84E3-DE1292E97D31
+# Findings: JS R1+R3 fix2 — INDEPENDENT step-7 review (qwen3.8-max, Lead System Architect seat)
+
+Provenance: verdict body is the delegate response verbatim, promoted by the orchestrator at filing time. The delegate could not read a clock (plan mode, no shell); Completed stamps are the orchestrator-recorded task completion (2026-11-11 00:52:41 GMT / 2026-11-11 07:52:41 +07), not delegate-generated. Note 0 below is the delegates own evidence-honesty disclosure — it could not run the gates; the orchestrators independent re-run (6/47 R5 set, 6/131 kit, 2/22 source-call) stands separately.
+
+Example: qwen -p 'your prompt' -y
+
+Completed-GMT: 2026-11-11 — clock not obtainable (see note 0)
+Completed-Local: 2026-11-11 — clock not obtainable, Asia/Ho_Chi_Minh (see note 0)
+
+**Note 0 — what I could not run, and what I did not read.** This session has no shell tool (`tool_search` offers only `computer_use`/worktree tools) and `web_fetch` was declined, so I could not execute `date`, `git`, or any gate. Everything below is static reading of the worktree at `/Users/sto/workspace/datomworld-jsr13` plus the three exported diffs. I reproduced no test run; the orchestrator's numbers are accepted as supplied, not verified. I derived the branch chain from `.git/logs/refs/heads/exception-js-r1r3` (base `4cfa609d` → `c0114a42` → `ce99e65e` → `31287b17`; ref file confirms tip `31287b17632a2c36c634824bc1bfd741ad8a538b`) — that is a reflog reading, not `git rev-parse` output. The brief's own `Created-GMT` (2026-11-11 00:21:56 GMT) is the only wall-clock anchor I had; the fix2 commit is ~20 min earlier than it. Per the read-only-brief rule I did **not** write a `.findings.md` and did **not** call `exit_plan_mode` (plan mode + "edit nothing" ⇒ this response is the deliverable). For independence I deliberately did **not** open `1794356516000-…-independent-review.qwen3.8-max.stdout.log` (a sibling seat's output on this same question) nor `1794355686000-architect-js-r1r3-fix2-confirm.gpt-6.1-sol.stdout.log`. I did read the two gpt-6.1-sol `.findings.md` verdicts the brief names as artifacts of record, and I differ from them on one point (§2 below).
+
+---
+
+## 1. R5 closure — **P1 of record: CLOSED**
+
+| Sub-question | Ruling | file:line | Evidence |
+|---|---|---|---|
+| (a) substitute a forwarded condition | **No** | `prelude.cljc:4131-4145`, `:4123-4130` | The store's value side is written only by the installed `js/raise-protocol`, and only for the wrapper it just minted (`(js/pair e condition)` at `:4143`, `e` from `js/make-error` two lines above). `js/retained-condition` returns `(retained-lookup … e)` — the *stored* condition; the candidate contributes nothing but its identity. The round-2 attack (`cell/set!` on the companion, `assoc :yang.call/retained-condition` on the wrapper) now writes keys nothing reads. |
+| (b) authenticate an unrelated wrapper | **No** | `prelude.cljc:4125-4129` | Lookup is gated on `(js/cell? e)` then `(cell/authentic? e)`, then `(= key e)`. There is no companion and no seal to stamp, so the `:extracted-seal` construction has nothing to extract (`exception_probes.clj:296-298` now resolves to `:no-seal-exposed`). |
+| (c) reach the store root | **No — and cryptographically, not by convention** | `engine.cljc:300-303`, `:332-353`, `:355-372`; `prelude.cljc:4115` | This is the strongest part of the fix and the reports undersell it. `retained-store` is a `let` binding whose value is a sealed `:cell-ref`; no prelude form returns it (`retained-store-install`'s `do` ends `:js/undefined` at `:4145`, `init-form` ends `:js/undefined` at `:4249`). A guest cannot fabricate a ref to it: `authentic-ref?` (`engine.cljc:341-347`) requires `(:seal ref)` to equal the seal recorded at allocation, and `seal-of` is `blake3([:yin.k/seal secret kind id])` under the task's `:capability-secret`, which "lives in VM state alone" (`engine.cljc:294-297`). Ids are guessable; seals are not. `check-ref!` fails closed (`:dead-or-forged-reference`). |
+| wrapper-carried provenance | **deleted** | grep over `src/` | `retained-seal` / `retained-provenance` / `:yang.call/retained-condition` appear nowhere in `src/cljc/yang/typescript/antlr/` except the install comment; the only remaining occurrences tree-wide are the probe forgeries and the findings docs. `runtime-keys` (`:4323-4330`) is **net-identical to base `4cfa609d`** (fix1 added `js.rt/retained-seal`, fix2 removed it) — no drift for other rounds. |
+| `:props` / global names | **clean** | `prelude.cljc:1831-1843`, `:1886-1891`; probes `:321-341` | `js/make-error` builds `{:js/type :object :js/class :error :proto … :props … :extensible? true}` — no retention slot. `js/define-global!` is called only for `Symbol`, `globalThis`, `console` and the Error family in `init-form`; no store/seal global exists. |
+
+**One residual worth recording (P3, not a defect):** because a cell-ref is a plain map to guest `get` (`js/cell?` at `:103` reads `(get x :type)`), source holding a genuine wrapper can read its `:id` and `:seal` and build an *alias* map that is `=` to it and passes `cell/authentic?`. That alias would hit the store and return the **genuine** condition. It grants no new authority (holding the wrapper already grants rethrow-forwards-original), cannot register a new key, and cannot shadow (only `js/raise-protocol` inserts, always with a freshly minted `e`; lookup returns the first match). Conclusion: harmless, but it makes `cell/authentic?` at `:4126` load-bearing rather than belt-and-braces — do not remove it in a future simplification pass.
+
+**P3 — comment overclaim, `prelude.cljc:1673-1676`.** "no exported operation registers or replaces an association" is false as written: `js/raise-protocol` is a `js/`-namespaced key of `definitions`, so `core/exports` (`core/prelude.cljc:75-80`) puts `raise-protocol` in `module-exports`, and it *does* register an association. The clause happens to hold in the linked path for the reason in §2 (the exported binding is the stub, which registers nothing) and fails in the bundled path (`uast` at `:4308-4312` = definitions then `(js/init!)`, one store, so top-level synthetic UAST would reach the real closure). Rewrite as: *"no exported operation exists whose contract is to register or replace an association; `js/raise-protocol` registers only as a side effect of raising, and in the linked path its exported binding is the pre-init stub."* Same class as the P2 the first architect raised against fix1's `:1660` claim.
+
+**P3 — the host-side assertion is a deny-list of five names.** `exception_contract_test.clj:118-121` filters `module-exports` against `#{'retained-store 'retained-seal 'retained-provenance 'provenance-store 'register-retained}`. That is trivially true and pins nothing about the mechanism actually shipped. Replace with the positive invariant from §2 (`(is (not (contains? js-prelude/module-exports 'retained-condition)))`, `'raise-protocol`), mirroring the established idiom at `linked_prelude_test.cljc:87` and `p5b2_lifecycle_test.clj:199-202`.
+
+---
+
+## 2. Init-install soundness — **P2, one real path found (the one you enumerated)**
+
+**The path: module export enumeration in the linked path observes the stub *permanently*, not racily.**
+
+- `module-exports` = every `js/`-namespaced key of `definitions` (`prelude.cljc:4351-4354` → `core/prelude.cljc:75-80`). `retained-condition` and `raise-protocol` are both in it (`:1690`, `:1691`).
+- `module-uast` (`:4345-4349`) is `module-tree` over `module-definitions` with **no trailing node** — the module child runs the definitions and halts *without* calling `js/init!`. The composition calls it (`conformance.clj:236-243`, `runtime-entry`).
+- `lift-slice` snapshots the exports **at halt**: `slice = {k (encode (get store k))}` for `k` in exports (`engine.cljc:1071`). At that moment the store holds the stubs from `:1690-1700`.
+- `receive-module` decodes that snapshot into a plain value map: `bindings = {k (decode v)}`, `(assoc entry :bindings bindings)` (`engine.cljc:1113-1124`), and reads resolve through `:bindings` (`module.cljc:52`).
+- `(js/init!)` then runs and its `yin/def`s (`:4123`, `:4131`) mutate the **module store** — which is exactly why intra-module reads work. The frozen `:bindings` are never refreshed.
+
+Net: **intra-module callers see the installed closures; any external requirer of `js/retained-condition` sees `(fn [e] nil)` forever.** Silent nil is the worst failure shape: an acceptance-gate leg that consults js retention from outside the module would pass vacuously or fail inexplicably. Nothing consumes it today (grep: the only reads are `:1617` inside `entry` and `:1709` inside `js/call`, both intra-module), so this is latent, not live — and the stub is *fail-safe* for R5, since the exported `raise-protocol` stub throws an unregistered TypeError that `js/retained-condition` then refuses. But the mechanism contradicts this codebase's own established invariant that runtime-mutated state is `js.rt/*`-namespaced precisely so it is never an export (`strip` keeps `js.rt/*` qualified; `exports` takes only namespace `js`), pinned at `linked_prelude_test.cljc:87` and `p5b2_lifecycle_test.clj:199-202`. fix2 introduces the first runtime-`yin/def`'d name that is also a module export.
+
+**Correction (either is sufficient; the first is idiomatic here):**
+- (i) Move the two installed names out of the export namespace — `js.rt/retained-condition` / `js.rt/raise-protocol` — so `core/exports` never sees them and the stub is purely intra-module. Reads at `:1617` and `:1709` are intra-module and keep working; add them to `runtime-keys` only if you want the `:js/uninit` placeholder (not required — the definition list already discharges the reads).
+- (ii) Keep the names, but make the pre-init stubs **refuse** operationally instead of answering `nil` / throwing an unregistered TypeError. No guest code runs pre-init, so a loud refusal costs nothing and turns any future external observation into an immediate diagnostic.
+
+Plus: replace the deny-list assertion (§1, P3) with `(is (not (contains? js-prelude/module-exports 'retained-condition)))` under option (i), or a refusal probe under option (ii).
+
+**Every other avenue you named is clean:**
+- **Bundled walker** — `uast` (`:4308-4312`) = `(u/then functions-uast (u/sexp->uast '(js/init!)))`; one store, definitions first, init last. Order correct. (Note `linked_prelude_test.cljc:145-151`: the AST-walker link for `js` is still `:refused :undeclared-free` pending L-b, so this path is not yet a serving composition.)
+- **Linked execution** — `wide-app` (`core/prelude.cljc:58-66`) evaluates every definition operand on the main sequence before the one call, then the composition applies `(js/init!)`. Definitions "run nothing" (`:4270-4273`), so nothing observes the stub before init.
+- **Rule R legality** — `(yin/def (quote js/retained-condition) …)` is a two-operand application with a literal symbol (`vm.cljc:104-110`), nested inside a lambda body. Established precedent: `js.sp/attach!` (`typescript/antlr/safepoint.cljc:104-112`) and `clojure/prelude.cljc:64-65`, and `init-form`'s own `(define 'js.rt/state :js/ready)` at `:4249` read back by the guard at `:4161`.
+- **Safepoint capture** — `safepoint.cljc` defines only `js.sp/*`; `noop-uast` redefines only `js.sp/loop`/`js.sp/call`. Neither touches these two names.
+- **Double-init** — the `(= js.rt/state :js/uninit)` guard (`:4161`) plus per-task store instantiation (`receive-module`: "first link wins, a live instance is never overwritten", `engine.cljc:1119-1122`) gives exactly one store per task; a retry after a failed init cannot leak a second store into guest code because `js.rt/state` stays `:js/uninit` only when init threw, which is operational.
+- **Free names** — every name `retained-store-install` reads is either module-defined (`js/pair` `:114`, `js/cell?` `:103`, `js/make-error` `:1831`, `js/throw` `:1776`, `js.rt/type-error-proto` placeholder) or declared in `host-names` (`cell/new cell/get cell/set! data/count data/subvec`, `:84-99`). `cell/authentic?` comes in via `call/host-names` and was already read at `:135` in the base. Nothing new for `module-spec` to refuse.
+- **Gate risk from the `runtime-keys` edit** — none: net-zero vs. base, and no js test pins the exact key set (`prelude_module_test.cljc:33-49` pins only no-primitive-shadow / no-binder-shadow / export-coverage; the new `let` binders `retained-store`/`retained-lookup` are not definition names).
+
+---
+
+## 3. R1/R3 core still intact — **PASS**
+
+fix2's hunks are `@@ -1653,65 +1653,52 @@`, `@@ -4114,8 +4101,54 @@`, `@@ -4130,7 +4163,7 @@`, `@@ -4290,7 +4323,7 @@`. **Nothing in `:1584-1621`.** Round 1's bridge is byte-unchanged:
+
+- **Before binding:** `(let [raise-exit (get invocation :yang.call/raise)] (js/try (fn [] …binding and body…) …))` — `:1599-1600`. The exit is read before the `js/try` body, and the body is where `:yang.call/callee` is dereferenced, `:yang.call/positional` bound and `:code` applied (`:1601-1614`). Binding failures therefore land in the same handler.
+- **Exactly once / restore-before-transfer (§8.10.8):** `js/try`'s re-entry arm does `(js/restore! saved)` *before* `(handler r)` (`:1806`); the normal arm restores before returning (`:1805`). The callee bridge is off the handler stack while `raise-exit` runs, so an escape from the exit cannot be re-caught by the same bridge. `js/throw` pops `:finally` frames and runs the thunk before re-throwing (`:1782`), so source cleanup and `finally`-replacement precede boundary delivery. `(:js/no-handler e)` (`:1780`) stays an operational refusal — no nil-exit fallback was added.
+- **Protocol retention:** the handler forwards `(raise-exit retained)` (`:1621`) where `retained` is the *complete stored condition* — the same map `js/call`'s continuation handed to `js/raise-protocol` (`:1706-1709`), stored verbatim at `:4143`. No re-wrapping, no evidence stripping, qualified reason and plain evidence both ride. Every other escape, including a thrown condition-shaped map, becomes `:yang.call/thrown` carrying the original value (`:1619-1620`) — §8.10.7's "shape is never evidence" holds.
+- The local TypeError still carries only reason-derived text (`:4134-4140`), so a *local* js catch cannot read the evidence. That is inherent to R5 (js source must not be able to read the store) and was accepted in both prior verdicts; it is not weakened by fix2.
+- The P2 comment at `:1586-1592` still correctly separates restoration ordering from the unproven suspension-lifetime claim, and still names the generator-resume probe as an open obligation. Keep as is.
+
+---
+
+## 4. Bounded retention — **RULING: acceptable for this round, with a named ledger obligation. Do not require bounded retention now.**
+
+Reasons, in order of weight:
+
+1. **No invariant is violated.** §8.10.7 requires the association to survive "for the wrapper's entire lifetime" and says "Reachability/reclamation must retain the condition and its payload while the wrapper is live, without an ambient registry." Over-retention is the safe direction: the store never drops an association early. The ruling's actual prohibitions — process-global and cross-task registries — are satisfied (`:4115` allocates inside `js/init!`'s uninit guard, so one store per task, dying with the task heap; `receive-module` instantiates module stores per task).
+2. **Requiring bounded retention now would widen the ceded surface for a non-invariant.** Dropping an association when its wrapper dies needs a liveness/sweep signal for heap cells that the runtime does not currently expose to guest code. Inventing one inside this round touches the cell module or the GC, i.e. surface the registry has not ceded to the js round.
+3. **Growth is bounded by protocol-failure receptions**, which are rare by construction (`:yang.call/not-callable` / `invalid-invocation` / `unsupported-binding`), never in a source-level hot loop, and the empty-store case short-circuits in O(1) (`:4119-4120`) — so the per-throw cost on the common path (`:1617`) is unchanged from base.
+
+**Ledger obligation to record (name it exactly this):** *"js retained-condition store: unbounded per-task growth and O(n) membership lookup; no reclamation of completed-call associations. Requires a reclamation policy once §8.10.7's wrapper-liveness signal exists, or once any long-running-task profile is admitted. Owner: yang.typescript seat. Blocking for track acceptance, not for this round."*
+
+**One concrete improvement I do ask for inside that obligation (P3, 3 lines):** the lookup allocates at every step — `(self self (data/subvec pairs 1 (data/count pairs)) e)` (`:4121`). Finding the *n*-th entry copies O(n²) elements and recurses to depth n. Carry an index instead: `(fn [self pairs i e] (if (= (data/count pairs) i) nil (if (= (get (get pairs i) 0) e) (get (get pairs i) 1) (self self pairs (+ i 1) e))))`, called as `(retained-lookup retained-lookup (cell/get retained-store) 0 e)`. Same semantics, O(n) time, zero per-step allocation. Depth-n self-recursion matches existing prelude style (`js/unwind-to` `:1785-1797`, `js/spread-array-items` `:4256-4263`), so I am not raising it as a defect.
+
+---
+
+## 5. Surface discipline — **PASS, with one registry note**
+
+Files touched across all three commits (`c0114a42` + `ce99e65e` + `31287b17`, from the three exported diffs):
+
+- `src/cljc/yang/typescript/antlr/prelude.cljc` — `:1578-1690` (entry bridge + protocol-condition reception), `:4101-4170` (`retained-store-install`, `init-form`), `:4323` (`runtime-keys`).
+- `test/yang/call/exception_contract.clj` — `:55` only.
+- `test/yang/call/exception_contract_test.clj`, `test/yang/call/exception_probes.clj`.
+
+All inside the registry's ceded js surface ("`typescript/antlr/prelude.cljc` entry bridge (`:1581` region) + protocol-condition paths (`:1627` region) + reception; kit test surfaces under `test/yang/call/`"). **Registry note:** the `init-form` / `runtime-keys` edits are outside the two literally-named line regions, but they are the only possible installation site for the mechanism the round-2 direction expressly authorized ("prelude-private, task-owned identity association … storage root inside opaque prelude closure state") — ruled inside the ceded surface by construction. Worth a line in the registry so a later round adding a `js.rt/*` key knows `init-form` was touched here. `runtime-keys` is net-identical to base, so there is no drift to reconcile.
+
+Donor tweak `exception_contract.clj:55` (`saved = e` → `globalThis.saved = e`) is present and unchanged, as accepted by the first architect; the rest of the donor (`:50-58`) and the `:clojure`/`:php`/`:python` donors are untouched.
+
+Standing rulings honored: no nil-raise-exit guest fallback (`:1780` still `:js/no-handler`); `js/construct-with-nt` (`:1726-1748`) still applies `:code` directly and is still outside the ordinary-call bridge claim; the P2 suspension-lifetime comment (`:1586-1592`) intact.
+
+Housekeeping (advisory): three engineer `*.findings.md` copies sit untracked at the worktree root (`/Users/sto/workspace/datomworld-jsr13/179434283…`, `1794350496…`, `1794353317…`). They appear in none of the three diffs, so they are not part of the committed surface — keep them out of the merge.
+
+Also note: master has moved well past both the round base (`4cfa609d`) and the brief's `~498cba4c`; the session's git snapshot puts master at `887cc273`. A rebase/merge will be needed, and the `:1597-1621` and `:4104-4170` regions should be re-verified afterwards — my line citations are against tip `31287b17`.
+
+---
+
+## Final verdict: **FIX-LIST** (narrow — one blocker, mechanical)
+
+**The R5 P1 of record is CLOSED.** The private lexical-capture store defeats minted cells, copied wrappers, companion mutation and extracted-seal stamping, and — stronger than the reports claim — store-root unreachability rests on the capability-secret seal (`engine.cljc:300-303`, `:341-347`), not merely on the absence of a returned reference. R1 and R3 are intact and untouched by fix2. I would sign off on the forgery class today.
+
+**The single blocker is §2's P2:** `js/retained-condition` and `js/raise-protocol` are module exports whose exported bindings are frozen at the pre-init stubs by `lift-slice`/`receive-module`, permanently, in the linked path. You asked me to find a path that observes the stub; that is it, and it is not a race. It has no live consumer, so it is latent rather than broken — but the acceptance gate's cross-runtime retention legs are precisely the first thing that would consult these names from outside the `js` module, and a silently `nil`-returning stub turns that into a debugging hunt. Fix by renaming the two installed keys to `js.rt/retained-condition` / `js.rt/raise-protocol` (preferred; matches the invariant pinned at `linked_prelude_test.cljc:87`), or by making the stubs refuse operationally. Add the positive `module-exports` assertion in the same commit.
+
+Advisory, non-blocking, land with the above or as ledger rows: the `:1673-1676` comment overclaim (P3); the deny-list assertion (P3); the index-walk lookup (P3, folds into the §4 obligation).
+
+I flip to **SIGN-OFF** on the rename (or the refusing stub) plus the pinning assertion — no re-review of R5, R1 or R3 needed, since none of them change.
+
+Suggested ledger rows: (1) §4's reclamation obligation, verbatim; (2) "js retained-condition/raise-protocol installed by runtime `yin/def` — keep them out of `module-exports`, or make pre-init stubs refuse"; (3) the pre-existing open obligations the brief names as deferred, not defects: generator-lifetime/suspension probe, directed-pair legs, suite-scale Node/Dart run.
+
+Commands for the orchestrator, since I could not run them (the diff reaches a remote clone via `git diff > /tmp/x.patch && scp … && git apply`; committing and pushing stay your authority):
+
+```
+cd /Users/sto/workspace/datomworld-jsr13
+clojure -M:test -n yang.call.exception-contract-test        # R5 set + provenance
+clojure -M:test -n yang.typescript.antlr.prelude-module-test # export/shadow invariants
+clojure -M:test -n yang.typescript.antlr.linked-prelude-test # module spec + exports
+node target/node-tests.js --test=yang.call.exception-contract-test
+```
+
+`TZ=Asia/Ho_Chi_Minh date '+%Y-%m-%d %H:%M:%S %Z'` and `date -u '+%Y-%m-%d %H:%M:%S GMT'` will supply the two header stamps I could not read; please overwrite my header lines with real values before filing this into `collab/yang-typescript/`.

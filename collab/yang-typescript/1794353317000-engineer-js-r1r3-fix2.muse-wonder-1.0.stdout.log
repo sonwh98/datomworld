@@ -1,0 +1,14 @@
+muse: workspace root: /Users/sto/workspace/datomworld-jsr13 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-jsr13/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-11 00:02:02 GMT
+Completed-Local: 2026-11-11 07:02:02 Asia/Ho_Chi_Minh
+
+Committed `31287b17` on `exception-js-r1r3` (not merged, not pushed): the companion cell, seal, and `js.rt/retained-seal` are gone, replaced by a per-task identity store allocated in `js/init!` as a lexical capture of the installed [retained-condition/raise-protocol closures in prelude.cljc](/Users/sto/workspace/datomworld-jsr13/src/cljc/yang/typescript/antlr/prelude.cljc:4104), keyed by genuine wrapper reference with the original condition as sole authoritative payload. Authentication consults only private membership; the wrapper carries no provenance slot.
+
+Evidence: PRE-FIX the three new probes failed 11 assertions (mutation and extracted-seal red on all three VMs); POST-FIX [the five forgery/identity tests in exception_contract_test.clj](/Users/sto/workspace/datomworld-jsr13/test/yang/call/exception_contract_test.clj:75) pass 17/17, provenance 30/30, kit 6/131, source-call 2/22, linked-prelude 10/62, and the committed tree re-verified with one probe green.
+
+Findings: the sandbox blocked the collab path, so [1794353317000-engineer-js-r1r3-fix2.muse-wonder-1.0.findings.md](/Users/sto/workspace/datomworld-jsr13/1794353317000-engineer-js-r1r3-fix2.muse-wonder-1.0.findings.md) is staged at the worktree root for copying to `/Users/sto/workspace/datomworld/collab/yang-typescript/`; the two pre-existing untracked findings files were left untouched.

@@ -1,0 +1,163 @@
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index d257cdeb..95de7898 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -1614,7 +1614,7 @@
+                              ((get c :code) t args :js/undefined)
+                              ((get c :code) t args))))))
+                    (fn [e]
+-                     (let [retained (js/retained-condition e)]
++                     (let [retained (js.rt/retained-condition e)]
+                        (if (nil? retained)
+                          (raise-exit (assoc (assoc {} :yang.call/reason :yang.call/thrown)
+                                             :yang.call/value e))
+@@ -1662,20 +1662,26 @@
+     ;; reference itself: cell identity is `=` on sealed cell refs (same
+     ;; heap id and seal), so a copied or newly minted cell never matches
+     ;; a stored key. Membership is established ONLY by the installed
+-    ;; js/raise-protocol when it creates the wrapper; the installed
+-    ;; js/retained-condition answers the stored condition for a member
++    ;; js.rt/raise-protocol when it creates the wrapper; the installed
++    ;; js.rt/retained-condition answers the stored condition for a member
+     ;; wrapper and nil for everything else. No wrapper-supplied or
+     ;; wrapper-reachable metadata is consulted: the wrapper cell carries
+     ;; no provenance, condition or seal slot, so mutating its contents,
+     ;; minting a look-alike, copying its contents, or stamping a new
+     ;; cell with any seal a holder can read cannot create or replace a
+     ;; membership (R5). The store root is a lexical capture of the two
+-    ;; installed closures only: it is not a runtime key, not a module
+-    ;; export, not reachable through the wrapper cell or its :props,
+-    ;; and no exported operation registers or replaces an association.
+-    ;; What admitted source CAN reach is the wrapper cell itself (and
+-    ;; may mutate its JS-visible contents); that grants retaining and
+-    ;; rethrowing that wrapper, never altering what it forwards.
++    ;; installed closures only: it is not a runtime key, not reachable
++    ;; through the wrapper cell or its :props, and the two installed
++    ;; names are not module exports: they live under `js.rt/*`, whose
++    ;; namespace `core/exports` never takes, so the linked path's frozen
++    ;; export slice can never carry a pre-init binding for them. No
++    ;; exported operation exists whose contract is to register or
++    ;; replace an association; `js.rt/raise-protocol` registers only as
++    ;; a side effect of raising, and only its post-init installed
++    ;; closure does so. What admitted
++    ;; source CAN reach is the wrapper cell itself (and may mutate its
++    ;; JS-visible contents); that grants retaining and rethrowing that
++    ;; wrapper, never altering what it forwards.
+     ;; Retention/reclamation policy: associations are preserved across
+     ;; completed calls and catches for the life of the task and are
+     ;; reclaimed only at task teardown, when the task's heap (store
+@@ -1684,11 +1690,15 @@
+     ;; original condition through the entry bridge with no new wrapper.
+     ;; Otherwise-foreign :yang.call/thrown payloads are delivered raw
+     ;; (the ruling's js allowance). A returned condition-shaped map stays
+-    ;; ordinary data. The two definitions here are pre-init stubs (no
+-    ;; store exists yet); js/init! replaces both before any guest code
+-    ;; runs.
+-    [js/retained-condition (fn [e] nil)]
+-    [js/raise-protocol
++    ;; ordinary data. The two definitions below are pre-init stubs (no
++    ;; store exists yet) under the internal `js.rt/*` names: js/init!
++    ;; replaces both before any guest code runs, under the same names
++    ;; the intra-module readers below and in the entry bridge use.
++    ;; Because the namespace is `js.rt`, not `js`, `core/exports` never
++    ;; sees them: no module export and no frozen linked slice can carry
++    ;; a pre-init binding that silently answers nil.
++    [js.rt/retained-condition (fn [e] nil)]
++    [js.rt/raise-protocol
+      (fn [condition]
+        (let [reason (get condition :yang.call/reason)]
+          (js/throw
+@@ -1706,7 +1716,7 @@
+          (fn [condition]
+            (if (= (get condition :yang.call/reason) :yang.call/thrown)
+              (js/throw (get condition :yang.call/value))
+-             (js/raise-protocol condition)))
++             (js.rt/raise-protocol condition)))
+          (assoc {} :yang.call/receiver this)))]
+     [js/is-constructor?
+      ;; [[Construct]] exists on :normal functions, class constructors and the
+@@ -4103,15 +4113,23 @@
+ 
+ (def ^:private retained-store-install
+   "The guest form `js/init!` runs to create the private retained-condition
+-   identity store and install the real `js/retained-condition` /
+-   `js/raise-protocol` closures over it. The store cell is bound only by
+-   this `let`, so its root lives solely in the two installed closures'
+-   lexical captures: it is allocated once per task (inside the uninit
+-   guard), is never written to a `js.rt/*` key, a wrapper cell, or a
+-   `:props` map, and no other form returns it. The lookup walks
+-   [wrapper condition] pairs comparing keys with `=` — sealed cell-ref
+-   identity (heap id plus seal) — so membership is wrapper identity,
+-   never wrapper-supplied metadata."
++   identity store and install the real `js.rt/retained-condition` /
++   `js.rt/raise-protocol` closures over it. The install keys are the
++   `js.rt/*` names the stub definitions and the intra-module readers
++   (the entry bridge and `js/call`) use: variable lookup is exact-symbol
++   in the live store, and the linked emitter's `strip` leaves `js.rt/*`
++   qualified in definition keys, quoted install keys and reads alike,
++   so all three coincide in both the bundled and the linked store.
++   Because their namespace is `js.rt`, not `js`, they are never module
++   exports and no frozen export slice can carry a pre-init binding for
++   them. The store cell itself is bound only by this `let`, so its root
++   lives solely in the two installed closures' lexical captures: it is
++   allocated once per task (inside the uninit guard), is never written
++   to a runtime key, a wrapper cell, or a `:props` map, and no other
++   form returns it. The lookup walks [wrapper condition] pairs
++   comparing keys with `=` — sealed cell-ref identity (heap id plus
++   seal) — so membership is wrapper identity, never wrapper-supplied
++   metadata."
+   '(let [retained-store (cell/new [])
+          retained-lookup
+          (fn [self pairs e]
+@@ -4120,15 +4138,16 @@
+              (if (= (get (get pairs 0) 0) e)
+                (get (get pairs 0) 1)
+                (self self (data/subvec pairs 1 (data/count pairs)) e))))]
+-     (do (yin/def (quote js/retained-condition)
++     (do (yin/def (quote js.rt/retained-condition)
+            (fn [e]
+              (if (js/cell? e)
++               ;; `cell/authentic?` is load-bearing here: an alias map `=` to a held wrapper passes it and returns the genuine condition, which is harmless (holding the wrapper already grants rethrow).
+                (if (cell/authentic? e)
+                  (retained-lookup retained-lookup
+                                    (cell/get retained-store) e)
+                  nil)
+                nil)))
+-         (yin/def (quote js/raise-protocol)
++         (yin/def (quote js.rt/raise-protocol)
+            (fn [condition]
+              (let [reason (get condition :yang.call/reason)
+                    e (js/make-error
+diff --git a/test/yang/call/exception_contract_test.clj b/test/yang/call/exception_contract_test.clj
+index a98d1f57..876a1ca3 100644
+--- a/test/yang/call/exception_contract_test.clj
++++ b/test/yang/call/exception_contract_test.clj
+@@ -104,9 +104,10 @@
+   typescript-store-root-unreachability-test
+   ;; Guest side: a genuine wrapper carries no provenance, condition or
+   ;; seal slot, and no global name holds the store or a seal.
+-  ;; Host side: the private store is not a runtime key and no module
+-  ;; export names a store, seal or provenance registration surface, so
+-  ;; admitted source cannot reach it by enumerating either.
++  ;; Host side: the private store is not a runtime key and neither
++  ;; installed retention name is a module export, so admitted source
++  ;; cannot reach it by enumerating either, and no frozen pre-init
++  ;; export binding can silently answer for it.
+   (doseq [[backend actual] (probes/run-typescript-identity-store :store-root)]
+     (if (instance? Throwable actual)
+       (do-report {:type :error :message (str "store-root unreachability " backend " operational failure")
+@@ -115,10 +116,10 @@
+           (str "store-root unreachability " backend))))
+   (is (not-any? #(str/includes? (str %) "retained") js-prelude/runtime-keys)
+       "no retained store/seal runtime key for admitted source to name")
+-  (is (empty? (filter #{'retained-store 'retained-seal 'retained-provenance
+-                        'provenance-store 'register-retained}
+-                      js-prelude/module-exports))
+-      "no exported store/seal/provenance registration name"))
++  (is (not (contains? js-prelude/module-exports 'retained-condition))
++      "retained-condition is not a module export: no frozen pre-init binding")
++  (is (not (contains? js-prelude/module-exports 'raise-protocol))
++      "raise-protocol is not a module export: no frozen pre-init binding"))
+ 
+ 
+ (deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}

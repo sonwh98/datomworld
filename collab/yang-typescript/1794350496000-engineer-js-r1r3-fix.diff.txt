@@ -1,0 +1,237 @@
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index 26aa7f2a..6e625ab4 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -1583,8 +1583,12 @@
+        ;; source exception AND argument-binding failure to it as the
+        ;; thrown condition, exactly once. The js/try handler runs only
+        ;; after the escape has completed source cleanup and restored the
+-       ;; saved handler/depth/frame state (§8.10.8), so the transfer
+-       ;; below never reuses a raise exit of a completed call. An
++       ;; saved handler/depth/frame state (§8.10.8): restore-before-
++       ;; transfer establishes that delivery ORDERING (the callee bridge
++       ;; is absent while the caller's exit runs). It does not by itself
++       ;; prove that a resumed suspension cannot reuse a completed call's
++       ;; raise exit; that lifetime claim remains an explicit open
++       ;; obligation pending the suspension probe. An
+        ;; unchanged rethrow of a wrapper carrying a retained protocol
+        ;; condition forwards that original condition with no new wrapper;
+        ;; every other escape (including a thrown condition-shaped map,
+@@ -1649,20 +1653,42 @@
+     ;; §8.10.7 protocol reception: :yang.call/not-callable,
+     ;; :yang.call/invalid-invocation and :yang.call/unsupported-binding map
+     ;; to a local TypeError that RETAINS the complete original condition
+-    ;; (qualified reason AND plain evidence) in private cell contents,
+-    ;; outside source-writable :props. An unchanged rethrow of the same
+-    ;; wrapper forwards the original condition through the entry bridge
+-    ;; with no new wrapper. Otherwise-foreign :yang.call/thrown payloads
+-    ;; are delivered raw (the ruling's js allowance). A returned
+-    ;; condition-shaped map stays ordinary data, and forged or
+-    ;; source-writable attributes never authenticate a retained condition.
++    ;; (qualified reason AND plain evidence) in a runtime-owned companion
++    ;; provenance cell, outside source-writable :props. The companion
++    ;; holds the condition, a back-reference to this exact wrapper cell,
++    ;; and the task's retained seal: a cell js/init! allocates whose
++    ;; reference no js definition returns, so admitted source cannot
++    ;; obtain it. The wrapper holds only the companion reference.
++    ;; js/retained-condition authenticates all of it: heap-authentic
++    ;; wrapper and companion, the companion's wrapper identical (=) to
++    ;; the candidate, and its seal identical to the runtime's. A minted
++    ;; cell cannot replicate the seal, and a copy of the wrapper's
++    ;; contents into a new cell fails the identity back-reference, so
++    ;; neither authenticates a retained condition (R5). The companion is
++    ;; reachable only through the wrapper, so the association lives
++    ;; exactly as long as the wrapper does, with no ambient registry.
++    ;; An unchanged rethrow of the same wrapper forwards the original
++    ;; condition through the entry bridge with no new wrapper.
++    ;; Otherwise-foreign :yang.call/thrown payloads are delivered raw
++    ;; (the ruling's js allowance). A returned condition-shaped map stays
++    ;; ordinary data.
+     [js/retained-condition
+      (fn [e]
+        (if (js/cell? e)
+          (if (cell/authentic? e)
+            (let [c (cell/get e)]
+              (if (= (get c :js/class) :error)
+-               (get c :yang.call/retained-condition)
++               (let [p (get c :yang.call/retained-provenance)]
++                 (if (js/cell? p)
++                   (if (cell/authentic? p)
++                     (let [pc (cell/get p)]
++                       (if (= (get pc :yang.call/wrapper) e)
++                         (if (= (get pc :yang.call/seal) js.rt/retained-seal)
++                           (get pc :yang.call/condition)
++                           nil)
++                         nil))
++                     nil)
++                   nil))
+                nil))
+            nil)
+          nil))]
+@@ -1676,8 +1702,15 @@
+                    (if (= reason :yang.call/unsupported-binding)
+                      {:js/str "unsupported binding profile"}
+                      {:js/str "invalid function invocation"})))]
+-         (do (cell/set! e (assoc (cell/get e)
+-                                 :yang.call/retained-condition condition))
++         (do (cell/set! e
++                        (assoc (cell/get e)
++                               :yang.call/retained-provenance
++                               (cell/new
++                                 (assoc (assoc (assoc {}
++                                                      :yang.call/wrapper e)
++                                               :yang.call/seal
++                                               js.rt/retained-seal)
++                                        :yang.call/condition condition))))
+              (js/throw e))))]
+     [js/call
+      (fn [f this args]
+@@ -4097,6 +4130,7 @@
+         ['do
+          (define 'js.rt/ctx '(cell/new (js/ctx nil)))
+          (define 'js.rt/out '(cell/new []))
++         (define 'js.rt/retained-seal '(cell/new :js/retained-seal))
+          (define 'js.rt/obj-proto '(js/make-object :js/null))
+          (define 'js.rt/fn-proto '(js/make-object js.rt/obj-proto))
+          (define 'js.rt/global '(js/make-object js.rt/obj-proto))]
+@@ -4256,7 +4290,7 @@
+ (def runtime-keys
+   "Every key `js/init!` allocates, the ready flag aside, sorted."
+   (vec (sort-by str
+-                (concat '[js.rt/ctx js.rt/out js.rt/global js.rt/obj-proto
++                (concat '[js.rt/ctx js.rt/out js.rt/retained-seal js.rt/global js.rt/obj-proto
+                           js.rt/fn-proto js.rt/symbol-proto js.rt/array-proto]
+                         (map second error-classes)
+                         (map first primitive-protos)))))
+diff --git a/test/yang/call/exception_contract_test.clj b/test/yang/call/exception_contract_test.clj
+index 9c3bf10b..c5ac50ec 100644
+--- a/test/yang/call/exception_contract_test.clj
++++ b/test/yang/call/exception_contract_test.clj
+@@ -54,3 +54,31 @@
+            :frontends #{:clojure}}
+   clojure-provenance-test
+   (check-frontend :clojure))
++
++
++(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
++  typescript-minted-forgery-test
++  ;; A source-minted error-looking cell (and a companion-layout mimic with
++  ;; an attacker-chosen seal) thrown through the donor's raise_value must
++  ;; NOT forward its forged condition: the bridge delivers a fresh
++  ;; :yang.call/thrown carrying the minted cell itself.
++  (doseq [[backend actual] (probes/run-typescript-forgery :minted)]
++    (if (instance? Throwable actual)
++      (do-report {:type :error :message (str "minted forgery " backend " operational failure")
++                  :expected {:minted-refused true :mimic-refused true} :actual actual})
++      (is (= {:minted-refused true :mimic-refused true} actual)
++          (str "minted forgery " backend)))))
++
++
++(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
++  typescript-copied-wrapper-forgery-test
++  ;; A fresh cell carrying a copy of a genuine protocol wrapper's complete
++  ;; contents, thrown from another activation, must NOT forward the
++  ;; original condition: provenance is bound to the genuine wrapper's
++  ;; identity, not to its copyable contents.
++  (doseq [[backend actual] (probes/run-typescript-forgery :copied)]
++    (if (instance? Throwable actual)
++      (do-report {:type :error :message (str "copied wrapper " backend " operational failure")
++                  :expected {:retained true :copy-refused true} :actual actual})
++      (is (= {:retained true :copy-refused true} actual)
++          (str "copied wrapper " backend)))))
+diff --git a/test/yang/call/exception_probes.clj b/test/yang/call/exception_probes.clj
+index bedb3abc..fe51dc7d 100644
+--- a/test/yang/call/exception_probes.clj
++++ b/test/yang/call/exception_probes.clj
+@@ -158,6 +158,91 @@
+         :else (throw (ex-info "unknown provenance fixture" {:scenario scenario}))))))
+ 
+ 
++(defn- refused-as-thrown?
++  "Guest form: the boundary result refused retained-condition forwarding —
++   one raise carrying a fresh :yang.call/thrown whose payload is `thrown`
++   itself, never the forged condition."
++  [result thrown]
++  (list 'if (list '= :raise (list 'get result :route))
++        (list 'if (list '= 1 (list 'get result :transfers))
++              (list 'if (list '= :yang.call/thrown (reason result))
++                    (list '= thrown (payload result))
++                    false)
++              false)
++        false))
++
++
++(defn forgery-observation-form
++  "The architect's two R5 forgery probes against the TypeScript donor.
++   :minted — admitted Clojure source mints an error-looking cell (and a
++   second cell mimicking a companion-provenance layout with an
++   attacker-chosen seal) and throws each through the donor's raise_value.
++   :copied — the probe copies a genuine protocol wrapper's complete cell
++   contents into a fresh cell and throws the copy from a new activation.
++   Both must refuse: a fresh :yang.call/thrown carrying the thrown cell
++   itself as payload, never the forged/original condition forwarded."
++  [kind]
++  (let [export #(read-export :typescript %)
++        forged-condition {:yang.call/reason :yang.call/not-callable
++                          :yang.call/data {:forged true}}]
++    (kit/guard-exceptions-form
++      [:python :typescript]
++      (case kind
++        :minted
++        (list 'let ['forged (list 'cell/new
++                                  (list 'assoc
++                                        (list 'assoc
++                                              (list 'assoc {} :js/type :object)
++                                              :js/class :error)
++                                        :yang.call/retained-condition forged-condition))
++                    'minted-result (call (export "raise_value") ['forged])
++                    'wannabe (list 'cell/new
++                                   (list 'assoc
++                                         (list 'assoc {} :js/type :object)
++                                         :js/class :error))
++                    'companion (list 'cell/new
++                                     (list 'assoc
++                                           (list 'assoc
++                                                 (list 'assoc {}
++                                                       :yang.call/wrapper 'wannabe)
++                                                 :yang.call/seal (list 'cell/new :attacker-seal))
++                                           :yang.call/condition forged-condition))
++                    'armed (list 'do
++                                 (list 'cell/set! 'wannabe
++                                       (list 'assoc (list 'cell/get 'wannabe)
++                                             :yang.call/retained-provenance 'companion))
++                                 'wannabe)
++                    'mimic-result (call (export "raise_value") ['armed])]
++              (kit/observation-map-form
++                {:minted-refused (refused-as-thrown? 'minted-result 'forged)
++                 :mimic-refused (refused-as-thrown? 'mimic-result 'armed)}))
++        :copied
++        (list 'let ['probe.condition (protocol-condition :yang.call/not-callable)
++                    'probe.injected (injected 'probe.condition)
++                    'retained (call (export "retain") ['probe.injected])
++                    'wrapper (list 'get 'retained :value)
++                    'copy (list 'cell/new (list 'cell/get 'wrapper))
++                    'result (call (export "raise_value") ['copy])]
++              (kit/observation-map-form
++                {:retained (list '= :return (list 'get 'retained :route))
++                 :copy-refused (refused-as-thrown? 'result 'copy)}))))))
++
++
++(defn run-typescript-forgery
++  "Run one forgery probe kind against the TypeScript donor on all three
++   linked vector VMs; answers {backend observation}."
++  [kind]
++  (try
++    (let [donor @boundary-donor]
++      (kit/run-exception-program
++        donor
++        (kit/compose-exception donor ["boundary_target"] :typescript
++                               (contract/sources :typescript)
++                               (forgery-observation-form kind))))
++    (catch Throwable e
++      (kit/error-results e))))
++
++
+ (defn run-fixture
+   "One source-created receiver per task. All three linked vector VMs run.
+    A fresh task prevents a deliberately broken bridge from poisoning the

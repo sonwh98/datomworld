@@ -1,0 +1,29 @@
+muse: workspace root: /Users/sto/workspace/datomworld-jsr13 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-jsr13/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10 23:08:18 GMT
+Completed-Local: 2026-11-11 06:08:18 Asia/Ho_Chi_Minh
+
+P1 closed and committed as `ce99e65e` on `exception-js-r1r3` (not merged, not pushed).
+
+**Mechanism:** [prelude.cljc](/Users/sto/workspace/datomworld-jsr13/src/cljc/yang/typescript/antlr/prelude.cljc:1675) — `js/raise-protocol` now stores the condition in a fresh runtime-owned companion cell holding a back-reference to the exact wrapper and the per-task `js.rt/retained-seal` (allocated by `js/init!`, never returned by any definition); the wrapper holds only the companion reference. `js/retained-condition` authenticates heap-authenticity of both cells, wrapper-identity back-reference, and seal identity — a minted cell cannot replicate the seal, a copied wrapper fails the back-reference, and the companion's lifetime is exactly the wrapper's with no registry. P2 comment narrowed at :1586 (ordering only; suspension lifetime stays a named open obligation).
+
+**Probes:** [exception_probes.clj](/Users/sto/workspace/datomworld-jsr13/test/yang/call/exception_probes.clj:161) + [exception_contract_test.clj](/Users/sto/workspace/datomworld-jsr13/test/yang/call/exception_contract_test.clj:59) — pre-fix both forgeries forwarded on all 3 VMs (6 failures, the executed P1 reproduction); post-fix both refuse with a fresh `:yang.call/thrown` carrying the thrown cell itself (6/6 green).
+
+**Gates:** typescript-provenance 30/30, kit 6/131, source-call 2/22, prelude loads clean — all observed in this session.
+
+**Findings:** sandbox blocked the collab copy, so it is staged at [1794350496000-engineer-js-r1r3-fix.muse-wonder-1.0.findings.md](/Users/sto/workspace/datomworld-jsr13/1794350496000-engineer-js-r1r3-fix.muse-wonder-1.0.findings.md) in the worktree root for the orchestrator to copy; it includes the stated residual (deliberate seal extraction from a genuinely held wrapper, undetectable without the ruled-out registry).Completed-GMT: 2026-11-10 23:07:50 GMT
+Completed-Local: 2026-11-11 06:07:50 Asia/Ho_Chi_Minh
+
+P1 closed and committed as `ce99e65e` (`fix(yang.typescript): authenticate retained-condition provenance against minted forgeries`) on branch `exception-js-r1r3`, on top of `c0114a42`. Not merged, not pushed, master untouched.
+
+**Mechanism.** [prelude.cljc](/Users/sto/workspace/datomworld-jsr13/src/cljc/yang/typescript/antlr/prelude.cljc:1695): `js/raise-protocol` no longer writes the condition into the wrapper's own cell contents. It allocates a fresh runtime-owned companion cell holding `{:yang.call/wrapper e, :yang.call/seal js.rt/retained-seal, :yang.call/condition condition}` and stores only the companion reference on the wrapper. `js.rt/retained-seal` (:4133, also in `runtime-keys` :4293) is a cell `js/init!` allocates once per task that no definition returns, so admitted source cannot obtain it. [js/retained-condition](/Users/sto/workspace/datomworld-jsr13/src/cljc/yang/typescript/antlr/prelude.cljc:1675) authenticates heap-authentic wrapper and companion, the companion's wrapper back-reference identical to the candidate, and seal identity — a minted cell cannot replicate the seal, a copied wrapper fails the back-reference, and the companion lives exactly as long as the wrapper with no registry. P2 comment narrowed at :1586 (restore-before-transfer claims delivery ordering only; suspension lifetime stays a named open obligation). Standing rulings respected: no nil-exit fallback, no constructor-protocol claim, donor tweak kept.
+
+**Probes.** [exception_probes.clj](/Users/sto/workspace/datomworld-jsr13/test/yang/call/exception_probes.clj:161) and [exception_contract_test.clj](/Users/sto/workspace/datomworld-jsr13/test/yang/call/exception_contract_test.clj:59): a source-minted forgery (plus a companion-layout mimic) and a copied-metadata wrapper, each thrown through the donor's `raise_value`. Pre-fix both forwarded their conditions on all three VMs (6 failures — the executed P1 reproduction); post-fix both refuse with a fresh `:yang.call/thrown` carrying the thrown cell itself.
+
+**Gates observed this session:** new forgery probes 2 tests / 6 assertions green; `typescript-provenance-test` 30/30; kit `conformance-test` + `exception-source-test` 6/131; `source-call-test` 2/22; prelude loads clean with the new runtime key.
+
+**Findings delivery.** The document is complete (8,618 bytes) at [1794350496000-engineer-js-r1r3-fix.muse-wonder-1.0.findings.md](/Users/sto/workspace/datomworld-jsr13/1794350496000-engineer-js-r1r3-fix.muse-wonder-1.0.findings.md) in the worktree root. Copying it to `/Users/sto/workspace/datomworld/collab/yang-typescript/` was attempted but the session sandbox blocks all writes outside the worktree and unsandboxed approval is disabled, so the copy could not be made from here; the orchestrator can land it with `cp /Users/sto/workspace/datomworld-jsr13/1794350496000-engineer-js-r1r3-fix.muse-wonder-1.0.findings.md /Users/sto/workspace/datomworld/collab/yang-typescript/`. The findings state the one residual plainly: deliberate seal extraction from a genuinely held wrapper via raw `cell/get` is undetectable without the registry the architect ruled out.

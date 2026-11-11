@@ -1,0 +1,23 @@
+muse: workspace root: /Users/sto/workspace/datomworld-jsr13 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-jsr13/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Baseline TS provenance run is in flight; its result will wake me and I'll implement the R1+R3 fix then.Fix is implemented in the worktree; the TS provenance verification run is in flight and I'll report once it lands.
+Diagnostic is running; I'll analyze its output once it lands.
+Diagnostic running; awaiting its result before the next edit.TS provenance is fully green (10/10 fixtures × 3 VMs) and kit regressions pass; the source-call regression run is still in flight — I'll complete the commit and findings once it lands.
+Completed-GMT: 2026-11-10 22:10:00 GMT
+Completed-Local: 2026-11-11 05:10:00 Asia/Ho_Chi_Minh
+
+JS R1+R3 is done and committed on `exception-js-r1r3` as `c0114a42`. All 10 `:typescript/*` provenance fixtures are green on all three JVM VMs (30 assertions, 0 failures), and both regression suites pass.
+
+Changed files (commit `c0114a42`, 2 files, +71/−19; not merged, not pushed):
+- [`prelude.cljc`](/Users/sto/workspace/datomworld-jsr13/src/cljc/yang/typescript/antlr/prelude.cljc): entry bridge lines 1581–1617 (reads `:yang.call/raise`, installs `js/try` before binding, delivers escapes exactly once with cleanup first); new `js/retained-condition`/`js/raise-protocol` plus fixed `js/call` reception lines 1648–1690 (protocol reasons retain the full condition in private cell contents; `:thrown` still raw).
+- [`exception_contract.clj`](/Users/sto/workspace/datomworld-jsr13/test/yang/call/exception_contract.clj:55): donor `retain` stores via `globalThis.saved` — bare `saved = e` provably lowers to an unconditional `TypeError` (T2 bare-global-write gap, verified through the real parser+lowerer). Expectations unchanged.
+
+Exact test outcomes: TS provenance 30/30 green; kit `yang.call.conformance-test` + `exception-source-test` 131/131 green (matches R0 baseline); TS `source-call-test` 22/22 green. No un-authored ledger flips (only TS rows executed). Unrun: suites/`bb test`, Node/Dart legs, directed pairs, suspension/recursion and other pending obligations.
+
+Unresolved: (1) the one-line donor tweak is revertible if the track prefers — only the 3 `saved-protocol-*` rows depend on it; (2) `js/construct-with-nt` untouched (outside surface); (3) generator-raise-exit lifetime has no dedicated probe.
+
+One incomplete delivery: the findings file could not be placed at `/Users/sto/workspace/datomworld/collab/yang-typescript/1794342830000-engineer-js-r1r3-exception.muse-spark-1.3-contributor.findings.md` — this session's sandbox denies writes outside the worktree and approval prompts are off, so the copy failed. The complete file is staged at [`1794342830000-engineer-js-r1r3-exception.muse-spark-1.3-contributor.findings.md`](/Users/sto/workspace/datomworld-jsr13/1794342830000-engineer-js-r1r3-exception.muse-spark-1.3-contributor.findings.md) (untracked worktree root, starting with the required header fields). Please copy it to the collab path, or grant the workspace root and I will place it.

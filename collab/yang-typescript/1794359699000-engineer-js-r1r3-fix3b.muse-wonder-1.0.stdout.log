@@ -1,0 +1,20 @@
+muse: workspace root: /Users/sto/workspace/datomworld-jsr13 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-jsr13/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-11 04:20:03 GMT
+Completed-Local: 2026-11-11 11:20:03 +07 (Asia/Ho_Chi_Minh)
+
+Landed the architect's preferred correction (i) — the `js.rt/*` rename at all three sites — as commit `1697b257` on `exception-js-r1r3` (not merged, not pushed).
+
+**Resolution rule established:** lookup is exact-symbol in `resolve-var` ([engine.cljc](/Users/sto/workspace/datomworld-jsr13/src/cljc/yin/vm/engine.cljc:116)): env → active (module) store → primitives → registry, with the registry leg building the dotted symbol, so `js.rt/retained-condition` from outside descends into the `js` entry and reads `[:bindings 'rt …]` = nil, then fails loudly. The brief's premise was wrong: the callers at `31287b17` read `js/*`, not `js.rt/*`, so the orchestrator's install-only rename was a guaranteed mismatch in both paths.
+
+**Why not literal shape A:** deleting the stubs gave the arbiter 15F/9E — `undeclared-free {:name raise-protocol}` — because the linker's step-5a join ([linker.cljc](/Users/sto/workspace/datomworld-jsr13/src/cljc/yin/vm/linker.cljc:1086)) discharges lambda-body reads only against unconditional top-level definitions, and the conditional in-body `yin/def`s in `js/init!` discharge nothing. The rename keeps the stubs (re-keyed), so discharge, exports-absence, and post-init resolution all hold; the full evidence is in the findings.
+
+**Changes:** [prelude.cljc](/Users/sto/workspace/datomworld-jsr13/src/cljc/yang/typescript/antlr/prelude.cljc:1617) (definitions, readers, install keys → `js.rt/*`; retention comment, stub paragraph, and install docstring rewritten to be true under this shape; load-bearing `cell/authentic?` note added) and [exception_contract_test.clj](/Users/sto/workspace/datomworld-jsr13/test/yang/call/exception_contract_test.clj:118) (deny-list replaced by the two positive `module-exports` assertions, which I probed failing pre-fix). `exception_probes.clj` untouched.
+
+**Gates post-edit:** R5 set 6/48, prelude-module 3/8, linked-prelude 10/62, conformance + exception-source 6/131, source-call 2/22 — all green.
+
+**Findings:** staged at [1794359699000-engineer-js-r1r3-fix3b.muse-wonder-1.0.findings.md](/Users/sto/workspace/datomworld-jsr13/1794359699000-engineer-js-r1r3-fix3b.muse-wonder-1.0.findings.md) in the worktree root; the sandbox blocked the copy into `collab/yang-typescript/`, so it needs a manual move.
