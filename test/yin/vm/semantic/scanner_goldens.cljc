@@ -662,6 +662,7 @@
         zero-digits?
         frame
         contains
+        condition-exception
         data/content=
         sum-from
         py.rt/limit
@@ -723,6 +724,7 @@
         read-digits
         -
         slice-int
+        py.b/type
         arith
         modules-ref
         try-finally
@@ -736,6 +738,7 @@
         snapshot-exc
         py.b/gen-throw
         gen-start
+        retained-condition
         index-type-error
         integer/bit-and
         make-exc
@@ -1216,6 +1219,11 @@
        [get true]
        [get true]
        [call-kw true]
+       [make-exc true]
+       [= true]
+       [content-type true]
+       [get true]
+       [cell/get true]
        [= true]
        [get true]
        [call-kw true]
@@ -2251,11 +2259,15 @@
        [+ true]
        [data/count true]
        [get true]
+       [cell/set! true]
+       [assoc true]
+       [cell/get true]
        [= true]
        [get true]
-       [raise true]
        [get true]
-       [type-error true]
+       [raise true]
+       [condition-exception true]
+       [py.b/TypeError true]
        [get true]
        [bind-args true]
        [class-lookup true]
@@ -3070,6 +3082,16 @@
        [assoc true]
        [+ true]
        [data/count true]
+       [raise true]
+       [= true]
+       [content-type true]
+       [subclass? true]
+       [get true]
+       [cell/get true]
+       [py.b/BaseException true]
+       [condition-exception true]
+       [make-class true]
+       [py.b/Exception true]
        [= true]
        [subclass? true]
        [py.b/BaseException true]
@@ -3658,6 +3680,9 @@
        [py.b/isinstance true]
        [dict-set true]
        [py.b/builtins true]
+       [py.b/type true]
+       [dict-set true]
+       [py.b/builtins true]
        [py.b/StopIteration true]
        [dict-set true]
        [py.b/builtins true]
@@ -3751,6 +3776,7 @@
        [vconj true]
        [float true]
        [data/float-value true]
+       [make-builtin-function true]
        [make-builtin-function true]
        [make-builtin-function true]
        [make-builtin-function true]
@@ -4126,6 +4152,8 @@
        [isinstance true]
        [arg true]
        [arg true]
+       [type-of true]
+       [arg true]
        [restore! true]
        [set-handlers! true]
        [frame true]
@@ -4470,7 +4498,7 @@
        [cell/set! true]
        [get true]
        [bind-args true]
-       [assoc true]
+       [retained-condition true]
        [cell/get true]
        [data/into true]
        [= true]
@@ -4483,6 +4511,8 @@
        [vconj true]
        [vconj true]
        [vconj true]
+       [= true]
+       [assoc true]
        [get true]
        [vconj true]
        [get true]
@@ -4596,6 +4626,7 @@
        [py.b/str false]
        [py.b/sum false]
        [py.b/tuple false]
+       [py.b/type false]
        [py.rt/builtins-mod false]
        [py.rt/ctx false]
        [py.rt/importlib false]
@@ -4701,6 +4732,8 @@
        [fill-kwdefaults false]
        [bind-args false]
        [call false]
+       [condition-exception false]
+       [retained-condition false]
        [call-kw false]
        [instantiate false]
        [extend false]
@@ -4975,6 +5008,7 @@
        [py.b/hash true]
        [py.b/divmod true]
        [py.b/isinstance true]
+       [py.b/type true]
        [py.b/StopIteration true]
        [py.b/MemoryError true]
        [py.b/OverflowError true]
@@ -4997,7 +5031,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 4018,
+      :application-count 4046,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5137,6 +5171,7 @@
          zero-digits?
          frame
          contains
+         condition-exception
          sum-from
          py.rt/limit
          call-kw
@@ -5200,6 +5235,7 @@
          import-module?
          read-digits
          slice-int
+         py.b/type
          arith
          modules-ref
          try-finally
@@ -5214,6 +5250,7 @@
          snapshot-exc
          py.b/gen-throw
          gen-start
+         retained-condition
          kw-extend
          unpack
          index-type-error
@@ -5562,6 +5599,9 @@
         [get true]
         [get true]
         [get true]
+        [= true]
+        [get true]
+        [cell/get true]
         [= true]
         [get true]
         [get true]
@@ -6071,6 +6111,9 @@
         [+ true]
         [data/count true]
         [get true]
+        [cell/set! true]
+        [assoc true]
+        [cell/get true]
         [= true]
         [get true]
         [get true]
@@ -6576,6 +6619,9 @@
         [assoc true]
         [+ true]
         [data/count true]
+        [= true]
+        [get true]
+        [cell/get true]
         [= true]
         [< true]
         [data/count true]
@@ -7278,7 +7324,6 @@
         [+ true]
         [cell/set! true]
         [get true]
-        [assoc true]
         [cell/get true]
         [data/into true]
         [= true]
@@ -7286,6 +7331,8 @@
         [= true]
         [get true]
         [+ true]
+        [= true]
+        [assoc true]
         [get true]
         [get true]
         [data/str-concat true]
