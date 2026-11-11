@@ -1653,65 +1653,52 @@
     ;; §8.10.7 protocol reception: :yang.call/not-callable,
     ;; :yang.call/invalid-invocation and :yang.call/unsupported-binding map
     ;; to a local TypeError that RETAINS the complete original condition
-    ;; (qualified reason AND plain evidence) in a runtime-owned companion
-    ;; provenance cell, outside source-writable :props. The companion
-    ;; holds the condition, a back-reference to this exact wrapper cell,
-    ;; and the task's retained seal: a cell js/init! allocates whose
-    ;; reference no js definition returns, so admitted source cannot
-    ;; obtain it. The wrapper holds only the companion reference.
-    ;; js/retained-condition authenticates all of it: heap-authentic
-    ;; wrapper and companion, the companion's wrapper identical (=) to
-    ;; the candidate, and its seal identical to the runtime's. A minted
-    ;; cell cannot replicate the seal, and a copy of the wrapper's
-    ;; contents into a new cell fails the identity back-reference, so
-    ;; neither authenticates a retained condition (R5). The companion is
-    ;; reachable only through the wrapper, so the association lives
-    ;; exactly as long as the wrapper does, with no ambient registry.
-    ;; An unchanged rethrow of the same wrapper forwards the original
-    ;; condition through the entry bridge with no new wrapper.
+    ;; (qualified reason AND plain evidence). Retention is a private,
+    ;; task-owned identity association (the architect's round-2 narrow
+    ;; exception to the registry prohibition): js/init! allocates the
+    ;; store cell inside a closure (see retained-store-install in
+    ;; init-form) and installs the two closures below over it. The store
+    ;; holds [wrapper condition] pairs, keyed by the genuine wrapper
+    ;; reference itself: cell identity is `=` on sealed cell refs (same
+    ;; heap id and seal), so a copied or newly minted cell never matches
+    ;; a stored key. Membership is established ONLY by the installed
+    ;; js/raise-protocol when it creates the wrapper; the installed
+    ;; js/retained-condition answers the stored condition for a member
+    ;; wrapper and nil for everything else. No wrapper-supplied or
+    ;; wrapper-reachable metadata is consulted: the wrapper cell carries
+    ;; no provenance, condition or seal slot, so mutating its contents,
+    ;; minting a look-alike, copying its contents, or stamping a new
+    ;; cell with any seal a holder can read cannot create or replace a
+    ;; membership (R5). The store root is a lexical capture of the two
+    ;; installed closures only: it is not a runtime key, not a module
+    ;; export, not reachable through the wrapper cell or its :props,
+    ;; and no exported operation registers or replaces an association.
+    ;; What admitted source CAN reach is the wrapper cell itself (and
+    ;; may mutate its JS-visible contents); that grants retaining and
+    ;; rethrowing that wrapper, never altering what it forwards.
+    ;; Retention/reclamation policy: associations are preserved across
+    ;; completed calls and catches for the life of the task and are
+    ;; reclaimed only at task teardown, when the task's heap (store
+    ;; cell included) dies; there is no process-global or cross-task
+    ;; registry. An unchanged rethrow of a member wrapper forwards the
+    ;; original condition through the entry bridge with no new wrapper.
     ;; Otherwise-foreign :yang.call/thrown payloads are delivered raw
     ;; (the ruling's js allowance). A returned condition-shaped map stays
-    ;; ordinary data.
-    [js/retained-condition
-     (fn [e]
-       (if (js/cell? e)
-         (if (cell/authentic? e)
-           (let [c (cell/get e)]
-             (if (= (get c :js/class) :error)
-               (let [p (get c :yang.call/retained-provenance)]
-                 (if (js/cell? p)
-                   (if (cell/authentic? p)
-                     (let [pc (cell/get p)]
-                       (if (= (get pc :yang.call/wrapper) e)
-                         (if (= (get pc :yang.call/seal) js.rt/retained-seal)
-                           (get pc :yang.call/condition)
-                           nil)
-                         nil))
-                     nil)
-                   nil))
-               nil))
-           nil)
-         nil))]
+    ;; ordinary data. The two definitions here are pre-init stubs (no
+    ;; store exists yet); js/init! replaces both before any guest code
+    ;; runs.
+    [js/retained-condition (fn [e] nil)]
     [js/raise-protocol
      (fn [condition]
-       (let [reason (get condition :yang.call/reason)
-             e (js/make-error
-                 js.rt/type-error-proto
-                 (if (= reason :yang.call/not-callable)
-                   {:js/str "value is not a function"}
-                   (if (= reason :yang.call/unsupported-binding)
-                     {:js/str "unsupported binding profile"}
-                     {:js/str "invalid function invocation"})))]
-         (do (cell/set! e
-                        (assoc (cell/get e)
-                               :yang.call/retained-provenance
-                               (cell/new
-                                 (assoc (assoc (assoc {}
-                                                      :yang.call/wrapper e)
-                                               :yang.call/seal
-                                               js.rt/retained-seal)
-                                        :yang.call/condition condition))))
-             (js/throw e))))]
+       (let [reason (get condition :yang.call/reason)]
+         (js/throw
+           (js/make-error
+             js.rt/type-error-proto
+             (if (= reason :yang.call/not-callable)
+               {:js/str "value is not a function"}
+               (if (= reason :yang.call/unsupported-binding)
+                 {:js/str "unsupported binding profile"}
+                 {:js/str "invalid function invocation"}))))))]
     [js/call
      (fn [f this args]
        (yang.call/invoke-with
@@ -4114,8 +4101,54 @@
     [["toString" 0 'js/symbol-to-string] ["valueOf" 0 'js/symbol-value-of]]]])
 
 
+(def ^:private retained-store-install
+  "The guest form `js/init!` runs to create the private retained-condition
+   identity store and install the real `js/retained-condition` /
+   `js/raise-protocol` closures over it. The store cell is bound only by
+   this `let`, so its root lives solely in the two installed closures'
+   lexical captures: it is allocated once per task (inside the uninit
+   guard), is never written to a `js.rt/*` key, a wrapper cell, or a
+   `:props` map, and no other form returns it. The lookup walks
+   [wrapper condition] pairs comparing keys with `=` — sealed cell-ref
+   identity (heap id plus seal) — so membership is wrapper identity,
+   never wrapper-supplied metadata."
+  '(let [retained-store (cell/new [])
+         retained-lookup
+         (fn [self pairs e]
+           (if (= (data/count pairs) 0)
+             nil
+             (if (= (get (get pairs 0) 0) e)
+               (get (get pairs 0) 1)
+               (self self (data/subvec pairs 1 (data/count pairs)) e))))]
+     (do (yin/def (quote js/retained-condition)
+           (fn [e]
+             (if (js/cell? e)
+               (if (cell/authentic? e)
+                 (retained-lookup retained-lookup
+                                   (cell/get retained-store) e)
+                 nil)
+               nil)))
+         (yin/def (quote js/raise-protocol)
+           (fn [condition]
+             (let [reason (get condition :yang.call/reason)
+                   e (js/make-error
+                       js.rt/type-error-proto
+                       (if (= reason :yang.call/not-callable)
+                         {:js/str "value is not a function"}
+                         (if (= reason :yang.call/unsupported-binding)
+                           {:js/str "unsupported binding profile"}
+                           {:js/str "invalid function invocation"})))]
+               (do (cell/set! retained-store
+                              (conj (cell/get retained-store)
+                                    (js/pair e condition)))
+                   (js/throw e)))))
+         :js/undefined)))
+
+
 (defn- init-form
-  "`js/init!`'s body: the context and out cells, the prototypes in
+  "`js/init!`'s body: the context and out cells, the private
+   retained-condition identity store (retained-store-install, a closure
+   capture, never a runtime key), the prototypes in
    dependency order (`%Object.prototype%`, `%Function.prototype%`, then the
    rest), the intrinsic methods, the Error family, the global object and
    its bindings, then the ready flag, under the uninit guard."
@@ -4130,7 +4163,7 @@
         ['do
          (define 'js.rt/ctx '(cell/new (js/ctx nil)))
          (define 'js.rt/out '(cell/new []))
-         (define 'js.rt/retained-seal '(cell/new :js/retained-seal))
+         retained-store-install
          (define 'js.rt/obj-proto '(js/make-object :js/null))
          (define 'js.rt/fn-proto '(js/make-object js.rt/obj-proto))
          (define 'js.rt/global '(js/make-object js.rt/obj-proto))]
@@ -4290,7 +4323,7 @@
 (def runtime-keys
   "Every key `js/init!` allocates, the ready flag aside, sorted."
   (vec (sort-by str
-                (concat '[js.rt/ctx js.rt/out js.rt/retained-seal js.rt/global js.rt/obj-proto
+                (concat '[js.rt/ctx js.rt/out js.rt/global js.rt/obj-proto
                           js.rt/fn-proto js.rt/symbol-proto js.rt/array-proto]
                         (map second error-classes)
                         (map first primitive-protos)))))

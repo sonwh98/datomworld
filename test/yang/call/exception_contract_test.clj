@@ -1,9 +1,11 @@
 (ns yang.call.exception-contract-test
   "Intentionally red until exception rounds 1–4 repair the runtimes. Never
    invert assertions or encode today's divergences as expected behavior."
-  (:require [clojure.test :refer [deftest is testing do-report]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing do-report]]
             [yang.call.exception-contract :as contract]
-            [yang.call.exception-probes :as probes]))
+            [yang.call.exception-probes :as probes]
+            [yang.typescript.antlr.prelude :as js-prelude]))
 
 
 (defn- check-frontend
@@ -68,6 +70,55 @@
                   :expected {:minted-refused true :mimic-refused true} :actual actual})
       (is (= {:minted-refused true :mimic-refused true} actual)
           (str "minted forgery " backend)))))
+
+
+(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
+  typescript-mutation-substitution-test
+  ;; The architect's round-2 attack: a genuine wrapper obtained via
+  ;; `retain`, its wrapper-reachable provenance overwritten with a
+  ;; forged condition, rethrown from a new activation. The ORIGINAL
+  ;; condition must still forward; the forged one must not cross.
+  (doseq [[backend actual] (probes/run-typescript-identity-store :mutated)]
+    (if (instance? Throwable actual)
+      (do-report {:type :error :message (str "mutation substitution " backend " operational failure")
+                  :expected {:retained true :original-forwarded true} :actual actual})
+      (is (= {:retained true :original-forwarded true} actual)
+          (str "mutation substitution " backend)))))
+
+
+(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
+  typescript-extracted-seal-stamping-test
+  ;; A new wrapper stamped with whatever seal a genuine wrapper's
+  ;; references expose, with a companion back-referencing itself, must
+  ;; end as ordinary :yang.call/thrown carrying the minted cell, never
+  ;; as a retained forwarding.
+  (doseq [[backend actual] (probes/run-typescript-identity-store :extracted-seal)]
+    (if (instance? Throwable actual)
+      (do-report {:type :error :message (str "extracted-seal stamping " backend " operational failure")
+                  :expected {:retained true :stamped-refused true} :actual actual})
+      (is (= {:retained true :stamped-refused true} actual)
+          (str "extracted-seal stamping " backend)))))
+
+
+(deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
+  typescript-store-root-unreachability-test
+  ;; Guest side: a genuine wrapper carries no provenance, condition or
+  ;; seal slot, and no global name holds the store or a seal.
+  ;; Host side: the private store is not a runtime key and no module
+  ;; export names a store, seal or provenance registration surface, so
+  ;; admitted source cannot reach it by enumerating either.
+  (doseq [[backend actual] (probes/run-typescript-identity-store :store-root)]
+    (if (instance? Throwable actual)
+      (do-report {:type :error :message (str "store-root unreachability " backend " operational failure")
+                  :expected {:retained true :wrapper-clean true :globals-clean true} :actual actual})
+      (is (= {:retained true :wrapper-clean true :globals-clean true} actual)
+          (str "store-root unreachability " backend))))
+  (is (not-any? #(str/includes? (str %) "retained") js-prelude/runtime-keys)
+      "no retained store/seal runtime key for admitted source to name")
+  (is (empty? (filter #{'retained-store 'retained-seal 'retained-provenance
+                        'provenance-store 'register-retained}
+                      js-prelude/module-exports))
+      "no exported store/seal/provenance registration name"))
 
 
 (deftest ^{:slow true :gates #{::contract/r5} :frontends #{:typescript}}
