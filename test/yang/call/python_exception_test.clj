@@ -4,6 +4,7 @@
    The focused local gate for the exception-py-r2r3 round: the python subset of
    the shiva acceptance instrument, never a substitute for the full ledger."
   (:require [clojure.test :refer [deftest is testing]]
+            [yang.call.conformance :as kit]
             [yang.call.exception-contract :as contract]
             [yang.call.exception-legs :as legs]
             [yang.call.exception-probes :as probes]))
@@ -58,3 +59,50 @@
   (check-fixture :python/fresh-closure)     ; stays green
   (check-fixture :python/binding)           ; stays green
   (check-fixture :python/forged-retention)) ; stays green (R5: no source-writable forgery)
+
+
+(deftest ^:slow python-kit-parity-test
+  ;; Match exception-probes/protocol-condition and injected exactly: the
+  ;; refusal is produced by public validation, then delivered by a callable
+  ;; cell's raise exit through a parsed Python f() and bare re-raise.
+  (let [donor (kit/publish-donor! :python contract/boundary-source)
+        source "def receive(f):\n    try:\n        return f()\n    except BaseException as e:\n        raise\n"
+        call (fn [callee args]
+               (kit/boundary-call-form callee (kit/observation-vector-form args) []))
+        observation
+        (kit/guard-exceptions-form
+          [:python]
+          (list 'let
+                ['condition (list 'get (call {} []) :condition)
+                 'injected
+                 (list 'cell/new
+                       (list 'assoc {} :yang.call/entry
+                             (list 'fn ['invocation]
+                                   (list (list 'get 'invocation :yang.call/raise)
+                                         'condition))))
+                 'result (call (kit/export-form :python "receive") ['injected])]
+                (kit/observation-map-form
+                  {:reason (list 'get (list 'get 'result :condition) :yang.call/reason)
+                   :condition-identical (list '= 'condition (list 'get 'result :condition))})))
+        results (kit/run-exception-program
+                  donor (kit/compose-exception donor ["boundary_target"]
+                                               :python source observation))]
+    (is (= #{:semantic :stack :register} (set (keys results))))
+    (doseq [[backend actual] results]
+      (println "PYTHON-KIT-PARITY" backend actual)
+      (is (= {:reason :yang.call/not-callable :condition-identical true} actual)
+          (str backend)))))
+
+
+(deftest ^:slow python-kit-batch-parity-test
+  ;; Acceptance uses run-frontend, which shares a task across observations.
+  ;; Isolated run-fixture pins alone cannot establish that batch path.
+  (let [fixtures (filter #(= :python (:frontend %)) contract/fixtures)
+        observations (probes/run-frontend :python)]
+    (is (= (set (map :id fixtures)) (set (keys observations))))
+    (doseq [{:keys [id expected]} fixtures
+            :let [results (get observations id)]]
+      (is (= #{:semantic :stack :register} (set (keys results))) (str id))
+      (doseq [[backend actual] results]
+        (println "PYTHON-KIT-BATCH" id backend actual)
+        (is (= expected actual) (str id " " backend))))))
