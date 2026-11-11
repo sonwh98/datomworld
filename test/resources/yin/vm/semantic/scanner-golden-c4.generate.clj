@@ -50,7 +50,7 @@
 ;; free-name sets (verified by the delta pass before this regeneration).
 ;; The deferred set is therefore the six moved :c4 groups; :py/:pysp and
 ;; :b0/:register did not move.
-(def deferred #{:k :m :t :w :e :n})
+(def deferred #{:py})
 
 
 (def specs (scan-test/c4-specs))

@@ -202,7 +202,8 @@
 
 (def host-names
   "Module exports the prelude calls."
-  (into '#{cell/new cell/get cell/set! data/count data/into data/subvec
+  (into '#{cell/new cell/get cell/set! cell/dsg__new-provenance cell/dsg__provenance
+           data/count data/into data/subvec
            data/number? data/contains? data/dissoc data/str-concat data/str-length
            data/str-index-of data/str->code-points data/code-points->str
            data/float64 data/float-value data/content=
@@ -909,8 +910,17 @@
                               ((get fc :code)
                                (py/bind-args fc positional named))))
                  (fn [e]
-                   (raise-exit (assoc {:yang.call/reason :yang.call/thrown}
-                                      :yang.call/value e)))
+                   ;; A retained generated exception forwards its original
+                   ;; condition unchanged (no new wrapper); a fresh source
+                   ;; exception still becomes the plain §8.10.7 thrown
+                   ;; condition. Retention rides the exception's identity,
+                   ;; outside source-writable attributes.
+                   (let [retained (cell/dsg__provenance e)]
+                     (raise-exit
+                       (if (nil? retained)
+                         (assoc {:yang.call/reason :yang.call/thrown}
+                                :yang.call/value e)
+                         retained))))
                  (fn [] (cell/get result))))))))]
     [py/function-cell
      (fn [name spec defaults kwdefaults code entry?]
@@ -1031,6 +1041,16 @@
                    with-ko (data/into with-star ko)]
                (if (get spec :kwstar?) (py/vconj with-ko (get state 2)) with-ko))))))]
     [py/call (fn [f args] (py/call-kw f args []))]
+    [dsg__condition-exception
+     ;; The privileged mint: a generated exception whose complete original
+     ;; condition rides the VM provenance slot, outside source-writable
+     ;; :attrs. Attribute edits and leaving the creating activation preserve
+     ;; it; reachability of the exception retains the whole condition/payload.
+     ;; Only this constructor mints through the reserved door; it is a
+     ;; compiler-private (`dsg__`) name, outside guest exports, projections,
+     ;; and aliases, so no guest can mint arbitrary provenance.
+     (fn [cls msg condition]
+       (cell/dsg__new-provenance (cell/get (py/make-exc cls msg)) condition))]
     [py/call-kw
      (fn [f args kwargs]
        (if (= (get f :py/type) :method)
@@ -1042,8 +1062,22 @@
                f args kwargs
                (fn [condition]
                  (if (= (get condition :yang.call/reason) :yang.call/thrown)
-                   (py/raise (get condition :yang.call/value))
-                   (py/type-error {:py/str "object is not callable"}))))
+                   (let [value (get condition :yang.call/value)]
+                     (py/raise
+                       (if (if (= (py/content-type value) :instance)
+                             (py/subclass? (get (cell/get value) :class)
+                                           py.b/BaseException)
+                             false)
+                         value
+                         ;; A local hierarchy and fixed local message: neither
+                         ;; foreign class names nor foreign methods participate.
+                         (dsg__condition-exception
+                           (py/make-class "ForeignException" py.b/Exception)
+                           {:py/str "foreign exception"} condition))))
+                   (py/raise
+                     (dsg__condition-exception py.b/TypeError
+                                               {:py/str "object is not callable"}
+                                               condition)))))
              (if (= (py/content-type f) :function)
                (let [fc (cell/get f)]
                  ((get fc :code) (py/bind-args fc args kwargs)))
@@ -3408,6 +3442,9 @@
   '[["len" py.b/len
      (py/make-builtin-function "len" {:params ["obj"], :no-kw true} [] []
                                (fn [args] (py/len (py/arg args 0))))]
+    ["type" py.b/type
+     (py/make-builtin-function "type" {:params ["obj"], :no-kw true} [] []
+                               (fn [args] (py/type-of (py/arg args 0))))]
     ["isinstance" py.b/isinstance
      (py/make-builtin-function "isinstance" {:params ["obj" "cls"], :no-kw true} [] []
                                (fn [args] (py/isinstance (py/arg args 0) (py/arg args 1))))]
