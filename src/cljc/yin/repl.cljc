@@ -41,6 +41,7 @@
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.values :as values]
+            [dao.space.index :as space-index]
             [dao.stream.observer :as observer]))
 
 
@@ -784,6 +785,7 @@
      :program-identity (:identity program-in)
      :observer (:observer program-in)
      :expander (make-expander (:identity program-in) (:stream program-out))
+     :call-site-admissions {}
      :row-stream (:stream program-out)
      :row-observer (:observer program-out)
      :indexer (index/make-indexer {:observer ((:attach program-out))
@@ -1202,6 +1204,125 @@
     [state text]))
 
 
+(defn call-site-tables
+  "The C1 side tables the session's expander retains, keyed by
+   `[admission-origin final-root]` (`yin.vm.macro/call-site-table`
+   custody): the retained record a session publication recovers its
+   claim from (`yin.vm.linker.publish/module-from-index`'
+   `:call-site-tables` option). Nil before any claimed expansion."
+  [state]
+  (:call-site-tables (:expander state)))
+
+
+(defn call-site-admissions
+  "The explicit indexed-program -> full-admission-origin mapping the
+   session records at the point where the expander and the code indexer
+   agree: the round in which the expander staged a program (retaining
+   its table under `[admission-origin final-root]`) is the round in
+   which the indexer committed that same program, so the newly indexed
+   program's metadata entity is paired with that entry's full origin
+   (`yin.vm.linker.publish/module-from-index`'
+   `:call-site-admissions` option). No counter is compared: a program
+   the round cannot pair uniquely is left unmapped, and recovery for
+   it is refused. Empty before any claimed, indexed expansion.
+
+   The mapping is session state only: it starts empty on a fresh
+   session and is NOT reconstructed across rehydration. A session
+   rebuilt over a rehydrated index therefore recovers claim-free for
+   its pre-existing programs (the accepted policy); a new admission
+   is never assigned to an old, unmapped program."
+  [state]
+  (:call-site-admissions state))
+
+
+(defn- indexed-program-roots
+  "The `[metadata-entity root]` of every program the indexer has
+   published: `[]` when nothing is published yet, or nil when the
+   published index cannot be read."
+  [indexer]
+  (if-not (:manifest-address indexer)
+    []
+    (try
+      (into []
+            (comp (filter (fn [[_e a _v _t _m]] (= :yin.repl/root a)))
+                  (map (fn [[e _a v _t _m]] [e v])))
+            (space-index/read-datoms (:content-store indexer)
+                                     (:manifest-address indexer)))
+      (catch #?(:cljd Object :clj Exception :cljs :default) _
+        nil))))
+
+
+(defn- index-round-succeeded?
+  "True when the index round from indexer `before` to `after` actually
+   committed and published: no recorded failure, not lost, a readable
+   manifest covering every committed transaction, and at least one
+   new transaction. A failed commit or publication preserves the
+   prior manifest (`yin.repl.index`), so it proves nothing."
+  [before after]
+  (and (map? before) (map? after)
+       (nil? (:failure after))
+       (not (:lost? after))
+       (some? (:manifest-address after))
+       (= (:published after) (:transactions after))
+       (> (:transactions after) (:transactions before))))
+
+
+(defn- record-call-site-admissions
+  "Pair each table entry the expander retained since `tables-before`
+   with the indexed program this round committed under the same root,
+   recording `{metadata-entity full-admission-origin}` on `state`.
+
+   Pairing is from COMMIT EVIDENCE, never from searching the published
+   index: `eval-program` captures the round's
+   `:call-site-commit-evidence` (`{:programs-before [...]}` — the
+   published programs before indexing — and `:indexer-before`)
+   before the index stage runs, and this step consumes and drops it.
+   Only programs absent before the round (the entities its successful
+   commit actually committed), only after the round is verified to
+   have committed and published (`index-round-succeeded?`), and only
+   when the pairing is unique ON BOTH SIDES for a root — one new
+   admission and one newly committed candidate — is a pair recorded.
+   Multiple admissions or multiple candidates for one root refuse all
+   of them. Pre-existing entities, including rehydrated programs, are
+   excluded by construction. Absent evidence records nothing
+   (fail-closed), never inferred from counters."
+  [tables-before state]
+  (let [evidence (:call-site-commit-evidence state)
+        state (dissoc state :call-site-commit-evidence)
+        new-entries (into {}
+                          (remove (fn [[k _]]
+                                    (contains? tables-before k)))
+                          (or (call-site-tables state) {}))
+        programs-before (:programs-before evidence)
+        programs-after (when (some? evidence)
+                         (indexed-program-roots (:indexer state)))]
+    (if (or (empty? new-entries)
+            (nil? evidence)
+            (nil? programs-before)
+            (nil? programs-after)
+            (not (index-round-succeeded? (:indexer-before evidence)
+                                         (:indexer state))))
+      state
+      (let [before-ms (into #{} (map first) programs-before)
+            committed (filterv #(not (contains? before-ms (first %)))
+                               programs-after)
+            entries-by-root (group-by (fn [[k _]] (second k)) new-entries)
+            committed-by-root (group-by second committed)]
+        (reduce (fn [st root]
+                  (let [entries (get entries-by-root root)
+                        candidates (get committed-by-root root)]
+                    (if (and (= 1 (count entries))
+                             (= 1 (count candidates))
+                             (not (contains? (:call-site-admissions st)
+                                             (ffirst candidates))))
+                      (assoc-in st [:call-site-admissions
+                                    (ffirst candidates)]
+                                (first (ffirst entries)))
+                      st)))
+                (update state :call-site-admissions #(or % {}))
+                (keys entries-by-root))))))
+
+
 (defn- run-expander-stage
   "Drive the expander over `program-in` and drain its summary.  It expands
    each observed batch and appends the tree packet to `program-out`; a
@@ -1304,6 +1425,8 @@
    :key (:dht-key state)
    :primitives (:primitives vm)
    :modules (:modules vm)
+   :call-site-tables (call-site-tables state)
+   :call-site-admissions (call-site-admissions state)
    :round (:round state)})
 
 
@@ -1650,6 +1773,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   (if (:ingress-loss? state)
     [state (str "Error: " ingress-loss-text)]
     (let [state' (update (inject-last-value state) :round inc)
+          tables-before (call-site-tables state')
           batch (encoder/program-batch program)
           append (stream/append! (:program-stream state') batch)]
       (if-not (= :dao.stream/ok (:dao.stream/outcome append))
@@ -1664,9 +1788,23 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
           (if-let [failed (:failed expanded)]
             failed
             (let [[expanded {:keys [errors forwarded]}] expanded
-                  indexed (cond-> expanded
-                            (pos? forwarded) (-> run-index-stage
-                                                 run-ast-index-stage))]
+                  indexed (if (pos? forwarded)
+                            ;; commit evidence is captured BEFORE the
+                            ;; index stage runs: the published programs
+                            ;; and indexer as they stood, so the recorder
+                            ;; pairs only what this round commits
+                            (let [evidence
+                                  {:programs-before
+                                   (indexed-program-roots (:indexer expanded))
+                                   :indexer-before (:indexer expanded)}]
+                              (-> expanded
+                                  run-index-stage
+                                  run-ast-index-stage
+                                  (assoc :call-site-commit-evidence evidence)
+                                  ((fn [s]
+                                     (record-call-site-admissions
+                                       tables-before s)))))
+                            expanded)]
               (with-index-notice
                 (cond
                   (> (ingress-gaps indexed) (ingress-gaps state'))
@@ -1812,13 +1950,15 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    preview; its context is discarded, so nothing is committed."
   [state ast]
   (let [batch (encoder/program-batch ast)
-        {:keys [tree error log]}
+        {:keys [tree error log frontend-metadata]}
         (macro/expand-batch batch (get-in state [:expander :ctx]))]
     (str "AST:\n" (format-value ast)
          "\n\nInput rows:\n" (format-value batch)
          (if tree
            (str "\n\nExpanded rows:\n" (format-value tree))
            (str "\n\nExpansion error:\n" (format-value error)))
+         (when (seq frontend-metadata)
+           (str "\n\nCall sites:\n" (format-value frontend-metadata)))
          "\n\nEvents:\n" (format-value (second log)))))
 
 

@@ -4,17 +4,26 @@
    `:application` occurrence, and the complete-coverage validation a
    consumer runs against canonical rows."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.string :as str]
             [clojure.walk :as walk]
             [dao.jing :as jing]
             [dao.jing.mem :as mem]
+            [dao.space.index :as space.index]
+            [dao.space.query :as query]
             [yang.clojure :as yang]
             [yang.clojure.prelude :as clj-prelude]
             [yang.core.call :as call]
             [yang.safepoint :as safepoint]
+            [yang.tails :as tails]
+            [yin.repl :as repl]
+            [yin.repl.frontends :as repl-frontends]
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.encoder :as encoder]
             [yin.vm.linker.closure :as closure]
+            [dao.stream.apply :as apply2]
+            [yin.repl.query :as repl-query]
+            [yin.vm.linker.dht :as linker-dht]
             [yin.vm.linker.publish :as publish]
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]))
@@ -1236,3 +1245,721 @@
       (is (not= (get-in res-a [:call-sites :origin])
                 (get-in res-s [:call-sites :origin]))
           "the keyword and the string of the same name stay distinct"))))
+
+
+;; =============================================================================
+;; cc2: transform & session C1 preservation
+;; =============================================================================
+
+(defn- sp-var
+  [s]
+  {:type :variable :name s})
+
+
+(defn- sp-app
+  [op & args]
+  {:type :application :operator op :operands (vec args)})
+
+
+(defn- sp-lam
+  [params body]
+  {:type :lambda :params params :body body})
+
+
+(def ^:private sp-ast
+  "`((fn [w] (w w)) (fn [w] (f w)))`, both lambdas site-marked (`:call`,
+   `:loop`) and every application C1-marked, tails marked as a frontend
+   would."
+  (yang/annotate-call-sites
+    (tails/mark-tails
+      (sp-app (vary-meta (sp-lam '[w] (sp-app (sp-var 'w) (sp-var 'w)))
+                         assoc :yang/site :call)
+              (vary-meta (sp-lam '[w] (sp-app (sp-var 'f) (sp-var 'w)))
+                         assoc :yang/site :loop)))))
+
+
+(def ^:private sp-profile {:loop 'h/loop :call 'h/call})
+(def ^:private sp-origin (vm/source-origin :m [:t 0] 0))
+(def ^:private sp-injected-origin [:source :test/publication "safepoint-c1" 0])
+
+
+(defn- sp-projected
+  [ast]
+  (encoder/project (encoder/source-envelope :m [:t 0] [ast])))
+
+
+(defn- entry-set
+  [correspondence kind]
+  (into #{} (filter #(= kind (:kind %))) (:entries correspondence)))
+
+
+(deftest safepoint-c1-preservation-test
+  (let [input (sp-projected sp-ast)
+        input-tree (first (:yin/batch input))
+        input-rows (filterv #(= :yang/call-site (nth % 3))
+                            (:yin/frontend-metadata input))]
+    (is (seq input-rows) "the input envelope carries a C1 claim")
+    (testing "without a supplied injected origin, surviving occurrences
+              keep their own origin at their shifted paths and injected
+              occurrences are identified but unclaimed"
+      (let [{:keys [envelope correspondence]}
+            (safepoint/derive-envelope input sp-profile :m')
+            derived-tree (first (:yin/batch envelope))
+            md (:yin/frontend-metadata envelope)
+            surviving (entry-set correspondence :surviving)
+            injected (entry-set correspondence :safepoint/injected)]
+        (is (some? correspondence))
+        (is (= (count input-rows) (count surviving))
+            "every claimed input occurrence survives (wrapping never drops one)")
+        (is (= (into #{} (map :input) surviving)
+               (into #{} (map #(vec (take 3 %))) input-rows))
+            "the correspondence names every claimed input occurrence")
+        (is (= (into #{} (map :output) surviving) (marked md))
+            "the derived rows are exactly the surviving occurrences")
+        (is (= #{sp-origin} (row-origins md))
+            "surviving rows keep the input rows' own origin, none fabricated")
+        (is (seq injected) "the hook insertions are recorded as injected")
+        (is (every? #(not (contains? % :origin)) injected)
+            "with no origin supplied by the caller, none is invented")
+        (is (= (into #{} (map (fn [e] [(:root derived-tree) (:path e)])) injected)
+               (into #{} (remove (into #{}
+                                       (map (fn [[_ r p]] [r p])
+                                            (map :output surviving)))
+                                 (occurrence-pairs derived-tree))))
+            "the unclaimed derived occurrences are exactly the injected ones")
+        (testing "canonical invariance: C1 carriage changes no row or root"
+          (let [plain (safepoint/derive-envelope
+                        (sp-projected (strip-call-sites sp-ast))
+                        sp-profile :m')]
+            (is (= (:root derived-tree)
+                   (:root (first (:yin/batch (:envelope plain))))))
+            (is (= derived-tree (first (:yin/batch (:envelope plain)))))))))
+    (testing "with a caller-supplied admission origin, the derived table
+              covers the derived tree completely and the injected rows
+              carry that origin alone"
+      (let [{:keys [envelope correspondence]}
+            (safepoint/derive-envelope input sp-profile :m'
+                                       {:injected-origin sp-injected-origin})
+            derived-tree (first (:yin/batch envelope))
+            md (:yin/frontend-metadata envelope)
+            surviving (entry-set correspondence :surviving)
+            injected (entry-set correspondence :safepoint/injected)]
+        (is (= (occurrence-pairs derived-tree) (marked-pairs md))
+            "the recomputed table covers every derived application")
+        (is (true? (yang/validate-call-site-coverage!
+                     derived-tree md sp-injected-origin
+                     {:declared? true :per-occurrence-origins? true})))
+        (is (every? #(= sp-injected-origin (:origin %)) injected))
+        (is (= (into #{} (map (fn [e] [(:origin e) (:root derived-tree) (:path e)]))
+                     injected)
+               (into #{} (filter #(= sp-injected-origin (first %))) (marked md)))
+            "the injected rows are exactly the injected correspondence entries")
+        (is (= (into #{} (map :output) surviving)
+               (into #{} (filter #(= sp-origin (first %))) (marked md)))
+            "the surviving rows keep the input origin")))
+    (testing "an ambiguous or stale input row is refused attribution,
+              never guessed"
+      (let [victim (first input-rows)
+            other-origin [:source :other-publisher "batch-9" 0]
+            bad (assoc input :yin/frontend-metadata
+                       (into (:yin/frontend-metadata input)
+                             [[other-origin (nth victim 1) (nth victim 2)
+                               :yang/call-site 1]
+                              [sp-origin (:root input-tree) [99]
+                               :yang/call-site 1]]))
+            {:keys [envelope correspondence]}
+            (safepoint/derive-envelope bad sp-profile :m'
+                                       {:injected-origin sp-injected-origin})
+            unmapped (entry-set correspondence :unmapped)]
+        (is (= #{(vec (take 3 victim))
+                 [other-origin (nth victim 1) (nth victim 2)]
+                 [sp-origin (:root input-tree) [99]]}
+               (into #{} (map :input) unmapped))
+            "both claims on the double-claimed occurrence and the stale
+             occurrence are unmapped")
+        (is (not (contains? (marked (:yin/frontend-metadata envelope))
+                            (some #(when (= (vec (take 3 victim)) (:input %))
+                                     (:output %))
+                                  (entry-set correspondence :surviving))))
+            "no surviving row is emitted for the refused occurrence")))))
+
+
+(deftest encoder-projected-member-test
+  (testing "an already-projected {:root :rows} member keeps the
+            frontend-metadata its caller supplied, validated like a
+            map-AST member's claim"
+    (let [ast (yang/compile '(+ (* 2 3) 4))
+          tree (vm/ast->semantic-bytecode ast)
+          tables (vm/ast-side-tables ast tree origin)
+          member (assoc tree :frontend-metadata (:frontend-metadata tables)
+                             :source-positions (:source-positions tables))
+          projected (encoder/project
+                      (encoder/source-envelope :program "batch-1" [member]))]
+      (is (= (:frontend-metadata tables) (:yin/frontend-metadata projected))
+          "the supplied rows survive projection verbatim")
+      (is (= (:root tree) (:root (first (:yin/batch projected))))
+          "the canonical root is untouched by the carriage")
+      (is (= (:rows tree) (:rows (first (:yin/batch projected))))
+          "the canonical rows are untouched by the carriage")))
+  (testing "a broken claim on a projected member refuses projection"
+    (let [ast (yang/compile '(+ (* 2 3) 4))
+          tree (vm/ast->semantic-bytecode ast)
+          tables (vm/ast-side-tables ast tree origin)
+          rows (:frontend-metadata tables)]
+      (is (= :yang/call-site-incomplete-coverage
+             (failure-rule
+               #(encoder/project
+                  (encoder/source-envelope
+                    :program "batch-1"
+                    [(assoc tree :frontend-metadata (pop rows))])))))
+      (is (= :yang/call-site-unsupported-version
+             (failure-rule
+               #(encoder/project
+                  (encoder/source-envelope
+                    :program "batch-1"
+                    [(assoc tree :frontend-metadata
+                            (assoc-in rows [0 4] 2))])))))))
+  (testing "a projected member carrying no metadata stays legacy"
+    (let [tree (vm/ast->semantic-bytecode (yang/compile '(+ 1 2)))
+          projected (encoder/project
+                      (encoder/source-envelope :program "batch-1" [tree]))]
+      (is (= [] (:yin/frontend-metadata projected)))
+      (is (= tree (first (:yin/batch projected)))))))
+
+
+(defn- session-index
+  "Evaluate `lines` in a fresh REPL session; answer `{:state s :db db}`
+   with the published index relation (as `publish_test` builds it)."
+  [lines]
+  (let [state (reduce (fn [s line] (first (repl/eval-input s line)))
+                      (repl-frontends/create-state)
+                      lines)
+        ix (:indexer state)]
+    {:state state
+     :db (query/relation
+           (vec (space.index/read-datoms (:content-store ix)
+                                         (:manifest-address ix))))}))
+
+
+(deftest module-from-index-c1-test
+  (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"
+                                           "(def g (fn [] (+ (k) 41)))"])
+        tables (repl/call-site-tables state)]
+    (is (seq tables) "the session expander retains the executed tables")
+    (is (= tables (:call-site-tables (:expander state))))
+    (testing "with the retained tables, the recovered module claims C1
+              and publishes its side table"
+      (let [spec (publish/module-from-index
+                   db {:name 'closed :exports '[g] :primitives vm/primitives
+                       :call-site-tables tables
+                       :call-site-admissions (repl/call-site-admissions state)})
+            store (mem/create-content-mem)
+            res (publish/publish-module! store spec)]
+        (is (not= :refused (:status spec)))
+        (is (true? (yang/validate-ast-call-sites! (:ast spec) origin))
+            "the recovered tree's markers exactly cover its applications")
+        (is (jing/segment-address? (:address res)) (pr-str res))
+        (is (some? (get-in res [:call-sites :record]))
+            "the publication retains the recovered claim's side table")
+        (is (seq (:call-site-rows spec))
+            "assembly preserves the recovered per-occurrence rows")
+        (is (every? (fn [row] (contains? (into #{} (map first)
+                                                 (mapcat val tables))
+                                           (first row)))
+                      (:call-site-rows spec))
+            "recovered rows keep their retained origins, none restamped")
+        (let [{:keys [tree origin rows]}
+              (publish/published-call-site-table store res)
+              retained-origins (into #{} (map first) (mapcat val tables))
+              wrapper-rows (filterv #(= origin (first %)) rows)
+              recovered-rows (filterv #(not= origin (first %)) rows)]
+          (is (= (occurrence-pairs tree) (marked-pairs rows))
+              "the published table covers the module tree exactly")
+          (is (true? (yang/validate-call-site-coverage!
+                       tree rows origin {:declared? true
+                                         :per-occurrence-origins? true})))
+          (is (seq wrapper-rows)
+              "the synthesized sequenced wrappers are claimed separately")
+          (is (every? #(contains? retained-origins (first %)) recovered-rows)
+              "recovered occurrences keep their own admission history")
+          (is (= (reduce + (map count (vals tables)))
+                 (count recovered-rows))
+              "every retained occurrence survives assembly"))))
+    (testing "without retained proof, the recovered tree carries no
+              minted markers and publishes without a C1 claim"
+      (doseq [opts [{:name 'closed :exports '[g] :primitives vm/primitives}
+                    {:name 'closed :exports '[g] :primitives vm/primitives
+                     :call-site-tables {}}]]
+        (let [spec (publish/module-from-index db opts)
+              tree (vm/ast->semantic-bytecode (:ast spec))
+              tables (vm/ast-side-tables (:ast spec) tree origin)
+              res (publish/publish-module! (mem/create-content-mem) spec)]
+          (is (empty? (filter #(= :yang/call-site (nth % 3))
+                              (:frontend-metadata tables)))
+              "no marker is invented for an unproven recovery")
+          (is (jing/segment-address? (:address res)))
+          (is (not (contains? res :call-sites))
+              "the publication makes no C1 claim"))))))
+
+
+(deftest repl-call-site-surface-test
+  (testing "render-compile-output surfaces the expansion's call sites
+            when non-empty, and only then"
+    (let [store (macro/seed-store
+                  (macro/make-ctx {:token :callsite-test/standard-forms
+                                   :source-medium :callsite-test/standard-forms})
+                  [macro/stdlib-forms])
+          ctx (macro/make-ctx {:token "callsite-test"
+                               :source-medium :program-in
+                               :store store})
+          state {:expander {:ctx ctx}}
+          ast (yang/compile '(+ (* 2 3) 4))]
+      (is (str/includes? (#'repl/render-compile-output state ast)
+                         "Call sites")
+          "a claimed expansion renders its side table")
+      (is (not (str/includes?
+                 (#'repl/render-compile-output state (strip-call-sites ast))
+                 "Call sites"))
+          "an unclaimed expansion renders none")))
+  (testing "the link context carries the expander's retained tables"
+    (let [tables {[origin :segment/root] []}]
+      (is (= tables (:call-site-tables
+                      (#'repl/link-context
+                        {:expander {:call-site-tables tables}}
+                        {:primitives {} :modules {}})))))))
+
+;; =============================================================================
+;; cc2 fix round r2: adversarial cases (astra review)
+;; =============================================================================
+
+(defn- tag-at
+  "The row tag at `path` of canonical `tree`, derived from the occurrence
+   relation alone — independent of any producer's correspondence claim."
+  [tree path]
+  (some (fn [[r p id]]
+          (when (and (= r (:root tree)) (= p path))
+            (nth (get (:rows tree) id) 1)))
+        (vm/occurrences tree)))
+
+
+(def ^:private exit-site-ast
+  "A root lambda marked `[:call :tag]` whose body is `(f)`."
+  (yang/annotate-call-sites
+    (vary-meta (sp-lam '[x] (sp-app (sp-var 'f)))
+               assoc :yang/site [:call :tag])))
+
+
+(def ^:private nested-exit-site-ast
+  "An exit-marked lambda whose body applies an exit-marked inner lambda:
+   `(fn [x] ((fn [y] (g))))`, both marked `[:call :tag]`."
+  (yang/annotate-call-sites
+    (vary-meta (sp-lam '[x] (sp-app (vary-meta (sp-lam '[y] (sp-app (sp-var 'g)))
+                                               assoc :yang/site [:call :tag])))
+               assoc :yang/site [:call :tag])))
+
+
+(deftest safepoint-exit-hook-c1-test
+  (testing "exit-only: hook construction prepends the mark's literals, so
+            the body application sits at operand 1, not operand 0"
+    (let [input (sp-projected exit-site-ast)
+          {:keys [envelope correspondence]}
+          (safepoint/derive-envelope input {:return {:hook 'h/return
+                                                      :operands true}}
+                                     :m' {:injected-origin sp-injected-origin})
+          derived-tree (first (:yin/batch envelope))
+          md (:yin/frontend-metadata envelope)
+          surviving (entry-set correspondence :surviving)
+          wrong [3 [3 0]]
+          right [3 [3 1]]]
+      (is (= :literal (tag-at derived-tree wrong))
+          "the independently computed operand-0 coordinate is the literal")
+      (is (= :application (tag-at derived-tree right))
+          "the body application is at operand 1")
+      (is (= #{[sp-origin (:root (first (:yin/batch input))) [3]]}
+             (into #{} (map :input) surviving)))
+      (is (= #{[sp-origin (:root derived-tree) right]}
+             (into #{} (map :output) surviving))
+          "the surviving occurrence is tracked to the body application")
+      (is (not (contains? (marked-pairs md) [(:root derived-tree) wrong]))
+          "no row claims the literal's place as the surviving call")
+      (is (= (occurrence-pairs derived-tree) (marked-pairs md))
+          "the derived table covers the derived tree exactly")))
+  (testing "entry+exit: the body shifts under both insertions"
+    (let [input (sp-projected exit-site-ast)
+          {:keys [envelope correspondence]}
+          (safepoint/derive-envelope
+            input {:call {:hook 'h/enter :operands true}
+                   :return {:hook 'h/return :operands true}}
+            :m' {:injected-origin sp-injected-origin})
+          derived-tree (first (:yin/batch envelope))
+          surviving (entry-set correspondence :surviving)
+          injected (entry-set correspondence :safepoint/injected)]
+      (is (= #{[sp-origin (:root derived-tree) [3 2 3 [3 1]]]}
+             (into #{} (map :output) surviving)))
+      (is (= #{[3] [3 [3 0]] [3 2 3]}
+             (into #{} (map :path) injected))
+          "sequencing, entry hook and exit hook are the injected apps")
+      (is (= (occurrence-pairs derived-tree)
+             (marked-pairs (:yin/frontend-metadata envelope))))))
+  (testing "nested marks: each lambda's exit shift composes"
+    (let [input (sp-projected nested-exit-site-ast)
+          {:keys [envelope correspondence]}
+          (safepoint/derive-envelope input {:return {:hook 'h/return
+                                                      :operands true}}
+                                     :m' {:injected-origin sp-injected-origin})
+          derived-tree (first (:yin/batch envelope))
+          surviving (entry-set correspondence :surviving)]
+      (is (= {[3] [3 [3 1]]
+              [3 2 3] [3 [3 1] 2 3 [3 1]]}
+             (into {} (map (fn [e] [(nth (:input e) 2) (nth (:output e) 2)]))
+                     surviving))
+          "the outer application and the inner (g) track through both wraps")
+      (is (= (occurrence-pairs derived-tree)
+             (marked-pairs (:yin/frontend-metadata envelope)))))))
+
+
+(deftest safepoint-correspondence-refusal-test
+  (testing "a mapped output place that is not an application is refused
+            as :unmapped — asserted by the positive :unmapped entry"
+    (let [input (sp-projected exit-site-ast)
+          tree (first (:yin/batch input))
+          hooks (#'safepoint/selected-hooks
+                  (safepoint/sites (:yin/frontend-metadata input)
+                                   sp-origin (:root tree))
+                  {:return {:hook 'h/return :operands true}})
+          ;; the derived tree handed to derivation is the UNTRANSFORMED
+          ;; tree: tracking maps the body to [3 [3 1]], which names no
+          ;; application there, so the correspondence must be refused
+          {:keys [metadata correspondence]}
+          (#'safepoint/derive-call-sites (:yin/frontend-metadata input)
+                                         tree tree hooks
+                                         sp-injected-origin)
+          unmapped (entry-set correspondence :unmapped)]
+      (is (= #{{:kind :unmapped
+                :input [sp-origin (:root tree) [3]]
+                :reason :output-not-an-application}}
+             unmapped)
+          "the refusal itself is present, not merely a missing row")
+      (is (empty? (filter #(= sp-origin (first %)) metadata))
+          "and no surviving row is emitted for the refused occurrence")))
+  (testing "an invalid injected origin is refused"
+    (is (= :origin
+           (failure-rule
+             #(safepoint/derive-envelope
+                (sp-projected exit-site-ast)
+                {:return {:hook 'h/return :operands true}} :m'
+                {:injected-origin [:bad 1]}))))))
+
+
+(deftest encoder-projected-claim-shape-test
+  (let [ast (yang/compile '(+ (* 2 3) 4))
+        tree (vm/ast->semantic-bytecode ast)
+        rows (:frontend-metadata (vm/ast-side-tables ast tree origin))
+        project-with (fn [rs]
+                       #(encoder/project
+                          (encoder/source-envelope
+                            :program "batch-1"
+                            [(assoc tree :frontend-metadata rs)])))]
+    (testing "a nil origin is refused (the review's sole-application row)"
+      (is (= :yang/call-site-invalid-origin
+             (failure-rule (project-with (assoc-in rows [0 0] nil))))))
+    (testing "a duplicate row is refused"
+      (is (= :yang/call-site-duplicate-entry
+             (failure-rule (project-with (conj rows (first rows)))))))
+    (testing "two origins claiming one application are refused"
+      (is (= :yang/call-site-multi-claim
+             (failure-rule
+               (project-with
+                 (conj rows (assoc (first rows)
+                                   0 [:source :other "batch-9" 0])))))))
+    (testing "an extra field is refused"
+      (is (= :yang/call-site-malformed
+             (failure-rule (project-with (conj rows (conj (first rows)
+                                                          :extra)))))))))
+
+
+(deftest module-from-index-c1-adversarial-test
+  (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"
+                                           "(def g (fn [] (+ (k) 41)))"])
+        tables (repl/call-site-tables state)
+        claim-free? (fn [spec]
+                      (let [tree (vm/ast->semantic-bytecode (:ast spec))
+                            side (vm/ast-side-tables (:ast spec) tree origin)
+                            res (publish/publish-module!
+                                  (mem/create-content-mem) spec)]
+                        (and (empty? (filter #(= :yang/call-site (nth % 3))
+                                             (:frontend-metadata side)))
+                             (not (contains? spec :call-site-rows))
+                             (jing/segment-address? (:address res))
+                             (not (contains? res :call-sites)))))]
+    (testing "stale-admission tables (rekeyed under another admission)
+              prove nothing for the indexed programs"
+      (let [stale (into {}
+                        (map (fn [[[_o root] rs]]
+                               [[[:source "stale-admission" 99 0] root] rs]))
+                        tables)
+            spec (publish/module-from-index
+                   db {:name 'closed :exports '[g] :primitives vm/primitives
+                       :call-site-tables stale
+                       :call-site-admissions (repl/call-site-admissions state)})]
+        (is (claim-free? spec)
+            "identical content under a different admission is not borrowed")))
+    (testing "a wrong-version retained table proves nothing"
+      (let [bad (into {}
+                      (map-indexed (fn [i [k rs]]
+                                     [k (if (zero? i)
+                                          (assoc-in rs [0 4] 2)
+                                          rs)])
+                      tables))
+            spec (publish/module-from-index
+                   db {:name 'closed :exports '[g] :primitives vm/primitives
+                       :call-site-tables bad
+                       :call-site-admissions (repl/call-site-admissions state)})]
+        (is (claim-free? spec))))
+    (testing "an incomplete retained table proves nothing"
+      (let [bad (into {}
+                      (map-indexed (fn [i [k rs]]
+                                     [k (if (zero? i) (pop rs) rs)])
+                      tables))
+            spec (publish/module-from-index
+                   db {:name 'closed :exports '[g] :primitives vm/primitives
+                       :call-site-tables bad
+                       :call-site-admissions (repl/call-site-admissions state)})]
+        (is (claim-free? spec))))))
+
+
+(deftest repl-query-link-forwarding-test
+  (testing "yin.repl.query/link-answer forwards the link context's
+            :call-site-tables to publish-name!"
+    (let [{:keys [state]} (session-index ["(def k (fn [] 1))"])
+          tables (repl/call-site-tables state)
+          captured (atom nil)]
+      (with-redefs [linker-dht/publish-name!
+                    (fn [_node _db opts]
+                      (reset! captured opts)
+                      {:status :ok :address :segment/test
+                       :links {} :envelopes []})]
+        (let [[_ _ response]
+              (#'repl-query/link-answer
+                {} (:indexer state)
+                {:authority nil :key {} :primitives vm/primitives
+                 :modules {} :call-site-tables tables :round 1}
+                (apply2/request 1 (get repl-query/link-ops 'publish)
+                                ['closed '[k]]))]
+          (is (some? response))
+          (is (= tables (:call-site-tables @captured))
+              "ordinary yin.link/publish now carries the retained tables"))))))
+
+;; =============================================================================
+;; cc2 fix round r3: admission identity + explicit wrappers (astra r2 confirm)
+;; =============================================================================
+
+(defn- r3-claim-free?
+  "True when `spec` carries no C1 claim and publishes with no side table."
+  [spec]
+  (let [tree (vm/ast->semantic-bytecode (:ast spec))
+        side (vm/ast-side-tables (:ast spec) tree origin)
+        res (publish/publish-module! (mem/create-content-mem) spec)]
+    (and (empty? (filter #(= :yang/call-site (nth % 3))
+                         (:frontend-metadata side)))
+         (not (contains? spec :call-site-rows))
+         (jing/segment-address? (:address res))
+         (not (contains? res :call-sites)))))
+
+(defn- r3-programs
+  "The indexed programs of `db` as `[m root t]` rows."
+  [db]
+  (query/collect
+    (query/q '[:find ?m ?r ?t :where [?m :yin.repl/root ?r ?t _]] db)))
+
+(deftest module-from-index-c1-r3-test
+  (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"
+                                           "(def g (fn [] (+ (k) 41)))"])
+        tables (repl/call-site-tables state)
+        admissions (repl/call-site-admissions state)
+        programs (r3-programs db)
+        spec-of (fn [ts ads]
+                  (publish/module-from-index
+                    db {:name 'closed :exports '[g] :primitives vm/primitives
+                        :call-site-tables ts :call-site-admissions ads}))]
+    (is (seq admissions)
+        "the session records an explicit indexed-program admission mapping")
+    (is (every? (fn [[m o]] (and (contains? (set (map first programs)) m)
+                                 (vm/occurrence-origin? o)))
+                  admissions)
+        "the mapping is keyed by indexed program, valued by full origin")
+    (testing "(a) a sole foreign table with the same root and batch but a
+              different medium/member is not accepted"
+      (let [foreign (into {}
+                          (map (fn [[[o root] rs]]
+                                 [[[:source "foreign-medium" (nth o 2) 99]
+                                   root] rs]))
+                          tables)]
+        (is (r3-claim-free? (spec-of foreign admissions))
+            "counter equality with a foreign admission proves nothing")))
+    (testing "(b) the drift collision publishes claim-free, not borrowed:
+              a second admission of one root at batch+1, whose indexed
+              program carries the first admission's batch as its t, and
+              for which no explicit mapping is supplied"
+      (let [[[o root] rows] (first tables)
+            m (some (fn [[m r _t]] (when (= r root) m)) programs)
+            drifted (assoc tables [[:source (nth o 1) (inc (nth o 2))
+                                    (nth o 3)] root] rows)
+            ads (dissoc admissions m)]
+        (is (some? m))
+        (is (r3-claim-free? (spec-of drifted ads))
+            "the drifted program's table is never borrowed from batch t")))
+    (testing "(b2) an explicit mapping resolves exactly despite drift:
+              the mapped origin's batch differs from the program's t"
+      (let [[[o root] rows] (first tables)
+            [m _r t] (some (fn [[m r t]] (when (= r root) [m r t])) programs)
+            b-origin [:source (nth o 1) (inc (nth o 2)) (nth o 3)]
+            b-rows (assoc-in (vec rows) [0 0] b-origin)
+            drifted (assoc tables [b-origin root] b-rows)
+            spec (spec-of drifted (assoc admissions m b-origin))]
+        (is (not= (inc (nth o 2)) t) "precondition: mapped batch is not t")
+        (is (seq (:call-site-rows spec)))
+        (is (some #(= b-origin (first %)) (:call-site-rows spec))
+            "resolution followed the explicit [origin root] key, not t")))
+    (testing "(c) a deleted retained row is refused at publication, not
+              reassigned to the publication origin"
+      (let [spec (spec-of tables admissions)
+            deleted (first (:call-site-rows spec))
+            tampered (update spec :call-site-rows (fn [rs] (vec (rest rs))))
+            res (publish/publish-module! (mem/create-content-mem) tampered)]
+        (is (seq (:call-site-rows spec)))
+        (is (= :refused (:status res)) (pr-str res))
+        (is (= :yin.link.publish/incomplete-call-site-coverage (:reason res)))
+        (is (contains? (set (:missing res)) [(nth deleted 1) (nth deleted 2)])
+            "the refusal names the deleted occurrence as unmapped")))
+    (testing "a tampered wrapper set is refused: the wrapper applications
+              are the assembly's explicit set, not every uncovered site"
+      (let [spec (spec-of tables admissions)
+            tampered (update spec :call-site-wrappers pop)
+            res (publish/publish-module! (mem/create-content-mem) tampered)]
+        (is (seq (:call-site-wrappers spec))
+            "assembly emits the explicit wrapper occurrence set")
+        (is (= :refused (:status res)) (pr-str res))))
+    (testing "(d) []/nil supplied rows publish claim-free, not fully claimed"
+      (let [spec (spec-of tables admissions)]
+        (doseq [empty-rows [[] nil]]
+          (let [res (publish/publish-module!
+                      (mem/create-content-mem)
+                      (assoc spec :call-site-rows empty-rows))]
+            (is (jing/segment-address? (:address res)) (pr-str res))
+            (is (not (contains? res :call-sites))
+                "an empty supplied table claims no application")))))
+    (testing "(d2) []/nil supplied tables publish claim-free from the index"
+      (doseq [ts [[] nil {}]]
+        (is (r3-claim-free? (spec-of ts admissions)))))))
+
+
+;; =============================================================================
+;; cc2 fix round r4: commit-evidence recorder + wrapper provenance (astra r3)
+;; =============================================================================
+
+(defn- r4-record
+  "Run the session recorder over a crafted state: `ix` is the indexer's
+   post-round value, `evidence` the commit evidence the round captured
+   before indexing (`:programs-before`, `:indexer-before`)."
+  [ix evidence crafted-tables]
+  (#'repl/record-call-site-admissions
+    {}
+    {:expander {:call-site-tables crafted-tables}
+     :call-site-admissions {}
+     :indexer ix
+     :call-site-commit-evidence evidence}))
+
+(deftest record-call-site-admissions-r4-test
+  (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"])
+        tables (repl/call-site-tables state)
+        [[o root] rows] (first tables)
+        ix (:indexer state)
+        [m-a] (some (fn [[m r _t]] (when (= r root) [m])) (r3-programs db))
+        b-origin [:source (nth o 1) 999 (nth o 3)]
+        crafted {[b-origin root] rows}
+        ok-before (assoc ix :transactions 0 :published 0)]
+    (is (some? m-a) "precondition: the session indexed one program")
+    (testing "(r4-1) a stale published snapshot after a failed index round
+              is not paired: publication failure leaves the old manifest,
+              and recording is gated on the round having succeeded"
+      (let [failed-ix (assoc ix :failure {:round 99 :stage :publish
+                                          :message "simulated failure"})
+            result (r4-record failed-ix
+                              {:programs-before [] :indexer-before ok-before}
+                              crafted)]
+        (is (= {} (:call-site-admissions result))
+            "no admission is recorded against the stale snapshot")
+        (is (r3-claim-free?
+              (publish/module-from-index
+                db {:name 'closed :exports '[k] :primitives vm/primitives
+                    :call-site-tables crafted
+                    :call-site-admissions (:call-site-admissions result)}))
+            "the unpaired admission publishes claim-free")))
+    (testing "(r4-3) a rehydrated unmapped program is pre-existing index
+              evidence, not this round's commit: no pairing, claim-free"
+      (let [result (r4-record ix
+                              {:programs-before [[m-a root]]
+                               :indexer-before ix}
+                              crafted)]
+        (is (= {} (:call-site-admissions result))
+            "the rehydrated program is never claimed by a new admission")
+        (is (r3-claim-free?
+              (publish/module-from-index
+                db {:name 'closed :exports '[k] :primitives vm/primitives
+                    :call-site-tables crafted
+                    :call-site-admissions (:call-site-admissions result)}))
+            "a rehydrated session recovers claim-free, never by borrowing")))
+    (testing "(r4-2) multiple new admissions competing for one newly
+              committed candidate refuse all of them, never first-wins"
+      (let [c-origin [:source (nth o 1) 1000 (nth o 3)]
+            competing (assoc crafted [c-origin root] rows)
+            result (r4-record ix
+                              {:programs-before [] :indexer-before ok-before}
+                              competing)]
+        (is (= {} (:call-site-admissions result))
+            "neither competing admission claims the sole candidate")))
+    (testing "(r4-2b) multiple newly committed candidates for one new
+              admission refuse it: uniqueness is required on both sides"
+      (let [{state2 :state db2 :db}
+            (session-index ["(def k (fn [] 1))" "(def k (fn [] 1))"])
+            roots2 (into #{} (map second) (r3-programs db2))
+            result (r4-record (:indexer state2)
+                              {:programs-before []
+                               :indexer-before (assoc (:indexer state2)
+                                                      :transactions 0
+                                                      :published 0)}
+                              {[b-origin (first roots2)] rows})]
+        (is (= 1 (count roots2)) "precondition: both rounds share one root")
+        (is (= {} (:call-site-admissions result))
+            "an admission with two committed candidates stays unmapped")))))
+
+(deftest wrapper-provenance-r4-test
+  (let [{:keys [state db]} (session-index ["(def k (fn [] 1))"
+                                           "(def g (fn [] (+ (k) 41)))"])
+        spec (publish/module-from-index
+               db {:name 'closed :exports '[g] :primitives vm/primitives
+                   :call-site-tables (repl/call-site-tables state)
+                   :call-site-admissions (repl/call-site-admissions state)})]
+    (is (seq (:call-site-rows spec)) "precondition: assembly recovered rows")
+    (is (some? (:call-site-wrappers-evidence spec))
+        "assembly retains its computed wrapper set as spec evidence")
+    (testing "(r4-4) a recovered user occurrence moved into the wrapper
+              set is refused as wrapper provenance, not reassigned to the
+              publication origin"
+      (let [deleted (first (:call-site-rows spec))
+            moved (-> spec
+                      (update :call-site-rows (fn [rs] (vec (rest rs))))
+                      (update :call-site-wrappers
+                              conj [(nth deleted 1) (nth deleted 2)]))
+            res (publish/publish-module! (mem/create-content-mem) moved)]
+        (is (= :refused (:status res)) (pr-str res))
+        (is (= :yin.link.publish/wrapper-provenance (:reason res))
+            "the refusal names wrapper provenance as the defect")))
+    (testing "(r4-4b) a caller-supplied wrapper set without retained
+              assembly evidence is never accepted"
+      (let [res (publish/publish-module!
+                  (mem/create-content-mem)
+                  (dissoc spec :call-site-wrappers-evidence))]
+        (is (= :refused (:status res)) (pr-str res))
+        (is (= :yin.link.publish/wrapper-provenance (:reason res)))))))

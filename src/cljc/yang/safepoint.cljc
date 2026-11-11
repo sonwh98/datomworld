@@ -34,7 +34,11 @@
    - `A'` leaves on the stage's own medium in a projected envelope whose
      batch token is the record's address, so its occurrence origin is an
      ordinary `[:source medium' token 0]`. No side table is copied: an `A'`
-     node's facts are a join back to `A` through the site set."
+     node's facts are a join back to `A` through the site set. The one
+     exception is the C1 claim: when the input claims `:yang/call-site`
+     coverage, `derive-envelope` recomputes its rows over `A'` (never
+     copies them — paths shift) and records the input→output occurrence
+     correspondence as data."
   (:require
     [dao.jing :as jing]
     [yang.stage :as stage]
@@ -55,6 +59,12 @@
 (def site-key
   "The frontend-metadata key a site mark travels under."
   :yang/site)
+
+
+(def call-site-key
+  "The frontend-metadata key of the call-site occurrence contract C1,
+   recomputed over a derived tree beside the safepoint site marks."
+  :yang/call-site)
 
 
 (defn sites
@@ -189,6 +199,19 @@
         out))))
 
 
+(defn- selected-hooks
+  "`{path {:enter h :exit h}}` of the sites `profile` selects."
+  [sites profile]
+  (into {}
+        (keep (fn [[path mark]]
+                (let [h (site-hooks profile mark)]
+                  (when (seq h)
+                    [path (cond-> h
+                            (contains? statement-kinds (mark-kind mark))
+                            (assoc :statement? true))]))))
+        sites))
+
+
 (defn insert
   "Pure: the canonical row set `tree` (`{:root id :rows {id row}}`) with
    each of `sites` (`{path mark}`, a mark a kind or `[kind datum ...]`) that
@@ -198,14 +221,7 @@
    `{:tree A' :sites selected}`. With nothing selected `A'` is `tree`
    itself."
   [tree sites profile]
-  (let [hooks (into {}
-                    (keep (fn [[path mark]]
-                            (let [h (site-hooks profile mark)]
-                              (when (seq h)
-                                [path (cond-> h
-                                        (contains? statement-kinds (mark-kind mark))
-                                        (assoc :statement? true))]))))
-                    sites)
+  (let [hooks (selected-hooks sites profile)
         selected (into {}
                        (filter (fn [[path _]] (contains? hooks path)))
                        sites)]
@@ -215,6 +231,160 @@
                (tails/remark-tails
                  (rewrite (vm/semantic-bytecode->ast tree) hooks))))
      :sites selected}))
+
+
+(defn- track-occurrences
+  "Path arithmetic over the input map AST `ast` under the selected
+   `hooks`: `{:surviving {in-path out-path} :injected #{out-path}}` for
+   every `:application` occurrence. Wrapping never drops, duplicates, or
+   reorders a subtree — it only prefixes hook applications — so each
+   input application has exactly one output place, derived here from
+   the rewrite's own insertions, never matched by content. A sequencing
+   insertion (`sequence-hook`) puts its node under `[2 3]` beneath the
+   injected sequencing application; a lambda site's body shifts under
+   the entry sequencing application and the exit hook application."
+  [ast hooks]
+  (let [surviving (atom {})
+        injected (atom #{})]
+    (letfn [(walk2
+                [node in-path out-path]
+                (let [site (get hooks in-path)]
+                  (cond
+                    (and site (or (:statement? site) (:sequence? site)))
+                    (do (swap! injected conj out-path (conj out-path [3 0]))
+                        (walk-self2 node in-path (conj out-path 2 3)))
+
+                    (and site (= :lambda (:type node)))
+                    (let [{:keys [enter exit]} site
+                          ;; hook construction prepends the mark's literal
+                          ;; operands, so the wrapped body is the exit
+                          ;; hook's operand at index (count operands)
+                          body-operand (count (:operands exit))
+                          body-out (into out-path
+                                         (cond
+                                           (and enter exit)
+                                           [3 2 3 [3 body-operand]]
+                                           enter [3 2 3]
+                                           exit [3 [3 body-operand]]
+                                           :else [3]))]
+                      (when enter
+                        (swap! injected conj (conj out-path 3)
+                               (into out-path [3 [3 0]])))
+                      (when exit
+                        (swap! injected conj
+                               (if enter (conj out-path 3 2 3) (conj out-path 3))))
+                      (walk2 (:body node) (conj in-path 3) body-out))
+
+                    :else (walk-self2 node in-path out-path))))
+              (walk-self2
+                [node in-path out-path]
+                (when (= :application (:type node))
+                  (swap! surviving assoc in-path out-path))
+                (doseq [[j [field kind]] (map-indexed vector
+                                                      (get vm/semantic-bytecode-grammar
+                                                           (:type node)))
+                        :let [pos (+ j 2)
+                              value (get node field)]]
+                  (case kind
+                    :node (walk2 value (conj in-path pos) (conj out-path pos))
+                    :nodes (doseq [[i child] (map-indexed vector (or value []))]
+                             (walk2 child (conj in-path [pos i])
+                                    (conj out-path [pos i])))
+                    nil)))]
+        (walk2 ast [] []))
+      {:surviving @surviving :injected @injected}))
+
+
+(defn- derive-call-sites
+  "Recompute the C1 rows of the derived tree from the input tree's own
+   rows: `{:metadata rows :correspondence c}`, or nil when the input
+   carries no C1 claim for `tree`. A surviving occurrence keeps its
+   input row's origin at its tracked output path. An injected
+   occurrence is claimed only under `injected-origin`, the admission
+   origin the caller supplies; without one it is recorded as injected
+   and left unclaimed. An input row whose occurrence is claimed by two
+   origins, or that names no application occurrence of the input tree,
+   is refused attribution (`:unmapped`) — never guessed. Every mapped
+   output place is verified against the derived tree's own application
+   occurrences; a place that is not an application there (the exit
+   hook's literal operands, say) is likewise `:unmapped`
+   (`:output-not-an-application`), never emitted as a row."
+  [frontend-metadata tree derived hooks injected-origin]
+  (let [rows (filterv (fn [row]
+                        (and (sequential? row) (= 5 (count row))
+                             (= (:root tree) (nth row 1))
+                             (= call-site-key (nth row 3))))
+                      frontend-metadata)]
+    (when (seq rows)
+      (let [{:keys [surviving injected]}
+            (track-occurrences (vm/semantic-bytecode->ast tree) hooks)
+            eligible (into #{} (map second) (vm/application-occurrences tree))
+            derived-eligible (into #{}
+                                   (map second)
+                                   (vm/application-occurrences derived))
+            by-path (group-by #(nth % 2) rows)
+            sorted (fn [xs] (vec (sort-by pr-str xs)))
+            parts (reduce
+                    (fn [acc [path rs]]
+                      (let [origins (distinct (map first rs))]
+                        (cond
+                          (< 1 (count origins))
+                          (update acc :unmapped into
+                                  (map (fn [o]
+                                         {:kind :unmapped
+                                          :input [o (:root tree) path]
+                                          :reason :ambiguous})
+                                       origins))
+
+                          (not (contains? eligible path))
+                          (update acc :unmapped conj
+                                  {:kind :unmapped
+                                   :input [(first (first rs)) (:root tree) path]
+                                   :reason :no-such-occurrence})
+
+                          :else
+                          (let [o (first (first rs))
+                                out (get surviving path)]
+                            (if (contains? derived-eligible out)
+                              (-> acc
+                                  (update :entries conj
+                                          {:kind :surviving
+                                           :input [o (:root tree) path]
+                                           :output [o (:root derived) out]})
+                                  (update :rows into
+                                          (map (fn [r]
+                                                 [o (:root derived) out
+                                                  call-site-key (nth r 4)])
+                                               rs)))
+                              (update acc :unmapped conj
+                                      {:kind :unmapped
+                                       :input [o (:root tree) path]
+                                       :reason :output-not-an-application}))))))
+                    {:entries [] :rows [] :unmapped []}
+                    (sort-by (comp pr-str key) by-path))
+            verified-injected (filterv derived-eligible (sorted injected))
+            refused-injected (map (fn [p]
+                                    {:kind :unmapped :path p
+                                     :reason :output-not-an-application})
+                                  (remove derived-eligible (sorted injected)))
+            injected-entries (map (fn [p]
+                                    (cond-> {:kind :safepoint/injected :path p}
+                                      injected-origin
+                                      (assoc :origin injected-origin)))
+                                  verified-injected)
+            injected-rows (when injected-origin
+                            (map (fn [p]
+                                   [injected-origin (:root derived) p
+                                    call-site-key 1])
+                                 verified-injected))]
+        {:metadata (vec (sort jing/canonical-compare
+                              (distinct (into (:rows parts) injected-rows))))
+         :correspondence {:input-root (:root tree)
+                          :output-root (:root derived)
+                          :entries (into (sorted (:entries parts))
+                                         (into injected-entries
+                                               (sorted (into (:unmapped parts)
+                                                             refused-injected))))}}))))
 
 
 (defn derive-record
@@ -234,26 +404,47 @@
 (defn derive-envelope
   "One projected envelope from the row medium to the derived one:
    `{:envelope e' :record r :record-address a}`. The run member of the input
-   is `A`; `e'` carries `A'` alone, on `medium`, with token `a`."
-  [envelope profile medium]
-  (let [{:yin/keys [source-medium batch-token batch root frontend-metadata]}
-        envelope
-        tree (nth batch root)
-        origin (vm/source-origin source-medium batch-token root)
-        {derived :tree selected :sites}
-        (insert tree (sites frontend-metadata origin (:root tree)) profile)
-        record (derive-record (:root tree) (:root derived) profile selected)
-        address (jing/segment-key record)]
-    (vm/source-origin medium address 0)
-    {:envelope {:yin/source-medium medium,
-                :yin/batch-token address,
-                :yin/batch [derived],
-                :yin/root 0,
-                :yin/source-positions [],
-                :yin/frontend-metadata [],
-                :yin/entity-occurrences []},
-     :record record,
-     :record-address address}))
+   is `A`; `e'` carries `A'` alone, on `medium`, with token `a`.
+
+   When the input envelope's frontend-metadata claims C1 for the run
+   member, `e'` carries the recomputed rows of `A'` and the answer
+   carries `:correspondence`, the explicit input→output occurrence
+   correspondence (also on `e'` as `:yang.safepoint/correspondence`).
+   `opts` may supply `:injected-origin`, the caller's admission origin
+   for the injected hook applications; without one they stay
+   unclaimed. No origin is ever derived from the trees' structure."
+  ([envelope profile medium]
+   (derive-envelope envelope profile medium nil))
+  ([envelope profile medium {:keys [injected-origin]}]
+   (when (and injected-origin (not (vm/occurrence-origin? injected-origin)))
+     (throw (ex-info "Malformed injected call-site origin"
+                     {:rule :origin, :origin injected-origin})))
+   (let [{:yin/keys [source-medium batch-token batch root frontend-metadata]}
+         envelope
+         tree (nth batch root)
+         origin (vm/source-origin source-medium batch-token root)
+         input-sites (sites frontend-metadata origin (:root tree))
+         {derived :tree selected :sites}
+         (insert tree input-sites profile)
+         {:keys [metadata correspondence]}
+         (derive-call-sites frontend-metadata tree derived
+                            (selected-hooks input-sites profile)
+                            injected-origin)
+         record (derive-record (:root tree) (:root derived) profile selected)
+         address (jing/segment-key record)]
+     (vm/source-origin medium address 0)
+     (cond-> {:envelope (cond-> {:yin/source-medium medium,
+                                 :yin/batch-token address,
+                                 :yin/batch [derived],
+                                 :yin/root 0,
+                                 :yin/source-positions [],
+                                 :yin/frontend-metadata (or metadata []),
+                                 :yin/entity-occurrences []}
+                          correspondence
+                          (assoc :yang.safepoint/correspondence correspondence)),
+              :record record,
+              :record-address address}
+       correspondence (assoc :correspondence correspondence)))))
 
 
 (defn transform

@@ -22,6 +22,9 @@
   (merge {:status :refused :reason reason} data))
 
 
+(declare recovered-call-site-claim sequenced-wrapper-paths)
+
+
 (defn- definitions
   [ast]
   (letfn [(scan
@@ -283,7 +286,14 @@
         claim (when (and tree (not defect) (not requirement)
                          (not= :refused (:status tree))
                          (not= :refused (:status fp)))
-                (call-site-claim ast tree admission))]
+                (if (contains? spec :call-site-rows)
+                  (recovered-call-site-claim (:call-site-rows spec)
+                                              (:call-site-wrappers spec)
+                                              (get spec
+                                                   :call-site-wrappers-evidence
+                                                   ::absent)
+                                              tree admission)
+                  (call-site-claim ast tree admission)))]
     (cond
       undefined
       (refusal :yin.link.publish/undefined-export {:export undefined})
@@ -303,6 +313,9 @@
       ;; reason is the unsupported version, never incomplete coverage
       (and claim (contains? claim :unsupported-version))
       (refusal :yin.link.publish/unsupported-call-site-version claim)
+
+      (and claim (contains? claim :wrapper-provenance))
+      (refusal :yin.link.publish/wrapper-provenance claim)
 
       (and claim (not (:rows claim)))
       (refusal :yin.link.publish/incomplete-call-site-coverage claim)
@@ -524,6 +537,194 @@
   {:type :literal :value nil})
 
 
+(def ^:private call-site-key
+  "The reserved frontend-metadata key of the call-site occurrence
+   contract C1, enforced at the publication boundary but not owned
+   by it."
+  :yang/call-site)
+
+
+(defn- mark-call-sites
+  "The map AST `node` with `:yang/call-site 1` on every `:application`
+   node, at every depth the row grammar knows. This mirrors the
+   frontends' shared finalization walk locally: this namespace sits
+   below every frontend and must not import one."
+  [node]
+  (let [walked (reduce (fn [n [field kind]]
+                         (case kind
+                           :node (update n field mark-call-sites)
+                           :nodes (update n field
+                                          (fn [children]
+                                            (mapv mark-call-sites children)))
+                           n))
+                       node
+                       (get vm/semantic-bytecode-grammar (:type node)))]
+    (cond-> walked
+      (= :application (:type node)) (assoc :yang/call-site 1))))
+
+
+(defn- retained-call-site-rows
+  "The retained C1 rows of the indexed `program` (`{:m m :t t :ast
+   ast}`), or nil when its proof is unavailable. Proof is resolved by
+   the program's ACTUAL admission identity, never by counter equality:
+   `admissions` is the explicit indexed-program -> full-admission-origin
+   mapping the composition recorded where the index and the expander
+   agree (`yin.repl/call-site-admissions`), and the program's own table
+   is exactly the entry the expander retains under
+   `[admission-origin final-root]` (`yin.vm.macro/call-site-table`)
+   for its canonical `root`. The index transaction `t` and the
+   expansion's source-batch counter diverge ordinarily — a failed
+   expansion advances one, a name publication the other — so no entry
+   is ever selected by comparing them: a foreign table carrying the
+   same root and batch number under another medium or member is
+   another admission's evidence and is never borrowed. When the
+   mapping, or the entry it names, is absent, the association is
+   unavailable and recovery is refused. A matched table must still
+   prove itself: full five-coordinate rows, ruled origins, version 1,
+   unique ownership of each application, exact coverage."
+  [program tables admissions]
+  (let [tree (vm/ast->semantic-bytecode (:ast program))
+        root (:root tree)
+        eligible (into #{}
+                       (map (fn [[r p]] [r p]))
+                       (vm/application-occurrences tree))
+        origin (get admissions (:m program))
+        table (when (and (vm/occurrence-origin? origin) (map? tables))
+                (get tables [origin root]))]
+    (when (some? table)
+      (let [rows (filterv (fn [row]
+                            (and (sequential? row)
+                                 (<= 4 (count row))
+                                 (= call-site-key (nth row 3))))
+                          table)
+            claimed (into #{}
+                          (map (fn [row] [(nth row 1) (nth row 2)]))
+                          rows)]
+        (when (and (every? (fn [row]
+                             (and (= 5 (count row))
+                                  (vm/occurrence-origin? (nth row 0))
+                                  (= root (nth row 1))
+                                  (= 1 (nth row 4))))
+                           rows)
+                   (= (count rows) (count claimed))
+                   (= eligible claimed))
+          rows)))))
+
+
+(defn- sequenced-prefixes
+  "The path prefix of each of `n` programs inside `(sequenced asts)`:
+   the first program is the outermost wrapper's operand, the rest
+   nest under each wrapper operator's body, the last innermost."
+  [n]
+  (if (<= n 1)
+    (vec (repeat n []))
+    (into [[[3 0]]]
+          (map (fn [p] (into [2 3] p)))
+          (sequenced-prefixes (dec n)))))
+
+
+(defn- sequenced-wrapper-paths
+  "The assembled-tree path of each `sequenced` wrapper application for
+   `n` programs: the outermost wrapper at the root, each inner wrapper
+   under the previous wrapper operator's body. Assembly emits these as
+   the spec's explicit `:call-site-wrappers` occurrence set, so no
+   later step infers wrapperhood from non-coverage."
+  [n]
+  (vec (take (max 0 (dec n)) (iterate (fn [p] (into [2 3] p)) []))))
+
+
+(defn- recovered-call-site-claim
+  "The C1 claim of a spec carrying `:call-site-rows` — the per-occurrence
+   rows `module-from-index` recovered and shifted into the assembled
+   tree's coordinates: those rows keep their own retained origins
+   through publication, and exactly the assembled tree applications
+   the spec's explicit `:call-site-wrappers` occurrence set names
+   (the `sequenced` wrappers assembly synthesized, as `[root path]`
+   pairs) are claimed separately under the publication admission
+   `origin`. Wrapper provenance is not taken on the caller's word:
+   the spec's wrapper set must EQUAL the retained assembly evidence
+   (`wrappers-evidence`, the wrapper set `module-from-index` computed
+   and retained on the spec as `:call-site-wrappers-evidence`; the
+   `::absent` sentinel when no evidence was retained) — any
+   divergence, including a recovered user occurrence moved into the
+   wrapper set or a caller-supplied set assembly never computed,
+   refuses as `{:wrapper-provenance {...}}`. Recovered rows and
+   explicit wrappers together must cover
+   the tree EXACTLY: any other uncovered application — a deleted
+   retained row included — refuses the claim (`:missing`, the
+   unmapped occurrences) instead of being silently reassigned to the
+   publication origin, and a wrapper naming a covered or non-existent
+   place refuses as `:extra`. An empty or nil supplied table makes
+   no claim at all (nil), never a full claim. Same answer shapes as
+   `call-site-claim` otherwise; a recovered row of any other version
+   refuses the claim instead of publishing it."
+  [rows wrappers wrappers-evidence tree admission]
+  (let [origin (publication-origin admission)
+        eligible (into #{}
+                       (map (fn [[r p]] [r p]))
+                       (vm/application-occurrences tree))
+        claimed-rows (filterv (fn [row]
+                                (and (sequential? row)
+                                     (<= 4 (count row))
+                                     (= call-site-key (nth row 3))))
+                              (or rows []))]
+    (when (seq claimed-rows)
+      (or (let [actual (into #{}
+                             (map (fn [[r p]] [r p]))
+                             (or wrappers []))
+                expected (when (sequential? wrappers-evidence)
+                           (into #{}
+                                 (map (fn [[r p]] [r p]))
+                                 wrappers-evidence))]
+            (when (or (nil? expected)
+                      (not= expected actual)
+                      (not= (count (or wrappers [])) (count actual))
+                      (not= (count wrappers-evidence) (count expected)))
+              {:wrapper-provenance {:expected expected, :actual actual}}))
+          (when-let [[v p] (some (fn [row]
+                                   (when (not= 1 (nth row 4 nil))
+                                     [(nth row 4 nil) (nth row 2 nil)]))
+                                 claimed-rows)]
+            {:unsupported-version v, :path p})
+          (let [well-formed? (and (every? (fn [row]
+                                            (and (= 5 (count row))
+                                                 (vm/occurrence-origin? (nth row 0))
+                                                 (= (:root tree) (nth row 1))))
+                                          claimed-rows)
+                                  (= (count claimed-rows)
+                                     (count (into #{}
+                                                  (map (fn [row]
+                                                         [(nth row 1) (nth row 2)]))
+                                                  claimed-rows))))
+                covered (into #{}
+                              (map (fn [row] [(nth row 1) (nth row 2)]))
+                              claimed-rows)
+                wrapper-set (into #{}
+                                  (map (fn [[r p]] [r p]))
+                                  (or wrappers []))
+                wrappers-well? (and (every? (fn [[r p]]
+                                              (and (= (:root tree) r)
+                                                   (vector? p)))
+                                            (or wrappers []))
+                                    (= (count (or wrappers []))
+                                       (count wrapper-set)))
+                accounted (into covered wrapper-set)
+                missing (remove accounted eligible)
+                extra (concat (remove eligible covered)
+                              (remove eligible wrapper-set)
+                              (filter covered wrapper-set))]
+            (if (and well-formed? wrappers-well?
+                     (empty? missing) (empty? extra))
+              {:origin origin,
+               :rows (vec (sort jing/canonical-compare
+                                (into claimed-rows
+                                      (map (fn [[r p]]
+                                             [origin r p call-site-key 1]))
+                                      wrapper-set)))}
+              {:missing (vec (sort-by pr-str missing)),
+               :extra (vec (sort-by pr-str extra))}))))))
+
+
 (defn- sequenced
   "One tree running `asts` in order: `((fn [_] second) first)`, nested.
    A program root in operand position is not a tail call.  No programs
@@ -576,8 +777,29 @@
    a module of `modules` -- `{name manifest-address}`, the modules the
    session linked -- (declared under `:requires`).  A name qualified by
    one of `host-modules` refuses `:yin.link.publish/host-module`, any
-   other `:yin.link.publish/undeclared-free`."
-  [db {:keys [name exports modules] :as opts}]
+   other `:yin.link.publish/undeclared-free`.
+
+   Indexed programs are reconstructed from datoms and carry no C1
+   markers. With `opts`' `:call-site-tables` — the expander's retained
+   tables (`yin.vm.macro/call-site-table` custody) — and `opts`'
+   `:call-site-admissions` — the explicit indexed-program ->
+   full-admission-origin mapping recorded where the index and the
+   expander agree (`yin.repl/call-site-admissions`) — proof is resolved
+   per collected program by its actual admission identity
+   (`retained-call-site-rows`), never by counter equality: a program
+   proven C1-finalized has its markers recovered and its retained rows
+   shifted into the assembled tree's coordinates on the spec's
+   `:call-site-rows`, keeping each occurrence's own origin through
+   assembly; the `sequenced` wrappers this derivation synthesizes are
+   named explicitly on the spec's `:call-site-wrappers`, retained as
+   computed on the spec's `:call-site-wrappers-evidence`, and claimed
+   separately at publication under the publication admission origin
+   (`publish-module!`'s recovered claim, which validates the spec's
+   wrapper set against that retained evidence). Without such proof for every
+   collected program the tree stays unmarked and publishes without a
+   C1 claim; markers are never minted for a recovered tree."
+  [db {:keys [name exports modules call-site-tables call-site-admissions]
+       :as opts}]
   (let [programs (mapv (fn [p]
                          (assoc p
                                 :defines (definitions (:ast p))
@@ -624,15 +846,63 @@
                                              (distinct (mapcat :free collected))))))]
         (or (when (map? collected) collected)
             (some #(when (map? %) %) declared)
-            {:name name
-             :ast (sequenced (mapv :ast collected))
-             :exports (set exports)
+            (let [asts (mapv :ast collected)
+                  recovered (mapv #(retained-call-site-rows
+                                     % call-site-tables call-site-admissions)
+                                  collected)
+                  recovered? (and (seq asts) (every? some? recovered))
+                  assembled (sequenced asts)
+                  final-tree (when recovered?
+                               (vm/ast->semantic-bytecode assembled))
+                  final-root (:root final-tree)
+                  shifted (when recovered?
+                            (vec (sort jing/canonical-compare
+                                       (into []
+                                             (mapcat (fn [[prefix rows]]
+                                                       (map (fn [[o _r p k v]]
+                                                              [o final-root
+                                                               (into prefix p)
+                                                               k v])
+                                                            rows)))
+                                             (map vector
+                                                  (sequenced-prefixes
+                                                    (count asts))
+                                                  recovered)))))
+                  wrappers (when recovered?
+                             (mapv (fn [p] [final-root p])
+                                   (sequenced-wrapper-paths (count asts))))
+                  ;; assembly itself must account for the tree exactly:
+                  ;; shifted rows plus the explicit wrappers, nothing else
+                  proven? (and recovered?
+                               (= (into #{}
+                                        (map (fn [[_o r p _k _v]] [r p]))
+                                        shifted)
+                                  (into #{}
+                                        (map (fn [[r p]] [r p]))
+                                        (remove (set wrappers)
+                                                (vm/application-occurrences
+                                                  final-tree))))
+                               (every? (set (vm/application-occurrences
+                                              final-tree))
+                                       wrappers))]
+              (cond-> {:name name
+                       :ast (cond-> assembled proven? mark-call-sites)
+                       :exports (set exports)
              :requires (into {}
                              (keep (fn [[k n a]] (when (= :requires k) [n a])))
                              declared)
-             :primitives (into {}
-                               (keep (fn [[k n p]] (when (= :primitives k) [n p])))
-                               declared)})))))
+                       :primitives (into {}
+                                     (keep (fn [[k n p]]
+                                             (when (= :primitives k) [n p])))
+                                     declared)}
+                proven? (assoc :call-site-rows shifted
+                               :call-site-wrappers wrappers
+                               ;; retained assembly evidence: the wrapper
+                               ;; set this assembly computed, retained on
+                               ;; the spec it hands forward; publication
+                               ;; validates :call-site-wrappers against it
+                               ;; and accepts no other wrapper set
+                               :call-site-wrappers-evidence wrappers))))))))
 
 
 ;; =============================================================================
