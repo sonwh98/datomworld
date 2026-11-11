@@ -106,6 +106,122 @@
    'probe.wrapper (list 'get 'probe.retained :value)])
 
 
+(def ^:private egress-source
+  "The contract's php exception shapes with the module-level `$original`
+   replaced by a function-seeded global. php's run-main shutdown releases
+   the caller unit's globals when the unit returns (PHP script-end
+   semantics), and the kit's boundary observations run AFTER the caller
+   unit — so a module-level `$original = new Exception(...)` reads back
+   null through `payload()` in this lane (a pre-existing instrument/lane
+   conflict recorded in the round's findings; the base commit behaves the
+   same). A global WRITTEN by a called function after the unit's run
+   persists for the later observation calls, so `seed` mints the
+   identity-bearing original the directed legs below throw, rethrow and
+   retain — the same assertions the three lane-blocked fixtures
+   (:php/fresh-named, :php/fresh-closure, :php/local-reception) make on
+   module-level state. `retain` keeps its wrapper in `$caught`, never
+   touching the original's `$saved`."
+  (str "<?php $saved = null; $caught = null;"
+       "function seed() { global $saved; $saved = new Exception('original'); return $saved; }"
+       "function payload() { global $saved; return $saved; }"
+       "function donor_raise() { global $saved; throw $saved; }"
+       "function make_exploder() { return function() { global $saved; throw $saved; }; }"
+       "function receive($f) { try { return $f(); } catch (Throwable $e) { throw $e; } }"
+       "function retain($f) { global $caught; try { return $f(); }"
+       " catch (Throwable $e) { $caught = $e; return $e; } }"))
+
+
+(defn- run-egress-observation
+  "The egress source as caller, the python boundary donor beside it, and
+   `observation` appended: all three linked vector VMs."
+  [observation]
+  (let [donor (kit/publish-donor! :python contract/boundary-source)]
+    (kit/run-exception-program
+      donor (kit/compose-exception donor ["boundary_target"] :php
+                                   egress-source observation))))
+
+
+(deftest ^:slow php-fresh-egress-directed-test
+  ;; R1, directed (the in-lane form of :php/fresh-named and
+  ;; :php/fresh-closure): the function entry and the Closure entry deliver
+  ;; the escaping source Exception to the supplied raise exit exactly once
+  ;; as {:yang.call/thrown, original} — the payload IS the thrown object.
+  (let [observation
+        (kit/guard-exceptions-form
+          [:php]
+          (list 'let ['probe.seeded (boundary-call (kit/export-form :php "seed") [])
+                      'original (list 'get 'probe.seeded :value)
+                      'probe.named (boundary-call (kit/export-form :php "donor_raise") [])
+                      'probe.closure (boundary-call
+                                       (list 'get (boundary-call
+                                                    (kit/export-form :php "make_exploder") [])
+                                             :value) [])]
+                (kit/observation-map-form
+                  {:seeded (list '= :return (list 'get 'probe.seeded :route))
+                   :named-transferred (list '= :raise (list 'get 'probe.named :route))
+                   :named-once (list '= 1 (list 'get 'probe.named :transfers))
+                   :named-after (list 'get 'probe.named :after)
+                   :named-reason (list 'get (list 'get 'probe.named :condition)
+                                       :yang.call/reason)
+                   :named-payload-identical
+                   (list '= 'original (list 'get (list 'get 'probe.named :condition)
+                                            :yang.call/value))
+                   :closure-transferred (list '= :raise (list 'get 'probe.closure :route))
+                   :closure-once (list '= 1 (list 'get 'probe.closure :transfers))
+                   :closure-after (list 'get 'probe.closure :after)
+                   :closure-reason (list 'get (list 'get 'probe.closure :condition)
+                                         :yang.call/reason)
+                   :closure-payload-identical
+                   (list '= 'original (list 'get (list 'get 'probe.closure :condition)
+                                            :yang.call/value))})))
+        expected {:seeded true
+                  :named-transferred true :named-once true :named-after false
+                  :named-reason :yang.call/thrown :named-payload-identical true
+                  :closure-transferred true :closure-once true :closure-after false
+                  :closure-reason :yang.call/thrown :closure-payload-identical true}]
+    (doseq [[backend actual] (run-egress-observation observation)]
+      (is (= expected actual) (str backend)))))
+
+
+(deftest ^:slow php-local-reception-directed-test
+  ;; R2, directed (the in-lane form of :php/local-reception): a thrown
+  ;; condition whose payload is already a php Throwable keeps its ordinary
+  ;; catching and identity — re-raised UNCHANGED (typed catch, unchanged
+  ;; rethrow, returned identity), never wrapped.
+  (let [observation
+        (kit/guard-exceptions-form
+          [:php]
+          (list 'let ['probe.seeded (boundary-call (kit/export-form :php "seed") [])
+                      'original (list 'get 'probe.seeded :value)
+                      'probe.condition (kit/observation-map-form
+                                         {:yang.call/reason :yang.call/thrown
+                                          :yang.call/value 'original})
+                      'probe.injected (injected 'probe.condition)
+                      'probe.reres (boundary-call (kit/export-form :php "receive")
+                                                  ['probe.injected])
+                      'probe.rtres (boundary-call (kit/export-form :php "retain")
+                                                  ['probe.injected])]
+                (kit/observation-map-form
+                  {:seeded (list '= :return (list 'get 'probe.seeded :route))
+                   :rethrow-transferred (list '= :raise (list 'get 'probe.reres :route))
+                   :rethrow-once (list '= 1 (list 'get 'probe.reres :transfers))
+                   :rethrow-reason (list 'get (list 'get 'probe.reres :condition)
+                                         :yang.call/reason)
+                   :rethrow-payload-identical
+                   (list '= 'original (list 'get (list 'get 'probe.reres :condition)
+                                            :yang.call/value))
+                   :retain-returned (list '= :return (list 'get 'probe.rtres :route))
+                   :retain-payload-identical
+                   (list '= 'original (list 'get 'probe.rtres :value))})))
+        expected {:seeded true
+                  :rethrow-transferred true :rethrow-once true
+                  :rethrow-reason :yang.call/thrown
+                  :rethrow-payload-identical true
+                  :retain-returned true :retain-payload-identical true}]
+    (doseq [[backend actual] (run-egress-observation observation)]
+      (is (= expected actual) (str backend)))))
+
+
 (defn- run-provenance-observation
   "The contract php source as caller, the python boundary donor beside it,
    and `observation` appended: all three linked vector VMs."

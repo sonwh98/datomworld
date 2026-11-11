@@ -2827,6 +2827,21 @@
              (php/throw-error "Error"
                               (data/str-concat "Call to undefined function "
                                                written "()"))))))]
+    [php/obj-val?
+     ;; §8.10.7 reception safety: is `v` one of php's two object
+     ;; representations — the sealed-state handle `{:php/obj cell}` or a
+     ;; typed map with `:php/type :obj` (the no-methods error map)? This is
+     ;; the ONLY safe object test for an arbitrary guest value: `php/kind`
+     ;; assumes whatever is not null/bool/string/array/obj is a number and
+     ;; calls `data/float-value` on it, so classifying a foreign payload
+     ;; (any value, including a raw cell) through `php/kind` refuses at the
+     ;; data primitive. Only an obj-val can be a Throwable, so reception
+     ;; asks this first and `php/throwable?` (whose instance-of walks real
+     ;; class tables) only ever sees an obj-val.
+     (fn [v]
+       (if (nil? (get v :php/type))
+         (not (nil? (get v :php/obj)))
+         (= (get v :php/type) :obj)))]
     [php/receive-condition
      ;; §8.10.7 reception, shared by every php call helper: classify the
      ;; delivered condition and continue it as a local Throwable. A
@@ -2834,18 +2849,19 @@
      ;; ordinary catching and identity behavior — raised unchanged, no
      ;; wrapper (crossing back into php restores the original type and
      ;; identity). Any other payload — an otherwise-foreign exception or a
-     ;; plain foreign value — becomes the prelude-owned ForeignException
-     ;; retaining the complete original condition; the protocol reasons map
-     ;; to the documented local Error. Both generated forms carry the
-     ;; condition in the private php.rt identity association
-     ;; (php.rt/raise-foreign / php.rt/raise-protocol), so an unchanged
-     ;; rethrow forwards the original condition — the entry bridge consults
-     ;; the same association — with no wrapper stacking. A returned
-     ;; condition-shaped map never reaches here: it is ordinary data.
+     ;; plain foreign value, whatever its representation — becomes the
+     ;; prelude-owned ForeignException retaining the complete original
+     ;; condition; the protocol reasons map to the documented local Error.
+     ;; Both generated forms carry the condition in the private php.rt
+     ;; identity association (php.rt/raise-foreign / php.rt/raise-protocol),
+     ;; so an unchanged rethrow forwards the original condition — the entry
+     ;; bridge consults the same association — with no wrapper stacking. A
+     ;; returned condition-shaped map never reaches here: it is ordinary
+     ;; data.
      (fn [condition]
        (if (= (get condition :yang.call/reason) :yang.call/thrown)
          (let [v (get condition :yang.call/value)]
-           (if (php/throwable? v)
+           (if (if (php/obj-val? v) (php/throwable? v) false)
              (php/raise (php/addref v))
              (php.rt/raise-foreign condition)))
          (php.rt/raise-protocol condition)))]
