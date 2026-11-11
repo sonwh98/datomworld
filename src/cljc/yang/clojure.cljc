@@ -3088,6 +3088,12 @@
                :operands [{:type :variable, :name x}
                           {:type :literal, :value 2}]}}"
   [form]
+  ;; the single-form entry runs the same reserved-prefix pre-pass as
+  ;; `compile-program`, so a REPL one-liner can no more spell a
+  ;; compiler-private (`dsg__`) name than a whole program can. Trusted
+  ;; compiler construction never reaches `compile`: it builds its own
+  ;; `dsg__` temporaries via `compile-form` directly.
+  (check-program-symbols! form)
   (compile-form form true {}))
 
 

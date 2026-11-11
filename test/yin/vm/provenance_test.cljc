@@ -9,6 +9,7 @@
   (:require [yin.vm.semantic.linearize :as sr-linearize]
             [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
+            [yang.clojure :as yang]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.debruijn.register :as rvm]
@@ -272,13 +273,54 @@
                              (m/make-ctx {:token "t"}))))))))
 
 
-(deftest macro-cannot-construct-the-mint-door-test
-  (testing "a macro body that builds the door as a variable for indirect
-            application is refused at invocation, not at expansion"
-    (let [macro-ast (lam []
-                         (app (v 'yin/variable)
-                              (lit 'cell/dsg__new-provenance)))
-          entry (m/macro-entry (m/ast->packet macro-ast) vm/ast-contract)
-          d (refusal-of #(m/invoke entry [] (m/make-ctx {:token "t"})))]
-      (is (= :body-error (:kind d)))
-      (is (re-find #"dsg__new-provenance" (str (:message d)))))))
+(defn- expand-door-batch
+  "`expand-batch` one input AST under a fresh context whose store holds
+   `macros`, a map of name -> macro-source form (compiled with the Clojure
+   frontend). Returns the `expand-batch` result map."
+  [input-ast macros]
+  (let [store (into {}
+                    (map (fn [[nm src]]
+                           [nm (m/macro-entry
+                                 (m/ast->packet (yang/compile src))
+                                 vm/ast-contract)]))
+                    macros)
+        cx (m/make-ctx {:token "t" :store store})
+        input (m/ast->packet input-ast)]
+    (m/expand-batch [:yin.program/batch [input] 0 [] []] cx)))
+
+
+(deftest macro-door-is-refused-at-expansion-test
+  (testing "a guest macro returning a quoted door packet as a value is
+            refused at expansion, so indirect application never mints"
+    (let [door (m/ast->packet {:type :variable :name 'cell/dsg__new-provenance})
+          leak-source (list 'fn [] (list 'quote door))
+          input (app (app (v 'leak)) (lit 42) (lit {:forged true}))
+          r (expand-door-batch input (hash-map 'leak leak-source))]
+      (is (= :error (:status r)))
+      (is (re-find #"dsg__new-provenance" (str (:error r))))))
+  (testing "a guest macro assembling yin/def over a door name via
+            yin/application (skipping yin/make-def) is refused at expansion"
+    (let [redefine-source '(fn []
+                             (yin/application
+                               (yin/variable (quote yin/def))
+                               (conj []
+                                     (yin/literal (quote cell/dsg__provenance))
+                                     (yin/literal 123))))
+          input (app (v 'redefine))
+          r (expand-door-batch input (hash-map 'redefine redefine-source))]
+      (is (= :error (:status r)))
+      (is (re-find #"dsg__provenance" (str (:error r)))))))
+
+
+(deftest mint-refuses-nil-provenance-test
+  (doseq [k (keys builders)]
+    (testing (str k)
+      (let [q (quiesce (run-on k (new-cell (lit :payload)) 1000000))
+            d (refusal-of #(engine/handle-effect
+                             q
+                             (module/make-effect :cell/new-provenance
+                                                 {:val :visible :provenance nil})
+                             {}))]
+        (is (some? d) "nil provenance is refused before allocation")
+        (is (= :nil-provenance (:reason d)))))))
+

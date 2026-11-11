@@ -580,6 +580,43 @@
                    {:op op, :name sym})))
 
 
+(defn- reserved-prefix-defect
+  "The first compiler-private (`dsg__`-prefixed) name the macro's output
+   packet `tree` carries in an executable position, as `{:rule
+   :reserved-prefix :role r :name s}`, or nil. Covers a `:variable`
+   reference, a `:lambda` binder, a `:vm/store-get`/`:vm/store-put` key,
+   and a `yin/def` definition target assembled by application (the
+   `yin/make-def` bypass). A `:literal` holding a quoted `dsg__` symbol is
+   inert data and is not a position — only the symbol a definition names.
+   Legitimate compiler-generated `dsg__` occurrences live in retained
+   source syntax, never in a macro's output, so they are preserved by the
+   trusted construction provenance the expander threads separately."
+  [tree]
+  (let [{:keys [rows]} (packet->row-set tree)
+        var-name (fn [addr]
+                   (let [row (get rows addr)]
+                     (when (= :variable (nth row 1)) (nth row 2))))
+        def-op? (fn [addr] (= 'yin/def (var-name addr)))
+        literal-sym (fn [addr]
+                      (let [row (get rows addr)]
+                        (when (= :literal (nth row 1))
+                          (let [v (nth row 2)]
+                            (when (symbol? v) v)))))
+        check (fn [role sym]
+                (when (vm/reserved-prefix-name? sym)
+                  {:rule :reserved-prefix, :role role, :name sym}))]
+    (some (fn [[_ row]]
+            (case (nth row 1)
+              :variable (check :variable (nth row 2))
+              :lambda (some #(check :binder %) (nth row 2))
+              (:vm/store-get :vm/store-put) (check :store-key (nth row 2))
+              :application (when (def-op? (nth row 2))
+                             (when-let [k (literal-sym (first (nth row 3)))]
+                               (check :definition-key k)))
+              nil))
+          rows)))
+
+
 (defn- packet?
   [x]
   (and (vector? x) (= 2 (count x)) (jing/segment-address? (first x))
@@ -1456,9 +1493,16 @@
           [(failed st error) address]
           (if-let [e (valid-tree? tree {:working? true})]
             [(failed st (invalid (:reason e))) address]
-            (let [n (count (set (map first (second tree))))]
-              (if (> n (:max-rows-per-expansion guards))
+            (let [n (count (set (map first (second tree))))
+                  rp (reserved-prefix-defect tree)]
+              (cond
+                rp
+                [(failed st (invalid rp)) address]
+
+                (> n (:max-rows-per-expansion guards))
                 [(failed st {:kind :row-guard, :scope :expansion, :rows n}) address]
+
+                :else
                 (let [st' (merge-output st tree)]
                   (if (::conflict st')
                     [(failed st (invalid :address-conflict)) address]

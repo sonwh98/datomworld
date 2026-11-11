@@ -2809,7 +2809,10 @@
           ;; private `:provenance` sibling installed atomically. Provenance
           ;; is opaque to the engine; it is answered only by `:cell/provenance`.
           :cell/new-provenance
-          (let [[id s'] (gensym (count-allocation state
+          (let [_ (when (nil? (:provenance effect))
+                    (fail "Provenance mint refuses nil provenance"
+                          {:reason :nil-provenance, :effect :cell/new-provenance}))
+                [id s'] (gensym (count-allocation state
                                                   (:val effect)
                                                   (:provenance effect))
                                 "cell")
