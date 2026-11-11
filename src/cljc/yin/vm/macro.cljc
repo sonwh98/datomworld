@@ -568,6 +568,85 @@
   (throw (ex-info msg (assoc data :yin.macro/prelude true))))
 
 
+(defn- check-guest-name!
+  "Refuse `sym`, a guest-supplied name in `op`'s position, when it is
+   compiler-private (`dsg__`-prefixed): such names belong to the host and
+   compiler — the provenance doors and the frontend temporaries — so a macro
+   may construct no executable reference, binder, or definition target
+   carrying one. A quoted symbol stays inert data."
+  [op sym]
+  (when (vm/reserved-prefix-name? sym)
+    (throw-prelude (str op " refuses the compiler-private name " sym)
+                   {:op op, :name sym})))
+
+
+(declare pending-expansion-origin missing-provenance-origin)
+
+
+(defn- reserved-prefix-defect
+  "The first forged compiler-private (`dsg__`-prefixed) name the macro's
+   output packet `tree` carries in an executable position, as `{:rule
+   :reserved-prefix :role r :name s}`, or nil. Covers a `:variable`
+   reference, a `:lambda` binder, a `:vm/store-get`/`:vm/store-put` key,
+   and a `yin/def` definition target assembled by application (the
+   `yin/make-def` bypass). A `:literal` holding a quoted `dsg__` symbol is
+   inert data and is not a position — only the symbol a definition names.
+
+   Trusted construction provenance decides what is forged (sol's
+   amendment): a `dsg__` name is refused only where the macro's own code
+   constructed it — the occurrence's origin answers this expansion's
+   pending origin, or no operation accounted for it. A `dsg__` name in a
+   retained position (a spliced operand the compiler already lowered,
+   whose origin is `[:retained …]` or `[:expansion …]`) is a
+   compiler-minted temporary and is preserved. The compiler's source
+   pre-pass refuses a guest spelling `dsg__` in any position, and the
+   prelude's `check-guest-name!` refuses `yin/variable`/`yin/lambda`/
+   `yin/make-def` construction, so the one forge path left — quoting a
+   raw packet that names a door — carries no origin and reads as the
+   pending origin here."
+  [tree ofn]
+  (let [{:keys [rows]} (packet->row-set tree)
+        var-name (fn [addr]
+                   (let [row (get rows addr)]
+                     (when (= :variable (nth row 1)) (nth row 2))))
+        def-op? (fn [addr] (= 'yin/def (var-name addr)))
+        literal-sym (fn [addr]
+                      (let [row (get rows addr)]
+                        (when (= :literal (nth row 1))
+                          (let [v (nth row 2)]
+                            (when (symbol? v) v)))))
+        forged? (fn [path]
+                  (let [o (ofn path)]
+                    (or (= pending-expansion-origin o)
+                        (= missing-provenance-origin o))))]
+    (some (fn [[_ path id]]
+            (let [row (get rows id)]
+              (case (nth row 1)
+                :variable (when (and (vm/reserved-prefix-name? (nth row 2))
+                                     (forged? path))
+                            {:rule :reserved-prefix, :role :variable,
+                             :name (nth row 2)})
+                :lambda (when (forged? path)
+                          (some (fn [b]
+                                  (when (vm/reserved-prefix-name? b)
+                                    {:rule :reserved-prefix, :role :binder,
+                                     :name b}))
+                                (nth row 2)))
+                (:vm/store-get :vm/store-put)
+                (when (and (vm/reserved-prefix-name? (nth row 2))
+                           (forged? path))
+                  {:rule :reserved-prefix, :role :store-key,
+                   :name (nth row 2)})
+                :application (when (def-op? (nth row 2))
+                               (when-let [k (literal-sym (first (nth row 3)))]
+                                 (when (and (vm/reserved-prefix-name? k)
+                                            (forged? path))
+                                   {:rule :reserved-prefix,
+                                    :role :definition-key, :name k})))
+                nil)))
+          (vm/occurrences (packet->row-set tree)))))
+
+
 (defn- packet?
   [x]
   (and (vector? x) (= 2 (count x)) (jing/segment-address? (first x))
@@ -808,6 +887,7 @@
   ([params body lineage]
    (when-not (and (sequential? params) (every? symbol? params))
      (throw-prelude "yin/lambda params must be symbols" {:op 'yin/lambda}))
+   (doseq [p params] (check-guest-name! 'yin/lambda p))
    (construct [:lambda (vec params) (first body)] [body] lineage)))
 
 
@@ -948,6 +1028,7 @@
         'yin/variable (fn [sym]
                         (when-not (symbol? sym)
                           (throw-prelude "yin/variable expects a symbol" {:op 'yin/variable}))
+                        (check-guest-name! 'yin/variable sym)
                         (construct [:variable sym] [] lineage)),
         'yin/lambda (fn [params body]
                       (lambda-packet params (need-packet 'yin/lambda body)
@@ -973,11 +1054,13 @@
                                             (need-packet 'yin/make-lambda body)
                                             lineage))),
         'yin/make-def (fn [name-tree value-tree]
-                        (application-packet
-                          (construct [:variable 'yin/def] [] lineage)
-                          [(literal-packet (name-of name-tree) lineage)
-                           (need-packet 'yin/make-def value-tree)]
-                          lineage)),
+                        (let [n (name-of name-tree)]
+                          (check-guest-name! 'yin/make-def n)
+                          (application-packet
+                            (construct [:variable 'yin/def] [] lineage)
+                            [(literal-packet n lineage)
+                             (need-packet 'yin/make-def value-tree)]
+                            lineage))),
         'yin/name-of name-of,
         'yin/gensym-sym gensym}))))
 
@@ -1440,9 +1523,18 @@
           [(failed st error) address]
           (if-let [e (valid-tree? tree {:working? true})]
             [(failed st (invalid (:reason e))) address]
-            (let [n (count (set (map first (second tree))))]
-              (if (> n (:max-rows-per-expansion guards))
+            (let [n (count (set (map first (second tree))))
+                  ofn (or (origin-of-fn tree)
+                          (fn [_] pending-expansion-origin))
+                  rp (reserved-prefix-defect tree ofn)]
+              (cond
+                rp
+                [(failed st (invalid rp)) address]
+
+                (> n (:max-rows-per-expansion guards))
                 [(failed st {:kind :row-guard, :scope :expansion, :rows n}) address]
+
+                :else
                 (let [st' (merge-output st tree)]
                   (if (::conflict st')
                     [(failed st (invalid :address-conflict)) address]
