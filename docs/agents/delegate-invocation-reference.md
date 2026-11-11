@@ -103,6 +103,17 @@ tree (`~/.nvm/versions/node/v24.13.0/bin/`) or `~/.local/bin` — headless shell
 may need `export PATH=$HOME/.nvm/versions/node/v24.13.0/bin:$PATH` (symptom:
 `node: No such file or directory`).
 
+**Quota pools — ONLY codex has a separate pool on jupiter.** Every other
+provider (claude, muse, agy/gemini-argon, deepseek, glm, qwen) draws ONE shared
+meter across all three hosts: a laptop session, a shiva session, and a jupiter
+session of the same provider are the same quota, drawn three ways. Only codex
+is special: laptop + shiva share POOL 1 (the original account), and jupiter is
+POOL 2 (the second ChatGPT account, installed 2026-11-10) — so codex is the
+only provider whose failover/concurrency rules differ per host (see the pool
+map in the codex recipe section). Practical consequence: parking a muse or
+qwen round by switching hosts does NOT escape its quota — only waiting for the
+reset (or switching PROVIDER) does.
+
 **Host availability (deepseek wrapper `~/.local/bin/deepseek`):** laptop
 (darkstar), shiva, and jupiter — all three hosts. Jupiter was added 2026-11-11
 (wrapper copied from shiva via scp; `~/.claude-deepseek/` rsynced with it; live
