@@ -2672,6 +2672,22 @@
     [php/make-function
      ;; The function cell keeps its source body and publishes the common
      ;; unary entry. `:yang.call/callee` supplies self, preserving cell identity.
+     ;; §8.10.7 callee bridge: installed BEFORE argument binding, it reads the
+     ;; supplied :yang.call/raise and delivers every escaping source exception
+     ;; AND argument-binding failure to it as the thrown condition, exactly
+     ;; once, with execution after the call unreachable (the raise exit is a
+     ;; non-returning guest continuation). php/try runs each :finally the
+     ;; escape unwinds through and restores the saved handler/depth/frame
+     ;; state BEFORE the transfer (§8.10.8), so delivery happens under the
+     ;; caller's dynamic context. An unchanged rethrow of a wrapper carrying
+     ;; a retained condition (php.rt/retained-condition, the reception-side
+     ;; identity association) forwards that original condition with no new
+     ;; wrapper; every other escape — including a thrown condition-shaped
+     ;; map, which is the payload of a FRESH condition per §8.10.7 — becomes
+     ;; :yang.call/thrown carrying the thrown value. The binding-profile
+     ;; comparison runs BEFORE the bridge frame is pushed (§8.10.3: before
+     ;; acquiring references or entering the body), so its raise transfers
+     ;; under the untouched caller context.
      (fn [name spec code statics]
        (let [f (cell/new (assoc (assoc (assoc (assoc (assoc {} :php/type :function) :name name)
                                               :spec spec)
@@ -2681,25 +2697,37 @@
          (do
            (cell/set! f (assoc (cell/get f) :yang.call/entry
                                (fn [invocation]
-                                 (let [callee (get invocation :yang.call/callee)
-                                       positional (get invocation :yang.call/positional)
-                                       named (get invocation :yang.call/named)
-                                       binding-profile (get invocation :yang.call/binding-profile)
-                                       args (if (> (data/count named) 0)
-                                              (php/place-named callee (get (cell/get callee) :spec)
-                                                               positional named 0 (data/count named)
-                                                               (php/empty-array))
-                                              positional)]
+                                 (let [raise-exit (get invocation :yang.call/raise)
+                                       binding-profile (get invocation :yang.call/binding-profile)]
                                    (if (if (nil? binding-profile)
                                          true
                                          (= binding-profile
                                             "sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb"))
-                                     ((get (cell/get callee) :code)
-                                      callee args binding-profile)
-                                     ((get invocation :yang.call/raise)
-                                      {:yang.call/reason :yang.call/unsupported-binding
-                                       :yang.call/data
-                                       {:yang.call/binding-profile binding-profile}}))))))
+                                     (let [result (cell/new :php/undef)]
+                                       (php/try
+                                         (fn []
+                                           (cell/set! result
+                                                      (let [callee (get invocation :yang.call/callee)
+                                                            positional (get invocation :yang.call/positional)
+                                                            named (get invocation :yang.call/named)
+                                                            args (if (> (data/count named) 0)
+                                                                   (php/place-named callee (get (cell/get callee) :spec)
+                                                                                    positional named 0 (data/count named)
+                                                                                    (php/empty-array))
+                                                                   positional)]
+                                                        ((get (cell/get callee) :code)
+                                                         callee args binding-profile))))
+                                         (fn [e]
+                                           (let [retained (php.rt/retained-condition e)]
+                                             (if (nil? retained)
+                                               (raise-exit (assoc (assoc {} :yang.call/reason :yang.call/thrown)
+                                                                  :yang.call/value e))
+                                               (raise-exit retained))))
+                                         (fn [] (cell/get result))))
+                                     (raise-exit
+                                       (assoc (assoc {} :yang.call/reason :yang.call/unsupported-binding)
+                                              :yang.call/data
+                                              (assoc {} :yang.call/binding-profile binding-profile))))))))
            f)))]
     [php/register!
      (fn [name code]
@@ -2799,22 +2827,34 @@
              (php/throw-error "Error"
                               (data/str-concat "Call to undefined function "
                                                written "()"))))))]
+    [php/receive-condition
+     ;; §8.10.7 reception, shared by every php call helper: classify the
+     ;; delivered condition and continue it as a local Throwable. A
+     ;; :yang.call/thrown payload that is itself a PHP Throwable keeps its
+     ;; ordinary catching and identity behavior — raised unchanged, no
+     ;; wrapper (crossing back into php restores the original type and
+     ;; identity). Any other payload — an otherwise-foreign exception or a
+     ;; plain foreign value — becomes the prelude-owned ForeignException
+     ;; retaining the complete original condition; the protocol reasons map
+     ;; to the documented local Error. Both generated forms carry the
+     ;; condition in the private php.rt identity association
+     ;; (php.rt/raise-foreign / php.rt/raise-protocol), so an unchanged
+     ;; rethrow forwards the original condition — the entry bridge consults
+     ;; the same association — with no wrapper stacking. A returned
+     ;; condition-shaped map never reaches here: it is ordinary data.
+     (fn [condition]
+       (if (= (get condition :yang.call/reason) :yang.call/thrown)
+         (let [v (get condition :yang.call/value)]
+           (if (php/throwable? v)
+             (php/raise (php/addref v))
+             (php.rt/raise-foreign condition)))
+         (php.rt/raise-protocol condition)))]
     [php/call
      (fn [f args]
-       (yang.call/invoke f args []
-                         (fn [condition]
-                           (if (= (get condition :yang.call/reason)
-                                  :yang.call/not-callable)
-                             (php/throw-error "Error" "Value not callable")
-                             (php/raise condition)))))]
+       (yang.call/invoke f args [] php/receive-condition))]
     [php/call-with-binding-profile
      (fn [f args named binding-profile]
-       (yang.call/invoke-with f args named
-                              (fn [condition]
-                                (if (= (get condition :yang.call/reason)
-                                       :yang.call/not-callable)
-                                  (php/throw-error "Error" "Value not callable")
-                                  (php/raise condition)))
+       (yang.call/invoke-with f args named php/receive-condition
                               (assoc {} :yang.call/binding-profile binding-profile)))]
     ;; the internal array pointer (row 55): an ordinal in the table's `:ptr`,
     ;; so it travels with the value (copy, DUP, upgrade); absent means 0
@@ -4517,6 +4557,32 @@
        (if (php/throwable? v)
          (php/raise (php/addref v))
          (php/throw-error "Error" "Can only throw objects")))]
+    ;; ---------------------------------------- retained-condition reception
+    ;; §8.10.7 reception wrappers: the ForeignException (otherwise-foreign
+    ;; thrown payloads) and the protocol Error retain the complete original
+    ;; condition in a private, task-owned identity association, outside
+    ;; source-writable attributes, with no ambient registry. The three
+    ;; definitions below are pre-init stubs (no store exists yet) under the
+    ;; internal `php.rt/*` names; php/init! replaces all three before any
+    ;; guest code runs (see retained-store-install in init-form). Because
+    ;; their namespace is `php.rt`, not `php`, `core/exports` never takes
+    ;; them: no module export and no frozen linked slice can carry a
+    ;; pre-init binding that silently answers nil. The stubs mirror the
+    ;; installed bodies minus the registration side effect; nothing can run
+    ;; them, php/init! precedes every guest activation.
+    [php.rt/retained-condition (fn [e] nil)]
+    [php.rt/raise-foreign
+     (fn [condition]
+       (php/throw-error "ForeignException" "Uncaught foreign exception"))]
+    [php.rt/raise-protocol
+     (fn [condition]
+       (let [reason (get condition :yang.call/reason)]
+         (php/throw-error "Error"
+                          (if (= reason :yang.call/not-callable)
+                            "Value not callable"
+                            (if (= reason :yang.call/unsupported-binding)
+                              "Unsupported binding profile"
+                              "Invalid function invocation")))))]
     [php/match-repr
      (fn [v]
        (let [k (php/kind v)]
@@ -4648,12 +4714,18 @@
      ;; A Closure value (an object, `kind` :obj) around the function cell.
      ;; Its own identity-bearing descriptor publishes the common entry; the
      ;; entry delegates to the already-created cell, never wrapping/replacing
-     ;; the source Closure when another frontend calls it.
+     ;; the source Closure when another frontend calls it. §8.10.7: the
+     ;; delegation passes the caller's invocation through with only the
+     ;; callee rebound to the inner cell, so the cell's entry installs the
+     ;; bridge — escapes and argument-binding failures deliver to the
+     ;; SUPPLIED raise exit, never through a local php/call, whose reception
+     ;; would restart the escape under this closure's own runtime.
      (fn [f]
        (assoc (assoc (assoc {} :php/type :closure) :php/closure f)
               :yang.call/entry
               (fn [invocation]
-                (php/call f (get invocation :yang.call/positional)))))]
+                ((yang.call/entry f)
+                 (assoc invocation :yang.call/callee f)))))]
     [php/callable-of (fn [v] (php/callable-in v :php/null))]
     [php/callable-fn (fn [h] (php/callable-of h))]
     [php/callable-in
@@ -4741,12 +4813,7 @@
        (let [spec (get (cell/get f) :spec)]
          (if (nil? (get spec :names))
            (php/throw-error "Error" "Named arguments are not supported for this function")
-           (yang.call/invoke f pos named
-                             (fn [condition]
-                               (if (= (get condition :yang.call/reason)
-                                      :yang.call/not-callable)
-                                 (php/throw-error "Error" "Value not callable")
-                                 (php/raise condition)))))))]
+           (yang.call/invoke f pos named php/receive-condition))))]
     [php/place-named
      (fn [f spec pos named i n extras]
        (if (< i n)
@@ -5671,6 +5738,11 @@
    ["stdClass" :class nil []] ["Closure" :class nil [] true]
    ["Generator" :class nil ["Iterator"] true]
    ["Exception" :class nil ["Throwable"]] ["Error" :class nil ["Throwable"]]
+   ;; §8.10.7: the prelude-owned representation of an otherwise-foreign
+   ;; thrown payload — catch-all catches it, typed catches match this LOCAL
+   ;; hierarchy, never a guessed foreign class name; formatting it reads its
+   ;; own message string and never invokes a foreign method.
+   ["ForeignException" :class "Exception" []]
    ["ErrorException" :class "Exception" []] ["JsonException" :class "Exception" []]
    ["RuntimeException" :class "Exception" []] ["LogicException" :class "Exception" []]
    ["TypeError" :class "Error" []] ["ValueError" :class "Error" []]
@@ -5790,6 +5862,85 @@
           (sort-by key builtins/constants)))
 
 
+(def ^:private retained-store-install
+  "The guest form `php/init!` runs to create the private retained-condition
+   identity store and install the real `php.rt/retained-condition`,
+   `php.rt/raise-foreign` and `php.rt/raise-protocol` closures over it. The
+   install keys are the `php.rt/*` names the stub definitions and the
+   intra-module readers (`php/receive-condition` and the entry bridge) use:
+   variable lookup is exact-symbol in the live store, and the module
+   emitter's `strip` leaves `php.rt/*` qualified in definition keys, quoted
+   install keys and reads alike, so all three coincide in both the bundled
+   and the linked store. Because their namespace is `php.rt`, not `php`,
+   they are never module exports and no frozen export slice can carry a
+   pre-init binding for them.
+
+   The store holds [wrapper condition] pairs. Membership is established ONLY
+   by the installed raise fns as a side effect of raising, and only for the
+   wrappers they themselves mint; the installed `php.rt/retained-condition`
+   answers the stored condition for a member and nil for everything else. A
+   php object handle is a one-field map whose field is the object's sealed
+   state-cell reference, so `=` on handles IS object identity: a copied or
+   newly minted wrapper (a fresh state cell, however equal its visible
+   contents — R5's minted-forgery and copied-wrapper refusals) never matches
+   a stored key, and a handle that does match necessarily carries the same
+   sealed reference, making it an alias of a wrapper the holder already
+   holds — retaining and rethrowing that wrapper, nothing more. Nothing
+   wrapper-supplied or wrapper-reachable is consulted: the wrapper carries
+   no provenance, condition or seal slot, so mutating its contents or
+   stamping dynamic properties can neither create, replace nor break a
+   membership, and a mutated genuine wrapper still forwards its ORIGINAL
+   condition.
+
+   The store root is the lexical capture of the three installed closures
+   only: it is allocated once per task (inside the uninit guard), never
+   written to a runtime key, a php global, the function table, a class or a
+   wrapper cell, and no other form returns it. Associations are preserved
+   across completed calls and catches for the life of the task and die with
+   its heap at teardown; there is no process-global or cross-task registry.
+   Known open obligations (the same two the typescript round recorded for
+   its store): no reclamation of completed-call associations within a task's
+   life, and lookup is a linear walk allocating a subvec per hop. A returned
+   condition-shaped map stays ordinary data; shape is never evidence of a
+   condition to forward."
+  '(let [retained-store (cell/new [])
+         retained-lookup
+         (fn [self pairs e]
+           (if (= (data/count pairs) 0)
+             nil
+             (if (= (get (get pairs 0) 0) e)
+               (get (get pairs 0) 1)
+               (self self (data/subvec pairs 1 (data/count pairs)) e))))]
+     (do (yin/def (quote php.rt/retained-condition)
+           (fn [e]
+             (if (nil? (get e :php/obj))
+               nil
+               (retained-lookup retained-lookup
+                                (cell/get retained-store) e))))
+         (yin/def (quote php.rt/raise-foreign)
+           (fn [condition]
+             (let [e (php/make-error "ForeignException" "Uncaught foreign exception")]
+               (do (cell/set! retained-store
+                              (php/vconj (cell/get retained-store)
+                                         (php/pair e condition)))
+                   (php/raise e)))))
+         (yin/def (quote php.rt/raise-protocol)
+           (fn [condition]
+             (let [reason (get condition :yang.call/reason)
+                   e (php/make-error
+                       "Error"
+                       (if (= reason :yang.call/not-callable)
+                         "Value not callable"
+                         (if (= reason :yang.call/unsupported-binding)
+                           "Unsupported binding profile"
+                           "Invalid function invocation")))]
+               (do (cell/set! retained-store
+                              (php/vconj (cell/get retained-store)
+                                         (php/pair e condition)))
+                   (php/raise e)))))
+         :php/null)))
+
+
 (defn- init-form
   "`php/init!`'s body: the runtime cells, the builtins, the ready flag, under
    the uninit guard."
@@ -5800,6 +5951,7 @@
                 ['do
                  (define 'php.rt/ctx '(cell/new (php/ctx nil 0 0 nil)))
                  (define 'php.rt/out '(cell/new [[]]))
+                 retained-store-install
                  (define 'php.rt/request '(cell/new {}))
                  (define 'php.rt/response '(cell/new []))
                  (define 'php.rt/headers-sent '(cell/new false))
