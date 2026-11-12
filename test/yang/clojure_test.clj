@@ -2462,6 +2462,40 @@
         :consumer)))
 
 
+(defn run-guest-machine-depth
+  "Like run-guest-machine, but records the maximum continuation depth
+   (the semantic lane's K-vector length, or the walker lane's :next chain
+   length) across the run, and returns the terminal machine with the max
+   depth attached under `:max-depth`."
+  [ast modules lane step-limit]
+  (let [depth-of (if (= lane :semantic) semantic-depth walker-depth)
+        run-bounded (fn [machine]
+                      (loop [v machine, n 0, mx (depth-of machine)]
+                        (cond
+                          (or (vm/halted? v) (vm/blocked? v)) (assoc v :max-depth mx)
+                          (= n step-limit) (throw (ex-info "Guest instruction budget exhausted"
+                                                           {:lane lane :steps n :consumer v}))
+                          :else (let [v' (vm/step v)]
+                                  (recur v' (inc n) (max mx (depth-of v')))))))
+        semantic? (= lane :semantic)
+        machine (if semantic?
+                  (semantic/create-vm {:make-stream tu/make-stream
+                                       :capability-secret tu/secret :modules modules})
+                  (tu/create-vm {:modules modules}))
+        session (tu/make-observer-session machine)
+        load-program (if semantic?
+                       (fn [v rows stamp]
+                         (vm/check-contract! vm/ast-contract stamp)
+                         (semantic/load-vector v (:vector (linearize/project-rows rows))
+                                               vm/semantic-contract))
+                       ast-walker/vm-load-program)
+        queued ((if semantic? tu/queue-rows! tu/queue-ast!) session ast)]
+    (-> (observer/run-on-stream queued engine/ready-for-ingress?
+                                (vm/fresh-code-loader load-program vm/ast-contract)
+                                run-bounded)
+        :consumer)))
+
+
 (defn run-guest-ast
   "The value from run-guest-machine; shared by library and oracle fixtures."
   [ast modules lane step-limit]

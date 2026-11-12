@@ -965,6 +965,14 @@
             (u/app (u/v 'cell/new) (u/app (u/v 'clj/ctx) (u/lit nil))))))
 
 
+(def continuation-family-names
+  "The `clj/` continuation-family store definitions `compile-program` emits
+   inline (plus the `clj.rt/ctx` cell): compiler-bound names an admission scan
+   must accept, like the preamble's `dsg__*` helpers. Exposed so a harness
+   admission check stays in sync with the family instead of hardcoding it."
+  (into #{'clj.rt/ctx} (map first continuation-family)))
+
+
 (defn- rewrite-ex-info
   "(ex-info msg data cause?) as the portable map holding its parts. The
    accessors read through the generated exception wrapper: a retained
