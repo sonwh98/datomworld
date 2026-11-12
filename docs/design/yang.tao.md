@@ -7,7 +7,7 @@ description: Mathematical notation as a versioned stream frontend producing expl
 
 **Status:** Proposed design, 2026-10-28. No implementation or completed acceptance gate is claimed.
 
-**Authority:** Subordinate to [Datom.World’s foundations](./datom.world.md), the [Yin.CIC implementation plan](./yang.cic.md), and the existing row, execution, and stream contracts.
+**Authority:** Subordinate to [Datom.World’s foundations](./datom.world.md), the [Dao.Li implementation plan](./dao.li.md), and the existing row, execution, and stream contracts.
 
 ## 1. Decision
 
@@ -165,7 +165,7 @@ Observers remain independently composable. An indexer, renderer, audit process, 
 
 ## 5. UAST, logical terms, and executable segments
 
-The [CIC plan](./yang.cic.md) distinguishes the checker implementation from its logical input. Tao preserves that distinction.
+The [CIC plan](./dao.li.md) distinguishes the checker implementation from its logical input. Tao preserves that distinction.
 
 ### 5.1 Form rows
 
@@ -249,11 +249,11 @@ These facilities belong in later elaboration programs. The architecture supplies
 
 ## 7. Gate S and the CIC dependency
 
-The [CIC plan’s section 10](./yang.cic.md) keeps elaboration, tactics, and metavariable unification outside the trusted checker. Tao does not reopen that boundary.
+The [CIC plan’s section 10](./dao.li.md) keeps elaboration, tactics, and metavariable unification outside the trusted checker. Tao does not reopen that boundary.
 
 Gate S freezes the logical theory before typing implementation. The current plan chooses a minimal predicative core. Impredicative Prop, definitional proof irrelevance, eta, and other Lean-specific extensions cannot enter through notation.
 
-At this design review, `docs/design/yin.cic.spec.md` is absent. Therefore:
+At this design review, `docs/design/dao.li.spec.md` is absent. Therefore:
 
 - Source retention, notation design, parser fixtures, and form-row infrastructure may proceed.
 - Term lowering must target a reviewed, versioned logical schema.
@@ -266,7 +266,7 @@ The existing Yang→Yin conformance work remains a prerequisite wherever the ela
 
 ## 8. Reproducible interpretation and checking configuration
 
-The [CIC checking configuration](./yang.cic.md) already pins the kernel, runtime, linked modules, primitive implementations, initial bindings/store, host attestations, and logical specification.
+The [CIC checking configuration](./dao.li.md) already pins the kernel, runtime, linked modules, primitive implementations, initial bindings/store, host attestations, and logical specification.
 
 An Tao checking configuration extends this with an **interpretation descriptor** containing:
 

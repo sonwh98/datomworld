@@ -1,7 +1,7 @@
-# yin.cic.spec: the Gate S v1 specification of the Yin.CIC checker
+# dao.li.spec: the Gate S v1 specification of the Dao.Li checker
 
-**Status:** Gate S v1, frozen on review. Specification version string: `yin.cic.spec/v1`.
-**Governs:** `docs/design/yang.cic.md` Phases 1 to 3 and 5. Phase 4 (inductives, iota) and Phase 7 (Lean extensions) each mint a new specification version.
+**Status:** Gate S v1, frozen on review. Specification version string: `dao.li.spec/v1`.
+**Governs:** `docs/design/dao.li.md` Phases 1 to 3 and 5. Phase 4 (inductives, iota) and Phase 7 (Lean extensions) each mint a new specification version.
 **Updated:** 2026-10-29
 
 This document is a specification, not a plan and not a verification. It fixes the logical theory the checker decides. Every rule carries a number. Every example states its expected outcome. A rule change, including a change to an exclusion, mints a new specification version, which changes the checking-configuration identity of the kernel plan §5 and invalidates earlier checking artifacts.

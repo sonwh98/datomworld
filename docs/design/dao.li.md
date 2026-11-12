@@ -1,4 +1,4 @@
-# Yin.CIC — Implementation Plan
+# Dao.Li — Implementation Plan
 
 **Architecture:** Clojure/CLJC source → `yang.clojure` → Yin Universal AST (UAST) → Yin.VM → CIC proof checking  
 **Status:** Proposed plan, not a claim of existing implementation  
@@ -25,7 +25,7 @@ The same underlying graph/tuple substrate can represent both, but a Clojure `fn`
 
 ```text
                Clojure / CLJC source
-                  (yin.cic library)
+                  (dao.li library)
                          |
                          v
                     yang.clojure
@@ -159,7 +159,7 @@ Use de Bruijn indices or an equivalent rigorously defined binding scheme. Source
 
 ### Phase 0.5 — Specification gate (Gate S)
 
-Phase 1 and Phase 2 may not begin until the v1 logical specification exists as a written, reviewed document (to be created as `docs/design/yin.cic.spec.md`; until it exists, no typing-rule code may land). The gate freezes, for v1:
+Phase 1 and Phase 2 may not begin until the v1 logical specification exists as a written, reviewed document (to be created as `docs/design/dao.li.spec.md`; until it exists, no typing-rule code may land). The gate freezes, for v1:
 
 - **Sorts and universes:** the admitted sorts, the universe level grammar, and their constraints.
 - **Typing judgments:** variable, sort, Pi formation, lambda, application, and let.
@@ -175,7 +175,7 @@ A specification change mints a new spec version: it changes the checking-configu
 
 ### Phase 1 — Terms, universes, and environments
 
-**Implement** `yin.cic.term`, `yin.cic.level`, `yin.cic.context`, and `yin.cic.environment`.
+**Implement** `dao.li.term`, `dao.li.level`, `dao.li.context`, and `dao.li.environment`.
 
 - Tagged term constructors and projections.
 - Structural validation and canonicalization.
@@ -239,7 +239,7 @@ Progression: `False`, `True`, `Nat`, `Eq`, `List`, then indexed inductives. Defe
 
 **Acceptance:** The checker validates natural-number recursion and induction proofs while rejecting negative occurrences and invalid recursors.
 
-### Phase 5 — Native Yin.CIC v1
+### Phase 5 — Native Dao.Li v1
 
 Add environment admission, theorem metadata, dependencies, and stable proof results:
 
@@ -273,7 +273,7 @@ After soundness-oriented core testing:
 - Differential-test acceptance/rejection against Lean 4 and independent checkers.
 - Add performance regression benchmarks based on real exported proofs.
 
-**Acceptance:** Publish a precisely bounded subset of Lean exports that Yin.CIC independently rechecks with matching outcomes. Full Lean compatibility is not assumed.
+**Acceptance:** Publish a precisely bounded subset of Lean exports that Dao.Li independently rechecks with matching outcomes. Full Lean compatibility is not assumed.
 
 ## 8. Suggested source layout
 
