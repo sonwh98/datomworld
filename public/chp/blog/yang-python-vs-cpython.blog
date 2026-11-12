@@ -1,0 +1,112 @@
+#:blog{:title
+       "yang.python vs cpython: One Truth, Many Interpretations",
+       :date #inst "2026-11-12T13:30:00.000-00:00",
+       :abstract
+       [:p
+        "We benchmarked the same Python program running under cpython and under yang.python on the yin.vm register kernel: the kernel is about 100,000x slower per Python call. An independent architect review of that benchmark found no architectural reason the gap cannot be closed, and the design documents already name the path that closes it: a native interpretation of the very same Universal AST."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "datom.world compiles every language into one canonical form, the Universal AST, and then interprets it on several virtual machines. The stance is "
+           [:em "one truth, many interpretations"]
+           ": the truth is the AST, and each machine is an interpretation of it. This post reports a direct measurement of what that currently costs, an independent ruling on whether the cost is essential, and the compiled interpretation that the design already specifies."]
+
+          [:h2 "The benchmark"]
+
+          [:p
+           "The workload is the recursion test from our Python end-to-end suite, the same source file run twice:"]
+
+          [:pre
+           [:code
+            "def fib(n):\n"
+            "    if n < 2:\n"
+            "        return n\n"
+            "    return fib(n - 1) + fib(n - 2)\n"
+            "\n"
+            "print(fib(15))\n"]]
+
+          [:p
+           "On one side, system cpython 3.9.6 on the laptop. On the other side, "
+           [:code "yang.python"]
+           " compiles the source through the real pipeline (parser stage, lowering stage with the bundled prelude, linearization, register image derivation) and the "
+           [:code "yin.vm.debruijn.register"]
+           " kernel executes that image on the JVM. The timed region is execution only: parsing and lowering happen once outside it, mirroring how cpython's own one-time compile sits outside a warm loop. Every size passed a correctness gate: the rendered output of the register VM is byte identical to what cpython prints."]
+
+          [:table.bench-results
+           [:thead
+            [:tr
+             [:th "fib(n)"] [:th "Python calls"] [:th "Register VM run (ms)"]
+             [:th "ms / call"] [:th "CPython in-proc (ms)"] [:th "ratio"]]]
+           [:tbody
+            [:tr [:td "13"] [:td "753"] [:td "6,559"] [:td "8.7"] [:td "0.063"] [:td "~104,000x"]]
+            [:tr [:td "15"] [:td "1,973"] [:td "19,138"] [:td "9.7"] [:td "0.139"] [:td "~138,000x"]]
+            [:tr [:td "17"] [:td "5,167"] [:td "44,932"] [:td "8.7"] [:td "0.348"] [:td "~129,000x"]]]]
+
+          [:p
+           "Three numbers matter. The per-call cost is linear in the number of Python calls (about 8.7 ms per call, with an intercept near zero, so nothing superlinear is happening). The run time divides cleanly: stepping the VM instruction by instruction shows about 1,470 register instructions per Python call. And the one-time costs are real but separate: parse plus lower plus project takes 1.8 to 3.4 seconds, and loading the image into a fresh VM (validator and content hash) takes another 0.6 to 0.9 seconds regardless of n, dominated by the size of the bundled prelude."]
+
+          [:p
+           "Our first explanation multiplied two plausible factors into the observed ratio: a roughly 50x work amplification (the interpreted prelude wrapping every operator) times a roughly 2,500x per-step cost. That story felt complete. We then asked an independent architect seat, gpt-6-astra, fresh thread, read-only, to attack it."]
+
+          [:h2 "Astra's analysis of the benchmark"]
+
+          [:p
+           "The ruling begins with a correction we had to accept. Multiplying two estimated factors back into the total ratio is arithmetic, not attribution. Neither factor had been measured independently, and one of them was flatly wrong: the 5.8 microseconds per step that our decomposition borrowed from an older benchmark document is, on that document's own numbers, 5.8 microseconds per countdown unit, not per instruction. The per-step cost of the kernel is therefore not yet known; the work amplification could be larger and the step cost smaller than we assumed."]
+
+          [:p
+           "It also rejected three comfortable claims from our analysis:"]
+
+          [:ul
+           [:li
+            "Exceeding cpython does not logically require a tracing JIT. Static proofs, whole program analysis over the prelude, and guarded ahead-of-time specialization can remove generic work. The existing LLVM design language says its initial restrictions bound the speedup; they are not a cpython ceiling."]
+           [:li
+            "Binding names straight to host primitives is forbidden. Resolution order is environment, then active store, then primitives, then modules, and a Python program can rebind any name at runtime. The only legal specialization is guarded: specialize, check, fall back. The linked prelude pins code and profiles; it does not, by itself, specialize call sites."]
+           [:li
+            "Continuations are not a rare corner that a native backend could route around. Ordinary Python function returns already allocate a flag cell and capture a continuation, so the fib path itself pays the continuation cost. Any accounting of the gap that files continuations under exotic features is wrong."]]
+
+          [:p
+           "And it corrected the framing of our own conclusion. A native interpretation is not an inference from the philosophy: the design documents already specify one. A register to wasm compilation lane exists as a design (yang.wasm.md names Node, Wasmtime, and Wasmer as hosts for an embedded Rust engine), the LLVM sibling exists (yin.vm.rust.md), and the unitarity invariant of the architecture names native images explicitly as allowed derivations, provided the Universal AST stays retrievable."]
+
+          [:blockquote
+           "There is no architectural reason the pipeline cannot produce highly optimized native code that matches or exceeds cpython on supported workloads. There are substantial implementation obligations."
+           [:footer "gpt-6-astra, verdict (A)"]]
+
+          [:h2 "What one truth, many interpretations really promises"]
+
+          [:p
+           "The slow interpretations are load bearing by design. The AST walker, the semantic, stack, and register machines all execute the same image so that they can be checked against each other and against the source: same values, same effect streams in the same order, same refusal behavior, same continuation payloads. That is what makes the fast lane possible and also what constrains it."]
+
+          [:p
+           "The register synchronization contract turns persistence from a cost center into a boundary rule. Observable execution states (snapshots, continuation payloads, public returns, state consuming engine calls) must materialize as immutable data; inside a body's run, private mutable memory is explicitly allowed as a cache. A compiled backend does not have to keep every register in a persistent vector at every instruction. It has to be able to hand back the same immutable, queryable state, at exactly the points where the reference machines do. A pointer is not a portable continuation. A value that prints the same is not the same if its effect trace differs."]
+
+          [:p
+           "This is also why the differential oracle strategy contains the risk: the reference interpretations become the oracle for the compiled one, comparing values and traces, refusals, snapshots, and continuation transport. We already do this for another subsystem (the Clojure frontend is checked against an independent proof kernel). One truth means any interpretation can be audited against any other."]
+
+          [:h2 "Narrowing the gap, and passing it"]
+
+          [:p "The ruling named two first slices, deliberately small and falsifiable:"]
+
+          [:ul
+           [:li
+            [:strong "Slice 1: faithful native execution, no semantic shortcuts."]
+            " Take one admitted image, one recursive integer program, and the smallest Python return that exercises the continuation machinery. Run it through a native interpreter and through mechanically compiled bodies that share the same runtime, and compare step snapshots, call and capture counts, store transitions, errors, and results. Measure admission separately from execution. This tells us how much of the 1,470 steps per call is dispatch and persistent state churn that compilation removes. If it removes little, our dispatch-centric story is dead."]
+           [:li
+            [:strong "Slice 2: specialize one pinned integer path, with guards."]
+            " Compile the hot arithmetic prelude chain down to exact small integer arithmetic with the generic path kept as fallback for rebinds, other types, and overflow. Test rebinding deliberately. If this yields little, the arithmetic-prelude-centric story is dead. Note what is forbidden here: erasing local cells or return continuations because they look wasteful. They carry observable obligations; removing them is a contract change, not an optimization."]]
+
+          [:p
+           "What follows is standard compiler territory that the one truth design hands over for free. The image is already flat, named, exact-live-set register code, which is exactly what wasm and LLVM backends want as input. The fast integer kernels already guard themselves and fall back, so the numeric path has the shape specialization needs. The remaining big costs (the interpreted prelude per operator, continuation capture per ordinary return, persistent updates per instruction) are all the property of interpretation, not of the truth being interpreted. Cpython pays for its speed by running one fixed interpretation in specialized C, and by giving up everything the reference interpretations keep: queryable state, replayable boundaries, effect streams as first-class data, and portability of the code itself."]
+
+          [:h2 "The honest ledger"]
+
+          [:p
+           "The measured gap today is about 100,000x per Python call, roughly 20 to 500x per script run once startup and compile are compared fairly. The ruling does not promise the first native backend will be competitive, and says parity across all Python programs is not established by anything in the design documents. What it establishes is the direction: the gap is engineering, the obligations are named, the first slices are checkable, and the architecture already contains the compiled interpretations as drafts rather than dreams."]
+
+          [:p
+           "One truth, many interpretations, eventually one truth running as fast as any host allows, with the slow interpretations kept forever as the oracle that keeps the fast ones honest."]
+          ]]]}
