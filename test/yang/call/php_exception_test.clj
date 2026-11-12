@@ -343,9 +343,21 @@
   ;; private retained-condition store is not a runtime key and none of the
   ;; installed retention names is a module export, so admitted source cannot
   ;; reach the store by enumerating either, and no frozen pre-init export
-  ;; binding can silently answer for it.
+  ;; binding can silently answer for it. The r7 steward addendum's F2
+  ;; mirror: the GENERAL surface half — no reserved-door (dsg__) name and
+  ;; no mint/retention name appears in EITHER surface, not just the
+  ;; individually named ones (the definition-graph half lives in
+  ;; php-mint-reachability-test).
   (is (not-any? #(str/includes? (str %) "retained") php-prelude/runtime-keys)
       "no retained store/seal runtime key for admitted source to name")
+  (is (not-any? #(str/includes? (str %) "dsg__") php-prelude/runtime-keys)
+      "no reserved-door runtime key for admitted source to name")
+  (is (not-any? #(str/includes? (str %) "dsg__") php-prelude/module-exports)
+      "no reserved-door name is a module export")
+  (is (not-any? #(re-find #"mint|retained|raise-foreign|raise-protocol"
+                          (str %))
+                php-prelude/module-exports)
+      "no mint/retention name is a module export")
   (is (not (contains? php-prelude/module-exports 'retained-condition))
       "retained-condition is not a module export: no frozen pre-init binding")
   (is (not (contains? php-prelude/module-exports 'raise-protocol))
@@ -481,12 +493,40 @@
                 ["forged-class" {:php/type :obj, :class 42, :props {}}]
                 ["mixed-tags" {:php/type :obj, :class "Exception", :php/obj 42}]
                 ["authentic-cell-bad-class"
-                 (kit/observation-map-form {:php/obj (list 'cell/new {:class 42})})]
+                 ;; :rc 1 keeps the class check independently discriminating
+                 ;; (the re-check3 coverage note): without a valid count the
+                 ;; count rejection could mask a class-validation regression
+                 (kit/observation-map-form {:php/obj (list 'cell/new {:class 42, :rc 1})})]
                 ["map-mixed-ref" {:php/type :obj, :class "Exception", :php/ref 42}]
                 ["real-handle-competing-ref"
                  (list 'assoc (list 'php/make-error "Exception" "real") :php/ref 42)]
                 ["string-class-no-rc"
-                 (kit/observation-map-form {:php/obj (list 'cell/new {:class "Exception"})})]]
+                 (kit/observation-map-form {:php/obj (list 'cell/new {:class "Exception"})})]
+                ;; r7, the last P2 residual: the admitted count must be safe
+                ;; for the raw host arithmetic the object machinery performs
+                ;; (addref/delref's (+/- rc 1)); clojure's + throws on native
+                ;; long overflow, and integer/parse of the native maximum is
+                ;; a legal guest construction.
+                ["max-long-count"
+                 (kit/observation-map-form
+                   {:php/obj (list 'cell/new
+                                   (list 'assoc {:class "Exception"}
+                                         :rc (list 'integer/parse "9223372036854775807")))})]
+                ;; the same class one operation later: delref's (- rc 1)
+                ;; throws at the native minimum, so the minimum count is not
+                ;; admitted either (at the pre-fix tip this shape is red the
+                ;; other way: admitted and delivered as a LOCAL payload)
+                ["min-long-count"
+                 (kit/observation-map-form
+                   {:php/obj (list 'cell/new
+                                   (list 'assoc {:class "Exception"}
+                                         :rc (list 'integer/parse "-9223372036854775808")))})]
+                ;; non-number counts stay rejected (the r6 rule; pinned so
+                ;; the incrementability refinement cannot silently drop it)
+                ["non-number-count"
+                 (kit/observation-map-form
+                   {:php/obj (list 'cell/new (list 'assoc {:class "Exception"}
+                                                   :rc "bad"))})]]
         leg (fn [label payload]
               (let [n (fn [k] (symbol (str "probe." (name label) "." (name k))))
                     p (n :payload) c (n :condition) i (n :injected)
@@ -531,3 +571,36 @@
       (is (= expected actual)
           (str backend ": every handle-shaped foreign payload retains the "
                "complete condition")))))
+
+
+(deftest ^:slow php-nil-condition-reception-test
+  ;; The steward addendum's F1 nil-guard choice, taken DELIBERATELY as
+  ;; option (a): a non-map or nil condition delivered to reception is NOT
+  ;; provenance-minted (nil provenance is refused by the reserved door —
+  ;; an operational failure that would escape the boundary behavior); it
+  ;; raises the documented plain local Error — no ForeignException, no
+  ;; wrapper, nothing retained. The kit never builds such a condition;
+  ;; this pins the boundary behavior for the instrument-level anomaly.
+  (let [observation
+        (kit/guard-exceptions-form
+          [:php]
+          (list 'let ['probe.injected (injected nil)
+                      'probe.retained (boundary-call (kit/export-form :php "retain")
+                                                     ['probe.injected])
+                      'probe.wrapper (list 'get 'probe.retained :value)
+                      'probe.local (list 'if
+                                         (list '= :return
+                                               (list 'get 'probe.retained :route))
+                                         (boundary-call (kit/export-form :php "is_foreign")
+                                                        ['probe.wrapper])
+                                         {:value false})]
+                (kit/observation-map-form
+                  {:retained (list '= :return (list 'get 'probe.retained :route))
+                   :plain-local-error (list '= false (list 'get 'probe.local :value))})))
+        results (run-provenance-observation observation)]
+    (is (= #{:semantic :stack :register} (set (keys results))))
+    (doseq [[backend actual] results]
+      (println "PHP-NIL-CONDITION" backend actual)
+      (is (= {:retained true :plain-local-error true} actual)
+          (str backend ": a nil condition raises the plain local Error, "
+               "never a provenance mint (got " (pr-str actual) ")")))))

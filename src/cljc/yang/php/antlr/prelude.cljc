@@ -2849,21 +2849,32 @@
      ;; - the object handle `{:php/obj cell}` (no other marker): the cell
      ;;   is live and authenticated (cell/authentic?, total boolean) AND
      ;;   its contents are valid counted-object state — a STRING :class
-     ;;   (instance-of → class-is? → php/lc) and a NUMBER :rc (addref's
-     ;;   `(+ rc 1)`); released?'s :released? read is total and cell/set!
-     ;;   is safe on an authenticated cell. Authenticity proves the
-     ;;   reference is live and task-issued, NOT that its contents are
-     ;;   object state — a guest legally mints `(cell/new {:class "x"})`
-     ;;   with no :rc.
+     ;;   (instance-of → class-is? → php/lc) and an INCREMENTABLE,
+     ;;   DECREMENTABLE count: an integer STRICTLY INSIDE the exact
+     ;;   native bounds php.rt/int-max and php.rt/int-min carry (compared
+     ;;   with the total integer/compare, the prelude's established
+     ;;   bounds idiom), so the raw (+/- rc 1) the ownership machinery
+     ;;   executes — addref now, delref over the wrapper's lifetime —
+     ;;   cannot overflow the host carrier. A number predicate alone does
+     ;;   not establish this (the native maximum is a legal guest
+     ;;   construction via integer/parse and overflows the raw +);
+     ;;   exact-integer carriers at or beyond the bounds, non-integers
+     ;;   and non-numbers are all rejected. released?'s :released? read
+     ;;   is total and cell/set! is safe on an authenticated cell.
+     ;;   Authenticity proves the reference is live and task-issued, NOT
+     ;;   that its contents are object state — a guest legally mints
+     ;;   `(cell/new {:class "x"})` with no :rc.
      ;; - the map error `{:php/type :obj :class s}` with NO marker at all:
-     ;;   slot-kind is :plain, cell-of is nil, addref is a no-op — only the
-     ;;   string class is consumed.
+     ;;   slot-kind is :scalar (the re-check's correction: :plain is the
+     ;;   :php/type :array branch), cell-of is nil, addref is a no-op —
+     ;;   only the string class is consumed.
      ;; Everything else — php/kind's number fallthrough, competing or
-     ;; forged markers, dead references, non-string classes, non-counted
-     ;; cell state — answers false and is FOREIGN: only a candidate that
-     ;; survives the same reads and selections the consumer path performs
-     ;; ever reaches the Throwable test, and no unauthenticated or
-     ;; unvalidated dereference ever happens.
+     ;; forged markers, dead references, non-string classes, non-number
+     ;; or boundary-or-beyond counts — answers false and is FOREIGN: only
+     ;; a candidate that survives the same reads and selections the
+     ;; consumer path performs ever reaches the Throwable test, and no
+     ;; unauthenticated or unvalidated dereference or arithmetic ever
+     ;; happens.
      (fn [v]
        (if (if (not (nil? (get v :php/ref))) true (not (nil? (get v :php/arr))))
          false
@@ -2874,7 +2885,17 @@
            (if (cell/authentic? (get v :php/obj))
              (let [st (cell/get (get v :php/obj))]
                (if (data/string? (get st :class))
-                 (data/number? (get st :rc))
+                 (let [rc (get st :rc)]
+                   ;; data/number? first: it is total, and php/int? goes
+                   ;; through php/kind, whose non-number fallthrough calls
+                   ;; data/float-value and refuses on nil/absent counts
+                   (if (data/number? rc)
+                     (if (php/int? rc)
+                       (if (= (integer/compare rc php.rt/int-max) -1)
+                         (= (integer/compare rc php.rt/int-min) 1)
+                         false)
+                       false)
+                     false))
                  false))
              false))))]
     [php.rt/receive-condition
