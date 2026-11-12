@@ -2418,8 +2418,11 @@
                                    (u/sexp->uast ex-message-form))
            (outcomes? env) (u/let1 'dsg__ex_data
                                    (u/sexp->uast ex-data-form))
-           (outcomes? env) (u/then
-                             (discard-result continuation-uast))
+           ;; A linked unit shares the required clj module's handler stack.
+           ;; Its inline counterpart names the private clj.rt/ctx store key,
+           ;; which cannot be read from a different module.
+           (and (outcomes? env) (not (:linked-runtime opts))) (u/then
+                                                                (discard-result continuation-uast))
            (outcomes? env) (u/then
                              (discard-result
                                (u/app (u/lam '[get = assoc empty?] call/uast)
@@ -2968,9 +2971,11 @@
 (def unit-opts
   "The `compile-program` opts a linked unit compiles with: the
    argument-vector convention with the outcome model over the guest
-   library's adapters, every VM primitive callable directly by bare name."
+   library's adapters. The required clj module supplies the continuation
+   family; VM primitives are callable directly by bare name."
   {:convention :arg-vector,
    :outcomes true,
+   :linked-runtime true,
    :adapters library-adapters,
    :native vm/primitive-profiles})
 
