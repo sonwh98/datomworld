@@ -2834,21 +2834,30 @@
                               (data/str-concat "Call to undefined function "
                                                written "()"))))))]
     [php/obj-val?
-     ;; §8.10.7 reception safety: is `v` one of php's two object
-     ;; representations — the sealed-state handle `{:php/obj cell}` or a
-     ;; typed map with `:php/type :obj` (the no-methods error map)? This is
-     ;; the ONLY safe object test for an arbitrary guest value: `php/kind`
+     ;; §8.10.7 reception safety: is `v` a value php's own machinery could
+     ;; have produced as an object — a sealed-state handle `{:php/obj cell}`
+     ;; whose entry is a LIVE AUTHENTICATED cell reference (the VM's own
+     ;; total boolean predicate — never a refusal), or a typed map
+     ;; `{:php/type :obj ...}` (the no-methods error map) whose :class is a
+     ;; string php's class tables can be safely asked about? This is the
+     ;; ONLY safe object test for an arbitrary guest value: `php/kind`
      ;; assumes whatever is not null/bool/string/array/obj is a number and
-     ;; calls `data/float-value` on it, so classifying a foreign payload
-     ;; (any value, including a raw cell) through `php/kind` refuses at the
-     ;; data primitive. Only an obj-val can be a Throwable, so reception
-     ;; asks this first and `php/throwable?` (whose instance-of walks real
-     ;; class tables) only ever sees an obj-val.
+     ;; calls `data/float-value` on it, and `php/throwable?`'s instance-of
+     ;; reads the class out of the handle's cell (`cell/get`) and
+     ;; lower-cases it (`php/lc`) — both REFUSE on foreign data. Ordinary
+     ;; foreign data shaped like a handle (`{:php/obj 42}`, a foreign map
+     ;; holding a forged `:cell-ref` under the key) or a typed map with a
+     ;; forged :class therefore answers false here and is FOREIGN, so only
+     ;; an authenticated candidate ever reaches the Throwable test.
      (fn [v]
        (if (nil? (get v :php/type))
-         (not (nil? (get v :php/obj)))
-         (= (get v :php/type) :obj)))]
-    [php/receive-condition
+         (if (nil? (get v :php/obj))
+           false
+           (cell/authentic? (get v :php/obj)))
+         (if (= (get v :php/type) :obj)
+           (data/string? (get v :class))
+           false)))]
+    [php.rt/receive-condition
      ;; §8.10.7 reception, shared by every php call helper: classify the
      ;; delivered condition and continue it as a local Throwable. A
      ;; :yang.call/thrown payload that is itself a PHP Throwable keeps its
@@ -2864,6 +2873,12 @@
      ;; entry bridge consults the same provenance read — with no wrapper
      ;; stacking. A returned condition-shaped map never reaches here: it is
      ;; ordinary data.
+     ;; The name is `php.rt/*`, never a module export (the step-7 P1): a
+     ;; guest-reachable receiver would be a transitive mint — a forged
+     ;; condition called through it would ride a GENUINE provenance-carrying
+     ;; wrapper. Only the three call helpers reference it, as the raise
+     ;; exit they hand to yang.call/invoke, where every condition it sees
+     ;; is bridge- or validation-built, never a guest argument.
      (fn [condition]
        (if (= (get condition :yang.call/reason) :yang.call/thrown)
          (let [v (get condition :yang.call/value)]
@@ -2873,10 +2888,10 @@
          (php.rt/raise-protocol condition)))]
     [php/call
      (fn [f args]
-       (yang.call/invoke f args [] php/receive-condition))]
+       (yang.call/invoke f args [] php.rt/receive-condition))]
     [php/call-with-binding-profile
      (fn [f args named binding-profile]
-       (yang.call/invoke-with f args named php/receive-condition
+       (yang.call/invoke-with f args named php.rt/receive-condition
                               (assoc {} :yang.call/binding-profile binding-profile)))]
     ;; the internal array pointer (row 55): an ordinal in the table's `:ptr`,
     ;; so it travels with the value (copy, DUP, upgrade); absent means 0
@@ -4888,7 +4903,7 @@
        (let [spec (get (cell/get f) :spec)]
          (if (nil? (get spec :names))
            (php/throw-error "Error" "Named arguments are not supported for this function")
-           (yang.call/invoke f pos named php/receive-condition))))]
+           (yang.call/invoke f pos named php.rt/receive-condition))))]
     [php/place-named
      (fn [f spec pos named i n extras]
        (if (< i n)

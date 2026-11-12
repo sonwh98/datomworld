@@ -369,5 +369,126 @@
       "the reserved read door is a declared host dependency")
   (is (not (contains? php-prelude/module-exports 'mint-retained))
       "the mint helper is not a module export")
+  ;; r4 (sol P1): the php.rt/-prefix assertion above cannot catch a
+  ;; dangerous helper under a stripped php/ name — module-exports holds
+  ;; STRIPPED names, so the condition-accepting receiver must be named
+  ;; explicitly too.
+  (is (not (contains? php-prelude/module-exports 'receive-condition))
+      "the condition-accepting receiver is not a module export")
   (is (not-any? #(str/starts-with? (str %) "php.rt/") php-prelude/module-exports)
       "no php.rt name is a module export: no guest-reachable retention surface"))
+
+
+(deftest php-mint-reachability-test
+  ;; r4 (sol P1): no module export — no php/-prefixed definition, the only
+  ;; ones core/exports takes — DIRECTLY reaches the provenance mint or the
+  ;; condition-accepting receiver. One hop is the discriminating depth: a
+  ;; direct mention is a guest-reachable name whose own parameter can flow
+  ;; to the mint as a condition (the php/receive-condition bypass), while
+  ;; deeper reachability runs through the call helpers' callback wiring,
+  ;; where every condition is bridge- or validation-built, never a guest
+  ;; argument. The three call helpers are whitelisted for exactly that
+  ;; wiring: they mention the receiver only as the raise exit they hand to
+  ;; yang.call/invoke. RED while php/receive-condition is exported (its
+  ;; body references php.rt/raise-foreign and php.rt/raise-protocol).
+  (let [defs (into {} @#'yang.php.antlr.prelude/core-definitions)
+        exports php-prelude/module-exports
+        minters '#{php.rt/mint-retained php.rt/raise-foreign
+                   php.rt/raise-protocol php.rt/receive-condition}
+        whitelist '#{php/call php/call-with-binding-profile php/call-named}
+        exported-keys (filter #(contains? exports (php-prelude/strip %)) (keys defs))
+        mentions (fn [form] (some minters (tree-seq coll? seq form)))
+        offenders (remove whitelist (filter (fn [k] (mentions (get defs k))) exported-keys))]
+    (is (pos? (count exported-keys)) "the audit saw the export surface")
+    (is (empty? offenders)
+        (str "exported definitions reach the mint surface: " (pr-str offenders)))))
+
+
+(deftest ^:slow php-exported-mint-forgery-test
+  ;; r4 (sol P1), the executed bypass: while the receiver is exported, a
+  ;; composed unit's boundary form can call it directly with a forged
+  ;; condition — the receiver mints a GENUINE provenance-carrying
+  ;; ForeignException whose retained condition is the attacker's map, and
+  ;; the unchanged rethrow forwards it as if it were a real retained
+  ;; condition. After the repair the receiver is php.rt/receive-condition
+  ;; (compiler-private, never exported), so the forged call cannot even
+  ;; link: no green run ever delivers the forged condition.
+  (let [observation
+        (kit/guard-exceptions-form
+          [:php]
+          (list 'let ['probe.forged (kit/observation-map-form
+                                      {:yang.call/reason :yang.call/not-callable
+                                       :yang.call/data {:forged true}})
+                      'probe.box (list 'cell/new nil)
+                      'probe.caught (list 'php/try
+                                          (list 'fn []
+                                                (list 'php/receive-condition 'probe.forged))
+                                          (list 'fn ['e]
+                                                (list 'do (list 'cell/set! 'probe.box 'e) nil))
+                                          (list 'fn [] nil))
+                      'probe.wrapper (list 'cell/get 'probe.box)
+                      'probe.result (boundary-call (kit/export-form :php "raise_value")
+                                                   ['probe.wrapper])]
+                (kit/observation-map-form
+                  {:caught-a-wrapper (list 'not (list 'nil? 'probe.wrapper))
+                   :forged-forwarded
+                   (list 'if (list '= :raise (list 'get 'probe.result :route))
+                         (list '= 'probe.forged (list 'get 'probe.result :condition))
+                         false)})))
+        results (run-provenance-observation observation)]
+    (is (= #{:semantic :stack :register} (set (keys results))))
+    (doseq [[backend actual] results]
+      (println "PHP-MINT-FORGERY" backend actual)
+      (is (not (and (map? actual) (:forged-forwarded actual)))
+          (str backend ": the forged condition must never forward as a "
+               "retained condition (got " (pr-str actual) ")")))))
+
+
+(deftest ^:slow php-handle-shaped-foreign-payload-test
+  ;; r4 (sol P2): ordinary foreign data shaped like a php object — a
+  ;; handle whose :php/obj entry is not a live cell reference ({:php/obj
+  ;; 42}, or a forged :cell-ref map), or a typed :php/type :obj map whose
+  ;; :class is not a name php's class tables can be asked about — is
+  ;; FOREIGN: reception retains the complete original condition (reason,
+  ;; evidence, payload identity) in the ForeignException instead of
+  ;; refusing at the unauthenticated cell read or the class lookup.
+  (letfn [(probe
+            [payload label]
+            (let [observation
+                  (kit/guard-exceptions-form
+                    [:php]
+                    (list 'let ['probe.payload payload
+                                'probe.condition (kit/observation-map-form
+                                                   {:yang.call/reason :yang.call/thrown
+                                                    :yang.call/value 'probe.payload
+                                                    :yang.call/data {:complete [:evidence]}})
+                                'probe.injected (injected 'probe.condition)
+                                'probe.retained (boundary-call (kit/export-form :php "retain")
+                                                               ['probe.injected])
+                                'probe.wrapper (list 'get 'probe.retained :value)
+                                'probe.local (list 'if
+                                                   (list '= :return
+                                                         (list 'get 'probe.retained :route))
+                                                   (boundary-call (kit/export-form :php "is_foreign")
+                                                                  ['probe.wrapper])
+                                                   {:value false})
+                                'probe.later (boundary-call (kit/export-form :php "later") [])]
+                          (kit/observation-map-form
+                            {:retained (list '= :return (list 'get 'probe.retained :route))
+                             :local-foreign-exception (list '= true (list 'get 'probe.local :value))
+                             :condition-identical (list '= 'probe.condition
+                                                        (list 'get 'probe.later :condition))
+                             :payload-identical (list '= 'probe.payload
+                                                      (list 'get (list 'get 'probe.later :condition)
+                                                            :yang.call/value))})))
+                  results (run-provenance-observation observation)]
+              (doseq [[backend actual] results]
+                (println "PHP-HANDLE-SHAPED" label backend actual)
+                (is (= {:retained true :local-foreign-exception true
+                        :condition-identical true :payload-identical true}
+                       actual)
+                    (str label " " backend ": a handle-shaped foreign payload "
+                         "retains the complete condition (got " (pr-str actual) ")")))))]
+    (probe {:php/obj 42} ":non-reference")
+    (probe {:php/obj {:type :cell-ref, :id 99999, :seal "forged"}} ":forged-ref")
+    (probe {:php/type :obj, :class 42, :props {}} ":forged-class")))
