@@ -142,10 +142,17 @@
 
 
 (defn- marked-under
-  "The `[origin root-address path]` of a C1 marker relation."
+  "The `[origin root-address path]` of the C1 rows of `metadata` claimed
+   under `origin` — the ORIGIN-SCOPED marker set. Filtering on the row's
+   own origin coordinate is what makes the query meaningful: a relation
+   admitted under a DIFFERENT origin answers empty here, which is how
+   `stage-envelope-test` proves the frontend stamps no origin of its own.
+   (The origin-free projection a consumer derives from canonical rows alone
+   is `marked-pairs`, below.)"
   [metadata origin]
   (into #{}
-        (comp (filter #(= :yang/call-site (nth % 3)))
+        (comp (filter #(and (= :yang/call-site (nth % 3))
+                            (= origin (nth % 0))))
               (map (fn [[o r path _ _]] [o r path])))
         metadata))
 
@@ -306,8 +313,14 @@
           (is (= (eligible-under tree admission) (marked-under metadata admission)))
           (is (true? (yang/validate-call-site-coverage! tree metadata admission)))
           (is (empty? (marked-under metadata origin))
-              "the coordinates carry the composition's origin, never this
-               file's: the frontend stamps no origin of its own"))))))
+              "no C1 row of the envelope carries THIS file's origin: the
+               frontend finalizes the tree and the composition admits it, so
+               the frontend stamps no origin of its own")
+          (is (= #{admission} (into #{} (map first) (marker-rows metadata)))
+              "and every C1 row carries exactly the stage's admission
+               origin — one origin, supplied by the composition, per the
+               design's streaming-stage inventory row: the stage supplies
+               medium plus packet unit as batch token"))))))
 
 
 ;; =============================================================================

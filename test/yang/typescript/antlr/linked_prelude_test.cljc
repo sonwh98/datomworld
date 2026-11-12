@@ -60,7 +60,7 @@
     (is (nil? (get-in ast [:operator :body :value])))
     (is (= (u/sexp->uast '(require (quote js)))
            (dissoc (last operands) :tail? :yang/call-site))
-        "the delivered require, minus its tail mark and its C1 marker"))
+        "the delivered require, minus its tail mark and its C1 marker")
     (testing "the placeholders come first, each the literal :js/uninit"
       (let [n (count hooks/runtime-keys)
             placeholders (take n definitions)]
