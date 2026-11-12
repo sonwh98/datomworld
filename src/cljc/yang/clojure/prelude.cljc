@@ -26,6 +26,13 @@
      any projection of the same name and shadows it. The JS
      `globalThis` table, the PHP named-function table and the Python
      module dictionary are the same seam;
+   - the continuation family, `clj/try`, `clj/try-finally`, `clj/throw`,
+     `clj/raise`, `clj/call-ec`, `clj/unwind-to` and their helpers: the
+     `%capture` handler-stack scheme the py/ts/php preludes carry, over a
+     dynamic-context cell `clj.rt/ctx` (allocated by `clj/init!`). It is
+     the reference implementation yang.clojure's exception lowering
+     converges onto (R3, section 8.10.7); the consumer wiring that calls
+     these entries lands after the family exists;
    - admission, `admit`: the registry surface a linked clojure composition
      needs beside the others — the `kind` module and the `portable`
      adapters of the data exports the guest library's collection
@@ -51,7 +58,7 @@
    level so every read is discharged before `clj/init!` allocates the
    real cell. They stay qualified: internal store keys, never guest
    names."
-  '[clj.rt/state clj.rt/globals])
+  '[clj.rt/state clj.rt/globals clj.rt/ctx])
 
 
 (def definitions
@@ -62,6 +69,7 @@
      (fn []
        (if (= clj.rt/state :clj/uninit)
          (do (yin/def (quote clj.rt/globals) (cell/new {}))
+             (yin/def (quote clj.rt/ctx) (cell/new (clj/ctx nil)))
              (yin/def (quote clj.rt/state) :clj/ready))
          :clj/ready))]
     ;; the runtime global namespace: one task-local map in a cell, keyed by
@@ -77,6 +85,96 @@
        (if (data/contains? (cell/get clj.rt/globals) name)
          (get (cell/get clj.rt/globals) name)
          :clj/unbound))]
+
+    ;; ------------------------------------------------------------- escapes
+    ;; The continuation family, mirroring py/ts/php (their preludes are the
+    ;; reference implementations): the dynamic context is one record in one
+    ;; cell, `clj.rt/ctx`, holding {:handlers} — clojure has no generators,
+    ;; no `with` managers and no recursion-limit hook, so there is no
+    ;; :depth/:base/:frame accounting the way py/php carry it. The handler
+    ;; stack is a chain of frames [tag payload rest n]: a :handler frame
+    ;; holds the continuation `throw` delivers to, a :finally frame a thunk
+    ;; of one argument (the thrown value, or nil) that every exit through
+    ;; it runs; n, the frame count, makes "unwind to here" an integer
+    ;; comparison. A first pass through a capture point is told from a
+    ;; re-entry by a flag cell, never by inspecting the continuation.
+    [clj/ctx (fn [hs] (assoc {} :handlers hs))]
+    [clj/rt-ctx
+     ;; the dynamic-context cell itself: `clj.rt/*` is an internal store key
+     ;; no closure of another module can name, so linked hooks read the cell
+     ;; through this export
+     (fn [] clj.rt/ctx)]
+    [clj/restore! (fn [saved] (cell/set! clj.rt/ctx saved))]
+    [clj/handlers (fn [] (get (cell/get clj.rt/ctx) :handlers))]
+    [clj/set-handlers!
+     (fn [hs] (cell/set! clj.rt/ctx (assoc (cell/get clj.rt/ctx) :handlers hs)))]
+    [clj/frame-depth (fn [hs] (if (nil? hs) 0 (get hs 3)))]
+    [clj/frame
+     (fn [tag payload rest]
+       (conj (conj (conj (conj [] tag) payload) rest)
+             (+ 1 (clj/frame-depth rest))))]
+    [clj/pop-frame
+     (fn [hs]
+       (cell/set! clj.rt/ctx (assoc (cell/get clj.rt/ctx) :handlers (get hs 2))))]
+    [clj/raise
+     ;; deliver `e` to the current handler stack; with no handler above it
+     ;; the value escapes the whole stack (unreached in practice: the entry
+     ;; installs a top-level handler). A :finally frame runs its thunk with
+     ;; `e` before the raise continues.
+     (fn [e]
+       (let [hs (clj/handlers)]
+         (if (nil? hs)
+           (:clj/no-handler e)
+           (if (= (get hs 0) :finally)
+             (do (clj/pop-frame hs) ((get hs 1) e) (clj/raise e))
+             ((get hs 1) e)))))]
+    [clj/throw
+     ;; the guest `(throw e)` form: clojure throws arbitrary values with no
+     ;; wrapping, so it is `clj/raise` under the guest name
+     (fn [e] (clj/raise e))]
+    [clj/unwind-to
+     ;; pop frames above frame count n, running each finally thunk with nil
+     (fn [n]
+       (let [hs (clj/handlers)]
+         (if (nil? hs)
+           nil
+           (if (<= (get hs 3) n)
+             nil
+             (do (clj/pop-frame hs)
+                 (if (= (get hs 0) :finally) ((get hs 1) nil) nil)
+                 (clj/unwind-to n))))))]
+    [clj/try
+     (fn [body handler]
+       (let [saved (cell/get clj.rt/ctx)
+             flag (cell/new :first)]
+         ((fn [r]
+            (if (= (cell/get flag) :first)
+              (do (cell/set! flag :re-entered)
+                  (clj/set-handlers! (clj/frame :handler r (get saved :handlers)))
+                  (let [v (body)] (do (clj/restore! saved) v)))
+              (do (clj/restore! saved) (handler r))))
+          (%capture))))]
+    [clj/try-finally
+     ;; normal exit runs `fin` here; throw and escapes run it as they unwind
+     ;; through the :finally frame
+     (fn [body fin]
+       (let [saved (cell/get clj.rt/ctx)]
+         (do (clj/set-handlers! (clj/frame :finally fin (get saved :handlers)))
+             (let [v (body)]
+               (do (clj/restore! saved) (fin nil) v)))))]
+    [clj/call-ec
+     (fn [f]
+       (let [saved (cell/get clj.rt/ctx)
+             flag (cell/new :first)]
+         ((fn [r]
+            (if (= (cell/get flag) :first)
+              (do (cell/set! flag :re-entered)
+                  (f (fn [x]
+                       (do (clj/unwind-to (clj/frame-depth (get saved :handlers)))
+                           (clj/restore! saved)
+                           (r x)))))
+              r))
+          (%capture))))]
 
     ;; ------------------------------------------------------------- entry
     ;; The outcome model's `[:yin.k/ok value]` wrapper is frontend-
