@@ -256,9 +256,11 @@
    delivers its pinned base prelude after defining hooks. The loop-level
    value display (py/result!, py.rt/value) moves the py address again.
    S3's tracing (the trace cell and its hooks in the prelude) moves it
-   once more. S3's shared-call prelude revision moves it with `py`."
+   once more. S3's shared-call prelude revision moves it with `py`.
+   P9 math builtins and provenance adoption move the pinned `py`
+   requirement again; re-minted on JVM and Node at the same address."
   (keyword (str "segment/blake3-"
-                "b85905d83a11624210894c80f790e085b79ca7ff7f9b2494ed681c23c76e0d60")))
+                "5f1ba8b4a18fb4ebfd072521936bef31a8cad0fe99bf24d1e888925ab9f9b7d8")))
 
 
 (defn- pysp-manifest-address
