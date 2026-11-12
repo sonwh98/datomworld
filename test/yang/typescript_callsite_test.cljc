@@ -118,6 +118,19 @@
      :metadata (:yin/frontend-metadata projected)}))
 
 
+(defn- project-under
+  "`project` under an explicit batch token: the same medium and the same
+   member index, a DIFFERENT admission. `distinct-admission-token-test` uses
+   it to model two admissions of one packet, which is the only way to
+   exercise design `:139`'s fresh-admission-identity requirement from
+   inside a frontend suite."
+  [ast batch-token]
+  (let [projected (encoder/project
+                    (encoder/source-envelope medium batch-token [ast]))]
+    {:tree (first (:yin/batch projected))
+     :metadata (:yin/frontend-metadata projected)}))
+
+
 (defn- eligible-under
   "The eligible C1 site set of canonical `tree` under `origin`, derived
    here directly from the occurrence relation and the row tags —
@@ -174,6 +187,12 @@
 (defn- marker-rows
   [metadata]
   (filterv #(= :yang/call-site (nth % 3)) metadata))
+
+
+(defn- row-origins
+  "The distinct occurrence origins a C1 marker relation carries."
+  [metadata]
+  (into #{} (map first) (marker-rows metadata)))
 
 
 (defn- failure-rule
@@ -687,44 +706,95 @@
 ;; The export audit (the python F2 pin's shape, itself the ts twin's mirror)
 ;; =============================================================================
 
+(def ^:private guest-surface-deny-strings
+  "Substrings no guest-visible name may carry: the occurrence contract's own
+   key, and the exception track's reserved-door family."
+  ["call-site" "callsite" "call_site" "dsg__" "provenance"])
+
+
+(defn- exposed-name?
+  "True when guest-visible name `x` carries a deny-listed substring."
+  [x]
+  (some #(str/includes? (str x) %) guest-surface-deny-strings))
+
+
+(def ^:private exception-track-doors
+  "The exception track's reserved runtime doors and its private condition
+   constructor — a DIFFERENT key family from `:yang/call-site` (landed
+   `8c10c5b7`). Neither the `js` nor the `jssp` prelude may reach them: the
+   js runtime authenticates a retained condition through its own sealed
+   companion cell (`prelude.cljc:1653-1714`), never a VM door."
+  '#{cell/dsg__new-provenance
+     cell/dsg__provenance
+     dsg__condition-exception})
+
+
+(defn- audit-definition-users
+  "The keys of `definitions` (`[key form]` pairs) whose form TREE references
+   any of `names`. A closed set over trees, not a deny-list over names, so a
+   RENAMED wrapper is caught too — which is what makes the python F2 shape
+   strictly stronger than the ts twin it mirrored."
+  [definitions names]
+  (into #{}
+        (keep (fn [[k form]]
+                (when (some names (tree-seq coll? seq form))
+                  k)))
+        definitions))
+
+
+(defn- audit-guest-c1-keys
+  "The keys of `definitions` whose form tree carries the compile-time C1
+   key. Always empty: C1 is frontend metadata on the lowered tree, never a
+   guest-readable definition, so a runtime key that answered for it would be
+   a second, parallel mechanism."
+  [definitions]
+  (audit-definition-users definitions #{:yang/call-site}))
+
+
+(def ^:private renamed-hook-wrapper-definitions
+  "The NEGATIVE fixture for the closed-set audit: two `js.sp` definitions
+   whose OWN NAMES are neutral — no `dsg__`, no `provenance` — but whose
+   bodies reach the exception track's reserved doors. This is the shape a
+   name-based deny-list passes and a tree-based closed set catches."
+  '[[js.sp/condition-slot (fn [c] (cell/dsg__new-provenance c))]
+    [js.sp/read-slot (fn [s] (cell/dsg__provenance s))]])
+
+
 (deftest export-audit-pin-test
   (testing "no C1 or exception-track provenance surface is guest-visible"
-    (let [exposed? (fn [x]
-                     (some #(str/includes? (str x) %)
-                           ["call-site" "callsite" "call_site"
-                            "dsg__" "provenance"]))]
-      (doseq [[label exports runtime-keys]
-              [["js" prelude/module-exports prelude/runtime-keys]
-               ["jssp" hooks/module-exports hooks/runtime-keys]]]
-        (testing label
-          (is (not-any? exposed? exports)
-              "no export names the occurrence contract or the runtime doors")
-          (is (not-any? exposed? runtime-keys)
-              "no runtime key the task allocates names either")))))
-  (testing "no js definition reaches the exception track's reserved doors,
-            and none carries the compile-time C1 key"
-    (let [private-names '#{cell/dsg__new-provenance
-                           cell/dsg__provenance
-                           dsg__condition-exception}
-          door-users (into #{}
-                           (keep (fn [[k form]]
-                                   (when (some private-names
-                                               (tree-seq coll? seq form))
-                                     k)))
-                           prelude/definitions)
-          c1-users (into #{}
-                         (keep (fn [[k form]]
-                                 (when (some #{:yang/call-site}
-                                             (tree-seq coll? seq form))
-                                   k)))
-                         prelude/definitions)]
-      (is (= #{} door-users)
-          "a DIFFERENT key family: the js prelude authenticates a retained
-           condition through its own sealed companion cell, never the VM's
-           provenance doors, so nothing here re-mints or reuses them")
-      (is (= #{} c1-users)
-          "C1 is compile-time frontend metadata on the lowered tree, never
-           a guest definition the runtime can read")))
+    (doseq [[label exports runtime-keys]
+            [["js" prelude/module-exports prelude/runtime-keys]
+             ["jssp" hooks/module-exports hooks/runtime-keys]]]
+      (testing label
+        (is (not-any? exposed-name? exports)
+            "no export names the occurrence contract or the runtime doors")
+        (is (not-any? exposed-name? runtime-keys)
+            "no runtime key the task allocates names either"))))
+  (testing "NEITHER prelude reaches the exception track's reserved doors, and
+            neither carries the compile-time C1 key"
+    (doseq [[label definitions] [["js" prelude/definitions]
+                                 ["jssp" hooks/function-definitions]]]
+      (testing label
+        (is (= #{} (audit-definition-users definitions exception-track-doors))
+            "a DIFFERENT key family: nothing here re-mints or reuses the VM's
+             provenance doors, so no neutrally named wrapper reaches them")
+        (is (= #{} (audit-guest-c1-keys definitions))
+            "C1 is compile-time frontend metadata on the lowered tree, never
+             a guest definition the runtime can read"))))
+  (testing "the closed-set audit is not vacuous: a RENAMED wrapper is caught"
+    (is (= '#{js.sp/condition-slot js.sp/read-slot}
+           (audit-definition-users renamed-hook-wrapper-definitions
+                                   exception-track-doors))
+        "both neutral-named wrappers reaching a reserved door are named, so
+         the empty sets above are a real audit, not an unexercised predicate")
+    (is (= #{} (audit-guest-c1-keys renamed-hook-wrapper-definitions))
+        "the fixture reaches the doors and not the C1 key, so the two audits
+         stay independent of each other")
+    (testing "the name-based deny-list leg alone would have MISSED it"
+      (is (not-any? exposed-name?
+                    (map first renamed-hook-wrapper-definitions))
+          "neither wrapper's own name carries a deny-listed substring — this
+           is exactly why the closed-set leg scans form trees")))
   (testing "the audited surface is the whole guest-visible surface, not a
             sample of it"
     (is (= (set prelude/module-exports)
@@ -738,3 +808,228 @@
            (set (map (comp hooks/strip first) hooks/function-definitions)))
         "and jssp's are exactly its definition list, mirroring
          linked-prelude-test's own pin")))
+
+
+;; =============================================================================
+;; A reviewed literal coordinate pin, and the distinct-admission-token
+;; negative fixture (design §5.2 :272, §3.2 :139)
+;; =============================================================================
+
+(def ^:private reviewed-var-x-paths
+  "The REVIEWED literal coordinate paths of `(lower/lower-module-body var-x)`
+   — `var x = 1;`, the smallest fixture in this suite. Hand-derived from the
+   row grammar (`yin/vm.cljc:1017-1038`) and the design's path rule (`:39`: a
+   scalar child slot step is a row position; a child in a `nodes` slot is
+   `[slot-position member-index]`; the root is `[]`), and NOT read back from
+   `vm/application-occurrences` — so the expected side of
+   `coordinate-pin-test` is independent of the extraction and enumeration
+   machinery every other test here uses, in the style of
+   `yang.clojure-callsite-test:119`.
+
+   The tree is the golden at `lower_portable_test.cljc:206-217`: one
+   cell-binding application over a `cell/new` operand, whose lambda body is
+   two nested sequencing applications ending in `cell/set!`. Five
+   applications, therefore five paths:
+
+     []                     the cell-binding application, i.e. the root
+     [[3 0]]                its operand 0, `(cell/new :js/undefined)`
+     [2 3]                  the binding lambda's body: the outer `then`
+     [2 3 [3 0]]            that `then`'s operand 0: the inner `then`
+     [2 3 [3 0] [3 0]]      the inner `then`'s operand 0: `(cell/set! …)`
+
+   The lambdas at `[2]`, `[2 3 2]` and `[2 3 [3 0] 2]`, and every literal,
+   are not occurrences and must not appear."
+  #{[]
+    [[3 0]]
+    [2 3]
+    [2 3 [3 0]]
+    [2 3 [3 0] [3 0]]})
+
+
+(def ^:private reviewed-var-x-root
+  "The REVIEWED canonical root address of `(lower/lower-module-body var-x)`.
+
+   A root is `segment/blake3-<hex>` over the root row and cannot be derived
+   by hand, so this slot is nil until the first green run freezes it — see
+   findings FIX-ROUND-2 item (1). While it is nil, `coordinate-pin-test` pins
+   the root RELATIONALLY instead: well-formed, identical with the markers
+   stripped, and identical after a second finalization walk. All three are
+   host-independent and need no hash. Fill this in and the pin additionally
+   becomes a frozen absolute golden."
+  nil)
+
+
+(deftest coordinate-pin-test
+  (testing "the reviewed literal coordinate set of the smallest fixture"
+    (let [{:keys [tree metadata]} (project (lower/lower-module-body var-x))
+          expected (into #{}
+                         (map (fn [path] [origin (:root tree) path]))
+                         reviewed-var-x-paths)]
+      (is (= 5 (count reviewed-var-x-paths))
+          "five applications in `var x = 1;`'s module body")
+      (is (= expected (marked metadata))
+          "the hand-derived paths ARE the whole marker set: the expected side
+           consults no occurrence-enumeration machinery")
+      (is (= expected (eligible tree))
+          "and they are exactly the eligible set the canonical rows imply, so
+           the hand derivation and the occurrence relation agree")
+      (is (= reviewed-var-x-paths
+             (into #{} (map #(nth % 2)) (marker-rows metadata)))
+          "the same five paths, origin-free")
+      (is (true? (yang/validate-call-site-coverage! tree metadata origin)))))
+  (testing "the reviewed root pin"
+    (let [produced (lower/lower-module-body var-x)
+          root (:root (:tree (project produced)))]
+      (if-let [frozen reviewed-var-x-root]
+        (is (= frozen root)
+            "the frozen absolute canonical root address")
+        (testing "not yet frozen: the three host-independent root pins that
+                  stand in for it"
+          (is (and (keyword? root) (= "segment" (namespace root))
+                   (str/starts-with? (name root) "blake3-"))
+              "the root is a well-formed canonical segment address")
+          (is (= root (:root (vm/ast->semantic-bytecode
+                               (strip-call-sites produced))))
+              "identical with the markers stripped, so the address cannot
+               depend on C1 — provenance stays out of hashed content")
+          (is (= root (:root (:tree (project (u/annotate-call-sites produced)))))
+              "and identical after a second finalization walk"))))))
+
+
+(deftest distinct-admission-token-test
+  (testing "identical text admitted twice under DISTINCT supplied tokens
+            demands different origins (design §5.2 :272's negative fixture;
+            §3.2 :139 — C1 requires fresh admission identity)"
+    (let [token-a [:hand 0]
+          token-b [:hand 1]
+          origin-a (vm/source-origin medium token-a 0)
+          origin-b (vm/source-origin medium token-b 0)
+          a (project-under (lower/lower-module-body var-x) token-a)
+          b (project-under (lower/lower-module-body var-x) token-b)]
+      (is (= token-a (:yang.cst/unit var-x))
+          "both admissions carry the SAME packet identity, which is exactly
+           why the supplied token and not the packet must carry admission
+           freshness — design :139: packet identity alone is insufficient
+           if reused for distinct admissions")
+      (is (not= origin-a origin-b)
+          "the two admissions are distinct occurrence origins")
+      (is (= #{origin-a} (row-origins (:metadata a))))
+      (is (= #{origin-b} (row-origins (:metadata b))))
+      (is (not= (row-origins (:metadata a)) (row-origins (:metadata b)))
+          "so the two coordinate SETS differ")
+      (is (= (:root (:tree a)) (:root (:tree b)))
+          "one content address for both: an occurrence is (content address,
+           origin), never content alone")
+      (is (= (marked-pairs (:metadata a)) (marked-pairs (:metadata b)))
+          "and one origin-free path set — cross-host equality is REPLAY
+           equality, and must not turn occurrences into content identities")
+      (is (not= (marked-under (:metadata a) origin-a)
+                (marked-under (:metadata b) origin-b))
+          "yet the full coordinates differ, because their origins do")
+      (is (true? (yang/validate-call-site-coverage!
+                   (:tree a) (:metadata a) origin-a)))
+      (is (true? (yang/validate-call-site-coverage!
+                   (:tree b) (:metadata b) origin-b)))))
+  (testing "a RETRY keeps its token: re-admitting identical text under the
+            SAME token reproduces the SAME origin, so a retry fabricates no
+            fresh admission identity (design :139)"
+    (let [retry-token [:hand 0]
+          retry-origin (vm/source-origin medium retry-token 0)
+          first-admission (project-under (lower/lower-module-body var-x)
+                                         retry-token)
+          retry (project-under (lower/lower-module-body var-x) retry-token)]
+      (is (= #{retry-origin} (row-origins (:metadata first-admission))))
+      (is (= #{retry-origin} (row-origins (:metadata retry)))
+          "the retry keeps the token, so it keeps the origin")
+      (is (= (marked-under (:metadata first-admission) retry-origin)
+             (marked-under (:metadata retry) retry-origin))
+          "and reproduces exactly the same coordinate set"))))
+
+
+;; =============================================================================
+;; Obligation TS-SP-C1 — the ts derived envelope's PARTIAL correspondence,
+;; documented. This test PASSES by pinning the limitation and naming the
+;; obligation; it is deliberately not a red-light on the suite.
+;; =============================================================================
+
+(def ^:private derived-medium
+  "The medium a ts host derives under: `safepoint/derive-envelope`'s third
+   argument. No ts caller supplies `:injected-origin`."
+  :yang.ts/derived)
+
+
+(defn- derive
+  "The safepoint-derived envelope of `ast` under `profile`, admitted on this
+   test's medium and derived onto `derived-medium` — `derive-envelope` at its
+   3-arity, exactly as every ts caller invokes it: `safepoint/transform`
+   (`yang/safepoint.cljc:455`), `e2e-test`'s `derive-program` (`:71-86`),
+   `safepoint-test`'s `derive*` (`:132-136`), `linked-prelude-test`'s
+   `derived-ast` (`:249-262`)."
+  [ast profile]
+  (let [projected (encoder/project (encoder/source-envelope medium token [ast]))]
+    (:envelope (safepoint/derive-envelope projected profile derived-medium))))
+
+
+(deftest ts-sp-c1-obligation-test
+  (testing "TS-SP-C1 part 1 — a ts derived envelope carries PARTIAL
+            correspondence by named obligation, not by oversight: surviving
+            occurrences keep their own origins, injected hook applications
+            are recorded WITHOUT one, because no ts caller supplies
+            :injected-origin and inventing an origin is forbidden"
+    (let [derived (derive (lower/lower-packet while-x {:prelude :linked})
+                          hooks/profile)
+          rows (marker-rows (:yin/frontend-metadata derived))
+          tree (nth (:yin/batch derived) (:yin/root derived))
+          correspondence (:yang.safepoint/correspondence derived)
+          entries (:entries correspondence)
+          injected (filterv #(= :safepoint/injected (:kind %)) entries)
+          surviving (filterv #(= :surviving (:kind %)) entries)
+          eligible-paths (into #{} (map second)
+                               (vm/application-occurrences tree))
+          claimed-paths (into #{} (map #(nth % 2) rows))]
+      (is (some? correspondence)
+          "the derived envelope carries an explicit correspondence record")
+      (is (seq surviving) "the surviving occurrences are mapped")
+      (is (seq rows) "and keep their C1 rows")
+      (is (seq injected)
+          "the injected hook applications are named in the correspondence")
+      (is (not-any? :origin injected)
+          "TS-SP-C1: each injected occurrence is recorded WITHOUT an origin —
+           partial correspondence, deliberately, never a fabricated claim")
+      (is (every? #(some? (get-in % [:input 0])) surviving)
+          "while every surviving entry keeps its own incoming origin, inside
+           its :input coordinate")
+      (is (= (into #{} (map #(nth % 0) rows))
+             (into #{} (map #(get-in % [:input 0]) surviving)))
+          "and each claimed row carries exactly one surviving entry's origin")
+      (is (every? eligible-paths claimed-paths)
+          "every claimed path is a real application of the derived tree")
+      (is (not= claimed-paths eligible-paths)
+          "TS-SP-C1: but the claim is a STRICT subset — partial
+           correspondence, NOT complete derived-tree adoption")))
+  (testing "TS-SP-C1 part 2 — re-projecting that derived envelope DROPS its
+            C1 rows silently, so derived-envelope re-projection stays OUTSIDE
+            the accepted C1 routes until the shared encoder gap is resolved.
+            Pinned so the behaviour is documented, and so a fix in the shared
+            encoder flips this test rather than passing quietly."
+    (let [derived (derive (lower/lower-packet while-x {:prelude :linked})
+                          hooks/profile)
+          reprojected (encoder/project derived)]
+      (is (seq (marker-rows (:yin/frontend-metadata derived)))
+          "the derived envelope carries C1 rows on entry")
+      (is (= [] (:yin/frontend-metadata reprojected))
+          "TS-SP-C1: they are GONE after re-projection, with no refusal and
+           no diagnosis. The already-projected member arm at
+           encoder.cljc:115-125 reads :frontend-metadata off the MEMBER,
+           where derive-envelope never puts it — the rows ride the ENVELOPE —
+           so check-projected-claim! sees no claim to check; encoder.cljc
+           :156-160 then overwrites the envelope-level relation with the
+           empty concatenation over members. That gap is in the SHARED
+           encoder and is owned cross-track, out of scope for this round")
+      (is (= (:yin/batch derived) (:yin/batch reprojected))
+          "the canonical rows are untouched: the drop is provenance-only")
+      (is (= (:yang.safepoint/correspondence derived)
+             (:yang.safepoint/correspondence reprojected))
+          "and the correspondence record survives, because project-envelope
+           assocs onto the incoming envelope — so the evidence of what was
+           dropped is still retrievable"))))
