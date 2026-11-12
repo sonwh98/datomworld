@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"01a1cc38-c13f-7723-851f-59f68e7fd01e"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll review the supplied diff and findings only, tracing retention writes and recovery merges. I’ll distinguish what the code establishes from historical test results and checks that require omitted source."}}

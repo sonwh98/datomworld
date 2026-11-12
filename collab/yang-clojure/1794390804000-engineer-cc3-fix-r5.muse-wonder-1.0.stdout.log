@@ -1,0 +1,22 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc3 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc3/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+muse: retrying meta model stream in 1000ms (attempt 2/10)
+muse: retrying meta model stream in 1000ms (attempt 2/10)
+Completed-GMT: 2026-11-11 10:47:53 GMT
+Completed-Local: 2026-11-11 17:47:53 +07
+
+All three r5 items are done, verified, and uncommitted (8 tracked files, +1620/−93).
+
+**F2 — caller threading:** [latte_oracle_test.clj](/Users/sto/workspace/datomworld-cc3/test/yang/latte_oracle_test.clj) now allocates the run scope once per run via `fresh-admission-run` and threads it through `kernel-row`, `kernel-gate-evidence`, the proof-supply/proof-loop loops, and the principal binding test, with distinct ordinals per fixture and explicit scope+ordinal re-supply on replay. The new `test-cc3-caller-run-threads-distinct-admissions` pins distinctness through the actual `kernel-row` path (red first: unresolved `fresh-admission-run`).
+
+**F6 — maximum rule:** [the measurement script](/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794386683000-cc3-f6-measure.clj) now judges by maximum sample, and the r4 findings table's binding-only verdict is corrected to EXCEEDED (8,044,024 B sample; samples unchanged).
+
+**V2 bounded run:** declared before running in [the v2 declaration](/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794390804000-cc3-bounded-run-declaration-v2.md) (retained ceiling 12,000,000 B, +33.2% over the pilot compiled-inclusive maximum), preserving the superseded run as failed. V2 results, all max-based PASS: compiled-inclusive max 8,931,952 B / 12,000,000 B; peak heap max 283,147,736 B / 1 GiB; elapsed max 873 ms / 10,000 ms; all C lanes completed.
+
+Verification: 10 affected oracle deftests (230 assertions), gate evidence (2 tests, 1,301 assertions, `:gate-status :pass`), callsite battery (36/403), semantic nets (51/7,333), REPL nets (79/400), kondo 0 errors — all green.
+
+Deliverable is the worktree mirror at [the r5 findings](/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794390804000-engineer-cc3-fix-r5.muse-wonder-1.0.findings.md), since the canonical `datomworld/collab` path is outside this session's writable workspace; the v2 declaration is mirrored beside it. Nothing was committed.

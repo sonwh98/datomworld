@@ -1,0 +1,243 @@
+Completed-GMT: 2026-11-12 17:07:21 GMT
+Completed-Local: 2026-11-13 00:07:21 Asia/Ho_Chi_Minh
+
+## Verification limit (read this first)
+
+**This session has no shell of any kind.** `tool_search` for shell/exec/monitor returned only
+`computer_use__*`, `enter_worktree`/`exit_worktree`, `task_stop`, `send_message`, `web_fetch`. There
+is no `run_shell_command` and no `monitor`, and per project memory `computer_use` install was
+declined by the owner, so it was not used as a backdoor. Therefore **step 1 of the brief (the local
+cljd compile) was NOT run, and `git diff --stat` was NOT measured.** Everything below labelled
+*derived* is hand-built from the file bytes, not tool output. Commands to close both gaps are in
+§5. I did not delegate to a subagent for the shell: memory records a `general-purpose` child coming
+back with the same empty tool set.
+
+## What was done
+
+The gate is applied. One file changed: `test/yang/clojure_callsite_test.cljc`. Nothing committed,
+nothing pushed, nothing written under `collab/`, no scratch files created.
+
+**Not in `/tmp/cc1-p1`** — that surface is unusable and I did not force the edit into it:
+
+- `/tmp/cc1-p1/.git` → `gitdir: …/.git/worktrees/cc1-p1`; `.git/worktrees/cc1-p1/HEAD` =
+  `fa70516f60dfe1e64731c8ecde6fdf63bf2406d5` (detached), reflog shows one entry, created
+  `1794208910 +0700` — ~3.4 days *before* this brief's own epoch (`1794500995`).
+- Its `test/yang/clojure_callsite_test.cljc` **does not contain `repl-query-link-forwarding-test`
+  at all** (grep for `repl-query-link-forwarding-test|with-redefs`: *no matches*; 19 top-level
+  deftests, last at line 1186). It also cannot be "re-derived from `origin/callsite-contract-clojure`"
+  without a shell.
+
+The live copies of the deftest are elsewhere. `glob /tmp/*/test/yang/clojure_callsite_test.cljc`
+(16 checkouts) + grep for the symbol found 4, plus the main tree:
+
+| checkout | git state | `with-redefs` line | tail parens | verdict |
+|---|---|---|---|---|
+| `/tmp/gap40809` | worktree, detached `f340421c` | **1737** | 5 | **ungated baseline** — 1737 matches the brief's quoted cljd error exactly |
+| `/tmp/wr-land` | standalone clone, detached `0e666a3f` (master~2) | 1737 | — | ungated baseline, 1966 lines, identical tail |
+| `/tmp/phpexc-review` | worktree | 1737 | — | ungated baseline |
+| `/tmp/wr-land2` | standalone **clone** (`.git` is a directory), detached `3558f599` = master tip | 1742 | 7 | the broken naive gate, uncommitted |
+| `/Users/sto/workspace/datomworld` (main tree, `master`) | dirty `M test/yang/clojure_callsite_test.cljc` | 1742 | 7 → **6 (fixed)** | the broken naive gate — **edited here** |
+
+## The defect the naive gate actually had (measured, not assumed)
+
+The brief says the naive inner gate fails because "the deftest's body extends past the gate with
+unbalanced parens". That is confirmed, and it is worse than a cljd-only problem: the file was
+**unreadable on every lane**. Anchored-regex counts on
+`retained tables"\)\){N}$` (exact because of the literal left anchor):
+
+- baseline `/tmp/gap40809` line 1751: `{4}$` no match, **`{5}$` match**, → exactly **5** closes.
+  Required depth at that point: `deftest, testing, let, with-redefs, is` = 5. ✅ balanced.
+- naive gate (main tree + `/tmp/wr-land2`) line 1756: `{4}$` no, `{5}$` no, **`{6}$` match** →
+  exactly **7** closes. Required depth with the added `#?(…)`: `deftest, #?, testing, let,
+  with-redefs, is` = **6**. ❌ **one extra `)`** → `Unmatched delimiter` at read time, so
+  `clojure -M:test -n yang.clojure-callsite-test` could not even load the namespace, let alone cljd
+  compile it.
+
+## The fix (exact final text, now at lines 1731–1756)
+
+Follows the repo's established shape for gating a whole deftest — the same as
+`test/yang/php/antlr/lower_portable_test.cljc:70,92,108` and
+`test/yang/python/antlr/int_contract_test.cljc:511` (rationale comment **above** `#?(`, `:default`
+branch holds the entire `deftest`). No `(do …)` is needed: there is exactly one form, so the deftest
+itself is the branch value (the `(do …)` in `ws_codec_test.cljc:14` wraps *many* top-level forms).
+
+```clojure
+;; Dart gate: the publish-name! spy needs with-redefs, which ClojureDart
+;; lacks, and the forwarding is only observable through that spy; the rest
+;; of the namespace stays dart-runnable.
+#?(:cljd nil
+   :default
+   (deftest repl-query-link-forwarding-test
+     (testing "yin.repl.query/link-answer forwards the link context's
+               :call-site-tables to publish-name!"
+       (let [{:keys [state]} (session-index ["(def k (fn [] 1))"])
+             tables (repl/call-site-tables state)
+             captured (atom nil)]
+         (with-redefs [linker-dht/publish-name!
+                       (fn [_node _db opts]
+                         (reset! captured opts)
+                         {:status :ok :address :segment/test
+                          :links {} :envelopes []})]
+           (let [[_ _ response]
+                 (#'repl-query/link-answer
+                   {} (:indexer state)
+                   {:authority nil :key {} :primitives vm/primitives
+                    :modules {} :call-site-tables tables :round 1}
+                   (apply2/request 1 (get repl-query/link-ops 'publish)
+                                   ['closed '[k]]))]
+             (is (some? response))
+             (is (= tables (:call-site-tables @captured))
+                 "ordinary yin.link/publish now carries the retained tables"))))))
+```
+
+No other deftest touched. No expectation weakened — assertions are byte-identical to the baseline;
+only indentation (+3) and the gate header changed.
+
+## Self-verification in place of a compiler
+
+1. **Tail parens, anchored regex:** `retained tables"\)\){4}$` → no match; **`{5}$` → 1 match**
+   (line 1756); `{6}$` → no match ⇒ exactly **6** closes = required depth. ✅
+2. **Gate structure:** `^#\?\(:cljd nil$` → 1734 (col 0, the file's only one);
+   `^   :default$` → 1735; `^   \(deftest repl-query-link-forwarding-test$` → 1736;
+   `^\(deftest repl-query-link-forwarding-test$` → **0 matches**; `^     \(testing "yin\.repl\.query/…` → 1737. ✅
+3. **Whole-file structural diff against the ungated baseline** (`^\(deftest ` census): the 30
+   top-level deftests of the edited file sit at *identical* line numbers to the baseline's up to
+   1681, then `module-from-index-c1-r3-test` 1780 (=1775+5), `record-call-site-admissions-r4-test`
+   1878 (=1873+5), `wrapper-provenance-r4-test` 1942 (=1937+5). Baseline had 31 column-0 deftests,
+   edited file has 30 — the only one that moved off column 0 is the gated one. File total 1966 →
+   **1971 = baseline + exactly the 5 header lines**. ⇒ the edit is confined to this form and the
+   rest of the file is unchanged. ✅
+4. **Last form of the file still closes cleanly** (line 1971 `…(:reason res)))))))`), and the form
+   after the gate (`(defn- r3-claim-free?`) is back at column 0 — it would have been swallowed had
+   the gate stayed unbalanced. ✅
+5. **Alias usage:** `linker-dht/`, `repl-query/`, `apply2/` occur *only* inside the gated form
+   (1742, 1748, 1752), so under `:cljd` those three requires become unused aliases — not an error,
+   and clj-kondo reads `:default` branches so it should not warn either, but I could not run kondo.
+   The namespaces themselves already compile under cljd (the brief's only measured error was
+   `Unknown symbol: with-redefs`).
+6. **Lane coverage unchanged:** `:default` keeps the deftest on JVM *and* Node (`with-redefs` works
+   on Node per `docs/orchestrator-log.md`), so no assertion is lost on either; only Dart skips it.
+   The Dart lane's count for this ns should drop by exactly 1.
+
+## git diff (derived — `git` could not be executed)
+
+Expected `git diff --stat` in `/Users/sto/workspace/datomworld`:
+
+```
+ test/yang/clojure_callsite_test.cljc | 47 ++++++++++++++++-----------
+ 1 file changed, 26 insertions(+), 21 deletions(-)
+```
+
+Patch, against the **committed/ungated** baseline (applies to any checkout holding the deftest at
+1731–1751, e.g. a fresh one at the branch tip). If you instead diff against the current dirty
+main-tree state, the naive gate's 3 comment lines + `#?(:cljd nil` + `:default` + the 7th paren are
+what change:
+
+```diff
+--- a/test/yang/clojure_callsite_test.cljc
++++ b/test/yang/clojure_callsite_test.cljc
+@@ -1728,27 +1728,32 @@
+         (is (claim-free? spec))))))
+ 
+ 
+-(deftest repl-query-link-forwarding-test
+-  (testing "yin.repl.query/link-answer forwards the link context's
+-            :call-site-tables to publish-name!"
+-    (let [{:keys [state]} (session-index ["(def k (fn [] 1))"])
+-          tables (repl/call-site-tables state)
+-          captured (atom nil)]
+-      (with-redefs [linker-dht/publish-name!
+-                    (fn [_node _db opts]
+-                      (reset! captured opts)
+-                      {:status :ok :address :segment/test
+-                       :links {} :envelopes []})]
+-        (let [[_ _ response]
+-              (#'repl-query/link-answer
+-                {} (:indexer state)
+-                {:authority nil :key {} :primitives vm/primitives
+-                 :modules {} :call-site-tables tables :round 1}
+-                (apply2/request 1 (get repl-query/link-ops 'publish)
+-                                ['closed '[k]]))]
+-          (is (some? response))
+-          (is (= tables (:call-site-tables @captured))
+-              "ordinary yin.link/publish now carries the retained tables"))))))
++;; Dart gate: the publish-name! spy needs with-redefs, which ClojureDart
++;; lacks, and the forwarding is only observable through that spy; the rest
++;; of the namespace stays dart-runnable.
++#?(:cljd nil
++   :default
++   (deftest repl-query-link-forwarding-test
++     (testing "yin.repl.query/link-answer forwards the link context's
++               :call-site-tables to publish-name!"
++       (let [{:keys [state]} (session-index ["(def k (fn [] 1))"])
++             tables (repl/call-site-tables state)
++             captured (atom nil)]
++         (with-redefs [linker-dht/publish-name!
++                       (fn [_node _db opts]
++                         (reset! captured opts)
++                         {:status :ok :address :segment/test
++                          :links {} :envelopes []})]
++           (let [[_ _ response]
++                 (#'repl-query/link-answer
++                   {} (:indexer state)
++                   {:authority nil :key {} :primitives vm/primitives
++                    :modules {} :call-site-tables tables :round 1}
++                   (apply2/request 1 (get repl-query/link-ops 'publish)
++                                   ['closed '[k]]))]
++             (is (some? response))
++             (is (= tables (:call-site-tables @captured))
++                 "ordinary yin.link/publish now carries the retained tables"))))))
+ 
+ ;; =============================================================================
+ ;; cc2 fix round r3: admission identity + explicit wrappers (astra r2 confirm)
+```
+
+## Commands to close the two gaps (copy-pasteable)
+
+```sh
+cd /Users/sto/workspace/datomworld
+git rev-parse HEAD && git status --porcelain test/yang/clojure_callsite_test.cljc
+git diff --stat && git diff test/yang/clojure_callsite_test.cljc
+
+# brief step 1 — the cljd COMPILE (canonical form per docs/agents/build-n-test.md:344,358;
+# deps.edn :cljd already puts "test" on the path)
+clojure -M:clojuredart:cljd compile yang.clojure-callsite-test
+
+# fix-branch merge bar: the previously-failing test, re-run green on the JVM
+clojure -M:test -n yang.clojure-callsite-test
+clojure -M:test -n yang.clojure-callsite-test -v yang.clojure-callsite-test/repl-query-link-forwarding-test
+
+# Dart lane for just this ns (owner ruling: suite-scale Dart goes to shiva, not the laptop)
+bb src/dev/cljd_agg.clj --only yang.clojure-callsite-test     # expect this ns's count −1
+clojure -M:kondo --lint test/yang/clojure_callsite_test.cljc
+
+# to move the diff to a host that has a shell (committing/pushing stays the orchestrator's):
+git diff test/yang/clojure_callsite_test.cljc > /tmp/cc1-cljd-do-gate.patch
+scp /tmp/cc1-cljd-do-gate.patch shiva.stigmergy.systems:/tmp/ && ssh shiva.stigmergy.systems \
+  'cd ~/ci/datomworld-nightly-node && git apply /tmp/cc1-cljd-do-gate.patch'
+```
+
+If the compile is wanted on a pristine branch checkout rather than the dirty main tree, apply the
+patch above there — it is written against the ungated baseline, so it applies to `f340421c`
+(`/tmp/gap40809`) and `0e666a3f` (`/tmp/wr-land`) shapes unchanged.
+
+## Discrepancies the orchestrator should know
+
+1. **Brief surface stale:** `/tmp/cc1-p1` is detached at `fa70516f` from ~2026-11-06/07 and its copy
+   of the file predates the deftest — see table above. I edited the main tree, where the broken
+   naive gate actually lives.
+2. **`origin/callsite-contract-clojure` ≠ `f440a2fb` here.** `.git/packed-refs` gives
+   `ba2deb73…` for `refs/remotes/origin/callsite-contract-clojure` and `847aa885…` for the local
+   branch; there is no loose ref for either, and `f440a2fb` appears nowhere in `.git/logs`. Please
+   confirm the intended base SHA (I could not run `git cat-file`/`git log` to check the object).
+3. **`/tmp/wr-land2` still holds the broken naive gate** (standalone clone detached at master tip
+   `3558f599`, same line numbers, same 7-close tail). If anything lands from that clone it will land
+   the unbalanced version — I deliberately did not touch another seat's clone. Same patch applies.
+4. **The naive gate was not merely ineffective, it broke the JVM lane too** (one unmatched `)` ⇒
+   namespace unreadable). Any seat that reported "JVM green" on the main tree or `wr-land2` after
+   that edit was not running this file.
+5. **Clock:** the brief's own header says `Created-GMT: 2026-11-10`; the real clock at report time
+   was 2026-11-12 17:07 UTC (2026-11-13 00:07 +07), i.e. the brief is ~2 days old. Headers above are
+   from `timeapi.io` (UTC), not from the brief.
+6. **Not run, explicitly:** the cljd compile, every `git` command, kondo, and all three test lanes.
+   No test expectation was moved; no file was created; `collab/` untouched; nothing committed.

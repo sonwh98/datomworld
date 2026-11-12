@@ -1,0 +1,16 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc3 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc3/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-11 14:19:17 GMT
+Completed-Local: 2026-11-11 21:19:17 +07
+
+**F1 fixed.** Failed retention is now observable in [repl.cljc](/Users/sto/workspace/datomworld-cc3/src/cljc/yin/repl.cljc): `retain-packet-call-provenance!` tags throws by stage (`:validation`/`:relation`/`:record` via `retention-throw`), the loader records admission-scoped `{:admission :root :stage :message}` failures for claimed admissions only, and they surface both as session state (`yin.repl/call-provenance-failures`, beside the handles) and as the round's Warning line (`Warning: this round's call provenance was not retained (relation write failed: …); the program's value is unaffected`). No handle is advertised for a failed packet, earlier handles survive, failures ride the same recovery merges as handles, and program values are unchanged. RED probe confirmed the silence first (`observable? false`), then the Warning after.
+
+**F4 regression added** in [clojure_callsite_test.cljc](/Users/sto/workspace/datomworld-cc3/test/yang/clojure_callsite_test.cljc), [index_test.cljc](/Users/sto/workspace/datomworld-cc3/test/yin/repl/index_test.cljc), and [query_test.cljc](/Users/sto/workspace/datomworld-cc3/test/yin/repl/query_test.cljc): payload-keyed stores where indexing succeeds but the relation write (case 1) or record write (case 2) fails, asserting completion, observability, no incomplete handle, and survival of earlier handles.
+
+**Verification:** focused nets 84 tests/1038 assertions and the r7 battery 163 tests/1438 assertions, 0 failures; kondo 0 errors/0 warnings. Full `clojure -M:test` timed out at 300s and is marked unverified in the findings. Nothing committed.
+
+**Deliverable:** the requested collab path is outside this session's writable roots, so [the findings file](/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794405917000-engineer-cc3-fix-r8.muse-wonder-1.0.findings.md) is mirrored inside the worktree, as the prompt allows.

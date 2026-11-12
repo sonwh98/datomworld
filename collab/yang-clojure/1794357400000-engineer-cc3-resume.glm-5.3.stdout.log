@@ -1,0 +1,39 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-11-11 05:07:09 GMT
+Completed-Local: 2026-11-11 12:07:09 +07
+
+# cc3 resume-by-state — round complete
+
+The interrupted muse session's eight-file diff was audited hunk-by-hunk, fixed, and verified; all seven items are landed. Nothing committed.
+
+## What the audit found
+
+The diff was structurally sound but **had never been run**. Eight defects, all fixed:
+
+| # | Where | Defect |
+|---|---|---|
+| 1 | `linearize.cljc` `project-rows` | blanket-origin fallback stamped `:call-provenance` across all calls when no C1 side table given — the exact "one origin across the set" the mob forbids. Removed, red-first (assertions red against the fallback, recorded, then green). |
+| 2 | `linearize_test.cljc` oracle-fixture arm | bracket typo splatted the row into five non-rows — the refusal never fired; the session's **own test was red against its own code** (this is what first exposed the never-run state). |
+| 3 | `latte_oracle_test.clj` lowering block | `keys-of` destructured 4-element semantic rows with the 5-element native shape — permanent self-inequality (2 recorded failures). |
+| 4 | `latte_oracle_test.clj` bijection | vacuous `(= (count binding) (count (vals binding)))` — always true; now a distinct-vals check. |
+| 5 | `derive_test.cljc:878` | bare `(catch Exception …)` in `.cljc` — kondo cljs error (red recorded); now the file's portable conditional. |
+| 6 | `clojure_callsite_test.cljc` | reader conditional where `:default` shadows `:cljd`; now the file's `failure-rule`. |
+| 7 | `repl.cljc` | each image derived twice; now once, coordinate patched after. |
+| 8 | `linearize_test.cljc:410` | unused binding (kondo warning); removed. |
+
+## Verification (all green)
+
+- **Battery** `yang.clojure-callsite-test` — 33 tests / 379 assertions
+- **Touched namespaces** — linearize 24/1,121 · derive 27/6,212 · repl safety 52/268
+- **Oracle (narrow, tagged run)** `test-cc3-oracle-site-c1-binding` — 1 test / 20 assertions, both C lanes `:completed`, every executed site bound, identical K sets across lanes
+- **kondo** all 8 changed files — 0 errors, 0 warnings
+- **Preflight bounds** re-measured compile-only: every recorded number exact (1,316/3,669/987/2/90/103,650); ceilings 4M/1M restated, not raised; one citation corrected (`:3216`, not `:2454`)
+
+## Decisions recorded
+
+- **Datom lane: RESTRICTION** — `[pc entity]` carries no K; the entity→occurrence bridge is D1's stated dependency (docstring + pinning test + findings).
+- **dht custody item** closed on the publish side (the result now exposes `:call-sites {:record :table :provenance}`); the one-line forwarding need at `dht.cljc:70` is recorded as owner-visible.
+
+## Deliverable
+
+The findings are complete at the **worktree mirror** `collab/yang-clojure/1794357169000-engineer-cc3-lowering-provenance.muse-wonder-1.0.findings.md` (the main-checkout path was off-limits per this round's instructions, sandbox-denied verbatim as the brief anticipates). Unverified items (shiva-scale suite, kit contract test, cljs/cljd lanes, four-host blast radius) are listed there with reasons.

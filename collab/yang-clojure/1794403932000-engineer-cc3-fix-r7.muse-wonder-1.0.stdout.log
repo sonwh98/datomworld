@@ -1,0 +1,16 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc3 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc3/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-11 13:58:05 GMT
+Completed-Local: 2026-11-11 20:58:05 +07
+
+**Item 1 — fixed.** The r2 retention wrapper in [repl.cljc](/Users/sto/workspace/datomworld-cc3/src/cljc/yin/repl.cljc:1484) called `jing/materialize!` inside the loader before the program ran, so a refusing store turned the round into `Error: store refused the write` and lost the value. Retention is now failure-isolated: on any throw it retains nothing and loads exactly as at master. Red-first: 45/593 with 6 failures before, 0 after; no tests re-pinned.
+
+**Item 2 — not reproduced, no in-process path, deferred to Shiva.** The JVM peer loads zero `yin.*` namespaces (verified via `loaded-libs`) and the Node side requires only `dao.stream.*`, so the wrapper never runs on the corpus path. Measured wrapper cost is ~6 ms/round on the JVM (1368 ms vs 1175 ms for 30 rounds, store vs no-store). Locally `bb` is absent and shadow-cljs fails to load, so the Node lane is recorded as deferred-to-Shiva, not green.
+
+**Verification:** standing net 124/993 green, `yang.clojure-callsite-test` 36/403 green, kondo 0 errors. Nothing committed.
+
+Findings: [1794403932000-engineer-cc3-fix-r7.muse-wonder-1.0.findings.md](/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794403932000-engineer-cc3-fix-r7.muse-wonder-1.0.findings.md) (worktree mirror — the requested path is outside this worktree's writable root).

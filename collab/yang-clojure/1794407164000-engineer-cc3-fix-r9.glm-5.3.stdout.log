@@ -1,0 +1,39 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The gate blocks the monitor too — unnecessary anyway: the background task itself notifies me on completion. Waiting for that notification.
+
+Completed-GMT: 2026-11-11 16:54:52 GMT
+Completed-Local: 2026-11-11 23:54:52 +07
+
+cc3 fix round r9 is done — astra's F1 residue closed, red-first, all verification rows green except the full suite (honestly unverified, below).
+
+## The residue
+
+Reproduced exactly as astra described, red-first via a host primitive `boom` (injected through `create-state` `:primitives`) throwing `ex-info` with fabricated `:yin.repl/call-provenance-*` keys:
+- **P1 immediate, healthy retention**: the fabricated failure became a session diagnostic + false Warning
+- **P2 immediate, conflicting** (genuine relation refusal + fabricated handles): the **forged handle leaked** into `call-provenance-handles`
+- **P3 link-resume**: both leaked (false Warning + forged handle through `link-raise`'s merge-union)
+
+## The fix (`repl.cljc` only; `semantic.cljc`/`observer.cljc` untouched)
+
+The two wrap sites every guest throw crosses now attach the **shell's own snapshot unconditionally — empty included — overwriting** whatever the wrapped exception carried:
+- `run-evaluator-stage`'s catch (`src/cljc/yin/repl.cljc:1612`): always re-wraps, assoc'ing `@handles`/`@failures` (both failure keys) over the payload — no more rethrowing unwrapped when the volatiles are empty. Message, cause, and `:session` observer-recovery data preserved; error text unchanged.
+- `link-raise` (`src/cljc/yin/repl.cljc:1693`): always assoc's the state's three retention keys (nil = authoritative empty) and **drops the payload merge-union** — the wrapped payload is never retention evidence (the only errors it wraps are raw `vm/run` throws and the shell-built call-limit raise, so nothing legitimate is lost).
+- Recovery sites unchanged: every guest path into them crosses a wrap site, so the keys they read are always shell-owned — the spec's "always present, recovery prefers it wholesale, no merge-union left" form.
+
+## Tests
+
+Two deftests in `test/yang/clojure_callsite_test.cljc` (immediate + link-resume, each × healthy/conflicting via a flag-flipped refusing store), with shared helpers: assert error text unchanged, no fabricated diagnostic/handle/Warning ever, all handles real segment addresses, genuine failure + Warning **exactly once**, completed handles survive exactly once. **Red on reverted code: 17 failures / 46 assertions; green with the fix: 46/46.**
+
+## Verification table
+
+| Check | Result |
+|---|---|
+| Probe pre-fix / post-fix | all three fabrications / clean, genuine refusal still warns |
+| New tests red → green | 17/46 → **0 failures** |
+| callsite+index+query | 86/1084, **0 failures** (r8: 84/1038) |
+| battery (5 ns) | 165/1484, **0 failures** |
+| r7 net (incl. cross-node ns) | 126/1015, **0 failures** (cross-node ns CLJS-only, as at r7) |
+| kondo, 4 files | **0 errors, 0 warnings** |
+| Full `clojure -M:test` | **unverified** — killed at the 2 h background limit (max allowed) without finishing; not claimed green |
+
+F3/F4-frozen behavior re-proven by the rows above (r8 selective-write tests, r3/r4 handle-survival tests all inside the green suites). Deliverable: the requested path is outside my writable roots, so it's the **mirror** at `/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794407164000-engineer-cc3-fix-r9.muse-wonder-1.0.findings.md`. Committed nothing; the scratch probe test was removed — the worktree holds only the four allowed modified files plus findings.

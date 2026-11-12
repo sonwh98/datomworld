@@ -1,0 +1,36 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The full suite is 5 minutes into its 2-hour window (PID 50874; the other test process belongs to a different session). The work itself is complete and verified — the only open row is the full-suite run, and its background task will notify me when it ends, at which point I'll finalize the findings and deliver the completed response.
+
+Status while it runs:
+
+**Round r11 — the structural fix — implemented and verified:**
+
+- **The fix** (`src/cljc/yin/repl.cljc` only): recovery now obtains retention evidence *exclusively* from shell-owned records — `run-evaluation`'s catch reads only `@latest` (the accumulator `run-evaluator-stage` now takes and `vswap!`s its retention volatiles into before rethrowing the original error), and `recheck-pending*`'s catch reads no payload at all (the drained session state already carries everything the parked run recorded). The r10 render wrap is removed (plain `render`/`format-value`), `link-raise` drops its three retention assocs, and the exception-preferring `retention-recovery-*` helpers are deleted.
+- **Carriage audit (explicit)**: after the fix there are **zero readers** of `::call-provenance-*` exception keys anywhere in `src/` — no path outside recovery needed the carriage, so it's removed entirely as dead code. The r10-confirmed passthrough survives (link-raise still copies original ex-data plus only shell-owned rollback keys; the evaluator stage rethrows the original error, preserving its `:session` observer data).
+- **Red first**: the probe reproduced astra's F2 exactly on both catches (forged Warning replacing the genuine diagnostic, forged handle merged, late Warning on the next round); the two new tests fail 24/57 against the d-reading recovery, green 0/57 with the fix.
+- **Table so far**: 3-ns 90/1198, battery 169/1598, r7 net 126/1015 — all 0 failures; kondo 0 errors/0 warnings. Forbidden files untouched; nothing committed.
+- **Findings mirror** written at `collab/yang-clojure/1794418860000-engineer-cc3-fix-r11.glm-5.3.findings.md` in the worktree (main-checkout path is outside this session's writable roots), with the full-suite row pending.
+
+I'll deliver the final response with the `Completed-GMT` header once the suite task reports.
+
+Completed-GMT: 2026-11-11 20:15:28 GMT
+Completed-Local: 2026-11-12 03:15:28 +07 (ICT)
+
+# cc3 fix round r11 — the structural fix: recovery reads only shell-owned state
+
+Astra's r10 F2 is closed by taking the structural alternative: recovery obtains retention evidence **exclusively from shell-owned state** — never from exception-carried keys — so *any* exception, from *any* host-code execution point in the round (renderer, default formatter, or a seam not yet written), is inert as a forgery vector.
+
+**The fix** (all in `src/cljc/yin/repl.cljc`, forbidden files untouched):
+1. `run-evaluator-stage` takes the round's shell accumulator `latest`; its catch `vswap!`s what its loaders completed (handles + failures, empty record included) into `latest`, then **rethrows the program error as itself** — no retention data on the exception.
+2. `run-evaluation`'s catch reads only `@latest`; the exception-preferring `retention-recovery-*` helpers are deleted.
+3. `recheck-pending*`'s catch reads no payload — the drained session state already carries everything the parked run's loaders recorded.
+4. The r10 render wrap is removed (plain `render`/`format-value`).
+5. `link-raise` drops its three retention assocs (still wraps the shell-owned rollback identity keys).
+
+**Carriage audit (explicit)**: zero readers of `::call-provenance-*` exception keys remain anywhere in `src/`; no path outside recovery needed the carriage, so it is **removed entirely** as dead code. The r10-confirmed passthrough survives — link-raise still copies original ex-data, and the evaluator stage now rethrows the *original* error, preserving its `:session` observer data more faithfully than the former copy-wrap. One adjacent pre-existing surface noted in the findings (raw guest `::query-pair`-class keys reaching `carry-served` on the evaluator-stage path — r4-era rollback carriage, out of scope).
+
+**Red first**: the probe reproduced F2 exactly on both catches — `(lazy-seq (throw (ex-info "late boom" forged)))` answered with the forged Warning replacing the genuine diagnostic, the forged handle merged, and on the pending path a fabricated Warning one round late. The two new tests fail **24/57** with the d-reading recovery restored; **0/57** with the fix.
+
+**Verification**: 3-ns 90/1198 · battery 169/1598 · r7 net 126/1015 — all 0 failures (existing r8/r9/r10/r3/r4 contracts all green, unchanged); kondo 0 errors/0 warnings; full `clojure -M:test` **killed at the 2 h background limit without finishing** (longest allowed window, r9 hit the same wall) — not claimed green, reported as such. Nothing committed.
+
+**Deliverable**: worktree mirror at `/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794418860000-engineer-cc3-fix-r11.glm-5.3.findings.md` (the requested main-checkout path is outside this session's writable roots, per the mirror-and-say-so clause).

@@ -1,0 +1,19 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cc3 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cc3/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+muse: retrying meta model stream in 1000ms (attempt 2/10)
+Completed-GMT: 2026-11-11 11:16:51 GMT
+Completed-Local: 2026-11-11 18:16:51 +07
+
+Both closing P2s are fixed and verified. Nothing is committed; the diff is now ten tracked files (+1651/−98).
+
+**F7 — diagnostic callers.** [d2_wedge_min_repro.clj](/Users/sto/workspace/datomworld-cc3/test/d2_wedge_min_repro.clj:52) and [d2_wedge_probe2.clj](/Users/sto/workspace/datomworld-cc3/test/d2_wedge_probe2.clj:144) each gained a `compile-fixture` composition that allocates one fresh admission run (`fresh-admission-run` + `kernel-compile-in-run`) and retains scope+ordinal on the compilation; all five 1-arg call sites use it, and probe2 stage C's generic 3-arg wrapper needed no change. Red was reproduced first (ArityException at line 57, dying before arm B). After the fix: min-repro runs 1 test / 6 assertions green (arm B completes at 1,666,824 steps; arm E finds no cycle); probe2 exits 0 on stages A+B, stage D exits 1 by design (2M exhaustion throw captured), and stage F completes at 3,065,731 steps.
+
+**V2 — declaration pin.** The [v2 declaration](/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794390804000-cc3-bounded-run-declaration-v2.md:24) now records that the v2 run activated only `:f6` (no `:jvm-opts`, so `deps.edn:52`'s `-Xss64m` was not in effect), and the declared command supplies `-Xss64m` explicitly via `:f6`. Exact pins are recorded in §1/§6: `git diff` SHA-256 `05076f51…` and measurement-script SHA-256 `345b432d…`, re-verified unchanged after all runs. V2.1 was re-measured under the corrected declared command: compiled-inclusive max 8,924,640 B, peak 272,026,880 B, elapsed max 772 ms, all storage under ceilings, `:under-ceilings-v2` all-true.
+
+**Verification.** Oracle deftests 10/230, callsite 36/403, semantic nets 51/7,333, REPL nets 79/400, gate evidence 2/1,301 — all 0 failures; kondo 0 errors / 0 warnings on all ten files; `git diff --check` clean.
+
+The deliverable is the worktree mirror [1794394490000-engineer-cc3-fix-r6.muse-wonder-1.0.findings.md](/Users/sto/workspace/datomworld-cc3/collab/yang-clojure/1794394490000-engineer-cc3-fix-r6.muse-wonder-1.0.findings.md), since the canonical collab path is outside this session's writable workspace; the updated declaration mirror sits beside it.
