@@ -99,8 +99,8 @@
            data/count data/nth data/subvec data/str-concat
            data/str-length data/str-join data/str-compare data/str->code-points
            data/code-points->str data/substring data/float64 data/float-value
-           data/content= data/number? data/dissoc data/into
-           integer/add integer/sub integer/neg integer/mul integer/compare
+           data/content= data/dissoc data/into
+           integer/integer? integer/add integer/sub integer/neg integer/mul integer/compare
            integer/to-float integer/compare-float integer/true-div integer/pow
            integer/shift-left integer/shift-right integer/bit-and integer/bit-or
            integer/bit-xor integer/bit-not integer/from-float integer/quot-rem
@@ -1832,21 +1832,41 @@
        (let [c (php/cell-of x)]
          (if (nil? c) false (= (get (cell/get c) :released?) true))))]
     [php/addref
+     ;; the count arithmetic is the engine's EXACT-INTEGER arithmetic, not
+     ;; the raw host +/-: integer/add promotes both operands to the host
+     ;; big integer and demotes the result, so it is exact over every
+     ;; exact-integer carrier on every supported host (JVM longs and big
+     ;; carriers, JS safe numbers and BigInts, Dart ints and BigInts) —
+     ;; no native overflow at the long maximum and no BigInt/Number mixing
+     ;; on JS. That is what makes a count safe for its WHOLE ownership
+     ;; life instead of for one step: admission bounds it strictly inside
+     ;; ±2^63, but reception's acquisition puts a count one below the
+     ;; maximum AT the maximum, and the next ordinary acquisition — the
+     ;; lowerer wraps every returned expression in php/addref, and copies
+     ;; and rethrows acquire too — puts it past, where the raw host +
+     ;; throws. The fast kernels keep the common small-count path native;
+     ;; php/obj-val? admits exactly this domain, integer/integer? being
+     ;; the domain predicate of these primitives.
      (fn [x]
        (let [c (php/cell-of x)]
          (if (nil? c)
            x
            (if (php/released? x)
              x
-             (do (cell/set! c (assoc (cell/get c) :rc (+ (get (cell/get c) :rc) 1))) x)))))]
+             (do (cell/set! c (assoc (cell/get c)
+                                     :rc (integer/add (get (cell/get c) :rc) 1)))
+                 x)))))]
     [php/delref
+     ;; the same exact domain as addref. A count only ever reaches 0 in
+     ;; the native carrier (integer/sub demotes a result inside the host's
+     ;; native range), so the zero test below is carrier-uniform.
      (fn [x]
        (let [c (php/cell-of x)]
          (if (nil? c)
            :php/null
            (if (php/released? x)
              :php/null
-             (let [n (- (get (cell/get c) :rc) 1)]
+             (let [n (integer/sub (get (cell/get c) :rc) 1)]
                (do (cell/set! c (assoc (cell/get c) :rc n))
                    (if (= n 0) (php/destroy x) :php/null)))))))]
     [php/release-slots
@@ -2837,30 +2857,47 @@
      ;; §8.10.7 reception safety: is `v` a value php's own machinery could
      ;; have produced as an object, safe for EVERY operation the local
      ;; reception path performs — instance-of's class read AND the
-     ;; ownership acquisition that follows it? Reception runs
-     ;; `(php/raise (php/addref v))`; addref's cell-of/slot-kind selects
-     ;; its cell by :php/ref FIRST, then :php/arr, then :php/obj — so a
-     ;; payload carrying a competing marker (a genuine object handle with
-     ;; a forged or even genuine :php/ref; a map error with :php/ref 42)
-     ;; would be validated as one representation and consumed as another.
-     ;; Anything with a non-nil :php/ref or :php/arr marker is FOREIGN
-     ;; here, whatever else it carries. The two admitted shapes and the
-     ;; state each downstream consumer reads:
+     ;; ownership acquisition that follows it — and every ordinary
+     ;; acquisition after that (a caught local value returned by php
+     ;; source runs the lowerer's php/addref; copies and rethrows acquire
+     ;; too)? Anything with a non-nil :php/ref or :php/arr marker is
+     ;; FOREIGN here, whatever else it carries (slot-kind selects those
+     ;; keys first, so a competing marker would be validated as one
+     ;; representation and consumed as another). The two admitted shapes
+     ;; and the state each downstream consumer reads:
      ;; - the object handle `{:php/obj cell}` (no other marker): the cell
      ;;   is live and authenticated (cell/authentic?, total boolean) AND
      ;;   its contents are valid counted-object state — a STRING :class
-     ;;   (instance-of → class-is? → php/lc) and an INCREMENTABLE,
-     ;;   DECREMENTABLE count: an integer STRICTLY INSIDE the exact
-     ;;   native bounds php.rt/int-max and php.rt/int-min carry (compared
-     ;;   with the total integer/compare, the prelude's established
-     ;;   bounds idiom), so the raw (+/- rc 1) the ownership machinery
-     ;;   executes — addref now, delref over the wrapper's lifetime —
-     ;;   cannot overflow the host carrier. A number predicate alone does
-     ;;   not establish this (the native maximum is a legal guest
-     ;;   construction via integer/parse and overflows the raw +);
-     ;;   exact-integer carriers at or beyond the bounds, non-integers
-     ;;   and non-numbers are all rejected. released?'s :released? read
-     ;;   is total and cell/set! is safe on an authenticated cell.
+     ;;   (instance-of → class-is? → php/lc) and a count in the ONE
+     ;;   arithmetic domain the ownership machinery operates in: an EXACT
+     ;;   INTEGER, the domain integer/integer? decides (the total domain
+     ;;   predicate of the integer/add and integer/sub that addref and
+     ;;   delref use — NOT a php representation classifier: php/int?
+     ;;   answers :int for a computed ratio and data/number? passes
+     ;;   floats, while integer/compare and integer/add refuse both), and
+     ;;   STRICTLY INSIDE php's own int encoding, the init!-computed exact
+     ;;   endpoints php.rt/int-max and php.rt/int-min compared with
+     ;;   integer/compare — total once the domain predicate has answered,
+     ;;   and the established bounds idiom (php/in-range?). The two checks
+     ;;   answer different questions and the path needs both. The domain
+     ;;   predicate makes the count OPERABLE for its whole ownership life,
+     ;;   not just for reception: exact-integer arithmetic promotes to the
+     ;;   host big carrier and demotes the result, so no acquisition
+     ;;   overflows a native carrier (JVM long maximum) or mixes carriers
+     ;;   (a JS BigInt count with a Number 1) however many ordinary
+     ;;   acquisitions follow — and a bound alone proves nothing here,
+     ;;   since a count one below the maximum is at it after reception
+     ;;   and past it after the lowerer's return acquisition. The bounds
+     ;;   keep the count inside the composition's integer LIMITS as well:
+     ;;   past ::integer/max-bits (>= 4096 for this profile) integer/add
+     ;;   answers the ::bit-limit keyword instead of a result, and a
+     ;;   guest builds counts with the VM's raw host `*`, which no limit
+     ;;   bounds — so an unbounded admission would install that keyword
+     ;;   as the count and turn the next delref into a host :wrong-type
+     ;;   refusal escaping the boundary. A count at or beyond an endpoint
+     ;;   is exactly such exotic state, and is routed the safe way:
+     ;;   FOREIGN, retained whole, never consumed. released?'s :released?
+     ;;   read is total and cell/set! is safe on an authenticated cell.
      ;;   Authenticity proves the reference is live and task-issued, NOT
      ;;   that its contents are object state — a guest legally mints
      ;;   `(cell/new {:class "x"})` with no :rc.
@@ -2868,13 +2905,14 @@
      ;;   slot-kind is :scalar (the re-check's correction: :plain is the
      ;;   :php/type :array branch), cell-of is nil, addref is a no-op —
      ;;   only the string class is consumed.
-     ;; Everything else — php/kind's number fallthrough, competing or
-     ;; forged markers, dead references, non-string classes, non-number
-     ;; or boundary-or-beyond counts — answers false and is FOREIGN: only
-     ;; a candidate that survives the same reads and selections the
-     ;; consumer path performs ever reaches the Throwable test, and no
-     ;; unauthenticated or unvalidated dereference or arithmetic ever
-     ;; happens.
+     ;; Everything else — a scalar (php/kind's number or string
+     ;; fallthrough), competing or forged markers, dead references,
+     ;; non-string classes, and counts outside the admitted count domain
+     ;; (absent, non-number, float, rational, or at/beyond an int
+     ;; endpoint) — answers false and is FOREIGN: only a candidate every
+     ;; consumer can operate on, in the one domain they all operate in,
+     ;; ever reaches the Throwable test, and no unauthenticated or
+     ;; unvalidated dereference or arithmetic ever happens.
      (fn [v]
        (if (if (not (nil? (get v :php/ref))) true (not (nil? (get v :php/arr))))
          false
@@ -2886,14 +2924,18 @@
              (let [st (cell/get (get v :php/obj))]
                (if (data/string? (get st :class))
                  (let [rc (get st :rc)]
-                   ;; data/number? first: it is total, and php/int? goes
-                   ;; through php/kind, whose non-number fallthrough calls
-                   ;; data/float-value and refuses on nil/absent counts
-                   (if (data/number? rc)
-                     (if (php/int? rc)
-                       (if (= (integer/compare rc php.rt/int-max) -1)
-                         (= (integer/compare rc php.rt/int-min) 1)
-                         false)
+                   ;; integer/integer? FIRST: it is the total domain
+                   ;; predicate of the integer/compare below and of the
+                   ;; integer/add and integer/sub the count arithmetic
+                   ;; uses, and all three refuse any carrier it rejects.
+                   ;; A php representation classifier cannot stand in for
+                   ;; it: a computed ratio passes data/number? AND php/int?
+                   ;; (php/kind's float64 content test), and integer/compare
+                   ;; then refuses it — the reception-introduced failure of
+                   ;; the re-check4 counterexample.
+                   (if (integer/integer? rc)
+                     (if (= (integer/compare rc php.rt/int-max) -1)
+                       (= (integer/compare rc php.rt/int-min) 1)
                        false)
                      false))
                  false))

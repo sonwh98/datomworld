@@ -484,10 +484,14 @@
   ;; the ownership consumer (addref's slot-kind selects :php/ref FIRST,
   ;; so COMPETING MARKERS on an otherwise-valid map or real handle are
   ;; consumed unchecked; and a string class alone is insufficient when
-  ;; :rc is absent — addref's (+ rc 1) consumes it). All eight shapes run
-  ;; in ONE composed program (the batch-parity task-sharing shape), not
-  ;; one kit run per shape: the laptop lane's dao.jing stall reliably
-  ;; catches the 8th consecutive per-shape run in one JVM.
+  ;; :rc is absent — addref's count acquisition consumes it); the r7
+  ;; shapes pin the count domain's endpoints (a count AT the native long
+  ;; maximum or minimum is invalid counted-object state, not a count php's
+  ;; machinery could have produced, and is retained whole rather than
+  ;; consumed). All twelve shapes run in ONE composed program (the
+  ;; batch-parity task-sharing shape), not one kit run per shape: the
+  ;; laptop lane's dao.jing stall reliably catches the 8th consecutive
+  ;; per-shape run in one JVM.
   (let [shapes [["non-reference" {:php/obj 42}]
                 ["forged-ref" {:php/obj {:type :cell-ref, :id 99999, :seal "forged"}}]
                 ["forged-class" {:php/type :obj, :class 42, :props {}}]
@@ -502,18 +506,24 @@
                  (list 'assoc (list 'php/make-error "Exception" "real") :php/ref 42)]
                 ["string-class-no-rc"
                  (kit/observation-map-form {:php/obj (list 'cell/new {:class "Exception"})})]
-                ;; r7, the last P2 residual: the admitted count must be safe
-                ;; for the raw host arithmetic the object machinery performs
-                ;; (addref/delref's (+/- rc 1)); clojure's + throws on native
-                ;; long overflow, and integer/parse of the native maximum is
-                ;; a legal guest construction.
+                ;; r7, the last P2 residual: the endpoints of php's own int
+                ;; encoding are not admitted counts. integer/parse of the
+                ;; native maximum is a legal guest construction, and at the
+                ;; pre-fix tip the raw host (+ rc 1) the object machinery
+                ;; performed threw clojure's "long overflow" on it. r10
+                ;; repairs that arithmetic (integer/add, exact over every
+                ;; carrier on every host) but keeps the endpoints FOREIGN:
+                ;; admission stays STRICTLY inside the bounds, so every
+                ;; admitted count is also inside the composition's
+                ;; ::integer/max-bits, where integer/add still answers an
+                ;; integer rather than the ::bit-limit keyword.
                 ["max-long-count"
                  (kit/observation-map-form
                    {:php/obj (list 'cell/new
                                    (list 'assoc {:class "Exception"}
                                          :rc (list 'integer/parse "9223372036854775807")))})]
-                ;; the same class one operation later: delref's (- rc 1)
-                ;; throws at the native minimum, so the minimum count is not
+                ;; the same class one operation later: the decrement threw
+                ;; at the native minimum, so the minimum count is not
                 ;; admitted either (at the pre-fix tip this shape is red the
                 ;; other way: admitted and delivered as a LOCAL payload)
                 ["min-long-count"
@@ -526,7 +536,17 @@
                 ["non-number-count"
                  (kit/observation-map-form
                    {:php/obj (list 'cell/new (list 'assoc {:class "Exception"}
-                                                   :rc "bad"))})]]
+                                                   :rc "bad"))})]
+                ;; r10 residual 2: a computed RATIO count — data/number? and
+                ;; php/int? both pass it (kind's float64 content test), but
+                ;; it is not an exact-integer carrier and the integer
+                ;; primitives refuse it; the count test must use the EXACT
+                ;; domain predicate (integer/integer?), not a php
+                ;; representation classifier.
+                ["ratio-count"
+                 (kit/observation-map-form
+                   {:php/obj (list 'cell/new (list 'assoc {:class "Exception"}
+                                                   :rc (list '/ 1 2)))})]]
         leg (fn [label payload]
               (let [n (fn [k] (symbol (str "probe." (name label) "." (name k))))
                     p (n :payload) c (n :condition) i (n :injected)
@@ -571,6 +591,76 @@
       (is (= expected actual)
           (str backend ": every handle-shaped foreign payload retains the "
                "complete condition")))))
+
+
+(def ^:private count-source
+  "The r10 count-domain acquisition probe: an ORDINARY php catch/return —
+   no numeric operation anywhere in the source — whose `return $e` runs
+   the lowerer's routine php/addref acquisition on the caught value, so a
+   count that survives reception must survive the next acquisition too.
+   Both counts below are admitted local state: exact-integer carriers
+   strictly inside php's own int encoding. MAX-1 is the count reception's
+   acquisition moves ONTO the native long maximum and this source's return
+   then moves past it, where the raw host + threw. 2^53 is the JS
+   safe-Number boundary: a plain Long on the JVM, which is what this lane
+   verifies, and a BigInt carrier on JS, where the same decimal parses past
+   the safe range and a raw (+ rc 1) mixes a BigInt with a Number and
+   throws a TypeError (the re-check's Node primitive diagnostic, both
+   signs; the tri-host acceptance lane covers Node). The exact-integer
+   domain admits both and increments both."
+  (str "<?php function catch_return($f) {"
+       " try { return $f(); } catch (Throwable $e) { return $e; } }"))
+
+
+(deftest ^:slow php-count-acquisition-test
+  ;; r10 residual 1: the count arithmetic must be safe across the WHOLE
+  ;; consumed path — reception's addref, then any ordinary catch/return
+  ;; acquisition. At the pre-fix tip, :rc = MAX-1 passes admission,
+  ;; reception's addref increments it to MAX, and this ordinary source
+  ;; (which requests no arithmetic) overflows at lower-return's addref.
+  ;; Under the exact-integer domain both shapes return the caught value
+  ;; with its identity preserved — rule 1 of the retention contract, a
+  ;; payload valid in its own runtime keeping its ordinary catching and
+  ;; identity. The endpoints themselves stay FOREIGN in the shape set
+  ;; above (rule 3), retained with their complete condition, evidence and
+  ;; payload identity.
+  (let [shapes [["near-max" "9223372036854775806"]
+                ["js-number-boundary" "9007199254740992"]]
+        leg (fn [[label digits]]
+              (let [n (fn [k] (symbol (str "probe." (name label) "." (name k))))
+                    p (n :payload) c (n :condition) i (n :injected) r (n :result)]
+                {:bindings [p (kit/observation-map-form
+                                {:php/obj (list 'cell/new
+                                                (list 'assoc {:class "Exception"}
+                                                      :rc (list 'integer/parse digits)))})
+                            c (kit/observation-map-form
+                                {:yang.call/reason :yang.call/thrown
+                                 :yang.call/value p})
+                            i (injected c)
+                            r (boundary-call (kit/export-form :php "catch_return") [i])]
+                 :entries {(keyword (str label "-returned"))
+                           (list '= :return (list 'get r :route))
+                           (keyword (str label "-identical"))
+                           (list '= p (list 'get r :value))}}))
+        legs (map leg shapes)
+        observation (kit/guard-exceptions-form
+                      [:php]
+                      (list 'let (into [] (mapcat :bindings) legs)
+                            (kit/observation-map-form (into {} (mapcat :entries) legs))))
+        expected (into {} (mapcat (fn [[label _]]
+                                    (map (fn [k] [(keyword (str label "-" k)) true])
+                                         ["returned" "identical"]))
+                                  shapes))
+        donor (kit/publish-donor! :python contract/boundary-source)
+        results (kit/run-exception-program
+                  donor (kit/compose-exception donor ["boundary_target"] :php
+                                               count-source observation))]
+    (is (= #{:semantic :stack :register} (set (keys results))))
+    (doseq [[backend actual] results]
+      (println "PHP-COUNT-ACQUISITION" backend actual)
+      (is (= expected actual)
+          (str backend ": every boundary count survives ordinary catch/return "
+               "acquisition with identity preserved")))))
 
 
 (deftest ^:slow php-nil-condition-reception-test
