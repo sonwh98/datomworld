@@ -94,6 +94,38 @@
           (str backend)))))
 
 
+(deftest ^:slow python-malformed-condition-test
+  (let [donor (kit/publish-donor! :python contract/boundary-source)
+        source "def receive(f):\n    try:\n        return f()\n    except TypeError:\n        raise\n"
+        call (fn [callee args]
+               (kit/boundary-call-form callee (kit/observation-vector-form args) []))]
+    (doseq [malformed [nil :garbage]]
+      (let [observation
+            (kit/guard-exceptions-form
+              [:python]
+              (list 'let
+                    ['injected (list 'cell/new
+                                     (list 'assoc {} :yang.call/entry
+                                           (list 'fn ['invocation]
+                                                 (list (list 'get 'invocation :yang.call/raise)
+                                                       malformed))))
+                     'result (call (kit/export-form :python "receive") ['injected])
+                     'condition (list 'get 'result :condition)
+                     'exception (list 'get 'condition :yang.call/value)
+                     'content (list 'cell/get 'exception)]
+                    (kit/observation-map-form
+                      {:reason (list 'get 'condition :yang.call/reason)
+                       :payload (list 'get (list 'get (list 'get 'content :attrs) "args") :items)
+                       :provenance (list 'cell/dsg__provenance 'exception)})))
+            results (kit/run-exception-program
+                      donor (kit/compose-exception donor ["boundary_target"]
+                                                   :python source observation))]
+        (is (= #{:semantic :stack :register} (set (keys results))))
+        (doseq [[backend actual] results]
+          (is (= {:reason :yang.call/thrown :payload [malformed] :provenance nil} actual)
+              (str malformed " " backend)))))))
+
+
 (deftest ^:slow python-kit-batch-parity-test
   ;; Acceptance uses run-frontend, which shares a task across observations.
   ;; Isolated run-fixture pins alone cannot establish that batch path.

@@ -866,6 +866,7 @@
         function-entry
         py.b/hex
         fpow
+        data/map?
         star-item
         all-in?
         round-integer
@@ -1220,9 +1221,12 @@
        [get true]
        [get true]
        [call-kw true]
+       [data/map? true]
        [cell/dsg__new-provenance true]
        [cell/get true]
        [make-exc true]
+       [make-exc true]
+       [py.b/TypeError true]
        [= true]
        [get true]
        [call-kw true]
@@ -5026,7 +5030,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 4039,
+      :application-count 4041,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5593,6 +5597,7 @@
         [get true]
         [get true]
         [get true]
+        [data/map? true]
         [cell/dsg__new-provenance true]
         [cell/get true]
         [= true]

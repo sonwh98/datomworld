@@ -1050,7 +1050,9 @@
      ;; compiler-private (`dsg__`) name, outside guest exports, projections,
      ;; and aliases, so no guest can mint arbitrary provenance.
      (fn [cls msg condition]
-       (cell/dsg__new-provenance (cell/get (py/make-exc cls msg)) condition))]
+       (if (data/map? condition)
+         (cell/dsg__new-provenance (cell/get (py/make-exc cls msg)) condition)
+         (py/make-exc py.b/TypeError condition)))]
     [py/call-kw
      (fn [f args kwargs]
        (if (= (get f :py/type) :method)
