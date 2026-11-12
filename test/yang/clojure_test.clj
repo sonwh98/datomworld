@@ -1406,26 +1406,23 @@
 
 
 (deftest test-common-call-invalid-continuation-refuses
-  (let [tamper (fn [forms]
-                 (walk/postwalk
-                   (fn [node]
-                     (if (= node u/capture) (u/lit :invalid-continuation) node))
-                   (outcome-ast forms)))]
-    (doseq [run [walker-run semantic-run]]
-      (let [result (first (run (tamper '[(defn f
-                                           []
-                                           1)
-                                         (let [g f] (+ 1 (g)))])))]
-        (is (= :yin.k/error (first result)))
-        (is (= {:yang.call/reason :yang.call/invalid-invocation
-                :yang.call/data {:yang.call/reason :missing-raise-exit}}
-               (second result))))
-      (is (= [:yin.k/ok 2]
-             (first (run (tamper '[(defn f
-                                     []
-                                     1)
-                                   (+ 1 (f))]))))
-          "statically intra-unit calls do not capture a bridge continuation"))))
+  ;; The §8.10.7 public-bridge captured a `u/capture` continuation for the
+  ;; raise exit; the continuation port replaces it with `clj/raise` over the
+  ;; handler stack, so there is no bridge continuation to tamper and no
+  ;; `missing-raise-exit` surface. A dynamic call and a static intra-unit
+  ;; call both complete normally.
+  (doseq [run [walker-run semantic-run]]
+    (is (= [:yin.k/ok 2]
+           (first (run (outcome-ast '[(defn f
+                                        []
+                                        1)
+                                      (let [g f] (+ 1 (g)))])))))
+    (is (= [:yin.k/ok 2]
+           (first (run (outcome-ast '[(defn f
+                                        []
+                                        1)
+                                      (+ 1 (f))]))))
+        "statically intra-unit calls do not capture a bridge continuation")))
 
 
 (deftest test-common-call-rejects-named-arguments
@@ -1733,13 +1730,14 @@
 
 
 (deftest test-exception-r3-modified-condition-refuses
-  (testing "1: modifying a caught exception cannot change the retained
-            condition. The wrapper's identity still decodes to the genuine
-            condition, so the forged evidence is never forwarded."
+  (testing "the caught condition is a plain map: modifying it and rethrowing
+            forwards the modified value (the retention object is gone, so no
+            identity survives to decode the original condition back)"
     (doseq [lane [:walker :semantic]]
       (let [condition {:yang.call/reason :yang.call/not-callable
                        :yang.call/data {:yang.call/callee :target}}]
-        (is (= [:yin.k/error condition]
+        (is (= [:yin.k/error {:yang.call/reason :yang.call/unsupported-binding
+                              :yang.call/data {:forged true}}]
                (run-cell-program
                  '[(defn receive
                      [f]
@@ -1752,7 +1750,7 @@
                    (receive marker-operand)]
                  (cell-entry-node condition)
                  lane))
-            (str lane ": the genuine retained condition survives modification"))))))
+            (str lane ": the modified condition is forwarded, not the original"))))))
 
 
 (deftest test-exception-r3-condition-field-preserved
@@ -1863,45 +1861,26 @@
                  (cell-entry-node condition)
                  lane))
             (str lane ": saved retain then rethrow forwards byte-identical")))))
-  (testing "(A) forged retention fails: copying a retained wrapper's
-            contents into a guest cell yields an ordinary payload, and
-            the wrapper's contents are frozen against cell/set!"
+  ;; The forged-retention probes are RETIRED with the :retained cell seam
+  ;; (owner NO, decision 1794372000000). Under the continuation encoding
+  ;; there is no retention object: a caught protocol condition is the plain
+  ;; condition map (data), and a guest copy of it is ordinary data, never an
+  ;; authenticated carrier. The replay/mutation hole the retention object
+  ;; plugged dies with it — the raise exit is the only condition channel.
+  (testing "(A) a caught protocol condition is ordinary data, not a carrier"
     (doseq [lane [:walker :semantic]]
-      (let [condition {:yang.call/reason :yang.call/not-callable
-                       :yang.call/data {:yang.call/callee :target}}]
-        (is (= [:yin.k/ok [false true :yang.call/not-callable]]
-               (run-cell-program
-                 '[(defn receive
-                     [f]
-                     (try (f)
-                          (catch Exception e
-                            (throw (cell/new (cell/get e))))))
-                   (defn outer
-                     [f]
-                     (try (f)
-                          (catch Exception e
-                            [(cell/retained? e) (cell/authentic? e)
-                             (:yang.call/reason (first (cell/get e)))])))
-                   (outer (fn [] (receive marker-operand)))]
-                 (cell-entry-node condition)
-                 lane))
-            (str lane ": a guest copy of the contents is not retained"))
-        (is (= [:thrown {:reason :retained-cell, :effect :cell/set!}]
-               (run-cell-program
-                 '[(defn receive
-                     [f]
-                     (try (f)
-                          (catch Exception e (cell/set! e {:forged true}))))
-                   (receive marker-operand)]
-                 (cell-entry-node condition)
-                 lane))
-            (str lane ": cell/set! refuses the retained wrapper"))))
-    (is (= [:yin.k/ok [false true 2]]
-           (run-library
-             '[(let [c (cell/new [1 2])]
-                 [(cell/retained? c) (cell/authentic? c)
-                  (do (cell/set! c [3 4]) (count (cell/get c)))])]))
-        "guest cells are unmarked, authentic, and mutable")))
+      (is (= [:yin.k/ok [true false]]
+             (run-cell-program
+               '[(defn receive
+                   [f]
+                   (try (f)
+                        (catch Exception e
+                          [(data/map? e) (cell/authentic? e)])))
+                 (receive marker-operand)]
+               (cell-entry-node {:yang.call/reason :yang.call/not-callable
+                                 :yang.call/data {:yang.call/callee :target}})
+               lane))
+          (str lane ": the caught condition is a plain map, never a cell")))))
 
 
 (deftest test-outcome-safe-get
@@ -2005,11 +1984,10 @@
 
 
 (deftest test-outcome-primitive-adapter
-  (testing "an adapted refusal is an error outcome with the refusal's op and reason"
-    (let [out (run-outcome '[(data/nth [1 2] 5)])]
-      (is (= :yin.k/error (first out)))
-      (is (= 'nth (:yin.vm.data/op (second out))))
-      (is (= :out-of-range (:yin.vm.data/reason (second out))))))
+  ;; The `:adapters` outcome adapters are retired: a data/nth refusal is now
+  ;; a host refusal (not an `[:yin.k/error ...]` outcome), since the outcome
+  ;; model no longer adapts primitives. The host `outcome-adapter` helper
+  ;; itself is unchanged and still catches only the module's own refusal.
   (is (= [:yin.k/ok 2] (run-outcome '[(data/nth [1 2] 1)])))
   (testing "the adapter catches only the module's own refusal"
     (let [other (yang/outcome-adapter
@@ -2077,21 +2055,19 @@
         refused (fn [forms]
                   (try (yang/compile-program forms true opts) nil
                        (catch clojure.lang.ExceptionInfo e (ex-message e))))]
-    (testing "a macro call with an operand that may fail is refused, naming the macro"
-      (is (re-find #"Macro call unless"
-                   (refused '[(defn g
-                                [x]
-                                x) (defn f
-                                     [x]
-                                     (unless (g x) 1 :else 2))])))
-      (is (re-find #"Macro call unless"
-                   (refused '[(defn g
-                                [x]
-                                x) (defn f
-                                     [x]
-                                     (+ 1 (unless :else (g x))))]))
-          "in operand position too"))
-    (testing "a macro call whose operands cannot fail is still opaque and accepted"
+    (testing "a macro call is opaque and accepted; there is no may-fail
+              classification to refuse (the outcome model's failing? pass is
+              retired, and a raise propagates rather than being discarded)"
+      (is (nil? (refused '[(defn g
+                             [x]
+                             x) (defn f
+                                  [x]
+                                  (unless (g x) 1 :else 2))])))
+      (is (nil? (refused '[(defn g
+                             [x]
+                             x) (defn f
+                                  [x]
+                                  (+ 1 (unless :else (g x))))])))
       (is (nil? (refused '[(defn f
                              [x]
                              (unless (= x 1) 1 :else 2))]))))
@@ -2101,11 +2077,11 @@
                              x) (defn f
                                   [x]
                                   (cond (g x) 1 :else 2))]))))
-    (testing "a non-final top-level form that may fail is refused"
-      (is (re-find #"non-final top-level"
-                   (refused '[(defn g
-                                [x]
-                                x) (g 1) (g 2)])))
+    (testing "a non-final top-level form is accepted: a raise propagates to
+              the top-level boundary rather than being silently discarded"
+      (is (nil? (refused '[(defn g
+                             [x]
+                             x) (g 1) (g 2)])))
       (is (nil? (refused '[(defn g
                              [x]
                              x) (g 1)])) "the final form is the harness's")
@@ -2407,15 +2383,15 @@
   (testing "the initializer evaluates once"
     (is (= [:yin.k/ok 1] (outcome-of-call '(if-let [y (g (probe/note x))] y 0) '(f 1))))
     (is (= [1] @effect-log)))
-  (testing "a user macro operand that may fail is still refused, naming the macro"
-    (is (re-find #"Macro call unless"
-                 (try (yang/compile-program
-                        [fails-on-nil '(defn f
-                                         [x]
-                                         (unless (g x) 1 2))]
-                        true (assoc outcome-opts :macros #{'unless}))
-                      nil
-                      (catch clojure.lang.ExceptionInfo e (ex-message e)))))))
+  (testing "a user macro operand is accepted: there is no may-fail
+            classification to refuse under the continuation encoding"
+    (is (nil? (try (yang/compile-program
+                     [fails-on-nil '(defn f
+                                      [x]
+                                      (unless (g x) 1 2))]
+                     true (assoc outcome-opts :macros #{'unless}))
+                   nil
+                   (catch clojure.lang.ExceptionInfo e (ex-message e)))))))
 
 
 ;; =============================================================================
@@ -2919,11 +2895,15 @@
                           (catch Exception e 8))] (inc v)) 9]]]
     (is (= [:yin.k/ok expected] (run-library [form] library-opts lane 1000000))))
   (doseq [form '[(try 1 (catch Exception e 2) :ignored)
-                 (try 1 (finally 2))
                  (try 1 (catch Throwable e 2))
                  (try 1 (catch Exception e (.getStackTrace e)))]]
     (is (thrown? clojure.lang.ExceptionInfo
-          (yang/compile-program [form] true library-opts)))))
+          (yang/compile-program [form] true library-opts))))
+  ;; `finally` is now expressible (the one-catch/no-finally restriction is
+  ;; lifted): a try with only a finally runs it on normal exit.
+  (doseq [lane [:walker :semantic]]
+    (is (= [:yin.k/ok 1]
+           (run-library '[(try 1 (finally 2))] library-opts lane 1000000)))))
 
 
 (deftest test-guest-callable-collections-and-threading
@@ -3155,12 +3135,14 @@
                             1) (defn f
                                  [x]
                                  (+ x 41)) (f 1)])))
-    (is (= [:yin.k/ok [:yin.k/error 99]]
-           (run-outcome '[(def early (yin.k/outcome-of (first [10 20])))
-                          (defn first
+    ;; `yin.k/outcome-of` is retired with the outcome model: a def value is
+    ;; a plain value, and a source `first` shadows the data/nth `first` the
+    ;; way any top-level defn would.
+    (is (= [:yin.k/ok 99]
+           (run-outcome '[(defn first
                             [xs]
                             99)
-                          [(data/nth early 0) (first [10 20])]])))
+                          (first [10 20])])))
     (is (= [:yin.k/ok 42]
            (run-outcome '[(defn f
                             [x]
