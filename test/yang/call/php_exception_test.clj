@@ -352,3 +352,22 @@
       "raise-protocol is not a module export: no frozen pre-init binding")
   (is (not (contains? php-prelude/module-exports 'raise-foreign))
       "raise-foreign is not a module export: no frozen pre-init binding"))
+
+
+(deftest php-provenance-adoption-test
+  ;; The r3 adoption pins (host side, the php twin of the py adoption audit
+  ;; the step-7 review asked for): wrapper retention goes through the VM
+  ;; provenance primitive's reserved doors — cell/dsg__new-provenance mints,
+  ;; cell/dsg__provenance reads — declared as host dependencies of the php
+  ;; module, never reimplemented in prelude code; and no minting or retention
+  ;; helper is a module export (the exported-helper bypass class the ruling
+  ;; names: a guest able to call the mint could forge provenance of its own
+  ;; choosing).
+  (is (contains? php-prelude/host-names 'cell/dsg__new-provenance)
+      "the reserved mint door is a declared host dependency")
+  (is (contains? php-prelude/host-names 'cell/dsg__provenance)
+      "the reserved read door is a declared host dependency")
+  (is (not (contains? php-prelude/module-exports 'mint-retained))
+      "the mint helper is not a module export")
+  (is (not-any? #(str/starts-with? (str %) "php.rt/") php-prelude/module-exports)
+      "no php.rt name is a module export: no guest-reachable retention surface"))

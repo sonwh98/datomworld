@@ -90,8 +90,13 @@
 
 
 (def host-names
-  "Module exports the prelude calls."
-  (into '#{cell/new cell/get cell/set! data/count data/nth data/subvec data/str-concat
+  "Module exports the prelude calls. The two `dsg__` doors are the VM
+   provenance primitive's reserved mint and reader (yin.vm.module: guest
+   code may neither spell nor construct their names); the php module
+   declares them the way python's adoption did — §8.10.7 wrapper retention
+   mints and authenticates through them, never through prelude code."
+  (into '#{cell/new cell/get cell/set! cell/dsg__new-provenance cell/dsg__provenance
+           data/count data/nth data/subvec data/str-concat
            data/str-length data/str-join data/str-compare data/str->code-points
            data/code-points->str data/substring data/float64 data/float-value
            data/content= data/number? data/dissoc data/into
@@ -2680,8 +2685,9 @@
      ;; escape unwinds through and restores the saved handler/depth/frame
      ;; state BEFORE the transfer (§8.10.8), so delivery happens under the
      ;; caller's dynamic context. An unchanged rethrow of a wrapper carrying
-     ;; a retained condition (php.rt/retained-condition, the reception-side
-     ;; identity association) forwards that original condition with no new
+     ;; a retained condition (php.rt/retained-condition, the VM provenance
+     ;; read over the wrapper's identity cell) forwards that original
+     ;; condition with no new
      ;; wrapper; every other escape — including a thrown condition-shaped
      ;; map, which is the payload of a FRESH condition per §8.10.7 — becomes
      ;; :yang.call/thrown carrying the thrown value. The binding-profile
@@ -2852,12 +2858,12 @@
      ;; plain foreign value, whatever its representation — becomes the
      ;; prelude-owned ForeignException retaining the complete original
      ;; condition; the protocol reasons map to the documented local Error.
-     ;; Both generated forms carry the condition in the private php.rt
-     ;; identity association (php.rt/raise-foreign / php.rt/raise-protocol),
-     ;; so an unchanged rethrow forwards the original condition — the entry
-     ;; bridge consults the same association — with no wrapper stacking. A
-     ;; returned condition-shaped map never reaches here: it is ordinary
-     ;; data.
+     ;; Both generated forms mint through php.rt/mint-retained, so the
+     ;; condition rides the VM provenance slot of the wrapper's identity
+     ;; cell and an unchanged rethrow forwards the original condition — the
+     ;; entry bridge consults the same provenance read — with no wrapper
+     ;; stacking. A returned condition-shaped map never reaches here: it is
+     ;; ordinary data.
      (fn [condition]
        (if (= (get condition :yang.call/reason) :yang.call/thrown)
          (let [v (get condition :yang.call/value)]
@@ -4576,29 +4582,82 @@
     ;; ---------------------------------------- retained-condition reception
     ;; §8.10.7 reception wrappers: the ForeignException (otherwise-foreign
     ;; thrown payloads) and the protocol Error retain the complete original
-    ;; condition in a private, task-owned identity association, outside
-    ;; source-writable attributes, with no ambient registry. The three
-    ;; definitions below are pre-init stubs (no store exists yet) under the
-    ;; internal `php.rt/*` names; php/init! replaces all three before any
-    ;; guest code runs (see retained-store-install in init-form). Because
-    ;; their namespace is `php.rt`, not `php`, `core/exports` never takes
-    ;; them: no module export and no frozen linked slice can carry a
-    ;; pre-init binding that silently answers nil. The stubs mirror the
-    ;; installed bodies minus the registration side effect; nothing can run
-    ;; them, php/init! precedes every guest activation.
-    [php.rt/retained-condition (fn [e] nil)]
+    ;; condition through the VM provenance primitive — the condition rides
+    ;; the private :provenance heap sibling of the CELL backing the
+    ;; generated Throwable's identity, installed atomically at allocation by
+    ;; the reserved mint door and read back by the reserved reader. Because
+    ;; every definition below lives under `php.rt/`, not `php`, core/exports
+    ;; never takes them: no module export, projection or alias can hand a
+    ;; guest the mint (the exported-helper bypass class the ruling names —
+    ;; a guest able to call the mint could forge provenance of its own
+    ;; choosing; php.rt/* is also unspellable in php source, which resolves
+    ;; names through its own tables). There is deliberately NO map-fallback
+    ;; path in the mint: a representation without a cell cannot authenticate
+    ;; retention, so a memberless or missing class is refused in place
+    ;; rather than silently minting an unmarkable wrapper.
+    [php.rt/mint-retained
+     ;; The privileged mint: a local `cls` error object whose state cell is
+     ;; allocated by cell/dsg__new-provenance [value provenance] — fresh id
+     ;; + seal + value + condition, atomically; nil provenance is refused by
+     ;; the door itself. The construction mirrors the membered branch of
+     ;; php/make-error (register-final!, then the message property stamped
+     ;; through the ordinary cell write, which preserves the provenance
+     ;; sibling), so the wrapper catches, formats and destructs like any
+     ;; local error of its class. Guest-visible mutation of the wrapper
+     ;; writes the same cell and cannot touch provenance; a contents-clone
+     ;; into a fresh cell carries none.
+     (fn [cls msg condition]
+       (let [c (php/class-lookup cls)]
+         (if (if (nil? c) true (= (data/count (get c :methods)) 0))
+           (php/throw-error "Error"
+                            (data/str-concat "Cannot mint a retained " cls))
+           (let [n (cell/get php.rt/next-ord)]
+             (do (cell/set! php.rt/next-ord (+ n 1))
+                 (let [o (php/register-final!
+                           (assoc {} :php/obj
+                                  (cell/dsg__new-provenance
+                                    (assoc (assoc (assoc (assoc (assoc (assoc (assoc {} :php/type :obj)
+                                                                              :id (php/next-cell!))
+                                                                       :rc 1)
+                                                                :class (get c :name))
+                                                         :props (php/init-props (php/empty-array)
+                                                                                (get c :props-decl) 0
+                                                                                (data/count (get c :props-decl))))
+                                                  :ord n)
+                                           :destructed? false)
+                                    condition))
+                           c)]
+                   (do (php/obj-set-props! o (php/table-set (get (php/obj-state o) :props)
+                                                            "message" msg))
+                       o)))))))]
+    [php.rt/retained-condition
+     ;; The §8.10.7 retention read: the complete original condition of a
+     ;; generated wrapper, authenticated by cell/dsg__provenance [cell] —
+     ;; the provenance of a live marked cell, nil for everything else (an
+     ;; unmarked cell, a forged or dead reference, a non-reference, or any
+     ;; value whose representation carries no cell). Never fatal, never
+     ;; mutating; no source-writable attribute and no value shape is ever
+     ;; consulted, so nothing a guest writes on a wrapper can forge,
+     ;; replace or break its association.
+     (fn [e]
+       (if (nil? (get e :php/obj))
+         nil
+         (cell/dsg__provenance (get e :php/obj))))]
     [php.rt/raise-foreign
      (fn [condition]
-       (php/throw-error "ForeignException" "Uncaught foreign exception"))]
+       (php/raise (php.rt/mint-retained "ForeignException"
+                                        "Uncaught foreign exception" condition)))]
     [php.rt/raise-protocol
      (fn [condition]
        (let [reason (get condition :yang.call/reason)]
-         (php/throw-error "Error"
-                          (if (= reason :yang.call/not-callable)
-                            "Value not callable"
-                            (if (= reason :yang.call/unsupported-binding)
-                              "Unsupported binding profile"
-                              "Invalid function invocation")))))]
+         (php/raise (php.rt/mint-retained
+                      "Error"
+                      (if (= reason :yang.call/not-callable)
+                        "Value not callable"
+                        (if (= reason :yang.call/unsupported-binding)
+                          "Unsupported binding profile"
+                          "Invalid function invocation"))
+                      condition))))]
     [php/match-repr
      (fn [v]
        (let [k (php/kind v)]
@@ -5878,85 +5937,6 @@
           (sort-by key builtins/constants)))
 
 
-(def ^:private retained-store-install
-  "The guest form `php/init!` runs to create the private retained-condition
-   identity store and install the real `php.rt/retained-condition`,
-   `php.rt/raise-foreign` and `php.rt/raise-protocol` closures over it. The
-   install keys are the `php.rt/*` names the stub definitions and the
-   intra-module readers (`php/receive-condition` and the entry bridge) use:
-   variable lookup is exact-symbol in the live store, and the module
-   emitter's `strip` leaves `php.rt/*` qualified in definition keys, quoted
-   install keys and reads alike, so all three coincide in both the bundled
-   and the linked store. Because their namespace is `php.rt`, not `php`,
-   they are never module exports and no frozen export slice can carry a
-   pre-init binding for them.
-
-   The store holds [wrapper condition] pairs. Membership is established ONLY
-   by the installed raise fns as a side effect of raising, and only for the
-   wrappers they themselves mint; the installed `php.rt/retained-condition`
-   answers the stored condition for a member and nil for everything else. A
-   php object handle is a one-field map whose field is the object's sealed
-   state-cell reference, so `=` on handles IS object identity: a copied or
-   newly minted wrapper (a fresh state cell, however equal its visible
-   contents — R5's minted-forgery and copied-wrapper refusals) never matches
-   a stored key, and a handle that does match necessarily carries the same
-   sealed reference, making it an alias of a wrapper the holder already
-   holds — retaining and rethrowing that wrapper, nothing more. Nothing
-   wrapper-supplied or wrapper-reachable is consulted: the wrapper carries
-   no provenance, condition or seal slot, so mutating its contents or
-   stamping dynamic properties can neither create, replace nor break a
-   membership, and a mutated genuine wrapper still forwards its ORIGINAL
-   condition.
-
-   The store root is the lexical capture of the three installed closures
-   only: it is allocated once per task (inside the uninit guard), never
-   written to a runtime key, a php global, the function table, a class or a
-   wrapper cell, and no other form returns it. Associations are preserved
-   across completed calls and catches for the life of the task and die with
-   its heap at teardown; there is no process-global or cross-task registry.
-   Known open obligations (the same two the typescript round recorded for
-   its store): no reclamation of completed-call associations within a task's
-   life, and lookup is a linear walk allocating a subvec per hop. A returned
-   condition-shaped map stays ordinary data; shape is never evidence of a
-   condition to forward."
-  '(let [retained-store (cell/new [])
-         retained-lookup
-         (fn [self pairs e]
-           (if (= (data/count pairs) 0)
-             nil
-             (if (= (get (get pairs 0) 0) e)
-               (get (get pairs 0) 1)
-               (self self (data/subvec pairs 1 (data/count pairs)) e))))]
-     (do (yin/def (quote php.rt/retained-condition)
-           (fn [e]
-             (if (nil? (get e :php/obj))
-               nil
-               (retained-lookup retained-lookup
-                                (cell/get retained-store) e))))
-         (yin/def (quote php.rt/raise-foreign)
-           (fn [condition]
-             (let [e (php/make-error "ForeignException" "Uncaught foreign exception")]
-               (do (cell/set! retained-store
-                              (php/vconj (cell/get retained-store)
-                                         (php/pair e condition)))
-                   (php/raise e)))))
-         (yin/def (quote php.rt/raise-protocol)
-           (fn [condition]
-             (let [reason (get condition :yang.call/reason)
-                   e (php/make-error
-                       "Error"
-                       (if (= reason :yang.call/not-callable)
-                         "Value not callable"
-                         (if (= reason :yang.call/unsupported-binding)
-                           "Unsupported binding profile"
-                           "Invalid function invocation")))]
-               (do (cell/set! retained-store
-                              (php/vconj (cell/get retained-store)
-                                         (php/pair e condition)))
-                   (php/raise e)))))
-         :php/null)))
-
-
 (defn- init-form
   "`php/init!`'s body: the runtime cells, the builtins, the ready flag, under
    the uninit guard."
@@ -5967,7 +5947,6 @@
                 ['do
                  (define 'php.rt/ctx '(cell/new (php/ctx nil 0 0 nil)))
                  (define 'php.rt/out '(cell/new [[]]))
-                 retained-store-install
                  (define 'php.rt/request '(cell/new {}))
                  (define 'php.rt/response '(cell/new []))
                  (define 'php.rt/headers-sent '(cell/new false))
