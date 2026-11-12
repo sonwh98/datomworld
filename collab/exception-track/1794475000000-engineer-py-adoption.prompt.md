@@ -29,3 +29,20 @@ WORKTREE: /Users/sto/workspace/datomworld-f12, branch `exception-py-r2r3`. FIRST
 ## Commit plan
 
 (a) the rebase, (b) mint/read rewiring + the visible-key removal, (c) the export audit fix (if the audit finds exposure), (d) goldens if regenerated. Final agent message: the rewiring sites (file:line), the export audit result, the pins' green evidence, suite counts, goldens evidence.
+
+---
+
+## HOST ADDENDUM (jupiter dispatch — POOL 2 failover, owner-directed retry)
+
+You are running on **jupiter** (Linux, x86_64), fresh account. The first attempt (laptop) died on
+quota before starting work. Environment specifics for THIS host:
+
+- Your clone: `~/ci/datomworld-py`, branch `exception-py-r2r3` @ `0f0ab852` (the pins commit,
+  rebased onto current master — the primitive `8c10c5b7` IS in your ancestry).
+- **Toolchain**: `/usr/local/bin/clojure` is on system PATH on this host. Verify with
+  `command -v clojure` before running tests. babashka (`bb`) may not be installed — if a `bb`
+  task is suggested by habit, use the underlying `clojure`/`java` commands directly.
+- **Push**: attempt `git push origin exception-py-r2r3` after committing; if credentials fail,
+  commit locally and state so in the report — the orchestrator fetches from this clone over ssh.
+- **Contract test**: never run locally (owner ruling) — focused tests + kondo only.
+- Foreground only; no background server tasks.

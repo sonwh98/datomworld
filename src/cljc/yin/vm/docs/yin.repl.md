@@ -549,10 +549,47 @@ writes `target/yin-repl.js`, and a missing build fails
 `build/antlr/python3/classes`, is on the classpath and absent until
 generated.
 
+## Architecture & Composition (`yin.repl` vs `yin.shell`)
+
+Per [`docs/design/yin.repl.dht-composition.md`](../../../../../docs/design/yin.repl.dht-composition.md), the engine (`yin.repl`) depends strictly and solely on `dao.jing` as a generic content storage contract. It has zero static or runtime dependencies on `dao.jing.dht` or any specific transport.
+
+All DHT and network-facing capabilities are provided outside the engine by **`yin.shell.*`**:
+- **`yin.shell.main`**: Outer host entry point that bundles the engine host driver with composition hooks (`deps.edn`'s `:clj-yin-repl`, shadow-cljs `:yin-repl`, and ClojureDart).
+- **`yin.shell.cli`**: Command-line flag parsing for `--dht-*` flags and subcommands (`dht init|serve|join`).
+- **`yin.shell.store`**: Registers and instantiates the `dht:<dir>` store scheme alongside engine-native `mem` and `file:<dir>`.
+- **`yin.shell.session`**: Manages the composite session `{:engine … :node … :key …}`.
+- **`yin.shell.query`**: Connects link publishing, network queries, and service adapters to the DHT node.
+
+### Embedding the DHT Composition Programmatically
+
+A host driver can pass the DHT composition bundle into `yin.repl.main/main!`:
+
+```clojure
+(require '[yin.repl.main :as repl.main]
+         '[yin.shell.main :as shell.main])
+
+(repl.main/main! ["--index-store" "dht:/path/to/store"
+                  "--dht-listen" "127.0.0.1:4001"]
+                 shell.main/composition)
+```
+
+Alternatively, open a DHT store handle directly via `yin.shell.store`:
+
+```clojure
+(require '[yin.shell.store :as shell.store])
+
+(let [{:keys [handle node]} (shell.store/open {:type :dht :dir "/path/to/store"} opts)]
+  ;; :handle is the dao.jing content store for yin.repl
+  ;; :node is the composition-owned DHT node
+  ...)
+```
+
 ## Design documents
 
 The contracts this guide follows, all under `docs/design/`:
 
+- [`yin.repl.dht-composition.md`](../../../../../docs/design/yin.repl.dht-composition.md):
+  the engine depends only on dao.jing; DHT composition and adapter separation.
 - [`yin.vm.linker.dht.md`](../../../../../docs/design/yin.vm.linker.dht.md):
   publishing, resolving and loading modules by signed name over the DHT.
 - [`yin.vm.linker.dht.head.md`](../../../../../docs/design/yin.vm.linker.dht.head.md):
