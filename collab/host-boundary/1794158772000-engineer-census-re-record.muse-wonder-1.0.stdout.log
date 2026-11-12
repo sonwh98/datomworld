@@ -1,0 +1,44 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 17:29 GMT
+Completed-Local: 2026-11-09 00:29 +0700
+
+Worktree ready for orchestrator verification. No commits made. No gate test run locally.
+
+Worktree: `/tmp/census-rr` (detached HEAD `186583d9ebab7c47fc3b338334fb6787e0393a51`). Base verified with one discrepancy: `origin/master` has advanced to `94fc5ca2` since the prompt was written. The six census files are byte-identical between `186583d9` and `94fc5ca2` (empty diff), and the `src/` closure inputs are unchanged, so the worktree was created at the sanctioned `186583d9` exactly as specified. This host is `darkstar`; the worktree lives at the specified `/tmp/census-rr` path here.
+
+Sanctioned changes applied, nothing else:
+
+- [closure.clj](/tmp/census-rr/src/dev/host_boundary/closure.clj:177): docstring now names `` `yang.python.antlr.*`, `yang.php.antlr.*` ``; added `[:deferred-stage "yang.php.antlr."]`.
+- [dao.stream.host-boundary.md](/tmp/census-rr/docs/design/dao.stream.host-boundary.md:453): §3.1 stage row now lists `` `yang.php.antlr.*` `` and records explicitly: “§3.1 amendment: `yang.php.antlr.*` takes the same `:deferred-stage` classification (§9.3); list-1/list-2 remain independently enforced.” Table pipe alignment preserved.
+- [gate_test.clj](/tmp/census-rr/test/dao/host/gate_test.clj:987): totals `163 / 161 / 159`, shared `152`; union/gate files `168 → 175` at both assertions; descriptive text updated to “§3.1 after the sanctioned PHP ANTLR census re-record: 163 / 161 / 159 files, 152 shared”.
+- List-1 `73 → 72`: deleted `"src/clj/yang/php/antlr/cst.clj"` (`:seam-driver`). Added no `cst.cljc` entry. Retained `lower.cljc`/`quoted.cljc` as `:deferred-scope :stays`. Added none for `builtins`/`prelude`/`prelude_module`/`prelude_p9`/`scope`.
+- List-2 unchanged. Exceptions unchanged (8 files, 12 bare rows). Regenerated EDNs confirm the F3 graph: `cst.cljc`, `lower`, `scope` on clj+cljs; `prelude_p9` on all lanes; all PHP ANTLR files now `:deferred-stage`; stale `cst.clj` gone; union 175, shared 152.
+
+`git diff --stat` verbatim:
+
+```
+ docs/design/dao.stream.host-boundary.md    | 10 ++++++----
+ docs/design/host-boundary/closure-clj.edn  | 28 ++++++++++++++++------------
+ docs/design/host-boundary/closure-cljd.edn | 26 +++++++++++---------------
+ docs/design/host-boundary/closure-cljs.edn | 30 +++++++++++++++++++++++-------
+ src/dev/host_boundary/closure.clj          |  6 ++++--
+ test/dao/host/gate_test.clj                | 15 +++++++--------
+ 6 files changed, 67 insertions(+), 48 deletions(-)
+```
+
+Generator `--check` output verbatim (exit 0, no `STALE` line; committed EDNs byte-match the computed closure):
+
+```
+Loading initial Timbre config from: :default
+clj   total 163 shared 152 lane-specific 11
+cljs  total 161 shared 152 lane-specific 9
+cljd  total 159 shared 152 lane-specific 7
+shared (all three lanes): 152
+```
+
+Orchestrator: please run the single namespace remotely on shiva against this revision — `clojure -M:test -n dao.host.gate-test` — requiring zero failures/errors, traversal equality on every lane, the stated totals, all 175 files scanned, exact observed-arm equality with the 72-entry list-1, and no category problems.

@@ -1,0 +1,959 @@
+kimi version 2.4.0
+• Kimi needs to read the file.Should diagnostic readonly. Should git show commit 0a66cad9 not origin/master if changed. Read three files commit and current? Do parallel Bash git show each perhaps allowed shell output. Use git show.
+
+• I’ll inspect the pinned versions of all three lane scripts and trace the uncovered-shard conditions without changing files or running the lanes.(ns node-shard
+  "Node lane sharded by subsystem (the bb mirror of shard-jvm.sh).
+
+   One full shadow-cljs compile (:autorun false), then one
+   `node target/node-tests.js --test=ns1,ns2,...` process per subsystem, up
+   to PAR at a time. Selection is RUNTIME: shadow's :ns-regexp compile filter
+   does not remove previously cached test namespaces from the bundle.
+
+   Review fixes (gpt-6.1-sol, 2026-10-31) implemented here:
+   - R1: every requested namespace is validated against the compiled
+     bundle's own --list inventory before running (the --test selector
+     silently ignores unknown namespaces).
+   - R6: per-run immutable out dir (node-shards-$STAMP, -latest symlink);
+     expected-vs-completed shard check; nonzero exit on red, missing, or
+     unexplained shards; prerequisite and compile failures are fatal.
+   - The Dart peer is built (its absence makes peer tests skip).
+
+   Usage: bb src/dev/node_shard.clj <clone-dir> [parallel]
+   Exit: 0 all green; 1 any failure (infra, missing, or red)."
+  (:require [babashka.fs :as fs]
+            [babashka.process :as p]
+            [clojure.java.io :as io]
+            [clojure.set :as set]
+            [clojure.string :as str]))
+
+
+(def all-subs
+  ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
+   "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
+   "dao.postgraphics" "yang.base" "dao.base"])
+
+
+(def subs
+  "The subsystems THIS host runs. Override with NIGHTLY_SUBSYSTEMS (comma
+   list) for a disjoint two-host split; the uncovered residual shard still
+   enumerates against the FULL registry, so no namespace can silently drop
+   when two hosts split the registry between them."
+  (or (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
+               (map str/trim)
+               (remove str/blank?)
+               seq)
+      all-subs))
+
+
+(def run-uncovered?
+  "The uncovered residual shard runs only on the designated host
+   (NIGHTLY_UNCOVERED=1), so the residual is executed exactly once across a
+   two-host split."
+  (not= "1" (System/getenv "NIGHTLY_SKIP_UNCOVERED")))
+
+
+(def ^:private child-path
+  "PATH for every child process: mise shims first (npm/node/flutter/bb/clj all
+   resolve through mise regardless of the caller's ambient PATH), then the
+   inherited PATH, then the system dirs for env/bash."
+  (str (System/getProperty "user.home") "/.local/share/mise/shims"
+       ":/usr/local/bin:/usr/bin:/bin:"
+       (System/getenv "PATH")))
+
+
+(defn- psh
+  "p/shell with the mise-shims PATH forced into the child environment,
+   merged over any caller-supplied :env."
+  [opts & cmd]
+  (apply p/shell (update opts :extra-env #(merge {"PATH" child-path} %)) cmd))
+
+
+(defn ns->test-ns
+  "test/yin/vm/foo_test.cljc -> yin.vm.foo-test (the namespace name)."
+  [path]
+  (-> path
+      (str/replace #"^test/" "")
+      (str/replace #"\.clj[cs]$" "")
+      (str/replace "/" ".")
+      (str/replace "_" "-")))
+
+
+(defn cljs-namespaces
+  "The cljs test namespaces `bb test:sub:list <s>` reports for subsystem s."
+  [clone s]
+  (let [{:keys [out]} (psh {:dir clone :out :string :continue true}
+                           "bb" "test:sub:list" s)
+        section (->> (str/split-lines out)
+                     (drop-while #(not (str/starts-with? % "cljs:")))
+                     (rest)
+                     (take-while #(re-matches #"^\s+\S.*$" %))
+                     (map str/trim)
+                     (remove str/blank?))]
+    (vec section)))
+
+
+(defn -main
+  [& args]
+  (let [clone (or (first args) (System/getProperty "user.dir"))
+        par   (or (some->> (second args) parse-long) 8)
+        stamp (.format (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmm")
+                       (java.time.LocalDateTime/now))
+        out   (str clone "/target-ci/node-shards-" stamp)
+        rc    (atom 0)
+        summary (str out "/summary.txt")
+        fail! (fn [msg]
+                (reset! rc 1)
+                (println "FAIL:" msg)
+                (spit summary (str "FAIL: " msg "\n") :append true))
+        log   (fn [msg] (println msg) (spit summary (str msg "\n") :append true))
+        sh    (fn [out-file cmd]
+                ;; Each command owns a fresh log. File redirects need no
+                ;; caller-owned buffer; :err :out avoids two file offsets
+                ;; overwriting the same path.
+                (let [{:keys [exit]} (apply psh {:dir clone, :out (io/file out-file), :err :out,
+                                                 :continue true}
+                                            cmd)]
+                  exit))]
+    (fs/create-dirs out)
+    (fs/delete-if-exists (str clone "/target-ci/node-shards-latest"))
+    (fs/create-sym-link (str clone "/target-ci/node-shards-latest")
+                        (str "node-shards-" stamp))
+    (log (str "start " stamp " par=" par))
+    ;; prerequisites — fatal on failure
+    ;; npm always through mise exec: mise's npm wrapper execs `node` by bare
+    ;; name, which fails under any caller PATH that lacks the mise node bin
+    ;; (mise exec supplies it). The repo's mise.toml pins the node version.
+    (let [cmd (if (fs/which "mise")
+                ["mise" "exec" "--" "npm" "ci" "--silent"]
+                ["npm" "ci" "--silent"])
+          exit (apply sh (str out "/npm-ci.log") [cmd])]
+      (log (str "npm-ci rc=" exit))
+      (when-not (zero? exit) (fail! "npm ci failed")))
+    (doseq [[nm cmd] [["build-yin-repl-node" ["bb" "build:yin-repl-node"]]
+                      ["build-yin-repl-peer" ["bb" "build:yin-repl-peer"]]
+                      ["gen-antlr" ["bb" "gen:antlr"]]]]
+      (let [exit (sh (str out "/" nm ".log") cmd)]
+        (log (str nm " rc=" exit))
+        (when-not (zero? exit) (fail! (str nm " failed")))))
+    ;; per-subsystem cljs namespaces; the per-run files are the evidence
+    (let [lists (into {} (map (fn [s] [s (cljs-namespaces clone s)]) subs))
+          test-root (str (fs/canonicalize (str clone "/test")))
+          all (->> (file-seq (fs/file test-root))
+                   (filter #(re-find #"_test\.clj[cs]$" (str %)))
+                   (map (fn [path]
+                          (-> (str path)
+                              (str/replace (str test-root "/") "")
+                              ns->test-ns)))
+                   set)
+          covered (apply set/union (map set (vals lists)))
+          uncovered (set/difference all covered)
+          lists (cond-> lists (seq uncovered)
+                        (assoc "uncovered" (vec uncovered)))]
+      (log (str "all=" (count all) " covered=" (count covered)
+                " uncovered=" (count uncovered)))
+      (doseq [[s nss] lists]
+        (spit (str out "/ns-" s ".txt") (str/join "\n" nss))))
+    ;; one full compile, no autorun
+    (let [t0 (System/currentTimeMillis)
+          exit (sh (str out "/compile.log")
+                   ["clj" "-M:cljs" "-m" "shadow.cljs.devtools.cli"
+                    "compile" "test" "--config-merge" "{:autorun false}"])]
+      (log (str "compile-all rc=" exit
+                " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
+      (when-not (zero? exit) (fail! "compile failed")))
+    ;; R1: the bundle's own inventory is the authority on what can run
+    (let [{listing :out} (psh {:dir clone :out :string :continue true}
+                              "node" "target/node-tests.js" "--list")
+          bundle (->> (str/split-lines listing)
+                      (keep #(re-find #"^Namespace: (\S+)" %))
+                      (map second)
+                      set)
+          lists (into {}
+                      (map (fn [s]
+                             [s (some->> (str out "/ns-" s ".txt")
+                                         slurp
+                                         str/split-lines
+                                         (remove str/blank?)
+                                         vec)])
+                           subs))
+          lists (cond-> lists
+                  (.exists (fs/file (str out "/ns-uncovered.txt")))
+                  (assoc "uncovered"
+                         (->> (slurp (str out "/ns-uncovered.txt"))
+                              str/split-lines
+                              (remove str/blank?)
+                              vec)))
+          sel (into {} (map (fn [[s nss]] [s (filterv bundle nss)])) lists)
+          ;; Absence from the bundle's --list means the lane has no tests in
+          ;; that namespace (a JVM-only namespace behind a clj reader
+          ;; conditional compiles to a library with no cljs test vars). That
+          ;; is a lane exclusion, recorded for the summary — not a failure.
+          ;; A failure is a namespace the bundle KNOWS that then fails to
+          ;; run, which the expected-vs-completed check below catches.
+          exclusions (into {}
+                           (remove (fn [[_ nss]] (empty? nss)))
+                           (into {}
+                                 (map (fn [[s nss]]
+                                        [s (set/difference (set nss) bundle)]))
+                                 lists))]
+      (doseq [[s ex] exclusions]
+        (log (str "lane-excluded " s ": " (str/join "," (sort ex)))))
+      ;; run up to PAR shards at a time (waves)
+      (let [t0 (System/currentTimeMillis)
+            shards (vec (filter (comp seq sel) (keys sel)))
+            runs (atom {})
+            run-one (fn [s]
+                      (let [t0 (System/currentTimeMillis)
+                            {:keys [exit]}
+                            (psh {:dir clone
+                                  :out (io/file (str out "/" s ".log"))
+                                  :err (io/file (str out "/" s ".err.log"))
+                                  :extra-env {"DATOM_SLOW_TESTS" "1"}
+                                  :continue true}
+                                 "node" "target/node-tests.js"
+                                 ;; ONE argument: shadow 3.3.5's runner accepts
+                                 ;; only --test=<list>; a separate "--test" arg
+                                 ;; is ignored ("Unknown arg") and the worker
+                                 ;; silently runs the FULL suite (2026-11-01).
+                                 (str "--test=" (str/join "," (sel s))))
+                            secs (quot (- (System/currentTimeMillis) t0) 1000)]
+                        (let [logtxt (try (slurp (str out "/" s ".log"))
+                                          (catch Exception _ ""))
+                              suspicious (or (str/includes? logtxt "Unknown arg")
+                                             (str/includes? logtxt "Ran 0 tests"))]
+                          (when suspicious
+                            (fail! (str "shard " s " ran nothing (selection not applied)")))
+                          (swap! runs assoc s {:rc exit :secs secs}))
+                        (spit (str out "/runs.txt")
+                              (str s " rc=" exit " secs=" secs "\n")
+                              :append true)))]
+        ;; WORK-STEALING pool, not waves: a wave scheduler parks the next
+        ;; shard until every shard in the current batch finishes, so four
+        ;; 20-second shards leave four slots idle while one heavy shard runs
+        ;; (observed 2026-11-01: load 3.6 on a 24-thread host). Each worker
+        ;; pulls the next shard as soon as it finishes, so all PAR slots stay
+        ;; busy until the queue drains and the wall is the heaviest shard.
+        (let [queue (atom shards)
+              take-one (fn []
+                         (locking queue
+                           (let [cur @queue]
+                             (when (seq cur)
+                               (reset! queue (subvec cur 1))
+                               (first cur)))))]
+          (->> (range (min par (count shards)))
+               (mapv (fn [i]
+                       (future
+                         (loop []
+                           (if-let [s (take-one)]
+                             (do (run-one s) (recur))
+                             i)))))
+               (mapv deref)))
+        (let [expected (count shards)
+              done (count @runs)
+              red (count (filter #(not= 0 (:rc %)) (vals @runs)))
+              wall (quot (- (System/currentTimeMillis) t0) 1000)]
+          (doseq [[s r] (sort @runs)]
+            (log (str s " rc=" (:rc r) " secs=" (:secs r))))
+          (log (str "node-sharded lanes=" done " red-lanes=" red
+                    " wall=" wall "s"))
+          (when-not (= expected done)
+            (fail! (str "expected " expected " shards, completed " done)))
+          (when (pos? red)
+            (fail! (str red " red shards"))))))
+    (log (str "done rc=" @rc))
+    (System/exit @rc)))
+
+
+(when (= *file* (System/getProperty "babashka.file"))
+  (apply -main *command-line-args*))
+(ns nightly
+  "The nightly suite driver — ONE script for every host.
+
+   The lane assignment is an argument, not a different script: shiva and
+   jupiter run the same file from the same commit, so a fix to the harness
+   never has to be copied between hosts. (Before 2026-11-01 each host had its
+   own hand-written ~/ci/nightly-*.sh; they drifted — jupiter's bypassed mise
+   entirely and pinned its PATH to `latest` symlinks, so babashka and flutter
+   resolved to different versions on the two hosts.)
+
+   Usage:
+     bb src/dev/nightly.clj <clone-dir> <lanes> [parallel] [--now]
+                               [--pin-publish | --pin-read]
+
+     lanes       comma-separated subset of: jvm,node,dart
+     parallel    per-lane parallelism (default: 12)
+     --now       ignore the 03:00/17:00 Vietnam windows (cron fires hourly)
+     --pin-publish   resolve origin/master, publish {run-id, sha, ts} for the
+                     other host (the pin authority; shiva)
+     --pin-read      check out the pinned SHA, refusing a pin whose Vietnam
+                     date is not today (advisory + nonzero exit otherwise)
+     --pin-peer H    with --pin-read: the host holding the pin (the authority,
+                     e.g. shiva.stigmergy.systems). Without it the pin is read
+                     from this host's own file, which only the publisher writes.
+
+   Exit: 0 all lanes green; 1 any red, missing, or infrastructure failure.
+
+   Toolchain: mise owns it. `mise install` runs first so a pin change in
+   mise.toml actually reaches the host — the step whose absence let the two
+   hosts drift (build-n-test.md documents this order)."
+  (:require [babashka.fs :as fs]
+            [babashka.process :as p]
+            [clojure.java.io :as io]
+            [clojure.string :as str]))
+
+
+(def home (System/getProperty "user.home"))
+(def results-dir (or (System/getenv "NIGHTLY_RESULTS") (str home "/ci/nightly-results")))
+(def pin-file (str home "/ci/nightly-pin.txt"))
+
+
+(def child-path
+  (str home "/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin:"
+       (System/getenv "PATH")))
+
+
+(defn- psh
+  "p/shell with the mise shims on the child PATH (never replaces the env)."
+  [opts & cmd]
+  (apply p/shell (update opts :extra-env #(merge {"PATH" child-path} %)) cmd))
+
+
+(defn- run-cmd!
+  "Run cmd to a fresh log with stdout/stderr merged; return the exit code."
+  [dir out-file cmd]
+  (:exit (apply psh {:dir dir
+                     :out (io/file out-file)
+                     :err :out
+                     :continue true}
+                cmd)))
+
+
+(defn- vn-date
+  []
+  (str/trim (:out (psh {:out :string :extra-env {"TZ" "Asia/Ho_Chi_Minh"}}
+                       "date" "+%Y%m%d"))))
+
+
+(defn- vn-hour
+  []
+  (str/trim (:out (psh {:out :string :extra-env {"TZ" "Asia/Ho_Chi_Minh"}}
+                       "date" "+%H"))))
+
+
+(defn- git-out
+  [dir & args]
+  (str/trim (:out (apply psh {:dir dir :out :string :err :string :continue true} "git" args))))
+
+
+(defn- slow-namespaces
+  "The ^:slow test namespaces, derived from the tree (never a static list)."
+  [clone]
+  (->> (apply psh {:dir clone :out :string :continue true}
+              ["grep" "-rl" "\\^:slow" "test" "--include=*.clj" "--include=*.cljc"])
+       :out
+       str/split-lines
+       (remove str/blank?)
+       (map (fn [path]
+              (-> path
+                  (str/replace #"^test/" "")
+                  (str/replace #"\.clj[cd]?$" "")
+                  (str/replace "/" ".")
+                  (str/replace "_" "-"))))
+       sort))
+
+
+(defn- run-pool
+  "Run f over items with at most n in flight; return {item exit}."
+  [n f items]
+  (let [queue (atom (vec items))
+        take-one (fn []
+                   (locking queue
+                     (let [c @queue]
+                       (when (seq c)
+                         (reset! queue (subvec c 1))
+                         (first c)))))
+        results (atom {})]
+    (->> (range (min n (count items)))
+         (mapv (fn [i]
+                 (future
+                   (loop []
+                     (if-let [x (take-one)]
+                       (do (swap! results assoc x (f x)) (recur))
+                       i)))))
+         (mapv deref))
+    @results))
+
+
+(defn- assigned-subsystems
+  "The subsystem subset this host runs, from NIGHTLY_SUBSYSTEMS (comma list).
+   nil = run everything (single-host mode)."
+  []
+  ;; Registry names keep their dots (test:sub:clj matches against
+  ;; subsystems.edn's dotted names). Only folder names get dash-normalized.
+  (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
+           (map str/trim)
+           (remove str/blank?)
+           seq))
+
+
+(defn- in-subset?
+  "True when a test namespace belongs to one of the assigned subsystem
+   prefixes (dots normalized to dashes for comparison)."
+  [nss prefixes]
+  (some #(str/starts-with? nss %) prefixes))
+
+
+(defn- log-lane
+  [summary msg]
+  (println msg)
+  (spit summary (str msg "\n") :append true))
+
+
+(defn- lane-jvm
+  [clone par out summary]
+  (let [subset (assigned-subsystems)
+        ;; prerequisites the bare-metal hosts got from prior rounds: the
+        ;; antlr-generated parser classes and the Node REPL. A fresh
+        ;; container has neither, and yang.*.antlr tests fail with
+        ;; ClassNotFoundException without the first. gen:antlr is cheap
+        ;; when its cache is warm.
+        _ (doseq [[nm cmd] [["gen:antlr" ["bb" "gen:antlr"]]
+                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]]
+                  :let [t0 (System/currentTimeMillis)
+                        exit (run-cmd! clone (str out "/" nm ".log") cmd)]]
+            (log-lane summary (str nm " rc=" exit
+                                   " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
+            (when-not (zero? exit) (throw (ex-info (str nm " failed") {}))))
+        slow-nss (cond->> (slow-namespaces clone)
+                   subset (filter #(in-subset? % subset)))
+        ;; quick tier: subsystem-sharded on the full set; per-subsystem
+        ;; test:sub:clj runs pooled when a disjoint subset is assigned
+        quick-log (str out "/jvm-quick.log")
+        quick (if subset
+                (let [results (run-pool par
+                                        (fn [s]
+                                          (run-cmd! clone
+                                                    (str out "/jvm-quick-" s ".log")
+                                                    ["bb" "test:sub:clj" s]))
+                                        subset)]
+                  (reduce + (vals results)))
+                (run-cmd! clone quick-log
+                          ["bb" "test:quick-sharded" "--workers" (str par)]))
+        slow (run-pool par
+                       (fn [nss]
+                         (run-cmd! clone (str out "/slow-" nss ".log")
+                                   ["clojure" "-M:test" "-i" :slow "-n" nss]))
+                       slow-nss)
+        slow-red (count (remove zero? (vals slow)))]
+    (spit summary (str "jvm-quick rc=" quick
+                       (when subset (str " (subset: " (str/join "," (sort subset)) ")"))
+                       "\njvm-slow namespaces=" (count slow-nss)
+                       " red=" slow-red "\n")
+          :append true)
+    (when-not (zero? quick) (throw (ex-info "jvm quick tier red" {:rc quick})))
+    (when (pos? slow-red) (throw (ex-info "jvm slow tier red" {:red slow-red})))))
+
+
+(defn- lane-node
+  [clone par out summary]
+  (let [rc (run-cmd! clone (str out "/node-shard.log")
+                     ["bb" "src/dev/node_shard.clj" clone (str par)])]
+    (spit summary (str "node-shard rc=" rc "\n") :append true)
+    (when-not (zero? rc) (throw (ex-info "node sharded lane red" {:rc rc})))))
+
+
+(defn- lane-dart
+  [clone par out summary]
+  (let [rc (run-cmd! clone (str out "/dart-shard.log")
+                     ["bb" "src/dev/dart_shard.clj" clone (str par)])]
+    (spit summary (str "dart-shard rc=" rc "\n") :append true)
+    (when-not (zero? rc) (throw (ex-info "dart sharded lane red" {:rc rc})))))
+
+
+(defn -main
+  [& args]
+  ;; NB: never pad args with (repeat nil) — destructuring `& rest` off an
+  ;; infinite lazy seq makes (remove nil? rest) loop forever (2026-11-01).
+  (let [positional (take-while #(not (str/starts-with? % "--")) args)
+        flag-args (drop (count positional) args)
+        flags (set (filter #(str/starts-with? % "--") flag-args))
+        pin-peer (some (fn [[a b]] (when (= a "--pin-peer") b))
+                       (partition 2 1 flag-args))
+        pin-sha (some (fn [[a b]] (when (= a "--pin-sha") b))
+                      (partition 2 1 flag-args))
+        [clone lanes par] positional
+        clone (or clone (str home "/ci/datomworld"))
+        lanes (set (str/split (or lanes "jvm,node,dart") #","))
+        par (or (some->> par parse-long) 12)
+        now? (or (contains? flags "--now") (= "1" (System/getenv "NOW")))
+        publish? (contains? flags "--pin-publish")
+        read-pin? (contains? flags "--pin-read")
+        stamp (.format (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmm")
+                       (java.time.LocalDateTime/now))
+        out (str results-dir "/" stamp)
+        summary (str out "/summary.txt")
+        rc (atom 0)
+        log (fn [s] (println s) (spit summary (str s "\n") :append true))]
+    ;; Owner ruling 2026-11-01: the full suite runs exactly twice a day,
+    ;; 03:00 and 17:00 Vietnam time — 03:00 catches the day's work before the
+    ;; owner stops coding, 17:00 gives a result they can act on before sleep.
+    ;; Everything else (the pre-merge gate) runs the affected tests only.
+    (when-not (or now? (contains? #{"03" "17"} (vn-hour)))
+      (println "outside the 03:00/17:00 Vietnam windows; pass --now to force")
+      (System/exit 0))
+    (fs/create-dirs out)
+    ;; mise owns the toolchain on the hosts; the nightly container ships the
+    ;; same pinned tools on PATH instead, so mise steps are conditional.
+    (when (fs/which "mise")
+      (when-not (= 0 (:exit (psh {:dir clone :continue true} "mise" "trust")))
+        (println "mise trust failed"))
+      (let [ti (run-cmd! clone (str out "/mise-install.log") ["mise" "install"])]
+        (log (str "mise-install rc=" ti))
+        (when-not (zero? ti) (log "FAIL: toolchain install"))))
+    ;; pin protocol
+    (when-not (zero? (:exit (psh {:dir clone :continue true} "git" "fetch" "origin")))
+      (log "FAIL: git fetch"))
+    (let [sha (or pin-sha (git-out clone "rev-parse" "origin/master"))]
+      (cond
+        publish?
+        (let [line (str "run-id=" (vn-date) "-" (vn-hour) " sha=" sha " ts="
+                        (str/trim (:out (psh {:out :string} "date" "-u" "+%Y-%m-%dT%H:%M:%SZ"))))]
+          (spit (str pin-file ".tmp") line)
+          (fs/move (str pin-file ".tmp") pin-file {:replace-existing true})
+          (log (str "pin published: " line))
+          (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha))
+        read-pin?
+        (let [;; R4 fix (codex re-review): the reader requires the pin whose
+              ;; run-id carries TODAY's VN date AND the window hour it is
+              ;; currently inside (03 or 17). Yesterday's pin, or the morning
+              ;; pin read at the 17:00 slot, is refused — no cross-slot pairing.
+              slot (vn-hour)
+              line (loop [tries 15]
+                     (let [l (if pin-peer
+                               (str/trim (:out (psh {:out :string :continue true}
+                                                    "ssh" "-o" "BatchMode=yes"
+                                                    "-o" "ConnectTimeout=8"
+                                                    pin-peer "cat" pin-file)))
+                               (when (fs/exists? pin-file) (str/trim (slurp pin-file))))
+                           prid (some->> l (re-find #"run-id=(\S+)") second)]
+                       (if (and l prid (= (subs prid 0 8) (vn-date))
+                                (= (subs prid 9 11) slot))
+                         l
+                         (when (pos? tries)
+                           (Thread/sleep 12000)
+                           (recur (dec tries))))))]
+          (when (nil? line) (log (str "no pin for the " slot ":00 " (vn-date) " slot after 3 min")))
+          (let [prid (some->> line (re-find #"run-id=(\S+)") second)
+                psha (some->> line (re-find #"sha=([0-9a-f]{7,40})") second)]
+            (if (and psha (= (subs prid 0 8) (vn-date))
+                     (= (subs prid 9 11) slot)
+                     (zero? (:exit (psh {:dir clone :continue true} "git" "cat-file" "-e" psha))))
+              (do (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" psha)
+                  (log (str "pin read: " psha " (run-id " prid ")")))
+              (do (reset! rc 1)
+                  (log (str "FAIL: pin absent/stale/unverifiable (" (or prid "none") ") — advisory run at " sha))
+                  (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha)))))
+        :else (psh {:dir clone :continue true} "git" "checkout" "-q" "--detach" sha)))
+    (log (str "nightly " stamp " at " (git-out clone "log" "--oneline" "-1")
+              " lanes=" (str/join "," (sort lanes)) " par=" par))
+    (doseq [lane ["jvm" "node" "dart"]]
+      (when (contains? lanes lane)
+        (let [t0 (System/currentTimeMillis)]
+          (try
+            ((case lane
+               "jvm" lane-jvm
+               "node" lane-node
+               "dart" lane-dart)
+             clone par out summary)
+            (log (str lane " rc=0 secs="
+                      (quot (- (System/currentTimeMillis) t0) 1000)))
+            (catch Exception e
+              (reset! rc 1)
+              (log (str "FAIL " lane ": [" (some-> e class .getSimpleName) "] "
+                        (ex-message e)
+                        " secs=" (quot (- (System/currentTimeMillis) t0) 1000))))))))
+    (log (str "done rc=" @rc))
+    (System/exit @rc)))
+
+
+(when (= *file* (System/getProperty "babashka.file"))
+  (apply -main *command-line-args*))
+(ns dart-shard
+  "Dart lane sharded by subsystem (the bb mirror of shard-jvm.sh).
+
+   One full cljd compile (per-namespace incremental in lib/cljd-out; cannot
+   be parallelized in one clone), then per subsystem a shard directory
+   emitted by cljd_agg.clj (--only / --shard-dir / --no-compile / --no-run),
+   and ONE `flutter test` invocation over all emitted directories — Flutter's
+   test compiler writes a project-wide build/test_cache kernel, so parallel
+   flutter processes in one clone race (gpt-6.1-sol review R3, 2026-10-31).
+   Per-subsystem attribution survives via the emitted directory paths in the
+   output.
+
+   Review fixes implemented here (R1, R3, R6): the uncovered residual shard
+   is emitted and run; emission failures are fatal; per-run immutable out
+   dir (dart-shards-$STAMP, -latest symlink); prerequisite and compile
+   failures are fatal; nonzero exit on any failure.
+
+   Usage: bb src/dev/dart_shard.clj <clone-dir> [concurrency]
+   Exit: 0 all green; 1 any failure."
+  (:require [babashka.fs :as fs]
+            [babashka.process :as p]
+            [clojure.java.io :as io]
+            [clojure.set :as set]
+            [clojure.string :as str]))
+
+
+(def all-subs
+  ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
+   "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
+   "dao.postgraphics" "yang.base" "dao.base"])
+
+
+(def subs
+  "This host's assigned subsystems (NIGHTLY_SUBSYSTEMS overrides for a
+   disjoint two-host split)."
+  (or (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
+               (map str/trim)
+               (remove str/blank?)
+               seq)
+      all-subs))
+
+
+(def ^:private child-path
+  "PATH for every child process: mise shims first (npm/node/flutter/bb/clj all
+   resolve through mise regardless of the caller's ambient PATH), then the
+   inherited PATH, then the system dirs for env/bash."
+  (str (System/getProperty "user.home") "/.local/share/mise/shims"
+       ":/usr/local/bin:/usr/bin:/bin:"
+       (System/getenv "PATH")))
+
+
+(defn- psh
+  "p/shell with the mise-shims PATH forced into the child environment,
+   MERGED over any caller-supplied :extra-env. (assoc here silently dropped
+   DATOM_SLOW_TESTS, so the Dart lane skipped every guarded slow body while
+   reporting green — review finding, 2026-11-01.)"
+  [opts & cmd]
+  (apply p/shell (update opts :extra-env #(merge {"PATH" child-path} %)) cmd))
+
+
+(defn cljd-namespaces
+  "The cljd test namespaces `bb test:sub:list <s>` reports for subsystem s."
+  [clone s]
+  (let [{:keys [out]} (psh {:dir clone :out :string :continue true}
+                           "bb" "test:sub:list" s)
+        section (->> (str/split-lines out)
+                     (drop-while #(not (str/starts-with? % "cljd:")))
+                     (rest)
+                     (take-while #(re-matches #"^\s+\S.*$" %))
+                     (map str/trim)
+                     (remove str/blank?))]
+    (vec section)))
+
+
+(defn -main
+  [& args]
+  (let [clone (or (first args) (System/getProperty "user.dir"))
+        conc  (or (some->> (second args) parse-long) 8)
+        stamp (.format (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmm")
+                       (java.time.LocalDateTime/now))
+        out   (str clone "/target-ci/dart-shards-" stamp)
+        rc    (atom 0)
+        summary (str out "/summary.txt")
+        fail! (fn [msg]
+                (reset! rc 1)
+                (println "FAIL:" msg)
+                (spit summary (str "FAIL: " msg "\n") :append true))
+        log   (fn [msg] (println msg) (spit summary (str msg "\n") :append true))]
+    (fs/create-dirs out)
+    (fs/delete-if-exists (str clone "/target-ci/dart-shards-latest"))
+    (fs/create-sym-link (str clone "/target-ci/dart-shards-latest")
+                        (str "dart-shards-" stamp))
+    (log (str "start " stamp " conc=" conc))
+    ;; Each command owns a fresh log: File redirects avoid unflushed Writers,
+    ;; and :err :out merges both streams through one file offset.
+    ;; the Dart peer; its absence makes peer tests skip
+    (let [{:keys [exit]} (psh {:dir clone
+                               :out (io/file (str out "/build-peer.log"))
+                               :err :out
+                               :continue true}
+                              "bb" "build:yin-repl-peer")]
+      (log (str "build-yin-repl-peer rc=" exit))
+      (when-not (zero? exit) (fail! "build:yin-repl-peer failed")))
+    ;; per-subsystem cljd namespaces; the per-run files are the evidence
+    (let [lists (into {} (map (fn [s] [s (cljd-namespaces clone s)]) subs))
+          test-root (str (fs/canonicalize (str clone "/test")))
+          all (->> (file-seq (fs/file test-root))
+                   (filter #(re-find #"_test\.clj[cd]$" (str %)))
+                   (map (fn [path]
+                          (-> (str path)
+                              (str/replace (str test-root "/") "")
+                              (str/replace #"\.clj[cd]$" "")
+                              (str/replace "/" ".")
+                              (str/replace "_" "-"))))
+                   set)
+          covered (apply set/union (map set (vals lists)))
+          uncovered (set/difference all covered)
+          lists (cond-> lists (seq uncovered)
+                        (assoc "uncovered" (vec uncovered)))]
+      (log (str "all=" (count all) " covered=" (count covered)
+                " uncovered=" (count uncovered)))
+      (doseq [[s nss] lists]
+        (spit (str out "/ns-" s ".txt") (str/join "\n" nss))))
+    ;; one full cljd compile
+    (let [t0 (System/currentTimeMillis)
+          allns (->> (mapcat (fn [s]
+                               (some->> (str out "/ns-" s ".txt")
+                                        slurp
+                                        str/split-lines
+                                        (remove str/blank?)))
+                             subs)
+                     ;; mapcat already flattened the subsystem lists. apply
+                     ;; concat would split each namespace string into chars.
+                     (concat (when (fs/exists? (str out "/ns-uncovered.txt"))
+                               (->> (slurp (str out "/ns-uncovered.txt"))
+                                    str/split-lines
+                                    (remove str/blank?))))
+                     distinct
+                     vec)
+          {:keys [exit]}
+          (apply psh {:dir clone
+                      :out (io/file (str out "/compile.log"))
+                      :err :out
+                      :continue true}
+                 "clojure" "-M:clojuredart:cljd" "compile" allns)]
+      (log (str "compile-all rc=" exit
+                " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
+      (when-not (zero? exit)
+        (fail! "cljd compile failed")
+        (System/exit @rc)))
+    ;; emit one shard dir per subsystem (residual included; failures fatal)
+    (let [dirs (atom [])
+          {:keys [continue]} nil]
+      (doseq [s (conj (vec subs) "uncovered")]
+        (let [f (str out "/ns-" s ".txt")]
+          (when (.exists (fs/file f))
+            (let [nss (str/join "," (remove str/blank? (str/split-lines (slurp f))))
+                  d (str clone "/build/cljd-agg-" stamp "-" s)
+                  {:keys [exit]}
+                  (psh {:dir clone
+                        :out (io/file (str out "/" s ".emit.log"))
+                        :err :out
+                        :continue true}
+                       "bb" "src/dev/cljd_agg.clj" "--only" nss
+                       "--shard-dir" d "--no-compile" "--no-run")]
+              (if (zero? exit)
+                (swap! dirs conj d)
+                (fail! (str "shard " s " emission failed (rc=" exit ")")))))))
+      (if (empty? @dirs)
+        (fail! "no shards emitted")
+        ;; R3: ONE flutter invocation over every emitted directory — the
+        ;; project-wide build/test_cache kernel is touched by one process.
+        (let [t0 (System/currentTimeMillis)
+              {:keys [exit]}
+              (apply psh {:dir clone
+                          :out (io/file (str out "/all.log"))
+                          :err :out
+                          :extra-env {"DATOM_SLOW_TESTS" "1"}
+                          :continue true}
+                     "flutter" "test" "--concurrency" (str conc) @dirs)
+              wall (quot (- (System/currentTimeMillis) t0) 1000)
+              verdict (some->> (slurp (str out "/all.log"))
+                               str/split-lines
+                               (filter #(re-find #"All tests passed|Some tests failed" %))
+                               last)]
+          (log (str "flutter rc=" exit " wall=" wall "s " (or verdict "")))
+          (when-not (zero? exit) (fail! (str "flutter test rc=" exit))))))
+    (log (str "done rc=" @rc))
+    (System/exit @rc)))
+
+
+(when (= *file* (System/getProperty "babashka.file"))
+  (apply -main *command-line-args*))
+
+
+• Root obvious def unused. Should have precise line numbers. use git show nl sed? dedicated Read current may line mismatch commit. git show | nl -ba allowed Bash not grep. get relevant with nl entire too much use git show | nl | sed -n read-only. dedicated tools known current but commit line. Bash. Also minimal fix both cond->. node first (and run-uncovered? (seq uncovered)) sufficient second file gate existence only produced gated. Could one-line env change first. Dart analogous def and cond->. nightly no uncovered logic, subset filters only. Could mention mismatch doc designated NIGHTLY_UNCOVERED not implemented but not needed. Should have precise lines.    43	
+    44	
+    45	(def run-uncovered?
+    46	  "The uncovered residual shard runs only on the designated host
+    47	   (NIGHTLY_UNCOVERED=1), so the residual is executed exactly once across a
+    48	   two-host split."
+    49	  (not= "1" (System/getenv "NIGHTLY_SKIP_UNCOVERED")))
+    50	
+    51	
+    52	(def ^:private child-path
+    53	  "PATH for every child process: mise shims first (npm/node/flutter/bb/clj all
+    54	   resolve through mise regardless of the caller's ambient PATH), then the
+    55	   inherited PATH, then the system dirs for env/bash."
+    56	  (str (System/getProperty "user.home") "/.local/share/mise/shims"
+    57	       ":/usr/local/bin:/usr/bin:/bin:"
+    58	       (System/getenv "PATH")))
+    59	
+    60	
+    61	(defn- psh
+   138	          all (->> (file-seq (fs/file test-root))
+   139	                   (filter #(re-find #"_test\.clj[cs]$" (str %)))
+   140	                   (map (fn [path]
+   141	                          (-> (str path)
+   142	                              (str/replace (str test-root "/") "")
+   143	                              ns->test-ns)))
+   144	                   set)
+   145	          covered (apply set/union (map set (vals lists)))
+   146	          uncovered (set/difference all covered)
+   147	          lists (cond-> lists (seq uncovered)
+   148	                        (assoc "uncovered" (vec uncovered)))]
+   149	      (log (str "all=" (count all) " covered=" (count covered)
+   150	                " uncovered=" (count uncovered)))
+   151	      (doseq [[s nss] lists]
+   152	        (spit (str out "/ns-" s ".txt") (str/join "\n" nss))))
+   153	    ;; one full compile, no autorun
+   154	    (let [t0 (System/currentTimeMillis)
+   155	          exit (sh (str out "/compile.log")
+   156	                   ["clj" "-M:cljs" "-m" "shadow.cljs.devtools.cli"
+   157	                    "compile" "test" "--config-merge" "{:autorun false}"])]
+   158	      (log (str "compile-all rc=" exit
+   181	                              (remove str/blank?)
+   182	                              vec)))
+   183	          sel (into {} (map (fn [[s nss]] [s (filterv bundle nss)])) lists)
+   184	          ;; Absence from the bundle's --list means the lane has no tests in
+   185	          ;; that namespace (a JVM-only namespace behind a clj reader
+   186	          ;; conditional compiles to a library with no cljs test vars). That
+   187	          ;; is a lane exclusion, recorded for the summary — not a failure.
+   188	          ;; A failure is a namespace the bundle KNOWS that then fails to
+   189	          ;; run, which the expected-vs-completed check below catches.
+   190	          exclusions (into {}
+   191	                           (remove (fn [[_ nss]] (empty? nss)))
+   192	                           (into {}
+   193	                                 (map (fn [[s nss]]
+   194	                                        [s (set/difference (set nss) bundle)]))
+   195	                                 lists))]
+   196	      (doseq [[s ex] exclusions]
+   197	        (log (str "lane-excluded " s ": " (str/join "," (sort ex)))))
+   198	      ;; run up to PAR shards at a time (waves)
+    25	
+    26	
+    27	(def all-subs
+    28	  ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
+    29	   "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
+    30	   "dao.postgraphics" "yang.base" "dao.base"])
+    31	
+    32	
+    33	(def subs
+    34	  "This host's assigned subsystems (NIGHTLY_SUBSYSTEMS overrides for a
+    35	   disjoint two-host split)."
+    36	  (or (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
+    37	               (map str/trim)
+    38	               (remove str/blank?)
+    39	               seq)
+    40	      all-subs))
+    41	
+    42	
+    43	(def ^:private child-path
+    44	  "PATH for every child process: mise shims first (npm/node/flutter/bb/clj all
+    45	   resolve through mise regardless of the caller's ambient PATH), then the
+    46	   inherited PATH, then the system dirs for env/bash."
+    47	  (str (System/getProperty "user.home") "/.local/share/mise/shims"
+    48	       ":/usr/local/bin:/usr/bin:/bin:"
+   112	                              (str/replace #"\.clj[cd]$" "")
+   113	                              (str/replace "/" ".")
+   114	                              (str/replace "_" "-"))))
+   115	                   set)
+   116	          covered (apply set/union (map set (vals lists)))
+   117	          uncovered (set/difference all covered)
+   118	          lists (cond-> lists (seq uncovered)
+   119	                        (assoc "uncovered" (vec uncovered)))]
+   120	      (log (str "all=" (count all) " covered=" (count covered)
+   121	                " uncovered=" (count uncovered)))
+   122	      (doseq [[s nss] lists]
+   123	        (spit (str out "/ns-" s ".txt") (str/join "\n" nss))))
+   124	    ;; one full cljd compile
+   125	    (let [t0 (System/currentTimeMillis)
+   126	          allns (->> (mapcat (fn [s]
+   127	                               (some->> (str out "/ns-" s ".txt")
+   128	                                        slurp
+   129	                                        str/split-lines
+   130	                                        (remove str/blank?)))
+   131	                             subs)
+   132	                     ;; mapcat already flattened the subsystem lists. apply
+   108	    (->> (range (min n (count items)))
+   109	         (mapv (fn [i]
+   110	                 (future
+   111	                   (loop []
+   112	                     (if-let [x (take-one)]
+   113	                       (do (swap! results assoc x (f x)) (recur))
+   114	                       i)))))
+   115	         (mapv deref))
+   116	    @results))
+   117	
+   118	
+   119	(defn- assigned-subsystems
+   120	  "The subsystem subset this host runs, from NIGHTLY_SUBSYSTEMS (comma list).
+   121	   nil = run everything (single-host mode)."
+   122	  []
+   123	  ;; Registry names keep their dots (test:sub:clj matches against
+   124	  ;; subsystems.edn's dotted names). Only folder names get dash-normalized.
+   125	  (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
+   153	                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]]
+   154	                  :let [t0 (System/currentTimeMillis)
+   155	                        exit (run-cmd! clone (str out "/" nm ".log") cmd)]]
+   156	            (log-lane summary (str nm " rc=" exit
+   157	                                   " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
+   158	            (when-not (zero? exit) (throw (ex-info (str nm " failed") {}))))
+   159	        slow-nss (cond->> (slow-namespaces clone)
+   160	                   subset (filter #(in-subset? % subset)))
+   161	        ;; quick tier: subsystem-sharded on the full set; per-subsystem
+   162	        ;; test:sub:clj runs pooled when a disjoint subset is assigned
+   163	        quick-log (str out "/jvm-quick.log")
+   164	        quick (if subset
+   165	                (let [results (run-pool par
+   166	                                        (fn [s]
+   167	                                          (run-cmd! clone
+   168	                                                    (str out "/jvm-quick-" s ".log")
+   169	                                                    ["bb" "test:sub:clj" s]))
+   170	                                        subset)]
+   171	                  (reduce + (vals results)))
+   172	                (run-cmd! clone quick-log
+   173	                          ["bb" "test:quick-sharded" "--workers" (str par)]))
+   197	(defn- lane-dart
+   198	  [clone par out summary]
+   199	  (let [rc (run-cmd! clone (str out "/dart-shard.log")
+   200	                     ["bb" "src/dev/dart_shard.clj" clone (str par)])]
+   201	    (spit summary (str "dart-shard rc=" rc "\n") :append true)
+   202	    (when-not (zero? rc) (throw (ex-info "dart sharded lane red" {:rc rc})))))
+   203	
+   204	
+Respond concise but complete. Explain load time no issue cond valid no name mismatch. one-line fix. Dart same pattern. nightly doesn't implement uncovered. No changes.
+
+• ## Root cause
+
+  `run-uncovered?` correctly evaluates to `false` at `src/dev/node_shard.clj:45-49`, but **it is never referenced**.
+
+  At `src/dev/node_shard.clj:147`, shard creation is gated only by whether uncovered namespaces exist:
+
+  ```clojure
+  lists (cond-> lists (seq uncovered)
+                (assoc "uncovered" (vec uncovered)))
+  ```
+
+  Because the light subsystem list leaves 176 namespaces uncovered, `(seq uncovered)` is true. This writes `ns-uncovered.txt`; the subsequent loader adds that file to `lists`, and the scheduler executes it. The `cond->` syntax, lexical scopes, and environment-variable name are all correct—the predicate simply omits `run-uncovered?`.
+
+  ## Minimal fix
+
+  One-line change at `src/dev/node_shard.clj:147`:
+
+  ```clojure
+  lists (cond-> lists (and run-uncovered? (seq uncovered))
+                (assoc "uncovered" (vec uncovered)))
+  ```
+
+  No later gate is required because `ns-uncovered.txt` will no longer be created when skipped.
+
+  ## Other lanes
+
+  - **Dart has the same bug.** `src/dev/dart_shard.clj:118-119` adds the residual solely on `(seq uncovered)`, with no skip flag. Add the same `run-uncovered?` definition used by Node and gate this expression with `(and run-uncovered? (seq uncovered))`.
+  - **JVM does not have this pattern.** `src/dev/nightly.clj` has no uncovered-residual shard. Its subset handling runs quick tests only for assigned subsystems (`:164-170`) and filters slow namespaces by that subset (`:159-160`).
+
+  Read-only diagnosis only; no files were changed or committed.
+
+To resume this session: kimi -r session_5da222eb-1efd-4664-9586-3cef5053bb14

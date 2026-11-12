@@ -1,0 +1,115 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 17:22 GMT
+Completed-Local: 2026-11-09 00:22 +0700
+
+# H3 gate-census diff — diagnosis and re-record proposal
+
+No tests were run, no files edited, no commits made, per the execution constraint.
+
+All findings below are static: git history plus a line-for-line Python re-implementation of the traversal-B walker and the `list-1-problems` check in [gate_test.clj](/Users/sto/workspace/datomworld/test/dao/host/gate_test.clj:552).
+
+That re-implementation was validated before use: it reproduces walked == committed exactly at both the pin and at `d0da51cb`, and reproduces the pinned bare-exception census (8 files, 12 rows, 0 problems) at the pin.
+
+The census inputs ([gate_test.clj](/Users/sto/workspace/datomworld/test/dao/host/gate_test.clj), `docs/design/host-boundary/closure-*.edn`, [closure.clj](/Users/sto/workspace/datomworld/src/dev/host_boundary/closure.clj)) are byte-identical between `d8afa459` and the checked-out `HEAD` (`b7dc23c4`), so this analysis covers both.
+
+## 1. Pin provenance and counting predicate
+
+`git log -S "168"` on [gate_test.clj](/Users/sto/workspace/datomworld/test/dao/host/gate_test.clj) returns two commits:
+
+- `9f6fc27d` (2026-10-21) — the H0 freeze. Incidental hit only: the string `:168` in the ringbuffer list-1 reason.
+- `f88a1387` (authored 2026-10-30 21:06 +0700) — "Update expectations for yang.call wiring". This is the pin: it raised the union expectations 167 → 168 at what are now lines 1010–1011.
+
+One hour later, `e1e91e2f` (2026-10-30 22:11 +0700) completed the pin by fixing the per-lane constants to 156/154/155, 148 shared.
+
+The recorded tree at the pin (identical EDNs at `f88a1387` and `e1e91e2f`): clj 156, cljs 154, cljd 155, shared 148, union 168.
+
+Counting predicate ([gate_test.clj:188](/Users/sto/workspace/datomworld/test/dao/host/gate_test.clj:188)):
+
+- `closure-files` is the union of `:file` entries across the three committed EDNs `docs/design/host-boundary/closure-{clj,cljs,cljd}.edn`.
+- `gate-files` adds `profile-additions` keys, which are empty since H3. Docs, `collab/`, and test files are never counted. Only committed-EDN membership counts.
+
+## 2. Census diff: pin → master `d8afa459`
+
+Committed census (what the gate counts):
+
+| Lane | Pin | Master | Delta |
+|---|---|---|---|
+| clj | 156 | 162 | +6 |
+| cljs | 154 | 157 | +3 |
+| cljd | 155 | 160 | +5 |
+| shared | 148 | 151 | +3 |
+| union | 168 | 174 | +6 |
+
+The entire committed drift is one commit: `d0da51cb` (2026-11-03) "wip(yang.php): the P8 legacy retirement in progress (the kimi round interrupted by the usage window)". It regenerated the EDNs, updated the per-lane gate constants to 162/157/160/151, added 3 list-1 entries, removed one list-2 entry — and left the union at 168. No later commit touched the gate, the EDNs, or the generator.
+
+New in the committed union (+7):
+
+- `src/clj/yang/php/antlr/cst.clj` (clj only) — created `ca5e6490` "feat(yang.php): P0 grammar package and CST export for PHP 8.3". Entered via `d0da51cb`. **Deleted again after the regeneration** (renamed, see below). This is now a stale census entry pointing at a missing file.
+- `src/cljc/yang/php/antlr/builtins.cljc` (all lanes) — created `e6c532f6` "feat(yang.php): P1 complete variables, control flow, functions, statics, warnings, and R1 gate fixes". Entered via `d0da51cb`.
+- `src/cljc/yang/php/antlr/lower.cljc` (clj+cljd) — created `6aabb827` "feat(yang.php): P1 skeleton, lowering, and numeric core with var_dump". Entered via `d0da51cb`.
+- `src/cljc/yang/php/antlr/prelude.cljc` (all lanes) — created `6aabb827` (same P1 skeleton). Entered via `d0da51cb` (`yin.repl` requires `yang.php.antlr.prelude`).
+- `src/cljc/yang/php/antlr/prelude_module.cljc` (all lanes) — created `e728f6fe` "feat(yang.php): P6 S0-S2 — the include/require lowering arms…". Not an ancestor of the pin; reached master on the P8 branch. Entered via `d0da51cb` (required by the prelude).
+- `src/cljc/yang/php/antlr/quoted.cljc` (all lanes) — created `e728f6fe` (same P6 commit). Entered via `d0da51cb`.
+- `src/cljc/yang/php/antlr/scope.cljc` (clj+cljd) — created `6aabb827`. Entered via `d0da51cb` (required by `lower`).
+
+Removed from the committed union (−1):
+
+- `src/cljc/yang/php.cljc` (was all lanes; classes `deferred-gensym` + `profile-consumer`) — deleted by `d0da51cb` itself. Clean: it held no list-1 entry, and the same commit removed its list-2 `gensym` allowance. No orphan.
+
+No retained file changed closure class or lane membership in the committed EDNs.
+
+Walked truth at master (traversal B over the `d8afa459` tree) diverges further, because two landings after `d0da51cb` changed the require graph without a regeneration:
+
+- `91c5c8cd` (2026-11-04) "feat(yang.php): P9 — the builtin surface slices" added `src/cljc/yang/php/antlr/prelude_p9.cljc`, required unconditionally by the prelude. Walked on all three lanes; absent from the committed EDNs.
+- `28bdc3d0` (2026-11-07) "fix(yin.repl): install the PHP ANTLR frontend on Node" renamed `src/clj/yang/php/antlr/cst.clj` → `src/cljc/yang/php/antlr/cst.cljc` and changed the frontends splice to `#?@(:cljd [] :jolt [] :default […])`. Consequences: `cst.cljc` is now walked on clj+cljs; `lower`/`scope` are now walked on clj+cljs instead of clj+cljd.
+
+Walked vs committed at master: clj {committed-only: `cst.clj`; walked-only: `cst.cljc`, `prelude_p9.cljc`}, cljs {walked-only: `cst.cljc`, `lower`, `prelude_p9`, `scope`}, cljd {committed-only: `lower`, `scope`; walked-only: `prelude_p9`}.
+
+Walked totals: clj 163, cljs 161, cljd 159, shared 152, union 175.
+
+## 3. Failure classification of the 50
+
+The 50 failures are **both** count drift and category-list drift, plus regeneration staleness. Static accounting (each failing `is` counted; the total reconciles exactly with the cc1 seat's measured 50, under the inspection-verified premise that retained files gained no non-exempt arms or effect calls after `d0da51cb` — the 14 changed retained files were diff-checked: every added `#?` is ns-exempt, sentinel-exempt, catch-type-exempt, or in an already-listed file):
+
+| Root cause | Failures | Where |
+|---|---|---|
+| Count drift (174 vs 168) | 2 | [gate_test.clj:1010](/Users/sto/workspace/datomworld/test/dao/host/gate_test.clj:1010) |
+| Category-list drift (`:class-none` ×6) | 27 | [gate_test.clj:1024](/Users/sto/workspace/datomworld/test/dao/host/gate_test.clj:1024) cascade |
+| Regeneration staleness | 21 | traversal, scan, injection, library |
+| **Total** | **50** | matches cc1 measurement |
+
+Category drift detail: the 3 list-1 entries `d0da51cb` added (`cst.clj` as `:seam-driver`; `lower`, `quoted` as `:deferred-scope`) all carry closure class `#{:none}`, because [closure.clj](/Users/sto/workspace/datomworld/src/dev/host_boundary/closure.clj:182) has no row for any `yang.php.antlr.*` namespace (the Python family gets `:deferred-stage` from a prefix row; PHP has none). Result: 6 `:class-none` rows (cst ×1 lane, lower ×2, quoted ×3). That single defect fails the line-1024 check, all 7 negative-fixture checks at lines 1029–1042 (each expects an exact singleton kind set, now polluted), and 19 of the exception-block checks at 1043–1059 (bare census 18 rows / 11 files instead of 12 rows / 8 files, plus 16 doseq failures). All other category checks are clean: no unknown categories, no slice violations, no stale exceptions.
+
+Regeneration-staleness detail: 5 traversal failures at [gate_test.clj:999](/Users/sto/workspace/datomworld/test/dao/host/gate_test.clj:999); 3 gate failures at lines 1012–1013/1016 (the missing `cst.clj` makes the verdict `:scan-failure`, scanned 173 ≠ 174); 1 observed-arms failure at line 1022 (`cst.clj` listed but unreadable); 2 verdict failures in the injection tests; 4 verdict failures in the escape tests; 3 in the scan-failure test; 3 in library mode. Passing throughout (inferred): per-lane totals, profile additions, list-2 equality, corpus hashes, exemptions, library negatives.
+
+Arm/effect inspection of every new file (reader-conditionals judged against the §3.3 exemptions; effect kinds against list-2):
+
+- `cst.cljc` — **holds an arm**: line 27 `#?(:clj (fn [^PhpParser p] …) :cljs (fn [^js p] …))`. Needs list-1. No effects, no library names.
+- `lower.cljc` — **holds an arm**: line 314 `#?(:cljd (double/parse t) :clj (Double/parseDouble t) :cljs (js/parseFloat t))`. Needs list-1 (already added by `d0da51cb`). No effects.
+- `quoted.cljc` — **holds an arm**: line 8 `#?(:clj (defmacro defquoted …))`. Needs list-1 (already added). No effects.
+- `builtins.cljc`, `prelude.cljc`, `prelude_module.cljc`, `prelude_p9.cljc`, `scope.cljc` — **no arms, no effects**: zero `#?`, or a single ns-`:require` arm each (exempt). The `rand`/`getenv`/`printf` hits are PHP builtin name strings and guest names, never host calls. No list-1, no list-2.
+
+## 4. Re-record proposal (separate gated step — not landed here)
+
+1. **Generator first** ([closure.clj](/Users/sto/workspace/datomworld/src/dev/host_boundary/closure.clj:176)): add prefix row `[:deferred-stage "yang.php.antlr."]` mirroring `yang.python.antlr.`, then regenerate the three EDNs. This classes every PHP ANTLR closure file `:deferred-stage`, which the `:deferred-scope` category already admits.
+2. **New expected counts**: union **175** (was 168) at [gate_test.clj:1010](/Users/sto/workspace/datomworld/test/dao/host/gate_test.clj:1010); per-lane **163 / 161 / 159**, shared **152** in `closure-totals-are-the-design-totals`.
+3. **Exact list-1 changes** (size stays 73):
+   - Delete `"src/clj/yang/php/antlr/cst.clj"` (`:seam-driver`) — file no longer exists.
+   - Add `"src/cljc/yang/php/antlr/cst.cljc"` — category per flag F1 below (recommended: `:deferred-scope :stays`).
+   - Keep `lower` and `quoted` as `:deferred-scope :stays` (added by `d0da51cb`; they become valid once step 1 lands).
+   - No additions for `builtins`, `prelude`, `prelude_module`, `prelude_p9`, `scope`.
+4. **List-2: no changes.** No new file holds a resolved effect call.
+5. **Exceptions: no changes** under the recommended F1 choice (still 8 files / 12 bare rows).
+
+## 5. Flag list — owning-seat confirmation required before re-record
+
+- **F1 (PHP seat): the `cst.cljc` category.** Recommended `:deferred-scope`: it is a `.cljc` stage file (§3.1 names `yang.antlr.cst` deferred, §9.3), so the seams-row rationale ("takes every lane file") no longer applies after the `.clj` → `.cljc` rename. The alternative — `:seam-driver` mirroring the lane `cst` files — requires a 9th bounded exception and amending the test's 8-files/12-rows constants (§8.1 amendment). Category assignment is defensible either way; the choice is the PHP seat's.
+- **F2 (host-boundary owner / Architect): the `yang.php.antlr.` prefix row.** It is a §3.1 classification amendment (the design names only `yang.python.antlr.*` by prefix). The `lower`/`quoted` `:deferred-scope` entries are defensible by direct Python symmetry and by `d0da51cb`'s own choice, but they stay `:class-none` red until this row lands. No mechanical recount should bypass this confirmation.
+- **F3 (PHP seat): the post-regeneration landings themselves.** `prelude_p9` entering all lanes (`91c5c8cd`) and the Node install widening PHP to cljs while dropping cljd (`28bdc3d0`) are treated as intentional above. If the cljd drop of `lower`/`scope` was accidental, the frontends splice — not the census — is the fix, and the expected counts change.
+
+Not flagged: `builtins`, `prelude`, `prelude_module`, `prelude_p9`, `scope` need no list entries (evidence in §3); the `yang/php.cljc` removal is fully reconciled; `d0da51cb`'s per-lane totals were correct as recorded.
