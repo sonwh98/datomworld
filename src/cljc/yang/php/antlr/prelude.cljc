@@ -2835,34 +2835,48 @@
                                                written "()"))))))]
     [php/obj-val?
      ;; §8.10.7 reception safety: is `v` a value php's own machinery could
-     ;; have produced as an object? The discriminator is the SAME one
-     ;; php/instance-of uses downstream — the `:php/obj` KEY, not the
-     ;; typed-map tags: a non-nil handle marker selects the HANDLE branch
-     ;; here and the handle branch there, so a value can never be validated
-     ;; as one representation and consumed as the other (the mixed-tags
-     ;; counterexample: `{:php/type :obj :class "Exception" :php/obj 42}`
-     ;; must not pass a map-only check whose class instance-of never
-     ;; reads). Handle branch: the entry must be a LIVE AUTHENTICATED cell
-     ;; reference (the VM's own total boolean predicate) AND the state
-     ;; actually consumed downstream must be valid — the :class read out of
-     ;; the cell is a string php's class tables can be safely asked about,
-     ;; because authenticity proves the reference is live and task-issued,
-     ;; NOT that its contents are php object state (a guest legally mints
-     ;; `(cell/new {:class 42})`). Map branch (no handle marker): the
-     ;; no-methods error map `{:php/type :obj ...}` with a string :class.
-     ;; Everything else — `php/kind`'s number fallthrough, non-string
-     ;; classes, forged or dead references, non-map contents — answers
-     ;; false and is FOREIGN: only a candidate that survives the SAME
-     ;; reads instance-of performs ever reaches the Throwable test, and no
-     ;; unauthenticated or unvalidated dereference ever happens.
+     ;; have produced as an object, safe for EVERY operation the local
+     ;; reception path performs — instance-of's class read AND the
+     ;; ownership acquisition that follows it? Reception runs
+     ;; `(php/raise (php/addref v))`; addref's cell-of/slot-kind selects
+     ;; its cell by :php/ref FIRST, then :php/arr, then :php/obj — so a
+     ;; payload carrying a competing marker (a genuine object handle with
+     ;; a forged or even genuine :php/ref; a map error with :php/ref 42)
+     ;; would be validated as one representation and consumed as another.
+     ;; Anything with a non-nil :php/ref or :php/arr marker is FOREIGN
+     ;; here, whatever else it carries. The two admitted shapes and the
+     ;; state each downstream consumer reads:
+     ;; - the object handle `{:php/obj cell}` (no other marker): the cell
+     ;;   is live and authenticated (cell/authentic?, total boolean) AND
+     ;;   its contents are valid counted-object state — a STRING :class
+     ;;   (instance-of → class-is? → php/lc) and a NUMBER :rc (addref's
+     ;;   `(+ rc 1)`); released?'s :released? read is total and cell/set!
+     ;;   is safe on an authenticated cell. Authenticity proves the
+     ;;   reference is live and task-issued, NOT that its contents are
+     ;;   object state — a guest legally mints `(cell/new {:class "x"})`
+     ;;   with no :rc.
+     ;; - the map error `{:php/type :obj :class s}` with NO marker at all:
+     ;;   slot-kind is :plain, cell-of is nil, addref is a no-op — only the
+     ;;   string class is consumed.
+     ;; Everything else — php/kind's number fallthrough, competing or
+     ;; forged markers, dead references, non-string classes, non-counted
+     ;; cell state — answers false and is FOREIGN: only a candidate that
+     ;; survives the same reads and selections the consumer path performs
+     ;; ever reaches the Throwable test, and no unauthenticated or
+     ;; unvalidated dereference ever happens.
      (fn [v]
-       (if (nil? (get v :php/obj))
-         (if (= (get v :php/type) :obj)
-           (data/string? (get v :class))
-           false)
-         (if (cell/authentic? (get v :php/obj))
-           (data/string? (get (cell/get (get v :php/obj)) :class))
-           false)))]
+       (if (if (not (nil? (get v :php/ref))) true (not (nil? (get v :php/arr))))
+         false
+         (if (nil? (get v :php/obj))
+           (if (= (get v :php/type) :obj)
+             (data/string? (get v :class))
+             false)
+           (if (cell/authentic? (get v :php/obj))
+             (let [st (cell/get (get v :php/obj))]
+               (if (data/string? (get st :class))
+                 (data/number? (get st :rc))
+                 false))
+             false))))]
     [php.rt/receive-condition
      ;; §8.10.7 reception, shared by every php call helper: classify the
      ;; delivered condition and continue it as a local Throwable. A

@@ -465,62 +465,69 @@
   ;; data shaped like a php object is FOREIGN — reception retains the
   ;; complete original condition (reason, evidence, payload identity) in
   ;; the ForeignException instead of refusing at the unauthenticated cell
-  ;; read or the class lookup. The r5 additions pin the two
-  ;; representation-mismatch shapes: MIXED TAGS (a typed-map body whose
-  ;; :php/obj key is non-nil — instance-of selects representation by THAT
-  ;; key, so the safe check must too, never validating a top-level class
-  ;; that is never consumed) and an AUTHENTIC CELL WITH INVALID STATE (a
-  ;; live, task-issued cell whose contents carry a non-string :class —
-  ;; authenticity proves liveness, not valid php object state, and
-  ;; creating such a cell is legal guest computation).
-  (letfn [(probe
-            [payload label]
-            (let [observation
-                  (kit/guard-exceptions-form
-                    [:php]
-                    (list 'let ['probe.payload payload
-                                'probe.condition (kit/observation-map-form
-                                                   {:yang.call/reason :yang.call/thrown
-                                                    :yang.call/value 'probe.payload
-                                                    :yang.call/data {:complete [:evidence]}})
-                                'probe.injected (injected 'probe.condition)
-                                'probe.retained (boundary-call (kit/export-form :php "retain")
-                                                               ['probe.injected])
-                                'probe.wrapper (list 'get 'probe.retained :value)
-                                'probe.local (list 'if
-                                                   (list '= :return
-                                                         (list 'get 'probe.retained :route))
-                                                   (boundary-call (kit/export-form :php "is_foreign")
-                                                                  ['probe.wrapper])
-                                                   {:value false})
-                                'probe.later (boundary-call (kit/export-form :php "later") [])]
-                          (kit/observation-map-form
-                            {:retained (list '= :return (list 'get 'probe.retained :route))
-                             :local-foreign-exception (list '= true (list 'get 'probe.local :value))
-                             :condition-identical (list '= 'probe.condition
-                                                        (list 'get 'probe.later :condition))
-                             :payload-identical (list '= 'probe.payload
-                                                      (list 'get (list 'get 'probe.later :condition)
-                                                            :yang.call/value))})))
-                  results (run-provenance-observation observation)]
-              (doseq [[backend actual] results]
-                (println "PHP-HANDLE-SHAPED" label backend actual)
-                (is (= {:retained true :local-foreign-exception true
-                        :condition-identical true :payload-identical true}
-                       actual)
-                    (str label " " backend ": a handle-shaped foreign payload "
-                         "retains the complete condition (got " (pr-str actual) ")")))))]
-    (probe {:php/obj 42} ":non-reference")
-    (probe {:php/obj {:type :cell-ref, :id 99999, :seal "forged"}} ":forged-ref")
-    (probe {:php/type :obj, :class 42, :props {}} ":forged-class")
-    ;; r5 counterexample A: the typed-map branch would accept the string
-    ;; top-level class, but instance-of selects representation by the
-    ;; non-nil :php/obj key and dereferences 42 — the check must
-    ;; discriminate the same way.
-    (probe {:php/type :obj, :class "Exception", :php/obj 42} ":mixed-tags")
-    ;; r5 counterexample B: a live authentic cell (legal guest
-    ;; computation) whose contents carry a non-string :class — the class
-    ;; actually read out of the state must be validated, authenticity is
-    ;; not enough.
-    (probe (kit/observation-map-form {:php/obj (list 'cell/new {:class 42})})
-           ":authentic-cell-bad-class")))
+  ;; read, the class lookup, or the ownership acquisition. The r5 shapes
+  ;; pin the representation mismatches (MIXED TAGS — instance-of selects
+  ;; by the non-nil :php/obj key; AUTHENTIC CELL WITH INVALID STATE —
+  ;; authenticity proves liveness, not object state); the r6 shapes pin
+  ;; the ownership consumer (addref's slot-kind selects :php/ref FIRST,
+  ;; so COMPETING MARKERS on an otherwise-valid map or real handle are
+  ;; consumed unchecked; and a string class alone is insufficient when
+  ;; :rc is absent — addref's (+ rc 1) consumes it). All eight shapes run
+  ;; in ONE composed program (the batch-parity task-sharing shape), not
+  ;; one kit run per shape: the laptop lane's dao.jing stall reliably
+  ;; catches the 8th consecutive per-shape run in one JVM.
+  (let [shapes [["non-reference" {:php/obj 42}]
+                ["forged-ref" {:php/obj {:type :cell-ref, :id 99999, :seal "forged"}}]
+                ["forged-class" {:php/type :obj, :class 42, :props {}}]
+                ["mixed-tags" {:php/type :obj, :class "Exception", :php/obj 42}]
+                ["authentic-cell-bad-class"
+                 (kit/observation-map-form {:php/obj (list 'cell/new {:class 42})})]
+                ["map-mixed-ref" {:php/type :obj, :class "Exception", :php/ref 42}]
+                ["real-handle-competing-ref"
+                 (list 'assoc (list 'php/make-error "Exception" "real") :php/ref 42)]
+                ["string-class-no-rc"
+                 (kit/observation-map-form {:php/obj (list 'cell/new {:class "Exception"})})]]
+        leg (fn [label payload]
+              (let [n (fn [k] (symbol (str "probe." (name label) "." (name k))))
+                    p (n :payload) c (n :condition) i (n :injected)
+                    r (n :retained) w (n :wrapper) loc (n :local) l (n :later)]
+                {:bindings [p payload
+                            c (kit/observation-map-form
+                                {:yang.call/reason :yang.call/thrown
+                                 :yang.call/value p
+                                 :yang.call/data {:complete [:evidence]}})
+                            i (injected c)
+                            r (boundary-call (kit/export-form :php "retain") [i])
+                            w (list 'get r :value)
+                            loc (list 'if (list '= :return (list 'get r :route))
+                                      (boundary-call (kit/export-form :php "is_foreign") [w])
+                                      {:value false})
+                            ;; immediately after this shape's retain: later
+                            ;; reads the $saved this retain stored, before
+                            ;; the next shape's retain overwrites it
+                            l (boundary-call (kit/export-form :php "later") [])]
+                 :entries {(keyword (str label "-retained"))
+                           (list '= :return (list 'get r :route))
+                           (keyword (str label "-local"))
+                           (list '= true (list 'get loc :value))
+                           (keyword (str label "-condition"))
+                           (list '= c (list 'get l :condition))
+                           (keyword (str label "-payload"))
+                           (list '= p (list 'get (list 'get l :condition)
+                                            :yang.call/value))}}))
+        legs (map (partial apply leg) shapes)
+        observation (kit/guard-exceptions-form
+                      [:php]
+                      (list 'let (into [] (mapcat :bindings) legs)
+                            (kit/observation-map-form (into {} (mapcat :entries) legs))))
+        expected (into {} (mapcat (fn [[label _]]
+                                    (map (fn [k] [(keyword (str label "-" k)) true])
+                                         ["retained" "local" "condition" "payload"])))
+                       shapes)
+        results (run-provenance-observation observation)]
+    (is (= #{:semantic :stack :register} (set (keys results))))
+    (doseq [[backend actual] results]
+      (println "PHP-HANDLE-SHAPED" backend actual)
+      (is (= expected actual)
+          (str backend ": every handle-shaped foreign payload retains the "
+               "complete condition")))))
