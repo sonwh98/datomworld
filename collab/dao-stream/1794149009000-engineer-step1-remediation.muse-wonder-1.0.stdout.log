@@ -1,0 +1,28 @@
+muse: workspace root: /Users/sto/workspace/datomworld-yin-repl-dht (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-yin-repl-dht/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 15:04:55 GMT
+Completed-Local: 2026-11-08 22:04:55 Asia/Ho_Chi_Minh
+
+Step 1 remediation is complete. All three architect findings are addressed. Changes this session touch only [fixture.cljc](/Users/sto/workspace/datomworld-yin-repl-dht/test/yin/repl/fixture.cljc) and [index_test.cljc](/Users/sto/workspace/datomworld-yin-repl-dht/test/yin/repl/index_test.cljc) on branch `yin-repl-dht-composition` at HEAD `b88bad9dd93d233f1d78e5a111444f6c8d86c9aa`. `src/` is untouched. The pre-existing Step 1 edits in query, require, and store tests were not modified this session.
+
+**Finding 1 — publication-result protocol.** The fixture now records each HEAD call as one explicit section 4 result after its outcome is known, with `:op`, minted `:id`/`:round`, `:manifest`, `:status`, and local `:durability`. A refusal can no longer look like a success. [fixture.cljc](/Users/sto/workspace/datomworld-yin-repl-dht/test/yin/repl/fixture.cljc) adds `publication-request`, `publication-result`, `publication-result-expectations`, and the test-local `accept-result` model. The expectations cover matching success, refusal, delayed completion, wrong id, wrong round, wrong manifest, duplicate, and stale delivery. Synchronous pins now assert the explicit records. The new oracle test pins the six undeliverable cases against the model and labels them Step 2 oracle, distinct from the synchronous pins.
+
+**Finding 3 — shell retry defect.** The new shell acceptance test asserts the correct retry behavior and currently fails. Its comment records the baseline revision, test identifier, command, and signature. The narrower indexer oracle stays green. The engine fix stays deferred to Step 2. A probe first reproduced the defect on both backends: the retry answered the `(name nil)` error text and rolled back.
+
+**Finding 2 — invariant evidence.** Every run used `clojure -M:test -n <ns> -v <ns>/<var>` at the recorded revision. The slow cadence run also set `DATOM_SLOW_TESTS=1`. Full logs are in the [evidence directory](/tmp/step1-evidence/) with the [revision record](/tmp/step1-evidence/revision.txt).
+
+| §8 pin | Focused tests | JVM outcome |
+|---|---|---|
+| Frontier gate | frontier agreement, stale cursor, suffix, settle-once | green, 54/42/8/16 assertions |
+| Restore Settings | recovery cursors, allocator watermark, F2 refault, restore refusals, restart restore | green, 12/8/4/5/13 assertions |
+| Repair cadence | two-peer ack, prompt retry, twenty-round ticker idle | green, 6/3/25 assertions |
+| Cross-host parity | incremental vs full, root replay, backend swap | green, 84/4/13 assertions |
+| Lifecycle baseline | hydration gate, bind refusal, heads write order, close once, parked-once, rollback answers | green, 8/4/6/6/8/7/24 assertions |
+
+Namespace checkpoints confirm isolation. Index runs 29 tests and 629 assertions with 11 failures and 0 errors. All 11 failures sit inside the single known shell-retry test. Store runs 28/145 green, query 18/279 green, and require 20/209 green. Kondo reports 0 errors and 0 warnings on both edited files.
+
+Section 11 classification is narrow. The shell-retry failure is a known boundary failure with a matched signature, owned by the Step 2 `notice` fix. The JVM ticker-idle fixture is green at this revision, so it is not a current JVM red. Node and Dart legs, the Node composition failure, and the eight-distinct acknowledgement fixture were not run under G0 and are reported unverified, not green. The section 9 boundary-neutral reds remain separately gated and do not block Step 1.

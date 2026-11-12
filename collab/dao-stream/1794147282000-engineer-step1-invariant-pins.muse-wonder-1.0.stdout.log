@@ -1,0 +1,33 @@
+muse: workspace root: /Users/sto/workspace/datomworld-yin-repl-dht (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-yin-repl-dht/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 14:37:44 GMT
+Completed-Local: 2026-11-08 21:37:44 +07
+
+Step 1 is complete. Existing invariants are green and the publication-result expectations are now explicit, with all changes contained in `test/yin/repl/` and no `src/` edits (uncommitted, for review).
+
+**Modified files**
+
+- [fixture.cljc](/Users/sto/workspace/datomworld-yin-repl-dht/test/yin/repl/fixture.cljc) (new) — Gate B's common test constructor: explicitly injected non-DHT backends (`:memory` via `dao.jing.mem/create-content-mem`, `:file` via `dao.space.store/open`), the composition-side publication interpreter (`observed-backend`/`failable-backend` wrapping `:head-fn`), and `frontier` extraction (manifest identity, count, count-cap, cursor). It requires no DHT namespace and constructs no node, socket, follower, or scheduler.
+- [index_test.cljc](/Users/sto/workspace/datomworld-yin-repl-dht/test/yin/repl/index_test.cljc) — decisive publication/frontier/recovery tests (§8; spec lines 146, 269, 316, 344, 362, 385, 421, 470, 501, 522, 576) parameterized over both backends, plus six new pins: frontier-gate agreement after every round, correlated settle-once publication requests, failed-HEAD never advancing the frontier, count-cap mismatch forcing full reconstruction, exact suffix length, and no double settlement.
+- [require_test.cljc](/Users/sto/workspace/datomworld-yin-repl-dht/test/yin/repl/require_test.cljc) — `shell`/`require-and-apply` now take the injected backend; prompt-path and rollback tests run on both backends; remaining causality/policy tests use explicit memory injection via `prompt-state`; the DHT composition test (was line 805) is isolated as composition-side for its Step 2 move, still green.
+- [query_test.cljc](/Users/sto/workspace/datomworld-yin-repl-dht/test/yin/repl/query_test.cljc) — all shells built through the fixture; settlement tests (283, slow 314, 663) and the basic answer test run on every VM × backend.
+- [store_test.cljc](/Users/sto/workspace/datomworld-yin-repl-dht/test/yin/repl/store_test.cljc) — new cross-backend proof: same programs publish agreeing frontiers and identical history (modulo session token) on either backend, with `(:dht state)` and `(:index-store-spec state)` both nil.
+
+**Diff summary:** 4 files changed, 1022 insertions, 505 deletions, plus the new fixture (212 lines). `git status` shows only these test files; no commits made.
+
+**Focused test outcomes** (JVM, run individually, `-e :slow` except the one slow var)
+
+| Suite | Baseline | Final |
+|---|---|---|
+| `yin.repl.index-test` | 21 tests, 242 assertions | 27 tests, 569 assertions, 0 failures |
+| `yin.repl.require-test` | 20 tests, 172 assertions | 20 tests, 209 assertions, 0 failures |
+| `yin.repl.query-test` | 18 tests, 246 assertions | 18 tests, 279 assertions, 0 failures |
+| `yin.repl.store-test` | 27 tests, 132 assertions | 28 tests, 145 assertions, 0 failures |
+
+The slow query settlement var also passes on both backends (16 assertions). Node/Dart lanes were not run (focused JVM runs only, per instructions); the fixture is reader-conditional portable, but that remains unverified. Generated ANTLR parser classes were seeded into the gitignored `build/` cache so the JVM lane could run at all; the working tree carries no build changes.
+
+**Finding for Step 2 (not pinned, not fixed — `src/` is out of Step 1 scope):** continuing the shell past a refused publication throws inside `yin.repl.index/notice`, which renders `(name stage)` of the cleared failure and rolls the round back. I verified this on unmodified engine code with a debug script; the failed-HEAD pin therefore proves the retry at the indexer level and documents the defect at the shell level.
