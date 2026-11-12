@@ -827,3 +827,53 @@
         nil)
       (is (= (into [] (keep #(when (= :const (first %)) (peek %))) stack)
              (into [] (keep #(when (= :const (first %)) (peek %))) register))))))
+
+
+(deftest native-images-reconstruct-call-provenance
+  ;; cc3 item 2: stack (new sequence) and register (layout-preserving)
+  ;; images each map their call pcs back through their own derivation
+  ;; to the semantic occurrence keys; images themselves never change.
+  (let [src [:source :medium :batch 0]
+        exp [:source :medium :batch 1]
+        bc (vm/ast->semantic-bytecode worked-example)
+        root (:root bc)
+        apps (vm/application-occurrences bc)
+        rows (mapv (fn [[r p]] [(if (= p []) src exp) r p :yang/call-site 1])
+                   (sort-by second apps))
+        sem (linearize/project-rows bc nil rows)
+        v (:vector sem)
+        cp (:call-provenance sem)
+        stack (derive/stack-image v {:segment-address :seg/stack
+                                     :call-provenance cp})
+        stack-plain (derive/stack-image v)
+        register (derive/register-image v {:segment-address :seg/register
+                                           :call-provenance cp})
+        register-plain (derive/register-image v)]
+    (testing "images are byte-identical to the provenance-free derivation"
+      (is (= (:image stack-plain) (:image stack)))
+      (is (= (:instructions register-plain) (:instructions register))))
+    (testing "register: layout preserved, so call pcs are semantic pcs"
+      (is (= (mapv (fn [[pc o r p]] [:seg/register pc o r p]) cp)
+             (:call-provenance register)))
+      (doseq [[_ pc] (:call-provenance register)]
+        (is (= :call (first (nth (:instructions register) pc))))))
+    (testing "stack: every semantic call key lands on a stack :call pc"
+      (is (= (count cp) (count (:call-provenance stack))))
+      (is (= (set (map (fn [[_pc o r p]] [o r p]) cp))
+             (set (map (fn [[_ _ o r p]] [o r p]) (:call-provenance stack)))))
+      (doseq [[seg pc] (:call-provenance stack)]
+        (is (= :seg/stack seg))
+        (is (= :call (first (nth (:image stack) pc))))))
+    (testing "stack side-table gains :call diagnostics, old shapes intact"
+      (is (some (fn [[_ info]] (= :call (:kind info))) (:side-table stack)))
+      (is (every? (fn [[_ info]] (contains? #{:closure :var :call} (:kind info)))
+                  (:side-table stack))))
+    (testing "a provenance row naming a non-call pc refuses"
+      (let [non-call (first (keep-indexed (fn [pc t] (when (not= :call (first t)) pc)) v))]
+        (is (= :call-provenance
+               (try (derive/register-image
+                      v {:segment-address :seg/register
+                         :call-provenance [[non-call src root []]]})
+                    nil
+                    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                      (:rule (ex-data e))))))))))

@@ -6,6 +6,8 @@
    non-evaluating reader, so quoted forms are spelled `(quote ...)`."
   (:require [dao.test-slow :as slow] [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.jing.cbor :as cbor]
+            [dao.jing.mem :as mem]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [dao.stream.observer :as observer]
@@ -415,6 +417,35 @@
       (is (= :yin.repl.query/index-unavailable (:dao.stream.apply/code error)))
       (is (str/includes? (:dao.stream.apply/message error)
                          "could not be read")))))
+
+
+(deftest a-retention-only-failure-still-answers-queries
+  ;; cc3 r8 F1/F4: indexing succeeds and queries answer, but provenance
+  ;; persistence fails; the failure stays observable and no handle is
+  ;; advertised for it.
+  (doseq [[label fail-key]
+          [["relation write" :yin.vm.provenance/schema]
+           ["record write" :yin.repl.call-provenance/schema]]]
+    (testing label
+      (let [inner (mem/create-content-mem)
+            store (assoc inner
+                         :put-bytes-fn
+                         (fn [address bs]
+                           (let [v (try (cbor/decode bs)
+                                        (catch #?(:cljd Object :clj Exception
+                                                  :cljs :default) _ nil))]
+                             (when (and (map? v) (contains? v fail-key))
+                               (throw (ex-info "store refused the provenance write"
+                                               {})))
+                             ((:put-bytes-fn inner) address bs))))
+            [state [_required answered]]
+            (evaluate (repl.frontends/create-state {:index-store store})
+                      [require-line (q-line names-query)])]
+        (is (not (str/includes? answered "index-unavailable"))
+            "the published index still answers")
+        (is (str/includes? answered "call provenance was not retained"))
+        (is (empty? (repl/call-provenance-handles state)))
+        (is (seq (repl/call-provenance-failures state)))))))
 
 
 (deftest an-empty-session-is-an-empty-database
