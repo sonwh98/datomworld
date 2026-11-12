@@ -2920,13 +2920,21 @@
      ;; wrapper. Only the three call helpers reference it, as the raise
      ;; exit they hand to yang.call/invoke, where every condition it sees
      ;; is bridge- or validation-built, never a guest argument.
+     ;; The steward's nil-guard choice, taken DELIBERATELY as option (a):
+     ;; the condition is shape-checked BEFORE any mint — a nil or non-map
+     ;; condition raises the plain local TypeError with NO provenance mint
+     ;; (nil provenance is refused by the reserved door as an operational
+     ;; failure, which would escape the boundary behavior); only a
+     ;; map-shaped condition is ever retained or forwarded.
      (fn [condition]
-       (if (= (get condition :yang.call/reason) :yang.call/thrown)
-         (let [v (get condition :yang.call/value)]
-           (if (if (php/obj-val? v) (php/throwable? v) false)
-             (php/raise (php/addref v))
-             (php.rt/raise-foreign condition)))
-         (php.rt/raise-protocol condition)))]
+       (if (data/map? condition)
+         (if (= (get condition :yang.call/reason) :yang.call/thrown)
+           (let [v (get condition :yang.call/value)]
+             (if (if (php/obj-val? v) (php/throwable? v) false)
+               (php/raise (php/addref v))
+               (php.rt/raise-foreign condition)))
+           (php.rt/raise-protocol condition))
+         (php/throw-error "TypeError" "Invalid condition delivered to reception")))]
     [php/call
      (fn [f args]
        (yang.call/invoke f args [] php.rt/receive-condition))]
