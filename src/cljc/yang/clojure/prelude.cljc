@@ -27,7 +27,7 @@
      `globalThis` table, the PHP named-function table and the Python
      module dictionary are the same seam;
    - the continuation family, `clj/try`, `clj/try-finally`, `clj/throw`,
-     `clj/raise`, `clj/call-ec`, `clj/unwind-to` and their helpers: the
+     `clj/raise` and its helpers: the
      `%capture` handler-stack scheme the py/ts/php preludes carry, over a
      dynamic-context cell `clj.rt/ctx` (allocated by `clj/init!`). It is
      the reference implementation yang.clojure's exception lowering
@@ -132,17 +132,6 @@
      ;; the guest `(throw e)` form: clojure throws arbitrary values with no
      ;; wrapping, so it is `clj/raise` under the guest name
      (fn [e] (clj/raise e))]
-    [clj/unwind-to
-     ;; pop frames above frame count n, running each finally thunk with nil
-     (fn [n]
-       (let [hs (clj/handlers)]
-         (if (nil? hs)
-           nil
-           (if (<= (get hs 3) n)
-             nil
-             (do (clj/pop-frame hs)
-                 (if (= (get hs 0) :finally) ((get hs 1) nil) nil)
-                 (clj/unwind-to n))))))]
     [clj/try
      (fn [body handler]
        (let [saved (cell/get clj.rt/ctx)
@@ -162,19 +151,6 @@
          (do (clj/set-handlers! (clj/frame :finally fin (get saved :handlers)))
              (let [v (body)]
                (do (clj/restore! saved) (fin nil) v)))))]
-    [clj/call-ec
-     (fn [f]
-       (let [saved (cell/get clj.rt/ctx)
-             flag (cell/new :first)]
-         ((fn [r]
-            (if (= (cell/get flag) :first)
-              (do (cell/set! flag :re-entered)
-                  (f (fn [x]
-                       (do (clj/unwind-to (clj/frame-depth (get saved :handlers)))
-                           (clj/restore! saved)
-                           (r x)))))
-              r))
-          (%capture))))]
 
     ;; ------------------------------------------------------------- entry
     ;; The outcome model's `[:yin.k/ok value]` wrapper is frontend-

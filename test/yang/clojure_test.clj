@@ -2536,6 +2536,28 @@
     (if (= :yin.k/ok tag) payload [tag payload])))
 
 
+(deftest finally-unwinds-and-orders-cleanup
+  (doseq [lane [:walker :semantic]]
+    (doseq [[forms expected]
+            [['[(let [log (cell/new [])]
+                  (try (try (throw :body)
+                            (finally (cell/set! log (conj (cell/get log) :finally))))
+                       (catch Exception e (cell/get log))))]
+              [:yin.k/ok [:finally]]]
+             ['[(let [log (cell/new [])]
+                  (try (try (throw :body)
+                            (catch Exception e (cell/set! log (conj (cell/get log) :catch)))
+                            (finally (cell/set! log (conj (cell/get log) :finally))))
+                       (finally (cell/set! log (conj (cell/get log) :outer))))
+                  (cell/get log))]
+              [:yin.k/ok [:catch :finally :outer]]]
+             ['[(try (try (throw :body) (finally (throw :cleanup)))
+                     (catch Exception e e))]
+              [:yin.k/ok :cleanup]]]]
+      (is (= expected (run-library forms library-opts lane 1000000))
+          (str lane " " forms)))))
+
+
 (defn- run-cell-program
   "The value of running the compiled `program` (quoted forms) with `node`
    spliced into the marker operand, on one lane — every call keeps its
