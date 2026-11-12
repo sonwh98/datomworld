@@ -1,6 +1,6 @@
 # Kernel-gate depth comparison
 
-Baseline: `fbd8da0f` (outcome model). Post-port: measurement recorded at `8e1dab6d`, committed in `8456c2e9`. Each depth is the maximum of the walker and semantic lane maxima. Ratios are post-port / baseline, rounded to two decimals. `no-baseline` means no fixture with that ID exists in the baseline corpus.
+Baseline: `fbd8da0f` (outcome model). Post-port: provenance carrier working tree based on `f15423c2`. Each depth is the maximum of the walker and semantic lane maxima. Ratios are post-port / baseline, rounded to two decimals. `no-baseline` means no fixture with that ID exists in the baseline corpus.
 
 Overlap: 155/155. Above 10×: none.
 

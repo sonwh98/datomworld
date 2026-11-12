@@ -1730,9 +1730,7 @@
 
 
 (deftest test-exception-r3-modified-condition-refuses
-  (testing "the caught condition is a plain map: modifying it and rethrowing
-            forwards the modified value (the retention object is gone, so no
-            identity survives to decode the original condition back)"
+  (testing "a clone of the visible condition has no provenance"
     (doseq [lane [:walker :semantic]]
       (let [condition {:yang.call/reason :yang.call/not-callable
                        :yang.call/data {:yang.call/callee :target}}]
@@ -1744,7 +1742,7 @@
                      (try (f)
                           (catch Exception e
                             (let [g (fn [v] (throw v))]
-                              (g (assoc e
+                              (g (assoc (cell/get e)
                                         :yang.call/reason :yang.call/unsupported-binding
                                         :yang.call/data {:forged true}))))))
                    (receive marker-operand)]
@@ -1861,32 +1859,76 @@
                  (cell-entry-node condition)
                  lane))
             (str lane ": saved retain then rethrow forwards byte-identical")))))
-  ;; The forged-retention probes are RETIRED with the :retained cell seam
-  ;; (owner NO, decision 1794372000000). Under the continuation encoding
-  ;; there is no retention object: a caught protocol condition is the plain
-  ;; condition map (data), and a guest copy of it is ordinary data, never an
-  ;; authenticated carrier. The replay/mutation hole the retention object
-  ;; plugged dies with it — the raise exit is the only condition channel.
-  (testing "(A) a caught protocol condition is ordinary data, not a carrier"
+  (testing "a caught protocol condition is an authenticated carrier"
     (doseq [lane [:walker :semantic]]
-      (is (= [:yin.k/ok [true false]]
+      (is (= [:yin.k/ok [true true]]
              (run-cell-program
                '[(defn receive
                    [f]
-                   (try (f)
-                        (catch Exception e
-                          [(data/map? e) (cell/authentic? e)])))
+                   (try (f) (catch Exception e [(data/map? e) (cell/authentic? e)])))
                  (receive marker-operand)]
                (cell-entry-node {:yang.call/reason :yang.call/not-callable
                                  :yang.call/data {:yang.call/callee :target}})
-               lane))
-          (str lane ": the caught condition is a plain map, never a cell"))))
+               lane)))))
   (testing "ordinary cells remain authentic and mutable after retention retirement"
     (is (= [:yin.k/ok [true 2]]
            (run-library
              '[(let [c (cell/new [1 2])]
                  [(cell/authentic? c)
                   (do (cell/set! c [3 4]) (count (cell/get c)))])])))))
+
+
+(deftest test-provenance-carrier-identity
+  (doseq [lane [:walker :semantic]]
+    (let [condition {:yang.call/reason :yang.call/not-callable
+                     :yang.call/data {:evidence [1 2 3]}}]
+      (doseq [[label body]
+              [["alias" '(let [alias e g (fn [x] (throw x))] (g alias))]
+               ["overwritten visible value" '(do (cell/set! e {:forged true}) (let [g (fn [x] (throw x))] (g e)))]
+               ["finally" '(try (throw e) (finally nil))]]]
+        (is (= [:yin.k/error condition]
+               (run-cell-program
+                 [(list 'defn 'receive '[f] (list 'try '(f) (list 'catch 'Exception 'e body)))
+                  '(receive marker-operand)]
+                 (cell-entry-node condition) lane))
+            (str lane " " label)))
+      (is (= [:yin.k/error condition]
+             (run-cell-program
+               '[(def saved (cell/new nil))
+                 (defn retain
+                   [f]
+                   (try (f) (catch Exception e (cell/set! saved e) nil)))
+                 (defn later
+                   []
+                   (throw (cell/get saved)))
+                 (do (retain marker-operand) (let [f later] (f)))]
+               (cell-entry-node condition) lane)))
+      (is (= [:yin.k/ok [false condition]]
+             (run-cell-program
+               '[(defn receive
+                   [f]
+                   (try (f)
+                        (catch Exception e
+                          (let [clone (into {} (cell/get e))
+                                g (fn [v] (throw v))]
+                            (try (g clone)
+                                 (catch Exception copy
+                                   [(cell/authentic? copy) copy]))))))
+                 (receive marker-operand)]
+               (cell-entry-node condition) lane)))))
+  (testing "egress never applies a thrown closure"
+    (doseq [lane [:walker :semantic]]
+      (is (= [:yin.k/ok false]
+             (run-cell-program
+               '[(def ran (cell/new false))
+                 (defn escape
+                   []
+                   (throw (fn [x] (cell/set! ran true))))
+                 (defn invoke
+                   [f]
+                   (f))
+                 (try (invoke escape) (catch Exception e (cell/get ran)))]
+               (cell-entry-node {}) lane))))))
 
 
 (deftest test-outcome-safe-get

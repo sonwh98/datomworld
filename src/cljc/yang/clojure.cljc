@@ -861,11 +861,6 @@
   (some? (::outcomes env)))
 
 
-(defn- binder-symbols
-  [b]
-  (into #{} (comp (filter symbol?) (remove #{'&})) (tree-seq coll? seq b)))
-
-
 (defn- rebuild
   "A list of `items` carrying the reader metadata of `form`."
   [form items]
@@ -886,8 +881,8 @@
 ;; `(try ...)` to `clj/try`/`clj/try-finally`, and function bodies return
 ;; plain values. A guest call delivers a callee's escaping condition through
 ;; the §8.10.7 raise exit, and the public entry installs the same bridge.
-;; The caught value IS the payload/condition — no wrapper, no retention
-;; object, no per-call-site routing. `compile-program` emits this family
+;; Ordinary thrown values remain raw; protocol conditions travel in a
+;; provenance carrier. `compile-program` emits this family
 ;; inline (the linked runtime binds the same family from the prelude); it
 ;; routes the capture-sensitive primitives through the `dsg__*` helpers so a
 ;; program definition of `get`/`assoc`/`=` cannot capture a frame access.
@@ -1076,7 +1071,7 @@
    lowered onto the continuation family and `ex-info`/`ex-message`/`ex-data`
    rewritten to their portable forms. `env`/`macro-env`/`params` are kept for
    call-site compatibility; the rewrite itself is source-only."
-  [env macro-env params body-forms]
+  [_env _macro-env _params body-forms]
   (rewrite-ex-info (rewrite-throw-try (body-expression body-forms))))
 
 
@@ -1178,9 +1173,8 @@
 (defn- call-entry
   "The unary public entry, closed over a private argument-vector body. It
    installs the exception bridge (`clj/try`) before argument binding, so an
-   escaping raise from the body or a binding failure delivers
-   `{:yang.call/reason :yang.call/thrown :yang.call/value v}` to the caller's
-   raise exit exactly once (§8.10.8 cleanup first, then the caller's raise)."
+   escaping raise forwards an authenticated condition or wraps an ordinary
+   value as `:yang.call/thrown` exactly once after cleanup."
   []
   (let [body (symbol (str reserved-prefix "body"))
         invocation (symbol (str reserved-prefix "invocation"))
@@ -1201,15 +1195,20 @@
                                  "Invocation is neither an authenticated packet nor an invocation record"
                                  :yin.k/data {}}))
         ;; The record path: bind and run the body under clj/try, delivering
-        ;; any raise (a body throw or the binding failure) as a fresh
-        ;; :yang.call/thrown condition to the caller's raise exit.
+        ;; an authenticated condition or a fresh :yang.call/thrown condition.
         entry-body (u/app
                      (u/v 'clj/try)
                      (u/lam [] (u/if-node (u/app (u/v 'dsg__empty) named)
                                           (u/app (u/v body) positional)
                                           binding-error))
                      (u/lam ['dsg__e]
-                            (u/app raise (u/app (u/v 'yang.call/thrown) (u/v 'dsg__e)))))
+                            (u/let1 'dsg__provenance
+                                    (u/app (u/v 'cell/dsg__provenance) (u/v 'dsg__e))
+                                    (assoc (u/app raise
+                                                  (u/if-node
+                                                    (u/app (u/v 'dsg__equal) (u/v 'dsg__provenance) (u/lit nil))
+                                                    (u/app (u/v 'yang.call/thrown) (u/v 'dsg__e))
+                                                    (u/v 'dsg__provenance))) :tail? true))))
         ;; The private lane forwards the body's plain value in tail position
         ;; (a raise from it propagates to the caller's own handler — the lane
         ;; installs no bridge). The compiler's token packet, a two-element
@@ -1383,9 +1382,8 @@
   "Admit a source operator before common invocation. The raise exit delivers
    the callee's escaping condition into the clj continuation: a
    `:yang.call/thrown` condition delivers its payload (the caught value IS the
-   payload), any other value (a qualified protocol condition or an unmarked
-   value) delivers whole. Only generated UAST implementation calls apply
-   private closures directly."
+   payload), while a protocol condition is retained in a provenance carrier.
+   Only generated UAST implementation calls apply private closures directly."
   [callee-ast arguments-ast env tail?]
   (if-not (outcomes? env)
     (cond-> (u/app callee-ast arguments-ast)
@@ -1402,15 +1400,19 @@
                                                    (u/lit :yang.call/thrown))
                                             (u/app (u/v 'dsg__get) (u/v condition)
                                                    (u/lit :yang.call/value))
-                                            (u/v condition)))
+                                            (u/app (u/v 'cell/dsg__new-provenance)
+                                                   (u/v condition) (u/v condition))))
                                    :tail? true))
           common-call (u/app (u/v 'yang.call/invoke) (u/v callee) (u/v arguments)
                              (u/lit []) raise-exit)
-          refused (u/app (u/v 'clj/raise)
-                         (u/app (u/v 'yang.call/condition)
-                                (u/lit :yang.call/not-callable)
-                                (u/app (u/v 'dsg__assoc) (u/lit {})
-                                       (u/lit :yang.call/callee) (u/v callee))))
+          refused (u/let1 condition
+                          (u/app (u/v 'yang.call/condition)
+                                 (u/lit :yang.call/not-callable)
+                                 (u/app (u/v 'dsg__assoc) (u/lit {})
+                                        (u/lit :yang.call/callee) (u/v callee)))
+                          (assoc (u/app (u/v 'clj/raise)
+                                        (u/app (u/v 'cell/dsg__new-provenance)
+                                               (u/v condition) (u/v condition))) :tail? true))
           admitted (u/if-node (u/app (u/v 'dsg__admitted?) (u/v callee))
                               common-call refused)
           ;; A callee carrying a call entry is convention territory whether it
@@ -1477,7 +1479,10 @@
                    {:keyword operator}))
         (cond-> {:type :application
                  :operator {:type :variable, :name 'get}
-                 :operands (into [(compile-form (first operands) false env macro-env)
+                 :operands (into [(if (outcomes? env)
+                                    (u/app (u/v 'dsg__condition_view)
+                                           (compile-form (first operands) false env macro-env))
+                                    (compile-form (first operands) false env macro-env))
                                   (compile-literal operator false)]
                                  (map #(compile-form % false env macro-env))
                                  (rest operands))}
@@ -1530,13 +1535,17 @@
                         (compile-form (vec operands) false env macro-env)]}
       tail? (assoc :tail? true))
 
-    ;; a statically native name: call it directly. Ordinary payloads are
-    ;; raw, so no operand routing is needed.
+    ;; A native lookup projects a carrier only for observation. The original
+    ;; reference remains available for saving or rethrowing.
     (native-name? env operator)
     (cond-> {:type :application
              :operator (cond-> {:type :variable, :name operator}
                          (seq (meta operator)) (with-meta (meta operator)))
-             :operands (mapv #(compile-form % false env macro-env) operands)}
+             :operands (mapv (fn [i operand]
+                               (let [ast (compile-form operand false env macro-env)]
+                                 (if (and (outcomes? env) (= operator 'get) (zero? i))
+                                   (u/app (u/v 'dsg__condition_view) ast)
+                                   ast))) (range) operands)}
       tail? (assoc :tail? true))
 
     ;; a compiler-internal helper introduced by the pre-pass (the exception
@@ -2201,7 +2210,11 @@
   [ast]
   (u/app (u/v 'clj/try)
          (u/lam [] (outcome-node ok-tag ast))
-         (u/lam ['dsg__e] (outcome-node error-tag (u/v 'dsg__e)))))
+         (u/lam ['dsg__e]
+                (u/let1 'dsg__p (u/app (u/v 'cell/dsg__provenance) (u/v 'dsg__e))
+                        (outcome-node error-tag
+                                      (u/if-node (u/app (u/v 'dsg__equal) (u/v 'dsg__p) (u/lit nil))
+                                                 (u/v 'dsg__e) (u/v 'dsg__p)))))))
 
 
 (defn compile-program
@@ -2271,6 +2284,12 @@
        (annotate-call-sites
          (cond->> (go forms initial-macro-env)
            (outcomes? env) top-boundary
+           (outcomes? env) (u/let1 'dsg__condition_view
+                                   (u/sexp->uast
+                                     '(fn [dsg__value]
+                                        (if (dsg__equal (cell/dsg__provenance dsg__value) nil)
+                                          dsg__value
+                                          (cell/get dsg__value)))))
            ;; The two sibling closures share one frame: separate bindings would
            ;; retain one extra helper environment in every closure a guest
            ;; captures (the machine-data validation bound notices).
@@ -2375,10 +2394,10 @@
                                                    (list 'conj '[]
                                                          'dsg__call_token
                                                          'dsg__args))
-                                             '(clj/raise
-                                                (yang.call/condition
-                                                  :yang.call/not-callable
-                                                  (dsg__assoc {} :yang.call/callee dsg__callee))))))))
+                                             '(let [dsg__condition (yang.call/condition
+                                                                     :yang.call/not-callable
+                                                                     (dsg__assoc {} :yang.call/callee dsg__callee))]
+                                                (clj/raise (cell/dsg__new-provenance dsg__condition dsg__condition))))))))
            (outcomes? env) (u/let1 'dsg__make_entry (call-entry))
            (outcomes? env) (u/let1
                              'dsg__make_admission
