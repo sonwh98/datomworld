@@ -1641,14 +1641,14 @@
 
 
 (def ^:private builtin-function-names
-  "The twenty-five Python-visible builtin functions."
-  ["len" "isinstance" "hash" "divmod" "print" "range" "list" "tuple" "set"
+  "The twenty-six Python-visible builtin functions."
+  ["len" "type" "isinstance" "hash" "divmod" "print" "range" "list" "tuple" "set"
    "sum" "any" "all" "next" "iter" "int" "float" "str" "repr" "bool" "abs"
    "pow" "round" "hex" "oct" "bin"])
 
 
 (deftest seeded-builtins-test
-  (testing "py.b/builtins holds exactly the class names and the twenty-five
+  (testing "py.b/builtins holds exactly the class names and the twenty-six
             function names, keyed as a module dict is, in table order, then
             the four standard dunders of the builtins module object (C4 I1:
             that module's dict is the builtins namespace itself)"
@@ -1662,7 +1662,7 @@
                        (concat (map first prelude/builtin-classes)
                                builtin-function-names)))
              (set table-order)))
-      (is (= 25 (count prelude/builtin-functions)))
+      (is (= 26 (count prelude/builtin-functions)))
       (doseq [[k result] (run-with-prelude prelude/uast
                                            '(get (cell/get py.b/builtins) :keys))]
         (testing (str k)

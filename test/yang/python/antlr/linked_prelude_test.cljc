@@ -187,7 +187,7 @@
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
                    'py.rt/state)))
-      (is (= 70 (count prelude/runtime-keys))))))
+      (is (= 71 (count prelude/runtime-keys))))))
 
 
 ;; =============================================================================
@@ -244,9 +244,11 @@
    slice moved only the hook prelude, so this address did not move. The
    S3 shared-call publication moved the Python module manifest. The
    post-authentic? call-runtime footprint moves it again; regenerated on
-   the JVM with dht-import-v1.generate.clj (two byte-identical runs)."
+   the JVM with dht-import-v1.generate.clj (two byte-identical runs).
+   P9 math builtins and provenance adoption moved it again; re-minted
+   with the same generator in two byte-identical runs."
   (keyword (str "segment/blake3-"
-                "d9aead51dc2da70f8dcd8935f2a8c3bc052037967064b45d1914897ad03a6a9c")))
+                "59efa8b3793d9737d09b74c7304c086405084d486c76b8dc986c88870357b744")))
 
 
 (def ^:private vector-formats
