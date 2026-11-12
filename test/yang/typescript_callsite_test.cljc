@@ -850,13 +850,14 @@
   "The REVIEWED canonical root address of `(lower/lower-module-body var-x)`.
 
    A root is `segment/blake3-<hex>` over the root row and cannot be derived
-   by hand, so this slot is nil until the first green run freezes it — see
-   findings FIX-ROUND-2 item (1). While it is nil, `coordinate-pin-test` pins
-   the root RELATIONALLY instead: well-formed, identical with the markers
-   stripped, and identical after a second finalization walk. All three are
-   host-independent and need no hash. Fill this in and the pin additionally
-   becomes a frozen absolute golden."
-  nil)
+   by hand, so this slot was nil until the first green run froze it (sol
+   APPROVED value, step-7 confirmation r2, 2026-11-13; observed green on JVM —
+   Node/Dart lanes must agree with this frozen baseline or the shift is
+   attributed per the steward's rule). While nil, `coordinate-pin-test`
+   pinned the root RELATIONALLY: well-formed, identical with the markers
+   stripped, identical after a second finalization walk — those relational
+   pins remain as the else-branch."
+  :segment/blake3-023313b0988ade8610c79a96f59b36fa9b02983cd3a915500d9133cf942cf646)
 
 
 (deftest coordinate-pin-test
