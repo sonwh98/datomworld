@@ -1729,26 +1729,31 @@
 
 
 (deftest repl-query-link-forwarding-test
-  (testing "yin.repl.query/link-answer forwards the link context's
+  ;; :cljd first — the publish-name! spy needs with-redefs, which
+  ;; ClojureDart lacks, and the forwarding is only observable through
+  ;; that spy; the rest of the namespace stays dart-runnable
+  #?(:cljd nil
+     :default
+     (testing "yin.repl.query/link-answer forwards the link context's
             :call-site-tables to publish-name!"
-    (let [{:keys [state]} (session-index ["(def k (fn [] 1))"])
-          tables (repl/call-site-tables state)
-          captured (atom nil)]
-      (with-redefs [linker-dht/publish-name!
-                    (fn [_node _db opts]
-                      (reset! captured opts)
-                      {:status :ok :address :segment/test
-                       :links {} :envelopes []})]
-        (let [[_ _ response]
-              (#'repl-query/link-answer
-                {} (:indexer state)
-                {:authority nil :key {} :primitives vm/primitives
-                 :modules {} :call-site-tables tables :round 1}
-                (apply2/request 1 (get repl-query/link-ops 'publish)
-                                ['closed '[k]]))]
-          (is (some? response))
-          (is (= tables (:call-site-tables @captured))
-              "ordinary yin.link/publish now carries the retained tables"))))))
+      (let [{:keys [state]} (session-index ["(def k (fn [] 1))"])
+            tables (repl/call-site-tables state)
+            captured (atom nil)]
+        (with-redefs [linker-dht/publish-name!
+                      (fn [_node _db opts]
+                        (reset! captured opts)
+                        {:status :ok :address :segment/test
+                         :links {} :envelopes []})]
+          (let [[_ _ response]
+                (#'repl-query/link-answer
+                  {} (:indexer state)
+                  {:authority nil :key {} :primitives vm/primitives
+                   :modules {} :call-site-tables tables :round 1}
+                  (apply2/request 1 (get repl-query/link-ops 'publish)
+                                  ['closed '[k]]))]
+            (is (some? response))
+            (is (= tables (:call-site-tables @captured))
+                "ordinary yin.link/publish now carries the retained tables")))))))
 
 ;; =============================================================================
 ;; cc2 fix round r3: admission identity + explicit wrappers (astra r2 confirm)
