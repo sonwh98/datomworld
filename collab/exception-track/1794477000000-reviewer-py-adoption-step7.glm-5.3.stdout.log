@@ -1,0 +1,16 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The step-7 review is complete. Findings written to `collab/exception-track/1794477000000-reviewer-py-adoption-step7.glm-5.3.findings.md`.
+
+## Review summary — `exception-py-r2r3` @ `428bbdd7`
+
+**All five review questions PASS.** What I verified firsthand (read-only, no suites):
+
+- **Q1 wiring**: the mint (`dsg__condition-exception`, prelude.cljc:1053) goes through `cell/dsg__new-provenance` with the complete condition at both call sites; the single boundary egress (prelude.cljc:918) authenticates via `cell/dsg__provenance` before any forwarding — the engine reader answers nil for forged refs/dead ids/non-refs, and nil ⇔ unmarked is sound because the mint refuses nil. Zero remaining `:py/retained-condition` authority reads (only the guest attack strings in the pins and the grandfathered TS surface).
+- **Q2 R2 lifetime**: every clause holds — `heap-write` preserves the provenance sibling (engine.cljc:2450), GC traces value+provenance together, no registry, already-local exceptions pass raw (no stacking), ForeignException is locally generated with a fixed message.
+- **Q3 export audit**: clean — `core/exports` keeps only `py/`-namespaced keys so the bare `dsg__condition-exception` is not an export; builtin/runtime-key tables carry nothing; guest Clojure is refused by the reserved-prefix checks in every role; `range-diff` confirms the rebased R2/R3/egress patches are byte-identical to their reviewed originals.
+- **Q4 test weakening**: python tests +125/−0 (purely additive); both scanner regenerations are confined to `:c4/:py` (all hunks below the `:pysp` boundary at line 7365); the abort-gate genuinely throws before writing on any non-deferred movement.
+- **Q5 tails**: adoption touched only prelude + goldens; mark-tails/publish untouched; the egress rewrite is shape-identical to the old code.
+
+**Three P3 findings** (follow-up grade, none blocking): F1 — a guest-constructible injected entry delivering a nil condition reaches the mint's fatal nil-provenance refusal (VM death) while other non-map garbage flows through opaquely — an untested, inconsistent edge; F2 — the python-side host-surface audit (no export reaches the mint) is verified but not pinned, unlike the TS twin; F3 — stale deferred-set comment in the scanner generator.
+
+**Verdict: APPROVE WITH FINDINGS**

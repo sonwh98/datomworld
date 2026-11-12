@@ -1,0 +1,36 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+Completed-GMT: 2026-11-10 21:52:51 GMT
+Completed-Local: 2026-11-11 04:52:51 +07 (ICT)
+
+## Provenance mechanism
+
+One mechanism satisfies P1-1 and P1-3: a **generated exception wrapper**, a task-owned cell whose contents are `[visible condition witness]`. The original condition map is never copied-with-a-marker, assoc'd, or dissoc'd; it is stored and forwarded untouched. The witness is a closure only the compiler can mint (its body names the compiler-held token); the escape boundary rebuilds it from the visible value and retained condition read out of the cell and compares structurally — the same complete-contents witness pattern as `dsg__make_admission`. A witness copied onto different contents fails; there is no readable/transplantable token. Decoding only reads cell contents and never applies a guest value (so a guest-thrown closure/host value cannot execute on the error path).
+
+- Wrapper/decoder/accessor forms: `src/cljc/yang/clojure.cljc:923-974` (`condition-witness-form` :923, `condition-wrapper-form` :931, `condition-retained-form` :938, `ex-message-form` :961, `ex-data-form` :969).
+- Accessor lowering through the decoder: `:977-995`.
+- Compiler-internal accessor heads compile as direct applications, not guest calls: `:1009-1014`, `:1239-1244`, `:1853-1860`.
+- Public-entry authentication: `:1387-1399` (decode; raise the retained condition, else wrap a fresh value as `:yang.call/thrown`).
+- Call-site conversion: `:1616-1645`; synthetic refusals `:1651-1660`, `:1675-1687`, `:1727-1736`; intra-unit refusal `:2729-2739`.
+- Top-level projection: `:2527-2555`; preamble bindings `:2745-2760`.
+- Tests: `test/yang/clojure_test.clj:635-638` (cell host), `:1565-1676` (regressions), `:2727-2760` (P2-4).
+
+## Per-finding disposition
+
+- **P1-1 — FIXED.** Retained conditions carry no `:dsg__condition` field; the wrapper is opaque to keyword lookup. `test-exception-r3-token-transplant-refuses` (walker + semantic) pins that the reviewer's transplant spell escapes only as a fresh `{:yang.call/reason :yang.call/thrown :yang.call/value forged}`; `test-exception-r3-modified-condition-refuses` pins that modifying the caught wrapper cannot change the retained condition — only the genuine condition escapes.
+- **P1-2 — FIXED.** For `:yang.call/thrown`, the wrapper's visible value is the original payload, and `ex-message`/`ex-data` lower through the wrapper decoder. `test-exception-r3-ordinary-call-catch-keeps-payload-behavior` gives `(ex-message e)`/`(ex-data e)` → `["boom" {:x 1}]`; the second assertion pins that an unchanged rethrow still forwards the complete `{:reason :yang.call/thrown, :value P}` envelope.
+- **P1-3 — FIXED.** No assoc/dissoc on the original map anywhere. `test-exception-r3-condition-field-preserved` asserts full-map equality for a condition carrying `:dsg__condition :ordinary-evidence`, after both immediate and saved (cell-stored) rethrow.
+- **P2-4 — FIXED.** `test/yang/clojure_test.clj:2727-2760` now pins the error tag, the outer `:yang.call/thrown` reason, the inner `:yang.call/not-callable` reason, and the callee evidence (`{:yang.call/callee 5}` for the tail case; presence for the projected raw closure).
+
+## Verification
+
+- `clojure -M:test -n yang.clojure-test` → **Ran 101 tests containing 959 assertions. 0 failures, 0 errors.** (R3 baseline 97/937; +4 regression tests / +22 assertions.)
+- `clj -M:kondo --lint src/cljc/yang/clojure.cljc test/yang/clojure_test.clj` → **errors: 0, warnings: 0.**
+- `yang.call.exception-contract-test` was **not completed locally**: it is suite-scale and deferred to the remote host per the owner ruling of 2026-11-04. Two earlier local attempts were killed by the harness (exit 143) under multi-seat JVM load before reaching the Clojure deftest; no local contract result is claimed.
+
+## Moved expectations
+
+None. No expectation was weakened or moved. The two P2-4 assertions were strengthened in place; the test host registry additionally registers the `cell` module beside `data`/`stream` (host surface the wrapper needs). The actual test file is `test/yang/clojure_test.clj` (the prompt's `.cljc` spelling), and the repo pre-commit formatter reflowed some test `defn` forms at commit time without semantic change.
+
+## Commit
+
+`db2434dda832b0edfd01560dd6f490f627de02ab` on `exception-r3-impl`, pushed to `origin/exception-r3-impl` (`778747ce..db2434dd`).

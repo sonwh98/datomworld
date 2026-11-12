@@ -1,0 +1,70 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10 22:48:47 GMT
+Completed-Local: 2026-11-11 05:48:47 ICT
+
+**What changed**
+
+- [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:938): new `dsg__visible_of` helper (with a `data/map?` fast path so non-map values skip the decode entirely). Bound in the prelude at [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:2825).
+- [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:948): `dsg__condition_wrapper` normalizes its visible slot through `dsg__visible_of`, so a wrapper never nests another wrapper as its visible value. The wrapper-as-cell design, witness, and `dsg__condition_retained` are untouched in structure.
+- [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:956): P3 shape-guard in `condition-retained-form` — the candidate must be cell-ref shaped (`:type :cell-ref`, `:id`, `:seal`, 64-char string seal) before `cell/authentic?` is asked, mirroring `dsg__admitted?`; the contents 3-vector check remains before the witness comparison. One deviation from the brief's literal ordering: I did **not** move the `cell/get` contents read before `cell/authentic?`, because that aborts forged cell-shaped payloads with a dead-or-forged abort instead of returning nil (proven by the existing collision-literal test failing under that ordering). The shape guard gives the same fail-closed discipline without the abort.
+- [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:1815): guest `=`/`==` unwrap every operand, guest `get` and native predicates (`nil?`, `empty?`, `data/map?`, `data/vector?`, `data/string?`, `data/number?`, `data/callable?`, `data/contains?`) unwrap the collection operand, and keyword lookups `(:k e)` unwrap the map operand — all at `compile-av-application`, so every position (tail or operand) is covered.
+- [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:1274): library predicates (`map?`, `vector?`, `set?`, `seq?`, `coll?`, `sequential?`, `list?`, `string?`, `boolean?`, `int?`, `keyword?`, `symbol?`, `var?`, `fn?`, `reduced?`, plus `contains?`) unwrap their argument in `lower-tail`'s guest branch. `throw`, `assoc`, and `cell/set!` are deliberately **not** routed, so rethrow and saved-rethrow still forward the retained condition.
+
+**Identity semantics now guaranteed**
+
+A caught value `e` remains the authenticated wrapper cell, so `(throw e)` and `(cell/set! saved e)` + `(throw (cell/get saved))` forward the original condition byte-identical. But every guest observation of `e` — `=`, `get`, keyword lookup, the predicates above, `ex-message`, `.getMessage`, `ex-data` — answers as if `e` were the original payload `dsg__visible`: `(= e original)` is true even when `original` is a `cell/new` value, `(:yin.k/cause e)`/`(:yin.k/message e)`/`(:code (ex-data e))` read the payload, and `(:yang.call/reason e)` reads a caught protocol condition. `dsg__visible_of` is the identity on any non-wrapper value.
+
+**Tests**
+
+New [test-exception-r3-caught-payload-identity](/Users/sto/workspace/datomworld-r3-orch/test/yang/clojure_test.clj:1595) (20 assertions, both lanes): `(= e orig)` across a dynamic call for a location-independent map and an ex-info payload; `(= e original)` with a `cell/new` payload; `(:yin.k/cause e)`, `(:yin.k/message e)`, `(get e :yin.k/data)`, custom key `(:code (ex-data e))`, `map?`/`vector?`/`string?` predicates; `(:yang.call/reason e)` on a protocol condition; nested capture → rethrow across a dynamic call → `(ex-message e2)` plus payload equality; and a cross-language guard where a catch receives a `:yang.call/thrown` condition whose value is location-independent. It failed 17/20 assertions pre-fix and passes post-fix. `yang.call.exception-contract-test` was not run, per the brief (shiva-only).
+
+**Verification (run in a `/tmp` clone of the branch, since this session's sandbox cannot write the r3 worktree)**
+
+- `clojure -M:test -n yang.clojure-test` — 102 tests, 979 assertions, 0 failures, 0 errors.
+- `clj -M:kondo --lint src/cljc/yang/clojure.cljc test/yang/clojure_test.clj` — errors: 0, warnings: 0.
+
+**Commit**
+
+[c9c5533c](https://github.com/sonwh98/datomworld/commit/c9c5533c028eca27684eee79dbb4bd92d02eda29) on `exception-r3-impl` (parent `db2434dd`), landed via fetch + fast-forward ref update because the sandbox blocks writes to the worktree's files. Two things need a normal terminal: refresh the stale worktree files with `git -C /Users/sto/workspace/datomworld-r3-orch checkout -- src/cljc/yang/clojure.cljc test/yang/clojure_test.clj`, and push with `git -C /Users/sto/workspace/datomworld push origin exception-r3-impl` — the push itself was blocked here because SSH inside the sandbox cannot resolve the session user (`No user exists for uid 501`).Completed-GMT: 2026-11-10 22:50:16 GMT
+Completed-Local: 2026-11-11 05:50:16 ICT
+
+**Result**
+
+Payload identity across dynamic calls is fixed, committed, and pushed.
+
+Commit: [c9c5533c](https://github.com/sonwh98/datomworld/commit/c9c5533c028eca27684eee79dbb4bd92d02eda29) on `exception-r3-impl` (parent `db2434dd`). Verified by `git ls-remote`: `origin/exception-r3-impl` is now `c9c5533c028eca27684eee79dbb4bd92d02eda29`, matching local. The SSH remote cannot run inside this session's sandbox (`ssh` dies on `No user exists for uid 501` before connecting), so the push went over HTTPS using the already-authenticated `gh` credential helper, with no repo config changed.
+
+**What changed**
+
+In [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:938):
+
+- New `dsg__visible_of` helper, bound in the prelude at [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:2825). It answers the wrapper's visible payload, and is the identity on any non-wrapper value. A `data/map?` fast path keeps non-map values (the hot loop case) from paying for a decode attempt.
+- [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:948): `dsg__condition_wrapper` normalizes its visible slot through `dsg__visible_of`, so a wrapper never nests another wrapper as `visible`; rethrown caught wrappers now give the original message, not nil. The wrapper-as-cell design, the closure witness, and `dsg__condition_retained`'s authentication are preserved.
+- [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:956): P3 shape-guard — `condition-retained-form` now requires the candidate to be cell-ref shaped (`:type :cell-ref`, `:id`, `:seal`, 64-char string seal) before asking `cell/authentic?`, mirroring `dsg__admitted?`, and the contents 3-vector check remains before the witness comparison. One deviation from the brief's literal ordering: I did **not** move the `cell/get` contents read before `cell/authentic?`, because that makes forged cell-shaped payloads abort as dead-or-forged instead of decoding to nil — proven by the existing collision-literal test failing under that ordering. The shape guard gives the same fail-closed discipline without the abort.
+- [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:1815) and [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:1274): guest operations observe `dsg__visible`, not the wrapper, at `compile-av-application` (so tail and operand positions are both covered) and in `lower-tail`'s guest branch:
+  - `=` / `==`: every operand unwrapped.
+  - `get`, keyword lookups `(:k e)`, and native predicates (`nil?`, `empty?`, `data/map?`, `data/vector?`, `data/string?`, `data/number?`, `data/callable?`, `data/contains?`): collection operand unwrapped.
+  - Library predicates (`map?`, `vector?`, `set?`, `seq?`, `coll?`, `sequential?`, `list?`, `string?`, `boolean?`, `int?`, `keyword?`, `symbol?`, `var?`, `fn?`, `reduced?`, `contains?`): argument unwrapped.
+  - `ex-message`, `.getMessage`, `ex-data` already decoded through the wrapper and keep working.
+  - `throw`, `assoc`, and `cell/set!` are deliberately **not** routed, so an unchanged rethrow (including a saved rethrow through a cell) still forwards the retained condition byte-identical.
+
+**Identity semantics now guaranteed**
+
+A caught value `e` is still the authenticated wrapper cell, which is what makes `(throw e)` forward the original condition. But every guest observation of `e` answers as the original payload: `(= e original)` is true across a dynamic call even when `original` is a `cell/new` value (the `exception_legs.clj:44` shape), `(:yin.k/cause e)`, `(:yin.k/message e)`, `(get e :yin.k/data)`, custom keys, and predicates all read the payload, and `(:yang.call/reason e)` reads a caught protocol condition.
+
+**Tests**
+
+New [test-exception-r3-caught-payload-identity](/Users/sto/workspace/datomworld-r3-orch/test/yang/clojure_test.clj:1595) — 20 assertions across both walker and semantic lanes: dynamic-call `(= e orig)` for a location-independent map and an ex-info payload; `(= e original)` with a `cell/new` payload; `(:yin.k/cause e)`, `(:yin.k/message e)`, `(get e :yin.k/data)`, a custom key via `(ex-data e)`, `map?`/`vector?`/`string?` predicates; `(:yang.call/reason e)` on a caught protocol condition; nested capture → rethrow of the caught value across a dynamic call → `(ex-message e2)` and payload equality; and a cross-language guard where a catch receives a `:yang.call/thrown` condition whose value is location-independent. It failed 17 of 20 assertions against `db2434dd` and passes on `c9c5533c`.
+
+**Verification** (run in a `/tmp` clone of the branch, since this sandbox cannot write the r3 worktree's files; the commit was landed on the real branch with fetch + fast-forward ref update):
+
+- `clojure -M:test -n yang.clojure-test` — 102 tests, 979 assertions, 0 failures, 0 errors.
+- `clj -M:kondo --lint src/cljc/yang/clojure.cljc test/yang/clojure_test.clj` — errors: 0, warnings: 0.
+- `yang.call.exception-contract-test` was not run, per the brief — shiva-only (owner ruling 2026-11-04).
+
+One leftover housekeeping item in a normal terminal: the r3 worktree's working files still show the pre-fix contents because its branch ref moved underneath it; refresh with `git -C /Users/sto/workspace/datomworld-r3-orch checkout -- src/cljc/yang/clojure.cljc test/yang/clojure_test.clj`.

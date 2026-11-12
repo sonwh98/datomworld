@@ -1,0 +1,4 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+The implementation and focused suite are green; I'm waiting on the (slow, harness-backgrounded) contract test to finish before committing and writing the final report.
+
+Waiting on the targeted Clojure contract run (the earlier full-namespace run was killed by the harness after ~54 min under heavy multi-seat JVM load, before reaching the Clojure deftest).

@@ -1,0 +1,54 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've completed the diagnosis. The write of my findings file was declined, so I'll report the full result here.
+
+## Summary
+
+**NOT ENVIRONMENT-DEPENDENT** — the seal is a pure function, and the test is green locally.
+
+### Reproduction (your first instruction)
+
+At `fbd8da0f` on `exception-r3-impl`, with qwen's uncommitted pins left untouched:
+
+```
+clojure -M:test -n yang.clojure-test
+Ran 105 tests containing 1008 assertions.  0 failures, 0 errors.
+
+clojure -M:test -n yang.clojure-test -v yang.clojure-test/test-exception-r3-astra-probes
+Ran 1 tests containing 18 assertions.  0 failures, 0 errors.
+```
+
+`test-exception-r3-astra-probes` does **not** fail for me at HEAD. Neither does anything else.
+
+### The seal's derivation
+
+`src/cljc/yin/vm/engine.cljc:300-303`:
+```clojure
+(defn- seal-of [secret kind id]
+  (jing/content-hash [:yin.k/seal secret kind id] {:algorithm :blake3}))
+```
+
+A blake3 content-hash of the canonical CBOR bytes of the *vector* `[:yin.k/seal secret kind id]`. Its three inputs:
+
+1. **`secret`** = `:capability-secret`. Random in *production* (`yin/repl.cljc:672`, `(str (random-uuid))`) but fixed per task. In the **test harness** it is the deterministic constant `"yin.vm.test-utils/capability-secret"` (`test/yin/vm/test_utils.cljc:33-38`), injected identically into both lanes (`tu/create-vm` merge + explicit `:capability-secret tu/secret` at `test/yang/clojure_test.clj:2580-2582`).
+2. **`kind`** = a literal keyword.
+3. **`id`** = `(keyword (str prefix "-" counter))` from a monotone `:id-counter` (`gensym`, `engine.cljc:2392-2398`).
+
+I computed the seal three times against the test secret — identical every run, length 64 (`8492a3c7…`), matching the `str-length == 64` pre-filter in `condition-retained-form` (`yang/clojure.cljc:956`). The input is a vector, so there's no map-key ordering to diverge. None of the candidates in your hypothesis (object identity, RNG, `System/identityHashCode`, a gensym counter) feed the seal.
+
+### Why the symptom can't arise in these tests
+
+`:dead-or-forged-reference` means the cell id is absent from `:heap` (`check-ref!`, `engine.cljc:368-386`). But the heap is never swept here: `default-gc-threshold` is 4096 allocations (`yin/vm.cljc:1954-1958`), each test mints a fresh VM with a handful of cells, so GC never runs. The mint is self-consistent (`:cell/new-retained`, `engine.cljc:2826-2831`, gensyms the id, seals the ref, writes the entry with that ref's seal). A minted wrapper can only read back dead-or-forged if its entry is gone — which GC cannot have done.
+
+### What the shiva numbers actually are
+
+The acceptance report `1794374000000-acceptance-report-three-rounds.md` (its 09:25 +07 CORRECTION) already voided the clojure shiva result: `xtrack-r3A2` overlaid a **−1,035-line revert** of the (A) design onto `fbd8da0f` — the clone's working tree was dirty with a stale revert, so the contract measured the *reverted* tree. It explicitly records that deepseek, reproducing at a clean `fbd8da0f`, found all six clojure protocol fixtures **green**. The "6 failures / 1 error" and "six `:clojure/protocol-*` rows red with `:reason :yang.call/thrown`" is precisely what the reverted tree produces (retained mint gone → `cell/retained?` false → `dsg__condition_retained` nil → `entry-body` falls into `(raise (yang.call/thrown err-val))`, `yang/clojure.cljc:1408-1413`).
+
+So I made **no code change** — there is nothing environment-dependent to fix, and a speculative change would be wrong.
+
+### Recommendation
+
+Re-run the clean-clone verification (fresh `git checkout -- .`, then `yang.clojure-test` + the contract kit), and inspect `git diff --stat` afterward to confirm the overlay equals the intended delta and no stale revert is present. If a genuinely clean run *still* shows the retained-cell failures, the next lead is not the seal (deterministic) but heap liveness across a real cross-task boundary — a path `run-cell-program` does not exercise, which would need the linked/serialized composition.
+
+---
+
+I attempted to write the full findings document to `collab/exception-track/1794378000000-engineer-r3-seal-diagnosis.deepseek-v4-pro.findings.md` but the write was not granted — let me know if you'd like me to save it (and where), or whether you want me to pursue the cross-task liveness lead instead.

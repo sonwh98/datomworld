@@ -1,0 +1,19 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10 23:29 GMT
+Completed-Local: 2026-11-11 06:29 +07 (+0700)
+
+**BLOCKER / SCOPE (said first, per brief):** the retention mark genuinely needs an engine change, so scope was widened beyond [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc) + its test — no contents-only scheme can distinguish a compiler-minted wrapper from a guest copy of its contents. Changed: [engine.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yin/vm/engine.cljc) (heap-entry `:retained` mark, `:cell/new-retained` mint, `:cell/retained?` query, `:cell/set!` refusing marked entries with `{:reason :retained-cell, :effect :cell/set!}`) and [module.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yin/vm/module.cljc) (mint published only as `cell/dsg__new-retained`, a name guest source cannot spell; pure `cell/retained?` beside `cell/authentic?`). Route this widening before accepting the round.
+
+**What shipped.** Ordinary `:yang.call/thrown` and unqualified payloads now cross call sites raw (`condition->outcome` carries the payload itself); the wrapper is minted only for qualified protocol conditions. The witness closure and the ordinary-case routers (guest predicate routing, `=`/`==` and predicate operand routing) are retired; only `get`/keyword lookup still reads a retained wrapper's visible condition, plus `ex-message`/`ex-data`. Public entries rebuild the fresh `thrown` wire condition from a raw payload exactly as master did, and retained wrappers forward their stored condition byte-identical.
+
+**Verification.** `clojure -M:test -n yang.clojure-test`: 103 tests, 993 assertions, 0 failures (baseline at `c9c5533c`: 102/979 green), including new `test-exception-r3-astra-probes` on both lanes covering nested `=`, map-key `get`, `count`, `assoc`, caught-`nil` falseyness, direct and aliased `vector?`, `(= e original)` for a cell payload, protocol reason/data access, saved retain→rethrow byte-identical, forged retention (`(throw (cell/new (cell/get e)))` arrives as an unmarked ordinary payload), and `cell/set!` refusal. Existing expectations that asserted the retired wrapper presentation at the harness-top boundary were updated to the (A) payload semantics. `clj -M:kondo --lint` on the four files: 0 errors (2 unresolved-var warnings in [clojure.cljc](/Users/sto/workspace/datomworld-r3-orch/src/cljc/yang/clojure.cljc:101), identical on the untouched base). No contract or suite-scale tests were run, per the owner ruling.
+
+**Commit/push.** Commit `fbd8da0f` on local `exception-r3-impl` (fast-forwarded from `c9c5533c`). Push failed from this sandbox (`No user exists for uid 501` / SSH remote unreadable); run `git push origin exception-r3-impl` from a credentialed shell. Work was done in a scratch worktree at the same commit because the designated worktree sits outside this session's writable roots; it has been removed.
+
+fbd8da0f
+**(A) DESIGN HOLDS**

@@ -1,0 +1,16 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Review round complete. **Verdict: CONFIRMED** — findings written to `collab/exception-track/1794463500000-reviewer-vmprov-fix2-confirm.glm-5.3.findings.md`, worktree left byte-clean at 50c9485a.
+
+**What I verified, per the five items:**
+
+1. **Passthrough probes** — `(id (let [[x] [42]] x))`, `(id (fn [[x]] x))`, `(id (loop [x 0] x))` all expand `:ok`. I counted the `dsg__` sites in each lowered input first (e.g. 2 binders + 2 references) so none of the three passes vacuously — the trap a prior round fell into.
+
+2. **Admissions still reject** — source pre-pass refuses all four guest spellings with `{:symbol … :prefix "dsg__"}`; the quoted-packet leak and the `yin/def`-via-`yin/application` bypass refuse at expansion (`:reserved-prefix`, roles `:variable` / `:definition-key`); the restored invocation-time case refuses with `:body-error`. Quoted names stay inert (control).
+
+3. **Sibling classes** — the sharpest evidence is the pair the fix's mechanism predicts: an admitted-source `dsg__` **store key** and a retained operand spliced into a **constructed** application both pass, while their quoted twins reject (`:store-key` / `:binder` / nested `:variable` / door). I added one probe of my own — a quoted door packet spliced as an operand of a constructed application — and it rejects too, confirming the missing-provenance path feeds the same scan and the fallback is fail-closed.
+
+4. **No weakening** — the deleted test was restored byte-identically (only inter-form blank lines differ); the whole test-file arc `ff8b980a..50c9485a` has zero deleted lines; the row-guard is preserved.
+
+5. **Counts** — `clojure -M:test -n yin.vm.provenance-test -n yin.vm.macro-test`: **41 tests, 334 assertions, 0 failures, 0 errors** (exactly the engineer's claim). Kondo on the two changed files: **0 errors, 1 warning** — a redundant-let that pre-exists at the feature commit (780:6 there, 847:6 now). `exception-contract-test` not run, per the ruling.
+
+One toolchain note: probes ran from a temporary namespace that I deleted afterward (`git status --porcelain` clean); `-v ns/var` turned out to load *all* test namespaces and die on missing generated antlr classes, so I used `-n` selection instead — recorded in memory alongside the round status.

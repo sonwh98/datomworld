@@ -1,0 +1,31 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've completed a thorough investigation. Here is my report.
+
+## Findings
+
+I applied the pins (which pass), then attempted the fix and reproduced the actual kit path locally at `fbd8da0f`.
+
+**The six protocol fixtures are already GREEN locally.** I drove the exact composition the acceptance kit's `clojure-provenance-test` uses — `probes/run-frontend :clojure` — and all six fixtures pass on all three backends:
+
+- `:clojure/protocol-not-callable` → `:reason :yang.call/not-callable`, `:condition-identical true`
+- `:clojure/protocol-invalid-invocation` → `:reason :yang.call/invalid-invocation`, `:condition-identical true`
+- `:clojure/protocol-unsupported-binding` → `:reason :yang.call/unsupported-binding`, `:condition-identical true`
+- the three `:saved-protocol-*` → same, plus `:retained true`
+
+So the shiva red rows (`:reason :yang.call/thrown, :condition-identical false`) are **not reproducible locally at `fbd8da0f`**.
+
+**Why the double-wrap doesn't reproduce:** the brief says `call-entry`'s `raise` is `condition->outcome` (line 1652). That is only true on the A-to-B path (`common-call` → `yang.call/invoke … condition->outcome`). The kit's boundary probe invokes `receive`/`later` through a *direct* `yang.call/invoke` with a `raise-observation` exit that does **not** re-classify — so there is no second wrap there; the wrapper is decoded once and the condition is handed to the raise exit unchanged. The fixtures being green confirms this empirically.
+
+**Option (b) breaks the pins.** I implemented option (b) (pass the wrapper + gate `condition->outcome` on `dsg__condition_retained`) and ran the new pin: 12 failures, because `call-entry` now hands the raise exit the *wrapper* (`[:yin.k/ok {:type :cell-ref, :id :cell-2, :seal "…"}]`) instead of the condition. I reverted it.
+
+**Option (a)** (an escape node `[error-tag condition]`) is the shape that preserves the boundary contract, but it needs the escape continuation to reach `call-entry`, which the direct `yang.call/invoke` path doesn't provide — larger than "small, surgical".
+
+## State
+
+- `src/cljc/yang/clojure.cljc` is clean (reverted to `fbd8da0f`).
+- `test/yang/clojure_test.clj` carries the two Qwen pins (uncommitted).
+- No commit made (there is no correct fix to commit).
+
+**STILL FAILING: the double-wrap is not reproducible locally — all six clojure protocol fixtures are already green at `fbd8da0f`, and the described double-wrap is an A-to-B non-issue, not the boundary-probe path the kit measures. My option-(b) attempt broke the pins (wrapper vs condition), so I reverted it.**
+
+Recommendation: re-verify the shiva run at the exact `fbd8da0f` HEAD — the local kit path is green, which contradicts the acceptance report's six-red claim, and the double-wrap diagnosis does not match the boundary probe the kit drives.

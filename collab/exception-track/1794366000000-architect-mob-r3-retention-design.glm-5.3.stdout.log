@@ -1,0 +1,17 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+ExitPlanMode isn't available in this session's toolset, so I'll present the plan directly — it's ready for approval.
+
+## Plan summary
+
+**Task**: Complete `collab/exception-track/1794366000000-architect-mob-r3-retention-design.prompt.md` — an architect-mob ruling on whether clojure can retain a crossing condition without exposing the wrapper to guest observation, answering **(A)**, **(B)**, or **(C)**. The prompt forbids code edits; the deliverable is one findings file.
+
+**Ruling: (A)** — a concrete patch design exists; this is *not* the R4 failure. The analysis (astra's round-3 log read in full, argon's round-2 log, code verified at c9c5533c in the r3-orch worktree, ruling v2, the unification ruling, and the Round-0 ledger) shows:
+
+1. **Ordinary `:yang.call/thrown` payloads → deliver raw** (§8.10.7 reception rule 2 — clojure permits arbitrary thrown values). Round 0 proves this is green (`clojure→python round-trip`, all `python→clojure` rows); the wrapper — applied to *all* crossing conditions — is what regressed them. With raw delivery every observation leak `(= [e] [orig])`, map-key lookup, `count`, `assoc`, truthiness, aliased predicates is correct **by construction**; `throw e` re-mints the identical wire condition, so no provenance is needed and the per-call-site unwinding is *deleted*, not extended.
+2. **Qualified protocol conditions keep the wrapper** as clojure's generated local exception form (python/php's ForeignException answer) — no §R2(1) identity bar applies to protocol data in any runtime.
+3. **Finding (a) closed by id-binding the witness**: the witness factory also captures the wrapper cell's own `:id` (mint = allocate → read id → `cell/set!` final triple; decode = re-derive with the candidate's id). Copy-replay and `cell/set!` transplant then **fail closed** — mechanically the same owner+payload closure equality that is green today.
+4. **Not (B)**: astra's finding is uniform across lanes — a shared-conversion design defect, not the lane divergence R4's proof failure requires; and not **(C)**: the un-narrowed contract is meetable, so narrowing §R2(1) would trade a real right for a documentation patch.
+
+**Execution** (single write, after approval): `collab/exception-track/1794366000000-architect-mob-r3-retention-design.glm-5.3.findings.md` — full ruling with file:line citations, the engineer fix-round brief, disclosed residual (guest-readable protocol triple — inert under id-binding), ending with `**(A)**` and a one-line reason per the prompt's format.

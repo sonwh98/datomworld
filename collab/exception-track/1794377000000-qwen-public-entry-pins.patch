@@ -1,0 +1,166 @@
+diff --git a/test/yang/clojure_test.clj b/test/yang/clojure_test.clj
+index d78facd9..1e04b39c 100644
+--- a/test/yang/clojure_test.clj
++++ b/test/yang/clojure_test.clj
+@@ -1462,6 +1462,7 @@
+ ;; =============================================================================
+ 
+ (declare run-cell-program)
++(declare run-public-entry-program)
+ (declare run-library library-opts)
+ 
+ 
+@@ -1524,6 +1525,114 @@
+             (str lane ": a caught payload rethrown is the payload again"))))))
+ 
+ 
++(deftest test-exception-r3-protocol-condition-crosses-the-public-entry
++  (testing "the acceptance kit's boundary shape: a well-formed qualified
++            condition raised into a clojure call site, caught and rethrown
++            by source, is handed to the invocation's raise exit by the
++            PUBLIC entry with its qualified reason and its identity - never
++            re-minted as a fresh :yang.call/thrown. This is the row
++            `yang.call.exception-contract-test`'s `:clojure/protocol-*`
++            fixtures measure; `run-cell-program`'s intra-unit call does not
++            reach it (ruling v2 §R3; design §8.10.7)"
++    (doseq [lane [:walker :semantic]]
++      (doseq [[reason evidence]
++              [[:yang.call/not-callable {:yang.call/callee {}}]
++               [:yang.call/invalid-invocation {:yang.call/callee :target}]
++               [:yang.call/unsupported-binding
++                {:yang.call/binding-profile :contract/unsupported}]]]
++        (let [condition {:yang.call/reason reason :yang.call/data evidence}]
++          (is (= [:yin.k/ok condition]
++                 (run-public-entry-program
++                   '[(defn receive
++                       [f]
++                       (try (f) (catch Exception e (throw e))))
++                     (yang.call/invoke receive (conj [] marker-operand) []
++                                       marker-raise)]
++                   (cell-entry-node condition)
++                   lane))
++              (str lane " " reason " keeps its reason and identity across the"
++                   " public entry"))))))
++  (testing "the saved variant: a wrapper the guest retained and rethrew from
++            a LATER activation still crosses the public entry as the
++            condition the convention built (`:clojure/saved-protocol-*`)"
++    (doseq [lane [:walker :semantic]]
++      (doseq [reason [:yang.call/not-callable
++                      :yang.call/invalid-invocation
++                      :yang.call/unsupported-binding]]
++        (let [condition {:yang.call/reason reason
++                         :yang.call/data {:yang.call/callee :target}}]
++          (is (= [:yin.k/ok condition]
++                 (run-public-entry-program
++                   '[(def saved (cell/new nil))
++                     (defn retain
++                       [f]
++                       (try (f) (catch Exception e (cell/set! saved e) e)))
++                     (defn later
++                       []
++                       (throw (cell/get saved)))
++                     (let [_held (retain marker-operand)]
++                       (yang.call/invoke later (conj []) [] marker-raise))]
++                   (cell-entry-node condition)
++                   lane))
++              (str lane " " reason " saved and rethrown later keeps its reason")))))))
++
++
++(defn- uast-variable-names
++  "Every `:variable` name read anywhere in map AST `node`."
++  [node]
++  (into #{}
++        (comp (filter #(and (map? %) (= :variable (:type %)))) (map :name))
++        (tree-seq (fn [x] (or (and (map? x) (contains? x :type)) (vector? x)))
++                  (fn [x] (if (map? x) (vals x) x))
++                  node)))
++
++
++(defn- uast-global-reads
++  "Every name a `clj/global-get` read in map AST `node` looks up, as the
++   string the linked unit's runtime global namespace is keyed by."
++  [node]
++  (into #{}
++        (comp (filter (fn [n]
++                        (and (map? n)
++                             (= :application (:type n))
++                             (= 'clj/global-get (get-in n [:operator :name]))
++                             (= :literal (:type (first (:operands n)))))))
++              (map (comp :value first :operands)))
++        (tree-seq (fn [x] (or (and (map? x) (contains? x :type)) (vector? x)))
++                  (fn [x] (if (map? x) (vals x) x))
++                  node)))
++
++
++(deftest test-exception-r3-linked-unit-keeps-the-retained-seam
++  (testing "a LINKED unit's wrapper helpers still read the issuer's retained
++            mint and query as host names. `lower-unit` rewrites the compiled
++            program with `publish-to-globals` after `compile-program`
++            finalized it, and that rewrite turns a free read of any name the
++            unit defines into a `clj/global-get` lookup: were it to capture
++            the reserved-prefix helpers or the two `cell/` host reads, the
++            wrapper would mint or decode through the runtime global
++            namespace instead of the heap, and every qualified condition
++            would reach the boundary as a fresh :yang.call/thrown"
++    (let [unit (yang/lower-unit
++                 (yang/read-forms
++                   (str "(defn receive [f] (try (f) (catch Exception e (throw e)))) "
++                        "(def saved (cell/new nil)) "
++                        "(defn retain [f] (try (f) (catch Exception e (cell/set! saved e) e))) "
++                        "(defn later [] (throw (cell/get saved)))"))
++                 [])
++          names (uast-variable-names unit)
++          globals (uast-global-reads unit)]
++      (is (contains? names 'cell/dsg__new-retained)
++          "the retained mint survives the linked-unit rewrite as a host read")
++      (is (contains? names 'cell/retained?)
++          "the retained query survives the linked-unit rewrite as a host read")
++      (is (empty? (filter #(or (some? (namespace (symbol %)))
++                               (.startsWith ^String % "dsg__"))
++                          globals))
++          (str "no qualified host read and no reserved-prefix binding was "
++               "rewritten into a runtime global lookup: " (pr-str globals))))))
++
++
+ (deftest test-exception-r3-thrown-shape-stays-data
+   (testing "section 8.10.7: a condition-shaped THROWN map is the payload of a
+             NEW condition - its shape is never evidence of a retained
+@@ -2530,6 +2639,38 @@
+         [:thrown (select-keys (ex-data e) [:reason :effect])]))))
+ 
+ 
++(defn- run-public-entry-program
++  "Like `run-cell-program`, but the call under test is an explicit
++   `yang.call/invoke` on the callee's published descriptor rather than an
++   intra-unit call, and the invocation's raise exit is a raw identity
++   lambda spliced at `marker-raise`. The condition therefore crosses
++   `call-entry`'s PUBLIC lane (`entry-body`), which is where a linked
++   composition's boundary probe observes it — `run-cell-program`'s
++   intra-unit call takes the private token lane and is classified instead
++   by `strip-top-outcome` at the harness top. The answered value is the
++   condition the public entry handed the raise exit."
++  [program node lane]
++  (let [raise (u/lam ['marker_condition] (u/v 'marker_condition))
++        splice (fn [n]
++                 (cond
++                   (and (map? n) (= :variable (:type n)))
++                   (case (:name n)
++                     marker-operand node
++                     marker-raise raise
++                     n)
++                   :else n))
++        ast (walk/postwalk
++              splice
++              (yang/compile-program
++                (into (yang/library-for program) program)
++                true
++                library-opts))]
++    (try
++      (run-guest-ast ast library-modules lane 1000000)
++      (catch clojure.lang.ExceptionInfo e
++        [:thrown (select-keys (ex-data e) [:reason :effect])]))))
++
++
+ (defn- run-cell-probe
+   "The value of running the compiled probe program — `(probe <node>)`, so
+    the spliced `node` sits at a call's callee position — on one lane, or

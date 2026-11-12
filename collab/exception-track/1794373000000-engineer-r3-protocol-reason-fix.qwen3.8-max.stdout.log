@@ -1,0 +1,154 @@
+
+[Computer Use] First-time install
+  Package: open-computer-use@0.1.51
+  This will fetch ~50MB from the npm registry the first time.
+  Computer Use can click, type, and read your desktop apps.
+  On macOS you'll be guided through Accessibility and Screen Recording permissions next.
+Set QWEN_COMPUTER_USE_AUTO_APPROVE=1 to skip this prompt.
+Completed-GMT: 2026-11-11 02:08:40 GMT
+Completed-Local: 2026-11-11 09:08:40 +07
+
+# BLOCKER FIRST — this session has no shell, so no gate ran and nothing is committed
+
+`tool_search` finds no `run_shell_command` and no `monitor`; a `general-purpose` subagent confirmed the same; `computer_use__list_apps` returns *"Computer Use install declined by user"* (I did not re-prompt it). `ask_user_question` fails in this mode. Therefore I could **not**:
+
+- run `clojure -M:test -n yang.clojure-test` (the brief's required focused gate),
+- run `clj -M:kondo --lint`,
+- `git add` / `git commit` on `exception-r3-impl`,
+- read `git status` / `git diff` / `git rev-parse` for the worktree.
+
+I did **not** run the contract kit. The (A) design is untouched. Branch tip is still `fbd8da0f` (from `.git/logs/refs/heads/exception-r3-impl`; the worktree's `HEAD` reads `ref: refs/heads/exception-r3-impl`); my change is **uncommitted working-tree dirt** in `/Users/sto/workspace/datomworld-r3-orch`.
+
+I also declined to write a speculative fix — see §3.
+
+## 1. What landed: the missing pin (2 new `deftest`s + 3 private helpers)
+
+`test/yang/clojure_test.clj`, one file only.
+
+**Why these pins:** every committed R3 pin (`test-exception-r3-protocol-condition-forwarded-unchanged`, `test-exception-r3-astra-probes`, `test-exception-r3-condition-field-preserved`) drives `run-cell-program`/`run-library`, i.e. `(receive marker-operand)` where `receive` is a top-level `defn` → `intra-unit-fn?` (`clojure.cljc:1556`) → `dsg__intra_call` **private token lane** → the retained wrapper is decoded by `strip-top-outcome` (`clojure.cljc:2560-2585`) at the harness top. The kit never goes near that site: `exception_probes.clj`'s `boundary-call-form` calls `yang.call/invoke` on the **published descriptor** read via `clj/global-get`, so classification is decided by `call-entry`'s **public** lane, `entry-body` (`clojure.cljc:1395-1414`). That is the uncovered path, and it is the only site in the whole clojure lane that can emit the observed `:yang.call/thrown`.
+
+- `run-public-entry-program` — `run-cell-program` plus a spliced raw `u/lam` identity raise at `marker-raise`, so the call crosses the public entry and the answered value **is** the condition the entry handed the raise exit. (A guest `(fn [c] c)` will not do: under the outcome model it compiles to a descriptor map and `yang.call/invoke` refuses it `:missing-raise-exit`.)
+- `test-exception-r3-protocol-condition-crosses-the-public-entry` — all three qualified reasons × immediate rethrow (`receive`) and saved/later rethrow (`retain` + `later`), both lanes, asserting `[:yin.k/ok condition]`, i.e. qualified reason **and** condition identity. This is `:clojure/protocol-*` and `:clojure/saved-protocol-*` at unit scale.
+- `uast-variable-names` / `uast-global-reads` + `test-exception-r3-linked-unit-keeps-the-retained-seam` — pins the one transformation the kit applies and no local pin does: `lower-unit` → `publish-to-globals` (`clojure.cljc:3402-3444`). Asserts `cell/dsg__new-retained` and `cell/retained?` survive as host reads and that no qualified or `dsg__`-prefixed name was rewritten into a `clj/global-get` lookup.
+
+```diff
+--- a/test/yang/clojure_test.clj
++++ b/test/yang/clojure_test.clj
+@@ -1464,6 +1464,7 @@
+ (declare run-cell-program)
++(declare run-public-entry-program)
+ (declare run-library library-opts)
+@@ -1526,6 +1527,105 @@
++(deftest test-exception-r3-protocol-condition-crosses-the-public-entry
++  (testing "the acceptance kit's boundary shape: ... the PUBLIC entry ...
++            never re-minted as a fresh :yang.call/thrown. ..."
++    (doseq [lane [:walker :semantic]]
++      (doseq [[reason evidence]
++              [[:yang.call/not-callable {:yang.call/callee {}}]
++               [:yang.call/invalid-invocation {:yang.call/callee :target}]
++               [:yang.call/unsupported-binding
++                {:yang.call/binding-profile :contract/unsupported}]]]
++        (let [condition {:yang.call/reason reason :yang.call/data evidence}]
++          (is (= [:yin.k/ok condition]
++                 (run-public-entry-program
++                   '[(defn receive [f] (try (f) (catch Exception e (throw e))))
++                     (yang.call/invoke receive (conj [] marker-operand) []
++                                       marker-raise)]
++                   (cell-entry-node condition) lane)) ...)))))
++  (testing "the saved variant: ... a LATER activation ..."
++    (doseq [lane [:walker :semantic]]
++      (doseq [reason [:yang.call/not-callable :yang.call/invalid-invocation
++                      :yang.call/unsupported-binding]]
++        (let [condition {:yang.call/reason reason
++                         :yang.call/data {:yang.call/callee :target}}]
++          (is (= [:yin.k/ok condition]
++                 (run-public-entry-program
++                   '[(def saved (cell/new nil))
++                     (defn retain [f] (try (f) (catch Exception e (cell/set! saved e) e)))
++                     (defn later [] (throw (cell/get saved)))
++                     (let [_held (retain marker-operand)]
++                       (yang.call/invoke later (conj []) [] marker-raise))]
++                   (cell-entry-node condition) lane)) ...))))))
++
++(defn- uast-variable-names [node] ...)      ; every :variable name in a map AST
++(defn- uast-global-reads  [node] ...)      ; every clj/global-get key in a map AST
++
++(deftest test-exception-r3-linked-unit-keeps-the-retained-seam
++  (testing "a LINKED unit's wrapper helpers still read the issuer's retained
++            mint and query as host names. ..."
++    (let [unit    (yang/lower-unit (yang/read-forms "...receive/saved/retain/later...") [])
++          names   (uast-variable-names unit)
++          globals (uast-global-reads unit)]
++      (is (contains? names 'cell/dsg__new-retained) "...")
++      (is (contains? names 'cell/retained?) "...")
++      (is (empty? (filter #(or (some? (namespace (symbol %)))
++                               (.startsWith ^String % "dsg__")) globals)) "..."))))
+@@ -2519,6 +2619,36 @@
++(defn- run-public-entry-program
++  "Like `run-cell-program`, but the call under test is an explicit
++   `yang.call/invoke` on the callee's published descriptor rather than an
++   intra-unit call, and the invocation's raise exit is a raw identity
++   lambda spliced at `marker-raise`. The condition therefore crosses
++   `call-entry`'s PUBLIC lane (`entry-body`) ..."
++  [program node lane]
++  (let [raise  (u/lam ['marker_condition] (u/v 'marker_condition))
++        splice (fn [n] (cond (and (map? n) (= :variable (:type n)))
++                             (case (:name n)
++                               marker-operand node
++                               marker-raise   raise
++                               n)
++                             :else n))
++        ast (walk/postwalk splice
++              (yang/compile-program (into (yang/library-for program) program)
++                                    true library-opts))]
++    (try (run-guest-ast ast library-modules lane 1000000)
++         (catch clojure.lang.ExceptionInfo e
++           [:thrown (select-keys (ex-data e) [:reason :effect])]))))
+```
+
+## 2. Diagnosis — the classification site, with file:line, and what is *ruled out*
+
+The observed `:reason :yang.call/thrown` has exactly **one** possible emitter in the clojure lane: `src/cljc/yang/clojure.cljc:1404-1414`, `entry-body`'s `(raise (yang.call/thrown err-val))` arm — i.e. `(dsg__equal retained nil)` was **true**, so `dsg__condition_retained` answered nil at the public entry. (`yang.call/thrown` appears nowhere else in `clojure.cljc`; `strip-top-outcome:2576-2584` returns the outcome vector, it never raises.)
+
+Answering the brief's "not reached, or classified before the protocol check?" — **neither**:
+
+- **`condition->outcome`'s protocol arm IS reached and DOES fire.** Its test is `(dsg__equal (dsg__get condition :yang.call/reason) :yang.call/not-callable)` (`clojure.cljc:1637-1644`), evaluated on a condition built by `yang.call/condition`. `dsg__get`/`dsg__equal` are the *same* helpers `entry-body` uses for `:yang.call/positional`/`:yang.call/named` and that `cell-ref-shaped-node` (`:1585-1604`) uses for routing — and `:clojure/binding`, `fresh-named`, `fresh-closure`, `shape-return`, `shape-throw` are green, which is impossible if they misfire. So the else arm (`:1649-1651`, "a value without a qualified reason") cannot be what delivered these six.
+- **The refusal arms are not the emitter either.** `refused` (`:1663-1672`) mints a wrapper around a *fresh* `:yang.call/not-callable`; had it fired and decoded, `:clojure/protocol-not-callable` would have reported reason `:yang.call/not-callable` with `:condition-identical false`. It reported `:yang.call/thrown`.
+- **Cell-ref routing is not the emitter.** I checked this because the six red fixtures are exactly the six whose callee is a `(cell/new …)` cell-ref while every green clojure row's callee is a descriptor map — so `fresh-closure` does *not* prove cell-ref routing works. But `run-cell-program`'s `cell-entry-node` (`clojure_test.clj:1470-1478`) builds a byte-identical 3-key cell-ref and the local protocol pins are green, so `cell-ref-shaped-node` + `cell/authentic?` + `dsg__admitted?`'s cell-ref branch behave the same in both compositions. Had routing gone to `value-call`, `invoke-value`'s lookup arm would have refused with `{:yin.k/message "Lookup invocation requires one key…"}` and the *local* pins would fail too.
+
+**So: the wrapper is minted (`clojure.cljc:1645-1648` → `condition-wrapper-form:943-946` → `cell/dsg__new-retained`), and `dsg__condition_retained` (`:949-969`) fails to decode it at the public entry in the linked composition while decoding it correctly at `strip-top-outcome` locally.** The two call sites are structurally identical; the difference is the composition, not the code shape. I verified statically and can rule out: lexical scoping of the `cond->>` helper chain (`:2780-2812` — `E_call-entry` is the argument of the `dsg__make_entry` `let1`, so it sits inside the `dsg__condition_retained` binding); `dsg__assoc`'s 3-pair ceiling (the descriptor is exactly 3 pairs); `library-for`-dependent `dsg__get`/`dsg__assoc` variants (the library defines `rest` only — not `get`, `assoc`, `conj`, `vec`, `=`); `check-callee-effect!` (`engine.cljc:2431-2455`, `declared` is a union and a nil profile passes); GC (glm's P13 already proved `sweep` keeps whole entries, and `heap-write:2457-2463` preserves the mark).
+
+**What I could not rule out without executing**, and what the new pin discriminates on first run — the pin prints the actual value, and `:yang.call/value` is decisive:
+
+| `:yang.call/value` in the failure output | mechanism | fix site |
+|---|---|---|
+| `{:type :cell-ref, :id …, :seal …}` | wrapper minted, `cell/retained?` answers false in the linked task | `engine.cljc:2820-2837` / `retained-ref?:355-365` (VM seam) |
+| `{:yang.call/reason :yang.call/not-callable, …}` (the raw condition) | qualified arm never minted | `clojure.cljc:1637-1651` |
+| `{:yin.k/message "Lookup invocation…"}` | cell-ref routing fell to `value-call` | `clojure.cljc:1746-1758` |
+
+## 3. Why I did not write the fix
+
+Three prior R3 rounds were each rejected for a change its author could not verify against the instrument that decides acceptance, and the last one regressed six green rows. I have eliminated the classification arms the brief pointed at, which leaves the retained mint/decode seam in the *linked* composition — and I cannot compile, run, or lint a single line here. A blind edit to `condition->outcome` would have been a fourth unverified guess, and the one "obvious" hardening (classify on the error value's qualified `:yang.call/reason` at the boundary) is forbidden outright: it re-opens `:clojure/shape-throw` and `:forged-retention` (R5 — a condition-shaped thrown map is data, never evidence of a condition). So the pin goes in, the fix does not.
+
+## 4. Commands to finish this round
+
+```sh
+cd /Users/sto/workspace/datomworld-r3-orch
+git status --porcelain            # expect: M test/yang/clojure_test.clj  (only)
+git diff --stat                   # expect: 1 file, +~130
+clojure -M:test -n yang.clojure-test          # the new pins should FAIL at fbd8da0f
+clj -M:kondo --lint test/yang/clojure_test.clj
+git add test/yang/clojure_test.clj
+git commit -m "test(yang.clojure): pin R3 protocol retention at the PUBLIC entry
+
+The committed R3 pins all reach a qualified condition through an intra-unit
+call, so the retained wrapper is decoded by strip-top-outcome at the harness
+top. The acceptance kit observes it at call-entry's public entry-body
+instead, which nothing covered - that is the gap behind the six red
+:clojure/protocol-* / :clojure/saved-protocol-* rows. Also pins that
+lower-unit's publish-to-globals leaves the retained mint/query as host reads."
+```
+
+If the pin **passes** locally, the defect is composition-only (linked thunk / `clj` runtime / debruijn lanes) and the next step is the same pin driven through `yang.call.conformance`'s `compose-exception` on one fixture rather than through `compile-program`. If it **fails**, the `:yang.call/value` column above names the fix site directly.
+
+**STILL FAILING: no fix written and no gate executed — this session has no shell (`run_shell_command`, `monitor` and Computer Use all unavailable), so `yang.clojure-test`, kondo and the commit could not run; `exception-r3-impl` is unchanged at `fbd8da0f` with the two new pins uncommitted in `/Users/sto/workspace/datomworld-r3-orch`.**

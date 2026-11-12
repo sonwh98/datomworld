@@ -1,0 +1,176 @@
+Research complete. Here is the ruling.
+
+---
+
+Completed-GMT: 2026-11-10 23:16:15 GMT
+Completed-Local: 2026-11-11 06:16:15 ICT
+
+**Role:** Architect (mob seat, independent). **Read-only; no files edited; no gate executed** (this session has no `run_shell_command` and no `monitor`, so `git show c9c5533c:…` and every test command were unavailable — see *Verification status*).
+
+**Provenance / limits, stated up front**
+
+- The brief's own header line reads `Completed-GMT: 2026-11-10 23:00 GMT`; that is a mislabeled *Created* stamp and it is ~16 min behind the real clock at completion. Noted, not matched.
+- I could **not** read `c9c5533c`: the R3 worktree `/Users/sto/workspace/datomworld-r3-orch` is outside this project root and `read_file` was declined, and there is no shell to `git show` it. `.git/worktrees/datomworld-r3-orch/HEAD` → `ref: refs/heads/exception-r3-impl` (confirmed). So: **R3-branch line numbers below are quoted from the two reviewer logs; every citation I verified myself is at this checkout (master, `887cc273`)**, whose VM layer the R3 diff did not touch (R3's diffstat is 2 files: `clojure.cljc`, `clojure_test.clj`).
+- I deliberately did **not** open the three sibling mob logs (`…glm-5.3`, `…muse-wonder-1.0`, `…qwen3.8-max`) so this ruling stays independent, as the brief requires.
+- Master does **not** contain `dsg__condition_wrapper` / `dsg__visible_of` / `dsg__condition_retained` (grep: 0 hits in `src/`). Master is therefore the *pre-R3* baseline — which turns out to be the decisive piece of evidence.
+
+---
+
+## 1. The structural fact that decides the question
+
+The two branches of §8.10.7 carry **different payloads and different contracts**, and the R3 fix conflated them.
+
+`yang.call/thrown` is a **two-key** constructor, and it is the only one (`src/cljc/yang/core/call.cljc:97-100`):
+
+```clojure
+[yang.call/thrown (fn [value]
+  (assoc (assoc {} :yang.call/reason :yang.call/thrown) :yang.call/value value))]
+```
+
+Protocol conditions are built by a **different** constructor and carry `:yang.call/data`, never `:yang.call/value` (`call.cljc:93-96`).
+
+Consequences, both load-bearing:
+
+1. **A `:yang.call/thrown` condition is losslessly regenerable from its payload alone.** Delivering `(:yang.call/value condition)` raw and later re-emitting `(yang.call/thrown v)` reproduces the *byte-identical* condition. There is **nothing to retain** on that path. No wrapper is required, so no wrapper is justified.
+2. **A protocol condition is not regenerable** — its qualified reason and evidence exist nowhere in the payload. Retention is genuinely required, and since R5 forbids shape-routing, the retention handle must be **identity-bearing**. In clojure the only identity-bearing values are cells and host-typed callables. So a wrapper cell is necessary *on this path only* — and §8.10.7 says so explicitly: *"The association normally lives in **private wrapper-cell contents**, or an equivalent task-owned identity structure with the same lifetime… without an ambient registry."*
+
+Master already implements exactly this split (`clojure.cljc:1518-1527`, `condition->outcome`):
+
+```clojure
+(u/if-node (dsg__equal (dsg__get condition :yang.call/reason) :yang.call/thrown)
+  (outcome-node error-tag (dsg__get condition :yang.call/value))   ; :1523-1526  RAW
+  (outcome-node error-tag condition))                              ; :1527       protocol
+```
+
+And the catch binder is that value, at one compiler-owned point (`clojure.cljc:1126-1143`, binder `(data/nth outcome 1)` at `:1141`) — so on master the caught binding **is** the payload, with zero unwinding anywhere.
+
+**That is why `[:clojure :python :round-trip]` was green at Round 0** (ledger `:186-188`; `exception_r0_results.edn:170`) and why R3 regressed it: per argon's log, R3 rewrote the `:1523-1526` branch to wrap **every** thrown payload in `dsg__condition_wrapper`. R3's real obligation was the six red fixture families `:clojure/protocol-*` and `:clojure/saved-protocol-*` (ledger `:102-119`) — all protocol-path. It paid for them by breaking a green thrown-path row, then tried to buy the row back with per-call-site normalization.
+
+## 2. Why the normalization programme cannot work (I accept the brief's premise)
+
+If the wrapper stays on the thrown path, `e` must be indistinguishable from the payload under **every** guest observation. That set is open: `=`, `hash`, set/map membership, `get`-as-key, `count`, `assoc`/`dissoc`/`update`, truthiness, `type`, `pr-str`, every predicate, and — fatally — *any function that receives `e` as an argument*, since the unwinding is a compile-time rewrite keyed to a call site's spelling. astra proved the whitelist is incomplete and spelling-dependent (`clojure.cljc:1279` at c9c5533c): `(vector? e)` true but `((fn [p] (p e)) vector?)` false.
+
+Unwrap-at-catch-bind does not rescue it either, and the reason is worth stating precisely because it is the same reason the brief's side-table idea fails: **retention must survive the activation.** The kit's own `retain`/`later` pair (`exception_contract.clj:78-79`) stores `e` in a `def`'d cell and throws it from a *different* function; §8.10.7 requires exactly that ("*Temporary catch state alone is insufficient*"). So the handle must ride the value. If the catch binder is the bare payload, the only way back to the condition is a value-keyed lookup — unsound (payloads include `nil`, `42`, `{:a 1}`; two retained conditions can share one payload value; a plain `(throw {:a 1})` would then forward a protocol condition) **and** an ambient registry, which both §8.10.7 and ruling v2 R2 forbid. A lexical `dsg__retained` slot plus a syntactic "`throw` of the catch binder" rule fixes `(throw e)` and still fails `later`.
+
+So: **wrapped-value-on-the-thrown-path is unfixable.** The correct move is not to normalize the wrapper — it is to *not have one there*.
+
+## 3. THE DESIGN — **(A)**
+
+### A1. Scope the wrapper to the protocol branch (deletes finding (b) rather than patching it)
+
+Restore `condition->outcome`'s thrown branch to raw delivery (master `:1523-1526`); wrap only the `:1527` protocol branch. Then **delete the entire normalization layer**: `dsg__visible_of` as a use-site router, and every routed `=` / `get` / keyword-invoke / predicate / truthiness rewrite at c9c5533c's `:1911` and `:1279` regions. Nothing unwraps because nothing is wrapped.
+
+Every row of astra's observation table was measured on the thrown path (`e` catching a dynamically thrown `orig = {:a 1}`), so all of them close **by construction**: `(= [e] [orig])` → true, `(get {orig :found} e)` → `:found`, `(count e)` → 1, `(assoc e :a 2)` → 2, caught `nil` → falsey, `(vector? e)` ≡ `(p e)` → true. Spelling-dependence is impossible: there is no rewrite to be spelling-dependent about.
+
+This is also the correct **R2 clause assignment**, and it is why (C) is unnecessary: clojure is a runtime permitting arbitrary thrown values, so it sits in R2(2) ("*may deliver the original payload directly*", the JS camp) for `:yang.call/thrown`, not in R2(3)'s `ForeignException` camp. R2(1)'s identity bar attaches to that path and is met unchanged. It does **not** attach to a protocol condition, whose catch value is by design "*a documented local exception form*" (R3 / §8.10.7) — a distinct value, exactly as py/php's `ForeignException` is distinct and as the kit's own `saved_local` asserts. The ledger's `protocol-*` rows assert `condition-identical` + `reason`, never payload identity, so no contract is narrowed.
+
+Composition check (this is what makes A1 more than a revert): a clojure wrapper that travels A→B→A as a *raw foreign payload* comes back through the thrown branch, binds raw, and `(throw e)` then authenticates it and forwards the **original protocol condition** — §8.10.7's "entire lifetime / another activation / crossing back restores" satisfied with no wrapper on the thrown path at all. Task-scoping falls out for free: `authentic-ref?` (`engine.cljc:332-353`) verifies against the owning task's heap and secret, so a wrapper arriving in a *different* task simply does not authenticate and yields a fresh `:yang.call/thrown`.
+
+### A2. Identity-bound retention — closes finding (a), and keeps closures **cell-free**
+
+Bind the witness to the wrapper's own identity. R3's witness captures `{visible, condition, call-token}`; add the wrapper's **seal string**:
+
+```clojure
+;; construction (compiler-emitted; `dsg__get` already reads :seal off a ref — see :1484)
+(let [c (cell/new [visible condition nil])]
+  (cell/set! c [visible condition (dsg__condition_witness visible condition (dsg__get c :seal))])
+  c)
+
+;; authentication
+(dsg__condition_retained candidate)
+  = shape-pre-filter(candidate)                        ; the cell-ref-shaped-node discipline, :1484-1505
+    ∧ (cell/authentic? candidate)                      ; heap, never fatal
+    ∧ (= 3 (data/count (cell/get candidate)))          ; argon's P3 arity guard
+    ∧ (let [[v c proof] (cell/get candidate)]
+        (dsg__equal (dsg__condition_witness v c (dsg__get candidate :seal)) proof))
+```
+
+**Seal, not the ref.** Capturing the `:cell-ref` map itself would be simpler and equally sound, but it violates constraint 3 concretely, not just stylistically: `bindings-node` lifts every env binding through `lift-value` (`ucf/rows.cljc:1478-1481`), and `lift-value` refuses a cell ref as `:yin.k/non-portable` of kind `:cell` (`:1538`). A cell-ref in a closure env therefore makes that closure un-encodable in UCF machine data. A 64-char seal *string* is ordinary data, so the witness stays cell-free, no new cells are allocated (constraint 3's "not growing more" is met — still exactly one cell per retained condition), and nothing new leaks: the seal is already guest-readable in every ref map and the Closure payload answers no keyword lookup (`values.cljc:44-77`; `closure?` is `instance?`, so no guest map is a closure).
+
+Why it is unforgeable: the guest can *copy* a witness but never *mint* one (`dsg__condition_witness` is refused by the reserved-prefix regime; `check-program-symbols!`). Cell ids are never reused and the seal is `seal-of secret kind id` (`engine.cljc:300, 317-329`), so no guest-allocated cell can present the seal a copied witness captured.
+
+Attack-by-attack, against astra's two decisive probes:
+
+| Attack | Re-derived witness env | Stored `proof` env | Result |
+|---|---|---|---|
+| `(throw (cell/new (cell/get e)))` — replay | `{v₁ c₁ seal₂}` | `{v₁ c₁ seal₁}` | **refuse** → fresh `:yang.call/thrown` |
+| `(cell/set! e (cell/get other)) (throw e)` — mutation | `{v₂ c₂ seal₁}` | `{v₂ c₂ seal₂}` | **refuse**; the other condition is **not** forwarded |
+| `[forged-v forged-c witness]` (R1 token transplant) | `{fv fc seal₁}` | `{v₁ c₁ seal₁}` | **refuse** (R3's fix still holds) |
+| `(throw e)` unchanged | `{v₁ c₁ seal₁}` | `{v₁ c₁ seal₁}` | **forward** the original condition |
+| `(cell/set! saved e)` … `(throw (cell/get saved))`, other activation | same ref, same seal | same | **forward** (`cell/set!` preserves `:seal`, `engine.cljc:2786-2791`) |
+| restore-after-mutation `(cell/set! e original-triple)` | `{v₁ c₁ seal₁}` | `{v₁ c₁ seal₁}` | forwards the *original* condition — a semantic no-op, so not an exploit |
+
+Note the mutation attack is non-exploitable **end-to-end**, not just at hop one: the mutated `e` escapes as an opaque 3-element cell payload, and any receiver's `dsg__condition_retained` on it also fails the seal comparison, so it can never be laundered into the other condition later.
+
+### A3. How `throw e` still forwards — the exact hook
+
+`throw v` lowers to `[error-tag v]` (`clojure.cljc:1125`). The condition is minted where an error outcome crosses a boundary, and today that is **unconditional**: `call-entry`'s public escape, `clojure.cljc:1309-1312`, `(raise (yang.call/thrown (data/nth outcome 1)))` — ruling v2's cited ":1088 reclassification". Change that one node (and the matching top-level `strip-top-outcome`, c9c5533c `:2543-2551`) to:
+
+```clojure
+(u/if-node (retained? v) (retained-condition v) (u/app (u/v 'yang.call/thrown) v))
+```
+
+- **Protocol path:** `e` is the wrapper → authenticates → the *original* condition (qualified reason + every evidence field) is transferred, exactly once, no new wrapper. The private tail lane (`bridged`, `:1563-1572`) forwards outcomes untouched and needs no change.
+- **Thrown path:** `e` is the raw payload → `dsg__condition_retained` short-circuits at the shape pre-filter (not a 3-key `:cell-ref` with a 64-char seal) → `(yang.call/thrown e)` → identical to the condition that arrived, because that condition had exactly two keys.
+
+The decoder never applies a guest callable (astra's Invariant 2 is preserved: only `data/*`, `cell/authentic?`, `cell/get`, `dsg__equal`, and compiler-minted closures), and a guest's own `(cell/new [1 2 3])` produces no false positive — slot 2 is not a `Closure`, so `dsg__equal` against a minted witness is false.
+
+### A4. The protocol form's accessor surface — closed, not open
+
+`rewrite-ex-info` (`clojure.cljc:905-929`) already lowers `(ex-message x)`/`(ex-data x)`/`(.getMessage x)` to `:yin.k/message`/`:yin.k/data` lookups in **one** compiler pass per function body, and already lowers `ex-info` to the portable map `{:yin.k/message … :yin.k/data … :yin.k/cause …}`. So: make the wrapper's `visible` slot **that portable error map**, with `:yin.k/data` holding the *complete original condition*, and keep R3's `dsg__ex_message`/`dsg__ex_data` decode as the lowering target for those two accessors — extended to the three `:yin.k/*` error keys when the target authenticates as a retained wrapper.
+
+This is a whitelist over a **closed** set (the portable error form's own three keys, which the same pass already owns), not over the open set of guest observations — which is the precise defect class in finding (b). Anything beyond those keys is explicitly *not* promised for a protocol condition, and that is consistent with the other three frontends: `ForeignException` does not answer the foreign payload's attribute names either. Normalize `visible` through one decode at **construction** so wrappers can never stack (argon's Invariant-3 nesting bug); that is the only surviving use of `dsg__visible_of`, and it is not a use-site router.
+
+### A5. Net effect on surface
+
+Deleted: the use-site unwrap router and all spelling-dependent rewrites. Added: one seal argument to an existing witness, one `if` at the public-escape node, one construction-time normalization. Cells per retained condition: unchanged at one. Closures: still cell-free. Registries: none. Mandatory `%capture` on the error path: none — slice-5's constant-depth property is untouched.
+
+## 4. Why not **(B)**
+
+This is **not** the R4 equivalence failure, and the fallback would pay in full and cure nothing.
+
+- R4 asks whether the *intra-unit outcome-token lane* is equivalent to the raise-exit lane. Both of astra's findings live on the **dynamic/public** path: (b) in `condition->outcome` at a raise exit, (a) in the retention decoder. Neither is an artifact of outcome tuples.
+- The wrapping is forced by **retention**, not by the channel. Master proves it: the outcome channel already delivers the payload raw and binds it directly at `:1141`. On the continuation lane the `try` handler would bind `(dsg__visible_of …)` or the raw payload by exactly the same choice.
+- Decisively: the continuation lane **still needs the identity-bearing wrapper** for `:not-callable` / `:invalid-invocation` / `:unsupported-binding`, because R5 forbids recognizing a condition-shaped map on rethrow and protocol evidence exists nowhere in the payload. So (B) would surrender slice-5's constant-depth property, port `try` onto `%capture`, and re-litigate argon's five documented try-family differences — and arrive at the same wrapper with the same replay/mutation hole.
+- R4 therefore stays a **live, separate obligation** on the pre-registered `:clojure-private-public-equivalence` row (`exception_contract.clj` pending-obligations; `1794362000000-engineer-r4-equivalence-proof.prompt.md`), now with a cleaner subject: prove the three lanes equivalent *with raw thrown delivery*, and add the cross-unit scenarios argon mandated. The (B) fallback remains owner-authorized but un-triggered.
+
+## 5. Why not **(C)**
+
+Narrowing §R2(1) is neither legitimate here nor needed.
+
+- **Not needed:** raw delivery meets R2(1) *as written* at zero cost, and master already did it — the row was green at Round 0 on all three backends.
+- **Not legitimate:** the acceptance gate requires "*Identity assertions BEFORE rendering: original reasons, complete evidence, **payload identity**, wrapper non-stacking… equal rendered text is not identity evidence*" (item 6) and "*A→B→A propagation asserting original identity*" (item 3). "Documented accessor semantics" for an ordinary caught payload is precisely the rendered-text substitute the gate forbids.
+- **It would invert the parity ordering:** py/ts/php deliver raw payloads; a narrowed clojure row would make clojure the only frontend whose ordinary caught payload is not the payload — the opposite of v2's "enforce everywhere consistently".
+- **The legitimate part of (C)'s intuition belongs in (A):** R2(1)'s identity bar governs the `:yang.call/thrown` payload path; it does not govern a protocol condition's local exception form. That is not a narrowing — it is locating which clause governs which path, and §8.10.7 already separates them (its items 1-3 versus its "*protocol failures … documented local exception form*" paragraph).
+
+**`[:clojure :python :round-trip]` keeps asserting exactly `{:returned true, :value true}`** — unchanged, no weakening, per `exception_legs.clj:186-192` and `expected` at `:196-204`.
+
+## 6. What the round must pin (new fixtures — the four gaps astra named)
+
+Thrown path (must all be green, and they are the regression net for A1): `(= [e] [orig])`, `(get {orig :found} e :missing)`, `(count e)`, `(get (assoc e :a 2) :a)`, caught `nil` falsey, `[(vector? e) ((fn [p] (p e)) vector?)]` = `[true true]`, and `(= e original)` with `original` a `(cell/new :original)` as in `exception_legs.clj:44`.
+
+Protocol path (the net for A2): replay `(throw (cell/new (cell/get e)))` refuses and forwards a fresh `:yang.call/thrown`; mutation `(cell/set! e (cell/get other)) (throw e)` refuses **and does not forward the other condition**; unchanged `(throw e)` and stored-then-rethrown `(throw (cell/get saved))` from another activation both give `condition-identical`; non-stacking (a retained wrapper rethrown twice yields one wrapper, never two).
+
+Ledger rows expected to move: `:clojure/protocol-{not-callable,invalid-invocation,unsupported-binding}` and `:clojure/saved-protocol-*` (18 rows, red→green), with `:clojure/shape-return`, `:clojure/shape-throw`, `:clojure/fresh-*`, `:clojure/binding` and `clojure→python round-trip` **held green**. `[:clojure :python :retained-lifetime]` stays red — that is python's R2 egress gap (`prelude.cljc:1034`), sequenced separately by ruling v2 §3.
+
+One implementation checkpoint to verify, not assume: §8.10.7's "*Reachability/reclamation must retain the condition and its payload while the wrapper is live*". `semantic.cljc:522` declares `(gc-children [_ _x] nil)` for host-typed values, so confirm the heap cell stays live while only a copied witness (not a guest binding) references it. Under A2 the ref itself is always guest-held (`e`, or `saved`), so this should be moot — but it must be checked, and it is a further argument for the seal over the ref.
+
+## 7. Verification status — honest handback
+
+**No gate was run.** This session has no shell tool and no `monitor` substitute, and `read_file` outside `/Users/sto/workspace/datomworld` was declined, so I could not read `c9c5533c`, could not run `git show`/`git diff`, and could not execute a single test. Everything above about the R3 branch is sourced from the two reviewer logs named in the brief; everything about the VM layer, `yang.call`, the kit and master's `clojure.cljc` I read directly at this checkout. No files were created or edited.
+
+Copy-pasteable, for a seat that has a shell (worktree per the standing rule — never the shared checkout):
+
+```bash
+git worktree add /Users/sto/workspace/datomworld-r3b exception-r3-impl
+cd /Users/sto/workspace/datomworld-r3b && git log --oneline -1        # expect c9c5533c
+git diff 778747ce..c9c5533c -- src/cljc/yang/clojure.cljc | grep -n 'dsg__visible_of\|condition_wrapper'
+clojure -M:test -n yang.clojure-test                                   # R3's own suite
+clj -M:kondo --lint src/cljc/yang/clojure.cljc && cljstyle check src/cljc/yang/clojure.cljc
+```
+
+Suite-scale runs (the kit contract matrix, all three backends) go to `shiva`, not the laptop; a fix branch's merge bar is the previously-failing tests re-running green, not a G1/G2/G3 climb.
+
+---
+
+**(A)** — the wrapper belongs only on the protocol branch, where §8.10.7 already prescribes "private wrapper-cell contents"; restoring raw delivery for the two-key `:yang.call/thrown` path deletes finding (b) outright (no wrapper, so nothing to normalize at any call site), and binding the existing opaque witness to the wrapper's own cell **seal** — not its ref, so closures stay cell-free for `lift-value` — closes finding (a) by making both replay and `cell/set!` mutation fail re-derivation, while `(throw e)` still forwards via one `if` at the public-escape node `clojure.cljc:1309-1312`.

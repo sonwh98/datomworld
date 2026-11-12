@@ -1,0 +1,56 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-11-10 19:25:50 GMT
+Completed-Local: 2026-11-11 02:25:50 +07 (+0700)
+
+# Ruling: **(A)** — keep v2's boundary uniformity; do not converge the internal encodings
+
+**Dominant tradeoff:** uniformity vs semantic preservation — (B) spends the outcome model's constant-depth tail path for one encoding, (C) taxes every guest return and host interop for it, and neither buys anything observable at the §8.10.7 boundary, so the cheapest correct answer is to keep two encodings behind one tested boundary.
+
+## 1. The boundary is the only integration surface
+
+The canonical §8.10.7 transfer is the caller-supplied raise exit receiving
+`{:yang.call/reason :yang.call/thrown, :yang.call/value original-thrown-value}` — an exceptional continuation transfer, not an ordinary return (`docs/design/yang.antlr.md:3840-3856`). Reception, identity preserving rethrow, and the prohibition on detecting wrappers by key names are all specified at `yang.antlr.md:3866-3902`. The ruling of record v2 is explicit that "Same continuation does NOT require identical internal lowering" (`collab/exception-track/1794960000000-owner-ruling-exception-uniformity-v2.md:30`), and it is the owner-approved constitution of this track.
+
+Decisively, **no internal convergence flips a currently red acceptance row**. Every red row in the ledger is a boundary bridge/entry/reception defect (`collab/exception-track/acceptance-ledger.md:20-315`), and the ledger itself says "No frontend is conformant on a green subset; the end-gate obligations (12-directed-pair matrix, context-lifetime cases, host-by-VM portability matrix ...) remain open" (`acceptance-ledger.md:16-18`). Converging internals would rewrite the lowering while leaving every actual failure in place.
+
+## 2. Why not (B) — port clojure onto the continuation handlers
+
+**(B)'s only gain is a single encoding; its cost is a documented semantic property.**
+
+- The slice-5 outcome model exists to keep error propagation off the continuation stack: `clojure.cljc:848-856` states that forwarding outcomes "keeps named and mutual tail chains at constant depth", and the private entry forwards an outcome in tail position without a pending conversion frame (`src/cljc/yang/clojure.cljc:1313-1314, 1335-1336`). The regression test asserts constant depth at 100/1000 iterations on both walker and semantic lanes, with a non-tail control that grows (`test/yang/clojure_test.clj:1584-1618`). The slice-5 commit records the same invariant: "tail calls forward outcomes unchanged (constant semantic depth through tail chains, gated)" (`abfb8215`).
+- Mechanically, a capture-based `try` must invoke its body **non-tail**, because it resumes at `restore!`/`orelse` (`python/antlr/prelude.cljc:315-328`; `typescript/antlr/prelude.cljc:1725-1735`; `php/antlr/prelude.cljc:258-271`). `%capture` reifies the whole current `k` (`yin/vm/ast_walker.cljc:556-564`), and invoking a continuation reinstalls it while discarding the current one (`ast_walker.cljc:289-295`; `yin/vm/engine.cljc:104-113`). A tail chain passing through a `try` therefore acquires a live return frame and a retained `k` per try execution; the outcome path carries the failure as an ordinary value on the same `k` the success path uses (`clojure.cljc:1139-1143`).
+- A precision correction: `:tail?` is not what (B) destroys. It is a slot on `:application` (`yin/vm.cljc:1005`) consumed by the register/semantic lanes, where a tail `:call` reuses `K` (`yin/vm/semantic.cljc:190-199`; `yin/vm/semantic/linearize.cljc:106-116`). The CESK walker has no `:tail?` reference and reuses `k` structurally (`docs/agents/known-gaps.md:403-406`). The cost is the capture/handler discipline making the try body non-tail on every lane, not a broken mark.
+- It reopens A1-A5 (especially A4, "outcome<->raise conversion at every generated entry/caller bridge" — `collab/yang-clojure/1793338209376-engineer-clojure-adoption-s1.prompt.md:15`) and the LaTTe/crosshost oracle, already the budget-critical gate (`docs/slice9-h3-1-blocked-fixtures.md:25-32`).
+- It does not even recover the measured cost: the 14.94x per non-tail call (`docs/slice9-h3-1-blocked-fixtures.md:27, 371-376`) is dominated by §8.10 descriptor/invocation-map work plus a capture both encodings pay; the documented remedy is a compiler fast path, not an encoding change (`slice9-h3-1-blocked-fixtures.md:388, 400`).
+
+## 3. Why not (C) — port py/ts/php onto outcome tuples
+
+- It widens every guest function's return protocol and every higher-order combinator, while §8.10.7 fixes normal return as "the value of ordinary Yin application … no extra return continuation, completion packet around each result" (`yang.antlr.md:3840-3842`). Published entries would unwrap for hosts and every host callback/re-entry would re-wrap.
+- The measured outcome/common-call lane is 14.94x per non-tail call with a double outcome wrap/unwrap (`docs/slice9-h3-1-blocked-fixtures.md:27, 388`). Imposing that on three conformant frontends is not justified by any boundary requirement.
+- Blast radius: the three preludes are 3781/4298/6025 lines, each with its own `rt/ctx` handler stack, plus the conformance kit and all 12 directed-pair scenarios — while R1/R2/R3 boundary rounds are still open.
+
+## 4. New work still justified under (A)
+
+v2 already contains the correct gate for the only real risk: R4 permits the outcome channel **only with an equivalence proof** at §8.10.9's bar (`v2:69-75`; `yang.antlr.md:3970-3975`), otherwise it unifies onto the raise-exit path. That obligation is already recorded as pending, never inferred from a green pair: `:clojure-private-public-equivalence`, with cases `#{:caught :uncaught :protocol-rethrow :binding :higher-order}` (`test/yang/call/exception_contract.clj:143-177`). The prior adjudications in this arc likewise left internal unification to R4 (`collab/exception-track/1794320926000-architect-dsg-condition-r4-coupling.gemini-4-argon-high.findings.md:98-101`).
+
+In priority order:
+
+1. **Finish the v2 gate (mandatory).** The remaining 6 of the 12 directed pairs are already derived, not hardcoded: `pair-matrix` is the cross-product of the four frontends minus self-pairs (`test/yang/call/exception_contract.clj:158-169`), asserted to be exactly 12 in `test/yang/call/conformance_test.clj:62-66`, with six pending frontend rounds (`acceptance-ledger.md:165-170`). Add the §8.10.11 scenarios (`yang.antlr.md:4029-4063`), host-by-VM portability, and identity-before-rendering assertions. **This matrix is the evidence that internal divergence is invisible**, and it is the only "golden" work that matters.
+2. **R4's equivalence proof.** If it fails, unify clojure onto the raise-exit lane — the pre-authorized fallback, requiring no new architectural license. That is the only internal-encoding decision still legitimately open.
+3. **Optional, post-gate dedup — not now.** The py/js/php escape family is genuinely triplicated: js's own docstring says it "copy the Python prelude's escape machinery" (`typescript/antlr/prelude.cljc:45-49`), and the try blocks are structurally identical (`py:315-328`, `js:1725-1735`, `php:258-271`). But they encode real host parameters — JS has a two-argument try and no depth/base, Python has the complete per-activation bridge (`python/antlr/prelude.cljc:886-914`), PHP has terminal escapes that skip `finally` (`php/antlr/prelude.cljc:231-257`). Any shared core must parameterize these and must land after R1/R2/R3; otherwise it couples independent boundary fixes. It is deduplication of one encoding, not convergence.
+4. **Do not add a third "dual-mode" abstraction.** Two encodings behind one pinned §8.10.7 boundary already is the documented dual mode (`v2:29-30`).
+
+## 5. The owner call (ruling is provisional in this one respect)
+
+This touches an owner-approved ruling and the owner relay holding JS/PHP "until the track to unify exceptions as yin.vm continuations completes" (`collab/exception-track/1794252941-orchestrator-tsphp-js-hold-unification-track.md:9,14`). That relay is an orchestrator paraphrase; it does not waive `v2:30` or the slice-5 constant-depth property, and this adjudication exists precisely to decide whether it should. My technical ruling is (A). If the owner intends a single VM-native encoding as a **product** requirement that supersedes v2, the only coherent target is (B) — not (C) — and the tail-depth loss plus A1-A5/LaTTe re-verification must be explicitly accepted and budgeted. I do not recommend that supersession.
+
+## 6. Concrete follow-up work
+
+- **R4 (Clojure):** produce the §8.10.9 equivalence proof across caught/uncaught throws, protocol rethrow, binding failures, and higher-order re-entry; on failure, unify onto the raise-exit lane.
+- **R1/R2/R3:** land per v2 sequencing (`v2:118-132`); these flip the actual red boundary rows.
+- **Matrix:** complete the six pending directions plus the §8.10.11 scenarios, cleanup-order and original-identity assertions.
+- **Optional refactor:** parameterized shared core for the py/js/php escape family, only after the boundary rounds, verified by the conformance kit and bundled/linked parity.
+- **Owner:** confirm that "unify as continuations" means the §8.10.7 boundary transfer, not a forced internal representation; if not, authorize (B) explicitly with its costs.
+
+*Nothing was implemented. The plan file records this ruling; the findings file was not written because plan mode forbids non-plan writes.*

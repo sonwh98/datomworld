@@ -1,0 +1,7 @@
+The changes look correct. I'm waiting for the agent to complete the acceptance tests. Once it reports back, I'll review the results and proceed with the commit if all tests pass.
+
+The fixes I've made:
+1. **Item 4 (invoke-value :else branch)**: Changed from `(f)))` (which looped) to `(throw (yang.call/condition :yang.call/not-callable {:yang.call/callee f}))` — the compiler-generated raise handler will stamp `:dsg__condition` with the unforgeable token
+2. **Test expectations**: Updated 3 assertions from the old vector shape `[:yang.call/thrown <map>]` to the R3 record shape `{:yang.call/reason :yang.call/thrown, :yang.call/value <map>}`
+
+Waiting for test results...

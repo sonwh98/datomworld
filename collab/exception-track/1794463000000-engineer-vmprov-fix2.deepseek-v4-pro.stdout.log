@@ -1,0 +1,41 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+Finding 2's admission is corrected, committed, and pushed. Here is the final report.
+
+---
+
+## Completed
+
+**Completed-GMT:** 2026-11-11 17:55:37 GMT
+**Completed-Local:** 2026-11-12 00:55:37 +07 (+0700)
+
+Fixed the finding-2 over-rejection on `exception-vm-provenance` (commit `50c9485a`, pushed `566c5450..50c9485a`). Findings 1 and 3 were not touched and did not regress.
+
+### The fix: consult trusted construction provenance, not the prefix
+
+`src/cljc/yin/vm/macro.cljc:586` — `reserved-prefix-defect` no longer rejects every `dsg__` name in a macro's output. It now walks the output's occurrences (`vm/occurrences`) and refuses a `dsg__` name in an executable position (`:variable`, `:lambda` binder, `:vm/store-get`/`:vm/store-put` key, `yin/def` target) only where the occurrence is **constructed** — its origin is this expansion's `pending-expansion-origin`, or `missing-provenance-origin`. A `dsg__` name in a **retained** position (a spliced operand the compiler already lowered, origin `[:retained …]` or `[:expansion …]`) is a compiler-minted temporary and is preserved. The call site (`:1524`) threads the output's origin function in.
+
+**Why the prefix was the wrong axis.** The compiler mints two disjoint kinds of `dsg__` names:
+
+1. **Retained temporaries** (`dsg__0`, `dsg__loop0`, `dsg__o0`, `dsg__case0` …) — bare symbols the Clojure frontend generates during its own lowering of operands. These legitimately appear in a macro's output when the macro passes its (already-compiled) input through.
+2. **The provenance doors** (`cell/dsg__new-provenance`, `cell/dsg__provenance`) — namespaced bindings the VM registers; the compiler never mints them.
+
+A guest cannot spell any `dsg__` name in source: `check-program-symbols!` refuses it in every position (including the macro body, since `yang.clojure/compile` runs the same pre-pass). A guest cannot construct one through the prelude either: `check-guest-name!` refuses `yin/variable`/`yin/lambda`/`yin/make-def`. The one forge path left — quoting a raw packet that names a door — carries no origin function, so it reads as the pending origin and is refused. Retained `dsg__` names, by contrast, always arrive with their incoming origin, so they are preserved. The two subtleties:
+
+- **Macro-output identity.** There is no `dsg__` name "minted during expansion": the macro's own lowering uses the prelude gensym (`prefix__token_counter_i`), never `dsg__`. Every `dsg__` name in an output is either retained (compiler-minted) or forged (quoted packet). The origin function already distinguishes the two, so a separate supply registry is unnecessary.
+- **Scope.** Compilation (and therefore `dsg__` minting) always completes before expansion: the frontend does no macro lookup, so `compile`/`compile-program` mints the operand temporaries first, and the row-native expander runs on the finished packet. The retained origins are populated before admission.
+
+### Test changes
+
+`test/yin/vm/provenance_test.cljc`:
+
+- Restored `macro-cannot-construct-the-mint-door-test` (deleted in `566c5450`; the invocation-time `:body-error` refusal), verbatim.
+- Added `identity-macro-preserves-retained-syntax-test`: astra's three probes — `(id (let [[x] [42]] x))`, `(id (fn [[x]] x))`, `(id (loop [x 0] x))` with `id` = `(fn [x] x)` — each asserts `:ok`.
+- The forged-door rejection tests (`macro-door-is-refused-at-expansion-test`, both bypass classes) and findings 1/3 tests stay green.
+
+### Verification
+
+- `clojure -M:test -n yin.vm.provenance-test -n yin.vm.macro-test`: 41 tests / 334 assertions, 0 failures.
+- clj-kondo on the two changed files: 0 errors, 1 warning — the pre-existing redundant-`let` in `macro/construct` (now `:847`, shifted by the insertion; present on the base commit).
+- The contract test was **not** run, per the brief.
+
+**ADMISSION CORRECTED**

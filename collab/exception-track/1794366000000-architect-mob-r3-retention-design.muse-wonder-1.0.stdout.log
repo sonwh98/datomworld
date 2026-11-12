@@ -1,0 +1,39 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-10 23:01:05 GMT
+Completed-Local: 2026-11-11 06:01:05 ICT (+0700)
+Role: Architect (mob — independent ruling)
+
+Reviewed read-only: the Round-3 confirm log in full, ruling v2, the unification ruling of record, §8.10.7–§8.10.9, and the wrapper code at `c9c5533c` (via `git show`; the shared checkout is at a different HEAD, so I cite the commit, not the working tree). No files edited.
+
+## Why (A) has no instance on the outcome channel
+
+The two requirements place contradictory demands on the single error-outcome value slot, and provenance has nowhere left to hide:
+
+1. **Observation forces `e` = payload, literally.** Guest observations are functions of the delivered VM value. Round 3 (astra, both lanes, 28 assertions green on the focused tests) shows the wrapper cell-ref distinguished by nested equality `(= [e] [orig])`, by use as a map key, by `count` (3, not 1), by `assoc`-then-read, by truthiness (caught `nil` is truthy), and by an aliased predicate. These are not seven bugs; any value distinct from the payload is distinguishable in principle — `data/content=` recursion reaches every nested position, and type predicates see the cell-ref map's type. Only delivering the payload itself passes all observations.
+2. **Rethrow then has nothing to recover the condition from.** `throw` receives only the payload plus context. Lexical context (a hidden retained variable beside an unwrapped catch binding, with `(throw e)` rewritten syntactically) does not travel with the value — and the contract already exercises flows that break it: `capture` returning `e`, `cell/set!` saving `e`, rethrow from a later activation ([exception_contract.clj](file:///Users/sto/workspace/datomworld/test/yang/call/exception_contract.clj)). A content-keyed side table forwards any equal forged map, violating R5's "shape is never evidence" and the condition-shaped-thrown-map scenario. An identity-keyed table is impossible for data payloads: equality in [values.cljc](file:///Users/sto/workspace/datomworld/src/cljc/yin/vm/values.cljc) and [data.cljc](file:///Users/sto/workspace/datomworld/src/cljc/yin/vm/data.cljc) is content equality (closures compare owner+payload); the only identity-bearing values are cell-refs, issued by `issue-ref` in [engine.cljc](file:///Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:317). Maps, vectors, strings, and `nil` have no identity to key on.
+3. **The hinted half-fixes each close at most one horn.** Binding the witness to the cell ID would convert replay/mutation into fail-closed refusal — but cell contents are guest-writable (`cell/set!`, engine §cell ops) and no immutable or private cell kind exists, so §8.10.7's "outside source-writable attributes… for its entire lifetime" association still cannot be *preserved*, only detected after destruction; and it leaves every observation leak in (b) untouched. A VM-typed transparent wrapper delegating all data ops, hashing, printing, and branching would not be a clojure-side patch — it is a new kernel value semantics requiring an owner/VM ruling, and it still founders on serialization and content equality. Per-call-site unwinding is already refuted by the aliased-predicate result: the rewrite depends on the call's spelling.
+
+This is an exhaustion argument, not a missing trick: provenance must ride the value's identity (absent for data), its representation (observable — the wrapper), lexical scope (does not travel), or content (forgeable and colliding). The outcome channel offers no fifth place.
+
+## Why this is precisely the R4 failure
+
+R4 permits the outcome channel only with equivalence proof across caught/uncaught/protocol-rethrow/binding/higher-order plus cross-unit cases. The same source program now observably differs by lane: an intra-unit throw binds the payload itself in `catch`, while a cross-call throw binds the wrapper — `(= e original)` true on one path, false on the other, regressing the Round-0 green `[:clojure :python :round-trip]` row measured in [exception_legs.clj](file:///Users/sto/workspace/datomworld/test/yang/call/exception_legs.clj:44), where `original` is clojure's own `(cell/new :original)`. That is a exhibited counterexample to the equivalence, at exactly the §8.10.9 bar. The owner pre-authorized this outcome: "(A) now, (B) if R4 proof fails."
+
+## Why (C) is not available
+
+§R2(1) and §8.10.7 rule 1 say a valid payload is "delivered UNCHANGED" / "restores its original type and identity" — unqualified. Narrowing that text requires a new owner ruling superseding v2, not an architect's reinterpretation; and it would not even save the row, since the round-trip payload *is* a value clojure itself minted and recognizes.
+
+## What survives, and what the fallback round must do
+
+**Survives from R3:** the P1-3 principle (condition stored and forwarded intact, no `:dsg__condition` stamping/stripping on the payload map); the reason classification at the bridge (thrown vs. qualified protocol reasons vs. fresh wrap); the `ex-message`/`ex-data` payload semantics (which become plain keyword lookup once `e` is the payload); all R3 regression tests and the strengthened P2-4 outer-contract assertions, re-targeted as the fallback's acceptance tests; and the reviewer's seven observation probes plus replay/mutation probes, added as permanent tests.
+
+**Dies:** the wrapper cell and its contents-as-authority, `dsg__condition_retained`/`dsg__visible_of`, and every per-call-site visible-operand/predicate router.
+
+**The fallback round must:** (1) install the exception bridge before argument binding on every published clojure entry (function, closure, higher-order), reading `:yang.call/raise` and delivering escaping exceptions and binding failures exactly once with §8.10.8 cleanup first, mirroring the py/ts/php pattern; (2) lower `try`/`throw` on the capture/raise-exit lane so a `:yang.call/thrown` catch binds the payload unchanged with *no* retention object at all — its condition is reconstructible as `{:reason :thrown :value payload}`; (3) deliver protocol conditions as a generated local form whose retention association is keyed by a fresh cell identity in a task-owned structure the decoder reads (never guest-readable cell contents), satisfying §8.10.7's lifetime clause including stored/rethrown-from-another-activation; (4) re-run the full R4 scenario set (caught, uncaught, protocol-rethrow, binding, higher-order, cross-unit clojure→clojure and clojure→python→clojure) plus the ledger rows on both VM lanes; and (5) record the accepted cost — `%capture` on the try path ends the outcome channel's cell-free, constant-depth error path, a purity the wrapper round had already breached.
+
+**(B)** — the outcome channel cannot simultaneously deliver payload identity to ordinary guest code and retain a condition for rethrow, because data payloads carry no identity for provenance to ride; this is the R4 equivalence failure, and the owner-authorized raise-exit continuation fallback applies.

@@ -1,0 +1,37 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+All fixes are complete, committed, and pushed. Here is the final report.
+
+---
+
+## Completed
+
+**Completed-GMT:** 2026-11-11 17:27:25 GMT
+**Completed-Local:** 2026-11-12 00:27:25 +07 (+0700)
+
+Fixed the three review findings on `exception-vm-provenance` (commit `566c5450`, pushed `ff8b980a..566c5450`). No files touched outside the finding list.
+
+### Per-finding dispositions
+
+**P1-1 — REPL single-form bypass → FIXED** `src/cljc/yang/clojure.cljc:3096`
+`yang.clojure/compile` (the single-form entry the REPL's `clojure-lower` routes through) now runs the same `check-program-symbols!` reserved-prefix pre-pass that `compile-program` already ran. Verified: `(yang/compile '(cell/dsg__new-provenance 42 {:direct true}))`, `(cell/dsg__provenance x)`, and `(fn [dsg__x] dsg__x)` are all now refused with the `dsg__` symbol named, while ordinary literals still compile. Trusted compiler construction is preserved — it never reaches `compile` (it builds `dsg__` temporaries via `compile-form` directly).
+
+**P1-2 — Macro-output admission hole → FIXED** `src/cljc/yin/vm/macro.cljc:583` (helper) + `:1497` (admission)
+Added `reserved-prefix-defect`, which scans a macro's output packet for any compiler-private (`dsg__`) name in an executable position — `:variable`, `:lambda` binder, `:vm/store-get`/`:vm/store-put` key, and a `yin/def` definition target assembled by `yin/application` (the `yin/make-def` bypass). `expand-call` now refuses such an output before it can be applied. A `:literal` holding a quoted `dsg__` symbol stays inert data; legitimate compiler-generated `dsg__` occurrences live in retained source syntax, never in a macro's output, so they are preserved.
+
+**P2 — mint accepts nil provenance → FIXED** `src/cljc/yin/vm/engine.cljc:2812`
+The `:cell/new-provenance` handler now refuses a nil `:provenance` before allocation (`{:reason :nil-provenance}`), so a marked cell can never be indistinguishable from an unmarked one.
+
+### Test strengthening
+
+`test/yin/vm/provenance_test.cljc` — replaced the `m/invoke`-only test with `macro-door-is-refused-at-expansion-test`, which drives `expand-batch` (not unvalidated `invoke`) and exercises **both** bypass classes: a quoted door packet returned for indirect application, and a `yin/def` target assembled via `yin/application`. Added `mint-refuses-nil-provenance-test` covering the P2 refusal across all four VMs.
+
+### Verification
+
+- `yin.vm.provenance-test`: 14 tests / 141 assertions, 0 failures.
+- Seam suites (`cell`, `module`, `effect-forgery`, `rule-r`): 54 tests / 545 assertions, 0 failures.
+- `yang.clojure-test`: 95 tests / 922 assertions, 0 failures.
+- `yin.vm.macro-test`: 25 tests / 188 assertions, 0 failures.
+- clj-kondo: 0 errors, 1 warning — the same pre-existing redundant-`let` in `macro/construct` (now at `:817`, shifted by my insertion; present on the base commit).
+- The contract test was **not** run, per the brief.
+
+**FINDINGS CLOSED**

@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Verification complete. The branch and worktree were left untouched (the r3-orch worktree's staged c9c5533c state is exactly as I found it; my verification ran on a gitignored scratch copy of the fbd8da0f tree under `target/r3-verify`, and the temporary harness namespace is deleted).
+
+## Verdict — written to `collab/exception-track/1794371000000-reviewer-r3-A-design-confirm.glm-5.3.findings.md`
+
+**Part 1 — every probe answers the payload, both lanes identical.** One wrinkle worth knowing: the worktree's disk is pinned at c9c5533c (fbd8da0f was committed from elsewhere and moved the branch ref underneath a 05:51 reset), so I materialized the fbd8da0f tree verbatim (copy + `git show` of the four changed files) before testing. Actual raw values, walker ≡ semantic on every row:
+
+- `(= e orig)` `true`; `(= [e] [orig])` `true`; `(get {orig :found} e :missing)` → `:found`; `(count e)` → `2`; `(assoc e :a 2)` → `{:a 2 :c 3}`, read back `2`
+- caught `nil`: `:falsey`, `(= e nil)` → `true`
+- `(vector? e)` and `((fn [p] (p e)) vector?)` → `true true`; `(= e [1 2 3])`, `(count e)` → `true 3`
+- `(= e original)` with `original` = `(cell/new …)` → `true`; `ex-message`/`ex-data` → `"boom"` `{:x 1}`
+- escaping thrown condition → `[:yin.k/error {:foreign/payload :identity}]` — payload raw, extra evidence dropped
+- wrapper accessors → reason + data; saved-retain rethrown from a later activation → the condition byte-identical
+- forgery: `(throw (cell/new (cell/get e)))` → copy `[false true :yang.call/not-callable]`, crosses as itself; both `cell/set!` probes (including the brief's exact `(cell/set! e (cell/get other))`) → `[:thrown {:reason :retained-cell, :effect :cell/set!}]`
+
+The committed battery reruns green at fbd8da0f: **103 tests / 993 assertions, 0 failures**. Reviewer-added: the `:retained` mark survives a forced GC cycle (5000 allocations past the 4096 threshold); `cell/retained?` on forged ref-shaped data is `false`, non-fatal; guest-spelled `cell/dsg__new-retained` is refused at compile by the pre-pass.
+
+**Part 2 — seam SAFE, authorization NEEDS-OWNER, and the work is separable.** No invariant breakage: the mark lives in the heap entry, no consumer rebuilds entries, GC sweeps whole entries (proven empirically), and 521 further tests / 6188 assertions across the VM seam suites (cell, heap-reclamation, module, effect-forgery) and all lane suites (engine, ast-walker, semantic, debruijn stack+register, parity, rule-r, mint) are green. The `set!` refusal is scoped by construction (only the prelude's wrapper mints, written once). The mint is unreachable from clojure guest source (pre-pass, any unquoted position) and from python/php/typescript (fixed cell vocabulary) — with one pre-existing caveat: the macro-expansion lane's dsg__ strength is unprobed (Rule R reserves only `yin/def`; exposure class unchanged from c9c5533c, so flagged as an S2 follow-up, not a blocker). The owner question is precise: may the cell module publish the issuer-side retained mint/query and may `:cell/set!` refuse marked cells — the mob's (A) included this seam, but the track's written authorization named only the (B) fallback. If the owner declines, the raw-payload half (which closes all seven leaks) lands without the VM change by reverting just the two wrapper forms to the witness versions. Minor: `state.md` heap-shape doc drift, and cljs/cljd/kondo lanes not run in this round.
+
+**CONFIRMED**

@@ -1,0 +1,61 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-11-11 11:42:13 GMT
+Completed-Local: 2026-11-11 18:42:13 +0700
+Model: deepseek-flash — independent architect; I did not read gpt-6-astra's verdict. Read-only: no repo files changed; the ruling is saved at `/Users/sto/.claude-deepseek/plans/read-users-sto-workspace-datomworld-coll-noble-floyd.md`.
+
+## 1. Is the structural claim (a) correct?
+
+**For Python and TypeScript: yes. For PHP: no, as written. For the implied contrast with the outcome model: no.**
+
+*Try families — the body is always an operand:*
+- Python `py/try` (`prelude.cljc:315-328`): `(body)` at :323 is followed by `py/restore!` and `orelse` in the same `do`. `py/try-finally` :329-338: `(let [v (body)] …)` at :335. The lowerer passes the body as a thunk (`lower.cljc:1736-1741`).
+- TypeScript `js/try` :1807-1817: `(let [v (body)] (do (js/restore! saved) v))` at :1815; `js/try-finally` :1818-1826. Lowering at `lower.cljc:2177-2190`.
+- PHP `php/try` :258-271 (`(body)` at :266, followed by restore/orelse); `php/try-finally` :272-281; lowering `lower.cljc:1926-1934`.
+- No frontend makes install/pop idempotent under TCO: the epilogue is data-dependent on normal return, so a tail call would skip the restore. The R1 bridge is structurally non-tail.
+
+*Published entries:*
+- Python `py/function-entry` :886-914: the code call at :909-910 is the value operand of `cell/set!`, inside the `py/try` thunk — two live frames during the body.
+- TypeScript entry :1597-1621: the code call at :1609-1615 is the tail of the thunk, but the thunk is the operand of `js/try`'s `let` (:1815) — at least one live frame per hop.
+- **PHP is the exception.** `php/make-function` :2672-2703 calls the code at :2697-2698 in the final `if` consequent — a tail position — and `php/make-closure` :4647-4656 delegates tail. The entry installs no bridge (the open R1 red row). PHP's linear growth instead comes from the return escape: `return e` → `(%ret e)` (`lower.cljc:2943-2947`), and a has-return body runs under `php/call-ec` (:3160), so `return f(n-1)` puts the call in operand position. R1's pending bridge will make the PHP entry non-tail too.
+- The return/call-ec escape makes recursive calls operands in **all three** (`py lower.cljc:1753-1758`, `ts lower.cljc:2070-2073`, `php lower.cljc:2943-2947`). So the growth is broader than "try or published entries": every value-returning recursion.
+
+**The outcome model is not constant through `try` either.** Portable `try` lowers to a `dsg__let` binding the body's outcome (`clojure.cljc:1126-1143`), and `compile-let-simple` compiles the value with `tail? false` (:1814-1832, value at :1823). Handler-crossing recursion is non-tail in both encodings. The outcome model's constant depth covers only handler-free tail chains — the `:clj/outcomes?` tail path (:1563-1571) plus the `:outcomes`-gated intra-unit lane (`intra-unit-fn?` :1459-1467, private lane :1313-1336), exactly what `test-outcome-common-call-depth` :1584-1618 measures (no try).
+
+## 2. Is (b) fair?
+
+**No, not as a design justification.** The design declares the opposite:
+- `yang.antlr.md:1396-1398`: "Continuations are heap data on all four VMs, so nothing overflows; a depth counter in a cell is prelude code."
+- `yang.antlr.md:1678-1682, 1694-1728`: Python's `RecursionError` *is* that counter, at `:call`/`:return`, and only under the recursion profile ("Naive mode is therefore not complete CPython recursion accounting", :1717-1721).
+- `yang.typescript.md:1264-1267`: "JS has no `RecursionError`: a `RangeError` … is available as a profile-pinned depth … default off; continuations are heap data"; :1595-1596: "no stack-depth `RangeError` by default". TS `safepoint.cljc:22-24`: no depth accounting. PHP `safepoint.cljc:2-4,17-30`: a bounded-run tick, not depth.
+
+Native runtimes do not add a call frame for a `try` (CPython 3.9.6's block record — the profile's reference, py `prelude.cljc:138-143`; V8 handler tables; PHP try opcodes). Growth is per call, not per handler. The encoding's non-tail try body is a lowering artifact. Guest-visible parity holds only for Python, and only because the limit is emulated; for JS/PHP the encoding is *more permissive* than native (heap growth instead of `RangeError`/stack failure). The honest claim is "consistent with the heap-continuation design", not "honest to the source language".
+
+## 3. Is (c) second-order or first-order?
+
+**Second-order in practice, with corrections.** The worst class (backtracking search / recursive descent where failure is normal) cannot be rewritten to `loop/recur` without an explicit stack (failure must return to an outer choice point; `recur` only re-enters the same loop). But the port does **not** regress this class: the outcome model is equally linear through try (Q1). The port's real regression is **handler-free tail chains**, which the outcome model keeps constant but native JVM Clojure does not (StackOverflowError on non-`recur` mutual tail calls) — so the port is no worse than native Clojure, and Clojure source can use `loop/recur`. Bounds: Python's 1000-frame emulated limit caps the growth at a few thousand VM frames; TS/PHP have no source limit, but native runtimes fail at comparable depths, and the composition-level fuel/safepoint bound (PHP bounded run, JS signals) is the right control. It is first-order only for unbounded adversarial nesting in TS/PHP — where a fuel bound, not a different exception encoding, is the remedy. (c) is also incomplete: entry bridges (py/ts) and return escapes (all three) make plain value-returning recursion linear, not just handler scopes. Loops are constant only because the loop self-call is placed outside the body's try (`py lower.cljc:1613-1628`, self-call :1626).
+
+## 4. The uniform probe (d)
+
+**Build it; pin only the constant case.** Do not make linearity a contract: (i) a lower bound on resource use fails when performance improves; (ii) slopes differ (py ≈2 frames/hop from entry try + `set!`; ts ≈1 from the entry try; php ≈1 from the return escape) and framing differs per VM; (iii) the linear profile is an implementation artifact, not a §8.10.7 semantic; (iv) making it universal means deleting/inverting the existing Clojure constant-depth pin — freezing the loss the probe should surface; (v) the outcome model is linear through try too, so "uniform linear" does not distinguish encodings.
+
+Exact assertions, per frontend, per vector backend (semantic/stack/register), measured with a stepper over the whole run (not at halt):
+- `iteration-constant` (hard): max continuation length for N=1000 equals N=10 (tolerance ≤ +1); repeat at N=100000 where budget allows — the Python safepoint gate already does 10 vs 100000 (`safepoint_test.cljc:430-447`).
+- `handler-crossing-ceiling` (soft, `^:slow`): same-shape recursive probe (base case throws, catch outside the recursive call) at N=10/100; assert `maxdepth(100) ≤ 4*maxdepth(10)+64` and `≤ 464`. Catches superlinear/quadratic growth and passes if depth later becomes constant. Never assert a lower bound.
+- Python-only source semantics: `f(999)` completes, `f(1000)` raises `RecursionError`, `probe(1)` finds the limit (existing `safepoint_test.cljc:483-494`, whose probe recurses through a try).
+- TS/PHP: no source recursion-depth error exists to pin; do not invent one.
+- Clojure until/unless the port lands: keep `test-outcome-common-call-depth` as a frontend-local pin for handler-free tail chains; do not put it in the cross-frontend kit (the other three would fail, and after a port Clojure would too).
+
+Mechanics: `h/run-linked` runs to completion and returns only the value (`linked_harness.cljc:177-191`), so the kit needs a `run-linked-depth` that steps and tracks `(count (vm/continuation task))` (all three vector VMs expose vector continuations; pattern: `safepoint_test.cljc:420-427`). Same shape, not same text: Clojure portable try (one catch, no `finally`), JS untyped catch, Python/PHP typed catches.
+
+## 5. Interaction with the owner's arc
+
+**No, the depth consideration does not change the (B) decision as framed.** Under the clarified veto (the divergence is the target; the VM seam declined), the depth cost is a consequence to price. It is not an advantage for the handler-crossing class at all; it is an advantage only for handler-free tail chains, which native Clojure/JVM does not guarantee either.
+
+The concrete trigger that *would* change the decision: the LaTTe oracle corpus is the one admitted workload documented to rely on tail marks — "Tail positions are untouched … so deep guest recursion stays tail" (`test/yang/latte_oracle/attribution_inventory.md:43`) — and its one `try` is adapted to the outcome model, not a deep recursive handler chain (`unfold_implicit.edn:1-19`). If a port removes the intra-unit private lane (`:outcomes`-gated, `clojure.cljc:1459-1467`) and the measured max continuation depth on the LaTTe corpus grows from constant to O(depth) beyond a stated bound (proposal: any corpus workload >10× its pre-port max depth, or >10,000 frames), that is a first-order cost the owner must see before signing. Remedy: preserve an intra-unit private tail lane in the port — no VM change. A VM seam is neither necessary nor authorized; do not re-open the veto under this ruling.
+
+The steward's acceptance criteria (kit green, explicit LaTTe depth measurement, uniform probe) are right, with the probe amended per Q4.
+
+## Verdict
+
+**CORRECT WITH AMENDMENTS.** The bottom line is right — the continuation encoding's non-tail try bodies and entry/return boundaries make may-fail recursion grow linearly, that growth is currently unmeasured for py/ts/php at the kit level, and the yang.clojure port will inherit it, so a measured probe is warranted. But four stated mechanisms need correction: (1) the outcome model is equally non-tail through `try`; its constant depth covers only handler-free tail chains, so this is not a distinguishing property for handler-crossing workloads; (2) "every published entry" is false for current PHP, whose function and Closure entries are tail calls with no bridge — growth there comes from the return escape, and only R1's pending bridge makes the statement true; (3) native parity is the wrong justification — the design deliberately makes continuations heap data with no overflow and JS/PHP stack failure a profile-pinned option, default off, so the encoding is honest to the design, not the source runtime; (4) (c)'s "only through handler scopes" is incomplete — entry bridges (py/ts) and return escapes (all three) make every value-returning recursion linear, and loops are constant only because the loop self-call sits outside the try body. The uniform probe should assert only the constant case; record the linear case as a measured property with an upper-bound ceiling, never as a linearity guarantee.

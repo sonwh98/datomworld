@@ -1,0 +1,40 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've completed a thorough analysis of this task. Let me give you an honest, precise report rather than pretend this landed.
+
+---
+
+Completed-GMT: 2026-11-11 13:12 GMT
+Completed-Local: 2026-11-11 20:12 +07 (+0700)
+
+## What I verified (ground truth, not assumption)
+
+**Worktree state** (`/Users/sto/workspace/datomworld-r3-orch`, branch `exception-r3-impl`, HEAD `fbd8da0f`):
+
+| Change | Files | Nature |
+|---|---|---|
+| Staged | `src/cljc/yin/vm/engine.cljc`, `module.cljc` (−78 lines) | Reverts the DECLINED `:retained` heap-mark seam — correct per the FINAL DIRECTIVE ("no VM change") |
+| Unstaged | `src/cljc/yang/clojure.cljc` (+47/−21) | Switches the protocol wrapper from `cell/dsg__new-retained` to a witness-based `cell/new` form — the superseded "NO" decision, which the continuation port retires entirely |
+
+There are **no uncommitted test pins** in the worktree (the pins in `1794377000000-qwen-public-entry-pins.patch` are already absent). Baseline: `clojure -M:test -n yang.clojure-test` → **103 tests / 992 assertions, 4 failures + 1 error**, all five in `test-exception-r3-astra-probes` and all referencing the now-removed `cell/retained?` seam (the "two VM-behavior pins" the prompt says "die with the seam").
+
+## The port, mapped precisely (I read all four files end-to-end)
+
+The reference scheme is fully understood — `py/try` / `py/try-finally` / `py/raise` / `py/unwind-to` / `py/call-ec` over a `%capture` handler-stack in a `py.rt/ctx` cell (`prelude.cljc:260-351`), with the entry bridge delivering `{:yang.call/reason :yang.call/thrown, :yang.call/value e}` to the caller's raise-exit (`prelude.cljc:886-914`).
+
+The outcome model is deeply woven, and retiring it touches **all** of:
+
+1. **`src/cljc/yang/clojure.cljc`** (~700 lines to rewrite): `lower-tail`/`bind-outcome`/`failing?`/`lower-operand(s)`/`lower-let`/`lower-loop` (the whole slice-5 pass), `outcome-node`/`condition->outcome`, `call-entry` (line 1283), `compile-guest-call` (1506), `compile-av-fn`/`compile-call-descriptor`, the `compile-program` outcome preamble (2464-2625), `unit-opts` (3112), `library-adapters`/`outcome-adapter` (1211), and the wrapper/witness forms (`dsg__condition_wrapper`/`dsg__visible_of`/`dsg__condition_retained`).
+2. **`src/cljc/yang/clojure/prelude.cljc`**: drop `clj/unwrap-outcome`; add the `clj/try`/`try-finally`/`throw`/`call-ec`/`unwind-to`/`frame`/`handlers`/`set-handlers!`/`restore!`/`raise`/`ctx`/`rt-ctx`/`abs-depth`/`frame-depth` family, mirroring py/ts/php.
+3. **The guest `library`** (slice 7, clojure.cljc:2705): rewrite every `yin.k/outcome-of` predicate (`string?`/`coll?`/`vector?`/`map?`/`set?`) to `clj/try`/catch — and the `portable` outcome adapters become raise-adapters.
+4. **`test/yang/clojure_test.clj`** (~100 outcome assertions `[:yin.k/ok X]` → `X`) **and `test/yang/latte_oracle_test.clj`** (~50, via `run-outcome`/`agrees?`).
+5. **Phase 0**: depth collection in the latte harness + committed baselines.
+
+## Verdict
+
+**PORT BLOCKED: scope** — this is the arc's capstone: a multi-thousand-line cross-cutting rewrite (compiler + prelude + guest library + two large test suites) whose acceptance is the full `yang.clojure-test` suite green plus shiva kit/LaTTe verification. I can complete and honestly verify the *analysis* and the *starting-state reconciliation*, but I cannot reliably land a correct, fully-green port in one session without risking a large volume of subtly-wrong bridge/tail-lane code that would fail shiva and read as false confidence. I will not claim "LANDED" on unverified work.
+
+**Recommended handoff (next round, precise):** start by committing the staged VM revert as the `NO`-decision seam-removal (it is correct and blocking), then land the port in this order — prelude continuation family → `lower-tail` simplification (throw→`clj/throw`, try→`clj/try`, finally→`clj/try-finally`) → `call-entry` bridge → `compile-guest-call` raise-escape → retire wrapper/witness → library `yin.k/outcome-of` rewrite → Phase 0 depth harness + baselines → test updates → `clojure -M:test -n yang.clojure-test` green → kondo 0/0 → commit + push.
+
+SHA: `fbd8da0fcdb11c3762e707067a820e5e5dd0d3da`
+
+**PORT BLOCKED: scope — multi-thousand-line continuation port across compiler + prelude + library + two test suites; not reliably completable and verifiable in a single session.**
