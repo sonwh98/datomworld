@@ -188,8 +188,13 @@
    deliver the pinned base prelude, applied to a lambda returning nil.
    Every definition precedes every call, including require, so the linker's
    scanners discharge sibling and runtime-key reads. Defining runs nothing;
-   delivery never initializes either runtime."
-  (core/module-tree module-definitions [(u/sexp->uast '(require (quote js)))]))
+   delivery never initializes either runtime. C1 finalized, like every
+   published production tree: its `:yang/call-site` markers publish beside
+   its manifest (see `yin.vm.linker.publish`), never inside it, so the
+   manifest keeps schema 1 and its address does not move."
+  (u/annotate-call-sites
+    (core/module-tree module-definitions
+                      [(u/sexp->uast '(require (quote js)))])))
 
 
 (def module-exports

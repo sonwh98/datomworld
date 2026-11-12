@@ -2259,20 +2259,59 @@
                 (seq-of (lower-stmts ctx stmts)))))
 
 
+;; =============================================================================
+;; Call-site occurrence contract C1 (Addendum A, design §2)
+;; =============================================================================
+;;
+;; Every final `:application` occurrence of a tree this namespace answers
+;; carries the reserved frontend-metadata key `:yang/call-site` with
+;; version value `1` as a plain node key. Projection
+;; (`yin.vm/ast-side-tables`) drops the key from canonical rows and emits
+;; it into the EXISTING generic frontend-metadata side table as
+;; `[origin root-address path :yang/call-site 1]`, so provenance stays out
+;; of hashed content: canonical rows, roots, image addresses and
+;; executable outcomes are unchanged. The walk itself is
+;; `yang.core.uast/annotate-call-sites`; nothing here re-mints the key or
+;; the coordinate tuple. It is a distinct key from `:yang/site`, the
+;; safepoint mark, which travels as node metadata, and a distinct key
+;; FAMILY again from the exception track's runtime provenance doors
+;; `cell/dsg__new-provenance` / `cell/dsg__provenance`.
+;;
+;; Coverage is all-or-nothing: `yin.vm.encoder/program-batch` and
+;; `yin.vm.linker.publish/publish-module!` each refuse a tree whose
+;; markers do not exactly cover its eligible application occurrences. So
+;; each PUBLIC entry point below finalizes once, over its own complete
+;; tree, after canonical renaming and tail marking have settled it — and
+;; the private `lower-unit*` seam exists so `lower-units` and
+;; `lower-packet` compose unmarked units and walk the composed result a
+;; single time, rather than leaving their own wrapper applications
+;; (`js/run-main`, the two `require`s, `js/init!`, the sequencing lambdas)
+;; unclaimed beside a marked unit.
+
 (defn lower-module-body
   "The module's statements as one node, before the runtime wrapper: what
-   lowering goldens compare."
+   lowering goldens compare. C1 finalized, like every tree this namespace
+   answers."
   [packet]
-  (module-body (context packet)))
+  (u/annotate-call-sites (module-body (context packet))))
+
+
+(defn- lower-unit*
+  "`lower-unit` before C1 finalization: the seam `lower-units` and
+   `lower-packet` compose, so each of them finalizes once over its own
+   complete tree."
+  [packet]
+  (let [ctx (context packet)]
+    (u/lam [(:this ctx)] (module-body ctx))))
 
 
 (defn lower-unit
   "One separately scoped module body as a function of its shared global
    receiver. Keeping this seam lets a host compose independently parsed
-   units without concatenating source or reinitializing the runtime."
+   units without concatenating source or reinitializing the runtime.
+   C1 finalized."
   [packet]
-  (let [ctx (context packet)]
-    (u/lam [(:this ctx)] (module-body ctx))))
+  (u/annotate-call-sites (lower-unit* packet)))
 
 
 (defn- with-runtime
@@ -2290,10 +2329,11 @@
 (defn lower-units
   "A complete program for multiple separately parsed units. The runtime is
    installed and initialized once; each unit receives its own lexical body
-   while sharing the same global object and output stream."
+   while sharing the same global object and output stream. C1 finalized
+   once, over the composed tree."
   ([packets] (lower-units packets {}))
   ([packets {:keys [prelude], :or {prelude :bundled}}]
-   (let [units (mapv lower-unit packets)
+   (let [units (mapv lower-unit* packets)
          main (names/canonicalize
                 (app* 'js/run-main
                       (u/lam ['this]
@@ -2301,13 +2341,13 @@
                                (u/seq-nodes
                                  (mapv (fn [unit] (u/app unit (u/v 'this))) units))
                                (u/lit :js/undefined)))))]
-     (with-runtime prelude main))))
+     (u/annotate-call-sites (with-runtime prelude main)))))
 
 
 (defn lower-packet
   "The complete program for one ok packet: the module body run by
-   `js/run-main`, generated names canonicalized, tail calls marked. Its
-   value is `{:js/out [...] :js/uncaught nil-or-snapshot}`.
+   `js/run-main`, generated names canonicalized, tail calls marked, C1
+   finalized. Its value is `{:js/out [...] :js/uncaught nil-or-snapshot}`.
 
    `:prelude` selects how the runtime profile arrives: `:bundled` (the
    default) carries the prelude tree ahead of the body; `:linked` requires
@@ -2315,8 +2355,8 @@
    the task's runtime state with `(js/init!)`."
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
-   (let [main (names/canonicalize (app* 'js/run-main (lower-unit packet)))]
-     (with-runtime prelude main))))
+   (let [main (names/canonicalize (app* 'js/run-main (lower-unit* packet)))]
+     (u/annotate-call-sites (with-runtime prelude main)))))
 
 
 (def program-medium
