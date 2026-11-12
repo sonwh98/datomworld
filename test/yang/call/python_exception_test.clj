@@ -3,11 +3,13 @@
    are parsed source; malformed protocol delivery uses the shared boundary kit.
    The focused local gate for the exception-py-r2r3 round: the python subset of
    the shiva acceptance instrument, never a substitute for the full ledger."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [yang.call.conformance :as kit]
             [yang.call.exception-contract :as contract]
             [yang.call.exception-legs :as legs]
-            [yang.call.exception-probes :as probes]))
+            [yang.call.exception-probes :as probes]
+            [yang.python.antlr.prelude :as py-prelude]))
 
 
 (defn- check-fixture
@@ -27,6 +29,25 @@
     (testing (str id)
       (doseq [[backend actual] (legs/run-leg leg)]
         (is (= (legs/expected leg) actual) (str backend))))))
+
+
+(deftest python-provenance-export-surface-test
+  (let [private-names '#{dsg__condition-exception cell/dsg__new-provenance
+                         cell/dsg__provenance}
+        exposed? (fn [x]
+                   (some #(str/includes? (str x) %)
+                         ["dsg__" "provenance" "condition-exception"]))
+        public-private-users
+        (into #{}
+              (keep (fn [[k form]]
+                      (when (and (= "py" (namespace k))
+                                 (some private-names (tree-seq coll? seq form)))
+                        k)))
+              py-prelude/definitions)]
+    (is (not-any? exposed? (concat py-prelude/module-exports py-prelude/runtime-keys)))
+    ;; Only reception and egress may use the private constructor and reader.
+    ;; This also catches a renamed mint-wrapping helper.
+    (is (= '#{py/call-kw py/function-entry} public-private-users))))
 
 
 (deftest ^:slow python-foreign-reception-test
