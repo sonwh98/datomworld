@@ -1880,7 +1880,13 @@
                (cell-entry-node {:yang.call/reason :yang.call/not-callable
                                  :yang.call/data {:yang.call/callee :target}})
                lane))
-          (str lane ": the caught condition is a plain map, never a cell")))))
+          (str lane ": the caught condition is a plain map, never a cell"))))
+  (testing "ordinary cells remain authentic and mutable after retention retirement"
+    (is (= [:yin.k/ok [true 2]]
+           (run-library
+             '[(let [c (cell/new [1 2])]
+                 [(cell/authentic? c)
+                  (do (cell/set! c [3 4]) (count (cell/get c)))])])))))
 
 
 (deftest test-outcome-safe-get
@@ -1989,6 +1995,13 @@
   ;; model no longer adapts primitives. The host `outcome-adapter` helper
   ;; itself is unchanged and still catches only the module's own refusal.
   (is (= [:yin.k/ok 2] (run-outcome '[(data/nth [1 2] 1)])))
+  (testing "retired adapters leave the original data/nth host refusal intact"
+    (let [failure (try (run-outcome '[(data/nth [1 2] 5)])
+                       nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+      (is (= data/refusal-message (some-> failure ex-message)))
+      (is (= 'nth (:yin.vm.data/op (ex-data failure))))
+      (is (= :out-of-range (:yin.vm.data/reason (ex-data failure))))))
   (testing "the adapter catches only the module's own refusal"
     (let [other (yang/outcome-adapter
                   data/refusal-message
@@ -3169,14 +3182,23 @@
                             1) (defn f
                                  [x]
                                  (+ x 41)) (f 1)])))
-    ;; `yin.k/outcome-of` is retired with the outcome model: a def value is
-    ;; a plain value, and a source `first` shadows the data/nth `first` the
-    ;; way any top-level defn would.
-    (is (= [:yin.k/ok 99]
-           (run-outcome '[(defn first
+    ;; `yin.k/outcome-of` is retired: failure in an early def transfers out
+    ;; instead of becoming a nested outcome value. The later defn cannot
+    ;; retroactively supply that call; successful def values remain plain.
+    (let [[tag condition] (run-outcome '[(def early (first [10 20]))
+                                         (defn first
+                                           [xs]
+                                           99)
+                                         [early (first [10 20])]])]
+      (is (= :yin.k/error tag))
+      (is (= :yang.call/not-callable (:yang.call/reason condition)))
+      (is (identical? first (get-in condition [:yang.call/data :yang.call/callee]))))
+    (is (= [:yin.k/ok [10 99]]
+           (run-outcome '[(def early (data/nth [10 20] 0))
+                          (defn first
                             [xs]
                             99)
-                          (first [10 20])])))
+                          [early (first [10 20])]])))
     (is (= [:yin.k/ok 42]
            (run-outcome '[(defn f
                             [x]
