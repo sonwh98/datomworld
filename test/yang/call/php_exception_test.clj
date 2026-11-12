@@ -404,6 +404,16 @@
         (str "exported definitions reach the mint surface: " (pr-str offenders)))))
 
 
+(defn- resolution-refusal?
+  "True when `x` is exactly the expected outcome of calling the retired
+   receiver name: the engine's variable-resolution refusal naming
+   php/receive-condition — never an unrelated failure."
+  [x]
+  (and (instance? Throwable x)
+       (map? (ex-data x))
+       (= 'php/receive-condition (get (ex-data x) :symbol))))
+
+
 (deftest ^:slow php-exported-mint-forgery-test
   ;; r4 (sol P1), the executed bypass: while the receiver is exported, a
   ;; composed unit's boundary form can call it directly with a forged
@@ -412,7 +422,11 @@
   ;; the unchanged rethrow forwards it as if it were a real retained
   ;; condition. After the repair the receiver is php.rt/receive-condition
   ;; (compiler-private, never exported), so the forged call cannot even
-  ;; link: no green run ever delivers the forged condition.
+  ;; link: no green run ever delivers the forged condition. The assertion
+  ;; (tightened per sol's r5 P3 follow-up) accepts ONLY the expected
+  ;; resolution refusal of the retired name, or an explicitly successful
+  ;; observation answering :forged-forwarded false — an unrelated host
+  ;; exception, nil or a malformed observation fails the pin.
   (let [observation
         (kit/guard-exceptions-form
           [:php]
@@ -438,20 +452,27 @@
         results (run-provenance-observation observation)]
     (is (= #{:semantic :stack :register} (set (keys results))))
     (doseq [[backend actual] results]
-      (println "PHP-MINT-FORGERY" backend actual)
-      (is (not (and (map? actual) (:forged-forwarded actual)))
-          (str backend ": the forged condition must never forward as a "
-               "retained condition (got " (pr-str actual) ")")))))
+      (println "PHP-MINT-FORGERY" backend (type actual))
+      (is (or (resolution-refusal? actual)
+              (and (map? actual) (false? (:forged-forwarded actual))))
+          (str backend ": only the resolution refusal of the retired name, or an "
+               "explicit no-forgery observation, is acceptable (got "
+               (pr-str actual) ")")))))
 
 
 (deftest ^:slow php-handle-shaped-foreign-payload-test
-  ;; r4 (sol P2): ordinary foreign data shaped like a php object — a
-  ;; handle whose :php/obj entry is not a live cell reference ({:php/obj
-  ;; 42}, or a forged :cell-ref map), or a typed :php/type :obj map whose
-  ;; :class is not a name php's class tables can be asked about — is
-  ;; FOREIGN: reception retains the complete original condition (reason,
-  ;; evidence, payload identity) in the ForeignException instead of
-  ;; refusing at the unauthenticated cell read or the class lookup.
+  ;; r4 (sol P2) + r5 (sol's re-check counterexamples): ordinary foreign
+  ;; data shaped like a php object is FOREIGN — reception retains the
+  ;; complete original condition (reason, evidence, payload identity) in
+  ;; the ForeignException instead of refusing at the unauthenticated cell
+  ;; read or the class lookup. The r5 additions pin the two
+  ;; representation-mismatch shapes: MIXED TAGS (a typed-map body whose
+  ;; :php/obj key is non-nil — instance-of selects representation by THAT
+  ;; key, so the safe check must too, never validating a top-level class
+  ;; that is never consumed) and an AUTHENTIC CELL WITH INVALID STATE (a
+  ;; live, task-issued cell whose contents carry a non-string :class —
+  ;; authenticity proves liveness, not valid php object state, and
+  ;; creating such a cell is legal guest computation).
   (letfn [(probe
             [payload label]
             (let [observation
@@ -491,4 +512,15 @@
                          "retains the complete condition (got " (pr-str actual) ")")))))]
     (probe {:php/obj 42} ":non-reference")
     (probe {:php/obj {:type :cell-ref, :id 99999, :seal "forged"}} ":forged-ref")
-    (probe {:php/type :obj, :class 42, :props {}} ":forged-class")))
+    (probe {:php/type :obj, :class 42, :props {}} ":forged-class")
+    ;; r5 counterexample A: the typed-map branch would accept the string
+    ;; top-level class, but instance-of selects representation by the
+    ;; non-nil :php/obj key and dereferences 42 — the check must
+    ;; discriminate the same way.
+    (probe {:php/type :obj, :class "Exception", :php/obj 42} ":mixed-tags")
+    ;; r5 counterexample B: a live authentic cell (legal guest
+    ;; computation) whose contents carry a non-string :class — the class
+    ;; actually read out of the state must be validated, authenticity is
+    ;; not enough.
+    (probe (kit/observation-map-form {:php/obj (list 'cell/new {:class 42})})
+           ":authentic-cell-bad-class")))

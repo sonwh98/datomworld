@@ -2835,27 +2835,33 @@
                                                written "()"))))))]
     [php/obj-val?
      ;; §8.10.7 reception safety: is `v` a value php's own machinery could
-     ;; have produced as an object — a sealed-state handle `{:php/obj cell}`
-     ;; whose entry is a LIVE AUTHENTICATED cell reference (the VM's own
-     ;; total boolean predicate — never a refusal), or a typed map
-     ;; `{:php/type :obj ...}` (the no-methods error map) whose :class is a
-     ;; string php's class tables can be safely asked about? This is the
-     ;; ONLY safe object test for an arbitrary guest value: `php/kind`
-     ;; assumes whatever is not null/bool/string/array/obj is a number and
-     ;; calls `data/float-value` on it, and `php/throwable?`'s instance-of
-     ;; reads the class out of the handle's cell (`cell/get`) and
-     ;; lower-cases it (`php/lc`) — both REFUSE on foreign data. Ordinary
-     ;; foreign data shaped like a handle (`{:php/obj 42}`, a foreign map
-     ;; holding a forged `:cell-ref` under the key) or a typed map with a
-     ;; forged :class therefore answers false here and is FOREIGN, so only
-     ;; an authenticated candidate ever reaches the Throwable test.
+     ;; have produced as an object? The discriminator is the SAME one
+     ;; php/instance-of uses downstream — the `:php/obj` KEY, not the
+     ;; typed-map tags: a non-nil handle marker selects the HANDLE branch
+     ;; here and the handle branch there, so a value can never be validated
+     ;; as one representation and consumed as the other (the mixed-tags
+     ;; counterexample: `{:php/type :obj :class "Exception" :php/obj 42}`
+     ;; must not pass a map-only check whose class instance-of never
+     ;; reads). Handle branch: the entry must be a LIVE AUTHENTICATED cell
+     ;; reference (the VM's own total boolean predicate) AND the state
+     ;; actually consumed downstream must be valid — the :class read out of
+     ;; the cell is a string php's class tables can be safely asked about,
+     ;; because authenticity proves the reference is live and task-issued,
+     ;; NOT that its contents are php object state (a guest legally mints
+     ;; `(cell/new {:class 42})`). Map branch (no handle marker): the
+     ;; no-methods error map `{:php/type :obj ...}` with a string :class.
+     ;; Everything else — `php/kind`'s number fallthrough, non-string
+     ;; classes, forged or dead references, non-map contents — answers
+     ;; false and is FOREIGN: only a candidate that survives the SAME
+     ;; reads instance-of performs ever reaches the Throwable test, and no
+     ;; unauthenticated or unvalidated dereference ever happens.
      (fn [v]
-       (if (nil? (get v :php/type))
-         (if (nil? (get v :php/obj))
-           false
-           (cell/authentic? (get v :php/obj)))
+       (if (nil? (get v :php/obj))
          (if (= (get v :php/type) :obj)
            (data/string? (get v :class))
+           false)
+         (if (cell/authentic? (get v :php/obj))
+           (data/string? (get (cell/get (get v :php/obj)) :class))
            false)))]
     [php.rt/receive-condition
      ;; §8.10.7 reception, shared by every php call helper: classify the
