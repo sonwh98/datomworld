@@ -8,10 +8,14 @@
 
 
 (deftest tick-fixtures-test
-  (doseq [{:keys [id source out units]} p7b/fixtures
+  (doseq [{:keys [id source out units uncaught status diag]} p7b/fixtures
           :when (nil? units)]
     (testing (name id)
-      (is (= out (:php/out (h/run-raw (str "<?php " p7b/prologue source))))))))
+      (let [result (h/run-raw (str "<?php " p7b/prologue source))]
+        (is (= out (:php/out result)))
+        (is (= uncaught (:php/uncaught result)))
+        (is (= status (get result :php/status 0)))
+        (is (= diag (:php/diag result)))))))
 
 
 (deftest include-handoff-test

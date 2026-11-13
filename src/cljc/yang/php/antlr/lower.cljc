@@ -3615,9 +3615,15 @@
     "parentheses" (lower ctx (first (core/rule-kids ctx n)))
     "ifStatement" (lower-if ctx n)
     "whileStatement" (lower-while ctx n)
-    "doWhileStatement" (lower-do-while ctx n)
-    "forStatement" (lower-for ctx n)
-    "foreachStatement" (lower-foreach ctx n)
+    ("doWhileStatement" "forStatement" "foreachStatement")
+    (let [node (case (:rule n)
+                 "doWhileStatement" (lower-do-while ctx n)
+                 "forStatement" (lower-for ctx n)
+                 "foreachStatement" (lower-foreach ctx n))]
+      (if (pos? @(:ticks ctx))
+        (u/then node (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks @(:ticks ctx)}]
+                                (u/lit :php/null)))
+        node))
     "switchStatement" (lower-switch ctx n)
     "breakStatement" (lower-escape ctx n :break)
     "continueStatement" (lower-escape ctx n :continue)

@@ -4481,19 +4481,22 @@
      (fn [entries callback i out]
        (if (< i (data/count entries))
          (let [entry (get entries i)]
-           (php/tick-remove entries callback (integer/add i 1)
-                            (if (= (get (cell/get entry) 0) callback) out (php/vconj out entry))))
+           (if (= (get (cell/get entry) 0) callback)
+             (if (get (cell/get entry) 2)
+               (php/throw-error "Error" "Registered tick function cannot be unregistered while it is being executed")
+               (php/tick-remove entries callback (integer/add i 1) out))
+             (php/tick-remove entries callback (integer/add i 1) (php/vconj out entry))))
          out))]
     [php/tick-dispatch
-     (fn [entries i]
-       (if (< i (data/count entries))
-         (let [entry (get entries i) value (cell/get entry)]
+     (fn [i]
+       (if (< i (data/count (cell/get php.rt/tick-functions)))
+         (let [entry (get (cell/get php.rt/tick-functions) i) value (cell/get entry)]
            (do (if (get value 2)
                  :php/null
                  (do (cell/set! entry (assoc value 2 true))
                      (php/try-finally (fn [] (php/call-value (get value 0) (get value 1)))
                                       (fn [] (cell/set! entry (assoc value 2 false))))))
-               (php/tick-dispatch entries (integer/add i 1))))
+               (php/tick-dispatch (integer/add i 1))))
          :php/null))]
     [php/tick-line
      (fn [line site]
@@ -4501,7 +4504,7 @@
          (if (< (integer/compare n (get site :ticks)) 0)
            (cell/set! php.rt/tick-count n)
            (do (cell/set! php.rt/tick-count 0)
-               (php/tick-dispatch (cell/get php.rt/tick-functions) 0)))))]
+               (php/tick-dispatch 0)))))]
     [php.sp/line (fn [line site] (php/tick-line line site))]
     [php/freeze-finalizable
      ;; step 4 frees without destructors: whatever is left counts as destructed
