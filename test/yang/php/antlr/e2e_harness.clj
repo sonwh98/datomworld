@@ -107,14 +107,15 @@
    and starts one per-run counter; no option leaves the AST unchanged."
   ([registry ast] (run-vms registry ast {}))
   ([registry ast {:keys [execution-budget envelope]}]
-   (let [ast (if (some? execution-budget)
+   (let [profile (cond-> hooks/ticks-profile
+                   (some? execution-budget) (merge hooks/profile))
+         ast (if envelope
                (let [projected (encoder/project envelope)
-                     derived (:envelope (safepoint/derive-envelope
-                                          projected hooks/profile :test/derived))
+                     derived (:envelope (safepoint/derive-envelope projected profile :test/derived))
                      tree (nth (:yin/batch derived) (:yin/root derived))]
-                 (hooks/program execution-budget
-                                (vm/semantic-bytecode->ast tree)))
+                 (vm/semantic-bytecode->ast tree))
                ast)
+         ast (if (some? execution-budget) (hooks/program execution-budget ast) ast)
          opts (assoc base-opts :modules registry)
          session (tu/make-observer-session (tu/create-vm {:modules registry}))
          datoms (vec (vm/ast->datoms ast))
@@ -167,7 +168,7 @@
   never sees request data."
   ([source] (run-raw source nil))
   ([source request]
-   (let [{:keys [ast diagnostics envelope]} (lower-program source request)]
+   (let [{:keys [diagnostics envelope]} (lower-program source request)]
      (if diagnostics
        {:diagnostics diagnostics}
        (let [derived (:envelope (safepoint/derive-envelope
