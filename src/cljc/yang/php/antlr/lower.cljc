@@ -3561,6 +3561,7 @@
                          (= "1" (leftmost-token-text ctx (first (core/rules ctx d "numericConstant"))))))
                      ds)
         body (first (core/rules ctx n "statement"))
+        semicolon? (and body (p/rule? (first (core/rule-kids ctx body)) "emptyStatement_"))
         tick-directive (some (fn [d]
                                (when (some #(and (p/token? %) (= "ticks" (str/lower-case (:text %))))
                                            (core/kids ctx d))
@@ -3571,7 +3572,7 @@
                      (catch #?(:clj Exception :cljs :default) _ (unsupported! n :ticks))))
         _ (when (and ticks (neg? ticks)) (unsupported! n :ticks))
         body-ctx (if (some? ticks) (assoc ctx :ticks (atom ticks)) ctx)
-        _ (when (and (some? ticks) (nil? body)) (reset! (:ticks ctx) ticks))]
+        _ (when (and (some? ticks) (or (nil? body) semicolon?)) (reset! (:ticks ctx) ticks))]
     (u/then (if (some? strict) (app* 'php/set-strict! (u/lit (boolean strict))) (u/lit :php/null))
             (if body (lower body-ctx body) (u/lit :php/null)))))
 
@@ -3590,7 +3591,11 @@
     "inlineHtml" (html-node ctx n)
     "phpBlock" (sequence-node (block-nodes ctx n))
     ("topStatement" "innerStatement" "statement" "namespaceStatement")
-    (lower ctx (first (core/rule-kids ctx n)))
+    (let [child (first (core/rule-kids ctx n))
+          node (lower ctx child)]
+      (if (and (= "statement" (:rule n)) (p/rule? child "yieldExpression") (pos? @(:ticks ctx)))
+        (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks @(:ticks ctx)}] node)
+        node))
     "globalConstantDeclaration" (lower-const ctx n)
     "echoStatement" (let [node (with-temps ctx n
                                  (sequence-node (echo-nodes ctx (first (core/rules ctx n "expressionList")))))]
@@ -3627,7 +3632,9 @@
     "arrayCreation" (lower-array ctx n)
     ("classDeclaration" "enumDeclaration") (lower-class ctx n)
     "declareStatement" (let [node (lower-declare ctx n)]
-                         (if (and (empty? (core/rules ctx n "statement")) (pos? @(:ticks ctx)))
+                         (if (and (let [body (first (core/rules ctx n "statement"))]
+                                    (and body (p/rule? (first (core/rule-kids ctx body)) "emptyStatement_")))
+                                  (pos? @(:ticks ctx)))
                            (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks @(:ticks ctx)}] node)
                            node))
     (core/default-arm diagnostic-ns "PHP" unsupported-rules n)))
