@@ -169,9 +169,10 @@
            src (or (:src opts) (source (name-env result) result))
            sites (:set (siteset/site-set-of ast))
            tree (vm/ast->semantic-bytecode ast)
-           ast (u/then (core-module/require-node 'php.sp)
-                       (vm/semantic-bytecode->ast
-                         (:tree (sp/insert tree (into {} sites) safepoint/ticks-profile))))]
+           ast (u/seq-nodes [(core-module/require-node 'php)
+                             (core-module/require-node 'php.sp)
+                             (vm/semantic-bytecode->ast
+                               (:tree (sp/insert tree (into {} sites) safepoint/ticks-profile)))])]
        {:warnings warnings,
         :values (into {}
                       (map (fn [k] [k (vm/value (run-linked k ast src))]))
