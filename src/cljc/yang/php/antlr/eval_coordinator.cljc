@@ -120,13 +120,17 @@
   ([state] (serve state 32))
   ([state budget]
    (loop [state state, remaining budget]
-     (if (zero? remaining)
+     (if (not (pos? remaining))
        state
-       (let [read (stream/next (:requests state) (:cursor state))]
-         (if (= :dao.stream/ok (:dao.stream/outcome read))
-           (let [answer (compile-and-publish! state (:dao.stream/value read))
-                 written (stream/append! (:responses state) answer)]
+       (let [read (or (:pending state)
+                      (let [item (stream/next (:requests state) (:cursor state))]
+                        (when (= :dao.stream/ok (:dao.stream/outcome item))
+                          {:cursor (:dao.stream/cursor item)
+                           :answer (compile-and-publish! state (:dao.stream/value item))})))]
+         (if read
+           (let [written (stream/append! (:responses state) (:answer read))]
              (if (= :dao.stream/ok (:dao.stream/outcome written))
-               (recur (assoc state :cursor (:dao.stream/cursor read)) (dec remaining))
-               state))
+               (recur (-> state (assoc :cursor (:cursor read)) (dissoc :pending))
+                      (dec remaining))
+               (assoc state :pending read)))
            state))))))

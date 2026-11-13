@@ -1,0 +1,9 @@
+# Eval bridge r11 continuation
+
+The referenced r11 brief (`1794611409000-engineer-eval-bridge-r11.prompt.md`) is absent from this checkout, so its exact scope and timeout requirements could not be verified. The WIP commit already connects the stream coordinator to eval-unit publication and optional safepoint derivation, and supplies service fixtures and a harness service constructor. The focused service fixture verifies publication, derivation, linker admission and retrieval of an installed entry closure. It does not demonstrate executing eval in a caller task; `php/eval-run`, expression lowering and a harness driver for guest requests remain outstanding. This is not a completed end-to-end eval bridge.
+
+Changed the service to retain a compiled answer and its next cursor when response append is refused, and retry that answer without re-compiling or re-publishing. The cursor advances only after successful append. Nonpositive budgets now stop. Extended the response-refusal fixture to exercise resumption on a replacement response stream.
+
+Validation (JVM, sequential): focused service, transport, admission, coordinator and publication suites passed 13 tests / 105 assertions with a 180-second timeout. Kondo passed with zero warnings and errors and cljstyle passed on the coordinator and all three WIP harness/service files, each with a 120-second timeout. A combined regression run (600-second timeout) was manually interrupted while in the full generator namespace; a targeted generator fixture (600-second timeout) was also manually interrupted without a result. A subsequent ticks/include/lower-portable/scope run (300-second timeout) was manually interrupted while in include. Those interrupted runs provide no passing gate result; broader regression and cross-host gates remain outstanding.
+
+No commit or push was attempted. Existing untracked prompt and stdout log were left untouched.

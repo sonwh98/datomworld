@@ -45,7 +45,16 @@
                :worker (coordinator/make-worker)}]
     (stream/append! requests (assoc fixture/request :scope {}))
     (stream/close! responses)
-    (is (= cursor (:cursor (coordinator/serve state))))))
+    (let [blocked (coordinator/serve state)
+          replacement (:dao.stream/handle (tu/make-stream 8))
+          start (:dao.stream/cursor (stream/cursor replacement stream/anchor-oldest))
+          resumed (coordinator/serve (assoc blocked :responses replacement))]
+      (is (= cursor (:cursor blocked)))
+      (is (:pending blocked))
+      (is (not= cursor (:cursor resumed)))
+      (is (nil? (:pending resumed)))
+      (is (= :unknown-field (:yang.compile/detail
+                              (:dao.stream/value (stream/next replacement start))))))))
 
 
 (deftest valid-and-invalid-source-are-answered
