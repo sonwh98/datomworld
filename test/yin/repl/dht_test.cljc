@@ -30,6 +30,7 @@
             [yin.shell.dht :as repl.dht]
             [yin.shell.main :as shell.main]
             [yin.shell.store :as shell.store]
+            [yin.shell.session :as shell.session]
             [yin.repl.driver :as driver]
             [yin.repl.main :as main]
             [yin.repl.store :as store]
@@ -53,13 +54,18 @@
   (str "target/test-dht-store-" (random-uuid)))
 
 
+(defn- shell-banner [opts]
+  (main/banner opts shell.main/composition))
+
+
 (defn- create-state
   ([] (create-state {}))
   ([opts]
-   (if (and (:index-store-spec opts)
-            (shell.store/composition-spec? (:index-store-spec opts)))
-     (let [opened (shell.store/open (:index-store-spec opts) opts)
-           inputs (merge (dissoc opts :index-store-spec)
+   (if (or (:opened opts)
+           (and (:index-store-spec opts)
+                (shell.store/composition-spec? (:index-store-spec opts))))
+     (let [opened (or (:opened opts) (shell.store/open (:index-store-spec opts) opts))
+           inputs (merge (dissoc opts :index-store-spec :opened)
                          {:index-store (:index-store opened)
                           :recovery (:recovery opened)
                           :publication-policy (:publication-policy opened)}
@@ -70,6 +76,31 @@
               :node (:node opened)
               :session (:session opened)))
      (repl.frontends/create-state opts))))
+
+
+(defn- step-shell
+  "Advance the shell composition while keeping the test's engine view."
+  [engine now]
+  (let [transport (assoc (:session engine) :node (:dht engine))
+        [session lines events] (repl.dht/step (assoc transport :engine engine) now)
+        engine (assoc (:engine session) :dht (:node session)
+                      :node (:node session) :session (dissoc session :engine))]
+    [engine lines events]))
+
+
+(defn- eval-shell
+  [engine line]
+  (let [[engine text] (repl/eval-input engine line)]
+    (if-not (:session engine)
+      [engine text]
+      (loop [session (assoc (:session engine) :node (:dht engine) :engine engine)
+             text text budget 32]
+        (let [{session :session progressed? :progress?} (shell.session/serve session)]
+          (if (and progressed? (pos? budget))
+            (let [[session resumed] (shell.session/recheck-pending session true)]
+              (recur session (or resumed text) (dec budget)))
+            [(assoc (:engine session) :dht (:node session) :node (:node session)
+                    :session (dissoc session :engine)) text]))))))
 
 
 (defn- cleanup-dir!
@@ -186,7 +217,7 @@
          now now]
     (if (or (done? lines) (> now limit))
       [shells peers lines now]
-      (let [stepped (map (fn [s] (repl.dht/step s now)) shells)]
+      (let [stepped (map (fn [s] (step-shell s now)) shells)]
         (recur (mapv first stepped)
                (step-peers peers now)
                (into lines (mapcat second) stepped)
@@ -208,21 +239,21 @@
 ;; =============================================================================
 
 (deftest mem-stays-the-default-and-dht-is-an-explicit-choice
-  (is (= :mem (:index-store-spec (main/parse-args []))))
+  (is (= :mem (:index-store-spec (shell.main/parse-args []))))
   (is (= (dht-spec "idx" {})
-         (:index-store-spec (main/parse-args ["--index-store" "dht:idx"])))
+         (:index-store-spec (shell.main/parse-args ["--index-store" "dht:idx"])))
       "dht:<dir> is the DHT store over that directory, solo by default")
-  (is (= {:type :dht :dir "idx"} (store/parse-arg "dht:idx")))
+  (is (= {:type :dht :dir "idx"} (shell.store/parse-arg "dht:idx")))
   (testing "a bare dht: names no directory and is refused"
-    (is (str/includes? (ex-message (refusal-of #(store/parse-arg "dht:")))
+    (is (str/includes? (ex-message (refusal-of #(shell.store/parse-arg "dht:")))
                        "needs a directory")))
   (testing "the unknown-scheme refusal names every supported form"
-    (is (str/includes? (ex-message (refusal-of #(store/parse-arg "bogus")))
+    (is (str/includes? (ex-message (refusal-of #(shell.store/parse-arg "bogus")))
                        "dht:<dir>"))))
 
 
 (deftest peers-publication-and-binding-are-separate-explicit-flags
-  (let [spec #(:index-store-spec (main/parse-args (into ["--index-store"
+  (let [spec #(:index-store-spec (shell.main/parse-args (into ["--index-store"
                                                          "dht:d"] %)))]
     (testing "peers declare nothing: publication stays off"
       (is (= {:peers [{:host "127.0.0.1" :port 7001}
@@ -272,13 +303,13 @@
                          [["--index-store" "dht:d" "--dht-max-inbound-bytes"
                            "-1"]
                           "max-inbound-bytes"]]]
-      (let [e (refusal-of #(main/parse-args args))]
+      (let [e (refusal-of #(shell.main/parse-args args))]
         (is (some? e) (pr-str args))
         (is (str/includes? (str (ex-message e)) text) (pr-str args))))))
 
 
 (deftest startup-refuses-a-bad-dht-flag-before-composing
-  (let [started (main/startup ["--dht-publish"])]
+  (let [started (shell.main/startup ["--dht-publish"])]
     (is (string? (:refusal started)))
     (is (nil? (:state started)))))
 
@@ -302,10 +333,10 @@
         (is (nil? (get-in runner [:composition :datagrams])))
         (is (nil? (get-in runner [:composition ::dht/secret]))
             "solo composes no secret: there is nothing to cookie")
-        (is (store/durable? (:index-store shell))
+        (is (store/durable? (space.dht/local (:dht shell)))
             "the directory is the durable store: lock, HEAD, recovery")
-        (let [[shell text] (repl/eval-input shell "(+ 1 2)")
-              [shell lines] (repl.dht/step shell 0)]
+        (let [[shell text] (eval-shell shell "(+ 1 2)")
+              [shell lines] (step-shell shell 0)]
           (is (= "3" text))
           (is (line-with lines "NOT acknowledged"))
           (is (line-with lines "solo"))
@@ -336,8 +367,8 @@
         (is (every? #(<= 64 (count %)) hexes) "at least 32 bytes each")
         (is (apply not= hexes) "one per open, from the CSPRNG")
         (is (not= (apply str (repeat 64 "0")) (first hexes)))
-        (let [[shell _] (repl/eval-input (first shells) "(def s 1)")
-              [shell _] (repl.dht/step shell 0)]
+        (let [[shell _] (eval-shell (first shells) "(def s 1)")
+              [shell _] (step-shell shell 0)]
           (is (= #{"content.jing" "HEAD" "lock"}
                  ;; Node's lock is a claim entry, lock.<pid>.<nonce>
                  (set (map #(if (str/starts-with? % "lock") "lock" %)
@@ -359,7 +390,7 @@
 ;; =============================================================================
 
 (deftest the-banner-states-what-will-be-shared-before-anything-is
-  (let [banner #(str/join "\n" (main/banner (main/parse-args
+  (let [banner #(str/join "\n" (shell-banner (shell.main/parse-args
                                               (into ["--index-store" "dht:idx"]
                                                     %))))]
     (testing "publishing states the whole store is public"
@@ -374,7 +405,7 @@
     (testing "solo says no socket is opened"
       (is (str/includes? (banner []) "solo")))
     (testing "the memory store prints no DHT banner"
-      (is (empty? (main/banner (main/parse-args [])))))))
+      (is (empty? (shell-banner (shell.main/parse-args [])))))))
 
 
 ;; =============================================================================
@@ -399,7 +430,7 @@
         peers {21 (peer-node net 21) 22 (peer-node net 22)}]
     (try
       (let [shell (publisher net dir 20 [21 22] {:publish? true})
-            [shell text] (repl/eval-input shell "(def answer 4242)")
+            [shell text] (eval-shell shell "(def answer 4242)")
             manifest (get-in shell [:indexer :manifest-address])]
         (testing "the round completed against :local, before any DHT step"
           (is (= "4242" text))
@@ -460,7 +491,7 @@
                                  :peers [{:host "127.0.0.1" :port 121}
                                          {:host "127.0.0.1" :port 122}]
                                  :publish? true})})
-         [shell _] (repl/eval-input shell "(def partly 7)")
+         [shell _] (eval-shell shell "(def partly 7)")
          m (get-in shell [:indexer :manifest-address])
          _ (reset! manifest m)
          [[shell] peers lines now] (run-until
@@ -480,10 +511,10 @@
           (is (= m (head-manifest dir)) "HEAD moved"))
         (reset! refuse (constantly false))
         (let
-          [[shell required] (repl/eval-input
+          [[shell required] (eval-shell
                               shell
                               "(require (quote dao.space.dht))")
-           [shell retried] (repl/eval-input
+           [shell retried] (eval-shell
                              shell (str
                                      "(dao.space.dht/retry " m ")"))
            [[shell] _ lines] (run-until [shell] peers now (+ now 20000)
@@ -497,10 +528,10 @@
           (testing
             "retry and cancel are refused for what is not live, as data"
             (let
-              [[shell again] (repl/eval-input
+              [[shell again] (eval-shell
                                shell (str
                                        "(dao.space.dht/retry " m ")"))
-               [shell cancelled] (repl/eval-input
+               [shell cancelled] (eval-shell
                                    shell (str
                                            "(dao.space.dht/cancel " m ")"))]
               (is (str/includes? again "not-repairing") again)
@@ -525,7 +556,7 @@
                                  :peers [{:host "127.0.0.1" :port 124}
                                          {:host "127.0.0.1" :port 125}]
                                  :publish? true})})
-         [shell _] (repl/eval-input shell "(def unsent 8)")
+         [shell _] (eval-shell shell "(def unsent 8)")
          m (get-in shell [:indexer :manifest-address])
          _ (reset! refuse #{m})
          [[shell] peers lines now] (run-until
@@ -535,8 +566,8 @@
                                             "published " m)))
          first-line (line-with lines (str "published " m))
          _ (is (= m (head-manifest dir)) "HEAD moved")
-         [shell _] (repl/eval-input shell "(require (quote dao.space.dht))")
-         [shell cancelled] (repl/eval-input
+         [shell _] (eval-shell shell "(require (quote dao.space.dht))")
+         [shell cancelled] (eval-shell
                              shell (str
                                      "(dao.space.dht/cancel " m ")"))
          [[shell] _ lines] (run-until [shell] peers now (+ now 1000)
@@ -559,7 +590,7 @@
         peers {31 (peer-node net 31) 32 (peer-node net 32)}]
     (try
       (let [shell (publisher net dir 30 [31 32] {})
-            [shell _] (repl/eval-input shell "(def quiet 1)")
+            [shell _] (eval-shell shell "(def quiet 1)")
             [shells _ lines] (run-until [shell] peers 0 400
                                         #(line-with % "acknowledged"))]
         (is (line-with lines "NOT acknowledged"))
@@ -578,7 +609,7 @@
         peers {41 (peer-node net 41)}]
     (try
       (let [shell (publisher net dir 40 [41] {:publish? true})
-            [shell _] (repl/eval-input shell "(def lonely 1)")
+            [shell _] (eval-shell shell "(def lonely 1)")
             [shells _ lines now] (run-until [shell] peers 0 20000
                                             #(line-with % "acknowledged"))]
         (is (line-with lines "NOT acknowledged"))
@@ -610,7 +641,7 @@
         peers {51 (peer-node net 51)}]
     (try
       (let [pub (publisher net pdir 50 [51] {:publish? true})
-            [pub _] (repl/eval-input pub "(def answer 4242)")
+            [pub _] (eval-shell pub "(def answer 4242)")
             manifest (get-in pub [:indexer :manifest-address])
             reader (publisher net rdir 52 [50] {:manifest manifest})]
         (is (not (repl.dht/admitting? reader))
@@ -624,8 +655,8 @@
           (is (= manifest (get-in reader [:indexer :manifest-address])))
           (is (= manifest (head-manifest rdir))
               "the hydrated index is the reader directory's durable HEAD")
-          (let [[reader _] (repl/eval-input reader require-line)
-                [reader answer] (repl/eval-input reader query-line)]
+          (let [[reader _] (eval-shell reader require-line)
+                [reader answer] (eval-shell reader query-line)]
             (is (str/includes? (str answer) (:shell-token pub))
                 (str "q answers the publisher's fact, under its token: "
                      answer))
@@ -644,9 +675,9 @@
   [spec heads]
   (let [record (fn [head-fn]
                  (fn [m] (head-fn m) (swap! heads conj m)))]
-    (-> (repl.dht/open spec)
-        (update :head-fn record)
-        (update-in [:dht :composition :local :head-fn] record))))
+    (-> (shell.store/open spec)
+        (update-in [:index-store :head-fn] record)
+        (update-in [:node :composition :local :head-fn] record))))
 
 
 (deftest hydration-is-a-directory-s-first-head-write-at-its-own-sequence
@@ -665,11 +696,11 @@
                  (head/seq-of (space.index/read-datoms (:index-store shell) m)))]
     (try
       (let [pub (publisher net pdir 70 [71] {:publish? true})
-            [pub _] (repl/eval-input pub "(def answer 4242)")
+            [pub _] (eval-shell pub "(def answer 4242)")
             manifest (get-in pub [:indexer :manifest-address])
             published (seq-at pub manifest)
             reader (create-state
-                     {:index-store
+                     {:opened
                       (recorded-dht-store
                         (spec 72 {:manifest manifest})
                         heads)})
@@ -684,14 +715,14 @@
         (close! reader)
         (testing "the same manifest: no load, no HEAD write, admitted at once"
           (let [reader (create-state
-                         {:index-store (recorded-dht-store
+                         {:opened (recorded-dht-store
                                          (spec 73 {:manifest manifest})
                                          heads)})]
             (is (repl.dht/admitting? reader))
             (is (nil? (space.dht/load-status (:dht reader) manifest)))
             (is (= [manifest] @heads))
             (testing "one round writes a second HEAD, one sequence above"
-              (let [[reader _] (repl/eval-input reader "(def later 1)")
+              (let [[reader _] (eval-shell reader "(def later 1)")
                     next-manifest (get-in reader
                                           [:indexer :manifest-address])
                     key (sign/generate)
@@ -716,7 +747,7 @@
             (is (str/includes? (ex-message e) (str held)))
             (is (= held (head-manifest rdir)))
             (is (= 2 (count @heads)))
-            (store/close! (repl.dht/open (spec 75 {}))))))
+            (store/close! (:index-store (repl.dht/open (spec 75 {})))))))
       (finally
         (run! cleanup-dir! [pdir rdir])))))
 
@@ -749,7 +780,7 @@
         peers {71 (peer-node net 71)}]
     (try
       (let [pub (publisher net pdir 70 [71] {:publish? true})
-            [pub _] (repl/eval-input pub "(def answer 4242)")
+            [pub _] (eval-shell pub "(def answer 4242)")
             manifest (get-in pub [:indexer :manifest-address])
             state (main/boot {:index-store-spec
                               (dht-spec rdir {:bind! (mesh-bind net 72 (atom 0))
@@ -768,7 +799,7 @@
                now 10
                seen []]
           (let [[state _ lines] (main/step-all state nil now)
-                [pub _] (repl.dht/step pub now)
+                [pub _] (step-shell pub now)
                 peers (step-peers peers now)
                 seen (into seen lines)]
             (if (or (some #{"3"} seen) (> now 20000))
@@ -830,7 +861,7 @@
         net (mesh/mesh)]
     (try
       (let [pub (publisher net pdir 110 [111] {:publish? true})
-            [pub _] (repl/eval-input pub "(def answer 4242)")
+            [pub _] (eval-shell pub "(def answer 4242)")
             manifest (get-in pub [:indexer :manifest-address])
             plain (space.dht/load-index
                     (space.dht/join {:local (mem/create-content-mem)
@@ -838,12 +869,12 @@
                                      :bind! (mesh/seam net 111)})
                     manifest)
             reader (publisher net rdir 112 [110] {})
-            [reader required] (repl/eval-input
+            [reader required] (eval-shell
                                 reader "(require (quote dao.space.dht))")
-            [reader early] (repl/eval-input
+            [reader early] (eval-shell
                              reader (str "(dao.space.dht/q " manifest
                                          " (quote " (pr-str remote-query) "))"))
-            [reader asked] (repl/eval-input
+            [reader asked] (eval-shell
                              reader (str "(dao.space.dht/load-index " manifest
                                          ")"))]
         (is (= "'dao.space.dht" required))
@@ -860,10 +891,10 @@
                   (and (line-with lines (str "dht: loaded " manifest))
                        (some #(= :loaded (::space.dht/event %)) events)))
             (let [expected (space.dht/q plain manifest remote-query)
-                  [reader status] (repl/eval-input
+                  [reader status] (eval-shell
                                     reader (str "(dao.space.dht/load-status "
                                                 manifest ")"))
-                  [reader answer] (repl/eval-input
+                  [reader answer] (eval-shell
                                     reader (str "(dao.space.dht/q " manifest
                                                 " (quote " (pr-str remote-query)
                                                 "))"))]
@@ -881,9 +912,9 @@
               (space.dht/close! plain)
               (close! reader)
               (close! pub))
-            (let [[pub _] (repl.dht/step pub now)
+            (let [[pub _] (step-shell pub now)
                   [plain more] (space.dht/step plain now)
-                  [reader more-lines] (repl.dht/step reader now)]
+                  [reader more-lines] (step-shell reader now)]
               (recur pub plain reader (+ now 10)
                      (into lines more-lines) (into events more))))))
       (finally
@@ -981,8 +1012,16 @@
 (defn- type!
   "Evaluate `line` at the shell's prompt: `[state text]`."
   [state line]
-  (let [[repl text] (repl/eval-input (:repl state) line)]
-    [(assoc state :repl repl) text]))
+  (let [[engine text] (repl/eval-input (:repl state) line)
+        state (assoc state :repl engine)]
+    (loop [state state text text budget 32]
+      (let [{session :session progressed? :progress?}
+            (shell.session/serve (main/session-of state))
+            state (main/with-session state session)]
+        (if (and progressed? (pos? budget))
+          (let [[session resumed] (shell.session/recheck-pending session true)]
+            (recur (main/with-session state session) (or resumed text) (dec budget)))
+          [state text])))))
 
 
 (defn- tick
@@ -1015,7 +1054,7 @@
   [state]
   (or (get-in state [:session :node])
       (:dht state)
-      (get-in state [:repl :dht])))
+      (get-in state [:session :node])))
 
 
 (defn- parked
@@ -1078,7 +1117,8 @@
             (let [late {::space.dht/event :loaded :manifest m
                         :kind ld/module-kind :fetched 1}
                   [repl' text'] (repl/recheck-on-tick repl [late late])
-                  [waiting _] (repl/eval-input repl "(require (quote gone))")
+                  [waiting-state _] (type! (:state w) "(require (quote gone))")
+                  waiting (:repl waiting-state)
                   [waiting' text''] (repl/recheck-on-tick waiting
                                                           [late])]
               (is (identical? repl repl'))
@@ -1102,7 +1142,7 @@
             [state _] (type! state "(def z 1)")
             index (get-in state [:repl :indexer :manifest-address])
             other (publish-mod! (space.dht/local (node-of state)))
-            state (update-in state [:repl :dht]
+            state (update-in state [:session :node]
                              #(-> % (ld/load-module other)
                                   (space.dht/load-index index)))
             [state text] (type! state "(require (quote mod))")
@@ -1141,8 +1181,8 @@
             [state _] (type! state "(require (quote gone))")
             [repl _] (repl/recheck-pending (:repl state))
             _ (is (= 1 (:checks (:pending-run repl))))
-            [repl _] (repl/eval-input repl "(abandon)")
-            [repl _] (repl/eval-input repl "(require (quote gone))")
+            [repl _] (eval-shell repl "(abandon)")
+            [repl _] (eval-shell repl "(require (quote gone))")
             _ (is (= 0 (:checks (:pending-run repl))) "a new run starts at 0")
             w (reduce (fn [w _] (tick w))
                       {:state (assoc state :repl repl) :peers {} :now 0}
@@ -1317,7 +1357,7 @@
   (let [dir (temp-dir)]
     (try
       (let [state (-> (solo-state dir {'mod nowhere})
-                      (update-in [:repl :dht :client] assoc :requests
+                      (update-in [:session :node :client] assoc :requests
                                  (undeliverable)))
             {:keys [state lines]} (fail-require state 'mod)]
         (is (line-with lines "Module link refused: unaskable"))
@@ -1420,7 +1460,7 @@
   (let [[state _ _] (main/step-all state nil now)
         [follower node _] (head/step follower (node-of state) now)]
     (assoc w
-           :state (assoc-in state [:repl :dht] node)
+           :state (assoc-in state [:session :node] node)
            :follower follower
            :now (+ now 10))))
 
@@ -1439,7 +1479,7 @@
             _ (stream/append! board (head/trace key nowhere 0))
             candidate #(get-in % [:follower :principals p :candidate])
             status #(space.dht/load-status (node-of (:state %)) nowhere)
-            w (loop [w {:state (assoc-in state [:repl :dht] node)
+            w (loop [w {:state (assoc-in state [:session :node] node)
                         :follower (head/attach follower p board)
                         :now 0}]
                 (if (or (= :failed (:state (candidate w))) (> (:now w) 1000))
@@ -1474,7 +1514,7 @@
   (let [dir (temp-dir)]
     (try
       (let [state (-> (solo-state dir {'mod nowhere})
-                      (update-in [:repl :dht] space.dht/load-index nowhere))
+                      (update-in [:session :node] space.dht/load-index nowhere))
             w (run-ticks {:state state :peers {} :now 0} 1000
                          #(= :failed (:status (space.dht/load-status
                                                 (node-of (:state %))
@@ -1501,7 +1541,7 @@
             status #(:status (space.dht/load-status (node-of %1) %2))
             ;; loaded: an index load by hand, and a load of a kind nobody
             ;; here knows, at the address of a module that would link
-            state (update-in state [:repl :dht]
+            state (update-in state [:session :node]
                              #(-> %
                                   (space.dht/load-index index)
                                   (space.dht/load other
@@ -1513,7 +1553,7 @@
                              [(status (:state %) index)
                               (status (:state %) other)]))
             ;; loading: started after the last step, so never advanced
-            state (update-in (:state w) [:repl :dht]
+            state (update-in (:state w) [:session :node]
                              #(-> %
                                   (space.dht/load-index loading-index)
                                   (space.dht/load loading-head
@@ -1627,7 +1667,7 @@
             node (node-of state)
             m (:address (ct/publish-base! (space.dht/local node)))
             candidate (jing/segment-key "a head loading as a candidate")
-            state (assoc-in state [:repl :dht]
+            state (assoc-in state [:session :node]
                             (space.dht/load node candidate
                                             {:kind head/candidate-kind
                                              :walk (space.dht/index-walk
@@ -1671,9 +1711,9 @@
 
 
 (deftest the-banner-and-help-say-a-require-may-fetch-from-peers
-  (let [banner (str/join "\n" (main/banner (main/parse-args
+  (let [banner (str/join "\n" (shell-banner (shell.main/parse-args
                                              ["--index-store" "dht:idx"])))
-        [_ help] (repl/eval-input (create-state) "(help)")]
+        [_ help] (eval-shell (create-state) "(help)")]
     (is (str/includes? banner "require"))
     (is (str/includes? banner "may fetch"))
     (is (str/includes? help "require"))
@@ -1699,7 +1739,6 @@
                               :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
                                            peer-ports)})
                :publisher-key key
-               :dht-key key
                :principals principals}
               shell.main/composition)))
 
@@ -1853,7 +1892,7 @@
          state (refused state "[nope]" "undefined-export")
          state (refused state "[g]" "undeclared-free")
          state (refused state "[q2]" "host-module")
-         state (refused (assoc-in state [:repl :dht-key] nil) "[ok]"
+         state (refused (assoc-in state [:session :key] nil) "[ok]"
                         "no-key")]
         (main/close-index-store! state))
       (finally
@@ -1922,7 +1961,7 @@
                                                      {:host "127.0.0.1"
                                                       :port p})
                                                    peer-ports)})
-     :dht-key key
+     :publisher-key key
      :principals principals
      :admission {:trusted (set (map sign/principal principals))}}))
 
@@ -1955,8 +1994,12 @@
   (let [now (:now w)
         mark (fn [who events] (map #(assoc % :who who :at now) events))
         shells (map (fn [[k s]]
-                      (let [[s lines events] (repl.dht/step s now)
-                            [s text] (repl/recheck-on-tick s events)]
+                      (let [[s lines events] (step-shell s now)
+                            [session text] (shell.session/recheck-on-tick
+                                             (assoc (:session s) :engine s) events)
+                            s (assoc (:engine session) :dht (:node session)
+                                     :node (:node session)
+                                     :session (dissoc session :engine))]
                         [k s (cond-> lines text (conj text)) (mark k events)]))
                     (:shells w))
         nodes (map (fn [[k n]]
@@ -1984,7 +2027,7 @@
 (defn- eval-at
   "Evaluate `line` at shell `k`'s prompt: `[w text value]`."
   [w k line]
-  (let [[s text] (repl/eval-input (get-in w [:shells k]) line)]
+  (let [[s text] (eval-shell (get-in w [:shells k]) line)]
     [(assoc-in w [:shells k] s) text (:last-value s)]))
 
 

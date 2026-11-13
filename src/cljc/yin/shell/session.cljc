@@ -87,8 +87,10 @@
                     (shell.linker/from-engine engine node) budget)
                   (shell.linker/serve-links
                     (shell.linker/from-engine engine node)))
-         served-compose {:engine (shell.linker/install engine
-                                                       (:composition linked))
+         engine (cond-> (shell.linker/install engine (:composition linked))
+                  (and (:pending-run engine) (seq (:pending linked)))
+                  (assoc-in [:pending-run :links] (:pending linked)))
+         served-compose {:engine engine
                          :node (:node (:composition linked))
                          :key (:key session)
                          :limits (:limits session)
