@@ -19,7 +19,8 @@
     [yang.php.antlr.programs-p4 :as p4]
     [yang.php.antlr.programs-p5 :as p5]
     [yang.php.antlr.programs-p5b2 :as p5b2]
-    [yang.php.antlr.programs-p6 :as p6])
+    [yang.php.antlr.programs-p6 :as p6]
+    [yang.php.antlr.programs-p7b :as p7b])
   (:import
     (java.nio.charset
       StandardCharsets)
@@ -369,22 +370,23 @@
   "Run `<file>` inside `<dir>` via Docker `php:8.3-cli` with `prepend-file`
    (a path relative to `<dir>`) as `auto_prepend_file`, and return the
    parsed `{:out :diag :uncaught :exit}`."
-  [dir file prepend-file]
-  (let [{:keys [out err exit]}
-        (sh/sh "docker" "run" "--rm"
-               "-v" (str (.toAbsolutePath (.toPath (io/file dir))) ":/w")
-               "-w" "/w"
-               "php:8.3-cli" "php"
-               "-d" "display_errors=1"
-               "-d" "html_errors=0"
-               "-d" "error_reporting=E_ALL"
-               "-d" "log_errors=0"
-               "-d" (str "auto_prepend_file=/w/" prepend-file)
-               file
-               :out-enc "UTF-8")]
-    (assoc (parse-stdout out file nil)
-           :err err
-           :exit exit)))
+  ([dir file prepend-file] (run-php-file-with-prepend dir file prepend-file nil))
+  ([dir file prepend-file unit-dir]
+   (let [{:keys [out err exit]}
+         (sh/sh "docker" "run" "--rm"
+                "-v" (str (.toAbsolutePath (.toPath (io/file dir))) ":/w")
+                "-w" (if unit-dir (str "/w/" unit-dir) "/w")
+                "php:8.3-cli" "php"
+                "-d" "display_errors=1"
+                "-d" "html_errors=0"
+                "-d" "error_reporting=E_ALL"
+                "-d" "log_errors=0"
+                "-d" (str "auto_prepend_file=/w/" prepend-file)
+                file
+                :out-enc "UTF-8")]
+     (assoc (parse-stdout out (if unit-dir (str unit-dir "/" file) file) unit-dir)
+            :err err
+            :exit exit))))
 
 
 (defn check-p5-fixture
@@ -468,17 +470,55 @@
           (.delete ^java.io.File f))))))
 
 
+(defn p7-prologue
+  "Register the tick handler before compiling the fixture's ticked unit."
+  []
+  (str "<?php " p7b/prologue))
+
+
+(defn check-p7-fixture
+  "Run a P7 fixture with its prologue and optional included units."
+  [dir {:keys [id source units out oracle]}]
+  (let [unit-dir (name id)
+        pre (str unit-dir "/pre.php")]
+    (doseq [[path contents] (merge units {"main.php" (str "<?php " source),
+                                          "pre.php" (p7-prologue)})]
+      (let [f (io/file dir unit-dir path)]
+        (io/make-parents f)
+        (write-source! dir (str unit-dir "/" path) contents)))
+    (let [actual (run-php-file-with-prepend dir "main.php" pre unit-dir)
+          expected {:out out, :diag [], :uncaught nil}]
+      {:id id, :oracle oracle,
+       :pass? (and (not= :pending oracle)
+                   (= expected (select-keys actual [:out :diag :uncaught]))),
+       :expected expected,
+       :actual (assoc (select-keys actual [:out :diag :uncaught :fatal]) :exit (:exit actual))})))
+
+
+(defn run-p7
+  "Run the pending P7-b ticks fixtures against php:8.3-cli."
+  []
+  (let [dir (.toFile (Files/createTempDirectory "yang-php-oracle-p7-"
+                                                (make-array FileAttribute 0)))]
+    (try
+      (mapv #(check-p7-fixture dir %) p7b/fixtures)
+      (finally
+        (doseq [f (reverse (file-seq dir))]
+          (.delete ^java.io.File f))))))
+
+
 (defn print-fold
   "Print the fold lines for `results`: one paste-ready record per fixture
    in the P4 [[p4/pin]] shape `{:oracle p5-banner :out :diag :uncaught}`,
    carrying the guest-fatal representation (`:fatal`) and the process exit
    status (`:status`) alongside."
-  [results]
-  (doseq [{:keys [id actual]} results]
-    (println "FOLD" (name id)
-             (pr-str (assoc (select-keys actual [:out :diag :uncaught :fatal])
-                            :oracle p5-banner
-                            :status (:exit actual))))))
+  ([results] (print-fold results p5-banner))
+  ([results provenance]
+   (doseq [{:keys [id actual]} results]
+     (println "FOLD" (name id)
+              (pr-str (assoc (select-keys actual [:out :diag :uncaught :fatal])
+                             :oracle provenance
+                             :status (:exit actual)))))))
 
 
 (defn run-all
@@ -515,6 +555,17 @@
       (flush)
       (shutdown-agents)
       (System/exit 0)))
+  (when (some #{"--p7"} args)
+    (let [results (run-p7)
+          pending (filter #(= :pending (:oracle %)) results)
+          failures (remove #(or (:pass? %) (= :pending (:oracle %))) results)]
+      (println "Banner: pending; record the actual oracle provenance")
+      (println "Checked:" (count results) "P7 targets; failures:" (count failures))
+      (print-fold pending :pending)
+      (doseq [f failures]
+        (println "FAIL" (:id f) (pr-str (:expected f)) (pr-str (:actual f))))
+      (shutdown-agents)
+      (System/exit (if (seq failures) 1 0))))
   (when (some #{"--p5"} args)
     (let [results (run-p5)
           recorded (filter #(= :pending (:oracle %)) results)
