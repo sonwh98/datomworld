@@ -1,0 +1,19 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r6 round is complete — committed as `b5da2eb8`, not pushed.
+
+## P2 completion — both re-check-2 residuals repaired (red-first)
+
+The recheck's insight: reception doesn't stop at `instance-of` — `(php/raise (php/addref v))` follows, and `addref`'s `cell-of`/`slot-kind` selects by **`:php/ref` first**, then `:php/arr`, then `:php/obj`, and consumes `:rc`.
+
+- **Residual 1** (competing markers): `{:php/type :obj :class "Exception" :php/ref 42}` and a *real* `php/make-error` handle with a forged `:php/ref` — both reproduced red ×3 ("Dead or forged cell reference"): the guard validated one representation, addref consumed another.
+- **Residual 2** (consumed state): `{:php/obj (cell/new {:class "Exception"})}` — authentic, string class, Throwable… but no `:rc`: reproduced red ×3 (the `(+ nil 1)` NPE, exactly sol's stack).
+
+**Repair**: `php/obj-val?` now admits only shapes safe for the *whole* consumer chain — any payload with a non-nil `:php/ref`/`:php/arr` marker is FOREIGN (competing markers are never admitted); the handle branch requires authenticity **and** the consumed state (string `:class` for instance-of, **number `:rc`** for addref); the map-error branch (no markers at all) is kept, where addref is a no-op. Real handles, real map errors, and unchanged local-Throwable identity preserved — the directed control pins and all legs stay green; no broad host catch.
+
+## The probe restructure (disclosed)
+
+The lane's dao.jing stall caught the **8th consecutive kit run** in one JVM 3/3 times — including with the fix in place, while the same shape completed in seconds through a direct path. The eight payload shapes now run in **one composed program** (batch-parity's task-sharing shape) with every per-shape assertion preserved — 32 booleans asserted per backend, all green ×3.
+
+## Gates
+
+All pins green (the unified probe 4 assertions 0F/0E; kit-parity, forgery probes, directed controls, adoption/reachability/surface, tightened mint-forgery); batch parity unchanged (53 assertions, the same 9 disclosed failures, 13 fixtures / 10 green); all 5 legs green; regressions 0F/0E across nine suites; kondo 0/0, cljstyle clean. One batch-parity attempt that the stall pushed to the background was TaskStopped and re-run in the foreground, per the brief's no-backgrounding rule — disclosed in the findings.

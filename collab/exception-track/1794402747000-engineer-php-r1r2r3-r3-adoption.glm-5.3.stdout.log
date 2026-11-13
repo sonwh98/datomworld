@@ -1,0 +1,21 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r3 adoption turn is complete. Summary:
+
+## The adoption (commit `4939a3ae`, deliberately not pushed)
+
+**`php.rt/mint-retained`** — the ForeignException and protocol-Error wrappers now mint through the reserved door `cell/dsg__new-provenance [value condition]`: the wrapper's state cell is allocated with the complete original condition installed in its private `:provenance` heap sibling, atomically. The construction mirrors `php/make-error`'s membered branch (register-final! + message stamped through the ordinary cell write, which the primitive guarantees preserves the sibling), with **no map fallback** — a memberless class is refused in place rather than minting an unmarkable wrapper (sol's point about the `:299` fallback). Nil provenance is refused by the door itself, documented as the same behavior split the python review deferred.
+
+**`php.rt/retained-condition`** — authenticates via `cell/dsg__provenance [cell]` on the cell backing the wrapper's identity; nil for unmarked cells, forged/dead references, non-references, and cell-less representations. Never fatal, never mutating. The bridge and `receive-condition` consult the same `php.rt/*` interface as r2 — the mechanism under it was upgraded, per the addendum's instruction.
+
+**Retired**: r2's lexical identity store in full (~90 lines: the install form, the `init!` hook, the stub trio) — which closes r2's residual store-growth and O(n²) lookup obligations outright. Both doors declared in `host-names` (python's shape); every retention name stays `php.rt/*`, never an export.
+
+**TDD**: the new `php-provenance-adoption-test` was verified **red first** (the two door-declaration assertions failed against `e4f271ff`), then green; it also pins the export-surface invariants (no mint, no `php.rt/*` name in `module-exports`).
+
+## Gates
+
+- Kit-parity (must-stay-green): green ×3. All r2 identity/forgery pins green **unchanged** — copy refused, mutation forwards the original, guest mints unmarked.
+- Batch parity: **byte-identical to r2** — 12/15 green, the same three §3a lane-blocked fixtures failing on the same key only (no signature change, as the brief required). All 5 directed legs green ×3 (typed-catch hit the known dao.jing lane stall once, green on retry).
+- Regressions all 0F/0E: exceptions 6/25, prelude 33/373, class-model 8/587, objects 3/538, generators 3/76, builtin-surfaces 4/225 (matches the post-rebase baseline), e2e fast 21/1116, exception-source 3/113, conformance 3/18. kondo 0/0, cljstyle clean.
+- Unrun locally (unchanged disclosures): the slow e2e corpus deftest (over the foreground budget) and the shiva-only contract test.
+
+Findings are at `collab/exception-track/1794402747000-engineer-php-r1r2r3-r3-adoption.glm-5.3.findings.md`, with the nil-provenance split and both r2 lane findings carried as residuals. The branch sits at `4939a3ae` awaiting the orchestrator's review-coordinated push.

@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r9 round is complete — with one important disclosure.
+
+## Duplicate dispatch
+
+The r9 brief (to this session) and an r10 brief (to a qwen3.8-max session) targeted the same re-check4 residuals **in the same worktree**. Both sessions worked concurrently; the r10 session committed `59329a05`, which contains **my implementation** (the `integer/add`/`integer/sub` count arithmetic, `integer/integer?` in host-names, the acquisition pin and the ratio shape — all red-first-written here) merged with its own bounds-keeping resolution and its findings artifact. I verified the committed tree is coherent and green firsthand, wrote my glm findings with the full disclosure and shared credit (`4a246994`), and committed both briefs. Nothing pushed.
+
+## The round's substance
+
+**Residual 1** (the count arithmetic across the whole consumed path) — reproduced red-first: `:rc = MAX-1` passed admission, reception's addref reached MAX, and an *ordinary* `catch { return $e; }` overflowed at lower-return's acquisition. The repair is structural: `php/addref`/`php/delref` now use the engine's **exact-integer arithmetic** (`integer/add`/`integer/sub` — total over every carrier on every host including JS BigInts, never overflowing at any acquisition). The acquisition pin proves near-max and the 2^53 JS-boundary value survive ordinary catch/return with identity preserved ×3.
+
+**Residual 2** (`php/int?` isn't `integer/compare`'s domain) — reproduced red-first: a computed ratio `(/ 1 2)` passed `data/number?` and `php/int?`, then the compare refused. The admission now uses **`integer/integer?`** — the integer module's total exact-integer predicate, the exact domain of the primitives the arithmetic uses. The ratio shape is pinned foreign with the full retention map.
+
+The merged admission keeps the r7 strict bounds (endpoints stay foreign, their r7 pins green) — a stricter, already-reviewed stance that costs nothing since every strictly-inside count is now safe through any acquisition chain.
+
+## Gates at the commit (all firsthand)
+
+Both new pins green ×3; the 12-shape foreign probe green; kit-parity, all r2–r8 pins, batch parity (byte-identical disclosure, 13 fixtures / 10 green), and the nine regression suites all 0F/0E; the five directed legs green (typed-catch via the direct sequential path — the lane stall again); kondo 0/0, cljstyle clean.

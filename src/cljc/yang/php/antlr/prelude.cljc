@@ -90,12 +90,17 @@
 
 
 (def host-names
-  "Module exports the prelude calls."
-  (into '#{cell/new cell/get cell/set! data/count data/nth data/subvec data/str-concat
+  "Module exports the prelude calls. The two `dsg__` doors are the VM
+   provenance primitive's reserved mint and reader (yin.vm.module: guest
+   code may neither spell nor construct their names); the php module
+   declares them the way python's adoption did — §8.10.7 wrapper retention
+   mints and authenticates through them, never through prelude code."
+  (into '#{cell/new cell/get cell/set! cell/dsg__new-provenance cell/dsg__provenance
+           data/count data/nth data/subvec data/str-concat
            data/str-length data/str-join data/str-compare data/str->code-points
            data/code-points->str data/substring data/float64 data/float-value
-           data/content= data/number? data/dissoc data/into
-           integer/add integer/sub integer/neg integer/mul integer/compare
+           data/content= data/dissoc data/into
+           integer/integer? integer/add integer/sub integer/neg integer/mul integer/compare
            integer/to-float integer/compare-float integer/true-div integer/pow
            integer/shift-left integer/shift-right integer/bit-and integer/bit-or
            integer/bit-xor integer/bit-not integer/from-float integer/quot-rem
@@ -1827,21 +1832,43 @@
        (let [c (php/cell-of x)]
          (if (nil? c) false (= (get (cell/get c) :released?) true))))]
     [php/addref
+     ;; the count arithmetic is the engine's EXACT-INTEGER arithmetic, not
+     ;; the raw host +/-: integer/add promotes both operands to the host
+     ;; big integer and demotes the result, so it is exact over every
+     ;; exact-integer carrier on every supported host (JVM longs and big
+     ;; carriers, JS safe numbers and BigInts, Dart ints and BigInts) —
+     ;; no native overflow at the long maximum and no BigInt/Number mixing
+     ;; on JS. That is what makes a count safe for its WHOLE ownership
+     ;; life instead of for one step: reception's acquisition can put a
+     ;; count AT the native long maximum, and the next ordinary
+     ;; acquisition — the lowerer wraps every returned expression in
+     ;; php/addref, and copies and rethrows acquire too — puts it past,
+     ;; into the host big carrier, where the raw host + threw. A count
+     ;; that far is ordinary local state this arithmetic produced, so
+     ;; admission cuts nothing off at a carrier boundary; php/obj-val?
+     ;; probes instead that the count is operable under the composition's
+     ;; own integer limits. The fast kernels keep the common small-count
+     ;; path native.
      (fn [x]
        (let [c (php/cell-of x)]
          (if (nil? c)
            x
            (if (php/released? x)
              x
-             (do (cell/set! c (assoc (cell/get c) :rc (+ (get (cell/get c) :rc) 1))) x)))))]
+             (do (cell/set! c (assoc (cell/get c)
+                                     :rc (integer/add (get (cell/get c) :rc) 1)))
+                 x)))))]
     [php/delref
+     ;; the same exact domain as addref. A count only ever reaches 0 in
+     ;; the native carrier (integer/sub demotes a result inside the host's
+     ;; native range), so the zero test below is carrier-uniform.
      (fn [x]
        (let [c (php/cell-of x)]
          (if (nil? c)
            :php/null
            (if (php/released? x)
              :php/null
-             (let [n (- (get (cell/get c) :rc) 1)]
+             (let [n (integer/sub (get (cell/get c) :rc) 1)]
                (do (cell/set! c (assoc (cell/get c) :rc n))
                    (if (= n 0) (php/destroy x) :php/null)))))))]
     [php/release-slots
@@ -2672,6 +2699,23 @@
     [php/make-function
      ;; The function cell keeps its source body and publishes the common
      ;; unary entry. `:yang.call/callee` supplies self, preserving cell identity.
+     ;; §8.10.7 callee bridge: installed BEFORE argument binding, it reads the
+     ;; supplied :yang.call/raise and delivers every escaping source exception
+     ;; AND argument-binding failure to it as the thrown condition, exactly
+     ;; once, with execution after the call unreachable (the raise exit is a
+     ;; non-returning guest continuation). php/try runs each :finally the
+     ;; escape unwinds through and restores the saved handler/depth/frame
+     ;; state BEFORE the transfer (§8.10.8), so delivery happens under the
+     ;; caller's dynamic context. An unchanged rethrow of a wrapper carrying
+     ;; a retained condition (php.rt/retained-condition, the VM provenance
+     ;; read over the wrapper's identity cell) forwards that original
+     ;; condition with no new
+     ;; wrapper; every other escape — including a thrown condition-shaped
+     ;; map, which is the payload of a FRESH condition per §8.10.7 — becomes
+     ;; :yang.call/thrown carrying the thrown value. The binding-profile
+     ;; comparison runs BEFORE the bridge frame is pushed (§8.10.3: before
+     ;; acquiring references or entering the body), so its raise transfers
+     ;; under the untouched caller context.
      (fn [name spec code statics]
        (let [f (cell/new (assoc (assoc (assoc (assoc (assoc {} :php/type :function) :name name)
                                               :spec spec)
@@ -2681,25 +2725,37 @@
          (do
            (cell/set! f (assoc (cell/get f) :yang.call/entry
                                (fn [invocation]
-                                 (let [callee (get invocation :yang.call/callee)
-                                       positional (get invocation :yang.call/positional)
-                                       named (get invocation :yang.call/named)
-                                       binding-profile (get invocation :yang.call/binding-profile)
-                                       args (if (> (data/count named) 0)
-                                              (php/place-named callee (get (cell/get callee) :spec)
-                                                               positional named 0 (data/count named)
-                                                               (php/empty-array))
-                                              positional)]
+                                 (let [raise-exit (get invocation :yang.call/raise)
+                                       binding-profile (get invocation :yang.call/binding-profile)]
                                    (if (if (nil? binding-profile)
                                          true
                                          (= binding-profile
                                             "sha256:171656777d777865312132fe18cbc7a057a4721844a4dc450c0800381d2223eb"))
-                                     ((get (cell/get callee) :code)
-                                      callee args binding-profile)
-                                     ((get invocation :yang.call/raise)
-                                      {:yang.call/reason :yang.call/unsupported-binding
-                                       :yang.call/data
-                                       {:yang.call/binding-profile binding-profile}}))))))
+                                     (let [result (cell/new :php/undef)]
+                                       (php/try
+                                         (fn []
+                                           (cell/set! result
+                                                      (let [callee (get invocation :yang.call/callee)
+                                                            positional (get invocation :yang.call/positional)
+                                                            named (get invocation :yang.call/named)
+                                                            args (if (> (data/count named) 0)
+                                                                   (php/place-named callee (get (cell/get callee) :spec)
+                                                                                    positional named 0 (data/count named)
+                                                                                    (php/empty-array))
+                                                                   positional)]
+                                                        ((get (cell/get callee) :code)
+                                                         callee args binding-profile))))
+                                         (fn [e]
+                                           (let [retained (php.rt/retained-condition e)]
+                                             (if (nil? retained)
+                                               (raise-exit (assoc (assoc {} :yang.call/reason :yang.call/thrown)
+                                                                  :yang.call/value e))
+                                               (raise-exit retained))))
+                                         (fn [] (cell/get result))))
+                                     (raise-exit
+                                       (assoc (assoc {} :yang.call/reason :yang.call/unsupported-binding)
+                                              :yang.call/data
+                                              (assoc {} :yang.call/binding-profile binding-profile))))))))
            f)))]
     [php/register!
      (fn [name code]
@@ -2799,22 +2855,166 @@
              (php/throw-error "Error"
                               (data/str-concat "Call to undefined function "
                                                written "()"))))))]
+    [php/obj-val?
+     ;; §8.10.7 reception safety: is `v` a value php's own machinery could
+     ;; have produced as an object, safe for EVERY operation the local
+     ;; reception path performs — instance-of's class read AND the
+     ;; ownership acquisition that follows it — and every ordinary
+     ;; acquisition after that (a caught local value returned by php
+     ;; source runs the lowerer's php/addref; copies and rethrows acquire
+     ;; too)? Anything with a non-nil :php/ref or :php/arr marker is
+     ;; FOREIGN here, whatever else it carries (slot-kind selects those
+     ;; keys first, so a competing marker would be validated as one
+     ;; representation and consumed as another). The two admitted shapes
+     ;; and the state each downstream consumer reads:
+     ;; - the object handle `{:php/obj cell}` (no other marker): the cell
+     ;;   is live and authenticated (cell/authentic?, total boolean) AND
+     ;;   its contents are valid counted-object state — a STRING :class
+     ;;   (instance-of → class-is? → php/lc) and an OPERABLE count: an
+     ;;   EXACT INTEGER, the domain integer/integer? decides (the total
+     ;;   domain predicate of the integer/add and integer/sub that addref
+     ;;   and delref use — NOT a php representation classifier: php/int?
+     ;;   answers :int for a computed ratio and data/number? passes
+     ;;   floats, while the integer primitives refuse both), and one BOTH
+     ;;   of those operations can still perform. That second half is
+     ;;   PROBED with the operations themselves — never bounded, and never
+     ;;   widened by a margin of the classifier's own invention — so a
+     ;;   count is admitted exactly when the ownership machinery can
+     ;;   operate on it under THIS composition's ::integer/max-bits. Past
+     ;;   that limit integer/add answers the ::bit-limit keyword instead of
+     ;;   a result, and installing that keyword as :rc would make the next
+     ;;   ownership operation refuse as a host failure escaping the
+     ;;   boundary; a probe tracks whatever limits the composition
+     ;;   installed, which a hardcoded carrier bound cannot. Probing the
+     ;;   operations and nothing else is also what keeps admission
+     ;;   IDENTITY-STABLE: a bound or an invented margin is a cutoff, one
+     ;;   ordinary acquisition moves a legally produced local count across
+     ;;   it, and the same unchanged Throwable then comes back from the
+     ;;   next reception as a ForeignException. A count at the native long
+     ;;   maximum, past it in the host big carrier, or at the minimum is
+     ;;   ordinary local ownership, which §8.10.7 rule 1 keeps in its own
+     ;;   class and identity; rule 3 covers an OTHERWISE-foreign payload,
+     ;;   and a private refcount reaching the source language's integer
+     ;;   endpoint does not make one. The single disposition that does
+     ;;   change is the arithmetic's own ceiling, stated precisely in the
+     ;;   probe comment below: identity is claimed while a count stays
+     ;;   operable, not forever. released?'s :released? read is total and
+     ;;   cell/set! is safe on an authenticated cell.
+     ;;   Authenticity proves the reference is live and task-issued, NOT
+     ;;   that its contents are object state — a guest legally mints
+     ;;   `(cell/new {:class "x"})` with no :rc.
+     ;; - the map error `{:php/type :obj :class s}` with NO marker at all:
+     ;;   slot-kind is :scalar (the re-check's correction: :plain is the
+     ;;   :php/type :array branch), cell-of is nil, addref is a no-op —
+     ;;   only the string class is consumed.
+     ;; Everything else — a scalar (php/kind's number or string
+     ;; fallthrough), competing or forged markers, dead references,
+     ;; non-string classes, and counts the ownership arithmetic cannot
+     ;; operate on (absent, non-number, float, rational, or wider than
+     ;; this composition's integer limits) — answers false and is
+     ;; FOREIGN: only a candidate every consumer can operate on, in the
+     ;; one domain they all operate in, ever reaches the Throwable test,
+     ;; and no unauthenticated or unvalidated dereference or arithmetic
+     ;; ever happens.
+     (fn [v]
+       (if (if (not (nil? (get v :php/ref))) true (not (nil? (get v :php/arr))))
+         false
+         (if (nil? (get v :php/obj))
+           (if (= (get v :php/type) :obj)
+             (data/string? (get v :class))
+             false)
+           (if (cell/authentic? (get v :php/obj))
+             (let [st (cell/get (get v :php/obj))]
+               (if (data/string? (get st :class))
+                 (let [rc (get st :rc)]
+                   ;; integer/integer? FIRST: it is the total domain
+                   ;; predicate of the two integer calls below, which
+                   ;; refuse any carrier it rejects. A php representation
+                   ;; classifier cannot stand in for it: a computed ratio
+                   ;; passes data/number? AND php/int? (php/kind's float64
+                   ;; content test), and the integer primitives then refuse
+                   ;; it — the reception-introduced failure of the
+                   ;; re-check4 counterexample.
+                   ;; The two probes that follow ARE the ownership
+                   ;; operations themselves — addref's rc+1 and delref's
+                   ;; rc-1 — so the admitted counts are exactly the counts
+                   ;; this composition's arithmetic can operate on now:
+                   ;; past ::integer/max-bits integer/add and integer/sub
+                   ;; answer the ::bit-limit keyword instead of an integer,
+                   ;; and installing that keyword as :rc would make the
+                   ;; next ownership operation refuse as a host failure
+                   ;; escaping the boundary. The classifier computes
+                   ;; NOTHING of its own, which is the property that
+                   ;; matters here: any extra margin it invents (r11
+                   ;; probed a doubling for headroom) is itself an
+                   ;; admission endpoint, and one ordinary acquisition
+                   ;; crosses it — so a local Throwable the runtime just
+                   ;; produced comes back from the next reception as a
+                   ;; ForeignException, the identity failure §8.10.7 rule 1
+                   ;; and owner ruling v2 R2 forbid. What is left is the
+                   ;; arithmetic's OWN ceiling, not a chosen cutoff: a
+                   ;; count within one acquisition of +/-(2^max-bits - 1)
+                   ;; is admitted, acquires, and is foreign at the next
+                   ;; reception because the operation genuinely cannot be
+                   ;; performed any more. Identity is therefore claimed
+                   ;; only while the count stays operable — from a minted
+                   ;; count (:rc 1) that ceiling is 2^max-bits acquisitions
+                   ;; away, and only a deliberately constructed count of
+                   ;; magnitude ~2^(max-bits - 1) starts within reach of
+                   ;; it. Every native endpoint and beyond-native big
+                   ;; carrier the repaired arithmetic produces in ordinary
+                   ;; use — MAX-1, MAX, MIN, 2^53, 2^63, 2^64 — is far
+                   ;; inside it and stays LOCAL.
+                   (if (integer/integer? rc)
+                     (if (integer/integer? (integer/add rc 1))
+                       (integer/integer? (integer/sub rc 1))
+                       false)
+                     false))
+                 false))
+             false))))]
+    [php.rt/receive-condition
+     ;; §8.10.7 reception, shared by every php call helper: classify the
+     ;; delivered condition and continue it as a local Throwable. A
+     ;; :yang.call/thrown payload that is itself a PHP Throwable keeps its
+     ;; ordinary catching and identity behavior — raised unchanged, no
+     ;; wrapper (crossing back into php restores the original type and
+     ;; identity). Any other payload — an otherwise-foreign exception or a
+     ;; plain foreign value, whatever its representation — becomes the
+     ;; prelude-owned ForeignException retaining the complete original
+     ;; condition; the protocol reasons map to the documented local Error.
+     ;; Both generated forms mint through php.rt/mint-retained, so the
+     ;; condition rides the VM provenance slot of the wrapper's identity
+     ;; cell and an unchanged rethrow forwards the original condition — the
+     ;; entry bridge consults the same provenance read — with no wrapper
+     ;; stacking. A returned condition-shaped map never reaches here: it is
+     ;; ordinary data.
+     ;; The name is `php.rt/*`, never a module export (the step-7 P1): a
+     ;; guest-reachable receiver would be a transitive mint — a forged
+     ;; condition called through it would ride a GENUINE provenance-carrying
+     ;; wrapper. Only the three call helpers reference it, as the raise
+     ;; exit they hand to yang.call/invoke, where every condition it sees
+     ;; is bridge- or validation-built, never a guest argument.
+     ;; The steward's nil-guard choice, taken DELIBERATELY as option (a):
+     ;; the condition is shape-checked BEFORE any mint — a nil or non-map
+     ;; condition raises the plain local TypeError with NO provenance mint
+     ;; (nil provenance is refused by the reserved door as an operational
+     ;; failure, which would escape the boundary behavior); only a
+     ;; map-shaped condition is ever retained or forwarded.
+     (fn [condition]
+       (if (data/map? condition)
+         (if (= (get condition :yang.call/reason) :yang.call/thrown)
+           (let [v (get condition :yang.call/value)]
+             (if (if (php/obj-val? v) (php/throwable? v) false)
+               (php/raise (php/addref v))
+               (php.rt/raise-foreign condition)))
+           (php.rt/raise-protocol condition))
+         (php/throw-error "TypeError" "Invalid condition delivered to reception")))]
     [php/call
      (fn [f args]
-       (yang.call/invoke f args []
-                         (fn [condition]
-                           (if (= (get condition :yang.call/reason)
-                                  :yang.call/not-callable)
-                             (php/throw-error "Error" "Value not callable")
-                             (php/raise condition)))))]
+       (yang.call/invoke f args [] php.rt/receive-condition))]
     [php/call-with-binding-profile
      (fn [f args named binding-profile]
-       (yang.call/invoke-with f args named
-                              (fn [condition]
-                                (if (= (get condition :yang.call/reason)
-                                       :yang.call/not-callable)
-                                  (php/throw-error "Error" "Value not callable")
-                                  (php/raise condition)))
+       (yang.call/invoke-with f args named php.rt/receive-condition
                               (assoc {} :yang.call/binding-profile binding-profile)))]
     ;; the internal array pointer (row 55): an ordinal in the table's `:ptr`,
     ;; so it travels with the value (copy, DUP, upgrade); absent means 0
@@ -4517,6 +4717,85 @@
        (if (php/throwable? v)
          (php/raise (php/addref v))
          (php/throw-error "Error" "Can only throw objects")))]
+    ;; ---------------------------------------- retained-condition reception
+    ;; §8.10.7 reception wrappers: the ForeignException (otherwise-foreign
+    ;; thrown payloads) and the protocol Error retain the complete original
+    ;; condition through the VM provenance primitive — the condition rides
+    ;; the private :provenance heap sibling of the CELL backing the
+    ;; generated Throwable's identity, installed atomically at allocation by
+    ;; the reserved mint door and read back by the reserved reader. Because
+    ;; every definition below lives under `php.rt/`, not `php`, core/exports
+    ;; never takes them: no module export, projection or alias can hand a
+    ;; guest the mint (the exported-helper bypass class the ruling names —
+    ;; a guest able to call the mint could forge provenance of its own
+    ;; choosing; php.rt/* is also unspellable in php source, which resolves
+    ;; names through its own tables). There is deliberately NO map-fallback
+    ;; path in the mint: a representation without a cell cannot authenticate
+    ;; retention, so a memberless or missing class is refused in place
+    ;; rather than silently minting an unmarkable wrapper.
+    [php.rt/mint-retained
+     ;; The privileged mint: a local `cls` error object whose state cell is
+     ;; allocated by cell/dsg__new-provenance [value provenance] — fresh id
+     ;; + seal + value + condition, atomically; nil provenance is refused by
+     ;; the door itself. The construction mirrors the membered branch of
+     ;; php/make-error (register-final!, then the message property stamped
+     ;; through the ordinary cell write, which preserves the provenance
+     ;; sibling), so the wrapper catches, formats and destructs like any
+     ;; local error of its class. Guest-visible mutation of the wrapper
+     ;; writes the same cell and cannot touch provenance; a contents-clone
+     ;; into a fresh cell carries none.
+     (fn [cls msg condition]
+       (let [c (php/class-lookup cls)]
+         (if (if (nil? c) true (= (data/count (get c :methods)) 0))
+           (php/throw-error "Error"
+                            (data/str-concat "Cannot mint a retained " cls))
+           (let [n (cell/get php.rt/next-ord)]
+             (do (cell/set! php.rt/next-ord (+ n 1))
+                 (let [o (php/register-final!
+                           (assoc {} :php/obj
+                                  (cell/dsg__new-provenance
+                                    (assoc (assoc (assoc (assoc (assoc (assoc (assoc {} :php/type :obj)
+                                                                              :id (php/next-cell!))
+                                                                       :rc 1)
+                                                                :class (get c :name))
+                                                         :props (php/init-props (php/empty-array)
+                                                                                (get c :props-decl) 0
+                                                                                (data/count (get c :props-decl))))
+                                                  :ord n)
+                                           :destructed? false)
+                                    condition))
+                           c)]
+                   (do (php/obj-set-props! o (php/table-set (get (php/obj-state o) :props)
+                                                            "message" msg))
+                       o)))))))]
+    [php.rt/retained-condition
+     ;; The §8.10.7 retention read: the complete original condition of a
+     ;; generated wrapper, authenticated by cell/dsg__provenance [cell] —
+     ;; the provenance of a live marked cell, nil for everything else (an
+     ;; unmarked cell, a forged or dead reference, a non-reference, or any
+     ;; value whose representation carries no cell). Never fatal, never
+     ;; mutating; no source-writable attribute and no value shape is ever
+     ;; consulted, so nothing a guest writes on a wrapper can forge,
+     ;; replace or break its association.
+     (fn [e]
+       (if (nil? (get e :php/obj))
+         nil
+         (cell/dsg__provenance (get e :php/obj))))]
+    [php.rt/raise-foreign
+     (fn [condition]
+       (php/raise (php.rt/mint-retained "ForeignException"
+                                        "Uncaught foreign exception" condition)))]
+    [php.rt/raise-protocol
+     (fn [condition]
+       (let [reason (get condition :yang.call/reason)]
+         (php/raise (php.rt/mint-retained
+                      "Error"
+                      (if (= reason :yang.call/not-callable)
+                        "Value not callable"
+                        (if (= reason :yang.call/unsupported-binding)
+                          "Unsupported binding profile"
+                          "Invalid function invocation"))
+                      condition))))]
     [php/match-repr
      (fn [v]
        (let [k (php/kind v)]
@@ -4648,12 +4927,18 @@
      ;; A Closure value (an object, `kind` :obj) around the function cell.
      ;; Its own identity-bearing descriptor publishes the common entry; the
      ;; entry delegates to the already-created cell, never wrapping/replacing
-     ;; the source Closure when another frontend calls it.
+     ;; the source Closure when another frontend calls it. §8.10.7: the
+     ;; delegation passes the caller's invocation through with only the
+     ;; callee rebound to the inner cell, so the cell's entry installs the
+     ;; bridge — escapes and argument-binding failures deliver to the
+     ;; SUPPLIED raise exit, never through a local php/call, whose reception
+     ;; would restart the escape under this closure's own runtime.
      (fn [f]
        (assoc (assoc (assoc {} :php/type :closure) :php/closure f)
               :yang.call/entry
               (fn [invocation]
-                (php/call f (get invocation :yang.call/positional)))))]
+                ((yang.call/entry f)
+                 (assoc invocation :yang.call/callee f)))))]
     [php/callable-of (fn [v] (php/callable-in v :php/null))]
     [php/callable-fn (fn [h] (php/callable-of h))]
     [php/callable-in
@@ -4741,12 +5026,7 @@
        (let [spec (get (cell/get f) :spec)]
          (if (nil? (get spec :names))
            (php/throw-error "Error" "Named arguments are not supported for this function")
-           (yang.call/invoke f pos named
-                             (fn [condition]
-                               (if (= (get condition :yang.call/reason)
-                                      :yang.call/not-callable)
-                                 (php/throw-error "Error" "Value not callable")
-                                 (php/raise condition)))))))]
+           (yang.call/invoke f pos named php.rt/receive-condition))))]
     [php/place-named
      (fn [f spec pos named i n extras]
        (if (< i n)
@@ -5671,6 +5951,11 @@
    ["stdClass" :class nil []] ["Closure" :class nil [] true]
    ["Generator" :class nil ["Iterator"] true]
    ["Exception" :class nil ["Throwable"]] ["Error" :class nil ["Throwable"]]
+   ;; §8.10.7: the prelude-owned representation of an otherwise-foreign
+   ;; thrown payload — catch-all catches it, typed catches match this LOCAL
+   ;; hierarchy, never a guessed foreign class name; formatting it reads its
+   ;; own message string and never invokes a foreign method.
+   ["ForeignException" :class "Exception" []]
    ["ErrorException" :class "Exception" []] ["JsonException" :class "Exception" []]
    ["RuntimeException" :class "Exception" []] ["LogicException" :class "Exception" []]
    ["TypeError" :class "Error" []] ["ValueError" :class "Error" []]

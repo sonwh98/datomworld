@@ -1,0 +1,19 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r7 round is complete — committed as `28d72fc3`, not pushed.
+
+## The last P2 residual — repaired red-first
+
+**Max side**: `:rc` = the native long maximum (a legal guest construction via `integer/parse`) passed the number admission, then addref's raw `(+ rc 1)` threw "long overflow" — reproduced red ×3, exactly sol's stack. **Min side**: `:rc` = the native minimum was admitted and delivered as a *local* payload (red ×3 the other way: `local-foreign-exception false`), leaving the crash to delref's `(- rc 1)` over the wrapper's lifetime.
+
+**Repair**: the count admission now establishes the exact property the raw arithmetic needs — `data/number?` (total, and guarding `php/int?`'s kind-fallthrough trap) → `php/int?` (integer counts only) → **strictly inside the exact native bounds** via the prelude's established idiom: `(integer/compare rc php.rt/int-max) = -1` / `(compare rc php.rt/int-min) = 1` over the init!-computed exact integers. `integer/compare` is total over every carrier, so boundary values and beyond-native carriers are all rejected; the admitted domain is precisely the integers whose raw `(+/- 1)` cannot overflow on any host.
+
+## The whole-class sweep (as instructed)
+
+The findings walk every consumed field and operation explicitly, per step: admission (all reads total), instance-of (class string-validated; the rest is task-owned state), addref (markers validated nil, cell authenticated, `:rc` in-bounds, assoc/set! safe), raise (no payload reads), and the lifetime machinery (delref's `- 1` covered by the min bound; the rest consume only minted-complete state).
+
+## Gates
+
+The unified probe now carries **eleven shapes** (44 keys ×3 backends, 0F/0E), including sol's coverage note (the bad-class cell now carries `:rc 1` so the class check stays independently discriminating). All pins green; batch parity unchanged (the same 9 disclosed failures); all legs green — typed-catch through the direct path after the kit runner stalled twice on the cold publication (disclosed); regressions 0F/0E across nine suites; kondo 0/0, cljstyle clean.
+
+Two discarded intermediate encodings (eager module-level parse constants that refused the php module link, and an unguarded `php/int?` that re-hit the kind trap) were caught by the probe before commit and disclosed in the findings.

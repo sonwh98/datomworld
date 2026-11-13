@@ -1,0 +1,204 @@
+Created-GMT: 2026-11-13 02:4x GMT
+Created-Local: 2026-11-13 09:4x +0700 (Asia/Ho_Chi_Minh)
+Coding-Agent: qwen (token-plan gateway)
+Session-ID: b775405a-f748-472d-a507-e275650c4d87 (caller uuid, resumable from this cwd)
+Reviewer: deepseek-v4-pro (model family independent: authors glm rounds 1-9, qwen rounds 10-12)
+Role: Architect (read-only step-7 re-check round 7)
+
+Warning: Tool "read_file" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+Warning: Tool "exit_plan_mode" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+Warning: Tool "write_file" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+Warning: Tool "exit_plan_mode" requires user approval but cannot execute in non-interactive mode.
+To enable automatic tool execution, use the -y flag (YOLO mode):
+Example: qwen -p 'your prompt' -y
+
+The system is locked in non-interactive plan mode — all write/shell tools are blocked. Here are my complete findings. Save this to `/tmp/phpexc-review/collab/exception-track/1794538889000-architect-step7-recheck7.deepseek-v4-pro.findings.md`:
+
+---
+
+```markdown
+Created-GMT: 2026-11-13 03:xx GMT
+Created-Local: 2026-11-13 10:xx +0700 (Asia/Ho_Chi_Minh)
+Coding-Agent: deepseek-v4-pro (via qwen CLI token-plan gateway)
+Session-ID: re-check round 7 — sandboxed, no JVM suites executed
+Role: Architect, step-7 read-only re-check round 7
+Reviewed-Base: 2da48669
+Reviewed-Tip: e80e1404
+Verdict: MERGE-READY
+
+# Step-7 re-check round 7 — the r12 doubling-probe removal
+
+Source, tests, r12 engineering findings, prior re-check6 findings, architecture rules,
+and the orchestrator chronology evidence were reviewed without modification and without
+test execution. Only this requested findings artifact was written.
+
+## Ruling 1 — round-6 required completion is MET
+
+The doubling predicate `(integer/add rc rc)` is removed. The admission expression at
+the tip is:
+
+```clojure
+(if (integer/integer? rc)
+  (if (integer/integer? (integer/add rc 1))
+    (integer/integer? (integer/sub rc 1))
+    false)
+  false)
+```
+
+**What remains:**
+- `integer/integer?` — the total exact-integer domain predicate (residual 2's repair,
+  unchanged).
+- `integer/add rc 1` — addref's own operation (the increment probe, unchanged).
+- `integer/sub rc 1` — delref's own operation (r12's one addition beyond the
+  dispatch's literal instruction; addressed in Ruling 3).
+
+No probe-introduced endpoint remains. The classifier computes NOTHING of its own:
+every call in the predicate is a call the ownership machinery itself makes. This is
+the property whose absence made r11's doubling an endpoint.
+
+**Count disposition at B=100000, traced from source (not executed):**
+
+| Initial count | rc+1 integer? | rc-1 integer? | Admitted | Second reception |
+|---|---|---|---|---|
+| 2^99999-1 (T-1) | yes | yes | LOCAL | LOCAL (identity + Exception) |
+| 2^99999 (T) | yes | yes | LOCAL (was FOREIGN under r11) | LOCAL |
+| 2^100000-2 | yes | yes | LOCAL | LOCAL |
+| 2^100000-1 | **no** (→ ::bit-limit) | yes | FOREIGN | n/a |
+| 2^100000 | no | — | FOREIGN | n/a |
+
+T-1 acts correctly: both receptions return the original Exception with original
+identity. T was the core of re-check6's counterexample — rejected by the doubling
+despite both ownership operations being perfectly operable — and is now LOCAL.
+
+The `t-minus-one` shape is in `php-count-acquisition-test` (the test with the
+two-reception harness and live-first-result binding), with all six observations:
+route, class, and identity assertions on both results. 5 shapes × 6 observations =
+30 expected keys per backend. The orchestrator chronology shows this test green
+at the tip.
+
+## Ruling 2 — the [T, limit) admission gap is ACCEPTABLE per §8.10.7
+
+**The gap:** With the doubling removed, counts in [T, 2^B) are admitted whenever
+rc+1 and rc-1 stay integers. A count at 2^B - 2 is admitted, one acquisition
+makes it 2^B - 1, and the reception after that refuses it — because `integer/add`
+genuinely cannot produce 2^B under ::max-bits = B. This is the integer module's
+own limit surfacing, not a cutoff the classifier chose.
+
+**§8.10.7 analysis:** Rule 1 requires a local Throwable to keep its class and
+identity across ordinary acquisitions. A count at 2^B - 1 genuinely cannot perform
+its next acquisition — the integer module returns ::bit-limit, not an integer.
+This is the same ceiling that exists under pure domain membership: an
+integer/integer? discriminant alone would admit 2^B - 1, but the first addref
+would still fail identically. The classifier is not the one refusing; the
+ownership operations themselves refuse. No identity violation occurs while a
+count stays genuinely operable.
+
+**Reachability:** From a minted count (:rc 1), the ceiling is 2^B acquisitions
+away. From a deliberately constructed count of magnitude ~2^(B-1), it is 2
+acquisitions away. Every native endpoint and beyond-native big carrier the
+repaired arithmetic produces in ordinary use — MAX-1, MAX, MIN, 2^53, 2^63,
+2^64 — is far inside it. The comments state this precisely: "identity is
+therefore claimed only while the count stays operable." The prior r11 claim
+"every still-operable count is admitted" was overstated and is corrected.
+
+**The decrement probe's role in the release-side hazard:** Without the decrement
+probe, increment-only admission admits `rc = -(2^B - 1)` (built from
+`integer/sub` and `integer/mul` within the module limits; r12 §6 traces the
+construction). The first ordinary release computes `integer/sub rc 1 = -2^B`
+→ ::bit-limit → the keyword is assoc'd into the cell as :rc, and the next
+ownership operation throws `"integer primitive refused"` escaping the boundary.
+The decrement probe refuses this count at classification time: it is FOREIGN
+and retained whole. The probe is literally delref's operation, preserving the
+"computes nothing of its own" property. It moves no cutoff on the positive
+side — for positive rc, a successful rc+1 implies a successful rc-1, so the
+decrement is binding only at the negative ceiling.
+
+**Conclusion:** No reception-path observable difference exists between this
+admission policy and pure `integer/integer?` on any count short of the
+arithmetic ceiling, and at the ceiling the difference is that this classifier
+refuses BEFORE attempting the doomed operation (keeping the condition
+foreign-retained) rather than attempting it and escaping the boundary — the
+safer behavior. Per §8.10.7 rule 1 and owner ruling v2 R2, this is acceptable.
+
+## Ruling 3 — the two minor deviations from the dispatch are correct
+
+**r12's deviation (test placement):** The dispatch and re-check6 said to add
+T-1 to the source regression. r12 placed it in `php-count-acquisition-test`
+rather than `php-count-limit-test`. This is functionally correct:
+`php-count-acquisition-test` has the two-reception harness, the
+`is_local_exception` class check, and the live-first-result binding the
+assertion needs. `php-count-limit-test`'s comment cross-references it, so the
+two halves of the limit policy are readable from either test. No assertion
+was weakened.
+
+**r12's addition (decrement probe):** The dispatch said "KEEP the increment
+probe … and the `integer/integer?` domain check." r12 kept both and changed
+the second probe from the removed doubling to `integer/sub rc 1` rather than
+removing the slot. This closes the release-side hazard described in Ruling 2.
+If a future round prefers the literal minimal fix, deleting that one line is
+the whole revert — but the hazard it closes is real, and `integer/sub rc 1` is
+as much an ownership operation as `integer/add rc 1`. The predicate still
+computes nothing of its own.
+
+## Ruling 4 — nothing else in the diff is concerning
+
+Three files changed in 2da48669..e80e1404 (from the orchestrator's git diff --stat):
+
+| File | Lines | Content |
+|---|---|---|
+| `src/cljc/yang/php/antlr/prelude.cljc` | +100/-58 | admission expression + comments rewritten |
+| `test/yang/call/php_exception_test.clj` | +57/-xx | new t-minus-one shape, comment updates |
+| `…r12.qwen3.8-max.findings.md` | +283 | engineering findings (non-executable) |
+
+- `php/addref`, `php/delref`, `php/finalize!`, `host-names`, exports, aliases,
+  the receiver/mint privacy, and provenance doors: **unchanged**.
+- The 11-shape foreign matrix, `php-kit-parity-test`, `php-kit-batch-parity-test`,
+  the directed legs, forgery/provenance/nil tests, `egress-source`, `injected`,
+  `boundary-call`, the shared kit, and every fixture: **untouched** — no pin
+  weakened.
+- `php-count-limit-test` assertions: unchanged. 2^100000 stays FOREIGN, four
+  full-retention observations (returned wrapper, is_foreign, whole condition
+  incl. evidence, payload identity through a later activation).
+- No broad host catch, no new surface, no change to the step-7 P1 (receiver
+  is `php.rt/*`, never a module export).
+
+## Evidence and gate disposition
+
+Accepted as supplied from the orchestrator chronology at jupiter (scratch clone
+at exact SHAs, focused -v):
+
+- BEFORE (2da48669 + r12 test file): php-count-acquisition-test 3 failures =
+  t-minus-one second-class/second-identical keys × 3 backends (re-check6's
+  reproduced scenario, red as predicted).
+- AFTER (e80e1404): batch1 (count-acquisition, count-limit, handle-shapes,
+  nil-condition, kit-parity, mint-forgery) 6 tests/24 assertions 0F; batch2
+  (9 established pins) 3 failures = disclosed :php/local-reception
+  :payload-identical lane-block signature (byte-identical since r2; prior
+  disposition assigns fixture-shape change to the steward); family
+  (prelude-test P8 pins, yin.vm.integer) 58/725 0F; kondo 0/0; cljstyle clean.
+
+No test execution was attempted in this sandboxed session — this ruling is
+from the recorded chronology evidence and the source itself.
+
+## VERDICT: MERGE-READY
+
+No residuals blocking merge. The one documented gap — the arithmetic ceiling at
+which a genuinely inoperable count becomes foreign — is the integer module's
+own limit, not a chosen cutoff. Closing it requires a module-level change (e.g.,
+a saturating count policy or an exported max-bits constant), which is outside
+this slice and would be a shared-surface change.
+
+Carry-over residual (steward-owned): the :php/local-reception :payload-identical
+lane-blocked failures (3 assertions, byte-identical since r2). Prior disposition
+assigns the fixture-shape change to the steward; no shared fixture or expectation
+was touched in this round.
+```

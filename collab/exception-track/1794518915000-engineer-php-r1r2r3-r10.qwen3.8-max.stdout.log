@@ -1,0 +1,16 @@
+Done — with the hard caveat that **this session has no shell** (verified for a subagent too), so nothing could be executed or committed.
+
+**What changed on disk** (working tree left dirty for a seat that can gate it):
+
+`src/cljc/yang/php/antlr/prelude.cljc`
+- `php/addref`/`php/delref`: raw `(+ rc 1)`/`(- rc 1)` → `integer/add`/`integer/sub` *(handover adopted)*
+- `php/obj-val?`: `integer/integer?` replaces `data/number?`+`php/int?` *(adopted)* — but **r7's strict ±2^63 bounds restored inside it** *(handover reverted)*, in HEAD's own nesting so the code diff is one collapsed predicate level
+- `data/number?` dropped from `host-names` (now dead); `integer/integer?` kept (load-bearing for `bundled-prelude-is-closed-test`)
+
+`test/yang/call/php_exception_test.clj`
+- `max-long-count`/`min-long-count` **restored byte-identical to HEAD** → 12 shapes / 48 keys, r7 controls green
+- `php-count-acquisition-test` kept for `near-max` (MAX-1) + `js-number-boundary` (2^53) only, via sol's own `catch_return` source; `ratio-count` kept as the residual-2 foreign pin
+
+**Why the bounds went back in** — the handover's "no bounds check remains" reasoning is wrong: `integer/add` is exact but *limited*, answering the `::bit-limit` **keyword** past `::integer/max-bits` (4096 floor; 100000 in these lanes), while the VM's `+ - *` are raw host ops no limit bounds. Unbounded admission would store that keyword as `:rc` and turn the next `php/delref` into a host `:wrong-type` refusal escaping the boundary. It also inverts two committed r7 controls, which the dispatch requires to stay green.
+
+Findings: `collab/exception-track/1794518915000-engineer-php-r1r2r3-r10.qwen3.8-max.findings.md` — per-hunk adopted/changed table, pin map, the §3 defect, and §6 with the exact red-first/gate/commit commands. **No gate result appears anywhere in it, because none was run.** HEAD's bytes were recovered from the detached checkout at `/private/tmp/phpexc-review`, so the restorations are verbatim rather than reconstructed.
