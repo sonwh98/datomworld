@@ -17,6 +17,7 @@
     [yang.php.antlr.portable-harness :as portable]
     [yang.php.antlr.prelude :as prelude]
     [yang.php.antlr.publication :as publication]
+    [yang.php.antlr.safepoint :as safepoint]
     [yin.vm :as vm]
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
@@ -41,8 +42,10 @@
     (let [store (mem/create-content-mem)
           call-result (publish/publish-module! store (call/module-spec (registry)))
           result (publish/publish-module! store (prelude/module-spec (registry)
-                                                                     (:address call-result)))]
+                                                                     (:address call-result)))
+          hook (publish/publish-module! store (safepoint/module-spec (registry) (:address result)))]
       {:store store,
+       :hook-address (:address hook),
        :result result,
        :address (:address result),
        :call-address (:address call-result)})))

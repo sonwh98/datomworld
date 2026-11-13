@@ -4495,13 +4495,14 @@
                                       (fn [] (cell/set! entry value)))))
                (php/tick-dispatch entries (integer/add i 1))))
          :php/null))]
-    [php.sp/line
+    [php/tick-line
      (fn [line site]
        (let [n (integer/add (cell/get php.rt/tick-count) 1)]
          (if (< (integer/compare n (get site :ticks)) 0)
            (cell/set! php.rt/tick-count n)
            (do (cell/set! php.rt/tick-count 0)
                (php/tick-dispatch (cell/get php.rt/tick-functions) 0)))))]
+    [php.sp/line (fn [line site] (php/tick-line line site))]
     [php/freeze-finalizable
      ;; step 4 frees without destructors: whatever is left counts as destructed
      (fn [objs i]

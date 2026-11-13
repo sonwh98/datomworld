@@ -3,7 +3,8 @@
    its per-run counter; exhaustion unwinds past guest handlers and raises the
    operational fatal, not a guest Throwable."
   (:require
-    [yang.core.uast :as u]))
+    [yang.core.uast :as u]
+    [yang.core.module :as module]))
 
 
 (def profile
@@ -54,3 +55,15 @@
     (u/then (definitions->uast function-definitions)
             (u/then (u/def! 'php.sp/remaining (u/sexp->uast (list 'cell/new budget)))
                     ast))))
+
+
+(defn module-spec
+  "The linked ticks hook delegates to the shared PHP runtime."
+  [registry php-address]
+  (let [ast (module/module-tree
+              [(module/require-node 'php)
+               (u/def! 'line (u/sexp->uast '(fn [line site] (php/tick-line line site))))])
+        requires {'php php-address}]
+    {:name 'php.sp, :ast ast, :exports '#{line}, :requires requires,
+     :primitives (module/free-primitives :yang.php/error :yang.php/undeclared
+                                         registry (set (keys requires)) ast)}))
