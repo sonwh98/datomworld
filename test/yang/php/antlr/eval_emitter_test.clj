@@ -44,6 +44,15 @@
     (is (not-any? #(= "php.rt" (namespace %)) free))))
 
 
+(deftest eval-module-is-code-only
+  (let [spec (lower/eval-module-spec (harness/host-registry)
+                                     'eval.test (packet "return 7;"))]
+    (is (= 'eval.test (:name spec)))
+    (is (= '#{entry} (:exports spec)))
+    (is (empty? (:requires spec)))
+    (is (= '#{entry} (core-prelude/defined-keys (:ast spec))))))
+
+
 (deftest eval-entry-runs-with-the-callers-runtime
   (let [entry (:ast (lower/eval-entry (packet "$x = 2; return $x;")))
         invoke (u/app entry (lower/eval-runtime-node) (u/lit :php/globals)

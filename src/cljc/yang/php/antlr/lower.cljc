@@ -3831,6 +3831,15 @@
       :warnings @(:warnings ctx)})))
 
 
+(defn eval-module-spec
+  "A code-only linker module exporting an eval entry under `name`."
+  [registry name packet]
+  (let [ast (core-module/module-tree [(u/def! 'entry (:ast (eval-entry packet)))])]
+    {:name name, :ast ast, :exports '#{entry}, :requires {}
+     :primitives (core-module/free-primitives :yang.php/refusal :yang.php/undeclared-free
+                                              registry #{} ast)}))
+
+
 (def option-keys
   "The options `lower-program` and the lowering stage accept. Request data
    never flows here: the harness attaches the composition-supplied request
