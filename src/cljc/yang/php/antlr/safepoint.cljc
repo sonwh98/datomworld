@@ -10,6 +10,12 @@
   {:loop 'php.sp/loop, :call {:hook 'php.sp/call, :sequence true}})
 
 
+(def ticks-profile
+  "Statement completion hooks for PHP's lexical ticks directives. This is
+   separate from the execution-budget profile so ticks do not charge it."
+  {:line {:hook 'php.sp/line, :operands true, :after true}})
+
+
 (def fatal-text
   "Maximum execution time of 30 seconds exceeded")
 
