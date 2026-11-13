@@ -16,6 +16,16 @@
    {:id :generator-resume,
     :source "function g() { declare(ticks=1) { yield 1; echo 'B'; } } $g=g(); $g->current(); echo 'A'; $g->next();",
     :out "ATBT", :oracle :pending}
+   {:id :sequence-n2, :source "declare(ticks=2) { echo 'A'; $x = 1; echo 'B'; }",
+    :out "ATB", :oracle :pending}
+   {:id :nested-threshold,
+    :source "declare(ticks=5) { echo 'A'; $x=1; echo 'B'; declare(ticks=2) { echo 'C'; } echo 'D'; }",
+    :out "ABCTD", :oracle :pending}
+   {:id :cross-function,
+    :source "function f() { declare(ticks=2) { echo 'F'; } } declare(ticks=2) { echo 'A'; } f();",
+    :out "AFT", :oracle :pending}
+   {:id :semicolon-directive, :source "declare(ticks=2); echo 'A'; echo 'B';",
+    :out "ATB", :oracle :pending}
    {:id :include-handoff, :source "include 'lib.php';",
     :units {"lib.php" "<?php declare(ticks=1) { echo 'L'; }"},
     :out "LT", :oracle :pending}])
