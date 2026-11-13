@@ -3,9 +3,9 @@
 {:lane :cljs,
  :root yin.repl.main,
  :features #{:cljs},
- :total 161,
- :shared 152,
- :lane-specific 9,
+ :total 149,
+ :shared 141,
+ :lane-specific 8,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
   :consumer "H2 (require change only)",
@@ -97,14 +97,6 @@
    :ns dao.jing.coordinate,
    :shared true,
    :classes #{:deferred-timers}}
-  {:file "src/cljc/dao/jing/dht.cljc",
-   :ns dao.jing.dht,
-   :shared true,
-   :classes #{:deferred-entropy :profile-internal-pure}}
-  {:file "src/cljc/dao/jing/dht/kad.cljc",
-   :ns dao.jing.dht.kad,
-   :shared true,
-   :classes #{:none}}
   {:file "src/cljc/dao/jing/file.cljc",
    :ns dao.jing.file,
    :shared true,
@@ -121,10 +113,6 @@
    :ns dao.pretty,
    :shared true,
    :classes #{:internal-pure-display}}
-  {:file "src/cljc/dao/space/dht.cljc",
-   :ns dao.space.dht,
-   :shared true,
-   :classes #{:deferred-entropy}}
   {:file "src/cljc/dao/space/index.cljc",
    :ns dao.space.index,
    :shared true,
@@ -181,10 +169,6 @@
    :ns dao.stream.codec,
    :shared true,
    :classes #{:codec-track}}
-  {:file "src/cljc/dao/stream/datagram.cljc",
-   :ns dao.stream.datagram,
-   :shared true,
-   :classes #{:external-stream-seam :profile-internal-pure}}
   {:file "src/cljc/dao/stream/journal.cljc",
    :ns dao.stream.journal,
    :shared true,
@@ -385,10 +369,6 @@
    :ns yin.repl.connect,
    :shared true,
    :classes #{:codec-track}}
-  {:file "src/cljc/yin/repl/dht.cljc",
-   :ns yin.repl.dht,
-   :shared true,
-   :classes #{:deferred-entropy :dialect-arm}}
   {:file "src/cljc/yin/repl/driver.cljc",
    :ns yin.repl.driver,
    :shared true,
@@ -409,6 +389,10 @@
    :ns yin.repl.main,
    :shared true,
    :classes #{:driver}}
+  {:file "src/cljc/yin/repl/publication.cljc",
+   :ns yin.repl.publication,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/yin/repl/query.cljc",
    :ns yin.repl.query,
    :shared true,
@@ -493,36 +477,8 @@
    :ns yin.vm.linker.admission,
    :shared true,
    :classes #{:none}}
-  {:file "src/cljc/yin/vm/linker/authority.cljc",
-   :ns yin.vm.linker.authority,
-   :shared true,
-   :classes #{:none}}
-  {:file "src/cljc/yin/vm/linker/closure.cljc",
-   :ns yin.vm.linker.closure,
-   :shared true,
-   :classes #{:profile-consumer}}
-  {:file "src/cljc/yin/vm/linker/dht.cljc",
-   :ns yin.vm.linker.dht,
-   :shared true,
-   :classes #{:none}}
-  {:file "src/cljc/yin/vm/linker/head.cljc",
-   :ns yin.vm.linker.head,
-   :shared true,
-   :classes #{:none}}
-  {:file "src/cljc/yin/vm/linker/head/board.cljc",
-   :ns yin.vm.linker.head.board,
-   :shared true,
-   :classes #{:none}}
-  {:file "src/cljc/yin/vm/linker/interpreter.cljc",
-   :ns yin.vm.linker.interpreter,
-   :shared true,
-   :classes #{:none}}
-  {:file "src/cljc/yin/vm/linker/publish.cljc",
-   :ns yin.vm.linker.publish,
-   :shared true,
-   :classes #{:none}}
-  {:file "src/cljc/yin/vm/linker/requirements.cljc",
-   :ns yin.vm.linker.requirements,
+  {:file "src/cljc/yin/vm/linker/pair.cljc",
+   :ns yin.vm.linker.pair,
    :shared true,
    :classes #{:none}}
   {:file "src/cljc/yin/vm/linker/sign.cljc",
@@ -649,10 +605,6 @@
    :ns yin.vm.values,
    :shared true,
    :classes #{:consumer :profile-internal-pure}}
-  {:file "src/cljs/dao/stream/datagram/node.cljs",
-   :ns dao.stream.datagram.node,
-   :shared false,
-   :classes #{:external-stream-seam}}
   {:file "src/cljs/dao/stream/waitset/driver.cljs",
    :ns dao.stream.waitset.driver,
    :shared false,
