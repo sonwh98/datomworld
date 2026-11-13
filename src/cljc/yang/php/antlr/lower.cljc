@@ -3788,6 +3788,13 @@
   (unit-body (context packet)))
 
 
+(def eval-hook-profile
+  "Safepoint derivation aliases bound to the caller's hooks in an eval entry."
+  {:loop '%eval-loop
+   :call {:hook '%eval-call :sequence true}
+   :line {:hook '%eval-line :operands true :after true}})
+
+
 (defn eval-entry
   "Lower an eval unit to a callable that borrows its caller's runtime,
    variable scope, method context and safepoint hooks. It does not initialize
@@ -3807,9 +3814,12 @@
                        {:yang.php/diagnostic :yang.php/undeclared-free :names (vec missing)})))
      {:ast (u/mark-tails
              (u/lam ['%runtime '%scope '%ctx '%hooks]
-                    (reduce (fn [node name]
-                              (u/let1 name (app* 'get (u/v '%runtime) (u/lit name)) node))
-                            body (reverse imports))))
+                    (reduce (fn [node [name key]]
+                              (u/let1 name (app* 'get (u/v '%hooks) (u/lit key)) node))
+                            (reduce (fn [node name]
+                                      (u/let1 name (app* 'get (u/v '%runtime) (u/lit name)) node))
+                                    body (reverse imports))
+                            (reverse [['%eval-loop :loop] ['%eval-call :call] ['%eval-line :line]]))))
       :warnings @(:warnings ctx)})))
 
 

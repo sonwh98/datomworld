@@ -22,3 +22,13 @@
     (is (not-any? #(= "php" (namespace %)) free))
     (is (not (contains? free '%scope)))
     (is (not (contains? free '%ctx)))))
+
+
+(deftest eval-entry-binds-derived-hooks
+  (let [entry (:ast (lower/eval-entry (packet "while (false) {}")))
+        params (into #{} (mapcat :params) (filter #(and (map? %) (= :lambda (:type %)))
+                                                  (tree-seq coll? seq entry)))]
+    (is (= '%eval-loop (:loop lower/eval-hook-profile)))
+    (is (= '%eval-call (get-in lower/eval-hook-profile [:call :hook])))
+    (is (= '%eval-line (get-in lower/eval-hook-profile [:line :hook])))
+    (is (every? params '[%eval-loop %eval-call %eval-line]))))
