@@ -1,19 +1,14 @@
 ;; B-leg adaptation of latte-kernel.typing/unfold-implicit (typing.cljc:453, the
 ;; one try in the corpus). It is NOT compiled from upstream source: the manifest
-;; marks it as explicitly adapted. The catch is replaced by the outcome model:
-;; the implicit function is a guest closure applied to the argument vector, its
-;; error outcome is consumed here (yin.k/outcome-of is the raw call, not
-;; unwrapped at the call site), and the :ko result merges the error's data
+;; marks it as explicitly adapted. The implicit function is a guest closure;
+;; the catch merges the raised value's data
 ;; over :implicit and :msg in upstream's order (the data wins). The upstream
 ;; def-env and ctx parameters only reach type-of-implicit-args and
 ;; call-implicit, so this fixture takes the implicit definition and the
 ;; already-typed arguments.
 (defn unfold-implicit
   [implicit-def args]
-  (let [outcome (yin.k/outcome-of ((:fn implicit-def) args))]
-    (if (= :yin.k/error (first outcome))
-      [:ko (conj {:implicit (:name implicit-def)
-                  :msg (:yin.k/message (second outcome))}
-                 (:yin.k/data (second outcome)))
-       nil]
-      [:ok (second outcome) args])))
+  (try [:ok ((:fn implicit-def) args) args]
+       (catch Exception e
+         [:ko (merge {:implicit (:name implicit-def) :msg (ex-message e)}
+                     (ex-data e)) nil])))

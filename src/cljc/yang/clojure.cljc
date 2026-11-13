@@ -2014,8 +2014,7 @@
           ;; Do block: (do expr1 expr2 ...)
           do (compile-do operands env tail? macro-env)
           loop (compile-loop operands env tail? macro-env (::fn-loop (meta form)))
-          ;; (yin.k/outcome-of (f x)): the call's outcome as a value, not unwrapped
-          ;; internal, from the outcome lowering: its bindings are already plain
+          ;; Internal let whose bindings are already lowered.
           dsg__let (compile-let-simple (first operands) (body-expression (rest operands))
                                        env tail? macro-env)
           recur (compile-recur operands env tail? macro-env)

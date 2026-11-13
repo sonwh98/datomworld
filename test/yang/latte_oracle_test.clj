@@ -641,7 +641,7 @@
     (testing "success: [:ok value args]"
       (is (= (upstream-unfold a-ok '[7 8])
              (second (b-leg ok-form '[7 8])))))
-    (testing "failure: error outcome consumed, data overrides :msg, result is [:ko ... nil]"
+    (testing "failure: the raised error is caught, data overrides :msg, result is [:ko ... nil]"
       (is (= (upstream-unfold a-throw '[7])
              (second (b-leg throw-form '[7]))))
       (is (= [:ko {:implicit 'imp, :msg "data wins", :extra 1} nil]
@@ -934,17 +934,12 @@
 
 
 (defn- context-host-form
-  "B is ordinary Clojure over the checked-in adaptation. The sole guest
-   outcome intrinsic becomes the equivalent host catch; data primitives and
+  "B is ordinary Clojure over the checked-in adaptation; data primitives and
    deterministic gensym retain exactly their portable contracts."
   [form]
   (walk/postwalk
     (fn [x]
       (cond
-        (and (seq? x) (= 'yin.k/outcome-of (first x)))
-        `(try [:yin.k/ok ~(second x)]
-              (catch clojure.lang.ExceptionInfo e#
-                [:yin.k/error {:yin.k/message (ex-message e#) :yin.k/data (ex-data e#)}]))
         (and (seq? x) (= 'gensym (first x)))
         (let [[_ prefix n] x]
           (list 'let ['prefix prefix 'n n]
