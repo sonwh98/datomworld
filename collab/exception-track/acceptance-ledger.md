@@ -482,3 +482,25 @@ F2 export-audit pin — F2's twin now needed clojure-side; F3 comment).
 
 **MERGE STATE:** port READY; merge gated on **P1-1** (owner: the kit's `finally`-refusal row —
 retire per FINAL DIRECTIVE [recommended] vs reinstate). php round: its own track.
+
+### Round PHP R1+R2+R3 — merged to master as `5eaef15e` (php seat; r1–r12; deepseek-v4-pro round-7 MERGE-READY sign-off; acceptance kit at `e80e1404`)
+
+33 rows flip red→green (11 fixtures × 3 backends): binding, forged-retention, foreign-reception,
+retained-foreign-lifetime, protocol-{not-callable,invalid-invocation,unsupported-binding},
+saved-protocol-{same}×3. Disclosed-red (3 rows' worth, steward-dispositioned below): fresh-named,
+fresh-closure, local-reception — now failing ONLY :payload-identical (was fully red). The 18
+clojure-provenance rows at that base are the in-flight R3/port state, inherited not touched —
+they flip on the PORT merge, which must land in the SAME WINDOW as the kit-round (each alone
+reddens master: port-without-kit trips the old refusal test; kit-without-port runs the new
+clojure-caller finally-replacement legs against a refusing clojure).
+
+Steward dispositions of the php lane findings (1794541429000):
+1. Instrument-shape conflict (run-main unsets globals; the 3 payload-identity fixtures assume
+   post-unit survival): ACCEPTED for a KIT ROUND 2 — sol re-check-5 §4's instrument-shape repair
+   (runtime-seeded payload; the directed in-lane pins already prove the assertions pass with that
+   shape). Contract unchanged; fixture seeding shape changes. Queued behind the running finally
+   kit round.
+2. dao.jing concurrent-content stall: laptop-lane-specific (shiva completes in minutes);
+   consistent with the owner ruling that suite-scale runs belong remote; NOT a php defect. The
+   orphaned JVM (pid 75393) was REAPED by the steward this session.
+3. Duplicate-dispatch trail (r9/r10): noted, corrected on the record; no action.
