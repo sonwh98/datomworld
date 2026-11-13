@@ -2205,7 +2205,8 @@
                           :else (app* 'php/array-append acc (lower ctx k)))))
                     (app* 'php/empty-array)
                     items)
-        deref (first (core/rules ctx n "expression"))]
+        deref (first (core/rules ctx n "expression"))
+        arr (app* 'php/tmp! arr)]
     (if deref (app* 'php/dim-get arr (lower ctx deref)) arr)))
 
 
@@ -2282,10 +2283,9 @@
 
 
 (defn- with-temps
-  "`node` followed by the release of the temporaries it registered, when the
-   statement `n` holds a call that can leave one (row 37)."
+  "`node` followed by the release of temporaries registered by statement `n`."
   [ctx n node]
-  (if (or (some #(core/contains-rule? ctx n % #{}) ["functionCall" "newExpr" "memberAccess"])
+  (if (or (some #(core/contains-rule? ctx n % #{}) ["functionCall" "newExpr" "memberAccess" "arrayCreation"])
           (contains-token? ctx n "Clone"))
     (let [mark (core/gen "tm" n)]
       (u/let1 mark (app* 'php/tmp-mark) (u/then node (app* 'php/release-tmps (u/v mark)))))
@@ -3622,7 +3622,7 @@
     (let [node (case (:rule n)
                  "doWhileStatement" (lower-do-while ctx n)
                  "forStatement" (lower-for ctx n)
-                 "foreachStatement" (lower-foreach ctx n))]
+                 "foreachStatement" (with-temps ctx n (lower-foreach ctx n)))]
       (if (pos? @(:ticks ctx))
         (u/then node (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks @(:ticks ctx)}]
                                 (u/lit :php/null)))

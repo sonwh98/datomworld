@@ -5297,7 +5297,8 @@
      (fn [g outcome]
        (let [s (php/gen-state g)]
          (do (php/gen-put! g (assoc {} :state :closed :return-value (get outcome 1)
-                                    :current (get s :current) :key (get s :key)))
+                                    :current (get s :current) :key (get s :key)
+                                    :cleanup (get s :cleanup)))
              (cell/set! php.rt/ctx (get s :caller-ctx))
              ((get s :return) outcome))))]
     [php/gen-fail (fn [g e] (php/gen-exit g (php/gen-outcome :raise e)))]
@@ -5387,7 +5388,7 @@
            :php/null
            (let [st (get s :state)]
              (do (php/gen-put! g (assoc {} :state :closed :return-value :php/null))
-                 (if (if (= st :created) false (not (= st :suspended)))
+                 (if (nil? (get s :cleanup))
                    :php/null
                    ((get s :cleanup)))
                  (php/delref (php/or-default (get s :current) :php/null))

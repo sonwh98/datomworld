@@ -17,8 +17,14 @@
 
 
 (deftest generator-releases-dynamic-bindings
-  ;; :oracle :pending -- verify generator destruction order with PHP 8.3.
   (let [source "<?php class C { function __destruct(){ echo 'D'; } } function f($a){ extract($a); yield 1; } $a=['o'=>new C]; $g=f($a); $g->current(); unset($a); unset($g); echo 'Z';"
         results (h/run-php source)]
     (doseq [backend [:ast-walker :semantic :stack :register]]
       (is (= "DZ" (get results backend)) (str backend " " (pr-str results))))))
+
+
+(deftest extract-literal-releases-before-caller-continues
+  (let [source "<?php class C { function __destruct(){ echo 'D'; } } function f(){ extract(['o'=>new C]); } f(); echo 'A';"
+        results (h/run-php source)]
+    (doseq [backend [:ast-walker :semantic :stack :register]]
+      (is (= "DA" (get results backend)) (str backend " " (pr-str results))))))
