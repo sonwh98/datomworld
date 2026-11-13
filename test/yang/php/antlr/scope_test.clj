@@ -4,6 +4,7 @@
     [clojure.test :refer [deftest is]]
     [yang.antlr.packet :as packet]
     [yang.php.antlr.cst :as cst]
+    [yang.php.antlr.portable-harness :as h]
     [yang.php.antlr.scope :as scope]))
 
 
@@ -87,3 +88,20 @@
     (is (= 3 (count (:scopes a))))
     (is (some #{"$z"} (:vars outer)) "the free variable of the nested arrow reaches the function")
     (is (not-any? #{"$x" "$y"} (:vars outer)) "its own parameters do not escape")))
+
+
+(deftest eval-expression-marks-only-its-owning-scope-dynamic-test
+  (let [a (analysis "<?php function outer() { function inner() { eval('return 1;'); } }")
+        scopes (vals (:scopes a))]
+    (is (false? (get-in a [:unit :dynamic?])))
+    (is (= #{true false} (set (map :dynamic? scopes))))))
+
+
+(deftest dedicated-eval-expression-marks-scope-dynamic-test
+  (let [pk (h/packet [:htmlDocument
+                      [:phpBlock [:topStatement [:statement [:expressionStatement
+                                                             [:expression ["Eval" "eval"] ["(" "("]
+                                                              [:expression [:constant [:literalConstant ["String" "'x'"]]]]
+                                                              [")" ")"]] ["SemiColon" ";"]]]]]
+                      ["EOF" "<EOF>"]])]
+    (is (true? (get-in (scope/analyze pk) [:unit :dynamic?])))))
