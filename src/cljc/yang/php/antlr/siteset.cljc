@@ -4,7 +4,8 @@
     [dao.jing :as jing]
     [yang.safepoint :as safepoint]
     [yin.vm :as vm]
-    [yin.vm.encoder :as encoder]))
+    [yin.vm.encoder :as encoder]
+    [yin.vm.linker.sign :as sign]))
 
 
 (def frontend-revision "yang.php.antlr.lower/sites-1")
@@ -71,3 +72,75 @@
                        sites)
                (= sites (safepoint/site-set (into {} sites))))
       {:record record, :set sites})))
+
+
+(defn signed-entry
+  "Sign the association between a published manifest and its site record."
+  [key manifest record-address]
+  (let [env {:yang.site/op :publish,
+             :yang.site/manifest manifest,
+             :yang.site/record record-address,
+             :yin.module/asserted-by (sign/principal (:public key))}]
+    {:envelope env, :proof (sign/sign-envelope (:seed key) env)}))
+
+
+(defn entry-datoms
+  "Index signed site publications alongside name assertions."
+  [signed]
+  (vec (mapcat (fn [e {:keys [envelope proof]}]
+                 [[e :yang.site/envelope envelope]
+                  [e :yang.site/proof proof]])
+               (range) signed)))
+
+
+(defn discover
+  "Find site record addresses signed by a declared public key for manifest."
+  [datoms publics manifest]
+  (let [proofs (reduce (fn [acc [e a v]]
+                         (cond-> acc
+                           (= a :yang.site/proof) (update e (fnil conj #{}) v)))
+                       {} datoms)]
+    (vec (distinct
+           (keep (fn [[e a env]]
+                   (when (and (= a :yang.site/envelope) (map? env)
+                              (= :publish (:yang.site/op env))
+                              (= manifest (:yang.site/manifest env)))
+                     (let [ps (get proofs e)
+                           sig (when (= 1 (count ps))
+                                 (:yin.module/signature (first ps)))]
+                       (when (and (string? sig)
+                                  (some #(and (= (:yin.module/asserted-by env)
+                                                 (sign/principal %))
+                                              (sign/verify-envelope
+                                                % (jing/canonical-bytes env) sig))
+                                        publics))
+                         (:yang.site/record env)))))
+                 datoms)))))
+
+
+(defn signed-entries
+  "Sign all site publications returned by unit publication, including aliases."
+  [publisher sites addresses bundles]
+  (mapv (fn [[k s]]
+          (signed-entry publisher (or (get addresses k) (get bundles k))
+                        (:record-address s)))
+        (sort-by (comp str key) sites)))
+
+
+(defn derive-verified
+  "Re-derive a validated module tree from its verified published occurrence set.
+   Returns nil when the tree or publication does not match the manifest."
+  [handle manifest record-address tree profile]
+  (when-let [{:keys [record set]} (verify handle manifest record-address)]
+    (when (and (= (:yang.site/root record) (:root tree))
+               (nil? (vm/validate-rows tree))
+               (every? (fn [[id row]]
+                         (and (= id (first row))
+                              (= id (jing/segment-key (subvec row 1)))))
+                       (:rows tree)))
+      (let [{derived :tree selected :sites} (safepoint/insert tree (into {} set) profile)
+            derivation (safepoint/derive-record (:root tree) (:root derived)
+                                                profile selected)]
+        {:tree derived, :record derivation,
+         :record-address (jing/segment-key derivation),
+         :site-set-address (:yang.site/set record)}))))

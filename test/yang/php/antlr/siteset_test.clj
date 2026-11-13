@@ -5,7 +5,9 @@
     [dao.jing.mem :as mem]
     [yang.core.publication :as publication]
     [yang.core.uast :as u]
-    [yang.php.antlr.siteset :as siteset]))
+    [yang.php.antlr.siteset :as siteset]
+    [yin.vm.linker.sign :as sign]
+    [yin.vm :as vm]))
 
 
 (deftest publication-binds-occurrences-to-root
@@ -55,3 +57,33 @@
     (doseq [[name address] (:addresses result)]
       (is (= [] (:set (siteset/verify store address
                                       (get-in result [:sites name :record-address]))))))))
+
+
+(deftest signed-discovery-requires-an-authorized-untampered-entry
+  (let [key (sign/generate)
+        other (sign/generate)
+        entry (siteset/signed-entry key :manifest :record)
+        datoms (siteset/entry-datoms [entry])
+        tampered (siteset/entry-datoms [(assoc-in entry [:envelope :yang.site/record] :other)])]
+    (is (= [:record] (siteset/discover datoms [(:public key)] :manifest)))
+    (is (empty? (siteset/discover datoms [(:public other)] :manifest)))
+    (is (empty? (siteset/discover datoms [(:public key)] :other)))
+    (is (empty? (siteset/discover tampered [(:public key)] :manifest)))))
+
+
+(deftest derivation-requires-the-verified-publication
+  (let [store (mem/create-content-mem)
+        ast (vary-meta (u/lit 1) assoc :yang/site [:line 1 {:ticks 1}])
+        env (siteset/site-set-of ast)
+        tree (vm/ast->semantic-bytecode ast)
+        manifest (jing/materialize! store {:yin.module/tree (:root env)})
+        pub (siteset/publish! store manifest ast)
+        profile {:line {:hook 'php.sp/line, :operands true, :after true}}
+        derived (siteset/derive-verified store manifest (:record-address pub) tree profile)]
+    (is (some? derived))
+    (is (= (:root tree) (get-in derived [:record :yin.ledger/input])))
+    (is (= (:root (:tree derived)) (get-in derived [:record :yin.ledger/output])))
+    (is (= (:set-address pub) (:site-set-address derived)))
+    (is (nil? (siteset/derive-verified store manifest :missing tree profile)))
+    (is (nil? (siteset/derive-verified store manifest (:record-address pub)
+                                       (assoc tree :root :wrong) profile)))))
