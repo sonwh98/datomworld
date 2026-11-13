@@ -3205,7 +3205,7 @@
                                                     cvs)
                                                [(u/lit :php/null)]))
                                      body)]
-                         (if (and (not generator?) (seq cvs))
+                         (if (not generator?)
                            (app* 'php/try-finally
                                  (u/lam [] scoped-body)
                                  (u/lam ['%x] (app* 'php/scope-release! (u/v '%scope))))
