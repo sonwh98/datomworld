@@ -43,6 +43,7 @@
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
     [yang.core.module :as core-module]
+    [yang.core.prelude :as core-prelude]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
     [yang.php.antlr.builtins :as builtins]
@@ -3785,6 +3786,31 @@
    lowering goldens compare. Hoisted function declarations come first."
   [packet]
   (unit-body (context packet)))
+
+
+(defn eval-entry
+  "Lower an eval unit to a callable that borrows its caller's runtime,
+   variable scope, method context and safepoint hooks. It does not initialize
+   a runtime or own the borrowed scope. Publication is the caller's job."
+  ([packet] (eval-entry packet {}))
+  ([packet {:keys [path]}]
+   (let [ctx (assoc (context packet {:path (or path entry-path) :linked? true}) :module? true)
+         body (u/let1 '%eval-result (unit-node ctx true)
+                      (u/if-node (app* '= (u/v '%eval-result) (u/lit :php/no-return))
+                                 (u/lit :php/null)
+                                 (u/v '%eval-result)))
+         imports (sort (filter #(= "php" (namespace %)) (core-prelude/free-names body)))
+         available (set (map first prelude/definitions))
+         missing (remove available imports)]
+     (when (seq missing)
+       (throw (ex-info "eval unit has unknown runtime imports"
+                       {:yang.php/diagnostic :yang.php/undeclared-free :names (vec missing)})))
+     {:ast (u/mark-tails
+             (u/lam ['%runtime '%scope '%ctx '%hooks]
+                    (reduce (fn [node name]
+                              (u/let1 name (app* 'get (u/v '%runtime) (u/lit name)) node))
+                            body (reverse imports))))
+      :warnings @(:warnings ctx)})))
 
 
 (def option-keys
