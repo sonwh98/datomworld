@@ -323,6 +323,21 @@
           (is (empty? (:wait-set done))))))))
 
 
+(deftest installed-code-entry-executes-on-every-backend-test
+  (doseq [backend (keys backends)]
+    (testing (name backend)
+      (let [pair (link-pair)
+            response (module-response backend 'foo answer-module ['f])
+            address (jing/segment-key (:manifest response))
+            program (progn (req 'code) (req 'foo)
+                           (app (app (v 'code/entry) (lit 'foo) (lit address) (lit 'f))))
+            opts (update (composition pair) :modules module/register-code-module)
+            root ((:vm (get backends backend)) program opts)
+            [done _] (drive root (responder pair {'foo response}))]
+        (is (not (vm/blocked? done)))
+        (is (= 42 (vm/value done)))))))
+
+
 ;; =============================================================================
 ;; Correlation: ids, outstanding requires, cursor before append
 ;; =============================================================================

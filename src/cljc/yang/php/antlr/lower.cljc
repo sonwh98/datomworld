@@ -3165,10 +3165,12 @@
                      (u/lit written)
                      (u/lam ['%gen] body)
                      (u/lam []
-                            (app* 'php/release-cvs
-                                  (args-vector (map #(u/v (symbol %)) cvs))
-                                  (u/lit 0)
-                                  (u/lit (count cvs)))))
+                            (if dyn?
+                              (app* 'php/scope-release! (u/v '%scope))
+                              (app* 'php/release-cvs
+                                    (args-vector (map #(u/v (symbol %)) cvs))
+                                    (u/lit 0)
+                                    (u/lit (count cvs))))))
                body)
         variadic? (boolean (some :variadic? params))
         fixed (remove :variadic? params)
