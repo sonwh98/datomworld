@@ -1,0 +1,22 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r4 fix-list round is complete — both blockers repaired, each with a red-first regression now green. Committed as `4f262ffa`, not pushed, per the brief.
+
+## P1 — the exported transitive mint (repaired)
+
+**Reproduced red ×3 first**: `php/receive-condition` was a `php/`-prefixed definition, and `core/exports` takes every `php/` key — so a composed unit's boundary form could call the exported receiver directly with a forged condition. My executed probe confirmed the full bypass on all three backends: the receiver minted a *genuine* provenance-carrying ForeignException whose retained condition was the attacker's map, and the unchanged rethrow forwarded it (`{:caught-a-wrapper true, :forged-forwarded true}`).
+
+**Repair**: renamed to `php.rt/receive-condition` — the namespace exports never take; the three call helpers (all references updated) pass it as the raise exit to `yang.call/invoke`, where every condition is bridge- or validation-built, never a guest argument. Exact-symbol resolution rides the same strip rule as the other `php.rt/*` names.
+
+**Pins**: `php-mint-reachability-test` — a static one-hop audit over the whole definition graph (no export directly mentions any mint-surface name; the call-helper wiring is the explicit commented whitelist — my first transitive version flagged ~everything through the `php/call` hub and was corrected *before* implementation; the pre-fix red run named exactly `php/receive-condition`). The adoption pin now asserts `receive-condition` not-exported by its stripped name. `php-exported-mint-forgery-test` executes the bypass — after the repair the forged call cannot even resolve, ×3.
+
+## P2 — authenticate handle candidates (repaired)
+
+**Reproduced red ×3 on all three shapes**: `{:php/obj 42}`, a forged `:cell-ref` map, and `{:php/type :obj :class 42}` all refused at the host primitive ("Dead or forged cell reference" / string-op refusal) instead of receiving as ForeignException.
+
+**Repair**: `php/obj-val?` is now a total authenticated local-object test — `cell/authentic?` (the VM's heap+seal predicate, boolean for any input) gates the handle form; a `data/string?` `:class` gates the typed-map form. Legitimate handles and map errors classify as before, local Throwables keep their identity path, no broad host catch. The new `php-handle-shaped-foreign-payload-test` proves all three shapes retain the complete condition (reason, evidence, payload identity) ×3.
+
+## Gates
+
+Kit-parity and every r2/r3 pin green; batch parity byte-identical to the disclosure (the 18 lane-blocked assertions unchanged); all 5 directed legs green (typed-catch needed one retry — the known cold-publication dao.jing stall); regressions all 0F/0E; kondo 0/0, cljstyle clean.
+
+One disclosure worth the reviewer's attention: the step-7 findings file the brief cites (`1794446270000-…`) is absent from this worktree, origin/master, and git history — I reconstructed both attacks from the brief's text and verified each red-first before repairing; this is recorded in the findings.

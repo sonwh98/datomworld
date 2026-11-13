@@ -1,0 +1,21 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r5 round is complete — committed as `c91f452b`, not pushed. This time sol's re-check findings were in the worktree and I worked directly from them.
+
+## P2 remainder — both counterexamples repaired (red-first)
+
+The recheck's core insight: my r4 guard validated a **different representation branch** than the one `php/instance-of` later consumes.
+
+- **A. Mixed tags** `{:php/type :obj :class "Exception" :php/obj 42}` — reproduced red ×3 (dead-or-forged `cell/get` refusal): my guard keyed on `:php/type` (typed-map branch accepted the string class), but instance-of selects by the **non-nil `:php/obj` key** and dereferenced 42.
+- **B. Authentic cell, invalid state** `{:php/obj (cell/new {:class 42})}` — reproduced red ×3 (`str->code-points` refusal): the handle branch authenticated the live cell but never validated the class *inside* it; authenticity proves liveness, not valid php object state.
+
+**Repair**: `php/obj-val?` now discriminates by the same key instance-of uses — the `:php/obj` marker. Handle branch: `cell/authentic?` **then** the class read out of the authenticated cell must be a string (the exact state class-is?/lc consumes). Map branch (no marker): the legitimate map-error form. Both counterexamples were added to the boundary regression — B built as real guest computation via assoc-forms, since map literals are data — each asserting local ForeignException + complete retained condition + payload identity; now green ×3 alongside the r4 three-shape set.
+
+## P3 — the negative pin hardened
+
+`php-exported-mint-forgery-test` no longer accepts "anything but a forged forward": it accepts only the **expected** resolution refusal (a Throwable whose `ex-data` names `:symbol php/receive-condition`) or an explicit `:forged-forwarded false` observation. Verified green — every backend answers exactly the refusal.
+
+## Gates
+
+All pins green (the extended payload probe is now 15 assertions, 0F/0E); batch parity unchanged with the same 9 disclosed failures; all 5 directed legs green (typed-catch on its usual cold-publication retry); regressions 0F/0E across nine suites; kondo 0/0, cljstyle clean.
+
+**Record correction applied** per the recheck: the php batch is **13 fixtures — 10 green, 3 lane-blocked** (my earlier "12/15" was a run-count artifact from r2, now corrected in the findings and my notes). The recheck file itself is committed with the round so the chain is complete.

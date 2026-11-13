@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r2 round is complete. Summary of what I found and did:
+
+## Verification of 31d2388c (the killed predecessor's commit)
+
+**Sound as committed** — R1 bridge mechanics (before binding, both entries, exactly-once, finally/state restoration before transfer, all call paths routed), R2/R3 structure, and the kit-parity pin in the required kit shape. But the verification caught **two real problems**:
+
+1. **An R2 reception defect (fixed)**: `php/receive-condition` classified the thrown payload with `php/throwable?` → `php/kind`, which assumes any non-null/bool/string/array/obj value is a *number* and calls `data/float-value` on it — a foreign payload in any other representation (the contract probes throw a raw VM cell) refused at the data primitive. Fixed with `php/obj-val?`, a representation-safe object test guarding the Throwable check. `:php/foreign-reception` and `:php/retained-foreign-lifetime` went red→green ×3 backends.
+
+2. **Three fixtures lane-blocked by a pre-existing instrument conflict (documented, not mine to fix)**: `php/shutdown!` unsets caller globals at run-main exit (PHP script-end semantics, pinned by P5b2 tests), but the kit's observations run *after* the caller unit — so the contract's module-level `$original` reads back null. `:php/fresh-named`, `:php/fresh-closure`, `:php/local-reception` are red on `:payload-identical` only; I proved by reverting the prelude to base that the base commit behaves identically. I added two **directed pins** (`php-fresh-egress-directed-test`, `php-local-reception-directed-test`) that mint the original from a called function and prove the same assertions green in-lane — no assertions weakened.
+
+I also recorded a **nondeterministic dao.jing concurrent stall** in the kit's runner on this laptop lane (spinning in `dao.space.query`/linker ingress; kit-wide — a python fixture hangs too; no related code changed since the branch base), plus an orphaned JVM (pid 75393) I couldn't kill from this session.
+
+## Gates (all firsthand)
+
+- Pins: kit-parity 0F/0E ×3 backends; store-surface, copied-wrapper, mutated-wrapper, both new directed pins — all green. Batch parity: **12/15 fixtures green** in one task; the 9 failures are exactly the 3 lane-blocked fixtures × 3 backends. All 5 directed legs green ×3.
+- Regressions: exceptions 6/25, prelude 33/373, objects 3/538, generators 3/76, builtin-surfaces 3/170, class-model 8/587, e2e fast 21/1116, exception-source 3/113, conformance 3/18 — **0F/0E** (e2e's slow corpus deftest exceeds the local foreground budget; shiva's lane).
+- kondo 0/0, cljstyle clean on both touched files.
+
+Committed as `98fd15c9` and pushed; findings at `collab/exception-track/1794402747000-engineer-php-r1r2r3-r2.glm-5.3.findings.md` (the r1 file's PENDING table is filled by pointer). The r3 provenance-adoption addendum that arrived mid-round is acknowledged in the findings but **not implemented**, per its explicit sequencing — it binds the next resume turn.

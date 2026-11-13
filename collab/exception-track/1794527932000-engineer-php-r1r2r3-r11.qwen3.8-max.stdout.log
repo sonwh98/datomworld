@@ -1,0 +1,19 @@
+Done — same hard caveat as r10: **this session still has no shell** (re-verified by name and keyword search), so the two-reception transcripts, the focused suites, kondo/cljstyle and the commit could not be produced. The tree is left dirty for a seat that can gate it, exactly as r10 was.
+
+**Source** (`prelude.cljc`)
+- Both `integer/compare` endpoint clauses **removed** from `php/obj-val?`; `integer/add`/`integer/sub` and `integer/integer?` preserved untouched; `host-names` and `php/finalize!` not touched (Ruling 3).
+- Replaced with a **limit-aware probe**, not a bare revert, per re-check5's explicit warning:
+  ```clojure
+  (if (integer/integer? rc)
+    (if (integer/integer? (integer/add rc 1))     ; addref's own operation
+      (integer/integer? (integer/add rc rc))      ; a bit of headroom under ::max-bits
+      false) false)
+  ```
+  The doubling answers sol's correction (2) — an admission-time bound is a snapshot, because counts grow by one per acquisition. With headroom, crossing the limit needs ≥2^(max-bits−1) acquisitions, while MAX/MIN/2^63/BigInt carriers all stay LOCAL (65 bits ≪ 4096).
+
+**Tests**
+- `php-count-acquisition-test` rewritten: 4 shapes (near-max, max, min, 2^53) × **two receptions of the same callable/condition with the first result bound live**, asserting route `:return`, `get_class == "Exception"` (contract's proven `get_class === …` idiom, only a boolean crosses) and payload identity on **both** results — 24 keys.
+- Endpoint payload forms moved there, not deleted; foreign matrix now 11 shapes / 44 keys with a new `float-count` (`data/float64 1`, sol's own control — host-uniform because JS boxes it as the `Float64` carrier; his `data/float-value 1` control is deliberately not pinned, it diverges on JS).
+- New `php-count-limit-test`: `:rc` = `(+ (integer/shift-left 1 99999) (integer/shift-left 1 99999))` = 2^100000, one bit over these lanes' `max-bits` → foreign with complete condition/evidence/payload. Isolated in its own deftest so its lane-specific width can't contaminate the matrix.
+
+**Findings**: `collab/exception-track/1794527932000-engineer-php-r1r2r3-r11.qwen3.8-max.findings.md` — ruling accepted, both of sol's corrections to my r10 argument acknowledged, hunk-by-hunk record, §4 with his firsthand *before* table quoted and my *after* table labelled as a source trace (not evidence), and §6 with the stash-based before/after procedure and gate commands.

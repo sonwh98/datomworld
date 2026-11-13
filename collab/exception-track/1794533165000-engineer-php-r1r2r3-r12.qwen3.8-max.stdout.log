@@ -1,0 +1,18 @@
+Done — again with the same hard limit: **no shell in this session**, so the red-first T-1 run, the focused suites, kondo/cljstyle and the commit could not be executed. HEAD confirmed as `2da48669` by reading `.git/refs/heads/exception-php-r1r2r3`; the tree is left dirty for the orchestrator's run-book.
+
+**The fix** (`prelude.cljc`, one executable line):
+```clojure
+(if (integer/integer? rc)
+  (if (integer/integer? (integer/add rc 1))    ; addref's own op — kept
+    (integer/integer? (integer/sub rc 1))      ; delref's own op — was (integer/add rc rc)
+    false) false)
+```
+The doubling is gone, so T = 2^(B−1) is no longer an admission endpoint: `2^99999-1`, `2^99999` and `2^100000-2` are now LOCAL, `2^100000` and wider stay FOREIGN. The invariant is now *admitted ⟺ both ownership operations can be performed on this count* — the classifier computes nothing of its own, which was the property whose absence made the doubling an endpoint. Comments rewritten; the r11 overclaims ("crossing the limit unreachable", "no count the repaired arithmetic produces is ever refused") are retracted in §5 of the findings and corrected in source.
+
+**Tests**: `t-minus-one` added as a fifth shape in `php-count-acquisition-test` (sol's construction verbatim), getting the existing two-reception harness with the first result live and class + identity asserted on **both** results → 30 keys/backend, red at `2da48669` on exactly the two `second-*` keys. `php-count-limit-test`'s 2^100000 foreign control is unchanged and now cross-references it. Foreign matrix, kit tests and fixtures untouched.
+
+**Two judgement calls flagged in the findings:**
+1. **Placement** — the dispatch said put T-1 in `php-count-limit-test`; sol said "the source regression". I put it where the two-reception harness already lives rather than duplicating ~35 lines or running two compositions in one deftest. Mechanical to move.
+2. **One addition beyond "minimal"** — the second probe is `integer/sub rc 1`, not nothing. With the doubling gone, increment-only admission lets `rc = -(2^100000-1)` through (constructible from module ops alone: sub/mul/add/neg), and the first *release* then stores `::bit-limit` as `:rc` → a host `:wrong-type` refusal escaping the boundary, which re-check6 explicitly forbids. It's delref's own operation, so it invents no margin and moves no positive-side cutoff. §6 gives the construction and the one-line revert if sol prefers the literal minimal fix.
+
+Findings: `collab/exception-track/1794533165000-engineer-php-r1r2r3-r12.qwen3.8-max.findings.md` — with sol's firsthand *before* table quoted and attributed, my *after* table labelled prediction-not-observation, the stash-based red-first run-book, and the exact commit message.

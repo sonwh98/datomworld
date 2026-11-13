@@ -1,0 +1,16 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The r8 round is complete — committed as `398f8ea7`, not pushed.
+
+## The gap, closed
+
+r7 had written the steward addendum's nil-guard **option (a)** as a pin but never implemented it — the code still routed nil conditions into `cell/dsg__new-provenance`, whose `{:reason :nil-provenance}` refusal escaped the boundary behavior as an operational failure. I re-verified the red at this tip ("Provenance mint refuses nil provenance" ×3 backends), then made the code match the pin.
+
+## The fix
+
+`php.rt/receive-condition` now shape-checks the condition **before any mint**: `(data/map? condition)` — a total predicate — gates the whole classification. A nil or non-map condition raises the plain local `TypeError("Invalid condition delivered to reception")` with no provenance mint — a catchable local error, nothing retained, nothing to forge. Only a map-shaped condition reaches the existing classification, unchanged. The docstring records the choice as deliberate option (a), completing the r7 findings' statement.
+
+Everything else is untouched — the incrementable/decrementable count admission, marker rules, doors, receiver privacy — and the new arm mentions only `php/throw-error`, keeping the r4 one-hop mint-reachability audit sound.
+
+## Gates
+
+The round's pin went red→green (`{:retained true :plain-local-error true}` ×3); every other pin green (kit-parity, the 11-shape probe, both directed controls, both forgery probes, the F2-extended surface pin, adoption, reachability, tightened mint-forgery); batch parity byte-identical to every disclosure since r2 (53 assertions, the same 9 lane-blocked failures — 13 fixtures, 10 green); the typed-catch regression 0F/0E; kondo 0/0 and cljstyle clean on the touched file. Findings at `1794509388000-engineer-php-r1r2r3-r8.glm-5.3.findings.md`, with the r7 statement's completion noted as the brief asked.
