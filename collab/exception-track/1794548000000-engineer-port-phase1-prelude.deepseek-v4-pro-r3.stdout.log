@@ -1,0 +1,26 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+Phase 1 landed cleanly.
+
+## Summary
+
+Added the continuation scheme family to `src/cljc/yang/clojure/prelude.cljc`, mirroring the py/ts/php reference preludes (JS-shaped: `{:handlers}`-only context, 4-tuple frames, binary `try` — clojure has no generators/`with`/recursion hook):
+
+- **`clj.rt/ctx`** added to `runtime-keys` and allocated by `clj/init!` (`cell/new (clj/ctx nil)`)
+- The family: `clj/ctx`, `clj/rt-ctx`, `clj/restore!`, `clj/handlers`, `clj/set-handlers!`, `clj/frame-depth`, `clj/frame`, `clj/pop-frame`, `clj/raise` (delivery), `clj/throw` (guest form — `throw` takes arbitrary values, so it is `raise` under the guest name), `clj/unwind-to`, `clj/try`, `clj/try-finally`, `clj/call-ec`
+- No VM changes; `src/cljc/yin/vm/**` untouched
+
+## Verification
+
+- **`clj -M:test -n yang.clojure-test`** — loads and runs **103 tests / 892 assertions**; **38 failures / 13 errors**, all the pre-existing `cell/retained?` / `dsg__new-retained` red from `clojure.cljc` (the Phase 2 consumer), exactly the `38F/13E` state from the Phase A report. No new failures from the prelude; the family compiles (no unresolved `clj/ctx`/`conj`/`%capture` symbols).
+- **`clj -M:kondo --lint src/cljc/yang/clojure/prelude.cljc`** — **0 errors, 0 warnings**.
+
+## Landed
+
+Committed and pushed on `exception-r3-impl` (`f37bc62b..79d2c1b3`).
+
+```
+Completed-GMT: 2026-11-12 18:29:06 GMT
+Completed-Local: 2026-11-13 01:29:06 +07 (+0700)
+```
+
+**PHASE 1 LANDED: 79d2c1b3a9d03fb5286a63135a38acf0ea93ab2a**

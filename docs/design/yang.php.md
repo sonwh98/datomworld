@@ -1935,14 +1935,11 @@ as data; its filesystem resolution is not (owner decision B8.7).
   This operational fatal is not guest-catchable and skips shutdown functions
   and destructors. It bounds execution between hooks, not wall-clock time or
   blocking host operations; no generic VM instructions are charged.
-- **Statement ticks** (`declare(ticks=N)`, `register_tick_function`) need
-  `:line` sites before non-lambda statement nodes. `yang.safepoint` currently
-  refuses a selected site that is not a `:lambda` (`site-not-lambda`), and
-  `:line` insertion is safepoint slice 3, which Python tracing also needs.
-  Ticks therefore **depend on the shared `:line` extension**: P7 splits into
-  P7-a (signals, no dependency) and P7-b (ticks, behind safepoint slice 3).
-  Neither L1 to L4 nor this frontend extends `yang.safepoint`; the extension
-  is the safepoint seat's.
+- **Statement ticks** (`declare(ticks=N)`, `register_tick_function`) use
+  selected `:line` sites after normal statement completion. The shared
+  `yang.safepoint` extension supports non-lambda statement sites and preserves
+  their values. P7-b must supply each site's lexical threshold and integrate
+  this mechanism with PHP's request-owned counter and callback registry.
 - No thread switches: PHP is single-threaded, and one request is one task.
 
 ## 13. Diagnostics

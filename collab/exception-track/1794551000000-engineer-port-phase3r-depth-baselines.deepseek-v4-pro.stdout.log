@@ -1,0 +1,49 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I'll wait for the background test to complete and notify me.
+
+I'll wait for the depth measurement to complete.
+
+I'll wait for the baseline depth measurement to complete.
+
+The work is complete and pushed. Here is my final report.
+
+## Phase 3r complete — port the kernel-gate corpus off the outcome model + depth harness
+
+**Committed & pushed** `exception-r3-impl` @ `8456c2e9` (4 files, +216/−144).
+
+### What landed
+
+1. **Admission fixed** — exposed `yang/continuation-family-names` (the `clj/*` store-definition names + `clj.rt/ctx`) and admitted it in `unbound-ast-symbols`. The kernel-gate corpus now compiles under the continuation lane.
+
+2. **Runtime ported off the outcome model**:
+   - The site-stamping wrapper no longer unwraps an outcome tuple — `gate-site!` returns the argument vector as a plain value, so `(data/nth … 1)` is gone (was the runtime failure `data primitive refused: nth wrong-type`).
+   - The cc3 attribution machinery now recognizes the **two**-application stamp shape (`dsg__intra_call`→`conj`) instead of three.
+   - The retired `:clj/outcomes?` descriptor marker is dropped from `kernel-callable-descriptor?`.
+
+3. **Depth harness** — `run-guest-machine-depth` (max continuation depth per lane) + `kernel-gate-depths`/`write-kernel-gate-depths!`.
+
+**Verification:** kernel-gate gate passes (155 fixtures: 151 pass + 2 recorded-upstream-failure + 2 recorded-deviation); all 5 cc3 tests pass.
+
+### Post-port numbers (committed — `test/yang/latte_oracle/depth_post_port.edn`)
+
+- 155 workloads; **semantic (max live-K) depth 6–28** (max 28 at `:check-assume-have-discharge`); **walker depth flat at 1**.
+
+### Baselines — BLOCKED
+
+The task's specified pre-port commit **`f37bc62b` is itself a broken mid-port state**. Every fixture fails admission with `:blocked-by [cell/dsg__new-retained cell/retained?]`:
+
+- `9c10d2ca` ("heap-retained protocol wrapper") added the compiler's `cell/dsg__new-retained`/`cell/retained?` references, but those cell functions were **never implemented** in `yin.vm`'s cell module.
+- `f37bc62b` ("remove the :retained cell seam") removed the (nonexistent) functions from the VM without touching the compiler references.
+
+I verified both commits with a diagnostic — identical `nil` baselines (all 155 workloads blocked at `:phase :admission`). There is no "outcome-model + 155-fixture corpus + compiles" state to baseline against; the expanded 155-fixture corpus only came to exist during this same (broken) port.
+
+Consequently the **comparison table (baseline | post-port | ratio) cannot be computed**. Note for the threshold check: the post-port max depth is 28 frames — far under the 10k-frame escalation bound, so that half of the owner threshold cannot fire regardless.
+
+The scratch baseline worktree (`/Users/sto/workspace/datomworld-portpre`, now at `9c10d2ca` with only the harness instrumentation applied) is left in place for the orchestrator to decide the baseline commit — the pre-R3 master tip (`b134207f`, ~54-fixture corpus) or a back-ported retained-cell state.
+
+---
+
+Completed-GMT: 2026-11-12 21:19:56 GMT
+Completed-Local: 2026-11-13 04:19:56 +0700
+
+**BLOCKED: depth baselines — pre-port commit f37bc62b (and parent 9c10d2ca) is broken: compiler references `cell/dsg__new-retained`/`cell/retained?` that were never implemented in the cell module; no outcome-model 155-fixture state exists. Post-port depths recorded (155 workloads, max 28 frames).**

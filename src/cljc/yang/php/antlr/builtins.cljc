@@ -48,6 +48,8 @@
                    "is_array" 'php/bi-is-array, "array_key_first" 'php/bi-array-key-first,
                    "array_key_last" 'php/bi-array-key-last, "get_class" 'php/bi-get-class,
                    "register_shutdown_function" 'php/bi-register-shutdown-function,
+                   "register_tick_function" 'php/bi-register-tick-function,
+                   "unregister_tick_function" 'php/bi-unregister-tick-function,
                    "define" 'php/bi-define, "defined" 'php/bi-defined, "constant" 'php/bi-constant,
                    "function_exists" 'php/bi-function-exists, "class_exists" 'php/bi-class-exists,
                    "spl_autoload_register" 'php/bi-spl-autoload-register,

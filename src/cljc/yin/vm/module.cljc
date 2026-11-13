@@ -49,8 +49,10 @@
   [node path]
   (if (seq path)
     (if (and (map? node) (contains? node :manifest))
-      (get-in node (into [(if (contains? node :bindings) :bindings :slice)]
-                         path))
+      (if-let [child (get node (first path))]
+        (walk-path child (rest path))
+        (get-in node (into [(if (contains? node :bindings) :bindings :slice)]
+                           path)))
       (when-let [child (get node (first path))]
         (walk-path child (rest path))))
     node))
@@ -69,9 +71,10 @@
 (defn assoc-module
   "Return registry with `entry` installed as module `module-name`."
   [registry module-name entry]
-  (assoc-in (or registry (empty-registry))
-            (into [:modules] (symbol->path module-name))
-            entry))
+  (let [registry (or registry (empty-registry))
+        path (into [:modules] (symbol->path module-name))
+        children (into {} (filter (comp symbol? key)) (get-in registry path))]
+    (assoc-in registry path (merge children entry))))
 
 
 (defn link-module
@@ -105,7 +108,8 @@
             [node]
             (when (map? node)
               (if (contains? node :manifest)
-                [[(:yin.module/name (:manifest node)) node]]
+                (cons [(:yin.module/name (:manifest node)) node]
+                      (mapcat (comp walk val) (filter (comp symbol? key) node)))
                 (mapcat walk (vals node)))))]
     (vec (walk (:modules registry)))))
 

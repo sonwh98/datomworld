@@ -3,8 +3,7 @@
    published as linker modules. The ordering, SCC bundling and publish loop
    are `yang.core.publication`'s; this namespace supplies the PHP hooks: the
    includes `lower/imported-unit-names` folds, the `lower/module-spec` and
-   `lower/scc-module-specs` emitters, no site set and no binder table (the
-   PHP hook profile is P7).
+   `lower/scc-module-specs` emitters and site sets; no binder table.
 
    A unit is `{:name path :packet p :strict-types b}`, `path` its normalized
    relative path; the optional class map entry is `{:name \"$classmap\"
@@ -13,6 +12,7 @@
   (:require
     [yang.core.publication :as core]
     [yang.php.antlr.lower :as lower]
+    [yang.php.antlr.siteset :as siteset]
     [yin.vm.linker.publish :as publish]))
 
 
@@ -39,7 +39,8 @@
                                         :php-address php-address,
                                         :deps deps}))),
    :scc-module-specs lower/scc-module-specs,
-   :site-set nil,
+   :site-set siteset/publish!,
+   :alias-site-set true,
    :binder-table nil,
    :refusal-ns "yang.php",
    :publish-fn publish-fn})

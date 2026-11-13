@@ -1,0 +1,22 @@
+FOLD sequence {:out "ATTBT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD loop-body {:out "ATAT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD function-call {:out "FT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD generator-resume {:out "ATBT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD sequence-n2 {:out "ATB", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD nested-threshold {:out "ABCTD", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD cross-function {:out "AFT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD semicolon-directive {:out "ATB", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD nested-zero-completion {:out "ATBT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD hoisted-threshold {:out "TFTT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD unregister-executing {:out "AS", :diag [], :uncaught {:class "Error", :message "Registered tick function cannot be unregistered while it is being executed"}, :fatal nil, :oracle :pending, :status 255}
+FOLD per-entry-reentry {:out "AHXYYBHXYY", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD do-while-selection {:out "ATBTTCT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD for-selection {:out "ATBTBTTCT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD foreach-selection {:out "ATBTBTTCT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD switch-selection {:out "ATBTCT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD adjacent-marked {:out "ATTBT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD nested-zero-n2 {:out "ABTC", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD dispatch-add {:out "AHNBHNN", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD dispatch-remove {:out "AHBH", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD generator-foreach {:out "ATBTTGTTCT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}
+FOLD include-handoff {:out "LT", :diag [], :uncaught nil, :fatal nil, :oracle :pending, :status 0}

@@ -182,3 +182,13 @@
     (is (= :segment/blake3-dc131db3cac4bbcf77eb4ddb74036cd7611df5336af4ee0d1db952fe91c436c9
            record-address))
     (is (= record-address (:yin/batch-token envelope)))))
+
+
+(deftest statement-after-hook-test
+  (let [input (vm/ast->semantic-bytecode {:type :literal :value 42})
+        result (safepoint/insert input {[] [:line 7]} {:line {:hook 'h/line :operands true :after true}})
+        out (vm/semantic-bytecode->ast (:tree result))]
+    (is (= {:type :literal :value 42} (first (:operands out))))
+    (is (= 'yang.safepoint/value (first (get-in out [:operator :params]))))
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Exception)
+          (safepoint/insert input {} {:call {:hook 'h/call :after true}})))))
