@@ -40,6 +40,7 @@
                                         :deps deps}))),
    :scc-module-specs lower/scc-module-specs,
    :site-set siteset/publish!,
+   :alias-site-set true,
    :binder-table nil,
    :refusal-ns "yang.php",
    :publish-fn publish-fn})

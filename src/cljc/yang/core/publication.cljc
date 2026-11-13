@@ -14,6 +14,7 @@
    `:scc-module-specs`  `(fn [registry units runtime-address deps])`
    `:site-set`          `(fn [handle address ast])` -> site publication, or nil
                         (Python's I7 mark set; none for a frontend without)
+   `:alias-site-set`    publish empty alias occurrence sets as well, when true
    `:binder-table`      `(fn [handle address ast])` -> table publication, or
                         nil (frontend-supplied; Python passes none)
    `:refusal-ns`        the namespace string of the refusal keywords
@@ -98,10 +99,10 @@
      :sites {name-or-bundle-symbol publication}
      :binders {name-or-bundle-symbol publication}}`, or the first refusal:
    `publication-order`'s before anything is written, else the publisher's
-   with a string `:unit`. An SCC member alias carries no marks and no
-   binder table: its bundle does."
+   with a string `:unit`. An SCC member alias carries no marks; frontends
+   may publish its empty set with `:alias-site-set`."
   [cfg handle registry runtime-address units published]
-  (let [{:keys [imported-names module-spec scc-module-specs site-set
+  (let [{:keys [imported-names module-spec scc-module-specs site-set alias-site-set
                 binder-table refusal-ns publish-fn]
          :or {publish-fn publish/publish-module!}}
         cfg
@@ -122,7 +123,7 @@
                                       runtime-address deps)])
                 bundle (first specs)
                 result (publish-fn handle bundle)
-                emit (fn [acc k r]
+                emit (fn [acc k r ast]
                        ;; a handle with no byte store (a stub publisher)
                        ;; has nowhere to put a set; a backend failure is
                        ;; a refusal, not a throw
@@ -130,8 +131,7 @@
                          acc
                          (try (let [emit1 (fn [acc slot f]
                                             (if-let [pub (when f
-                                                           (f handle (:address r)
-                                                              (:ast bundle)))]
+                                                           (f handle (:address r) ast))]
                                               (assoc-in acc [slot k] pub)
                                               acc))]
                                 (-> acc
@@ -145,12 +145,11 @@
             (if (= :refused (:status result))
               (reduced (assoc result :unit (if (vector? step) (str (:name bundle)) step)))
               (if (vector? step)
-                ;; a member alias holds no marks: the marks live in the
-                ;; bundle, so the bundle alone carries a site set and an
-                ;; alias import under a hook profile is refused as having none
+                ;; A member alias holds no marks: the marks live in the
+                ;; bundle. Some frontends publish the alias's empty set too.
                 (let [base (-> acc
                                (assoc-in [:bundles (:name bundle)] (:address result))
-                               (emit (:name bundle) result))]
+                               (emit (:name bundle) result (:ast bundle)))]
                   (if (reduced? base)
                     base
                     (let [aliases (reduce (fn [a [n spec]]
@@ -159,12 +158,15 @@
                                                                     {(:name bundle) (:address result)}))]
                                               (if (= :refused (:status r))
                                                 (reduced (assoc r :unit n))
-                                                (assoc-in a [:addresses n] (:address r)))))
+                                                (let [a (assoc-in a [:addresses n] (:address r))]
+                                                  (if alias-site-set
+                                                    (emit a n r (:ast spec))
+                                                    a)))))
                                           base
                                           (map vector members (rest specs)))]
                       (if (= :refused (:status aliases)) (reduced aliases) aliases))))
                 (-> acc
                     (assoc-in [:addresses step] (:address result))
-                    (emit step result))))))
+                    (emit step result (:ast bundle)))))))
         {:status :ok, :addresses {}, :bundles {}}
         (:order plan)))))
