@@ -450,3 +450,35 @@ shape-checked at reception or recorded as explicit contract; F2 — python expor
 gap; F3 — stale scanner-deferred comment rewrite at scanner-golden-c4.generate.clj:47-53.
 **Python merge hold RELEASED.** Two of the four frontends now hold the full authentic-retention
 stack on master (python + js); php in flight; clojure port queued on cc3.
+
+## Round deltas — 2026-11-13 (the convergence port; 18-row claim at the true tip)
+
+### Round Clojure convergence port — branch `exception-r3-impl` @ `854b74c3` (steward seat; implementers deepseek-v4-pro Phases 1-3r, codex-terra 3r-b/4/5/6/6b/corpus/fixture; design authority: sol consult)
+
+**Ledger claim (sol's language):** Closed 18 Clojure protocol/saved-protocol rows on semantic,
+stack, and register at `854b74c3` / `xtrack-r3-B cmd4` (rc=0, 565s). Qualified protocol conditions
+are retained in write-once private heap provenance owned by the generated carrier's identity.
+Public egress authenticates and recovers without applying the raised value, forwarding the
+complete original condition once. Saved rethrows survive the creating activation. Unmarked
+lookalikes remain fresh thrown payloads. No frontend VM changes or ambient retention registry
+were introduced.
+
+**SUPERSESSION of record:** the earlier 18-row claim at `fbd8da0f` (xtrack-r3A4) measured the
+(A)-design state that contained the DECLINED `:retained` VM seam. This claim supersedes it: the
+same rows are closed by the owner-directed convergence to the continuation encoding plus the
+approved shared provenance primitive — zero frontend-specific kernel lines (qwen re-review, item 3).
+
+Full verification chain, all at `854b74c3` (xtrack-r3-B, no overlay): clojure-test + core-call
+rc=0 (105+4 deftests) · python forgery pins rc=0 (982s) · contract `-v clojure-provenance` rc=0
+(565s — the 18) · latte-oracle rc=0 (36/2,543, 948s). Depth: 155/155 overlap, max 1.20×, recorded
+SHA-attributably at `d4e31b74` (`depth_comparison.md`; footer computed by the writer).
+Review chain: sol design consult (carrier-resolved-via-provenance) → qwen implementation review
+(APPROVE WITH FINDINGS) → delta re-confirmation **CONFIRMED — PORT READY FOR MERGE REQUEST**.
+
+**P3 batch (follow-up rounds, non-blocking):** P3-1 depth-evidence gate deftest; P3-2 stale
+outcome-model docs; P3-3 `clj/run-main` top-level error-as-value (explicit known gap or convert);
+P3-5/6/7/9/10/11 per qwen's two files; plus prior-round P3s (python F1 nil-guard contract,
+F2 export-audit pin — F2's twin now needed clojure-side; F3 comment).
+
+**MERGE STATE:** port READY; merge gated on **P1-1** (owner: the kit's `finally`-refusal row —
+retire per FINAL DIRECTIVE [recommended] vs reinstate). php round: its own track.
