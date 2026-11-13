@@ -1,0 +1,18 @@
+Re-review complete → `collab/exception-track/1794562000000-reviewer-port-rereview.qwen3.8-max.findings.md`
+
+**Verdict: APPROVE WITH FINDINGS** (was REQUEST CHANGES). All six brief items PASS; **P1-2 is closed** by the carrier.
+
+Still no shell in this session — `git diff` and every test run are **NOT RUN**, so the review is read-only reconstruction (branch confirmed at `d4e31b74`; master drifted to `f554e65e` mid-review, docs-only, counts unaffected).
+
+| Brief item | Verdict | Decisive evidence |
+|---|---|---|
+| 1 Carrier vs sol's spec | **PASS** | All 17 door occurrences in `src/` enumerated: exactly 3 mints (reception `:1403`, admission refusal `:1414`, dispatcher refusal `:2400` — sol's three sites), 3 readers. Egress `:1204-1212` is sol's snippet literally: one query, forward unchanged, never applies `e`, no shape routing, tail-marked. Private lane still handler-free (`:1226`). No exported/aliased mint helper |
+| 2 Saved case | **PASS** | Pinned twice (`clojure_test.clj:1896-1906` and `:1849-1862`) against the kit's own `retain`/`later` shape, both lanes, byte-identical; plus alias, overwritten-visible-value, finally, content-clone-loses-authority, never-applies-a-thrown-closure |
+| 3 Donor-link fix | **PASS** | One predicate (`:2420-2425`) + `:linked-runtime true`; suppresses the inline family so the unit shares the required `clj` module's `clj.rt/ctx`. `conformance.clj:216-228` already emits `(require clj)` + pins `:runtime-address`, so the names are *declared*. `yang/core` 1135=1135, `yin/vm/linker` 4771=4771 → the refusal rule is untouched, and suppressing local defs makes admission **stricter** |
+| 4 R5 | **PASS** | Source `throw` never mints; `dsg__` reserved-prefix refuses the doors in any position incl. `defmacro`, pinned frontend-side (6 positions) and VM-side (`macro-door-is-refused-at-expansion`, `macro-cannot-construct-the-mint-door`) |
+| 5 P2 round | **all three CLOSED** | `finally-unwinds-and-orders-cleanup` covers throw/ordering `[:catch :finally :outer]`/nested/throwing-finally; `missing-raise-exit` re-pinned host-side over **both** invoke variants × all VMs (`core/call_test.cljc:159-170`, +13 lines — broader than what it replaced); `clj/call-ec`+`clj/unwind-to` deleted (−24 exactly) |
+| 6 Kit + VM | **PASS** | kit 2360=2360, `exception_contract` 211=211, `_test` 136=136, `exception_source_test` 41=41; `src/cljc/yin/vm` 46266 unchanged, `engine` 2934=2934, `module` 701=701; `provenance_test` 348=348, `scanner_goldens` 8185=8185 |
+
+**Findings:** one **P2-4** — the depth evidence was regenerated with `:revision "working-tree"` "based on `f15423c2`", so it is not attributable to `d4e31b74` (values still fine: 155/155, max 1.20×, max depth 28). Re-record before merge. Plus 8 P3s, notably **P3-5**: a caught protocol condition is now an authenticated *cell*, and only `get`/keyword-lookup project it — `assoc`/`keys`/`=` see the cell; acceptance-neutral but belongs in the merge request.
+
+Two things the orchestrator should not misread: the focused suite is now **105 deftests** (was 103) so the assertion count will exceed 993 by design; and P1-1 (kit's `finally`-refusal row) is untouched and still the owner's — I did not re-litigate it.

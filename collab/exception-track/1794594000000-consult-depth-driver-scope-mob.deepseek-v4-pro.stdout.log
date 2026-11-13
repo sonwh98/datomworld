@@ -1,0 +1,49 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I have all the evidence I need. Here is my ruling.
+
+---
+
+Completed-GMT: 2026-11-14 03:00:00 GMT
+Completed-Local: 2026-11-14 10:00:00 +07 (+0700)
+
+# Architect verdict (deepseek-v4-pro, independent mob seat) — the depth-probe driver scope
+
+## Ruling: **(a′) — BUILD scoped** (pure-fixture driver on unlinked lanes now; blocking-aware driver folds into the named linked-warm follow-up)
+
+I rule this from my own evidence chain, not the other architect's verdict.
+
+## Evidence
+
+**1. sol's (C) spec is already the scoped split.** The verbatim ruling from `1794590000000-consult-depth-probe-scope.gpt-6.1-sol.stdout.log`:
+
+> SCOPE RULED: (C) + For all four frontends on unlinked semantic/stack/register lanes, assert correct completed iteration and D(16)=D(64)=D(256); linked recursive depths at 8/32/128 remain a required characterization follow-up, with no growth lower-bound assertions.
+
+sol has already confined the *constant-case contract* (the only thing ever ASSERTED) to **unlinked** lanes, and pushed the linked recursive characterization to a named follow-up. The full blocking-aware driver is not what sol's (C) requires for the assertion pillar.
+
+**2. Round 1 BLOCKED (terra, linked)** — the linked depth experiment did not complete: linked composition requires scheduler / FFI-bridge / link-serving handling *during stepping*; the existing utility measures unlinked runs only. This is the linked-warm machinery, correctly deferred.
+
+**3. Round 2 BLOCKED (terra, unlinked)** — the existing depth helper treats blocking as completion; it cannot distinguish a VM parked on a scheduler/FFI effect from a finished program.
+
+**4. The decisive refinement (owner-surfaced, and it dissolves the Round 2 blocker):** the fixture set is *deliberately pure* — loops, try/finally, caught failures, **no FFI effects**. Pure guest code on unlinked semantic/stack/register lanes runs synchronously to completion: no effects fire, no parking happens, so there is no "parked-on-effect" state to misread as completion. The blocking-as-completion defect **cannot bite** on pure unlinked fixtures. A driver scoped to those fixtures needs only "step until the continuation is empty, track max-K" — no completion-vs-blocking state machine at all.
+
+The full driver (option (a)) therefore builds machinery that is only exercised in the linked-warm follow-up, which sol's (C) already names and specifies separately. Building it now spends a strong-lane round on a driver whose assertion half doesn't use it.
+
+**Why not (b):** the prime directive is "measured, never asserted," and depth is the *last* pillar — encoding/contract/provenance are already measured and merged. Descopping leaves the one pillar the mod's Q4 exists to pin as a documented hole. (a′) keeps the pillar measured *now* on the surface sol's (C) already authorizes.
+
+**Why not (c):** sol's (C) is complete and correct; sol is the review lane. Re-routing breaks a reservation to no purpose.
+
+## Implementer instruction
+
+**Lane:** deepseek-v4-pro (this seat), the lane that wrote the unlinked depth helper in `test/yang/clojure_test.clj` (`run-guest-machine-depth`, walker/semantic). The scoped driver is test-side composition work reusing the existing conformance frontends — not engine/VM work, so no VM files are touched.
+
+**Scope:** build one new test-side depth-probe namespace (no VM files, no kit contract-file changes; all guest code compiles through production lowerings via `yang.call.conformance/frontends`). It must:
+
+1. **Constant-case fixtures** per frontend (4 frontends × 4 variants = 16, per sol's spec — loop/recur, handler-free tail chain, plus the try/finally and caught-failure shapes that are still pure): compile each through production lowerings, run on **unlinked** semantic/stack/register lanes, stepping to completion and tracking max-K (continuation length).
+2. **ASSERT the constant case:** correct completed iteration value AND `D(16)=D(64)=D(256)` — depth constant across sizes — on all three lanes, all four frontends.
+3. **MEASURE-NEVER-ASSERT the linear case** that is *pure* (nested handlers / handler-crossing within one unit) at depths 8/32/128, recorded as evidence, no growth lower-bound.
+4. **Record, don't claim linked coverage:** write the evidence artifact (EDN/markdown, mirroring the `test/yang/latte_oracle/depth_*.edn` pattern), reporting "unlinked iteration contract passed; linked recursive characterization deferred." Unlinked results must never be presented as completed linked coverage.
+5. Leave the **linked-warm follow-up** as a named obligation — sol's (C) already specifies it (scheduler/FFI/link-serving stepping; cross-unit published-call recursion at 8/32/128). The blocking-aware driver is built *there*, where parking actually occurs.
+
+**What the round delivers:** a green assertion suite pinning "iteration-constant, handler-free-tail-constant" across 4×4×3, a recorded linear characterization, and a named follow-up — the depth pillar measured on the surface sol's (C) authorizes, the prime directive intact, no VM or contract-file change.
+
+**SCOPE RULED: (a′) + For all four frontends on unlinked semantic/stack/register lanes, assert completed iteration and D(16)=D(64)=D(256); record handler-crossing linear depth at 8/32/128 (measured, never asserted); defer linked cross-unit recursion to the named linked-warm follow-up.**

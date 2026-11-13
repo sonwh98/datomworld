@@ -1,0 +1,27 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've completed a thorough investigation, and I need to report a blocker rather than fabricate work.
+
+## What I found
+
+**The context is clear** — this is the "port" (owner decision B, now active): converge `yang.clojure` onto the continuation encoding, retiring the outcome model. The commit history on `exception-r3-impl` confirms the trajectory (`f37bc62b` explicitly says the retained-cell seam's mark/mint/query "land as part of the clojure exception port (continuation encoding), where no retention object exists").
+
+**But the three "prepared" edits are not recoverable from my current context**, and I've checked every place they could plausibly live:
+
+- **My context**: this is a fresh session — the prior session that prepared the edits was not carried over.
+- **Memory**: `~/.claude-deepseek/projects/…-r3-orch/memory/` is empty (only an unrelated `token-pine-99.md` exists elsewhere).
+- **Working tree / other worktrees**: `git status` is clean; `/Users/sto/workspace/datomworld-r3` has only `clojure.cljc` + `clojure_test.clj` modified, **not** `prelude.cljc`.
+- **Git history / dangling commits / all refs**: no commit, stash, or ref contains a `prelude.cljc` "continuation family" addition.
+- **The spec itself**: the "unification ruling of record" (`1794341000000-continuation-orchestrator-unification-ruling-of-record.md`) and `1794372000000-owner-decision-r3-vm-retained-seam.md` are **referenced** in `orchestrator-logs/1794314498-…-seat-takeover.md` but **do not exist in this repository on any branch or ref** — they live in the continuation-semantics orchestrator's private workspace. `git grep -i "continuation family"` returns nothing anywhere.
+
+## What I can determine vs. what I can't
+
+I know the **shape**: the clj prelude's continuation family mirrors the JS runtime's (`js/throw`, `js/try`, `js/unwind-to`, handler-stack machinery over `%capture`) — three edits likely touching the docstring (adding a fourth "continuation family" surface), `runtime-keys` (a handler-stack cell key), and `definitions` (the continuation functions). But I **cannot determine the exact function names, arities, or semantics** — and the clj catch surface is deliberately restricted (single catch, no `finally`), so it is *not* a mechanical copy of the JS family. Getting these wrong in a published linker module (that "every linked clojure program requires") is a real correctness hazard, not a cosmetic one.
+
+## What I need
+
+One of:
+1. The exact text/diff of the three `prelude.cljc` edits, or
+2. The unification ruling / port-scope doc (`1794341000000` + `1794372000000` + `1794401000000`), so I can re-derive them faithfully, or
+3. A pointer to where those docs live (which worktree / branch / private path).
+
+I have **not** modified anything, and I have **not** committed or pushed — `exception-r3-impl` is still clean at `f37bc62b`. I don't want to push a guessed continuation family into the shared branch. Once I have the spec or the edits, I'll land, run `clj -M:test -n yang.clojure-test` and `clj -M:kondo --lint src/cljc/yang/clojure/prelude.cljc`, commit, and push per your instructions.
