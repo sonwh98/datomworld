@@ -125,6 +125,12 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | **Best for:** System architecture, design/code review, complex     | headless tasks requiring in-session JVM test execution.             |
 |                             | debugging, and multi-step implementation.                          |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gemini-4-hydrogen`         | Fast, high-efficiency Gemini 4 workhorse; 1M unified context and   | Defaults to high effort, which increases reasoning token overhead   |
+|                             | multimodal support; configurable effort (low/medium/high/xhigh);   | if untuned; sits below Argon on high-order axiomatic proofs.        |
+|                             | strong tool orchestration and repo-level coding in fewer turns.    | **Avoid for:** Top-level architectural sign-offs on consensus or    |
+|                             | **Best for:** High-throughput agentic workflows, everyday coding,  | cryptographic boundaries (use Argon/Astra); high-volume tasks with  |
+|                             | debugging, frontend/visual inspection, and rapid TDD loops.        | unmanaged default high thinking where token budgets are tight.      |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `glm-5.3`                   | Scaled post-training for exceptional long-horizon tasks and        | Heavier footprint; can overcomplicate simple data framing. **Avoid  |
 |                             | cybersecurity. **Best for:** Complex programming workflows, VMs,   | for:** UI/UX, canvas, or WebGPU tasks.                              |
 |                             | storage, indexing, DHTs, and networking.                           |                                                                     |
