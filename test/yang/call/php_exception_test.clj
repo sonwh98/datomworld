@@ -484,14 +484,19 @@
   ;; the ownership consumer (addref's slot-kind selects :php/ref FIRST,
   ;; so COMPETING MARKERS on an otherwise-valid map or real handle are
   ;; consumed unchecked; and a string class alone is insufficient when
-  ;; :rc is absent — addref's count acquisition consumes it); the r7
-  ;; shapes pin the count domain's endpoints (a count AT the native long
-  ;; maximum or minimum is invalid counted-object state, not a count php's
-  ;; machinery could have produced, and is retained whole rather than
-  ;; consumed). All twelve shapes run in ONE composed program (the
-  ;; batch-parity task-sharing shape), not one kit run per shape: the
-  ;; laptop lane's dao.jing stall reliably catches the 8th consecutive
-  ;; per-shape run in one JVM.
+  ;; :rc is absent — addref's count acquisition consumes it); the count
+  ;; shapes pin the domain admission itself — a count the ownership
+  ;; arithmetic cannot operate on (non-number, float content, a computed
+  ;; ratio) is invalid counted-object state and is retained whole rather
+  ;; than consumed. The native int ENDPOINTS are not here: sol's endpoint
+  ;; ruling (re-check 5) is that a count the repaired exact arithmetic
+  ;; itself produces — at the long maximum, past it, or at the minimum —
+  ;; is ordinary LOCAL state whose class and identity §8.10.7 rule 1
+  ;; preserves, so those shapes assert local identity in
+  ;; php-count-acquisition-test below. All eleven shapes run in ONE
+  ;; composed program (the batch-parity task-sharing shape), not one kit
+  ;; run per shape: the laptop lane's dao.jing stall reliably catches the
+  ;; 8th consecutive per-shape run in one JVM.
   (let [shapes [["non-reference" {:php/obj 42}]
                 ["forged-ref" {:php/obj {:type :cell-ref, :id 99999, :seal "forged"}}]
                 ["forged-class" {:php/type :obj, :class 42, :props {}}]
@@ -506,37 +511,24 @@
                  (list 'assoc (list 'php/make-error "Exception" "real") :php/ref 42)]
                 ["string-class-no-rc"
                  (kit/observation-map-form {:php/obj (list 'cell/new {:class "Exception"})})]
-                ;; r7, the last P2 residual: the endpoints of php's own int
-                ;; encoding are not admitted counts. integer/parse of the
-                ;; native maximum is a legal guest construction, and at the
-                ;; pre-fix tip the raw host (+ rc 1) the object machinery
-                ;; performed threw clojure's "long overflow" on it. r10
-                ;; repairs that arithmetic (integer/add, exact over every
-                ;; carrier on every host) but keeps the endpoints FOREIGN:
-                ;; admission stays STRICTLY inside the bounds, so every
-                ;; admitted count is also inside the composition's
-                ;; ::integer/max-bits, where integer/add still answers an
-                ;; integer rather than the ::bit-limit keyword.
-                ["max-long-count"
-                 (kit/observation-map-form
-                   {:php/obj (list 'cell/new
-                                   (list 'assoc {:class "Exception"}
-                                         :rc (list 'integer/parse "9223372036854775807")))})]
-                ;; the same class one operation later: the decrement threw
-                ;; at the native minimum, so the minimum count is not
-                ;; admitted either (at the pre-fix tip this shape is red the
-                ;; other way: admitted and delivered as a LOCAL payload)
-                ["min-long-count"
-                 (kit/observation-map-form
-                   {:php/obj (list 'cell/new
-                                   (list 'assoc {:class "Exception"}
-                                         :rc (list 'integer/parse "-9223372036854775808")))})]
                 ;; non-number counts stay rejected (the r6 rule; pinned so
                 ;; the incrementability refinement cannot silently drop it)
                 ["non-number-count"
                  (kit/observation-map-form
                    {:php/obj (list 'cell/new (list 'assoc {:class "Exception"}
                                                    :rc "bad"))})]
+                ;; FLOAT64 CONTENT is not an exact-integer carrier on any
+                ;; host (a JVM/Dart double, the JS Float64 carrier), so it
+                ;; is not a count. This is sol's own re-check5 control.
+                ;; His other one, (data/float-value 1), is deliberately NOT
+                ;; pinned: on JS it yields a bare integral Number, which
+                ;; exact-integer? admits, so its disposition is genuinely
+                ;; host-divergent and a JVM-only pin would freeze the
+                ;; wrong half of it.
+                ["float-count"
+                 (kit/observation-map-form
+                   {:php/obj (list 'cell/new (list 'assoc {:class "Exception"}
+                                                   :rc (list 'data/float64 1)))})]
                 ;; r10 residual 2: a computed RATIO count — data/number? and
                 ;; php/int? both pass it (kind's float64 content test), but
                 ;; it is not an exact-integer carrier and the integer
@@ -594,41 +586,54 @@
 
 
 (def ^:private count-source
-  "The r10 count-domain acquisition probe: an ORDINARY php catch/return —
-   no numeric operation anywhere in the source — whose `return $e` runs
-   the lowerer's routine php/addref acquisition on the caught value, so a
-   count that survives reception must survive the next acquisition too.
-   Both counts below are admitted local state: exact-integer carriers
-   strictly inside php's own int encoding. MAX-1 is the count reception's
-   acquisition moves ONTO the native long maximum and this source's return
-   then moves past it, where the raw host + threw. 2^53 is the JS
-   safe-Number boundary: a plain Long on the JVM, which is what this lane
-   verifies, and a BigInt carrier on JS, where the same decimal parses past
-   the safe range and a raw (+ rc 1) mixes a BigInt with a Number and
-   throws a TypeError (the re-check's Node primitive diagnostic, both
-   signs; the tri-host acceptance lane covers Node). The exact-integer
-   domain admits both and increments both."
+  "The r11 count-domain receiver: an ORDINARY php catch/return — no numeric
+   operation anywhere in the source — whose `return $e` runs the lowerer's
+   routine php/addref acquisition on the caught value, so a count that
+   survives reception must survive the next acquisition too.
+   `is_local_exception` reads the caught value's own class through the
+   contract's proven `get_class` idiom, which is what distinguishes an
+   unchanged local Exception from the ForeignException a wrapping reception
+   delivers. Every count below is admitted LOCAL state under sol's endpoint
+   ruling: MAX-1, which reception's acquisition moves ONTO the native long
+   maximum and the return then moves past it, into the host big carrier,
+   where the raw host + threw; MAX and MIN themselves, which the repaired
+   exact arithmetic produces and consumes like any other count; and 2^53,
+   the JS safe-Number boundary — a plain Long on the JVM, which is what this
+   lane verifies, and a BigInt carrier on JS, where the same decimal parses
+   past the safe range and a raw (+ rc 1) mixes a BigInt with a Number and
+   throws a TypeError (the re-check's Node primitive diagnostic, both signs;
+   the tri-host acceptance lane covers Node)."
   (str "<?php function catch_return($f) {"
-       " try { return $f(); } catch (Throwable $e) { return $e; } }"))
+       " try { return $f(); } catch (Throwable $e) { return $e; } }"
+       " function is_local_exception($e) { return get_class($e) === 'Exception'; }"))
 
 
 (deftest ^:slow php-count-acquisition-test
-  ;; r10 residual 1: the count arithmetic must be safe across the WHOLE
-  ;; consumed path — reception's addref, then any ordinary catch/return
-  ;; acquisition. At the pre-fix tip, :rc = MAX-1 passes admission,
-  ;; reception's addref increments it to MAX, and this ordinary source
-  ;; (which requests no arithmetic) overflows at lower-return's addref.
-  ;; Under the exact-integer domain both shapes return the caught value
-  ;; with its identity preserved — rule 1 of the retention contract, a
-  ;; payload valid in its own runtime keeping its ordinary catching and
-  ;; identity. The endpoints themselves stay FOREIGN in the shape set
-  ;; above (rule 3), retained with their complete condition, evidence and
-  ;; payload identity.
+  ;; r11, sol's re-check5 residual: reception must preserve local type and
+  ;; identity across ordinary acquisitions AND across a LATER reception.
+  ;; Each shape calls the same receiver TWICE on the same callable and the
+  ;; same condition, keeping the first result live in a guest binding while
+  ;; the second call runs — no count edits, no numeric operations and no
+  ;; malformed-condition tricks in between. At the previous tip the
+  ;; near-max row failed exactly here: the first call returned the original
+  ;; Exception, its acquisitions left the count AT the native maximum, and
+  ;; the second reception excluded that endpoint and came back a
+  ;; ForeignException. An ordinary catch retaining one more reference
+  ;; cannot make an unchanged local exception foreign (§8.10.7 rule 1,
+  ;; owner ruling v2 R2), so BOTH results are asserted identical to the
+  ;; original payload and of the original Exception class. The endpoint
+  ;; cases live here rather than in the foreign set above because this
+  ;; ruling makes them local; their foreign-disposition payload forms are
+  ;; unchanged, only the asserted disposition moved.
   (let [shapes [["near-max" "9223372036854775806"]
+                ["max" "9223372036854775807"]
+                ["min" "-9223372036854775808"]
                 ["js-number-boundary" "9007199254740992"]]
         leg (fn [[label digits]]
               (let [n (fn [k] (symbol (str "probe." (name label) "." (name k))))
-                    p (n :payload) c (n :condition) i (n :injected) r (n :result)]
+                    p (n :payload) c (n :condition) i (n :injected)
+                    r1 (n :first) v1 (n :first-value) g1 (n :first-class)
+                    r2 (n :second) v2 (n :second-value) g2 (n :second-class)]
                 {:bindings [p (kit/observation-map-form
                                 {:php/obj (list 'cell/new
                                                 (list 'assoc {:class "Exception"}
@@ -637,11 +642,27 @@
                                 {:yang.call/reason :yang.call/thrown
                                  :yang.call/value p})
                             i (injected c)
-                            r (boundary-call (kit/export-form :php "catch_return") [i])]
-                 :entries {(keyword (str label "-returned"))
-                           (list '= :return (list 'get r :route))
-                           (keyword (str label "-identical"))
-                           (list '= p (list 'get r :value))}}))
+                            ;; the first reception; v1 stays bound, so the
+                            ;; first result is still live across the second
+                            r1 (boundary-call (kit/export-form :php "catch_return") [i])
+                            v1 (list 'get r1 :value)
+                            g1 (boundary-call (kit/export-form :php "is_local_exception") [v1])
+                            ;; the second reception of the SAME condition
+                            r2 (boundary-call (kit/export-form :php "catch_return") [i])
+                            v2 (list 'get r2 :value)
+                            g2 (boundary-call (kit/export-form :php "is_local_exception") [v2])]
+                 :entries {(keyword (str label "-first-returned"))
+                           (list '= :return (list 'get r1 :route))
+                           (keyword (str label "-first-class"))
+                           (list '= true (list 'get g1 :value))
+                           (keyword (str label "-first-identical"))
+                           (list '= p v1)
+                           (keyword (str label "-second-returned"))
+                           (list '= :return (list 'get r2 :route))
+                           (keyword (str label "-second-class"))
+                           (list '= true (list 'get g2 :value))
+                           (keyword (str label "-second-identical"))
+                           (list '= p v2)}}))
         legs (map leg shapes)
         observation (kit/guard-exceptions-form
                       [:php]
@@ -649,7 +670,8 @@
                             (kit/observation-map-form (into {} (mapcat :entries) legs))))
         expected (into {} (mapcat (fn [[label _]]
                                     (map (fn [k] [(keyword (str label "-" k)) true])
-                                         ["returned" "identical"]))
+                                         ["first-returned" "first-class" "first-identical"
+                                          "second-returned" "second-class" "second-identical"]))
                                   shapes))
         donor (kit/publish-donor! :python contract/boundary-source)
         results (kit/run-exception-program
@@ -659,8 +681,64 @@
     (doseq [[backend actual] results]
       (println "PHP-COUNT-ACQUISITION" backend actual)
       (is (= expected actual)
-          (str backend ": every boundary count survives ordinary catch/return "
-               "acquisition with identity preserved")))))
+          (str backend ": every boundary count keeps its Exception class and "
+               "its identity through two receptions, the first result live"))))
+
+
+(deftest ^:slow php-count-limit-test
+  ;; r11: the limit-aware half of the admission predicate, and the reason
+  ;; removing the signed-64-bit bounds is not a bare revert. The integer
+  ;; module bounds every result IT produces by ::integer/max-bits, but the
+  ;; VM's raw host `+` (yin.vm/primitives registers clojure.core's) does
+  ;; not, so a guest can hold an exact integer the module will not operate
+  ;; on: 2^99999 + 2^99999 = 2^100000, one bit wider than the 100000-bit
+  ;; limit these lanes install (yang.typescript.antlr.linked-harness's
+  ;; integer-limits, the registry yang.call.conformance admits). For such a
+  ;; count integer/add answers the ::bit-limit KEYWORD instead of an
+  ;; integer; installing that as :rc would make the next ownership
+  ;; operation refuse with a host :wrong-type failure escaping the
+  ;; boundary. php/obj-val? therefore probes the arithmetic itself —
+  ;; addref's own increment, plus a doubling that proves a bit of headroom
+  ;; under the limit — instead of bounding the carrier, so this count is
+  ;; FOREIGN and retained whole: genuinely unsupported state, told apart
+  ;; from the endpoint counts above that the repaired arithmetic produces
+  ;; all by itself. Kept in its own deftest so its lane-specific width
+  ;; cannot contaminate the shape matrix; under a composition limit other
+  ;; than 100000 bits the shift would need re-deriving.
+  (let [n (fn [k] (symbol (str "probe.over-limit." (name k))))
+        p (n :payload) c (n :condition) i (n :injected)
+        r (n :retained) w (n :wrapper) loc (n :local) l (n :later)
+        wide (list '+ (list 'integer/shift-left 1 99999) (list 'integer/shift-left 1 99999))
+        observation
+        (kit/guard-exceptions-form
+          [:php]
+          (list 'let [p (kit/observation-map-form
+                          {:php/obj (list 'cell/new
+                                          (list 'assoc {:class "Exception"} :rc wide))})
+                      c (kit/observation-map-form
+                          {:yang.call/reason :yang.call/thrown
+                           :yang.call/value p
+                           :yang.call/data {:complete [:evidence]}})
+                      i (injected c)
+                      r (boundary-call (kit/export-form :php "retain") [i])
+                      w (list 'get r :value)
+                      loc (list 'if (list '= :return (list 'get r :route))
+                                (boundary-call (kit/export-form :php "is_foreign") [w])
+                                {:value false})
+                      l (boundary-call (kit/export-form :php "later") [])]
+                (kit/observation-map-form
+                  {:retained (list '= :return (list 'get r :route))
+                   :local (list '= true (list 'get loc :value))
+                   :condition (list '= c (list 'get l :condition))
+                   :payload (list '= p (list 'get (list 'get l :condition)
+                                             :yang.call/value))})))
+        results (run-provenance-observation observation)]
+    (is (= #{:semantic :stack :register} (set (keys results))))
+    (doseq [[backend actual] results]
+      (println "PHP-COUNT-LIMIT" backend actual)
+      (is (= {:retained true :local true :condition true :payload true} actual)
+          (str backend ": a count wider than the composition's integer limit "
+               "is foreign and retained whole (got " (pr-str actual) ")")))))
 
 
 (deftest ^:slow php-nil-condition-reception-test
