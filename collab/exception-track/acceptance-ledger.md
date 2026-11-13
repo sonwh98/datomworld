@@ -623,3 +623,49 @@ pairs and the wider acceptance obligations are not measured by this local round.
 The kit branch alone still needs composition with the port before its new tests
 can pass; the nine green retirement rows above belong to the explicitly composed
 tree, not standalone `96633aaf`.
+
+**KIT-2 follow-on to Round Kit completion — gpt-6.1-sol, 2026-11-13:** the
+steward-owned PHP instrument-shape repair is implemented in the shared kit.
+`exception_contract.clj` now defines a parsed-source PHP `seed` function that
+creates `$original` after `php/run-main` shutdown; `exception_probes.clj` uses
+its returned original in fresh-named, fresh-closure and local-reception.
+`exception_legs.clj` seeds once before each PHP-donor observation, so `payload`,
+`donor_raise`, retained rethrows and `home` share the same live object. No
+runtime, lifecycle rule, expected map, identity comparison, once count or
+after-call assertion changes. The R0 snapshot and earlier findings above are
+preserved as measured history.
+
+Verification uses the **existing** isolated composition from KIT-1 (base
+`96633aaf` + Clojure port `854b74c3` + kit `6b5dfa7f`), overlaid with these four
+repaired test files. The port is not merged into `exception-kit-finally`.
+
+`clj -M:test -n yang.call.exception-source-test` passes **7 tests, 312
+assertions, 0 failures, 0 errors** on that composition. The PHP fresh-named,
+fresh-closure and local-reception observations are now **9/9 green** across
+register/semantic/stack; all 34 other-frontend fixtures retain their original
+expectations and pass on all three VMs (**102/102 observations**).
+
+The existing scoped pair runner also passes:
+
+```sh
+clj -M:test -n yang.python.antlr.exception-call-test \
+  -v yang.python.antlr.exception-call-test/php-to-clojure-test
+```
+
+**1 test, 24 assertions, 0 failures, 0 errors.** In particular, KIT-1's nine
+PHP→Clojure residual observations (retained-lifetime, unchanged-rethrow and
+round-trip on the three VMs) are green with the runtime-seeded original;
+finally-replacement remains green. This supersedes those instrument findings
+for the repaired setup, without changing PHP shutdown semantics.
+
+The source namespace now checks all 47 original provenance fixtures, including
+the three PHP identity fixtures on register/semantic/stack, and the other
+frontends' original expectations. A separate before/after audit against
+`6b5dfa7f` confirms all 47 fixture contracts unchanged; source and donor-source
+strings for all three non-PHP frontends unchanged; all 34 non-PHP fixture
+observation forms and 69 non-PHP-donor leg observation forms identical with
+deterministically generated symbol names. No suite-scale local run, Node/Dart host gate or new frontend
+acceptance claim is made by this follow-on.
+
+`clj -M:kondo --lint` on all four changed Clojure files reports **0 errors /
+0 warnings**; cljstyle `0.17.642` and `git diff --check` pass.

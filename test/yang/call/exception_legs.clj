@@ -168,29 +168,33 @@
                 :value (list 'get result :value)}]
     (kit/guard-exceptions-form
       [donor caller]
-      (case scenario
-        (:catch-all :typed-catch :binding :success-raise-success)
-        (list 'let [result (call caller probe-export [])] (kit/observation-map-form simple))
-        :round-trip
-        (list 'let [result (call donor "home" [(kit/export-form caller probe-export)
-                                               (kit/export-form caller "done")])]
-              (kit/observation-map-form simple))
-        :retained-lifetime
-        (list 'let [original (list 'get (call donor "payload" []) :value)
-                    'leg.saved (call caller "save_foreign" [])
-                    'leg.local (call caller "saved_local" [])
-                    result (call caller probe-export [])]
-              (kit/observation-map-form
-                (assoc transfer :retained (list '= :return (list 'get 'leg.saved :route))
-                       :local (list 'get 'leg.local :value))))
-        (:unchanged-rethrow :finally-replacement)
-        (list 'let [original (list 'get (if (= scenario :finally-replacement)
-                                          (call caller "replacement_payload" [])
-                                          (call donor "payload" [])) :value)
-                    result (call caller probe-export [])]
-              (kit/observation-map-form (cond-> transfer
-                                          (= scenario :unchanged-rethrow)
-                                          (assoc :caught (list 'get (call caller "caught_once" []) :value)))))))))
+      ;; The donor's unit has finished, including PHP's global release.
+      ;; Seed once per observation so home/payload/raise share one object.
+      (cond->>
+        (case scenario
+          (:catch-all :typed-catch :binding :success-raise-success)
+          (list 'let [result (call caller probe-export [])] (kit/observation-map-form simple))
+          :round-trip
+          (list 'let [result (call donor "home" [(kit/export-form caller probe-export)
+                                                 (kit/export-form caller "done")])]
+                (kit/observation-map-form simple))
+          :retained-lifetime
+          (list 'let [original (list 'get (call donor "payload" []) :value)
+                      'leg.saved (call caller "save_foreign" [])
+                      'leg.local (call caller "saved_local" [])
+                      result (call caller probe-export [])]
+                (kit/observation-map-form
+                  (assoc transfer :retained (list '= :return (list 'get 'leg.saved :route))
+                         :local (list 'get 'leg.local :value))))
+          (:unchanged-rethrow :finally-replacement)
+          (list 'let [original (list 'get (if (= scenario :finally-replacement)
+                                            (call caller "replacement_payload" [])
+                                            (call donor "payload" [])) :value)
+                      result (call caller probe-export [])]
+                (kit/observation-map-form (cond-> transfer
+                                            (= scenario :unchanged-rethrow)
+                                            (assoc :caught (list 'get (call caller "caught_once" []) :value))))))
+        (= donor :php) (list 'let ['leg.seeded (call donor "seed" [])])))))
 
 
 (defn expected

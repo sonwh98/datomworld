@@ -3,7 +3,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [yang.call.conformance :as kit]
             [yang.call.exception-contract :as contract]
-            [yang.call.exception-legs :as legs]))
+            [yang.call.exception-legs :as legs]
+            [yang.call.exception-probes :as probes]))
 
 
 (defn- lower
@@ -45,6 +46,21 @@
   ;; Owner ruling 1794556000000 retired the refusal: a dialect's surface
   ;; derives from its source language. Execution is pinned separately below.
   (is (map? (lower :clojure "(try 1 (finally 2))" []))))
+
+
+(deftest ^:slow runtime-payload-identity-test
+  ;; PHP seeds after unit shutdown; the other frontends retain their
+  ;; module-created payloads. Check the complete original expectations in
+  ;; the shared batch, including all nine repaired PHP identity observations.
+  (doseq [frontend (sort contract/frontends)]
+    (let [observations (probes/run-frontend frontend)]
+      (doseq [{:keys [id expected]}
+              (filter #(= frontend (:frontend %)) contract/fixtures)]
+        (testing (str id)
+          (let [results (get observations id)]
+            (is (= #{:register :semantic :stack} (set (keys results))))
+            (doseq [[backend actual] results]
+              (is (= expected actual) (str backend)))))))))
 
 
 (deftest ^:slow clojure-finally-normal-exit-test

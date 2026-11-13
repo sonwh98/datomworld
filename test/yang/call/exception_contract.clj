@@ -17,7 +17,8 @@
 
 (def sources
   "Every export below is source-produced. `original` is an identity-bearing
-   value, including Clojure's explicit cell. `receive` catches then rethrows unchanged;
+   value, including Clojure's explicit cell. PHP's `seed` creates it after
+   run-main shutdown has released module globals. `receive` catches then rethrows unchanged;
    `retain` returns normally before `later` raises from a new activation.
    Protocol catch forms are intentionally local catch-all forms. No guessed
    donor class name participates in reception."
@@ -57,7 +58,8 @@
         "globalThis.raise_value = function(e) { throw e; };"
         "globalThis.echo = function(e) { return e; };")
    :php
-   (str "<?php $original = new Exception('original'); $saved = null;"
+   (str "<?php $original = null; $saved = null;"
+        "function seed() { global $original; $original = new Exception('original'); return $original; }"
         "function payload() { global $original; return $original; }"
         "function donor_raise() { global $original; throw $original; }"
         "function make_exploder() { return function() { global $original; throw $original; }; }"
