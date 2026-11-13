@@ -1,0 +1,10 @@
+Created-GMT: 2026-11-13 11:45:21 GMT
+Coding-Agent: codex
+Role: Engineer
+Status: partial; consumer integration and include acceptance remain incomplete
+
+`derive-verified` now pins the full published site-set address as `:yang.site/published-set` in the derivation profile, alongside `:yang.safepoint/sites` for the profile-selected sites. A test verifies the addresses differ when the profile selects no sites. This does not materialize the record or wire it into the linker.
+
+Verified: siteset-test 5 tests / 24 assertions green, tick-fixtures-test 1 / 8 green, yang.safepoint-test 9 / 20 green; clj-kondo 0 errors / 0 warnings on the two touched files. include-handoff-test completed with 3 failures / 0 errors: semantic, stack and register each returned `L` instead of `LT`.
+
+Exact next steps: (1) Implement a PHP `siteset/stage` for `yin.vm.linker.interpreter/composition`, following Python's overlay, missing-address protocol, signed index discovery and bottom-up dependency closure. Load and hash the canonical rows, call `derive-verified`, publish the transformed module and materialize its record; the final record output must match the published module's tree. Preserve the full-set pin added here. Rebind every non-runtime requirement, including an SCC member alias's bundle requirement, to the derived address. (2) Publish a pinned `php.sp` hook module. `php.sp/line` currently exists as a private definition in the PHP prelude's module tree, while `module-exports` only exports `php/` definitions; expose a callable through `php` and have `php.sp` require it, or otherwise explicitly provide the shared runtime binding. Add an actual `require` to derived module trees and account for it in the final derivation output root. (3) Wire signed site entries and the stage into linked composition, derive the entry with the selected ticks profile and require the hook there too. The current `linked-harness/source` uses `:trusted` without a stage and `run-fixture` runs the raw lowered entry. (4) Run include-handoff-test within 600 seconds and the requested focused regression/lint gates. No statement selection or registry fixture work was attempted.

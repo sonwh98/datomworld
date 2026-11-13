@@ -79,11 +79,18 @@
         manifest (jing/materialize! store {:yin.module/tree (:root env)})
         pub (siteset/publish! store manifest ast)
         profile {:line {:hook 'php.sp/line, :operands true, :after true}}
-        derived (siteset/derive-verified store manifest (:record-address pub) tree profile)]
+        derived (siteset/derive-verified store manifest (:record-address pub) tree profile)
+        unselected (siteset/derive-verified store manifest (:record-address pub) tree {})]
     (is (some? derived))
     (is (= (:root tree) (get-in derived [:record :yin.ledger/input])))
     (is (= (:root (:tree derived)) (get-in derived [:record :yin.ledger/output])))
     (is (= (:set-address pub) (:site-set-address derived)))
+    (is (= (:set-address pub)
+           (get-in derived [:record :yin.ledger/profile :yang.site/published-set])))
+    (is (= (:set-address pub)
+           (get-in unselected [:record :yin.ledger/profile :yang.site/published-set])))
+    (is (not= (:set-address pub)
+              (get-in unselected [:record :yin.ledger/profile :yang.safepoint/sites])))
     (is (nil? (siteset/derive-verified store manifest :missing tree profile)))
     (is (nil? (siteset/derive-verified store manifest (:record-address pub)
                                        (assoc tree :root :wrong) profile)))))

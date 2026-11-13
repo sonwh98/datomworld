@@ -129,6 +129,7 @@
 
 (defn derive-verified
   "Re-derive a validated module tree from its verified published occurrence set.
+   The record pins both the full published set and the profile-selected set.
    Returns nil when the tree or publication does not match the manifest."
   [handle manifest record-address tree profile]
   (when-let [{:keys [record set]} (verify handle manifest record-address)]
@@ -139,8 +140,10 @@
                               (= id (jing/segment-key (subvec row 1)))))
                        (:rows tree)))
       (let [{derived :tree selected :sites} (safepoint/insert tree (into {} set) profile)
-            derivation (safepoint/derive-record (:root tree) (:root derived)
-                                                profile selected)]
+            derivation (assoc-in (safepoint/derive-record (:root tree) (:root derived)
+                                                          profile selected)
+                                 [:yin.ledger/profile :yang.site/published-set]
+                                 (:yang.site/set record))]
         {:tree derived, :record derivation,
          :record-address (jing/segment-key derivation),
          :site-set-address (:yang.site/set record)}))))
