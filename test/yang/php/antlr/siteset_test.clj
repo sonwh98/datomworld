@@ -4,9 +4,12 @@
     [dao.jing :as jing]
     [dao.jing.mem :as mem]
     [yang.core.publication :as publication]
+    [yang.core.module :as module]
     [yang.core.uast :as u]
     [yang.php.antlr.siteset :as siteset]
     [yin.vm.linker.sign :as sign]
+    [yin.vm.linker.publish :as publish]
+    [yin.vm.module :as vm-module]
     [yin.vm :as vm]))
 
 
@@ -102,3 +105,37 @@
         stage (siteset/stage {} {:hooks true, :hooks-profile {}, :php-sp address} {})]
     (is (= {:status :missing, :address address}
            (stage {:store store} 'guest address)))))
+
+
+(deftest stage-publishes-derived-closure-and-record
+  (let [store (mem/create-content-mem)
+        registry (vm-module/default-registry)
+        spec (fn [name ast requires]
+               {:name name, :ast ast, :exports #{}, :requires requires,
+                :primitives (module/free-primitives :test/error :test/undeclared
+                                                    registry (set (keys requires)) ast)})
+        hook (publish/publish-module! store (spec 'php.sp (u/lit nil) {}))
+        child-ast (u/lit 1)
+        child (publish/publish-module! store (spec 'bundle child-ast {}))
+        alias-ast (module/module-tree [(module/require-node 'bundle)])
+        alias (publish/publish-module! store
+                                       (spec 'alias alias-ast {'bundle (:address child)}))
+        child-sites (siteset/publish! store (:address child) child-ast)
+        alias-sites (siteset/publish! store (:address alias) alias-ast)
+        key (sign/generate)
+        datoms (siteset/entry-datoms
+                 [(siteset/signed-entry key (:address child) (:record-address child-sites))
+                  (siteset/signed-entry key (:address alias) (:record-address alias-sites))])
+        stage (siteset/stage registry {:hooks true, :hooks-profile {},
+                                       :php-sp (:address hook)} {})
+        result (stage {:store store, :datoms datoms, :principals [(:public key)]}
+                      'alias (:address alias))
+        derived (jing/get store (:address result) nil)
+        child-address (get-in derived [:yin.module/requires 'bundle])
+        record (jing/get store (:derivation result) nil)]
+    (is (= :ok (:status result)))
+    (is (not= (:address child) child-address))
+    (is (= (:address hook) (get-in derived [:yin.module/requires 'php.sp])))
+    (is (= (:yin.module/tree derived) (:yin.ledger/output record)))
+    (is (= (:set-address alias-sites)
+           (get-in record [:yin.ledger/profile :yang.site/published-set])))))

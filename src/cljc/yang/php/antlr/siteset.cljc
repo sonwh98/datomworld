@@ -298,7 +298,7 @@
                                           handle {:name (:yin.module/name m), :ast ast,
                                                   :exports (:yin.module/exports m),
                                                   :requires requires, :primitives primitives}))]
-                      (if (not= :ok (:status out))
+                      (if (or (nil? out) (= :refused (:status out)))
                         (stage-refusal :yang.php.antlr/instrumentation-failed manifest)
                         (let [record (assoc (:record d) :yin.ledger/output
                                             (:yin.module/tree (:manifest out)))]
