@@ -33,6 +33,18 @@
   (cst/make-worker profile))
 
 
+(defn make-eval-worker
+  "A worker whose lexer starts in PHP mode with default mode underneath."
+  []
+  (cst/make-worker
+    (assoc profile :make-lexer
+           (fn [cs]
+             (let [lexer (PhpLexer. cs)]
+               #?(:clj (.pushMode lexer PhpLexer/PHP)
+                  :cljs (.pushMode lexer (.-PHP PhpLexer)))
+               lexer)))))
+
+
 (defn- generics?
   [pk]
   (boolean (some #(= "typeParameterListInBrackets" (:rule %))
