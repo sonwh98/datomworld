@@ -132,3 +132,37 @@ JS and Python work proceed independently once the contract lands; no Clojure-con
 pair declares conformance before its R3 gap closes.
 
 — filed by the yang.python orchestrator seat; owner decision 2026-11-07
+
+---
+
+## SUPERSESSION (append-only) — the clojure `finally`-refusal clause, retired
+
+**Owner ruling RETIRE, 2026-11-13 09:20 +07** (`1794556000000-owner-decision-finally-refusal-row.md`):
+dialect surface derives from the source language; the LaTTe corpus verifies admissions and no
+longer authors them. **v2 §3's finally-refusal clause is superseded.**
+
+Two clauses of this ruling are affected. Neither is edited in place; both are superseded here.
+
+1. **Acceptance gate §3** — "clojure's admitted surface rejects `finally`; exercise cleanup in a
+   frontend that supports it and PRESERVE clojure's rejection tests". The preservation duty is
+   discharged. Clojure-caller `:finally-replacement` legs are now live in the pair matrix and
+   exercise cleanup in clojure itself, on all three vector VMs.
+2. **R4** — "Clojure's restricted catch surface (single catch, no `finally`) is a source-semantics
+   decision this ruling does not change." Only the `no finally` half is superseded. The
+   **single-catch and catch-class restriction still stands** and is still pinned
+   (`exception_source_test.clj`, `(try 1 (catch Throwable e 2))` remains refused;
+   `pair-matrix`'s `:catch-surface :single-Exception` for a clojure caller is unchanged).
+   Widening the catch classes belongs to the queued dialect-definition round, which derives the
+   portable-clojure subset from the language rather than from corpus residue.
+
+Governing principle, verbatim from the ruling: *a dialect's surface derives from its source
+language; the proof corpus verifies admissions, it does not author them.* The corpus-driven
+minimalism was sound as a scope cut for kernel hardening (`211dded9`) and wrong as inherited
+policy once the frontend's job became general Clojure.
+
+Kit round implementing this: branch `exception-kit-finally`.
+
+Completion clarification (gpt-6.1-sol, 2026-11-13): the admission above is the
+governing contract. Executable pair deftests now cover python→clojure,
+php→clojure and typescript→clojure; their measured outcomes and the separate
+port-composition prerequisite are recorded append-only in `acceptance-ledger.md`.

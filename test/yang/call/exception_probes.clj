@@ -66,6 +66,9 @@
    Neither live payloads nor wrappers are rendered or ferried between tasks."
   [{:keys [scenario frontend protocol-reason]}]
   (let [export #(read-export frontend %)
+        ;; PHP releases module globals at run-main shutdown. Mint the real
+        ;; local exception through source, in the observation's activation.
+        payload-export (if (= frontend :php) "seed" "payload")
         result 'probe.result
         original 'probe.original
         condition 'probe.condition
@@ -83,7 +86,7 @@
       (cond
         (#{:fresh-named :fresh-closure :forged-retention} scenario)
         (list 'let [original (list 'get (call (export (if (= scenario :forged-retention)
-                                                        "forged" "payload"))
+                                                        "forged" payload-export))
                                               (if (= scenario :forged-retention)
                                                 [(protocol-condition :yang.call/not-callable)] [])) :value)
                     result (case scenario
@@ -121,7 +124,7 @@
                       (kit/observation-map-form protocol-summary))))
 
         (= scenario :local-reception)
-        (list 'let [original (list 'get (call (export "payload") []) :value)
+        (list 'let [original (list 'get (call (export payload-export) []) :value)
                     condition (kit/observation-map-form
                                 {:yang.call/reason :yang.call/thrown
                                  :yang.call/value original})
