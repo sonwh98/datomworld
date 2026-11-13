@@ -3631,11 +3631,18 @@
     "constant" (lower-constant ctx n)
     "arrayCreation" (lower-array ctx n)
     ("classDeclaration" "enumDeclaration") (lower-class ctx n)
-    "declareStatement" (let [node (lower-declare ctx n)]
-                         (if (and (let [body (first (core/rules ctx n "statement"))]
-                                    (and body (p/rule? (first (core/rule-kids ctx body)) "emptyStatement_")))
-                                  (pos? @(:ticks ctx)))
-                           (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks @(:ticks ctx)}] node)
+    "declareStatement" (let [outer-ticks @(:ticks ctx)
+                             body (first (core/rules ctx n "statement"))
+                             semicolon? (and body (p/rule? (first (core/rule-kids ctx body)) "emptyStatement_"))
+                             zero? (some (fn [d]
+                                           (and (some #(and (p/token? %) (= "ticks" (str/lower-case (:text %))))
+                                                      (core/kids ctx d))
+                                                (= "0" (leftmost-token-text ctx (first (core/rules ctx d "numericConstant"))))))
+                                         (mapcat #(core/rules ctx % "directive") (core/rules ctx n "declareList")))
+                             node (lower-declare ctx n)
+                             threshold (if semicolon? @(:ticks ctx) outer-ticks)]
+                         (if (and (pos? threshold) (or semicolon? (and body zero?)))
+                           (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks threshold}] node)
                            node))
     (core/default-arm diagnostic-ns "PHP" unsupported-rules n)))
 
@@ -3730,10 +3737,11 @@
                      (app* 'php/declare-late! (u/v sym))
                      (lower (item-ctx ctx item) item)))]
     (check-hoisted! ctx hoisted)
-    (let [body (sequence-node
-                 (concat (mapv #(lower (item-ctx ctx %) %) hoisted)
+    (let [lowered (mapv (fn [item] [item (in-place item)]) items)
+          body (sequence-node
+                 (concat (mapv second (filter (fn [[item _]] (hoisted? ctx item)) lowered))
                          (mapv (fn [[_ sym _]] (app* 'php/hoist-class! (u/v sym))) classes)
-                         (mapv in-place (remove #(hoisted? ctx %) items))))]
+                         (mapv second (remove (fn [[item _]] (hoisted? ctx item)) lowered))))]
       (reduce (fn [inner [_ sym spec]] (u/let1 sym (u/lam [] spec) inner))
               body
               (reverse classes)))))

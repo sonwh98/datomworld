@@ -26,6 +26,18 @@
     :out "AFT", :oracle :pending}
    {:id :semicolon-directive, :source "declare(ticks=2); echo 'A'; echo 'B';",
     :out "ATB", :oracle :pending}
+   {:id :nested-zero-completion,
+    :source "declare(ticks=1) { declare(ticks=0) { echo 'A'; } echo 'B'; }",
+    :out "ATBT", :oracle :pending}
+   {:id :hoisted-threshold,
+    :source "declare(ticks=1); function f() { echo 'F'; } f();",
+    :out "TFTT", :oracle :pending}
+   {:id :unregister-executing,
+    :source "unregister_tick_function('tick_handler'); function self_remove() { echo 'S'; unregister_tick_function('self_remove'); } register_tick_function('self_remove'); declare(ticks=1) { echo 'A'; echo 'B'; }",
+    :out "ASB", :oracle :pending}
+   {:id :per-entry-reentry,
+    :source "unregister_tick_function('tick_handler'); function helper() { declare(ticks=1) { echo 'X'; } } function first_handler() { echo 'H'; helper(); } function second_handler() { echo 'Y'; } register_tick_function('first_handler'); register_tick_function('second_handler'); declare(ticks=1) { echo 'A'; echo 'B'; }",
+    :out "AHXYYBHXYY", :oracle :pending}
    {:id :include-handoff, :source "include 'lib.php';",
     :units {"lib.php" "<?php declare(ticks=1) { echo 'L'; }"},
     :out "LT", :oracle :pending}])

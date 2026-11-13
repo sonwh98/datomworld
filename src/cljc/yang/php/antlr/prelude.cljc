@@ -4470,7 +4470,7 @@
      (fn [args]
        (do (cell/set! php.rt/tick-functions
                       (php/vconj (cell/get php.rt/tick-functions)
-                                 (cell/new (php/pair (get args 0) (php/args-tail args 1 [])))))
+                                 (cell/new (php/vconj (php/pair (get args 0) (php/args-tail args 1 [])) false))))
            true))]
     [php/bi-unregister-tick-function
      (fn [args]
@@ -4488,11 +4488,11 @@
      (fn [entries i]
        (if (< i (data/count entries))
          (let [entry (get entries i) value (cell/get entry)]
-           (do (if (= value :php/tick-busy)
+           (do (if (get value 2)
                  :php/null
-                 (do (cell/set! entry :php/tick-busy)
+                 (do (cell/set! entry (assoc value 2 true))
                      (php/try-finally (fn [] (php/call-value (get value 0) (get value 1)))
-                                      (fn [] (cell/set! entry value)))))
+                                      (fn [] (cell/set! entry (assoc value 2 false))))))
                (php/tick-dispatch entries (integer/add i 1))))
          :php/null))]
     [php/tick-line
