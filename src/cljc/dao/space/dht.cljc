@@ -1496,8 +1496,8 @@
 (defn busy?
   "True while the node owes its owner an event or holds work: binding, a
    load, unread puts, a first report owed, or an address queued or
-   outstanding.  A publication waiting for its next repair cycle does
-   not make the node busy."
+   outstanding. Settled window entries await a future announcement; like
+   publications waiting for their next repair cycle, they are not work."
   [node]
   (boolean
     (and (nil? (:refusal node))
@@ -1506,7 +1506,6 @@
              (= :dao.stream/ok (:dao.stream/outcome
                                  (stream/next (:ledger node) (:ledger-cursor
                                                                node))))
-             (seq (:order (:window node)))
              (some #(or (not (:reported? %)) (:cancelled? %)) (:pubs node))
              (seq (:fresh node))
              (seq (:repair node))
