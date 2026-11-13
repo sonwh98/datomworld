@@ -1641,7 +1641,8 @@
 
 
 (def ^:private builtin-function-names
-  "The twenty-six Python-visible builtin functions."
+  "The twenty-six Python-visible builtin functions. R2 reception (04e58031)
+   added `type` to the prelude table, increasing the count from 25 to 26."
   ["len" "type" "isinstance" "hash" "divmod" "print" "range" "list" "tuple" "set"
    "sum" "any" "all" "next" "iter" "int" "float" "str" "repr" "bool" "abs"
    "pow" "round" "hex" "oct" "bin"])

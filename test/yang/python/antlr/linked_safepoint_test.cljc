@@ -257,8 +257,9 @@
    value display (py/result!, py.rt/value) moves the py address again.
    S3's tracing (the trace cell and its hooks in the prelude) moves it
    once more. S3's shared-call prelude revision moves it with `py`.
-   P9 math builtins and provenance adoption move the pinned `py`
-   requirement again; re-minted on JVM and Node at the same address."
+   The Python exception-track and provenance series (merged 8018005d)
+   moves the pinned `py` requirement again; re-minted on JVM and Node
+   at the same address."
   (keyword (str "segment/blake3-"
                 "5f1ba8b4a18fb4ebfd072521936bef31a8cad0fe99bf24d1e888925ab9f9b7d8")))
 

@@ -224,8 +224,8 @@
             __all__, once with I4-a's delivery and builtin changes,
             on I6 over landed I5, with value-display (06065e42:
             py/result!, py.rt/value), and with the s3 tracing slice,
-            which moved only the hook prelude, and with P9 math builtins
-            and provenance adoption; all re-minted from source)"
+            which moved only the hook prelude, and with the Python exception-track
+            and provenance series (merged 8018005d); re-minted from source)"
     (is (= (keyword
              (str "segment/blake3-"
                   "2af56b0e17cc8e1a94fcde9fb260b013"
@@ -252,8 +252,9 @@
               all three moved once with I1's prelude changes, once with
               I2's, once with I3's, once with I4-a's, on I6 over landed
               I5, and with value-display (06065e42; re-minted from the
-              source packet); the s3 slice did not move them. P9 math builtins
-              and provenance adoption re-minted them again)"
+              source packet); the s3 slice did not move them. The Python
+              exception-track and provenance series (merged 8018005d)
+              moved them again; re-minted from source)"
       (is (= (keyword
                (str "segment/blake3-"
                     "20cbbfee8cbf2a080267e2e86943756c"

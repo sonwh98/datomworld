@@ -182,7 +182,8 @@
       (is (every? (module-level-keys prelude/module-uast)
                   prelude/module-exports)))
     (testing "the runtime keys are what the generated py/init! defines,
-              the ready flag aside"
+              the ready flag aside; 04e58031 added py.b/type through the
+              builtin-functions table, raising the count from 70 to 71"
       (is (= (set prelude/runtime-keys)
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
@@ -245,8 +246,9 @@
    S3 shared-call publication moved the Python module manifest. The
    post-authentic? call-runtime footprint moves it again; regenerated on
    the JVM with dht-import-v1.generate.clj (two byte-identical runs).
-   P9 math builtins and provenance adoption moved it again; re-minted
-   with the same generator in two byte-identical runs."
+   The Python exception-track and provenance series (merged 8018005d)
+   moved it again; re-minted with the same generator in two byte-identical
+   runs."
   (keyword (str "segment/blake3-"
                 "59efa8b3793d9737d09b74c7304c086405084d486c76b8dc986c88870357b744")))
 
