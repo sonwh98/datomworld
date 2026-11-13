@@ -8,6 +8,7 @@
    Adaptations, operation sequences and scope departures live beside the
    manifest in yang/latte_oracle/."
   (:require [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.edn :as edn]
             [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
@@ -2581,14 +2582,54 @@
 
 
 (defn write-kernel-gate-depths!
-  "Write the depth measurement EDN to `file` and return it."
+  "Measure the checked-out revision and write its depth EDN to `file`."
   [file]
-  (let [depths (kernel-gate-depths)]
-    (spit file (str ";; GENERATED max live-K depth per kernel-gate workload (both lanes).\n"
-                    (pr-str {:revision "working-tree"
+  (let [{:keys [exit out err]} (shell/sh "git" "rev-parse" "--short=8" "HEAD")
+        _ (when-not (zero? exit)
+            (throw (ex-info "Cannot determine depth measurement revision" {:error err})))
+        revision (str/trim out)
+        depths (kernel-gate-depths)]
+    (spit file (str ";; GENERATED max live-K depth per kernel-gate workload (both lanes), " revision ".\n"
+                    (pr-str {:revision revision
                              :workload-count (count depths)
                              :workloads depths}) "\n"))
     depths))
+
+
+(defn write-kernel-gate-comparison!
+  "Compare the two depth EDNs and write the complete comparison to `file`."
+  [baseline-file post-file file]
+  (let [baseline (edn/read-string (slurp baseline-file))
+        post (edn/read-string (slurp post-file))
+        b (:workloads baseline)
+        p (:workloads post)
+        ids (sort (keys p))
+        depth #(apply max (vals %))]
+    (when-not (and (= (set (keys b)) (set ids))
+                   (= (:workload-count baseline) (count b))
+                   (= (:workload-count post) (count p))
+                   (every? #(and (every? integer? (vals (b %)))
+                                 (every? integer? (vals (p %)))
+                                 (pos? (depth (b %)))) ids))
+      (throw (ex-info "Incomplete or invalid depth comparison" {})))
+    (let [ratios (map #(/ (depth (p %)) (depth (b %))) ids)
+          maximum (apply max ratios)
+          flagged (filter #(> (/ (depth (p %)) (depth (b %))) 10) ids)]
+      (spit file
+            (str "# Kernel-gate depth comparison\n\n"
+                 "Baseline: `" (:revision baseline) "` (outcome model). Post-port: `"
+                 (:revision post) "`. Each depth is the maximum of the walker and semantic lane maxima. "
+                 "Ratios are post-port / baseline, rounded to two decimals.\n\n"
+                 "Overlap: " (count ids) "/" (count p) ".\n\n"
+                 "| Workload | Baseline | Post-port | Ratio |\n|---|---:|---:|---:|\n"
+                 (apply str (for [id ids]
+                              (str "| " (name id) " | " (depth (b id)) " | " (depth (p id))
+                                   " | " (format "%.2f×" (double (/ (depth (p id)) (depth (b id))))) " |\n")))
+                 "\n" (if (seq flagged)
+                        (str "exceeds-10x: " (str/join ", " (map name flagged)))
+                        "none-exceeds-10x")
+                 " / max-ratio: " (format "%.2f×" (double maximum)) "\n"))
+      maximum)))
 
 
 (deftest test-kernel-proof-fresh-supply
