@@ -602,7 +602,10 @@
    lane verifies, and a BigInt carrier on JS, where the same decimal parses
    past the safe range and a raw (+ rc 1) mixes a BigInt with a Number and
    throws a TypeError (the re-check's Node primitive diagnostic, both signs;
-   the tri-host acceptance lane covers Node)."
+   the tri-host acceptance lane covers Node). The fifth count, T-1 =
+   2^99999 - 1, is sol's re-check6 counterexample: a legal guest count one
+   ordinary acquisition below the endpoint r11's doubling probe had itself
+   created, which must therefore stay local across BOTH receptions."
   (str "<?php function catch_return($f) {"
        " try { return $f(); } catch (Throwable $e) { return $e; } }"
        " function is_local_exception($e) { return get_class($e) === 'Exception'; }"))
@@ -625,11 +628,32 @@
   ;; cases live here rather than in the foreign set above because this
   ;; ruling makes them local; their foreign-disposition payload forms are
   ;; unchanged, only the asserted disposition moved.
-  (let [shapes [["near-max" "9223372036854775806"]
-                ["max" "9223372036854775807"]
-                ["min" "-9223372036854775808"]
-                ["js-number-boundary" "9007199254740992"]]
-        leg (fn [[label digits]]
+  ;; r12 adds the fifth shape, sol's re-check6 counterexample: the
+  ;; doubling probe r11 layered on top of the increment probe was itself an
+  ;; admission endpoint, one ordinary acquisition away from a legally
+  ;; constructed count. Five shapes x six observations = 30 expected keys
+  ;; per backend.
+  (let [shapes [["near-max" (list 'integer/parse "9223372036854775806")]
+                ["max" (list 'integer/parse "9223372036854775807")]
+                ["min" (list 'integer/parse "-9223372036854775808")]
+                ["js-number-boundary" (list 'integer/parse "9007199254740992")]
+                ;; r12, sol's re-check6 counterexample: T-1, one below
+                ;; T = 2^(max-bits - 1) = 2^99999 in these lanes, built
+                ;; entirely from admitted integer-module operations, so it
+                ;; is a legal guest count and no raw host arithmetic is
+                ;; involved. r11's doubling probe admitted it, ONE ordinary
+                ;; acquisition moved it to T, and the next reception's
+                ;; doubling (T+T = 2^max-bits) answered ::bit-limit — so a
+                ;; purely local Throwable the runtime itself had just
+                ;; produced came back as a ForeignException, the identity
+                ;; failure re-check5 condemned, recreated by the
+                ;; classifier's own extra computation. Red at the previous
+                ;; tip on the two second-* keys; green with the doubling
+                ;; removed, because addref's rc+1 and delref's rc-1 both
+                ;; still yield integers at T.
+                ["t-minus-one"
+                 (list 'integer/sub (list 'integer/shift-left 1 99999) 1)]]
+        leg (fn [[label count-form]]
               (let [n (fn [k] (symbol (str "probe." (name label) "." (name k))))
                     p (n :payload) c (n :condition) i (n :injected)
                     r1 (n :first) v1 (n :first-value) g1 (n :first-class)
@@ -637,7 +661,7 @@
                 {:bindings [p (kit/observation-map-form
                                 {:php/obj (list 'cell/new
                                                 (list 'assoc {:class "Exception"}
-                                                      :rc (list 'integer/parse digits)))})
+                                                      :rc count-form))})
                             c (kit/observation-map-form
                                 {:yang.call/reason :yang.call/thrown
                                  :yang.call/value p})
@@ -698,13 +722,18 @@
   ;; integer; installing that as :rc would make the next ownership
   ;; operation refuse with a host :wrong-type failure escaping the
   ;; boundary. php/obj-val? therefore probes the arithmetic itself —
-  ;; addref's own increment, plus a doubling that proves a bit of headroom
-  ;; under the limit — instead of bounding the carrier, so this count is
-  ;; FOREIGN and retained whole: genuinely unsupported state, told apart
-  ;; from the endpoint counts above that the repaired arithmetic produces
-  ;; all by itself. Kept in its own deftest so its lane-specific width
-  ;; cannot contaminate the shape matrix; under a composition limit other
-  ;; than 100000 bits the shift would need re-deriving.
+  ;; addref's own rc+1 and delref's own rc-1, and nothing else — instead of
+  ;; bounding the carrier, so this count is FOREIGN and retained whole:
+  ;; genuinely unsupported state, told apart from the endpoint counts the
+  ;; repaired arithmetic produces all by itself. This is the half of the
+  ;; limit policy that must NOT be deleted along with r11's doubling probe;
+  ;; the other half — a count one acquisition below the doubling's own
+  ;; endpoint, T-1, which must stay LOCAL through two receptions — is the
+  ;; `t-minus-one` shape of php-count-acquisition-test above, where the
+  ;; two-reception harness already lives. Kept in its own deftest so its
+  ;; lane-specific width cannot contaminate the shape matrix; under a
+  ;; composition limit other than 100000 bits the shift would need
+  ;; re-deriving.
   (let [n (fn [k] (symbol (str "probe.over-limit." (name k))))
         p (n :payload) c (n :condition) i (n :injected)
         r (n :retained) w (n :wrapper) loc (n :local) l (n :later)

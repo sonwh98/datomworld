@@ -2875,27 +2875,31 @@
      ;;   domain predicate of the integer/add and integer/sub that addref
      ;;   and delref use — NOT a php representation classifier: php/int?
      ;;   answers :int for a computed ratio and data/number? passes
-     ;;   floats, while the integer primitives refuse both), and one the
-     ;;   arithmetic can still operate on. That second half is PROBED,
-     ;;   never bounded: the calls below are addref's own increment and a
-     ;;   doubling that proves a bit of headroom, so a count is admitted
-     ;;   exactly when the ownership machinery can operate on it under
-     ;;   THIS composition's ::integer/max-bits — and keep doing so, since
-     ;;   every acquisition moves a count by one and the headroom makes
-     ;;   crossing the limit unreachable. Past the limit integer/add
-     ;;   answers the ::bit-limit keyword instead of a result, and
-     ;;   installing that keyword as :rc would make the next ownership
-     ;;   operation refuse as a host failure escaping the boundary. A
-     ;;   probe tracks whatever limits the composition installed; a
-     ;;   hardcoded carrier bound cannot, and it also misclassifies state
-     ;;   that php's own repaired arithmetic legitimately produces: a
-     ;;   count at the native long maximum, or past it in the host big
-     ;;   carrier, is ordinary local ownership, which §8.10.7 rule 1 keeps
-     ;;   in its own class and identity through any number of acquisitions
-     ;;   and later receptions. Rule 3 is about an OTHERWISE-foreign
-     ;;   payload; a private refcount reaching the source language's
-     ;;   integer endpoint does not make one. released?'s :released? read
-     ;;   is total and cell/set! is safe on an authenticated cell.
+     ;;   floats, while the integer primitives refuse both), and one BOTH
+     ;;   of those operations can still perform. That second half is
+     ;;   PROBED with the operations themselves — never bounded, and never
+     ;;   widened by a margin of the classifier's own invention — so a
+     ;;   count is admitted exactly when the ownership machinery can
+     ;;   operate on it under THIS composition's ::integer/max-bits. Past
+     ;;   that limit integer/add answers the ::bit-limit keyword instead of
+     ;;   a result, and installing that keyword as :rc would make the next
+     ;;   ownership operation refuse as a host failure escaping the
+     ;;   boundary; a probe tracks whatever limits the composition
+     ;;   installed, which a hardcoded carrier bound cannot. Probing the
+     ;;   operations and nothing else is also what keeps admission
+     ;;   IDENTITY-STABLE: a bound or an invented margin is a cutoff, one
+     ;;   ordinary acquisition moves a legally produced local count across
+     ;;   it, and the same unchanged Throwable then comes back from the
+     ;;   next reception as a ForeignException. A count at the native long
+     ;;   maximum, past it in the host big carrier, or at the minimum is
+     ;;   ordinary local ownership, which §8.10.7 rule 1 keeps in its own
+     ;;   class and identity; rule 3 covers an OTHERWISE-foreign payload,
+     ;;   and a private refcount reaching the source language's integer
+     ;;   endpoint does not make one. The single disposition that does
+     ;;   change is the arithmetic's own ceiling, stated precisely in the
+     ;;   probe comment below: identity is claimed while a count stays
+     ;;   operable, not forever. released?'s :released? read is total and
+     ;;   cell/set! is safe on an authenticated cell.
      ;;   Authenticity proves the reference is live and task-issued, NOT
      ;;   that its contents are object state — a guest legally mints
      ;;   `(cell/new {:class "x"})` with no :rc.
@@ -2924,38 +2928,46 @@
                (if (data/string? (get st :class))
                  (let [rc (get st :rc)]
                    ;; integer/integer? FIRST: it is the total domain
-                   ;; predicate of the integer/add calls below, which
+                   ;; predicate of the two integer calls below, which
                    ;; refuse any carrier it rejects. A php representation
                    ;; classifier cannot stand in for it: a computed ratio
                    ;; passes data/number? AND php/int? (php/kind's float64
                    ;; content test), and the integer primitives then refuse
                    ;; it — the reception-introduced failure of the
                    ;; re-check4 counterexample.
-                   ;; The two probes that follow are limit-aware, and they
-                   ;; are what replaces r7's native-carrier bounds without
-                   ;; reverting to "every exact integer". The first IS
-                   ;; addref's own operation, so admission establishes r7's
-                   ;; property — an INCREMENTABLE count — against this
-                   ;; composition's actual arithmetic domain rather than
-                   ;; against the host carrier: past ::integer/max-bits
-                   ;; integer/add answers the ::bit-limit keyword instead of
-                   ;; an integer, and installing that as :rc would make the
+                   ;; The two probes that follow ARE the ownership
+                   ;; operations themselves — addref's rc+1 and delref's
+                   ;; rc-1 — so the admitted counts are exactly the counts
+                   ;; this composition's arithmetic can operate on now:
+                   ;; past ::integer/max-bits integer/add and integer/sub
+                   ;; answer the ::bit-limit keyword instead of an integer,
+                   ;; and installing that keyword as :rc would make the
                    ;; next ownership operation refuse as a host failure
-                   ;; escaping the boundary. The second proves a full bit of
-                   ;; HEADROOM (|rc| < 2^(max-bits - 1)), because an
-                   ;; admission-time increment is not an invariant: counts
-                   ;; grow by one per acquisition, so a count admitted at
-                   ;; the very limit could creep past it later. With one bit
-                   ;; of headroom, breaching the limit takes at least
-                   ;; 2^(max-bits - 1) acquisitions, which no run reaches —
-                   ;; and delref's decrement is covered by the same
-                   ;; headroom. No count the repaired arithmetic itself
-                   ;; produces is ever refused: MAX, MIN and the
-                   ;; beyond-native big carriers all double inside the
-                   ;; limit, so they stay LOCAL (§8.10.7 rule 1).
+                   ;; escaping the boundary. The classifier computes
+                   ;; NOTHING of its own, which is the property that
+                   ;; matters here: any extra margin it invents (r11
+                   ;; probed a doubling for headroom) is itself an
+                   ;; admission endpoint, and one ordinary acquisition
+                   ;; crosses it — so a local Throwable the runtime just
+                   ;; produced comes back from the next reception as a
+                   ;; ForeignException, the identity failure §8.10.7 rule 1
+                   ;; and owner ruling v2 R2 forbid. What is left is the
+                   ;; arithmetic's OWN ceiling, not a chosen cutoff: a
+                   ;; count within one acquisition of +/-(2^max-bits - 1)
+                   ;; is admitted, acquires, and is foreign at the next
+                   ;; reception because the operation genuinely cannot be
+                   ;; performed any more. Identity is therefore claimed
+                   ;; only while the count stays operable — from a minted
+                   ;; count (:rc 1) that ceiling is 2^max-bits acquisitions
+                   ;; away, and only a deliberately constructed count of
+                   ;; magnitude ~2^(max-bits - 1) starts within reach of
+                   ;; it. Every native endpoint and beyond-native big
+                   ;; carrier the repaired arithmetic produces in ordinary
+                   ;; use — MAX-1, MAX, MIN, 2^53, 2^63, 2^64 — is far
+                   ;; inside it and stays LOCAL.
                    (if (integer/integer? rc)
                      (if (integer/integer? (integer/add rc 1))
-                       (integer/integer? (integer/add rc rc))
+                       (integer/integer? (integer/sub rc 1))
                        false)
                      false))
                  false))
