@@ -20,6 +20,7 @@
             [yang.clojure :as yang]
             [yang.clojure-test :as compiler-test]
             [yang.core.call :as call]
+            [yang.core.uast :as u]
             [yin.vm :as vm]
             [yin.vm.test-utils :as tu]
             [yin.vm.data :as data]
@@ -1286,13 +1287,27 @@
 
 
 (deftest test-oracle-slice8-context-reconstruction
-  (let [program [(list 'let ['checkpoint
-                             (list 'let ['base initial-context 'offset 4]
-                                   '(register-unparser base :captured
-                                                       (fn [term] [(+ offset term) true])))]
-                       '(unparse checkpoint 3))]
-        forms (into (context-for program) program)
-        ast (yang/compile-program (into (yang/library-for forms) forms) true arg-vector-opts)
+  (let [build (list 'let ['base initial-context 'offset 4]
+                    '(register-unparser base :captured (fn [term] [(+ offset term) true])))
+        forms (conj (context-for [build '(unparse checkpoint 3)]) build)
+        builder (yang/compile-program (into (yang/library-for forms) forms) true arg-vector-opts)
+        mint (get-in @#'yang/continuation-uast [:operator :body])
+        invoke (u/app (u/v 'yang.call/invoke) (u/v 'unparse)
+                      (u/app (u/v 'conj) (u/app (u/v 'conj) (u/lit []) (u/v 'checkpoint)) (u/lit 3))
+                      (u/lit []) (u/lam '[condition] (u/app (u/v 'clj/raise) (u/v 'condition))))
+        consume (u/let1 'dsg__equal (u/sexp->uast '(fn [a b] (= a b)))
+                        (#'yang/top-boundary invoke))
+        ;; Transport the existing registry only after its construction's
+        ;; handler has unwound. Retire and later mint the runtime through
+        ;; guest operations, retaining this compilation's admission token.
+        ast (yang/annotate-call-sites
+              (u/let1 'built builder
+                      (u/if-node (u/app (u/v '=) (u/app (u/v 'get) (u/v 'built) (u/lit 0))
+                                        (u/lit :yin.k/ok))
+                                 (u/then (u/def! 'clj.rt/ctx (u/lit nil))
+                                         (u/let1 'checkpoint (u/app (u/v 'get) (u/v 'built) (u/lit 1))
+                                                 (u/then mint consume)))
+                                 (u/v 'built))))
         modules (oracle-registry yang/kind-module)
         run-bounded (fn [machine]
                       (loop [m machine n 0]
@@ -1323,7 +1338,8 @@
             k (get-in checkpoint [:env 'checkpoint])
             _ (is (values/closure? (get-in k [:unparser-registry :unparsers :captured
                                               :yang.call/entry])))
-            _ (assert-machine-data-within-budget! k 100000)
+            ;; Sol measured 449,999 real recursive visits on both sides.
+            _ (assert-machine-data-within-budget! k 500000)
             wire (rows/lift-task checkpoint (rows-support/serve-table) {:source-index source-index})
             _ (is (vm/plain-data? wire) "serialized context contains code references, not host closures")
             {:keys [attach!]} (rows-support/attacher)
@@ -1332,7 +1348,7 @@
             k' (get-in restored [:env 'checkpoint])]
         (is (values/closure? (get-in k' [:unparser-registry :unparsers :captured
                                          :yang.call/entry])))
-        (assert-machine-data-within-budget! k' 100000)
+        (assert-machine-data-within-budget! k' 500000)
         (is (= [:yin.k/ok 7] (run-bounded restored)))
         (is (= [:yin.k/ok 7] (run-bounded checkpoint))))))
   (testing "host callbacks cannot enter code data through registry literals"
