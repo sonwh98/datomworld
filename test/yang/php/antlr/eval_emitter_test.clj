@@ -2,8 +2,11 @@
   (:require [clojure.test :refer [deftest is]]
             [dao.host.text :as text]
             [yang.core.prelude :as core-prelude]
+            [yang.core.uast :as u]
+            [yang.php.antlr.e2e-harness :as harness]
             [yang.php.antlr.eval-coordinator :as coordinator]
-            [yang.php.antlr.lower :as lower]))
+            [yang.php.antlr.lower :as lower]
+            [yang.php.antlr.prelude :as prelude]))
 
 
 (defn- packet
@@ -39,3 +42,15 @@
     (is (contains? free 'php/dict-get))
     (is (contains? free 'php/call-ec))
     (is (not-any? #(= "php.rt" (namespace %)) free))))
+
+
+(deftest eval-entry-runs-with-the-callers-runtime
+  (let [entry (:ast (lower/eval-entry (packet "$x = 2; return $x;")))
+        invoke (u/app entry (lower/eval-runtime-node) (u/lit :php/globals)
+                      (u/lit :php/null) (u/lit {}))
+        main (u/app (u/v 'php/run-main)
+                    (u/lam [] (u/app (u/v 'php/echo) (u/app (u/v 'php/to-string) invoke)))
+                    (u/lit :php/null))
+        ast (u/then prelude/uast main)]
+    (is (= {:ast-walker "2", :semantic "2", :stack "2", :register "2"}
+           (harness/run-vms (harness/host-registry) ast)))))
