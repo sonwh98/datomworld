@@ -7,6 +7,8 @@
     [dao.host.text :as text]
     [dao.stream :as stream]
     [yang.php.antlr.cst :as cst]
+    [yang.php.antlr.eval-coordinator :as eval-coordinator]
+    [yang.php.antlr.linked-harness :as linked]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.portable-harness :as portable]
     [yang.php.antlr.safepoint :as hooks]
@@ -16,6 +18,7 @@
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
     [yin.vm.encoder :as encoder]
+    [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
     [yin.vm.semantic.derive :as derive]
     [yin.vm.semantic.linearize :as sr-linearize]
@@ -26,6 +29,22 @@
   "The registry the PHP compositions run over."
   []
   (portable/host-registry))
+
+
+(defn eval-compiler
+  "A configured compiler service and its request/response streams for a run.
+   The composition drives `eval-coordinator/serve` with the returned state."
+  ([] (eval-compiler (linked/make-published)))
+  ([published]
+   (let [requests (tu/new-stream)
+         responses (tu/new-stream)
+         cursor (:dao.stream/cursor (stream/cursor requests stream/anchor-oldest))]
+     {:worker (eval-coordinator/make-worker), :store (:store published),
+      :registry (module/register-code-module (linked/registry)),
+      :requests requests, :responses responses,
+      :cursor cursor,
+      :stage-requirement {:hooks true, :hooks-profile lower/eval-hook-profile,
+                          :php-sp (:hook-address published)}})))
 
 
 (def ^:private base-opts
