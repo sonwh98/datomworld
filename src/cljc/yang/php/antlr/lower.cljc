@@ -3560,9 +3560,20 @@
                        (when (some #(and (p/token? %) (= "StrictTypes" (:type %))) (core/kids ctx d))
                          (= "1" (leftmost-token-text ctx (first (core/rules ctx d "numericConstant"))))))
                      ds)
-        body (first (core/rules ctx n "statement"))]
+        body (first (core/rules ctx n "statement"))
+        tick-directive (some (fn [d]
+                               (when (some #(and (p/token? %) (= "ticks" (str/lower-case (:text %))))
+                                           (core/kids ctx d))
+                                 (leftmost-token-text ctx (first (core/rules ctx d "numericConstant")))))
+                             ds)
+        ticks (when tick-directive
+                (try #?(:clj (Long/parseLong tick-directive) :cljs (js/parseInt tick-directive 10))
+                     (catch #?(:clj Exception :cljs :default) _ (unsupported! n :ticks))))
+        _ (when (and ticks (neg? ticks)) (unsupported! n :ticks))
+        body-ctx (if (some? ticks) (assoc ctx :ticks (atom ticks)) ctx)
+        _ (when (and (some? ticks) (nil? body)) (reset! (:ticks ctx) ticks))]
     (u/then (if (some? strict) (app* 'php/set-strict! (u/lit (boolean strict))) (u/lit :php/null))
-            (if body (lower ctx body) (u/lit :php/null)))))
+            (if body (lower body-ctx body) (u/lit :php/null)))))
 
 
 (defn- lower-class
@@ -3581,9 +3592,15 @@
     ("topStatement" "innerStatement" "statement" "namespaceStatement")
     (lower ctx (first (core/rule-kids ctx n)))
     "globalConstantDeclaration" (lower-const ctx n)
-    "echoStatement" (with-temps ctx n
-                      (sequence-node (echo-nodes ctx (first (core/rules ctx n "expressionList")))))
-    "expressionStatement" (with-temps ctx n (lower ctx (first (core/rules ctx n "expression"))))
+    "echoStatement" (let [node (with-temps ctx n
+                                 (sequence-node (echo-nodes ctx (first (core/rules ctx n "expressionList")))))]
+                      (if (pos? @(:ticks ctx))
+                        (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks @(:ticks ctx)}] node)
+                        node))
+    "expressionStatement" (let [node (with-temps ctx n (lower ctx (first (core/rules ctx n "expression"))))]
+                            (if (pos? @(:ticks ctx))
+                              (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks @(:ticks ctx)}] node)
+                              node))
     "emptyStatement_" (u/lit :php/null)
     "inlineHtmlStatement" (sequence-node (block-nodes ctx n))
     "blockStatement" (lower ctx (first (core/rules ctx n "innerStatementList")))
@@ -3609,7 +3626,10 @@
     "constant" (lower-constant ctx n)
     "arrayCreation" (lower-array ctx n)
     ("classDeclaration" "enumDeclaration") (lower-class ctx n)
-    "declareStatement" (lower-declare ctx n)
+    "declareStatement" (let [node (lower-declare ctx n)]
+                         (if (and (empty? (core/rules ctx n "statement")) (pos? @(:ticks ctx)))
+                           (core/site [:line (:id n) {:unit (get-in ctx [:unit :path]), :ticks @(:ticks ctx)}] node)
+                           node))
     (core/default-arm diagnostic-ns "PHP" unsupported-rules n)))
 
 
@@ -3658,7 +3678,8 @@
               :loops [],
               :unit {:path path},
               :linked? (boolean linked?),
-              :warnings (atom [])}
+              :warnings (atom []),
+              :ticks (atom 0)}
          ctx (merge ctx (unit-layout ctx))]
      (assoc ctx :declared (declared-functions ctx)))))
 

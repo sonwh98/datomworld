@@ -167,10 +167,13 @@
   never sees request data."
   ([source] (run-raw source nil))
   ([source request]
-   (let [{:keys [ast diagnostics]} (lower-program source request)]
+   (let [{:keys [ast diagnostics envelope]} (lower-program source request)]
      (if diagnostics
        {:diagnostics diagnostics}
-       (let [session (tu/make-observer-session
+       (let [derived (:envelope (safepoint/derive-envelope
+                                  (encoder/project envelope) hooks/ticks-profile :test/ticks))
+             ast (vm/semantic-bytecode->ast (nth (:yin/batch derived) (:yin/root derived)))
+             session (tu/make-observer-session
                        (tu/create-vm {:modules (host-registry)}))]
          (tu/queue-ast! session ast)
          (vm/value (:consumer (tu/run-session session))))))))

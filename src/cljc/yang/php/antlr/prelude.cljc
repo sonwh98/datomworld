@@ -4466,6 +4466,42 @@
                       (php/vconj (cell/get php.rt/shutdown-fns)
                                  (php/pair (get args 0) (php/args-tail args 1 []))))
            :php/null))]
+    [php/bi-register-tick-function
+     (fn [args]
+       (do (cell/set! php.rt/tick-functions
+                      (php/vconj (cell/get php.rt/tick-functions)
+                                 (cell/new (php/pair (get args 0) (php/args-tail args 1 [])))))
+           true))]
+    [php/bi-unregister-tick-function
+     (fn [args]
+       (do (cell/set! php.rt/tick-functions
+                      (php/tick-remove (cell/get php.rt/tick-functions) (get args 0) 0 []))
+           :php/null))]
+    [php/tick-remove
+     (fn [entries callback i out]
+       (if (< i (data/count entries))
+         (let [entry (get entries i)]
+           (php/tick-remove entries callback (integer/add i 1)
+                            (if (= (get (cell/get entry) 0) callback) out (php/vconj out entry))))
+         out))]
+    [php/tick-dispatch
+     (fn [entries i]
+       (if (< i (data/count entries))
+         (let [entry (get entries i) value (cell/get entry)]
+           (do (if (= value :php/tick-busy)
+                 :php/null
+                 (do (cell/set! entry :php/tick-busy)
+                     (php/try-finally (fn [] (php/call-value (get value 0) (get value 1)))
+                                      (fn [] (cell/set! entry value)))))
+               (php/tick-dispatch entries (integer/add i 1))))
+         :php/null))]
+    [php.sp/line
+     (fn [line site]
+       (let [n (integer/add (cell/get php.rt/tick-count) 1)]
+         (if (< (integer/compare n (get site :ticks)) 0)
+           (cell/set! php.rt/tick-count n)
+           (do (cell/set! php.rt/tick-count 0)
+               (php/tick-dispatch (cell/get php.rt/tick-functions) 0)))))]
     [php/freeze-finalizable
      ;; step 4 frees without destructors: whatever is left counts as destructed
      (fn [objs i]
@@ -5805,7 +5841,9 @@
      ;; exit escapes past handlers and finally blocks through php/root-exit
      ;; and its status is preserved through shutdown
      (fn [body request response-stream diag-stream]
-       (do (cell/set! php.rt/out [[]])
+       (do (cell/set! php.rt/tick-count 0)
+           (cell/set! php.rt/tick-functions [])
+           (cell/set! php.rt/out [[]])
            (cell/set! php.rt/ctx (php/ctx nil 0 0 nil))
            (cell/set! php.rt/response [])
            (cell/set! php.rt/response-stream (if (if (nil? response-stream)
@@ -6104,6 +6142,8 @@
                  (define 'php.rt/exception-handlers '(cell/new []))
                  (define 'php.rt/class-order '(cell/new []))
                  (define 'php.rt/shutdown-fns '(cell/new []))
+                 (define 'php.rt/tick-count '(cell/new 0))
+                 (define 'php.rt/tick-functions '(cell/new []))
                  (define 'php.rt/exit-status '(cell/new :php/null))
                  (define 'php.rt/in-shutdown '(cell/new false))
                  (define 'php.rt/fatal-escape '(cell/new :php/null))
@@ -6192,7 +6232,7 @@
     php.rt/error-handler
     php.rt/error-mask php.rt/error-masks
     php.rt/class-order php.rt/exception-handler php.rt/exception-handlers php.rt/finalizable php.rt/pending-exc
-    php.rt/shutdown-fns php.rt/exit-status php.rt/in-shutdown php.rt/fatal-escape
+    php.rt/tick-count php.rt/tick-functions php.rt/shutdown-fns php.rt/exit-status php.rt/in-shutdown php.rt/fatal-escape
     php.rt/exit-escape php.rt/shutdown-escape php.rt/strict php.rt/included php.rt/path-map php.rt/unit
     php.rt/autoloaders php.rt/autoloading php.rt/class-map php.rt/constants
     php.rt/error-reporting php.rt/error-handlers php.rt/functions php.rt/globals php.rt/int-max
