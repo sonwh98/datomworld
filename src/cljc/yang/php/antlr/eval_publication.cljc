@@ -1,6 +1,7 @@
 (ns yang.php.antlr.eval-publication
   "Publish an admitted eval unit and its canonical safepoint occurrences."
-  (:require [yang.php.antlr.lower :as lower]
+  (:require [dao.jing :as jing]
+            [yang.php.antlr.lower :as lower]
             [yang.php.antlr.siteset :as siteset]
             [yin.vm.linker.publish :as publish]))
 
@@ -15,5 +16,6 @@
       (if (= :refused (:status result))
         result
         (assoc result :status :ok :identity (:identity prepared)
+               :source-address (jing/materialize! store (:identity prepared))
                :sites (siteset/publish! store (:address result) (:ast spec)))))
     {:status :refused :reason :eval-source-not-ready :identity (:identity prepared)}))

@@ -1,6 +1,7 @@
 (ns yang.php.antlr.eval-publication-test
   (:require [clojure.test :refer [deftest is]]
             [dao.jing.mem :as mem]
+            [dao.jing :as jing]
             [dao.host.text :as text]
             [yang.php.antlr.e2e-harness :as harness]
             [yang.php.antlr.eval-coordinator :as coordinator]
@@ -17,4 +18,5 @@
         result (publication/publish! store (harness/host-registry) 'eval.unit prepared)]
     (is (= :ok (:status result)))
     (is (= (:identity prepared) (:identity result)))
+    (is (= (:identity prepared) (jing/get store (:source-address result) nil)))
     (is (seq (:set (siteset/verify store (:address result) (get-in result [:sites :record-address])))))))
