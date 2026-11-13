@@ -3795,6 +3795,14 @@
    :line {:hook '%eval-line :operands true :after true}})
 
 
+(defn eval-runtime-node
+  "Build the caller's eval runtime environment from the prelude inventory."
+  []
+  (reduce (fn [node name] (app* 'assoc node (u/lit name) (u/v name)))
+          (u/lit {})
+          (sort (filter #(= "php" (namespace %)) (map first prelude/definitions)))))
+
+
 (defn eval-entry
   "Lower an eval unit to a callable that borrows its caller's runtime,
    variable scope, method context and safepoint hooks. It does not initialize

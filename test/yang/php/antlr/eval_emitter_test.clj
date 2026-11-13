@@ -32,3 +32,10 @@
     (is (= '%eval-call (get-in lower/eval-hook-profile [:call :hook])))
     (is (= '%eval-line (get-in lower/eval-hook-profile [:line :hook])))
     (is (every? params '[%eval-loop %eval-call %eval-line]))))
+
+
+(deftest runtime-environment-uses-prelude-inventory
+  (let [free (core-prelude/free-names (lower/eval-runtime-node))]
+    (is (contains? free 'php/dict-get))
+    (is (contains? free 'php/call-ec))
+    (is (not-any? #(= "php.rt" (namespace %)) free))))
