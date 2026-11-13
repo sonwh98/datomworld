@@ -51,6 +51,11 @@
   'yang.safepoint/_)
 
 
+(def result-binder
+  "The value preserved by an after-hook."
+  'yang.safepoint/value)
+
+
 (def function
   "The `:yin.ledger/function` of a safepoint derivation."
   :yang.safepoint/insert)
@@ -125,6 +130,8 @@
       (get profile kind) (assoc :enter (entry-hook (get profile kind) mark))
       (and (map? (get profile kind)) (:sequence (get profile kind)))
       (assoc :sequence? true)
+      (and (map? (get profile kind)) (:after (get profile kind)))
+      (assoc :after? true)
       exit (assoc :exit (entry-hook exit mark)))))
 
 
@@ -141,6 +148,14 @@
   {:type :application,
    :operator {:type :lambda, :params [binder], :body node},
    :operands [(hook-application hook [])]})
+
+
+(defn- after-hook
+  [node hook]
+  {:type :application,
+   :operator {:type :lambda, :params [result-binder],
+              :body (sequence-hook {:type :variable, :name result-binder} hook)},
+   :operands [node]})
 
 
 (defn- prefix-hook
@@ -179,10 +194,10 @@
                                  n)))
                            node
                            (map-indexed vector slots))]
-                (if-let [{:keys [enter exit statement? sequence?]} (get hooks path)]
+                (if-let [{:keys [enter exit statement? sequence? after?]} (get hooks path)]
                   (do (vswap! seen conj path)
                       (if (or statement? sequence?)
-                        (sequence-hook node enter)
+                        (if after? (after-hook node enter) (sequence-hook node enter))
                         (do (when-not (= :lambda (:type node))
                               (throw (ex-info "Safepoint site is not a lambda"
                                               {:rule :site-not-lambda, :path path,
@@ -221,6 +236,11 @@
    `{:tree A' :sites selected}`. With nothing selected `A'` is `tree`
    itself."
   [tree sites profile]
+  (doseq [[kind entry] profile]
+    (when (and (map? entry) (:after entry)
+               (or (not (contains? statement-kinds kind)) (:sequence entry)))
+      (throw (ex-info "After timing requires a statement site"
+                      {:rule :invalid-after, :kind kind}))))
   (let [hooks (selected-hooks sites profile)
         selected (into {}
                        (filter (fn [[path _]] (contains? hooks path)))
@@ -247,52 +267,57 @@
   (let [surviving (atom {})
         injected (atom #{})]
     (letfn [(walk2
-                [node in-path out-path]
-                (let [site (get hooks in-path)]
-                  (cond
-                    (and site (or (:statement? site) (:sequence? site)))
-                    (do (swap! injected conj out-path (conj out-path [3 0]))
-                        (walk-self2 node in-path (conj out-path 2 3)))
+              [node in-path out-path]
+              (let [site (get hooks in-path)]
+                (cond
+                  (and site (:after? site))
+                  (do (swap! injected conj out-path (conj out-path 2 3)
+                             (conj out-path 2 3 [3 0]))
+                      (walk-self2 node in-path (conj out-path [3 0])))
 
-                    (and site (= :lambda (:type node)))
-                    (let [{:keys [enter exit]} site
-                          ;; hook construction prepends the mark's literal
-                          ;; operands, so the wrapped body is the exit
-                          ;; hook's operand at index (count operands)
-                          body-operand (count (:operands exit))
-                          body-out (into out-path
-                                         (cond
-                                           (and enter exit)
-                                           [3 2 3 [3 body-operand]]
-                                           enter [3 2 3]
-                                           exit [3 [3 body-operand]]
-                                           :else [3]))]
-                      (when enter
-                        (swap! injected conj (conj out-path 3)
-                               (into out-path [3 [3 0]])))
-                      (when exit
-                        (swap! injected conj
-                               (if enter (conj out-path 3 2 3) (conj out-path 3))))
-                      (walk2 (:body node) (conj in-path 3) body-out))
+                  (and site (or (:statement? site) (:sequence? site)))
+                  (do (swap! injected conj out-path (conj out-path [3 0]))
+                      (walk-self2 node in-path (conj out-path 2 3)))
 
-                    :else (walk-self2 node in-path out-path))))
-              (walk-self2
-                [node in-path out-path]
-                (when (= :application (:type node))
-                  (swap! surviving assoc in-path out-path))
-                (doseq [[j [field kind]] (map-indexed vector
-                                                      (get vm/semantic-bytecode-grammar
-                                                           (:type node)))
-                        :let [pos (+ j 2)
-                              value (get node field)]]
-                  (case kind
-                    :node (walk2 value (conj in-path pos) (conj out-path pos))
-                    :nodes (doseq [[i child] (map-indexed vector (or value []))]
-                             (walk2 child (conj in-path [pos i])
-                                    (conj out-path [pos i])))
-                    nil)))]
-        (walk2 ast [] []))
-      {:surviving @surviving :injected @injected}))
+                  (and site (= :lambda (:type node)))
+                  (let [{:keys [enter exit]} site
+                        ;; hook construction prepends the mark's literal
+                        ;; operands, so the wrapped body is the exit
+                        ;; hook's operand at index (count operands)
+                        body-operand (count (:operands exit))
+                        body-out (into out-path
+                                       (cond
+                                         (and enter exit)
+                                         [3 2 3 [3 body-operand]]
+                                         enter [3 2 3]
+                                         exit [3 [3 body-operand]]
+                                         :else [3]))]
+                    (when enter
+                      (swap! injected conj (conj out-path 3)
+                             (into out-path [3 [3 0]])))
+                    (when exit
+                      (swap! injected conj
+                             (if enter (conj out-path 3 2 3) (conj out-path 3))))
+                    (walk2 (:body node) (conj in-path 3) body-out))
+
+                  :else (walk-self2 node in-path out-path))))
+            (walk-self2
+              [node in-path out-path]
+              (when (= :application (:type node))
+                (swap! surviving assoc in-path out-path))
+              (doseq [[j [field kind]] (map-indexed vector
+                                                    (get vm/semantic-bytecode-grammar
+                                                         (:type node)))
+                      :let [pos (+ j 2)
+                            value (get node field)]]
+                (case kind
+                  :node (walk2 value (conj in-path pos) (conj out-path pos))
+                  :nodes (doseq [[i child] (map-indexed vector (or value []))]
+                           (walk2 child (conj in-path [pos i])
+                                  (conj out-path [pos i])))
+                  nil)))]
+      (walk2 ast [] []))
+    {:surviving @surviving :injected @injected}))
 
 
 (defn- derive-call-sites

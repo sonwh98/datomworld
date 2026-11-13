@@ -223,3 +223,22 @@
                                    'bar (entry 'bar nil {}))]
         (is (= (assoc refusal :linked nil)
                (module/pin-conflict r 'foo foo)))))))
+
+
+(deftest nested-module-and-parent-bindings-test
+  (let [parent {:manifest {:yin.module/name 'php}, :address :parent,
+                :bindings {'tick-line :parent-value}}
+        child {:manifest {:yin.module/name 'php.sp,
+                          :yin.module/requires {'php :parent}},
+               :address :child, :bindings {'line :child-value}}]
+    (doseq [registry [(-> (module/empty-registry)
+                          (module/assoc-module 'php parent)
+                          (module/assoc-module 'php.sp child))
+                      (-> (module/empty-registry)
+                          (module/assoc-module 'php.sp child)
+                          (module/assoc-module 'php parent))]]
+      (is (= :parent-value (module/resolve-module registry 'php.tick-line)))
+      (is (= :child-value (module/resolve-module registry 'php.sp.line)))
+      (is (= #{'php 'php.sp} (set (map first (module/module-entries registry)))))
+      (is (= :dependency-pin-mismatch
+             (:reason (module/pin-conflict registry 'php (assoc parent :address :other))))))))

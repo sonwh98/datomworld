@@ -13,15 +13,21 @@
   (:require
     [dao.jing.mem :as mem]
     [yang.core.call :as call]
+    [yang.core.module :as core-module]
+    [yang.core.uast :as u]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.portable-harness :as portable]
     [yang.php.antlr.prelude :as prelude]
     [yang.php.antlr.publication :as publication]
+    [yang.php.antlr.safepoint :as safepoint]
+    [yang.php.antlr.siteset :as siteset]
+    [yang.safepoint :as sp]
     [yin.vm :as vm]
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
     [yin.vm.linker.interpreter :as link]
     [yin.vm.linker.publish :as publish]
+    [yin.vm.linker.sign :as sign]
     [yin.vm.semantic :as semantic]
     [yin.vm.semantic.derive :as derive]
     [yin.vm.semantic.linearize :as sr-linearize]
@@ -41,8 +47,10 @@
     (let [store (mem/create-content-mem)
           call-result (publish/publish-module! store (call/module-spec (registry)))
           result (publish/publish-module! store (prelude/module-spec (registry)
-                                                                     (:address call-result)))]
+                                                                     (:address call-result)))
+          hook (publish/publish-module! store (safepoint/module-spec (registry) (:address result)))]
       {:store store,
+       :hook-address (:address hook),
        :result result,
        :address (:address result),
        :call-address (:address call-result)})))
@@ -57,14 +65,25 @@
 
 
 (defn source
-  "The serving composition over the published store: `name-env` names `php`
-   and each published module, derivation `:trusted`, the test being the
-   publisher."
-  [name-env]
-  (link/composition {:content-store (:store @published),
-                     :name-env (merge {'php (:address @published),
-                                       'yang.call (:call-address @published)} name-env),
-                     :derivation :trusted}))
+  "The linked store and signed site publications for this fixture."
+  ([name-env] (source name-env nil))
+  ([name-env result]
+   (let [publisher (sign/generate)
+         entries (siteset/signed-entries publisher (:sites result)
+                                         (:addresses result) (:bundles result))
+         datoms (siteset/entry-datoms entries)
+         stage (siteset/stage (registry)
+                              {:hooks true, :hooks-profile safepoint/ticks-profile,
+                               :php-sp (:hook-address @published)} {})]
+     (link/composition
+       {:content-store (:store @published),
+        :name-env (merge {'php (:address @published),
+                          'php.sp (:hook-address @published),
+                          'yang.call (:call-address @published)} name-env),
+        :derivation :trusted,
+        :stage (fn [ctx name address]
+                 (stage (assoc ctx :datoms datoms :principals [(:public publisher)])
+                        name address))}))))
 
 
 (def backends
@@ -147,7 +166,14 @@
                                   (:class-map opts) (assoc :class-map true)
                                   (some? (:request opts)) (assoc :request-node
                                                                  (portable/request-node (:request opts)))))
-           src (or (:src opts) (source (name-env result)))]
+           src (or (:src opts) (source (name-env result) result))
+           sites (:set (siteset/site-set-of ast))
+           tree (vm/ast->semantic-bytecode ast)
+           ast (u/seq-nodes [(core-module/require-node 'yang.call)
+                             (core-module/require-node 'php)
+                             (core-module/require-node 'php.sp)
+                             (vm/semantic-bytecode->ast
+                               (:tree (sp/insert tree (into {} sites) safepoint/ticks-profile)))])]
        {:warnings warnings,
         :values (into {}
                       (map (fn [k] [k (vm/value (run-linked k ast src))]))

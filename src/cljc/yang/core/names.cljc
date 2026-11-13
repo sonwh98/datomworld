@@ -12,7 +12,7 @@
 (def ^:private reserved
   "Generated-looking names that are not renamed: the sequencing discard and
    the safepoint stage's reserved binder."
-  #{'%_ 'yang.safepoint/_})
+  #{'%_ 'yang.safepoint/_ 'yang.safepoint/value})
 
 
 (defn- generated?
