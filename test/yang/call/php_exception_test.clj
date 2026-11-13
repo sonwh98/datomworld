@@ -682,7 +682,7 @@
       (println "PHP-COUNT-ACQUISITION" backend actual)
       (is (= expected actual)
           (str backend ": every boundary count keeps its Exception class and "
-               "its identity through two receptions, the first result live"))))
+               "its identity through two receptions, the first result live")))))
 
 
 (deftest ^:slow php-count-limit-test
