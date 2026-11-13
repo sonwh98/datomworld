@@ -94,3 +94,11 @@
     (is (nil? (siteset/derive-verified store manifest :missing tree profile)))
     (is (nil? (siteset/derive-verified store manifest (:record-address pub)
                                        (assoc tree :root :wrong) profile)))))
+
+
+(deftest stage-reports-missing-manifest
+  (let [store (mem/create-content-mem)
+        address (jing/segment-key {:missing true})
+        stage (siteset/stage {} {:hooks true, :hooks-profile {}, :php-sp address} {})]
+    (is (= {:status :missing, :address address}
+           (stage {:store store} 'guest address)))))

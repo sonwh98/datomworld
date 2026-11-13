@@ -3,6 +3,9 @@
   (:require
     [dao.jing :as jing]
     [yang.safepoint :as safepoint]
+    [yang.core.module :as core-module]
+    [yang.core.uast :as u]
+    [yin.vm.linker.publish :as publish]
     [yin.vm :as vm]
     [yin.vm.encoder :as encoder]
     [yin.vm.linker.sign :as sign]))
@@ -46,9 +49,10 @@
 (defn- read-at
   [handle address]
   (when (jing/segment-address? address)
-    (let [bytes ((:get-bytes-fn handle) address nil)]
-      (when (and bytes (jing/segment-bytes-match? address bytes))
-        (jing/segment-value address bytes)))))
+    (let [bytes ((:get-bytes-fn handle) address ::absent)]
+      (cond
+        (or (nil? bytes) (= ::absent bytes)) ::absent
+        (jing/segment-bytes-match? address bytes) (jing/segment-value address bytes)))))
 
 
 (defn verify
@@ -57,7 +61,7 @@
   [handle manifest record-address]
   (let [module (read-at handle manifest)
         record (read-at handle record-address)
-        sites (read-at handle (:yang.site/set record))]
+        sites (read-at handle (when (map? record) (:yang.site/set record)))]
     (when (and (map? module) (map? record) (vector? sites)
                (= manifest (:yang.site/manifest record))
                (= (:yin.module/tree module) (:yang.site/root record))
@@ -147,3 +151,178 @@
         {:tree derived, :record derivation,
          :record-address (jing/segment-key derivation),
          :site-set-address (:yang.site/set record)}))))
+
+
+(defn- absent?
+  [x]
+  (= ::absent x))
+
+
+(defn- missing
+  [address]
+  {:status :missing, :address address})
+
+
+(defn- load-tree
+  "The canonical row set `{:root :rows}` of the tree at `root` in `handle`,
+   every row fetched by its address, depth-first: `{:status :missing
+   :address a}` for the first row the handle does not hold, nil when a row
+   is not its address or no tree row."
+  [handle root]
+  (loop [todo [root]
+         rows {}]
+    (if-let [id (peek todo)]
+      (if (contains? rows id)
+        (recur (pop todo) rows)
+        (let [body (read-at handle id)
+              slots (when (vector? body)
+                      (get vm/semantic-bytecode-grammar (first body)))]
+          (cond
+            (absent? body) (missing id)
+            slots (recur (into (pop todo)
+                               (mapcat (fn [[_ kind] v]
+                                         (case kind
+                                           :node [v]
+                                           :nodes v
+                                           nil))
+                                       slots
+                                       (rest body)))
+                         (assoc rows id (into [id] body)))
+            :else nil)))
+      {:root root, :rows rows})))
+
+
+(defn- overlay
+  "A write-buffering handle over `base`: reads see the buffer first, then
+   `base`; puts land in the buffer only, in put order. `flush!` writes the
+   buffer to `base`; dropping the overlay writes nothing."
+  [base]
+  (let [buf (atom {:bytes {}, :order []})
+        sentinel #?(:cljs (js-obj)
+                    :default (Object.))]
+    {:handle (assoc base
+                    :get-bytes-fn (fn [address not-found]
+                                    (let [bs (get-in @buf [:bytes address])]
+                                      (if (nil? bs)
+                                        ((:get-bytes-fn base) address not-found)
+                                        bs)))
+                    :put-bytes-fn (fn [address bs]
+                                    (if (or (contains? (:bytes @buf) address)
+                                            (let [existing ((:get-bytes-fn base)
+                                                            address
+                                                            sentinel)]
+                                              (and (some? existing)
+                                                   (not (identical? sentinel
+                                                                    existing)))))
+                                      :present
+                                      (do (swap! buf (fn [b]
+                                                       (-> b
+                                                           (assoc-in [:bytes address]
+                                                                     bs)
+                                                           (update :order conj
+                                                                   address))))
+                                          :inserted))))
+     :flush! (fn []
+               (let [{:keys [bytes order]} @buf]
+                 (doseq [a order] ((:put-bytes-fn base) a (get bytes a)))))}))
+
+
+(defn- stage-refusal
+  [reason manifest]
+  {:status :refused, :reason reason, :manifest manifest})
+
+
+(defn- stage-admit
+  [handle manifest records]
+  (let [m (read-at handle manifest)]
+    (cond
+      (absent? m) (missing manifest)
+      (not (map? m)) (stage-refusal :yang.php.antlr/site-set-mismatch manifest)
+      (empty? records) (stage-refusal :yang.php.antlr/missing-site-set manifest)
+      :else
+      (loop [[a & more] records]
+        (if-not a
+          (stage-refusal :yang.php.antlr/site-set-mismatch manifest)
+          (let [record (read-at handle a)
+                set-address (when (map? record) (:yang.site/set record))
+                sites (when set-address (read-at handle set-address))]
+            (cond
+              (absent? record) (missing a)
+              (absent? sites) (missing set-address)
+              (verify handle manifest a) {:status :ok, :record a}
+              :else (recur more))))))))
+
+
+(defn- derive-closure
+  [ctx registry requirement records manifest derived]
+  (let [handle (:store ctx)
+        runtime (or (:runtime requirement) '#{php php.sp yang.call})
+        candidates (into (vec (get records manifest))
+                         (discover (:datoms ctx) (:principals ctx) manifest))
+        admitted (stage-admit handle manifest candidates)]
+    (if (not= :ok (:status admitted)) admitted
+        (let [m (read-at handle manifest)
+              deps (sort-by (comp str key)
+                            (remove (comp runtime key) (:yin.module/requires m)))
+              below (reduce (fn [acc [name address]]
+                              (if (contains? (:derived acc) address) acc
+                                  (let [r (derive-closure ctx registry requirement records
+                                                          address (:derived acc))]
+                                    (if (= :ok (:status r))
+                                      (assoc acc :derived (:derived r))
+                                      (reduced (cond-> r
+                                                 (nil? (:name r)) (assoc :name name)
+                                                 true (assoc :via manifest)))))))
+                            {:derived derived} deps)]
+          (if (:status below) below
+              (let [tree (load-tree handle (:yin.module/tree m))]
+                (cond
+                  (= :missing (:status tree)) tree
+                  (nil? tree) (stage-refusal :yang.php.antlr/instrumentation-failed manifest)
+                  :else
+                  (try
+                    (let [d (derive-verified handle manifest (:record admitted) tree
+                                             (:hooks-profile requirement))
+                          ast (when d (u/then (core-module/require-node 'php.sp)
+                                              (vm/semantic-bytecode->ast (:tree d))))
+                          requires (assoc (into {} (map (fn [[n a]]
+                                                          [n (if (contains? runtime n) a
+                                                                 (get (:derived below) a a))]))
+                                                (:yin.module/requires m))
+                                          'php.sp (:php-sp requirement))
+                          primitives (when ast
+                                       (core-module/free-primitives
+                                         :yang.php/error :yang.php/undeclared registry
+                                         (set (keys requires)) ast))
+                          out (when ast (publish/publish-module!
+                                          handle {:name (:yin.module/name m), :ast ast,
+                                                  :exports (:yin.module/exports m),
+                                                  :requires requires, :primitives primitives}))]
+                      (if (not= :ok (:status out))
+                        (stage-refusal :yang.php.antlr/instrumentation-failed manifest)
+                        (let [record (assoc (:record d) :yin.ledger/output
+                                            (:yin.module/tree (:manifest out)))]
+                          {:status :ok, :address (:address out),
+                           :derivation (jing/materialize! handle record),
+                           :derived (assoc (:derived below) manifest (:address out))})))
+                    (catch #?(:cljd Object :clj Exception :cljs :default) e
+                      (assoc (stage-refusal :yang.php.antlr/instrumentation-failed manifest)
+                             :message (ex-message e)))))))))))
+
+
+(defn stage
+  "A write-buffered, bottom-up stage over verified PHP site publications."
+  [registry requirement records]
+  (let [runtime (or (:runtime requirement) '#{php php.sp yang.call})]
+    (fn [ctx name address]
+      (cond
+        (contains? runtime name) {:status :ok, :address address}
+        (:noninterruptible requirement) {:status :ok, :address address}
+        (not (:hooks requirement)) (stage-refusal :yang.php.antlr/profile-undeclared address)
+        :else
+        (let [{:keys [handle flush!]} (overlay (:store ctx))
+              result (derive-closure (assoc ctx :store handle) registry requirement
+                                     records address {})]
+          (if (= :ok (:status result))
+            (do (flush!) (select-keys result [:status :address :derivation]))
+            result))))))
