@@ -158,8 +158,7 @@
 (def pair-matrix
   (vec (for [donor (sort frontends), caller (sort frontends)
              :when (not= donor caller), [scenario gates] (sort pair-scenarios)
-             :when (not (and (= scenario :binding) (= donor :typescript)))
-             :when (not (and (= scenario :finally-replacement) (= caller :clojure)))]
+             :when (not (and (= scenario :binding) (= donor :typescript)))]
          {:id [donor caller scenario] :donor donor :caller caller
           :scenario scenario :gates gates :frontends #{donor caller}
           :callable-kind :named-export
@@ -172,11 +171,14 @@
 (def pending-obligations
   "Round 0 does not claim the wider acceptance gate. These remain explicit
    ledger rows, including facilities the JVM linked kit cannot prove."
+  ;; `:clojure-finally-refusal` is retired, not flipped: owner ruling
+  ;; 1794556000000 derives the dialect surface from the source language, and
+  ;; the now-live `:finally-replacement` clojure-caller legs carry the
+  ;; obligation. A `:supports` row here would stay open forever, since
+  ;; `open-gates` closes only on a reported `:green`.
   [{:id :clojure-private-public-equivalence :gates #{::r4}
     :frontends #{:clojure} :execution :pending-round-4
     :cases #{:caught :uncaught :protocol-rethrow :binding :higher-order}}
-   {:id :clojure-finally-refusal :gates #{::r4}
-    :frontends #{:clojure} :execution :preserve-source-refusal}
    {:id :suspension-and-recursion :gates #{::r1 ::r2}
     :frontends frontends :execution :pending-frontend-rounds}
    {:id :host-vm-publication-parity :gates #{::r1 ::r2 ::r3 ::r5}

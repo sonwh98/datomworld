@@ -1,6 +1,6 @@
 (ns yang.python.antlr.exception-call-test
-  "Round 0: six directed Python-containing pairs, compliant assertions.
-   JS/PHP/Clojure-only pairs remain explicitly pending in the shared matrix.
+  "Round 0's six Python-containing pairs, plus the RETIRE Clojure-caller pairs.
+   Other JS/PHP/Clojure-only pairs remain pending in the shared matrix.
    A red result is a runtime divergence, never the expected test value."
   (:require [clojure.test :refer [deftest is testing do-report]]
             [yang.call.exception-contract :as contract]
@@ -57,3 +57,11 @@
 
 (deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:python :clojure}}
   clojure-to-python-test (check-pair :clojure :python))
+
+
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:php :clojure}}
+  php-to-clojure-test (check-pair :php :clojure))
+
+
+(deftest ^{:slow true :gates #{::contract/r1 ::contract/r2} :frontends #{:typescript :clojure}}
+  typescript-to-clojure-test (check-pair :typescript :clojure))

@@ -56,8 +56,9 @@
   (let [header (case frontend :php "<?php " "")
         probe #(define frontend "probe" [] %)
         ;; `done` checks exactly-once cleanup, before the home runtime
-        ;; recognizes its original exception again. Clojure uses its
-        ;; admitted catch surface, and does not acquire finally syntax.
+        ;; recognizes its original exception again. `:round-trip`'s clojure
+        ;; arm still cleans up through the admitted catch surface rather than
+        ;; `finally`; converting it belongs to the dialect-definition round.
         counter (case frontend
                   :python "cleaned = 0\n"
                   :typescript "globalThis.cleaned = 0;\n"
@@ -104,23 +105,22 @@
                     :php "if (!success()) return false; try { donor_raise(); } catch(Throwable $e) { return success(); } return false;"
                     :clojure "(and (success) (try (donor_raise) false (catch Exception e (success))))"))
            :finally-replacement
-           (do
-             (when (= frontend :clojure)
-               (throw (ex-info "Clojure finally remains an explicit source refusal"
-                               {:frontend frontend :scenario scenario})))
-             (str
-               (case frontend
-                 :python "replacement = ValueError('replacement')\n"
-                 :typescript "globalThis.replacement = {marker: 'replacement'};\n"
-                 :php "$replacement = new Exception('replacement');\n")
-               (define frontend "replacement_payload" []
-                 (case frontend :python "return replacement"
-                       :typescript "return replacement;"
-                       :php "global $replacement; return $replacement;"))
-               (probe (case frontend
-                        :python "try:\n    donor_raise()\nfinally:\n    raise replacement"
-                        :typescript "try { donor_raise(); } finally { throw replacement; }"
-                        :php "global $replacement; try { donor_raise(); } finally { throw $replacement; }"))))
+           (str
+             (case frontend
+               :python "replacement = ValueError('replacement')\n"
+               :typescript "globalThis.replacement = {marker: 'replacement'};\n"
+               :php "$replacement = new Exception('replacement');\n"
+               :clojure "(def replacement (cell/new :replacement))\n")
+             (define frontend "replacement_payload" []
+               (case frontend :python "return replacement"
+                     :typescript "return replacement;"
+                     :php "global $replacement; return $replacement;"
+                     :clojure "replacement"))
+             (probe (case frontend
+                      :python "try:\n    donor_raise()\nfinally:\n    raise replacement"
+                      :typescript "try { donor_raise(); } finally { throw replacement; }"
+                      :php "global $replacement; try { donor_raise(); } finally { throw $replacement; }"
+                      :clojure "(try (donor_raise) (finally (throw replacement)))")))
            :retained-lifetime
            (str
              (case frontend :python "saved = None\n" :typescript "globalThis.saved = null;\n"
