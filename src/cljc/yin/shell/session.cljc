@@ -122,16 +122,22 @@
   leaves the resume to a matching completion."
   ([session events] (recheck-on-tick session events nil))
   ([session events budget]
-   (let [served (serve session budget)
-         session (:session served)
-         engine (:engine session)
-         [engine' text]
-         (if (:progress? served)
-           (repl/recheck-pending engine nil true)
-           (repl/recheck-on-tick engine
-                                 (completion/completion-events session
-                                                               events)))]
-     [(assoc session :engine engine') text])))
+   (loop [session session, text nil, left repl/link-round-budget, events events]
+     (let [served (serve session budget)
+           session (:session served)
+           engine (:engine session)
+           [engine' next-text]
+           (if (:progress? served)
+             (repl/recheck-pending engine nil true)
+             (repl/recheck-on-tick engine
+                                   (completion/completion-events session events)))
+           session (assoc session :engine engine')
+           text (or next-text text)]
+       (if (and (:progress? served) (:pending-run engine') (> left 1))
+         (recur session text (dec left) [])
+         [session (if (and (:progress? served) (:pending-run engine') (= left 1))
+                    (str text ";; require still pending\n")
+                    text)])))))
 
 
 (defn recheck-pending

@@ -26,7 +26,9 @@
             [dao.space.dht-test :as dht-test]
             [dao.space.index :as index]
             [yin.repl :as repl]
-            [yin.repl.frontends :as repl.frontends]
+            [yin.repl.main :as main]
+            [yin.shell.main :as shell.main]
+            [yin.shell.session :as session]
             [yin.shell.dht :as repl.dht]
             [yin.repl.store :as store]
             [yin.vm :as vm]
@@ -86,7 +88,7 @@
    --dht-key`), hydrating `manifest` first when given (`--dht-manifest`),
    declaring and trusting `principals` (`--dht-principal`, `--dht-trust`)."
   [net dir port peer-ports {:keys [key manifest principals]}]
-  (repl.frontends/create-state
+  (let [state (main/boot
     {:index-store-spec {:type :dht
                         :dir dir
                         :peers (mapv (fn [p] {:host "127.0.0.1" :port p})
@@ -97,9 +99,12 @@
                         :bind! (mesh/seam net port)
                         :max-inbound-bytes repl.dht/default-max-inbound-bytes
                         :manifest manifest}
-     :dht-key key
+     :publisher-key key
      :principals (vec principals)
-     :admission {:trusted (set (map sign/principal principals))}}))
+     :admission {:trusted (set (map sign/principal principals))}}
+    shell.main/composition)]
+    (assoc (:repl state) :session (:session state)
+           :dht (get-in state [:session :node]))))
 
 
 (defn- world
@@ -119,8 +124,10 @@
   [w]
   (let [now (:now w)
         stepped (map (fn [[k s]]
-                       (let [[s lines events] (repl.dht/step s now)
-                             [s text] (repl/recheck-on-tick s events)]
+                       (let [transport (assoc (:session s) :node (:dht s) :engine (dissoc s :session :dht))
+                             [transport lines events] (repl.dht/step transport now)
+                             [transport text] (session/recheck-on-tick transport events)
+                             s (assoc (:engine transport) :session (dissoc transport :engine) :dht (:node transport))]
                          [k s (cond-> lines text (conj text))
                           (map #(assoc % :who k) events)]))
                      (:shells w))]
@@ -147,8 +154,12 @@
 (defn- eval-at
   "Evaluate `line` at shell `k`'s prompt: `[w text]`."
   [w k line]
-  (let [[s text] (repl/eval-input (get-in w [:shells k]) line)]
-    [(assoc-in w [:shells k] s) text]))
+  (let [s (get-in w [:shells k])
+        [engine text] (repl/eval-input (dissoc s :session :dht) line)
+        transport (assoc (:session s) :node (:dht s) :engine engine)
+        [transport resumed] (session/recheck-after-input transport)
+        s (assoc (:engine transport) :session (dissoc transport :engine) :dht (:node transport))]
+    [(assoc-in w [:shells k] s) (or resumed text)]))
 
 
 (defn- head-of
@@ -214,9 +225,9 @@
                     (shell-at (:net w) dir port [2 3 1]
                               {:manifest manifest :principals principals}))
         w (run-world w (+ (:now w) 60000) (str (name k) " did not hydrate")
-                     #(repl.dht/admitting? (get-in % [:shells k])))]
+                     #(repl.dht/admitting? (assoc (:session (get-in % [:shells k])) :engine (get-in % [:shells k]))))]
     (is (nil? (:failure w)) (:failure w))
-    (is (nil? (repl.dht/refusal (get-in w [:shells k]))))
+    (is (nil? (repl.dht/refusal (assoc (:session (get-in w [:shells k])) :engine (get-in w [:shells k])))))
     w))
 
 
