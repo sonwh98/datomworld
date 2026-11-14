@@ -41,19 +41,24 @@
   (portable/linked-registry))
 
 
+(defn make-published
+  "Create a store with the linked runtime and its hook module."
+  []
+  (let [store (mem/create-content-mem)
+        call-result (publish/publish-module! store (call/module-spec (registry)))
+        result (publish/publish-module! store (prelude/module-spec (registry)
+                                                                   (:address call-result)))
+        hook (publish/publish-module! store (safepoint/module-spec (registry) (:address result)))]
+    {:store store,
+     :hook-address (:address hook),
+     :result result,
+     :address (:address result),
+     :call-address (:address call-result)}))
+
+
 (def published
   "`yang.call` and `php` published once into their own content store."
-  (delay
-    (let [store (mem/create-content-mem)
-          call-result (publish/publish-module! store (call/module-spec (registry)))
-          result (publish/publish-module! store (prelude/module-spec (registry)
-                                                                     (:address call-result)))
-          hook (publish/publish-module! store (safepoint/module-spec (registry) (:address result)))]
-      {:store store,
-       :hook-address (:address hook),
-       :result result,
-       :address (:address result),
-       :call-address (:address call-result)})))
+  (delay (make-published)))
 
 
 (defn publish-units!

@@ -738,6 +738,12 @@
    (fx :gen-suspended-cv-releases-on-destroy :generators-v1 [48] #{:p4-s8}
        "<?php class D { function __destruct() { echo 'D'; } } function g($x) { yield 1; } $g = g(new D); $g->current(); unset($g); echo 'E';"
        "DE")
+   (fx :gen-dynamic-scope-releases-on-object-death :generators-v1 [48] #{:p4-s8}
+       "<?php class C { function __destruct() { echo 'D'; } } function gen() { extract(['o'=>new C]); yield 1; yield 2; } foreach (gen() as $x) { echo 'R', $x; } echo 'E1|'; $g=gen(); $g->current(); unset($g); echo 'E2';"
+       "R1R2DE1|DE2")
+   (fx :gen-completed-scope-lives-until-object-death :generators-v1 [48] #{:p4-s8}
+       "<?php class C { function __destruct() { echo 'D'; } } function gen() { extract(['o'=>new C]); yield 1; } $g=gen(); foreach ($g as $x) { echo $x; } echo 'E'; unset($g); echo 'Z';"
+       "1EDZ")
    (fx :gen-c8-pending-finally-departure :generators-v1 [48] #{:p4-s8}
        "<?php function g() { try { yield 1; } finally { echo 'F'; } } $g = g(); $g->current(); unset($g); echo 'E';"
        "E")
