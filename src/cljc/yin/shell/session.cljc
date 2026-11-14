@@ -106,20 +106,9 @@
 
 
 (defn recheck-on-tick
-  "One host tick: serve both media, then let the engine re-check a run it
-  has parked.  Answers `[session' text]` exactly as the engine's own
-  `yin.repl/recheck-on-tick` does.
-
-  `events` are the composition's own transport and follower events for the
-  tick.  They are translated before they cross
-  (`yin.shell.completion/completion-events`), so the engine sees only the
-  generic completions correlated to the work it parked and never a
-  transport keyword.  A round that made progress resumes the run with
-  that progress carried into the driver (`yin.repl/recheck-pending`'s
-  three-argument arity), so the parked VM runs at once: the composition
-  has consumed the request and delivered its response, and no further
-  round of internal progress need occur first.  A round that made none
-  leaves the resume to a matching completion."
+  "Serve and resume a parked run for at most `repl/link-round-budget`
+  rounds per host tick. Continue while serving makes progress, and offer
+  `events` as generic completions to at most one non-progress round."
   ([session events] (recheck-on-tick session events nil))
   ([session events budget]
    (loop [session session, text nil, left repl/link-round-budget, events events]
@@ -134,10 +123,8 @@
            session (assoc session :engine engine')
            text (or next-text text)]
        (if (and (:progress? served) (:pending-run engine') (> left 1))
-         (recur session text (dec left) [])
-         [session (if (and (:progress? served) (:pending-run engine') (= left 1))
-                    (str text ";; require still pending\n")
-                    text)])))))
+         (recur session text (dec left) events)
+         [session text])))))
 
 
 (defn recheck-pending

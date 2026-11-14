@@ -1701,15 +1701,17 @@
 (deftest a-dht-store-refuses-a-second-content-source
   (let [dir (temp-dir)]
     (try
-      (is (some? (refusal-of #(create-state
-                                {:index-store-spec (dht-spec dir {})
-                                 :content-store (mem/create-content-mem)}))))
+      (is (str/includes? (ex-message (refusal-of #(create-state
+                                                   {:index-store-spec (dht-spec dir {})
+                                                    :content-store (mem/create-content-mem)})))
+                         "second content source"))
       (testing "and the refusal left the directory unlocked"
         (close! (create-state {:index-store-spec (dht-spec dir {})})))
-      (is (some? (refusal-of #(create-state
-                                {:index-store-spec (dht-spec dir {})
-                                 :content-client {}}))))
-      (testing "and the client refusal left the directory unlocked"
+      (is (str/includes? (ex-message (refusal-of #(create-state
+                                                   {:index-store-spec (dht-spec dir {})
+                                                    :content-client {}})))
+                         "second content source"))
+      (testing "the refused open left the directory free for a later open"
         (close! (create-state {:index-store-spec (dht-spec dir {})})))
       (finally
         (cleanup-dir! dir)))))
