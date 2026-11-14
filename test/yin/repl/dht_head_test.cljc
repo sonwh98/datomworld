@@ -162,8 +162,23 @@
   "Evaluate `line` at shell `k`: the world, its text appended to `k`'s
    lines."
   [w k line]
-  (let [[repl text] (repl/eval-input (get-in w [k :repl]) line)]
-    (-> w (assoc-in [k :repl] repl) (update-in [:lines k] conj text))))
+  (let [[engine text] (repl/eval-input (get-in w [k :repl]) line)
+        state (assoc (get w k) :repl engine)
+        [state text] (loop [state state text text budget 32]
+                       (let [{session :session progressed? :progress?}
+                             (shell.session/serve (main/session-of state))
+                             state (main/with-session state session)]
+                         (if (and progressed? (pos? budget))
+                           (let [[session resumed] (shell.session/recheck-pending session true)]
+                             (recur (main/with-session state session)
+                                    (or resumed text) (dec budget)))
+                           (if (and (seq (get-in state [:repl :pending-run :links]))
+                                    (str/includes? (str text) ";; require still pending"))
+                             (let [[session pending-text]
+                                   (shell.session/recheck-pending (main/session-of state))]
+                               [(main/with-session state session) pending-text])
+                             [state text]))))]
+    (-> w (assoc k state) (update-in [:lines k] conj text))))
 
 
 (defn- value
@@ -1230,10 +1245,10 @@
             (write-heads! dir (repl.dht/render-heads {:version 1 :heads {}}))
             (let [handle (open! dir (atom {}) false false)]
               (is (some? (:node handle)))
-              (durable/close! (:index-store handle))))))))
+              (durable/close! (:index-store handle)))))))))
 
 
-  #?(:cljd nil
+#?(:cljd nil
      :clj
      (deftest ^:slow a-fifo-at-heads-edn-is-refused-not-waited-on
        ;; In a child JVM, bounded: a regression blocks the child, not this
@@ -1257,4 +1272,4 @@
                    (do (.destroyForcibly child) "the child blocked"))]
          (is (zero? made) "mkfifo made the FIFO")
          (is done? "the read did not block on the FIFO")
-         (is (str/includes? out "it is not a regular file") out)))))
+         (is (str/includes? out "it is not a regular file") out))))
