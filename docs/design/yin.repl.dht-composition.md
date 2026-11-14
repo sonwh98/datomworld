@@ -444,6 +444,15 @@ completion records, and the generic operations of section 4. Composition
 owns the node, interprets the events, and renders any DHT-specific
 outcome before a generic result crosses inward.
 
+> *Deferred §7 follow-up (recorded during master repair):* `yin.shell.session/serve`
+> currently passes composition-wide `:progress?` into `yin.repl/recheck-pending`
+> (`recheck-on-tick` up to `repl/link-round-budget` rounds), which pins `:checks`
+> to `0` while background link/service traffic moves; separating run-scoped
+> `:run-progress?` and consolidating the four fixture drive helpers
+> (`admission_test/tick!+type!`, `dht_end_to_end_test/step-world+eval-at`,
+> `dht_head_test/type!`, `dht_test/step-world+eval-shell`) onto a shared
+> `yin.shell.session` entry point is deferred to a dedicated follow-up.
+
 ## 8. Invariants to pin before relocation
 
 A partially red integration suite permits starting the refactor only
