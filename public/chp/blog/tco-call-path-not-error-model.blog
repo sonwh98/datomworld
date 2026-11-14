@@ -1,0 +1,94 @@
+#:blog{:title "Tail Calls Follow the Call Path, Not the Error Model"
+       :date #inst "2026-11-14T00:00:00.000-00:00"
+       :abstract
+       [:p "Four yang compilers target the same Universal AST and the same tail-call-capable VM. Yet a recursion probe stays at seven continuation frames for Clojure while Python, TypeScript, and PHP grow linearly. The difference is the route into the function body: a private tail lane or a published entry bridge with cleanup still to do."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p "A tail call looks simple at the source level: return whatever the next function returns. But a compiler can put work around that call. Argument binding, exception delivery, and restoration of dynamic context can leave a continuation waiting after the source function has apparently finished its job."]
+          [:p "That is what explains our depth measurements. It would be tempting to attribute Clojure's constant depth to its old outcome-based error model and the other frontends' growth to dynamic exception unwinding. That explanation is out of date. Clojure now uses the same continuation-based handler-stack family as Python, TypeScript, and PHP. Its private calling lane survived the port."]
+          [:p "The relevant question is: does this particular call path leave a new handler bridge waiting for the body to return? A single outer handler can remain active throughout a constant-depth tail chain. Installing a fresh bridge at every recursive step is a different control-flow shape."]
+
+          [:h2 "The machine already knows how to make a tail call"]
+          [:p "Yin's CESK model makes Control, Environment, Store, and Continuation explicit. The continuation records what remains to be done. A tail call replaces the current activation instead of saving another return frame. This capability belongs to the VM and is available to every frontend."]
+          [:p "The Universal AST carries the decision as " [:code ":tail? true"] ". Its application schema includes that field in "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yin/vm.cljc#L1025"} "src/cljc/yin/vm.cljc:1025"]
+           ". In the semantic backend, the closure-call instruction keeps the existing continuation K for a tail call and appends a return frame otherwise:"]
+          [:pre [:code "(if tail? K (conj K frame))"]]
+          [:p "That is executable machinery, not a frontend-specific promise: "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yin/vm/semantic.cljc#L190"} "src/cljc/yin/vm/semantic.cljc:190"]
+           ". The stack backend makes the corresponding choice in "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yin/vm/debruijn/stack.cljc#L737"} "src/cljc/yin/vm/debruijn/stack.cljc:737"] "."]
+          [:p "All four yang compilers feed the same UAST. The probe lowers each frontend's source and derives three backend images from that AST in "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/test/yang/call/depth_probe_test.clj#L268"} "test/yang/call/depth_probe_test.clj:268"]
+           ". Sharing a representation does not mean emitting the same program. A direct body application and a body wrapped in handler installation and restoration are different UAST trees, with different tail positions."]
+
+          [:h2 "Two routes through one Clojure entry"]
+          [:p "Clojure's published function has a unary entry closed over a private argument-vector body. An ordinary invocation record takes the public route. The entry establishes " [:code "clj/try"] " before argument binding, so binding failures and exceptions escaping the body can reach the supplied " [:code ":yang.call/raise"] " exit. See "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/clojure.cljc#L1173"} "src/cljc/yang/clojure.cljc:1173"] "."]
+          [:p "The same entry also recognizes a compiler-generated, authenticated packet containing a private token and the arguments. That packet selects a direct application of the body. It installs no new exception bridge, and an escaping raise propagates to the caller's existing handler. This private route is implemented in "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/clojure.cljc#L1212"} "src/cljc/yang/clojure.cljc:1212"] "."]
+          [:p "The compiler selects this lane for statically recognized intra-unit function calls and preserves their tail marking in "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/clojure.cljc#L1526"} "src/cljc/yang/clojure.cljc:1526"]
+           ". Here, private describes a calling lane, not a requirement to declare the source function with " [:code "defn-"] ". Ordinary same-unit named functions can use it too."]
+          [:p "The following is a schematic of the two paths, not literal compiler output:"]
+          [:pre [:code "private packet:\n  authenticate token\n  tail-apply body(args)\n\npublished invocation record:\n  install bridge handler\n  bind arguments\n  call body(args)\n  restore caller context\n  return value\n\nescaping exception:\n  run required cleanup and restore context\n  transfer condition to caller's raise exit"]]
+          [:p "The public route has work after the body call. Even if the body tail-calls the next public entry, the earlier bridge still needs its saved continuation. The VM can eliminate a tail call's own return frame without eliminating these surrounding obligations."]
+
+          [:h2 "The bridge is useful work, and it has a depth cost"]
+          [:p "The other frontends' ordinary function calls in these fixtures use their published entry bridges. Python calls its body and argument binder inside " [:code "py/try"] " at "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/python/antlr/prelude.cljc#L887"} "src/cljc/yang/python/antlr/prelude.cljc:887"]
+           ". TypeScript wraps its function code in " [:code "js/try"] " at "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/typescript/antlr/prelude.cljc#L1577"} "src/cljc/yang/typescript/antlr/prelude.cljc:1577"]
+           ". PHP installs " [:code "php/try"] " around binding and body execution at "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/php/antlr/prelude.cljc#L2700"} "src/cljc/yang/php/antlr/prelude.cljc:2700"] "."]
+          [:p "The ordering matters: establish the bridge before binding, perform the required cleanup and restore the saved dynamic context before delivering an escaping condition to the caller. The caller's raise exit must run in the caller's context. These bridges also preserve an authenticated condition when forwarding it, or wrap an ordinary thrown value at the boundary."]
+          [:p "The loss of tail position is visible inside the handler helper itself. Clojure's current " [:code "clj/try"] " contains this normal-return path:"]
+          [:pre [:code "(let [v (body)]\n  (do (clj/restore! saved) v))"]]
+          [:p "Source: "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/clojure.cljc#L922"} "src/cljc/yang/clojure.cljc:922"]
+           ". The body is not in tail position with respect to this helper. Python's analogous restore-after-body sequence is at "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/python/antlr/prelude.cljc#L316"} "src/cljc/yang/python/antlr/prelude.cljc:316"]
+           ". The growth comes from repeatedly traversing this kind of path, including its frontend-specific surrounding work. It is not an inherent prohibition imposed by dynamic unwinding."]
+
+          [:h2 "What the probe actually measured"]
+          [:p "The recorded probe characterizes named self recursion and mutual recursion under an outer catch, at sizes 8, 32, and 128. The self-recursive Clojure fixture is:"]
+          [:pre [:code "(defn f [i acc]\n  (if (= i 0)\n    acc\n    (f (dec i) (+ acc i))))\n(try (f N 0)\n     (catch Exception e -1))"]]
+          [:p "The corresponding source fixtures are in "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/test/yang/call/depth_probe_test.clj#L459"} "test/yang/call/depth_probe_test.clj:459"]
+           ". D(n) is the maximum number of active VM continuation frames sampled while stepping to completion, not host stack depth, elapsed time, or total memory use. The driver checks halt and block predicates rather than treating an empty continuation as completion: "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/test/yang/call/depth_probe_test.clj#L242"} "test/yang/call/depth_probe_test.clj:242"] "."]
+          [:table
+           [:thead [:tr [:th "Frontend"] [:th "D(8)"] [:th "D(32)"] [:th "D(128)"]]]
+           [:tbody
+            [:tr [:td "Clojure"] [:td "7"] [:td "7"] [:td "7"]]
+            [:tr [:td "Python"] [:td "40"] [:td "112"] [:td "400"]]
+            [:tr [:td "TypeScript"] [:td "28"] [:td "76"] [:td "268"]]
+            [:tr [:td "PHP"] [:td "57"] [:td "177"] [:td "657"]]]]
+          [:p "These rows hold for both self and mutual recursion on each of the semantic, stack, and register backends in "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/test/yang/call/depth_probe.edn#L2"} "test/yang/call/depth_probe.edn:2"]
+           ". Across these samples, Python adds three frames per recursive step, TypeScript two, and PHP five. Those slopes describe the current compiled paths; they are not language laws or required minimums."]
+          [:p "The artifact records revision " [:code "545edc41"] ", " [:code ":dirty-state true"] ", and " [:code ":composition :unlinked"]
+           ". These are checked-in measurements from that run, not a fresh benchmark of every deployment. Published entry describes the callable protocol route even when its implementation is bundled into an unlinked program. These fixtures do not measure recursion crossing between different languages. The artifact explicitly leaves linked-warm compositions and scheduler-held continuation sampling pending."]
+          [:p "The same artifact also records 144 completed loop measurements: four frontends, four variants, three backends, and sizes 16, 64, and 256. Each frontend/backend/variant keeps the same depth across those sizes. The variants include plain loops, try/finally, caught failures, and an outer catch. Completing and cleaning up one iteration before starting the next does not accumulate the pending bridges that nested recursive calls do."]
+
+          [:h2 "What changed in the convergence port"]
+          [:p "The old Clojure implementation returned tagged outcomes from guest functions. Its private lane could forward a body's outcome directly, keeping named and mutual tail chains at constant depth. That historical design is documented at "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/fbd8da0f/src/cljc/yang/clojure.cljc#L839"} "src/cljc/yang/clojure.cljc:839 at fbd8da0f"]
+           ". Its implemented try lowering explicitly refused finally at "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/fbd8da0f/src/cljc/yang/clojure.cljc#L1218"} "src/cljc/yang/clojure.cljc:1218 at fbd8da0f"] "."]
+          [:p "The convergence port retired that internal outcome model. Guest functions now return plain values, and throws use a captured-continuation handler stack in a dynamic-context cell, matching the family used by the other frontends. The compatibility option is still spelled " [:code ":outcomes true"] ", but it selects the continuation lane. The program boundary's remaining tagged result is a harness convention, not evidence that internal calls still propagate outcomes. The current explanation is explicit at "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/clojure.cljc#L839"} "src/cljc/yang/clojure.cljc:839"] "."]
+          [:p "This was a real trade in the implemented compiler: the old outcome lane provided constant-depth tail chains with a restricted exception surface; the continuation encoding supplies finally expressibility and cleanup on escapes. The new " [:code "clj/try-finally"] " installs a finalizer frame, and " [:code "clj/raise"] " runs finalizers while unwinding at "
+           [:a {:href "https://github.com/sonwh98/datomworld/blob/7320de98/src/cljc/yang/clojure.cljc#L913"} "src/cljc/yang/clojure.cljc:913"]
+           ". This does not prove that an outcome encoding could never express finally. It explains why this implementation changed."]
+          [:p "The public Clojure entry now uses the same bridge pattern, but the private tail lane remains. The seven-frame recursion result therefore survives the change in error model. Conversely, repeated published-bridge calls, including calls through cross-language boundaries, retain restoration work in the current encoding. Their precise depth must be measured for the actual composition; the table above is not a cross-language benchmark."]
+
+          [:h2 "A shared boundary contract is not a shared internal call path"]
+          [:p "The exception track unified how callers and callees exchange conditions, when binding failures are covered, and when cleanup precedes delivery. It did not give every frontend the same private calling infrastructure. The Clojure private lane is a compiler facility with a narrower eligibility rule than the public invocation protocol."]
+          [:p "Source semantics constrain which observable results and cleanup behavior a compiler must preserve. They do not uniquely choose an internal error representation. Likewise, the VM's tail-call support and the UAST's tail marker enable an optimization without guaranteeing that every frontend-generated wrapper leaves the body in tail position."]
+          [:p "To understand a depth result, follow the route into the body. Identify each newly installed handler, each saved context, and every operation that must run after the body returns. If the recursive step takes the direct private lane, the existing continuation can be reused. If it leaves another bridge waiting for cleanup, the pending work grows. That is the architectural difference the measurements expose."]]]]}
