@@ -3241,8 +3241,8 @@
 (defn- lower-function
   [ctx n]
   (let [written (ns-prefixed ctx (function-written ctx n))
-        [lam spec statics] (function-lam ctx n written {})]
-    (app* 'php/declare-function!
+        [lam spec statics] (function-lam (dissoc ctx :early-function?) n written {})]
+    (app* (if (:early-function? ctx) 'php/declare-early-function! 'php/declare-function!)
           (u/lit (str/lower-case written))
           (app* 'php/make-function (u/lit written) (u/lit spec) lam (u/lit statics)))))
 
@@ -3738,20 +3738,33 @@
         classes (mapv (fn [item]
                         (let [c (rule-head ctx item)
                               [_ spec] (class-spec (item-ctx ctx item) c)]
-                          [(:id item) (symbol (str "%class-" (:id c))) spec]))
+                          [(:id item) (symbol (str "%class-" (:id c))) spec
+                           (symbol (str "%class-hoisted-" (:id c)))]))
                       (filter #(class-item? ctx %) items))
-        syms (into {} (map (fn [[id sym _]] [id sym])) classes)
+        syms (into {} (map (fn [[id sym _ state]] [id [sym state]])) classes)
         in-place (fn [item]
-                   (if-let [sym (get syms (:id item))]
-                     (app* 'php/declare-late! (u/v sym))
-                     (lower (item-ctx ctx item) item)))]
-    (check-hoisted! ctx hoisted)
+                   (if-let [[sym state] (get syms (:id item))]
+                     (app* 'php/declare-late! (u/v sym) (app* 'cell/get (u/v state)))
+                     (if (and (:eval-unit? ctx) (hoisted? ctx item))
+                       (lower-function (assoc (item-ctx ctx item) :early-function? true)
+                                       (rule-head ctx item))
+                       (lower (item-ctx ctx item) item))))]
+    (when-not (:eval-unit? ctx) (check-hoisted! ctx hoisted))
     (let [lowered (mapv (fn [item] [item (in-place item)]) items)
+          nodes (into {} (map (fn [[item node]] [(:id item) node])) lowered)
+          early (fn [item]
+                  (if (hoisted? ctx item)
+                    (get nodes (:id item))
+                    (let [[sym state] (get syms (:id item))]
+                      (app* 'cell/set! (u/v state) (app* 'php/hoist-class! (u/v sym))))))
           body (sequence-node
-                 (concat (mapv second (filter (fn [[item _]] (hoisted? ctx item)) lowered))
-                         (mapv (fn [[_ sym _]] (app* 'php/hoist-class! (u/v sym))) classes)
+                 (concat (if (:eval-unit? ctx)
+                           (mapv early (filter #(or (hoisted? ctx %) (class-item? ctx %)) items))
+                           (mapv early (concat hoisted (filter #(class-item? ctx %) items))))
                          (mapv second (remove (fn [[item _]] (hoisted? ctx item)) lowered))))]
-      (reduce (fn [inner [_ sym spec]] (u/let1 sym (u/lam [] spec) inner))
+      (reduce (fn [inner [_ sym spec state]]
+                (u/let1 sym (u/lam [] spec)
+                        (u/let1 state (app* 'cell/new (u/lit false)) inner)))
               body
               (reverse classes)))))
 
@@ -3811,7 +3824,8 @@
    a runtime or own the borrowed scope. Publication is the caller's job."
   ([packet] (eval-entry packet {}))
   ([packet {:keys [path]}]
-   (let [ctx (assoc (context packet {:path (or path entry-path) :linked? true}) :module? true)
+   (let [ctx (assoc (context packet {:path (or path entry-path) :linked? true})
+                    :module? true :eval-unit? true)
          body (u/let1 '%eval-result (unit-node ctx true)
                       (u/if-node (app* '= (u/v '%eval-result) (u/lit :php/no-return))
                                  (u/lit :php/null)
