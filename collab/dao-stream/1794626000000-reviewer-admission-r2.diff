@@ -1,0 +1,225 @@
+diff --git a/src/cljc/yin/shell/session.cljc b/src/cljc/yin/shell/session.cljc
+index 0282f285..b5e2e59e 100644
+--- a/src/cljc/yin/shell/session.cljc
++++ b/src/cljc/yin/shell/session.cljc
+@@ -106,20 +106,9 @@
+ 
+ 
+ (defn recheck-on-tick
+-  "One host tick: serve both media, then let the engine re-check a run it
+-  has parked.  Answers `[session' text]` exactly as the engine's own
+-  `yin.repl/recheck-on-tick` does.
+-
+-  `events` are the composition's own transport and follower events for the
+-  tick.  They are translated before they cross
+-  (`yin.shell.completion/completion-events`), so the engine sees only the
+-  generic completions correlated to the work it parked and never a
+-  transport keyword.  A round that made progress resumes the run with
+-  that progress carried into the driver (`yin.repl/recheck-pending`'s
+-  three-argument arity), so the parked VM runs at once: the composition
+-  has consumed the request and delivered its response, and no further
+-  round of internal progress need occur first.  A round that made none
+-  leaves the resume to a matching completion."
++  "Serve and resume a parked run for at most `repl/link-round-budget`
++  rounds per host tick. Continue while serving makes progress, and offer
++  `events` as generic completions to at most one non-progress round."
+   ([session events] (recheck-on-tick session events nil))
+   ([session events budget]
+    (loop [session session, text nil, left repl/link-round-budget, events events]
+@@ -134,10 +123,8 @@
+            session (assoc session :engine engine')
+            text (or next-text text)]
+        (if (and (:progress? served) (:pending-run engine') (> left 1))
+-         (recur session text (dec left) [])
+-         [session (if (and (:progress? served) (:pending-run engine') (= left 1))
+-                    (str text ";; require still pending\n")
+-                    text)])))))
++         (recur session text (dec left) events)
++         [session text])))))
+ 
+ 
+ (defn recheck-pending
+diff --git a/test/yin/repl/dht_test.cljc b/test/yin/repl/dht_test.cljc
+index 3ef045cf..d5202926 100644
+--- a/test/yin/repl/dht_test.cljc
++++ b/test/yin/repl/dht_test.cljc
+@@ -1701,15 +1701,17 @@
+ (deftest a-dht-store-refuses-a-second-content-source
+   (let [dir (temp-dir)]
+     (try
+-      (is (some? (refusal-of #(create-state
+-                                {:index-store-spec (dht-spec dir {})
+-                                 :content-store (mem/create-content-mem)}))))
++      (is (str/includes? (ex-message (refusal-of #(create-state
++                                                   {:index-store-spec (dht-spec dir {})
++                                                    :content-store (mem/create-content-mem)})))
++                         "second content source"))
+       (testing "and the refusal left the directory unlocked"
+         (close! (create-state {:index-store-spec (dht-spec dir {})})))
+-      (is (some? (refusal-of #(create-state
+-                                {:index-store-spec (dht-spec dir {})
+-                                 :content-client {}}))))
+-      (testing "and the client refusal left the directory unlocked"
++      (is (str/includes? (ex-message (refusal-of #(create-state
++                                                   {:index-store-spec (dht-spec dir {})
++                                                    :content-client {}})))
++                         "second content source"))
++      (testing "the refused open left the directory free for a later open"
+         (close! (create-state {:index-store-spec (dht-spec dir {})})))
+       (finally
+         (cleanup-dir! dir)))))
+diff --git a/test/yin/vm/linker/admission_test.cljc b/test/yin/vm/linker/admission_test.cljc
+index 29489e16..559a492a 100644
+--- a/test/yin/vm/linker/admission_test.cljc
++++ b/test/yin/vm/linker/admission_test.cljc
+@@ -616,7 +616,8 @@
+                                             :publisher-key a
+                                             :principals [(:public b)]}
+                                            opts))
+-       (assoc :node (:node w))
++       (assoc :node (:node w)
++              :session (session/transport-state (:node w) a))
+        (assoc-in [:link-source :content] {:kind :dht})
+        (#(assoc % :linker
+                 (assoc (link/make (:link-source %)
+@@ -624,27 +625,32 @@
+                        :pair (get-in % [:linker :pair])))))))
+ 
+ 
++(defn- session-of [state]
++  (assoc (:session state) :node (:node state)
++         :engine (dissoc state :node :session)))
++
++
++(defn- state-of [s]
++  (assoc (:engine s) :node (:node s) :session (dissoc s :engine)))
++
++
+ (defn- tick! [state events]
+-  (let [[s text] (session/recheck-on-tick
+-                   (session/make (dissoc state :node) (:node state) a) events)]
+-    (let [next (assoc (:engine s) :node (:node s))]
+-      [(if (= state next) state next) text])))
++  (let [[s text] (session/recheck-on-tick (session-of state) events)]
++    [(state-of s) text]))
+ 
+ 
+ (defn- type!
+   [state line]
+-  (let [node (:node state)
+-        [state text] (repl/eval-input (dissoc state :node) line)
+-        state (assoc state :node node)]
++  (let [[engine text] (repl/eval-input (dissoc state :node :session) line)
++        state (assoc engine :node (:node state) :session (:session state))]
+     (loop [state state text text left repl/link-round-budget]
+-      (let [{s :session progress? :progress?} (session/serve (session/make (dissoc state :node) (:node state) a))
+-            state (assoc (:engine s) :node (:node s))]
++      (let [{s :session progress? :progress?} (session/serve (session-of state))
++            state (state-of s)]
+         (if (and progress? (pos? left) (:pending-run state))
+-          (let [[s t] (session/recheck-pending (session/make (dissoc state :node) (:node state) a) true)]
+-            (recur (assoc (:engine s) :node (:node s)) (or t text) (dec left)))
++          (let [[s t] (session/recheck-pending (session-of state) true)]
++            (recur (state-of s) (if t (str text t) text) (dec left)))
+           [state text])))))
+ 
+-
+ (defn- require!
+   [state n]
+   (type! state (str "(require (quote " n "))")))
+@@ -731,9 +737,8 @@
+       (let [w (world)
+             allow! (fn [state]
+                      (let [id (pending-admission state)]
+-                       (first (settle (first (tick!
+-                                               (answer-at! state (allow id))
+-                                               []))
++                       (first (settle (first (tick! (answer-at! state (allow id))
++                                                     []))
+                                       #(or (nil? (:pending-run %))
+                                            (not= id (pending-admission %)))))))
+             [state _] (require! (shell w vm-type {:admission :external})
+@@ -849,8 +854,7 @@
+             "no response for the retired request"))
+       (testing "a late allow for the retired id loads, prints and parks
+                 nothing"
+-        (let [[state' text] (tick!
+-                              (answer-at! state (allow id)) [])]
++        (let [[state' text] (tick! (answer-at! state (allow id)) [])]
+           (is (nil? text))
+           (is (nil? (:pending-run state')))
+           (is (nil? (status (:node state') w 'their.m)))
+@@ -863,9 +867,7 @@
+         allow! (fn [state]
+                  (let [id (pending-admission state)]
+                    (is (some? id) "parked on a question")
+-                   [(first (tick!
+-                             (answer-at! state (allow id))
+-                             []))
++                   [(first (tick! (answer-at! state (allow id)) []))
+                     id]))
+         past (fn [id]
+                #(or (nil? (:pending-run %))
+@@ -980,12 +982,12 @@
+     (is (str/includes? text "pending") text)
+     (is (= 0 (second id)))
+     (testing "an unrelated load event re-checks nothing"
+-      (let [[state' text'] (tick!
+-                             state
+-                             [{:dao.space.dht/event :loaded
+-                               :manifest (address w 'own2.m)}])]
+-        (is (identical? state state'))
+-        (is (nil? text'))))
++      (let [[state' text'] (tick! state
++                                 [{:dao.space.dht/event :loaded
++                                   :manifest (address w 'own2.m)}])]
++        (is (= state state'))
++        (is (nil? text'))
++        (is (= (:pending-run state) (:pending-run state')))))
+     (let [[state text] (tick! (answer-at! state (allow id)) [])]
+       (is (some? text))
+       (is (nil? (:pending-run state)))
+@@ -1284,7 +1286,7 @@
+     (is (some? (:pending-run successor)))
+     (is (= (get-in state [:linker :admission])
+            (get-in successor [:linker :admission])))
+-    (is (str/includes? text "require still pending"))
++    (is (str/includes? text "require pending"))
+     (is (= 0 (get-in successor [:pending-run :checks]))))
+ 
+ 
+@@ -1502,8 +1504,7 @@
+     (is (not-any? #{(first id)} (map :yin.link/id (shell-responses state))))
+     (let [responses (shell-responses state)
+           vm (:vm state)
+-          [later text] (tick!
+-                         (answer-at! state (allow id)) [])]
++          [later text] (tick! (answer-at! state (allow id)) [])]
+       (is (nil? text))
+       (is (= vm (:vm later)))
+       (is (nil? (:pending-run later)))
+diff --git a/test/yin/vm/linker/dht_end_to_end_test.cljc b/test/yin/vm/linker/dht_end_to_end_test.cljc
+index 8dbbcdb8..57f5d3f9 100644
+--- a/test/yin/vm/linker/dht_end_to_end_test.cljc
++++ b/test/yin/vm/linker/dht_end_to_end_test.cljc
+@@ -159,7 +159,7 @@
+         transport (assoc (:session s) :node (:dht s) :engine engine)
+         [transport resumed] (session/recheck-after-input transport)
+         s (assoc (:engine transport) :session (dissoc transport :engine) :dht (:node transport))]
+-    [(assoc-in w [:shells k] s) (or resumed text)]))
++    [(assoc-in w [:shells k] s) (if (and text resumed) (str text resumed) (or resumed text))]))
+ 
+ 
+ (defn- head-of
+@@ -225,9 +225,9 @@
+                     (shell-at (:net w) dir port [2 3 1]
+                               {:manifest manifest :principals principals}))
+         w (run-world w (+ (:now w) 60000) (str (name k) " did not hydrate")
+-                     #(repl.dht/admitting? (assoc (:session (get-in % [:shells k])) :engine (get-in % [:shells k]))))]
++                     #(repl.dht/admitting? (:session (get-in % [:shells k]))))]
+     (is (nil? (:failure w)) (:failure w))
+-    (is (nil? (repl.dht/refusal (assoc (:session (get-in w [:shells k])) :engine (get-in w [:shells k])))))
++    (is (nil? (repl.dht/refusal (:session (get-in w [:shells k])))))
+     w))
+ 
+ 

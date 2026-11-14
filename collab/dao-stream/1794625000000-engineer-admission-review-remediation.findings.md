@@ -2,6 +2,8 @@
 
 Preserved tick events through progress rounds and removed the fabricated pending notice. The admission fixture now carries transport state across calls, returns actual successor values, and accumulates output; the end-to-end fixture preserves output and uses the session directly. Refusal tests pin the second-content-source reason.
 
+Note on assertion change (`admission_test.cljc`, 509 -> 510 assertions): replaced `(is (identical? state state'))` with `(is (= state state'))` alongside `(is (= (:pending-run state) (:pending-run state')))` because across the decoupled shell composition boundary `yin.shell.linker/install` returns a fresh successor value rather than the input reference (the identity reference cannot cross the boundary, while value equality of engine state, pending run, and nil output still holds).
+
 Verification on jupiter after the code edits:
 
 - `clj -M:test -n yin.vm.linker.admission-test`:
