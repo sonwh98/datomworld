@@ -56,6 +56,7 @@
           :close-store! shell.store/close!
           :step shell.dht/step
           :recheck-on-tick shell.session/recheck-on-tick
+          :recheck-after-input shell.session/recheck-after-input
           :stop! shell.dht/stop!
           :stopped? shell.dht/stopped?
           :close! shell.dht/close!

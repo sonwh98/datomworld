@@ -22,6 +22,7 @@
             [dao.stream :as stream]
             [dao.stream.loopback-net :as net]
             [yin.repl :as repl]
+            [yin.repl.driver :as driver]
             [yin.shell.dht :as repl.dht]
             [yin.repl.main :as main]
             [yin.shell.cli :as cli]
@@ -290,6 +291,17 @@
 ;; =============================================================================
 ;; Following: first contact, the moved line, (reset), and a bare restart
 ;; =============================================================================
+
+(deftest live-loop-reports-the-name-of-a-new-pending-require
+  (let [key (sign/generate)
+        w (world)
+        w (assoc w :b (reader w key (temp-dir)))
+        state (:b w)]
+    (driver/submit-line! (:input state) "(require (quote my.lib))")
+    (let [[state _ lines] (main/step-all state nil 0)]
+      (is (some #(str/includes? % ";; require pending: my.lib") lines)
+          (pr-str lines))
+      (close! (assoc w :b state)))))
 
 (deftest ^:slow a-reader-follows-requires-moves-and-restarts-from-heads-edn
   (slow/guard
