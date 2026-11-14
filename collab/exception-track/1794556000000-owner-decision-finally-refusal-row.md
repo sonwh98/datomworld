@@ -72,3 +72,19 @@ Consequences, in order:
    extended to prove it — replaces corpus-residue as the surface source, permanently.
 4. v2 §3 gains the supersession note in the kit-round commit; the PORT merge notice follows the
    kit round landing + shiva (port itself: qwen CONFIRMED, all five remote checks green).
+
+---
+
+## ✅ CONFIRMED: RETIRE (owner, 2026-11-13, verbatim: "retire")
+
+The owner confirmed RETIRE after reviewing the lineage, the corpus-driven principle, and the
+per-language refusal rule. Already implemented: kit rounds 1+2 (`ba3cc407` on master) — the
+`:clojure-finally-refusal` obligation retired, the pair-matrix exclusion removed, the
+`finally`-replacement legs EXECUTING for the first time (python/php/typescript → clojure × 3
+backends, 9/9 pass in composed tree), the value-1 pin correct (qwen's F3 catch preserved).
+The convergence port (`exception-r3-impl` @ `854b74c3`, qwen CONFIRMED) is also on master.
+v2 §3 supersession note landed with the kit merge commit.
+
+The per-language principle of record: **a frontend's kit asserts whatever its source language
+has — present means implemented-and-pinned; absent means refused-at-the-surface.** Pre-licenses
+future refusal rows for languages genuinely lacking the construct.
