@@ -738,7 +738,7 @@
             allow! (fn [state]
                      (let [id (pending-admission state)]
                        (first (settle (first (tick! (answer-at! state (allow id))
-                                                     []))
+                                                    []))
                                       #(or (nil? (:pending-run %))
                                            (not= id (pending-admission %)))))))
             [state _] (require! (shell w vm-type {:admission :external})
@@ -983,8 +983,8 @@
     (is (= 0 (second id)))
     (testing "an unrelated load event re-checks nothing"
       (let [[state' text'] (tick! state
-                                 [{:dao.space.dht/event :loaded
-                                   :manifest (address w 'own2.m)}])]
+                                   [{:dao.space.dht/event :loaded
+                                     :manifest (address w 'own2.m)}])]
         (is (= state state'))
         (is (nil? text'))
         (is (= (:pending-run state) (:pending-run state')))))

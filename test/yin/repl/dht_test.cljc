@@ -1702,14 +1702,14 @@
   (let [dir (temp-dir)]
     (try
       (is (str/includes? (ex-message (refusal-of #(create-state
-                                                   {:index-store-spec (dht-spec dir {})
-                                                    :content-store (mem/create-content-mem)})))
+                                                    {:index-store-spec (dht-spec dir {})
+                                                     :content-store (mem/create-content-mem)})))
                          "second content source"))
-      (testing "and the refusal left the directory unlocked"
+      (testing "the refused open left the directory free for a later open"
         (close! (create-state {:index-store-spec (dht-spec dir {})})))
       (is (str/includes? (ex-message (refusal-of #(create-state
-                                                   {:index-store-spec (dht-spec dir {})
-                                                    :content-client {}})))
+                                                    {:index-store-spec (dht-spec dir {})
+                                                     :content-client {}})))
                          "second content source"))
       (testing "the refused open left the directory free for a later open"
         (close! (create-state {:index-store-spec (dht-spec dir {})})))
