@@ -560,12 +560,16 @@
         v (u/v value-sym)]
     (cond
       (not= :cell (:kind r))
-      ;; strict code: an undeclared name is a ReferenceError; a declared
-      ;; global is a known gap (T2 owns the global object's writes)
+      ;; strict mode: a binding-less name is never assignable — the correct
+      ;; refusal is a ReferenceError naming the variable (design §3.1.4,
+      ;; implicit globals refused). The old emission mislabeled the class as
+      ;; TypeError "read only property" and misstated the situation; declared
+      ;; global writes belong to the script-goal slice (design §3.7), not to
+      ;; a silent mislabel here. The stray js/global-get read stays: for a
+      ;; truly absent global it is itself the ES-correct ReferenceError.
       (u/then (app* 'js/global-get (u/lit (jstr nm)))
-              (app* 'js/throw-type-error
-                    (u/lit (jstr (str "Cannot assign to read only property '"
-                                      nm "' of object")))))
+              (app* 'js/throw-reference-error
+                    (u/lit (jstr (str nm " is not defined")))))
       (:const? r) (u/then (app* 'js/lexical-get (u/v (symbol nm)) (u/lit (jstr nm)))
                           (app* 'js/const-assign!))
       (:tdz? r) (u/then (app* 'js/lexical-get (u/v (symbol nm)) (u/lit (jstr nm)))
