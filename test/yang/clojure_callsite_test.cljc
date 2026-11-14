@@ -12,7 +12,7 @@
             [dao.space.index :as space.index]
             [dao.space.query :as query]
             #?@(:clj [[dao.stream :as stream]
-                       [dao.stream.ringbuffer :as ring]])
+                      [dao.stream.ringbuffer :as ring]])
             [yang.clojure :as yang]
             [yang.clojure.prelude :as clj-prelude]
             [yang.core.call :as call]
@@ -1830,6 +1830,7 @@
              (is (= tables (:call-site-tables @captured))
                  "ordinary yin.link/publish now carries the retained tables")))))))
 
+
 ;; =============================================================================
 ;; cc2 fix round r3: admission identity + explicit wrappers (astra r2 confirm)
 ;; =============================================================================
@@ -2056,7 +2057,9 @@
   ;; OUTSIDE the schema-1 manifest hash, retrievable alongside the
   ;; images; an unclaimed publication persists none.
   (let [store (mem/create-content-mem)
-        ast (yang/compile-program '[(defn f [x] (inc x)) (f 2)])
+        ast (yang/compile-program '[(defn f
+                                      [x]
+                                      (inc x)) (f 2)])
         spec {:name 'cc3-provenance
               :ast ast
               :exports #{'f}
@@ -2101,7 +2104,9 @@
   ;; when another admission claimed identical canonical content.
   (let [{:keys [ctx result]} (expand-like-the-repl
                                (yang/compile-program
-                                 '[(defn f [x] (+ x 1)) (f 2)]))
+                                 '[(defn f
+                                     [x]
+                                     (+ x 1)) (f 2)]))
         {:keys [status tree frontend-metadata]} result
         packet tree
         admission [:source :program-in (:t ctx) 0]
@@ -2135,16 +2140,18 @@
                #(repl/packet-call-provenance state packet [:oracle/fixture 1])))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest repl-packet-provenance-survives-failure-test
      ;; cc3 r3 item F4: a claimed program that throws after loading
      ;; has already persisted its provenance relation; the lookup
      ;; handle completed before the throw must survive the
      ;; exception/recovery path and stay retrievable after reopening.
      (let [dir (str "target/test-cc3-provenance-fail-" (random-uuid))
-           cleanup (fn [] (let [f (java.io.File. dir)]
-                            (when (.exists f)
-                              (run! #(.delete %) (reverse (file-seq f))))))]
+           cleanup (fn []
+                     (let [f (java.io.File. dir)]
+                       (when (.exists f)
+                         (run! #(.delete %) (reverse (file-seq f))))))]
        (try
          (let [state (reduce (fn [s line] (first (repl/eval-input s line)))
                              (repl-frontends/create-state
@@ -2184,7 +2191,8 @@
          (finally (cleanup))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest repl-packet-provenance-survives-link-resume-failure-test
      ;; cc3 r4 item F4: a claimed program that returns from the
      ;; evaluator stage waiting on a query, then THROWS when
@@ -2193,9 +2201,10 @@
      ;; survive the link-raise recovery path and stay retrievable
      ;; after reopening.
      (let [dir (str "target/test-cc3-provenance-resume-" (random-uuid))
-           cleanup (fn [] (let [f (java.io.File. dir)]
-                            (when (.exists f)
-                              (run! #(.delete %) (reverse (file-seq f))))))]
+           cleanup (fn []
+                     (let [f (java.io.File. dir)]
+                       (when (.exists f)
+                         (run! #(.delete %) (reverse (file-seq f))))))]
        (try
          (let [state (reduce (fn [s line] (first (repl/eval-input s line)))
                              (repl-frontends/create-state
@@ -2241,16 +2250,18 @@
          (finally (cleanup))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest repl-packet-provenance-durable-test
      ;; cc3 r2 item 4: ordinary REPL loading retains admission-scoped
      ;; provenance in the session's durable store under a lookup handle
      ;; the session state carries; the relation is retrievable from a
      ;; freshly reopened store by that handle alone.
      (let [dir (str "target/test-cc3-provenance-" (random-uuid))
-           cleanup (fn [] (let [f (java.io.File. dir)]
-                            (when (.exists f)
-                              (run! #(.delete %) (reverse (file-seq f))))))]
+           cleanup (fn []
+                     (let [f (java.io.File. dir)]
+                       (when (.exists f)
+                         (run! #(.delete %) (reverse (file-seq f))))))]
        (try
          (let [state (reduce (fn [s line] (first (repl/eval-input s line)))
                              (repl-frontends/create-state
@@ -2412,7 +2423,6 @@
             "this round completed handle survives exactly once"))))
 
 
-
 (deftest repl-fabricated-retention-evidence-is-ignored-test
   ;; cc3 r9 F1: a guest/host throw carrying fabricated
   ;; :yin.repl/call-provenance-* keys is not retention evidence. The
@@ -2521,11 +2531,11 @@
       (let [fail? (atom false)
             render-armed? (atom false)
             [s1 _] (repl/eval-input
-                    (repl-frontends/create-state
-                     {:frontends (r10-render-catalog
-                                  (r10-forged-renderer render-armed?))
-                      :index-store (r9-refusing-store fail?)})
-                    "(def k (fn [] 1))")
+                     (repl-frontends/create-state
+                       {:frontends (r10-render-catalog
+                                     (r10-forged-renderer render-armed?))
+                        :index-store (r9-refusing-store fail?)})
+                     "(def k (fn [] 1))")
             [s2 _] (repl/eval-input s1 "(def g (fn [] (+ (k) 41)))")
             handles-before (repl/call-provenance-handles s2)]
         (is (seq handles-before) "precondition: earlier retention completed")
@@ -2577,12 +2587,13 @@
       pending while every other link over the same source completes."
      [comp address]
      (let [wire (:dao.stream/handle
-                 (ring/create! {:dao.stream/type ring/transport-type
-                                ring/capacity-key 1024}))]
+                  (ring/create! {:dao.stream/type ring/transport-type
+                                 ring/capacity-key 1024}))]
        (assoc-in comp [:content :requests]
                  (reify
                    stream/IDaoStreamDescriptor
                    (descriptor [_] (stream/descriptor wire))
+
 
                    stream/IDaoStreamReader
 
@@ -2590,19 +2601,23 @@
 
                    (next [_ c] (stream/next wire c))
 
+
                    stream/IDaoStreamWriter
 
-                   (append! [_ value]
+                   (append!
+                     [_ value]
                      (if (= address (get value :jing/get))
                        {:dao.stream/outcome :dao.stream/ok}
                        (stream/append! wire value)))
+
 
                    stream/IDaoStreamClosable
 
                    (close! [_] (stream/close! wire)))))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest repl-fabricated-retention-evidence-is-ignored-on-pending-completion-test
      ;; cc3 r10 (astra r9 F1 residue): a parked require's frontend
      ;; :render hook executes inside recheck-pending completion —
@@ -2623,13 +2638,13 @@
                address (r10-publish-module store (r10-closed-module)
                                            (quote mod) #{(quote f)})
                [s1 _] (repl/eval-input
-                       (repl-frontends/create-state
-                        {:frontends (r10-render-catalog
-                                     (r10-forged-renderer render-armed?))
-                         :index-store (r9-refusing-store fail?)
-                         :content-store store
-                         :name-env {(quote mod) address}})
-                       "(def k (fn [] 1))")
+                        (repl-frontends/create-state
+                          {:frontends (r10-render-catalog
+                                        (r10-forged-renderer render-armed?))
+                           :index-store (r9-refusing-store fail?)
+                           :content-store store
+                           :name-env {(quote mod) address}})
+                        "(def k (fn [] 1))")
                [s2 _] (repl/eval-input s1 "(def g (fn [] (+ (k) 41)))")
                handles-before (repl/call-provenance-handles s2)]
            (is (seq handles-before) "precondition: earlier retention completed")
@@ -2641,7 +2656,7 @@
                                (r10-withholding-source (:link-source s2)
                                                        address))
                  [held park-text] (repl/eval-input parked
-                                                  "(require (quote mod))")]
+                                                   "(require (quote mod))")]
              (is (some? (:pending-run held))
                  "precondition: the require parked behind the withholding source")
              (let [handles-parked (repl/call-provenance-handles held)]
@@ -2649,7 +2664,7 @@
                  (do (is (= handles-before handles-parked)
                          "the failed park round advertises no handle")
                      (is (= 1 (count (re-seq #"call provenance was not retained"
-                                              park-text)))
+                                             park-text)))
                          "the park round warned of its genuine failure once"))
                  (do (is (= (inc (count handles-before))
                             (count handles-parked))
@@ -2658,10 +2673,10 @@
                                              "call provenance was not retained"))
                          "the healthy park round warns not")))
                (let [[s4 text] (repl/recheck-pending
-                                (assoc held :link-source
-                                       (link/composition
-                                        {:content-store store
-                                         :name-env {(quote mod) address}})))]
+                                 (assoc held :link-source
+                                        (link/composition
+                                          {:content-store store
+                                           :name-env {(quote mod) address}})))]
                  (is (str/starts-with? text "Error: renderer boom")
                      "the completing recheck reports the renderer error alone")
                  (is (not (str/includes? text "forged"))
@@ -2685,9 +2700,9 @@
                            "the genuine retention failure survives exactly once")
                        (is (= :relation
                               (:stage (first (repl/call-provenance-failures
-                                              s4)))))
+                                               s4)))))
                        (is (some? (:admission
-                                   (first (repl/call-provenance-failures s4))))
+                                    (first (repl/call-provenance-failures s4))))
                            "the surviving diagnostic is admission-scoped"))
                    (is (empty? (repl/call-provenance-failures s4))
                        "healthy retention records no failure"))
@@ -2699,6 +2714,7 @@
                           (repl/call-provenance-failures s5)))
                    (is (= (repl/call-provenance-handles s4)
                           (repl/call-provenance-handles s5))))))))))))
+
 
 (def ^:private r11-late-boom
   "A host function whose RESULT throws fabricated retention evidence
@@ -2740,7 +2756,9 @@
             genuine-failure? text (repl/call-provenance-failures s3)
             (repl/call-provenance-handles s3) handles-before))))))
 
-#?(:clj
+
+#?(:cljd nil
+   :clj
    (deftest repl-fabricated-retention-evidence-is-ignored-from-late-formatting-on-pending-completion-test
      ;; cc3 r11 (astra r10 F2) on the pending path: a parked require
      ;; whose completing value is the poisoned lazy seq realizes -- and
@@ -2775,8 +2793,8 @@
                                (r10-withholding-source (:link-source s2)
                                                        address))
                  [held park-text] (repl/eval-input
-                                   parked
-                                   "(require (quote mod))
+                                    parked
+                                    "(require (quote mod))
 (late-boom)")]
              (is (some? (:pending-run held))
                  "precondition: the require parked behind the withholding source")
@@ -2785,7 +2803,7 @@
                  (do (is (= handles-before handles-parked)
                          "the failed park round advertises no handle")
                      (is (= 1 (count (re-seq #"call provenance was not retained"
-                                              park-text)))
+                                             park-text)))
                          "the park round warned of its genuine failure once"))
                  (do (is (= (inc (count handles-before))
                             (count handles-parked))
@@ -2796,8 +2814,8 @@
                (let [[s4 text] (repl/recheck-pending
                                  (assoc held :link-source
                                         (link/composition
-                                         {:content-store store
-                                          :name-env {(quote mod) address}})))]
+                                          {:content-store store
+                                           :name-env {(quote mod) address}})))]
                  (is (str/starts-with? text "Error: late boom")
                      "the completing recheck reports the late error alone")
                  (is (not (str/includes? text "forged"))
@@ -2822,7 +2840,7 @@
                        (is (= :relation
                               (:stage (first (repl/call-provenance-failures s4)))))
                        (is (some? (:admission
-                                   (first (repl/call-provenance-failures s4))))
+                                    (first (repl/call-provenance-failures s4))))
                            "the surviving diagnostic is admission-scoped"))
                    (is (empty? (repl/call-provenance-failures s4))
                        "healthy retention records no failure"))
@@ -2833,4 +2851,3 @@
                           (repl/call-provenance-failures s5)))
                    (is (= (repl/call-provenance-handles s4)
                           (repl/call-provenance-handles s5))))))))))))
-
