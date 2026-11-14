@@ -1599,7 +1599,7 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | native socket +   | Native deployment only. ws:// only (owner-settled). The adapter's closure contains                  |
 |                                             | poller substrate  | `jolt.socket.native`, `jolt.io-poller` and `jolt.ffi` and not `jolt.socket` (ruling 2); `send!`     |
 |                                             |                   | never waits; `:queued-bytes` is exact and drains on readiness.                                      |
-|                                             | (§9.3), full §9.2 | **2026-10-27 proposal, owner ruling pending:** pinned harness/case policy; see note below.             |
+|                                             | (§9.3), full §9.2 | **Ratified at J6a (2026-10-28 re-pin):** 301 cases per role per platform; note below records.     |
 |                                             | contract, CBOR    |                                                                                                     |
 |                                             | subprotocol only  |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
@@ -1618,7 +1618,7 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | reporting         |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 
-**J6 harness amendment proposal (2026-10-27; not an adopted gate change).**
+**J6 harness amendment (ratified; landed with J6a).**
 The [Autobahn prep and proposed gate](../../tools/jolt-autobahn/README.md#5-proposed-j6-amendment-for-owner-ruling)
 pins official 25.10.1 by image digest and inventories 517 exact cases: 298
 must-pass, three assertion-constrained informational cases (7.1.6, 7.13.1, 7.13.2), 216 compression
@@ -1628,8 +1628,25 @@ non-strict outcomes, with raw evidence retained; all existing §9.6 and real
 jolt↔JVM/Node/Dart peer gates remain. Re-pinned 2026-10-28 (J6a) from 299/2/216
 to 298/3/216: upstream 7.1.6 labels both behaviors INFORMATIONAL unconditionally. The included jolt echo stub verifies
 harness plumbing only and makes no RFC 6455 or J6 conformance claim. Owner
-approval is required for the case/exception policy. This proposal does not
+approval is recorded (J6a, 2026-10-28): the 301-case/298-strict/3-informational policy above is
+the ratified gate. The Autobahn launcher (`tools/jolt-autobahn/launch.sh`) and the native
+testee (`src/dev/jolt_autobahn_testee.clj`) are landed and reviewed; the Docker conformance
+runs remain pending the owner's Linux Docker slot (J6f, the J6h closure blocker). This amendment does not
 transfer the J7 UDP no-`full` policy to WebSocket or change WS backpressure.
+
+**J6 closure evidence (J6b-J6g; the ledger union, 2026-11-07).** Landed on master: the
+Autobahn policy re-pin 298/3/216 (J6a, `a99edbca`); the resumable rfc6455 parser + upgrade
+handshake (J6b, `70597ab4`); SHA-1 in jolt-crypto for the handshake accept key (J6c, `e8591cb5`);
+the TCP substrate + owner-thread pump with the A5 fail-connection amendment (J6d, `bec4904b`);
+the websocket host adapter + the `yin.repl.host` shadow over the pump (J6e, `63674368`, kimi
+r8 APPROVE); the Autobahn launcher routes + testee + the ratified policy wording (J6f,
+`9a70ceaa`, kimi r8 APPROVE). The workload W amended protocol PASSES on master (J6g,
+`05a596c5`; gate `j6ggate-fixrun2` on jupiter against the watchdog wire-format fix `8c4bf09c`): 600-sample prospective cohort, 0 violations,
+rtt-p99 4.08 ms, scheduled-arrival p99 5.8 ms, the 4 MiB payload delivered exactly once over
+the 120-second pacing, the REPL stepped every owner round (108,105 rounds). Remaining for J6
+closure (J6h): the Docker conformance runs (301 cases x both roles x both platforms, J6f) --
+blocked on the owner's Linux Docker slot -- folded into this section's qualification evidence
+once they land, and the final closure inspection.
 
 
 ### 10.2 Order, dependencies and platforms
