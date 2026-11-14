@@ -15,9 +15,15 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [dao.jing.cbor :as cbor]
+            [dao.jing :as jing]
+            [yin.repl.store :as file-store]
             [clojure.tools.reader :as r]
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]
+            [yang.correspondence :as correspondence]
+            [yang.correspondence-batch :as correspondence-batch]
+            [yang.correspondence-text :as correspondence-text]
+            [yang.correspondence-verifier :as correspondence-verifier]
             [yang.clojure-test :as compiler-test]
             [yang.core.call :as call]
             [yang.core.uast :as u]
@@ -2503,8 +2509,15 @@
    and replay of one retained compilation reuses its recorded
    coordinate."
   ([fixture admission-scope admission-ordinal]
-   (let [call (kernel-c-program fixture)
+   (kernel-compile fixture admission-scope admission-ordinal false))
+  ([fixture admission-scope admission-ordinal retain-input?]
+   (let [coordinate {:fixture (:id fixture) :scope admission-scope :ordinal admission-ordinal}
+         call (kernel-c-program fixture)
          forms (kernel-closure call)
+         forms-edn (when retain-input?
+                     (correspondence-text/capture! (assoc coordinate :input :forms) forms))
+         call-edn (when retain-input?
+                    (correspondence-text/capture! (assoc coordinate :input :call) call))
          source-hash (kernel-canonical-source-hash forms call)
          admission-origin (vm/source-origin
                             :program [admission-scope admission-ordinal] 0)
@@ -2515,6 +2528,10 @@
          opts (update arg-vector-opts :native into
                       (map (fn [[op profile]] [(clojure.core/symbol "stream" (name op)) profile])
                            module/stream-profiles))
+         program-edn (when retain-input?
+                       (correspondence-text/capture! (assoc coordinate :input :program) program))
+         options-edn (when retain-input?
+                       (correspondence-text/capture! (assoc coordinate :input :options) opts))
          compiled (yang/compile-program program true opts)
          ;; caller-side site ids at the compiled application expressions,
          ;; post-macroexpansion (R2), with the mechanically derived site
@@ -2526,21 +2543,27 @@
        {:status :blocked :phase :admission :blocked-by (vec (sort missing))
         :owners (into {} (for [s missing]
                            [s (mapv second (filter #(some #{s} (tree-seq coll? seq %)) program))]))}
-       {:status :compiled :ast stamped :forms forms :compiled-ast compiled
-        :admission-origin admission-origin
-        :admission-scope admission-scope
-        :admission-ordinal admission-ordinal
-        :site-table (into {} (map (juxt :site identity)) sites)
-        :site-table-hash source-hash
-        :sites sites
-        :canonical-source-hash source-hash}))))
+       (cond-> {:status :compiled :ast stamped :forms forms :compiled-ast compiled
+                :admission-origin admission-origin
+                :admission-scope admission-scope
+                :admission-ordinal admission-ordinal
+                :site-table (into {} (map (juxt :site identity)) sites)
+                :site-table-hash source-hash
+                :sites sites
+                :canonical-source-hash source-hash}
+         retain-input?
+         (assoc :reconstruction-input
+                {:fixture fixture :forms forms :call call :program program
+                 :program-edn program-edn :forms-edn forms-edn :call-edn call-edn
+                 :options-edn options-edn :options opts :admission-origin admission-origin}))))))
 
 
 (defn- kernel-compile-in-run
   "Compile `fixture` as the next admission of `run`: the run's scope
    with a distinct ordinal assigned by the run composition."
-  [run fixture]
-  (kernel-compile fixture (:scope run) (admission-run-ordinal run)))
+  ([run fixture] (kernel-compile-in-run run fixture false))
+  ([run fixture retain-input?]
+   (kernel-compile fixture (:scope run) (admission-run-ordinal run) retain-input?)))
 
 
 (defn- kernel-c
@@ -4215,3 +4238,497 @@
         "a restarted ordinal under a fresh scope still mints a new origin")
     (is (= (:admission-origin row-0) (:admission-origin replay-row))
         "replay explicitly re-supplies the retained scope+ordinal")))
+
+
+(deftest test-d1-live-compilation-matches-frozen-site-evidence
+  ;; Static only: no instrumented machine or tagged trace is run here.
+  (let [fixture (first (filter #(= :beta-eq-false (:id %)) (:fixtures kernel-gate-corpus)))
+        evidence (edn/read-string (slurp (io/resource "yang/latte_oracle/slice9_site_tables.edn")))
+        expected (get-in evidence [:fixtures (:id fixture)])
+        run (fresh-admission-run :d1-static-pilot)
+        compiled (kernel-compile-in-run run fixture)]
+    (is (some? fixture))
+    (is (some? expected))
+    (is (= :compiled (:status compiled)))
+    (is (= (:canonical-source-hash expected) (:canonical-source-hash compiled)))
+    (is (= (:site-table expected) (:site-table compiled)))
+    (let [{:keys [origin tree rows marked eligible binding]} (cc3-oracle-binding compiled)
+          pairs (vec binding)]
+      (is (= (:admission-origin compiled) origin))
+      (is (= marked eligible))
+      (is (= (set (keys (:site-table expected))) (set (keys binding))))
+      (is (correspondence/binding-coverage? (:site-table expected) origin tree rows pairs))
+      (is (not (correspondence/binding-coverage? (:site-table expected) origin tree rows (pop pairs))))
+      (is (not (correspondence/binding-coverage? (:site-table expected) origin tree (conj rows (first (filter #(= :yang/call-site (nth % 3)) rows))) pairs)))
+      (is (not (correspondence/binding-coverage? (:site-table expected) [:ephemeral :scope :run 0] tree rows pairs))))))
+
+
+(deftest test-d1-amended-admission-capture
+  ;; r4's rejection was caused by this exact reader coordinate, not an
+  ;; arbitrary Integer/Long difference elsewhere in the fixture.
+  (let [fixture (first (filter #(= :beta-eq-false (:id %)) (:fixtures kernel-gate-corpus)))
+        forms (kernel-closure (kernel-c-program fixture))
+        location (nth (nth forms 15) 2)
+        [key coordinate] (nth (seq (meta location)) 2)
+        captured (correspondence-text/capture! {:fixture (:id fixture) :input :forms} forms)
+        read-forms (correspondence-text/read-one! (:id fixture) captured)
+        read-coordinate (get (meta (nth (nth read-forms 15) 2)) key)
+        run (fresh-admission-run :d1-amended)
+        compiled (kernel-compile-in-run run fixture true)]
+    (is (= :line key))
+    (is (= Integer (class coordinate)))
+    (is (= Long (class read-coordinate)))
+    (is (= (long coordinate) read-coordinate))
+    (is (= :compiled (:status compiled)))
+    (is (= [(:scope run) 0] (nth (:admission-origin compiled) 2)))
+    (is (every? #(string? (get (:reconstruction-input compiled) %))
+                [:forms-edn :call-edn :program-edn :options-edn]))))
+
+
+(defn- d1-check-reconstruction!
+  "Producer-side static replay check. This shares cc3's derivation and is
+   neither independent verification nor evidence of execution."
+  [fixture input expected]
+  (let [read-input #(correspondence-text/read-one! {:fixture fixture :input %}
+                                                   (get input (keyword (str (name %) "-edn"))))
+        forms (read-input :forms)
+        call (read-input :call)
+        program (read-input :program)
+        opts (read-input :options)
+        origin (:admission-origin input)
+        _ (when-not (vm/occurrence-origin? origin)
+            (throw (ex-info "Missing retained admission" {:fixture fixture :stage :admission})))
+        ast (yang/compile-program program true opts)
+        {stamped :ast sites :sites} (kernel-stamp-sites ast (into #{} (map second) forms))
+        compiled {:compiled-ast ast :ast stamped :admission-origin origin}
+        bound (cc3-oracle-binding compiled)
+        result {:root (:root (:tree bound))
+                :source-hash (kernel-canonical-source-hash forms call)
+                :site-table (into {} (map (juxt :site identity)) sites)
+                :metadata (:rows bound) :binding (:binding bound)
+                :correspondence (:correspondence bound)
+                :stamped-root (:root (:stamped-tree bound))
+                :stamped-metadata (:stamped-rows bound)}]
+    (let [wrapper-paths (into #{} (comp (filter (fn [[_ node]] (kernel-stamped-args? node)))
+                                        (map first))
+                              (cc3-walk stamped [] []))
+          inserted (into #{} (mapcat (fn [path]
+                                       [[origin (:root (:stamped-tree bound)) path]
+                                        [origin (:root (:stamped-tree bound)) (conj path [3 1])]]))
+                         wrapper-paths)
+          marked (:stamped-marked bound)]
+      (when-not (and (nil? (vm/validate-rows (:tree bound)))
+                     (nil? (vm/validate-rows (:stamped-tree bound)))
+                     (= (:eligible bound) (:marked bound))
+                     (= (count sites) (count wrapper-paths))
+                     (empty? (set/intersection marked inserted))
+                     (= (:stamped-eligible bound) (set/union marked inserted)))
+        (throw (ex-info "Row or metadata coverage mismatch"
+                        {:fixture fixture :stage :metadata-coverage}))))
+    (doseq [stage [:root :source-hash :site-table :metadata :binding :correspondence
+                   :stamped-root :stamped-metadata]]
+      (when (not= (get expected stage) (get result stage))
+        (throw (ex-info "Static reconstruction mismatch" {:fixture fixture :stage stage}))))
+    result))
+
+
+(deftest test-d1-capture-refusal-names-admission
+  (let [fixture (first (filter #(= :beta-eq-false (:id %)) (:fixtures kernel-gate-corpus)))
+        run (fresh-admission-run :d1-capture-refusal)
+        failure (with-redefs [correspondence-text/read-one! (fn [_ _] nil)]
+                  (try (kernel-compile-in-run run fixture true) nil
+                       (catch Exception e (ex-data e))))]
+    (is (= {:fixture :beta-eq-false :scope (:scope run) :ordinal 0 :input :forms}
+           (:compilation failure)))
+    (is (= :fidelity (:stage failure)))))
+
+
+(deftest test-d1-amended-replay-closed-store
+  ;; One static fixture only; no tagged execution and no independent verifier.
+  (let [fixture (first (filter #(= :beta-eq-false (:id %)) (:fixtures kernel-gate-corpus)))
+        run (fresh-admission-run :d1-replay)
+        compiled (kernel-compile-in-run run fixture true)
+        actual (cc3-oracle-binding compiled)
+        input (:reconstruction-input compiled)
+        expected {:root (:root (:tree actual))
+                  :source-hash (:canonical-source-hash compiled)
+                  :site-table (:site-table compiled)
+                  :metadata (:rows actual) :binding (:binding actual)
+                  :correspondence (:correspondence actual)
+                  :stamped-root (:root (:stamped-tree actual))
+                  :stamped-metadata (:stamped-rows actual)}
+        dir (str "target/test-d1-replay-" (random-uuid))
+        handle (file-store/open {:type :file :dir dir})]
+    (try
+      (is (true? (= expected (d1-check-reconstruction! (:id fixture) input expected))))
+      (let [addresses (try {:input (jing/materialize! handle input)
+                            :profile (jing/materialize! handle correspondence-text/profile)
+                            :expected (jing/materialize! handle expected)
+                            :root (vm/materialize-tree! handle (:tree actual))
+                            :stamped-root (vm/materialize-tree! handle (:stamped-tree actual))}
+                           (finally (file-store/close! handle)))
+            reopened (file-store/open {:type :file :dir dir})]
+        (try
+          (let [retained (jing/get reopened (:input addresses) ::missing)
+                expected* (jing/get reopened (:expected addresses) ::missing)]
+            (is (= correspondence-text/profile (jing/get reopened (:profile addresses) ::missing)))
+            (is (true? (= expected expected*)))
+            (is (true? (= expected* (d1-check-reconstruction! (:id fixture) retained expected*))))
+            (is (= (subvec (get-in actual [:tree :rows (:root addresses)]) 1)
+                   (jing/get reopened (:root addresses) ::missing)))
+            (is (every? (fn [[id row]]
+                          (= (subvec row 1) (jing/get reopened id ::missing)))
+                        (concat (get-in actual [:tree :rows])
+                                (get-in actual [:stamped-tree :rows])))))
+          (finally (file-store/close! reopened))))
+      (finally
+        (let [f (io/file dir)]
+          (when (.exists f) (run! #(.delete %) (reverse (file-seq f)))))))))
+
+
+(deftest test-d1-independent-site-declarations-and-source-hash
+  ;; Static pilot only. The verifier reads stamped AST expressions directly.
+  (let [fixture (first (filter #(= :beta-eq-false (:id %)) (:fixtures kernel-gate-corpus)))
+        compiled (kernel-compile-in-run (fresh-admission-run :d1-independent) fixture true)
+        constructors (correspondence-verifier/context-constructors context-forms)
+        expected (:site-table compiled)
+        actual (correspondence-verifier/site-declarations (:ast compiled) constructors)
+        diff (correspondence-verifier/declaration-differences expected actual)
+        input (:reconstruction-input compiled)
+        hash (correspondence-verifier/source-hash
+               (correspondence-text/read-one! (:id fixture) (:forms-edn input))
+               (correspondence-text/read-one! (:id fixture) (:call-edn input)))]
+    (is (= :compiled (:status compiled)))
+    (is (= (:canonical-source-hash compiled) hash))
+    (is (= {:missing [] :extra [] :different []} diff))
+    (let [produced (:binding (cc3-oracle-binding compiled))
+          rebuilt (correspondence-verifier/reconstruct-bindings
+                    (:compiled-ast compiled) (:ast compiled) (:admission-origin compiled))]
+      (is (= (count produced) (count rebuilt)))
+      (is (true? (= produced rebuilt))))
+    (when (and (seq expected) (= {:missing [] :extra [] :different []} diff))
+      (let [id (first (keys expected))
+            changed (assoc-in expected [id :arg-shapes] [:forged])]
+        (is (= :verifier/site-declarations
+               (try (correspondence-verifier/check-declarations! (:ast compiled) constructors changed)
+                    nil
+                    (catch Exception e (:rule (ex-data e))))))))))
+
+
+(defn- d1-spot-check-refusals!
+  "One mutated-input check per distinct static-gate refusal class, on the
+   fetched per-fixture input (real corpus data, not synthetics). Each
+   class must refuse at exactly its own stage; anything else reports
+   false and is never a pass."
+  [input]
+  (let [site-id (first (keys (:site-table input)))
+        mutations [[:inputs (assoc input :site-table nil)]
+                   [:source-hash (assoc input :source-hash "wrong")]
+                   [:site-declarations (assoc-in input [:site-table site-id :arg-shapes] [:forged])]
+                   [:bindings (assoc input :bindings {})]
+                   [:metadata (update input :metadata conj [:malformed])]]]
+    (into {}
+          (map (fn [[expected mutated]]
+                 (let [failure (try (correspondence-verifier/check-fixture! mutated) nil
+                                    (catch Exception e (ex-data e)))]
+                   [expected (= expected (:stage failure))]))
+               mutations))))
+
+
+(defn- d1-store-bytes
+  "Total bytes of every file currently in one durable store directory."
+  [dir]
+  (let [f (io/file dir)]
+    (if-not (.exists f)
+      0
+      (reduce + 0 (map (fn [x] (.length ^java.io.File x))
+                       (filter (fn [x] (.isFile ^java.io.File x))
+                               (file-seq f)))))))
+
+
+(defn- d1-heap-sampler!
+  "Sample process used heap every interval-ms until stopped; stopping
+   answers the maximum observed. Process-wide JVM figures, a ceiling
+   measurement aid, not an object-graph census."
+  [interval-ms]
+  (let [running (atom true)
+        peak (atom 0)
+        sample (fn []
+                 (let [rt (Runtime/getRuntime)]
+                   (swap! peak max (- (.totalMemory rt) (.freeMemory rt)))))
+        thread (Thread. (fn []
+                          (try
+                            (while @running
+                              (sample)
+                              (Thread/sleep interval-ms))
+                            (catch Exception _ (sample)))))]
+    (.start thread)
+    {:stop! (fn []
+              (reset! running false)
+              (.join thread (long (* 5 interval-ms)))
+              (sample)
+              @peak)}))
+
+
+(defn- d1-persist-and-check-fixture!
+  "Exercise one live admission through a temporary file store and the
+   independent static gate; with opts, also run one mutated-input check
+   per distinct gate refusal class. Does not produce a D1 record or a
+   verifier result."
+  [dir run fixture & [{:keys [spot-check? handle]}]]
+  (let [compiled (kernel-compile-in-run run fixture true)
+        _ (when-not (= :compiled (:status compiled))
+            (throw (ex-info "Fixture did not compile" {:fixture (:id fixture) :stage :compile})))
+        origin (:admission-origin compiled)
+        evidence (edn/read-string (slurp (io/resource "yang/latte_oracle/slice9_site_tables.edn")))
+        expected (get-in evidence [:fixtures (:id fixture)])
+        _ (when-not (and (= 1 (:version evidence)) (map? expected))
+            (throw (ex-info "Fixture evidence missing" {:fixture (:id fixture) :stage :evidence})))
+        producer (cc3-oracle-binding compiled)
+        independent (correspondence-verifier/reconstruct-bindings
+                      (:compiled-ast compiled) (:ast compiled) origin)
+        _ (when-not (= independent (:binding producer))
+            (throw (ex-info "Independent binding disagreement" {:fixture (:id fixture) :stage :bindings})))
+        snapshot {:fixture (:id fixture) :origin origin
+                  :bindings independent :metadata (:rows producer)
+                  :constructors (correspondence-verifier/context-constructors context-forms)}
+        own-store? (nil? handle)
+        handle (or handle (file-store/open {:type :file :dir dir}))
+        addresses (try (let [root (vm/materialize-tree! handle (:tree producer))
+                             stamped-root (vm/materialize-tree! handle (:stamped-tree producer))]
+                         {:evidence (correspondence/store-evidence! handle evidence)
+                          :input (jing/materialize! handle (:reconstruction-input compiled))
+                          :profile (jing/materialize! handle correspondence-text/profile)
+                          :snapshot (jing/materialize! handle (assoc snapshot :root root :stamped-root stamped-root))
+                          :root root :stamped-root stamped-root})
+                       (finally (when own-store? (file-store/close! handle))))
+        reopened (if own-store? (file-store/open {:type :file :dir dir}) handle)]
+    (try
+      (let [stored-evidence (jing/get reopened (:evidence addresses) ::missing)
+            stored-input (jing/get reopened (:input addresses) ::missing)
+            stored-snapshot (jing/get reopened (:snapshot addresses) ::missing)
+            stored-profile (jing/get reopened (:profile addresses) ::missing)
+            row (get-in stored-evidence [:fixtures (:id fixture)])
+            before-tree (correspondence-verifier/fetch-tree! reopened (:root stored-snapshot) 100000)
+            stamped-tree (correspondence-verifier/fetch-tree! reopened (:stamped-root stored-snapshot) 100000)
+            input (assoc stored-snapshot
+                         :before (vm/semantic-bytecode->ast before-tree)
+                         :stamped (vm/semantic-bytecode->ast stamped-tree)
+                         :forms (correspondence-text/read-one! (:id fixture) (:forms-edn stored-input))
+                         :call (correspondence-text/read-one! (:id fixture) (:call-edn stored-input))
+                         :source-hash (:canonical-source-hash row)
+                         :site-table (:site-table row))
+            _ (when-not (= correspondence-text/profile stored-profile)
+                (throw (ex-info "Profile missing or changed" {:fixture (:id fixture) :stage :profile})))
+            _ (when-not (= (:admission-origin stored-input) (:origin stored-snapshot))
+                (throw (ex-info "Retained admission differs" {:fixture (:id fixture) :stage :admission})))
+            replay-program (correspondence-text/read-one! (:id fixture) (:program-edn stored-input))
+            replay-options (correspondence-text/read-one! (:id fixture) (:options-edn stored-input))
+            _ (correspondence-verifier/check-replay-root!
+                (:id fixture) (yang/compile-program replay-program true replay-options) (:root stored-snapshot))
+            gate (correspondence-verifier/check-fixture! input)
+            site-id (first (keys (:site-table row)))
+            _ (when-not site-id
+                (throw (ex-info "No declaration to mutate" {:fixture (:id fixture) :stage :mutation})))
+            mutated (assoc-in input [:site-table site-id :arg-shapes] [:forged])
+            mutation (try (correspondence-verifier/check-fixture! mutated) nil
+                          (catch Exception e (ex-data e)))]
+        (when-not (= :site-declarations (:stage mutation))
+          (throw (ex-info "Mutated declaration was not refused" {:fixture (:id fixture) :stage :mutation})))
+        {:gate gate :mutation-stage (:stage mutation)
+         :admission-origin (:origin stored-snapshot) :evidence-address (:evidence addresses)
+         :rows {:pre-stamp (count (:rows before-tree))
+                :stamped (count (:rows stamped-tree))}
+         :sites (count (:site-table row))
+         :spot-checks (when spot-check? (d1-spot-check-refusals! input))})
+      (finally (when own-store? (file-store/close! reopened))))))
+
+
+(deftest test-d1-persisted-per-fixture-static-gate
+  ;; A single fixture and temporary store; this is not a published D1 record.
+  (let [fixture (first (filter #(= :beta-eq-false (:id %)) (:fixtures kernel-gate-corpus)))
+        run (fresh-admission-run :d1-r7-static)
+        dir (str "target/test-d1-r7-" (random-uuid))]
+    (try
+      (let [result (d1-persist-and-check-fixture! dir run fixture)]
+        (is (= {:fixture :beta-eq-false :status :static-pass} (:gate result)))
+        (is (= :site-declarations (:mutation-stage result)))
+        (is (jing/segment-address? (:evidence-address result)))
+        (is (= (:admission-origin result) [:source :program [(:scope run) 0] 0])))
+      (finally
+        (let [f (io/file dir)]
+          (when (.exists f) (run! #(.delete %) (reverse (file-seq f)))))))))
+
+
+(deftest test-d1-persisted-another-fixture-static-gate
+  (let [fixture (first (filter #(= :minimal-last (:id %)) (:fixtures kernel-gate-corpus)))
+        run (fresh-admission-run :d1-r7-second)
+        dir (str "target/test-d1-r7-second-" (random-uuid))]
+    (try
+      (let [result (d1-persist-and-check-fixture! dir run fixture)]
+        (is (= {:fixture :minimal-last :status :static-pass} (:gate result)))
+        (is (= :site-declarations (:mutation-stage result)))
+        (is (= (:admission-origin result) [:source :program [(:scope run) 0] 0])))
+      (finally
+        (let [f (io/file dir)]
+          (when (.exists f) (run! #(.delete %) (reverse (file-seq f)))))))))
+
+
+(defn- d1-corpus-batch!
+  "Run up to `limit` not-yet-recorded corpus fixtures — each under a
+   fresh recorded admission of this batch run, each through the full
+   per-fixture persisted static gate into the shared measurement store —
+   recording every outcome atomically into the outcomes file. Recorded
+   outcomes are final; not-yet-run fixtures stay `:not-run`. Refused
+   fixtures are recorded per stage with their evidence — never retried
+   into passes within this run. Returns the batch measurement summary.
+   This is run bookkeeping, not a D1 record or verification result."
+  ([outcomes-file store-dir] (d1-corpus-batch! outcomes-file store-dir nil))
+  ([outcomes-file store-dir {:keys [limit spot-check?]}]
+   (let [corpus (:fixtures kernel-gate-corpus)
+         progress (correspondence-batch/read-progress outcomes-file)
+         outcomes (:outcomes progress)
+         ids (mapv :id corpus)
+         spot (atom (boolean spot-check?))]
+     (when-not (= (set ids) (set (keys outcomes)))
+       (throw (ex-info "Outcomes record does not cover the corpus"
+                       {:rule :correspondence/outcome-coverage
+                        :recorded (count (keys outcomes))
+                        :corpus (count ids)})))
+     (let [pending-before (count (filter (fn [id] (= :not-run (:status (get outcomes id)))) ids))
+           todo (take (or limit pending-before)
+                      (filter (fn [fixture] (= :not-run (:status (get outcomes (:id fixture)))))
+                              corpus))
+           run (fresh-admission-run :d1-r8-corpus)
+           sampler (d1-heap-sampler! 5)
+           batch-handle (file-store/open {:type :file :dir store-dir})
+           started (System/nanoTime)
+           results (try (mapv (fn [fixture]
+                                (let [id (:id fixture)
+                                      before-bytes (d1-store-bytes store-dir)
+                                      fixture-started (System/nanoTime)
+                                      elapsed (fn [] (quot (- (System/nanoTime) fixture-started) 1000000))]
+                                  (try
+                                    (let [checked (d1-persist-and-check-fixture!
+                                                    store-dir run fixture
+                                                    {:spot-check? @spot :handle batch-handle})
+                                          _ (when (seq (:spot-checks checked)) (reset! spot false))
+                                          outcome {:status :pass
+                                                   :admission-origin (:admission-origin checked)
+                                                   :storage-bytes (- (d1-store-bytes store-dir) before-bytes)
+                                                   :elapsed-ms (elapsed)
+                                                   :rows (:rows checked)
+                                                   :sites (:sites checked)
+                                                   :mutation-refusal (:mutation-stage checked)}]
+                                      (correspondence-batch/record! outcomes-file id outcome)
+                                      (println "d1-corpus" id :pass (:elapsed-ms outcome) "ms"
+                                               (:storage-bytes outcome) "bytes" (:sites outcome) "sites")
+                                      (assoc outcome :spot-checks (:spot-checks checked)))
+                                    (catch Exception e
+                                      (let [data (ex-data e)
+                                            message (ex-message e)
+                                            outcome {:status :refused
+                                                     :stage (or (:stage data) :harness)
+                                                     :rule (:rule data)
+                                                     :detail (select-keys
+                                                               data [:blocked-by :phase :limit
+                                                                     :address :site :defect])
+                                                     :exception (when e (str (.getClass e)))
+                                                     :message (when message
+                                                                (subs message 0 (min 160 (count message))))
+                                                     :elapsed-ms (elapsed)}]
+                                        (correspondence-batch/record! outcomes-file id outcome)
+                                        (println "d1-corpus" id :refused (:stage outcome)
+                                                 (:elapsed-ms outcome) "ms")
+                                        outcome)))))
+                              todo)
+                        (finally (file-store/close! batch-handle)))
+           peak ((:stop! sampler))
+           batch-elapsed (quot (- (System/nanoTime) started) 1000000)]
+       {:run-scope (:scope run)
+        :pending-before pending-before
+        :processed (count results)
+        :results results
+        :summary (correspondence-batch/summary
+                   (correspondence-batch/read-progress outcomes-file))
+        :store-bytes (d1-store-bytes store-dir)
+        :peak-heap-bytes peak
+        :batch-elapsed-ms batch-elapsed}))))
+
+
+(deftest test-d1-corpus-static-gates
+  ;; r8: the corpus-run driver. Scratch mode (no D1_CORPUS_OUTCOMES)
+  ;; exercises the machinery on three corpus fixtures through one shared
+  ;; measurement store; corpus mode (env-configured) runs one batch of
+  ;; the real run, recording outcomes atomically into the run record.
+  ;; The outcomes file IS the progress record: recorded outcomes are
+  ;; final, an interruption loses at most the in-flight fixture, and
+  ;; `:not-run` is never a pass. This is run bookkeeping, not a D1
+  ;; record and not a verification result.
+  (let [corpus (:fixtures kernel-gate-corpus)
+        run-config-file (io/file "target/d1-corpus-run.edn")
+        run-config (when (.exists run-config-file)
+                     (edn/read-string (slurp run-config-file)))
+        setting (fn [name]
+                  (or (get run-config (keyword name))
+                      (System/getProperty name)
+                      (System/getenv name)))
+        env-outcomes (setting "D1_CORPUS_OUTCOMES")
+        env-store (setting "D1_CORPUS_STORE")
+        env-batch (let [batch (setting "D1_CORPUS_BATCH")]
+                    (cond (int? batch) batch
+                          (string? batch) (Integer/parseInt batch)
+                          :else nil))
+        env-spot (= "1" (setting "D1_CORPUS_SPOT"))
+        scratch? (nil? env-outcomes)
+        outcomes-file (or env-outcomes
+                          (str "target/test-d1-corpus-" (random-uuid) ".edn"))
+        store-dir (or env-store
+                      (str "target/test-d1-corpus-store-" (random-uuid)))
+        ids (mapv :id corpus)]
+    (try
+      (when-not (.exists (io/file outcomes-file))
+        (correspondence-batch/initialize! outcomes-file ids))
+      (let [progress (correspondence-batch/read-progress outcomes-file)]
+        (is (= (set ids) (set (keys (:outcomes progress)))))
+        (is (true? (:not-a-verification-result progress))))
+      (let [batch (d1-corpus-batch! outcomes-file store-dir
+                                    {:limit (if scratch? 2 env-batch)
+                                     :spot-check? (boolean (or scratch? env-spot))})
+            summary (:summary batch)]
+        (is (= (:fixture-count summary)
+               (+ (:pass summary) (:refused summary) (:not-run summary))))
+        (is (if (pos? (:pending-before batch))
+              (pos? (:processed batch))
+              (zero? (:processed batch))))
+        (is (= (:processed batch) (count (:results batch))))
+        (is (every? #(or (= :pass (:status %))
+                         (and (= :refused (:status %)) (keyword? (:stage %))))
+                    (:results batch)))
+        (is (pos? (:store-bytes batch)))
+        (is (pos? (:peak-heap-bytes batch)))
+        (is (every? (fn [result]
+                      (or (nil? (:spot-checks result))
+                          (every? val (:spot-checks result))))
+                    (:results batch)))
+        (when scratch?
+          (is (= 2 (:processed batch)))
+          (is (= (- (count ids) 2) (:not-run summary)))
+          (is (some (fn [r] (seq (:spot-checks r))) (:results batch)))
+          (is (thrown? Exception
+                (correspondence-batch/record!
+                  outcomes-file (first ids)
+                  {:status :refused :stage :inputs})))
+          (let [rest-batch (d1-corpus-batch! outcomes-file store-dir {:limit 1})]
+            (is (= 1 (:processed rest-batch)))
+            (is (= (- (count ids) 3) (:not-run (:summary rest-batch))))
+            (is (= 3 (+ (:pass (:summary rest-batch))
+                        (:refused (:summary rest-batch))))))))
+      (finally
+        (when scratch?
+          (let [f (io/file outcomes-file)]
+            (when (.exists f) (.delete f))))
+        (when (nil? env-store)
+          (let [f (io/file store-dir)]
+            (when (.exists f)
+              (run! #(.delete %) (reverse (file-seq f))))))))))
