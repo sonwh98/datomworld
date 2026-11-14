@@ -844,7 +844,8 @@
 ;; Expressions
 ;; =============================================================================
 
-(declare lower lower-assign-value lower-assign-target lower-lambda lower-destructure pattern-of)
+(declare lower lower-assign-value lower-assign-target lower-lambda lower-destructure pattern-of
+         eval-runtime-node)
 
 
 (def ^:private binary-ops
@@ -1284,6 +1285,22 @@
           (app* 'php/include-computed (lower ctx operand) (u/lit kind) scope frame)))))
 
 
+(defn- lower-eval
+  [ctx n operand]
+  (when-not (:eval-service? ctx) (unsupported! n :eval))
+  (let [answer (core/gen "eval" n)
+        frame (cond (:fn ctx) (u/v '%fn) (:module? ctx) (u/v '%ctx) :else (u/lit :php/null))]
+    (u/let1 answer (app* 'eval.compiler/compile (app* 'php/to-string (lower ctx operand)))
+            (u/then (app* 'require (app* 'get (u/v answer) (u/lit :yang.compile/module)))
+                    (u/app (app* 'code/entry
+                                 (app* 'get (u/v answer) (u/lit :yang.compile/module))
+                                 (app* 'get (u/v answer) (u/lit :yang.compile/active-address))
+                                 (u/lit 'entry))
+                           (u/v (if (:eval-unit? ctx) '%runtime '%eval-runtime))
+                           (dynamic-scope-node ctx) frame
+                           (u/v (if (:eval-unit? ctx) '%hooks '%eval-hooks)))))))
+
+
 (defn- lower-prefix
   [ctx n [op operand :as ks]]
   (let [t (:type op)]
@@ -1301,6 +1318,7 @@
       "Exit" (app* 'php/exit (if operand (lower ctx operand) (u/lit 0)))
       "OpenRoundBracket" (lower-cast ctx n ks)
       "Throw" (app* 'php/throw-value (lower ctx operand))
+      "Eval" (lower-eval ctx n (first (core/rules ctx n "expression")))
       "Clone" (app* 'php/clone-obj (lower ctx operand) (cc-node ctx))
       "List" (lower-destructure ctx n
                                 (pattern-of ctx n (first (core/rules ctx n "assignmentList")))
@@ -1863,7 +1881,9 @@
                           (args-vector (map #(lower ctx (first (core/rules ctx % "expression")))
                                             (core/rules ctx arguments "actualArgument")))
                           (dynamic-scope-node ctx))
-          "eval" (unsupported! n :eval)
+          "eval" (let [as (core/rules ctx arguments "actualArgument")]
+                   (when (not= 1 (count as)) (unsupported! n :argument-form))
+                   (lower-eval ctx n (first (core/rules ctx (first as) "expression"))))
           (let [f (core/gen "f" n)
                 by-ref (when-not user-lc
                          (:by-ref (get builtins/supported lc)))]
@@ -3694,13 +3714,14 @@
 
 (defn- context
   ([packet] (context packet {}))
-  ([packet {:keys [path linked?], :or {path entry-path}}]
+  ([packet {:keys [path linked? eval-service?], :or {path entry-path}}]
    (let [pk (p/validate! packet {:diagnostic-ns diagnostic-ns})
          ctx {:pk pk,
               :analysis (scope/analyze pk),
               :loops [],
               :unit {:path path},
               :linked? (boolean linked?),
+              :eval-service? (boolean eval-service?),
               :warnings (atom []),
               :ticks (atom 0)}
          ctx (merge ctx (unit-layout ctx))]
@@ -3813,9 +3834,11 @@
 (defn eval-runtime-node
   "Build the caller's eval runtime environment from the prelude inventory."
   []
-  (reduce (fn [node name] (app* 'assoc node (u/lit name) (u/v name)))
+  (reduce (fn [node names]
+            (apply app* 'assoc node (mapcat (fn [name] [(u/lit name) (u/v name)]) names)))
           (u/lit {})
-          (sort (filter #(= "php" (namespace %)) (map first prelude/definitions)))))
+          (partition-all 16 (sort (filter #(= "php" (namespace %))
+                                          (map first prelude/definitions))))))
 
 
 (defn eval-entry
@@ -3823,8 +3846,9 @@
    variable scope, method context and safepoint hooks. It does not initialize
    a runtime or own the borrowed scope. Publication is the caller's job."
   ([packet] (eval-entry packet {}))
-  ([packet {:keys [path]}]
-   (let [ctx (assoc (context packet {:path (or path entry-path) :linked? true})
+  ([packet {:keys [path eval-service?]}]
+   (let [ctx (assoc (context packet {:path (or path entry-path) :linked? true
+                                     :eval-service? eval-service?})
                     :module? true :eval-unit? true)
          body (u/let1 '%eval-result (unit-node ctx true)
                       (u/if-node (app* '= (u/v '%eval-result) (u/lit :php/no-return))
@@ -3849,11 +3873,12 @@
 
 (defn eval-module-spec
   "A code-only linker module exporting an eval entry under `name`."
-  [registry name packet]
-  (let [ast (core-module/module-tree [(u/def! 'entry (:ast (eval-entry packet)))])]
-    {:name name, :ast ast, :exports '#{entry}, :requires {}
-     :primitives (core-module/free-primitives :yang.php/refusal :yang.php/undeclared-free
-                                              registry #{} ast)}))
+  ([registry name packet] (eval-module-spec registry name packet {}))
+  ([registry name packet options]
+   (let [ast (core-module/module-tree [(u/def! 'entry (:ast (eval-entry packet options)))])]
+     {:name name, :ast ast, :exports '#{entry}, :requires {}
+      :primitives (core-module/free-primitives :yang.php/refusal :yang.php/undeclared-free
+                                               registry #{} ast)})))
 
 
 (def option-keys
@@ -3862,7 +3887,8 @@
    stream and composes its sealed reference as `run-main`'s second operand
    (`:request-node`, an opaque UAST node) at the composition level — the
    record itself reaches the runtime only when `run-main` consumes it."
-  [:prelude :path :paths :class-map :request-node :response-node :diag-node])
+  [:prelude :path :paths :class-map :request-node :response-node :diag-node
+   :eval-service? :eval-budget?])
 
 
 (defn- path-map-node
@@ -3898,7 +3924,8 @@
   on. Absent, `run-main` runs with two operands and the cells
   accumulate."
   ([packet] (lower-program packet {}))
-  ([packet {:keys [prelude paths path class-map request-node response-node diag-node],
+  ([packet {:keys [prelude paths path class-map request-node response-node diag-node
+                   eval-service? eval-budget?],
             :or {prelude :bundled}}]
    (when-not (contains? #{:bundled :linked} prelude)
      (throw (ex-info "unknown PHP prelude profile"
@@ -3907,7 +3934,8 @@
                       :prelude prelude})))
    (let [linked? (= :linked prelude)
          request-node (or request-node (u/sexp->uast :php/null))
-         ctx (context packet {:path (or path entry-path), :linked? linked?})
+         ctx (context packet {:path (or path entry-path), :linked? linked?
+                              :eval-service? eval-service?})
          ;; `run-main`'s second operand arrives composed by the harness from
          ;; the attached request stream: production initialization consumes
          ;; the record from the stream at runtime and seeds the superglobals,
@@ -3919,7 +3947,20 @@
                 (app* 'php/run-main (u/lam [] (unit-node ctx)) request-node
                       (or response-node (u/sexp->uast :php/null))
                       (or diag-node (u/sexp->uast :php/null)))
-                (app* 'php/run-main (u/lam [] (unit-node ctx)) request-node))]
+                (app* 'php/run-main (u/lam [] (unit-node ctx)) request-node))
+         main (if eval-service?
+                (u/seq-nodes
+                  [(app* 'require (u/lit 'eval.compiler))
+                   (app* 'require (u/lit 'code))
+                   (u/let1 '%eval-runtime (eval-runtime-node)
+                           (u/let1 '%eval-hooks
+                                   (reduce (fn [m [k v]] (app* 'assoc m (u/lit k) v))
+                                           (u/lit {})
+                                           [[:loop (if eval-budget? (u/v 'php.sp/loop) (u/lam [] (u/lit :php/null)))]
+                                            [:call (if eval-budget? (u/v 'php.sp/call) (u/lam [] (u/lit :php/null)))]
+                                            [:line (u/v 'php.sp/line)]])
+                                   main))])
+                main)]
      {:ast (u/mark-tails
              (if linked?
                (u/seq-nodes (concat [(app* 'require (u/lit 'yang.call))

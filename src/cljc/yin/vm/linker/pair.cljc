@@ -156,6 +156,9 @@
    (yin.vm.linker.dht.head.md 5.6): a name that is `:absent` while one of
    them has no installed head is pending on it, not refused.
 
+   `attempt-budget`, optional, bounds content-drive rounds per attempt;
+   absent, it defaults to `attempt-budget`.
+
    `derivation` is the composition's derivation policy (section 8.1) for
    the manifest links it serves from a content source: `:verifying`, the
    default, or `:trusted`, which only a composition that is its own
@@ -192,7 +195,7 @@
    `:yin.link/canonical`.  Its reasons are the composition's, as the
    admission interpreter's are.  Refused with `content-client`."
   [{:keys [name-env content-store content-client dht? principals key
-           follow derivation admission stage] :as opts}]
+           follow derivation admission stage attempt-budget] :as opts}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
@@ -200,11 +203,16 @@
     (throw (ex-info (str "a stage writes its output into a local store: "
                          "content-client is refused with it")
                     {:stage stage})))
+  (when (and (some? attempt-budget)
+             (not (and (integer? attempt-budget) (pos? attempt-budget))))
+    (throw (ex-info "attempt-budget must be a positive integer"
+                    {:attempt-budget attempt-budget})))
   (when (and dht? (or content-store content-client))
     (throw (ex-info (str "a dht:<dir> index store is the link source; "
                          "content-store and content-client are refused with it")
                     {:dht? dht?})))
   {:name-env (or name-env {})
+   :attempt-budget attempt-budget
    :principals (vec (distinct (cond-> (vec principals)
                                 key (conj (:public key)))))
    :holder (:yin.admit/subject (admission/context
@@ -243,8 +251,8 @@
 
 
 (defn- budget!
-  [st]
-  (when (>= (or (::round st) 0) attempt-budget)
+  [st limit]
+  (when (>= (or (::round st) 0) limit)
     (throw (ex-info "Link attempt budget exhausted" {::budget true}))))
 
 
@@ -287,7 +295,7 @@
                              :cursor (newest responses)}
                    :formats formats})
          :drive (fn [st]
-                  (budget! st)
+                  (budget! st (or (:attempt-budget source) attempt-budget))
                   (assoc st
                          ::round (inc (or (::round st) 0))
                          ::server (drain-server (:store content) requests
@@ -299,7 +307,7 @@
       {:state (linker/link-state {:content (:client content)
                                   :formats formats})
        :drive (fn [st]
-                (budget! st)
+                (budget! st (or (:attempt-budget source) attempt-budget))
                 (assoc st ::round (inc (or (::round st) 0))))})))
 
 

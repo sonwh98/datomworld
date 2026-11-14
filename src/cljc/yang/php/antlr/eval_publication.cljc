@@ -3,7 +3,8 @@
   (:require [dao.jing :as jing]
             [yang.php.antlr.lower :as lower]
             [yang.php.antlr.siteset :as siteset]
-            [yin.vm.linker.publish :as publish]))
+            [yin.vm.linker.publish :as publish]
+            [yin.vm.module :as module]))
 
 
 (defn publish!
@@ -11,7 +12,9 @@
    Retain the coordinator's identity and bind its site set to the manifest."
   [store registry name prepared]
   (if (= :yang.cst/ok (get-in prepared [:cst :yang.cst/outcome]))
-    (let [spec (lower/eval-module-spec registry name (:cst prepared))
+    (let [spec (lower/eval-module-spec registry name (:cst prepared)
+                                       {:eval-service? (boolean (module/module-entry (:modules registry)
+                                                                                     'eval.compiler))})
           result (publish/publish-module! store spec)]
       (if (= :refused (:status result))
         result
