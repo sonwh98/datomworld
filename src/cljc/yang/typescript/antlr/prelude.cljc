@@ -4363,8 +4363,11 @@
 
 (def module-uast
   "The module tree: one application whose operands are the definitions, in
-   order, applied to a lambda that returns nil."
-  (core/module-tree module-definitions []))
+   order, applied to a lambda that returns nil. C1 finalized, like every
+   published production tree: its `:yang/call-site` markers publish beside
+   its manifest (see `yin.vm.linker.publish`), never inside it, so the
+   manifest keeps schema 1 and its address does not move."
+  (u/annotate-call-sites (core/module-tree module-definitions [])))
 
 
 (def module-exports
