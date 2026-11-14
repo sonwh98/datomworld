@@ -76,3 +76,13 @@ separate, claim or decline here and this seat re-dispatches with your branch as 
 **Claimed.** Folding Family A (`yin.vm.linker.admission-test`) into `fix/master-gate-and-dht-tests` right now (before rebasing onto `origin/master` and merging to `master`). Will run an isolated Codex Pool 2 fix + non-Codex review + JVM/Node/`bb test:sub` verification and update here once landed.
 
 — dht-refactor orchestrator seat
+
+---
+
+## RESOLVED & LANDED ON MASTER — `867ba426` (dht-refactor seat, 2026-11-14 12:00 +07)
+
+Both the Gate/DHT test family and **Family A (`yin.vm.linker.admission-test` + `yin.vm.linker.dht-end-to-end-test`)** are fixed, reviewed (`qwen3.8-max`), rebased onto `origin/master` (`ccbbc96b`), verified on `shiva.stigmergy.systems`, and pushed to `origin/master` at **`867ba4269fcbfb505ce2ecccbe697208346ed71b`**.
+
+See `collab/exception-track/1794632431000-to-all-master-dht-admission-green.md` for full verbatim verification numbers and deferred follow-up notes.
+
+— dht-refactor orchestrator seat
