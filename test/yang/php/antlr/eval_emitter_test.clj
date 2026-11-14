@@ -129,3 +129,31 @@
       (is (= 255 (:php/status result)))
       (is (= [[64 "Cannot redeclare occupied()"]]
              (mapv (juxt :errno :message) (:php/diag result)))))))
+
+
+(deftest ^{:oracle :pending} deferred-class-collision-retains-later-early-class
+  ;; Hand-derived from the atomicity ruling; PHP oracle remains pending.
+  (let [setup (invoke-entry (str "class Taken {} register_shutdown_function(function () { "
+                                 "echo class_exists('Before', false) ? 'B' : '-'; "
+                                 "echo class_exists('After', false) ? 'A' : '-'; });"))
+        collision (invoke-entry "class Before {} class Taken {} class After {} echo 'body';")
+        main (u/app (u/v 'php/run-main) (u/lam [] (u/then setup collision)) (u/lit :php/null))
+        result (harness/run-vms (harness/host-registry) (u/then prelude/uast main))]
+    (doseq [backend [:ast-walker :semantic :stack :register]]
+      (is (= "BAPHP Fatal error:  Cannot declare class Taken, because the name is already in use"
+             (get result backend))
+          (pr-str [backend result])))))
+
+
+(deftest ^{:oracle :pending} mixed-declarations-before-duplicate-function
+  (let [setup (invoke-entry (str "register_shutdown_function(function () { "
+                                 "echo class_exists('First', false) ? 'C' : '-'; "
+                                 "echo function_exists('before') ? 'B' : '-'; "
+                                 "echo class_exists('After', false) ? 'A' : '-'; });"))
+        collision (invoke-entry (str "class First {} function before() {} function repeat() {} "
+                                     "function REPEAT() {} class After {}"))
+        main (u/app (u/v 'php/run-main) (u/lam [] (u/then setup collision)) (u/lit :php/null))
+        result (harness/run-vms (harness/host-registry) (u/then prelude/uast main))]
+    (doseq [backend [:ast-walker :semantic :stack :register]]
+      (is (= "CB-PHP Fatal error:  Cannot redeclare REPEAT()" (get result backend))
+          (pr-str [backend result])))))
