@@ -403,7 +403,10 @@ that the committed output lists exactly the 142/140/141 files above, and
 that the two traversals (the committed tool and the r3 reviewer's method)
 agree, recorded in the slice report. Until that lands, the totals here are
 R. (r11 note: post-H2, with `yin.vm.integer.host` deleted and the five profile
-files added to the closure, the totals are 146/144/145, 137 shared, 159 union).
+files added to the closure, the totals are 146/144/145, 137 shared, 159 union;
+post-PHP ANTLR census re-record: 163/161/159, 152 shared, 175 union; post
+`yin.repl` DHT decoupling: 151/149/147, 141 shared, 161 union, matching
+`docs/design/host-boundary/closure-{clj,cljs,cljd}.edn` and `gate_test.clj`).
 
 Classification of every file in the closure that has any host contact (the
 remaining files have none beyond §3.3 syntax; the committed H0 output marks
