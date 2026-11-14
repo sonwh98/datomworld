@@ -1893,6 +1893,22 @@
          (js/get-prop js.rt/global name)
          (js/throw-reference-error
            (js/str-concat name {:js/str " is not defined"}))))]
+    [js/global-set
+     ;; Assignment to a name no lexical binding reaches: SetMutableBinding of
+     ;; a STRICT object environment record (ES2022 §9.1.1.3.3) over the heap
+     ;; global object (design §3.1.4 ruling 4, §3.7). HasBinding is false, so
+     ;; strict code refuses the implicit global with a ReferenceError naming
+     ;; it. Otherwise the write is the global object's own [[Set]] with
+     ;; itself as receiver: an accessor slot runs its setter and never its
+     ;; getter, an existing writable data slot is updated with its other
+     ;; attributes preserved, and a non-writable one (`undefined`) is a
+     ;; TypeError. No read of the old value — assigning a reference resolves
+     ;; the name without getting it.
+     (fn [name v]
+       (if (js/has-property js.rt/global name)
+         (js/put-value js.rt/global name v)
+         (js/throw-reference-error
+           (js/str-concat name {:js/str " is not defined"}))))]
     [js/global-typeof
      (fn [name]
        (if (js/has-property js.rt/global name)

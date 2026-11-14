@@ -10,7 +10,9 @@
      `:js/tdz`; hoisted function declarations are initialized before any
      statement of their scope. Reads are `cell/get` (`var`, parameter,
      function), `js/lexical-get` (TDZ-capable) or `js/global-get` (a free
-     name); a write is `cell/set!`, `js/const-assign!` for a `const`.
+     name); a write is `cell/set!`, `js/const-assign!` for a `const`, and
+     `js/global-set` for a free name — the global object's strict
+     SetMutableBinding, which reads no value and so invokes no getter.
    - Numbers are float64 content at the producer: the literal `1` is
      `(cbor/float64 1.0)`. Strings are `{:js/str s}` when well-formed UTF-16
      and `{:js/units [u ...]}` otherwise, normalized here the way
@@ -560,16 +562,18 @@
         v (u/v value-sym)]
     (cond
       (not= :cell (:kind r))
-      ;; strict mode: a binding-less name is never assignable — the correct
-      ;; refusal is a ReferenceError naming the variable (design §3.1.4,
-      ;; implicit globals refused). The old emission mislabeled the class as
-      ;; TypeError "read only property" and misstated the situation; declared
-      ;; global writes belong to the script-goal slice (design §3.7), not to
-      ;; a silent mislabel here. The stray js/global-get read stays: for a
-      ;; truly absent global it is itself the ES-correct ReferenceError.
-      (u/then (app* 'js/global-get (u/lit (jstr nm)))
-              (app* 'js/throw-reference-error
-                    (u/lit (jstr (str nm " is not defined")))))
+      ;; No lexical binding reaches this name, so the write lands on the
+      ;; global object's own environment record: a strict SetMutableBinding
+      ;; (ES2022 §9.1.1.3.3, design §3.1.4 ruling 4, §3.7). Strict mode
+      ;; refuses to CREATE an implicit global, it does not refuse to update a
+      ;; global that is already there — `globalThis.saved = null; saved = 7;`
+      ;; writes even at module goal. A non-writable existing global
+      ;; (`undefined`) is a TypeError and a name nothing binds at all a
+      ;; ReferenceError naming it. No `js/global-get` read: assignment
+      ;; resolves the reference without getting its value, so a global
+      ;; accessor's getter must stay silent while its setter runs. Declaring
+      ;; such a global (a script-goal `var`) is design §3.7's deferred slice.
+      (app* 'js/global-set (u/lit (jstr nm)) v)
       (:const? r) (u/then (app* 'js/lexical-get (u/v (symbol nm)) (u/lit (jstr nm)))
                           (app* 'js/const-assign!))
       (:tdz? r) (u/then (app* 'js/lexical-get (u/v (symbol nm)) (u/lit (jstr nm)))
