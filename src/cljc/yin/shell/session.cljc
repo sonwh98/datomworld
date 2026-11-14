@@ -121,7 +121,7 @@
              (repl/recheck-on-tick engine
                                    (completion/completion-events session events)))
            session (assoc session :engine engine')
-           text (or next-text text)]
+           text (if next-text (str text next-text) text)]
        (if (and (:progress? served) (:pending-run engine') (> left 1))
          (recur session text (dec left) events)
          [session text])))))
