@@ -62,11 +62,15 @@
 (def ^:private step-budget
   "The per-measurement instruction budget. Low enough that a non-terminating
    fixture (a prelude `%capture` or recursion-unwind bug) is detected rather
-   than spinning forever, high enough for ordinary n=256 iteration. The
-   de Bruijn `stack` backend runs substantially more instructions per source
-   iteration than `semantic`/`register`; a stack-backend non-termination at
-   n=256 is itself recorded (as `:budget-exhausted`), never silently masked."
-  1000000)
+   than spinning forever, high enough for the heaviest admitted fixture to
+   complete: the exception-heavy PHP `caught-failure`/`try-finally` fixtures
+   do one throw/catch/finally round per source iteration, and the de Bruijn
+   `stack` backend runs ~1.7x more instructions per source iteration than
+   `semantic`/`register`. The measured ceiling is ~6.8M steps (php
+   `caught-failure` n=256 on `stack`), so 10M completes every fixture at
+   n=256 with headroom while a genuine non-termination is still recorded as
+   `:budget-exhausted`, never silently masked."
+  10000000)
 
 
 (def ^:private base-opts
