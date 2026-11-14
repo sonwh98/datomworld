@@ -616,7 +616,8 @@
                                             :publisher-key a
                                             :principals [(:public b)]}
                                            opts))
-       (assoc :node (:node w))
+       (assoc :node (:node w)
+              :session (session/transport-state (:node w) a))
        (assoc-in [:link-source :content] {:kind :dht})
        (#(assoc % :linker
                 (assoc (link/make (:link-source %)
@@ -624,26 +625,31 @@
                        :pair (get-in % [:linker :pair])))))))
 
 
+(defn- session-of [state]
+  (assoc (:session state) :node (:node state)
+         :engine (dissoc state :node :session)))
+
+
+(defn- state-of [s]
+  (assoc (:engine s) :node (:node s) :session (dissoc s :engine)))
+
+
 (defn- tick! [state events]
-  (let [[s text] (session/recheck-on-tick
-                   (session/make (dissoc state :node) (:node state) a) events)]
-    (let [next (assoc (:engine s) :node (:node s))]
-      [(if (= state next) state next) text])))
+  (let [[s text] (session/recheck-on-tick (session-of state) events)]
+    [(state-of s) text]))
 
 
 (defn- type!
   [state line]
-  (let [node (:node state)
-        [state text] (repl/eval-input (dissoc state :node) line)
-        state (assoc state :node node)]
+  (let [[engine text] (repl/eval-input (dissoc state :node :session) line)
+        state (assoc engine :node (:node state) :session (:session state))]
     (loop [state state text text left repl/link-round-budget]
-      (let [{s :session progress? :progress?} (session/serve (session/make (dissoc state :node) (:node state) a))
-            state (assoc (:engine s) :node (:node s))]
+      (let [{s :session progress? :progress?} (session/serve (session-of state))
+            state (state-of s)]
         (if (and progress? (pos? left) (:pending-run state))
-          (let [[s t] (session/recheck-pending (session/make (dissoc state :node) (:node state) a) true)]
-            (recur (assoc (:engine s) :node (:node s)) (or t text) (dec left)))
+          (let [[s t] (session/recheck-pending (session-of state) true)]
+            (recur (state-of s) (if t (str text t) text) (dec left)))
           [state text])))))
-
 
 (defn- require!
   [state n]
@@ -731,9 +737,8 @@
       (let [w (world)
             allow! (fn [state]
                      (let [id (pending-admission state)]
-                       (first (settle (first (tick!
-                                               (answer-at! state (allow id))
-                                               []))
+                       (first (settle (first (tick! (answer-at! state (allow id))
+                                                     []))
                                       #(or (nil? (:pending-run %))
                                            (not= id (pending-admission %)))))))
             [state _] (require! (shell w vm-type {:admission :external})
@@ -849,8 +854,7 @@
             "no response for the retired request"))
       (testing "a late allow for the retired id loads, prints and parks
                 nothing"
-        (let [[state' text] (tick!
-                              (answer-at! state (allow id)) [])]
+        (let [[state' text] (tick! (answer-at! state (allow id)) [])]
           (is (nil? text))
           (is (nil? (:pending-run state')))
           (is (nil? (status (:node state') w 'their.m)))
@@ -863,9 +867,7 @@
         allow! (fn [state]
                  (let [id (pending-admission state)]
                    (is (some? id) "parked on a question")
-                   [(first (tick!
-                             (answer-at! state (allow id))
-                             []))
+                   [(first (tick! (answer-at! state (allow id)) []))
                     id]))
         past (fn [id]
                #(or (nil? (:pending-run %))
@@ -980,12 +982,12 @@
     (is (str/includes? text "pending") text)
     (is (= 0 (second id)))
     (testing "an unrelated load event re-checks nothing"
-      (let [[state' text'] (tick!
-                             state
-                             [{:dao.space.dht/event :loaded
-                               :manifest (address w 'own2.m)}])]
-        (is (identical? state state'))
-        (is (nil? text'))))
+      (let [[state' text'] (tick! state
+                                 [{:dao.space.dht/event :loaded
+                                   :manifest (address w 'own2.m)}])]
+        (is (= state state'))
+        (is (nil? text'))
+        (is (= (:pending-run state) (:pending-run state')))))
     (let [[state text] (tick! (answer-at! state (allow id)) [])]
       (is (some? text))
       (is (nil? (:pending-run state)))
@@ -1284,7 +1286,7 @@
     (is (some? (:pending-run successor)))
     (is (= (get-in state [:linker :admission])
            (get-in successor [:linker :admission])))
-    (is (str/includes? text "require still pending"))
+    (is (str/includes? text "require pending"))
     (is (= 0 (get-in successor [:pending-run :checks]))))
 
 
@@ -1502,8 +1504,7 @@
     (is (not-any? #{(first id)} (map :yin.link/id (shell-responses state))))
     (let [responses (shell-responses state)
           vm (:vm state)
-          [later text] (tick!
-                         (answer-at! state (allow id)) [])]
+          [later text] (tick! (answer-at! state (allow id)) [])]
       (is (nil? text))
       (is (= vm (:vm later)))
       (is (nil? (:pending-run later)))

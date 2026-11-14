@@ -159,7 +159,7 @@
         transport (assoc (:session s) :node (:dht s) :engine engine)
         [transport resumed] (session/recheck-after-input transport)
         s (assoc (:engine transport) :session (dissoc transport :engine) :dht (:node transport))]
-    [(assoc-in w [:shells k] s) (or resumed text)]))
+    [(assoc-in w [:shells k] s) (if (and text resumed) (str text resumed) (or resumed text))]))
 
 
 (defn- head-of
@@ -225,9 +225,9 @@
                     (shell-at (:net w) dir port [2 3 1]
                               {:manifest manifest :principals principals}))
         w (run-world w (+ (:now w) 60000) (str (name k) " did not hydrate")
-                     #(repl.dht/admitting? (assoc (:session (get-in % [:shells k])) :engine (get-in % [:shells k]))))]
+                     #(repl.dht/admitting? (:session (get-in % [:shells k]))))]
     (is (nil? (:failure w)) (:failure w))
-    (is (nil? (repl.dht/refusal (assoc (:session (get-in w [:shells k])) :engine (get-in w [:shells k])))))
+    (is (nil? (repl.dht/refusal (:session (get-in w [:shells k])))))
     w))
 
 
