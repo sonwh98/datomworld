@@ -1,0 +1,41 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+The work is committed (`545edc41`) and pushed. Here is the completion report.
+
+---
+
+Completed-GMT: 2026-11-13 19:04:00 GMT
+Completed-Local: 2026-11-14 02:04:00 +07 (+0700)
+
+**PROBE LANDED: `545edc41` | constant matrix: D(16)=D(64)=D(256) holds 144/144 (depth flat); completion 131/144 | recursive: recorded**
+
+## What landed (branch `exception-depth-probe`, worktree `datomworld-r3-orch`)
+
+- `test/yang/call/depth_probe_test.cljc` — the test-local unlinked depth driver.
+- `test/yang/call/depth_probe.edn` — the evidence artifact (revision, dirty-state, composition `:unlinked`, per-cell `depth`/`steps`/`completion`/`budget-exhausted?`, and the recursive characterization).
+
+## The driver (per the mob ruling + astra's two corrections)
+
+- Bundled (unlinked) production lowerings for all four frontends; stepped one instruction at a time via `vm/step` (never `vm/run` inside the measured interval), sampling `:k` (semantic) / `:continuation` (stack/register) before execution and after every step.
+- **Correction (a)** applied: completion is the engine's `halted?`/`blocked?` predicates + `pending-scheduler-work?` (ready-queue/wait-set/parked), requiring the expected result — empty K alone is not completion.
+- **Correction (b)** applied: synchronous cell effects are preserved (they complete in the engine's effect handling); fixtures using cells are not excluded.
+
+## Result — the constant matrix (4 frontends × 4 variants × 3 backends × 3 sizes)
+
+**The assertion `D(16)=D(64)=D(256)` holds in every one of the 144 cells** — the measured max continuation depth is flat across sizes, i.e. iteration is tail-optimized (Clojure `loop/recur` and py/ts/php native loops alike). Representative flat depths: clojure 5–9, typescript 10–15, python 13–14, php 13–19.
+
+Completion is 131/144. The 13 non-completing cells are all `:budget-exhausted? true` at the 1M-step budget, not growth:
+- php `caught-failure` n=64/256 (all 3 backends), php `try-finally` n=256 (all 3), php `plain`/`outer-catch` n=256 (`:stack`), python & typescript `caught-failure` n=256 (`:stack`).
+- Root cause: the de Bruijn `:stack` backend (and php's register/semantic on exception-heavy bodies) runs ~2–4× more instructions per source iteration, so n=256 exception fixtures exceed 1M steps while their depth stays flat.
+- One genuine non-termination: **python's iteration-local caught-failure on `:stack` at n=256** loops inside the prelude `%capture` re-entry — recorded as `:budget-exhausted?`, not masked.
+
+## Result — recursive characterization (recorded, never asserted)
+
+Named self/mutual calls under an outer catch, all four frontends, three backends, at 8/32/128, all complete:
+- **Clojure**: depth flat at 7 (self and mutual — tail-optimized).
+- **PHP**: 57 → 177 → 657, **Python**: 40 → 112 → 400, **TypeScript**: 28 → 76 → 268 — recorded increments, no growth/minimum-slope assertion.
+
+The linked-warm follow-up (real published compositions, blocking-aware sampling of scheduler-held continuations, cross-unit published-call recursion) stays a named pending obligation in the evidence (`:linked-warm-follow-up :status :pending`).
+
+## Honest caveat
+
+This is not "144/144 green" on completion — 13 cells budget-exhaust against the slow `:stack` backend and python caught-failure genuinely non-terminates on `:stack`. The depth *contract* (D constant across sizes) is met in all 144 cells, and the two prelude/backend defects are surfaced as `:budget-exhausted?` findings rather than hidden. If the linked-warm round re-runs the constant matrix through a blocking-aware driver, a higher budget (4M) distinguishes "slow but terminating" from the one genuine `%capture` loop.

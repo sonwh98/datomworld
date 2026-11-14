@@ -1,0 +1,33 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+The port is complete and landed. Here is the report:
+
+Completed-GMT: 2026-11-12 19:53:23 GMT
+Completed-Local: 2026-11-13 02:53:23 +0700 (+0700)
+
+## Phase 2 landed — the continuation lane (consumer wiring)
+
+`clojure -M:test -n yang.clojure-test` → **103 tests / 985 assertions, 0 failures, 0 errors.** The 38F/13E `cell/retained?` red is GONE. `src/cljc/yin/vm/**` and `clojure/prelude.cljc` diff EMPTY.
+
+### What landed (the six handoff items)
+
+1. **`lower-tail` rewrite** → `rewrite-throw-try`/`rewrite-try`: `throw` → `clj/throw`; `try` → `clj/try`/`clj/try-finally` (finally now expressible, one-catch lifted); tail values are plain values, no outcome tuple. The `clj/try` thunks lower to a compiler-internal **`dsg__raw-fn`** (a raw `:lambda`, never the convention's published descriptor) — the one bug found along the way: plain `(fn …)` operands compiled to descriptors and `clj/try` then applied a map.
+2. **`call-entry` bridge** installs `clj/try` before argument binding; an escaping raise or a binding failure delivers `{:yang.call/reason :yang.call/thrown :yang.call/value v}` to the caller's raise exit exactly once. The intra-unit private tail lane (token packet) is preserved.
+3. **`compile-guest-call` raise-escape**: the raise exit is `clj/raise` over the handler stack (`:thrown` → payload, any other value → whole), replacing the `u/capture` public-bridge and the `condition->outcome` routing.
+4. **Retired**: `condition-wrapper-form`/`condition-retained-form`/`visible-of-form`, `dsg__condition_retained`/`dsg__visible_of`/`dsg__condition_wrapper`, the `[:yin.k/ok|error]` outcome wrapping, `condition->outcome`, `strip-top-outcome`, `bind-outcome`, the `failing?` pass, `adapt-head`, the `:adapters` outcome routing.
+5. **Guest library** predicates rewrite onto `data/string?`/`data/vector?`/`data/map?` + `kind/coll?`/`kind/set?` (added to the `kind` module); `yin.k/outcome-of` and the `portable/*` adapters retired.
+6. **R5 holds**: a guest-thrown condition-shaped map is data; only the bridge's raise exit delivers conditions.
+
+### `compile-program` boundary
+The top level is wrapped in a `clj/try` answering `[:yin.k/ok value]`/`[:yin.k/error raised]` (the harness contract a linked entry's `clj/unwrap-outcome` removes); the clj family + `clj.rt/ctx` cell are emitted inline (`continuation-uast`), mirroring the prelude with the capture-sensitive primitives routed through `dsg__get`/`dsg__assoc`/`dsg__equal`.
+
+### New reds re-expressed (deliberate source-semantics changes, each named in the test)
+- **`finally` now allowed** (`test-portable-try-outcomes`).
+- **Retention retired** — a caught protocol condition is a plain map; modification is forwarded, no forged-carrier surface (`test-exception-r3-astra-probes` forged-retention, `test-exception-r3-modified-condition-refuses`).
+- **`yin.k/outcome-of` retired** (`test-common-call-shadowed-helpers`).
+- **`failing?` retired** — macro-operand and non-final-top-level "may-fail" refusals gone (`test-outcome-refusals`, `test-outcome-control-forms`).
+- **outcome adapters retired** — a `data/*` refusal is now a host refusal (`test-outcome-primitive-adapter`).
+- **`u/capture` bridge → `clj/raise`** (`test-common-call-invalid-continuation-refuses`).
+
+kondo: could not run in the sandbox (requires approval); dead code removed by hand — `adapters`, `gen-sym`, `ok-form`, `adapt-head`, the wrapper forms, the `failing?`/`lower-tail` family.
+
+**PHASE 2 LANDED: d60038ef**

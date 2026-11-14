@@ -621,7 +621,7 @@
          ;; publish left a request outstanding, so it is serviced and
          ;; settled here, and the parked call is then answered from its
          ;; correlation in a second serve of the same pair
-         pumped (when (seq (:awaiting first)) (repl/serve-publication after))
+         pumped (when (seq (:awaiting first)) (update after :engine repl/serve-publication))
          second (when pumped (serve pumped))
          served (if second (install-served pumped second) after)]
      {:composition served

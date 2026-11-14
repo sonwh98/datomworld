@@ -239,18 +239,32 @@
         (fail! "Unknown B scheduler event" event)))))
 
 
+(defn- owner-call!
+  "Trace the first two rounds without adding per-call output to the cohort."
+  [state phase f]
+  (let [round (:rounds @state)
+        trace? (<= round 2)]
+    (when trace? (emit! "W-CALL" {:round round :phase phase :event :enter}))
+    (let [result (f)]
+      (when trace? (emit! "W-CALL" {:round round :phase phase :event :leave}))
+      result)))
+
+
 (defn- owner-round!
   [state waiter pump]
   (swap! state update :rounds inc)
-  (let [stepped (driver/repl-step (:repl-state @state) (poller/clock-ms))
-        [entries next-state] (driver/take-outbox stepped)]
+  ;; step-all owns composition progress, rechecks, the driver step and its
+  ;; outbox drain. A second take-outbox here would discard that ownership.
+  (let [[next-state _ lines]
+        (owner-call! state :repl-step-and-drain
+                     #(repl.main/step-all (:repl-state @state) nil (poller/clock-ms)))]
     (swap! state #(-> % (assoc :repl-state next-state)
                       (update :repl-steps inc)
-                      (update :repl-results into (mapv driver/text-key entries)))))
-  (wake/sleep-fds! waiter 1 pump nil)
+                      (update :repl-results into lines))))
+  (owner-call! state :socket-pump #(wake/sleep-fds! waiter 1 pump nil))
   (let [now (poller/clock-ms)]
     (when (>= now (:next-progress @state))
-      (emit! "W-STATE" (progress @state))
+      (emit! "W-PROGRESS" (progress @state))
       (swap! state assoc :next-progress (+ now 10000)))))
 
 
@@ -410,13 +424,14 @@
 
 (defn run-workload-w
   []
+  (emit! "W-PHASE" "boot")
   (let [inst (wsj/create)
         repl-host (host/websocket)
         waiter (wake/make-wake)
         offers (driver/create-input-medium!)
         control (driver/create-input-medium!)
         state (atom {:rounds 0 :repl-steps 0 :repl-results []
-                     :repl-state (repl.main/boot {:adapter repl-host})
+                     :repl-state (repl.main/boot {:adapter repl-host :index-store-spec :mem} nil)
                      :offer-cursor (cursor offers) :requests {} :pending #{}
                      :sent 0 :completed 0 :missed 0 :errors []
                      :next-progress (poller/clock-ms)
@@ -463,6 +478,7 @@
                                         :ws/codec cbor/profile :ws/max-frame-bytes message-bytes
                                         :opened! #(reset! opened true)))]
           (when-not seam (fail! "B connect refused" {}))
+          (emit! "W-PHASE" "b-upgrade")
           (loop []
             (when-not @opened
               (round!)
@@ -475,13 +491,16 @@
               (native/poll-one fd native/pollout 2000)
               (let [r (tcp/connect-result fd)]
                 (when (:error r) (fail! "A connect failed" {:result r}))))
+            (emit! "W-PHASE" "a-upgrade")
             (upgrade-a! state fd @port round!)
+            (emit! "W-PHASE" "a-frame-encoding")
             (let [frame (rfc6455/encode-frame
                           {:opcode :binary :payload (bytes/alloc message-bytes)
                            :mask-key (bytes/from-vector [55 250 33 61])})]
               (swap! state assoc-in [:a :header-bytes] (- (alength frame) message-bytes))
               (reset! scheduler (doto (Thread. #(scheduler! offers control) "workload-w-b-clock")
                                   (.setDaemon true) (.start)))
+              (emit! "W-PHASE" "running")
               (loop [stopping-at nil]
                 (round!)
                 (send-offers! state offers control seam)

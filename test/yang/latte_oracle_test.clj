@@ -8,6 +8,7 @@
    Adaptations, operation sequences and scope departures live beside the
    manifest in yang/latte_oracle/."
   (:require [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.edn :as edn]
             [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
@@ -19,6 +20,7 @@
             [yang.clojure :as yang]
             [yang.clojure-test :as compiler-test]
             [yang.core.call :as call]
+            [yang.core.uast :as u]
             [yin.vm :as vm]
             [yin.vm.test-utils :as tu]
             [yin.vm.data :as data]
@@ -206,6 +208,9 @@
                         ;; the compiled preamble; the site stamping reuses it
                         'dsg__intra_call}
                       (concat (keys vm/primitive-profiles)
+                              ;; the continuation lane's clj/ family, emitted
+                              ;; inline by compile-program under :outcomes true
+                              yang/continuation-family-names
                               (map first call/definitions)
                               (for [form program :when (#{'def 'defn 'defn-} (first form))]
                                 (second form))
@@ -637,7 +642,7 @@
     (testing "success: [:ok value args]"
       (is (= (upstream-unfold a-ok '[7 8])
              (second (b-leg ok-form '[7 8])))))
-    (testing "failure: error outcome consumed, data overrides :msg, result is [:ko ... nil]"
+    (testing "failure: the raised error is caught, data overrides :msg, result is [:ko ... nil]"
       (is (= (upstream-unfold a-throw '[7])
              (second (b-leg throw-form '[7]))))
       (is (= [:ko {:implicit 'imp, :msg "data wins", :extra 1} nil]
@@ -930,17 +935,12 @@
 
 
 (defn- context-host-form
-  "B is ordinary Clojure over the checked-in adaptation. The sole guest
-   outcome intrinsic becomes the equivalent host catch; data primitives and
+  "B is ordinary Clojure over the checked-in adaptation; data primitives and
    deterministic gensym retain exactly their portable contracts."
   [form]
   (walk/postwalk
     (fn [x]
       (cond
-        (and (seq? x) (= 'yin.k/outcome-of (first x)))
-        `(try [:yin.k/ok ~(second x)]
-              (catch clojure.lang.ExceptionInfo e#
-                [:yin.k/error {:yin.k/message (ex-message e#) :yin.k/data (ex-data e#)}]))
         (and (seq? x) (= 'gensym (first x)))
         (let [[_ prefix n] x]
           (list 'let ['prefix prefix 'n n]
@@ -1287,13 +1287,27 @@
 
 
 (deftest test-oracle-slice8-context-reconstruction
-  (let [program [(list 'let ['checkpoint
-                             (list 'let ['base initial-context 'offset 4]
-                                   '(register-unparser base :captured
-                                                       (fn [term] [(+ offset term) true])))]
-                       '(unparse checkpoint 3))]
-        forms (into (context-for program) program)
-        ast (yang/compile-program (into (yang/library-for forms) forms) true arg-vector-opts)
+  (let [build (list 'let ['base initial-context 'offset 4]
+                    '(register-unparser base :captured (fn [term] [(+ offset term) true])))
+        forms (conj (context-for [build '(unparse checkpoint 3)]) build)
+        builder (yang/compile-program (into (yang/library-for forms) forms) true arg-vector-opts)
+        mint (get-in @#'yang/continuation-uast [:operator :body])
+        invoke (u/app (u/v 'yang.call/invoke) (u/v 'unparse)
+                      (u/app (u/v 'conj) (u/app (u/v 'conj) (u/lit []) (u/v 'checkpoint)) (u/lit 3))
+                      (u/lit []) (u/lam '[condition] (u/app (u/v 'clj/raise) (u/v 'condition))))
+        consume (u/let1 'dsg__equal (u/sexp->uast '(fn [a b] (= a b)))
+                        (#'yang/top-boundary invoke))
+        ;; Transport the existing registry only after its construction's
+        ;; handler has unwound. Retire and later mint the runtime through
+        ;; guest operations, retaining this compilation's admission token.
+        ast (yang/annotate-call-sites
+              (u/let1 'built builder
+                      (u/if-node (u/app (u/v '=) (u/app (u/v 'get) (u/v 'built) (u/lit 0))
+                                        (u/lit :yin.k/ok))
+                                 (u/then (u/def! 'clj.rt/ctx (u/lit nil))
+                                         (u/let1 'checkpoint (u/app (u/v 'get) (u/v 'built) (u/lit 1))
+                                                 (u/then mint consume)))
+                                 (u/v 'built))))
         modules (oracle-registry yang/kind-module)
         run-bounded (fn [machine]
                       (loop [m machine n 0]
@@ -1324,7 +1338,8 @@
             k (get-in checkpoint [:env 'checkpoint])
             _ (is (values/closure? (get-in k [:unparser-registry :unparsers :captured
                                               :yang.call/entry])))
-            _ (assert-machine-data-within-budget! k 100000)
+            ;; Sol measured 449,999 real recursive visits on both sides.
+            _ (assert-machine-data-within-budget! k 500000)
             wire (rows/lift-task checkpoint (rows-support/serve-table) {:source-index source-index})
             _ (is (vm/plain-data? wire) "serialized context contains code references, not host closures")
             {:keys [attach!]} (rows-support/attacher)
@@ -1333,7 +1348,7 @@
             k' (get-in restored [:env 'checkpoint])]
         (is (values/closure? (get-in k' [:unparser-registry :unparsers :captured
                                          :yang.call/entry])))
-        (assert-machine-data-within-budget! k' 100000)
+        (assert-machine-data-within-budget! k' 500000)
         (is (= [:yin.k/ok 7] (run-bounded restored)))
         (is (= [:yin.k/ok 7] (run-bounded checkpoint))))))
   (testing "host callbacks cannot enter code data through registry literals"
@@ -2029,29 +2044,23 @@
 
 (defn- kernel-stamped-args?
   "The stamping wrapper around one already-stamped argument vector:
-   `(data/nth (dsg__intra_call gate-site! (conj [] k <args>)) 1)`. Returns
-   the wrapped original arguments node."
+   `(dsg__intra_call gate-site! (conj [] k <args>))`. Returns the wrapped
+   original arguments node. Under the continuation lane the helper returns
+   the argument vector as a plain value, so there is no `data/nth` outcome
+   unwrap to strip."
   [node]
   (when (and (map? node) (= :application (:type node))
              (= :variable (:type (:operator node)))
-             (= 'data/nth (:name (:operator node)))
+             (= 'dsg__intra_call (:name (:operator node)))
              (= 2 (count (:operands node)))
-             (let [one (second (:operands node))]
-               (and (map? one) (= :literal (:type one)) (= 1 (:value one))))
-             (let [call (first (:operands node))]
-               (and (map? call) (= :application (:type call))
-                    (= :variable (:type (:operator call)))
-                    (= 'dsg__intra_call (:name (:operator call)))
-                    ;; the wrapper's helper is gate-site! itself, not
-                    ;; any application in wrapper shape (r3 F1)
-                    (let [helper (first (:operands call))]
-                      (and (map? helper) (= :variable (:type helper))
-                           (= 'gate-site! (:name helper))))
-                    (let [args (get-in call [:operands 1])]
-                      (and (map? args) (= :application (:type args))
-                           (= :variable (:type (:operator args)))
-                           (= 'conj (:name (:operator args))))))))
-    (get-in node [:operands 0 :operands 1 :operands 2])))
+             (let [helper (first (:operands node))]
+               (and (map? helper) (= :variable (:type helper))
+                    (= 'gate-site! (:name helper))))
+             (let [args (get-in node [:operands 1])]
+               (and (map? args) (= :application (:type args))
+                    (= :variable (:type (:operator args)))
+                    (= 'conj (:name (:operator args))))))
+    (get-in node [:operands 1 :operands 2])))
 
 
 (defn- kernel-site-arguments
@@ -2228,20 +2237,18 @@
                                                        (= callee def-name))})
                   ;; the stamp calls the helper the way the compiler calls
                   ;; any intra-unit definition — through the unit's
-                  ;; dispatcher with [k args] — and unwraps the call's
-                  ;; outcome with the data/nth primitive, so the stamped
-                  ;; expression's value IS the argument vector
+                  ;; dispatcher with [k args]. Under the continuation lane the
+                  ;; helper returns the argument vector as a plain value (no
+                  ;; outcome tuple to unwrap), so the stamped expression's
+                  ;; value IS the argument vector.
                   {:type :application
-                   :operator {:type :variable :name 'data/nth}
-                   :operands [{:type :application
-                               :operator {:type :variable :name 'dsg__intra_call}
-                               :operands [{:type :variable :name 'gate-site!}
-                                          {:type :application
-                                           :operator {:type :variable :name 'conj}
-                                           :operands [{:type :literal :value []}
-                                                      {:type :literal :value k}
-                                                      args-node]}]}
-                              {:type :literal :value 1}]}))
+                   :operator {:type :variable :name 'dsg__intra_call}
+                   :operands [{:type :variable :name 'gate-site!}
+                              {:type :application
+                               :operator {:type :variable :name 'conj}
+                               :operands [{:type :literal :value []}
+                                          {:type :literal :value k}
+                                          args-node]}]}))
         walk (fn walk
                [node def-name scope params]
                (cond
@@ -2501,32 +2508,32 @@
          source-hash (kernel-canonical-source-hash forms call)
          admission-origin (vm/source-origin
                             :program [admission-scope admission-ordinal] 0)
-        program (into (into ['(def gate-execution-trace (stream/make 1000000))]
-                            kernel-site-prelude)
-                      (concat (map kernel-trace-form forms) [call]))
-        program (into (yang/library-for program) program)
-        opts (update arg-vector-opts :native into
-                     (map (fn [[op profile]] [(clojure.core/symbol "stream" (name op)) profile])
-                          module/stream-profiles))
-        compiled (yang/compile-program program true opts)
-        ;; caller-side site ids at the compiled application expressions,
-        ;; post-macroexpansion (R2), with the mechanically derived site
-        ;; table (R7); every assembled definition is instrumented
-        {stamped :ast sites :sites} (kernel-stamp-sites
-                                      compiled (into #{} (map second) forms))
-        missing (unbound-ast-symbols stamped program)]
-    (if (seq missing)
-      {:status :blocked :phase :admission :blocked-by (vec (sort missing))
-       :owners (into {} (for [s missing]
-                          [s (mapv second (filter #(some #{s} (tree-seq coll? seq %)) program))]))}
-      {:status :compiled :ast stamped :forms forms :compiled-ast compiled
-       :admission-origin admission-origin
-       :admission-scope admission-scope
-       :admission-ordinal admission-ordinal
-       :site-table (into {} (map (juxt :site identity)) sites)
-       :site-table-hash source-hash
-       :sites sites
-       :canonical-source-hash source-hash}))))
+         program (into (into ['(def gate-execution-trace (stream/make 1000000))]
+                             kernel-site-prelude)
+                       (concat (map kernel-trace-form forms) [call]))
+         program (into (yang/library-for program) program)
+         opts (update arg-vector-opts :native into
+                      (map (fn [[op profile]] [(clojure.core/symbol "stream" (name op)) profile])
+                           module/stream-profiles))
+         compiled (yang/compile-program program true opts)
+         ;; caller-side site ids at the compiled application expressions,
+         ;; post-macroexpansion (R2), with the mechanically derived site
+         ;; table (R7); every assembled definition is instrumented
+         {stamped :ast sites :sites} (kernel-stamp-sites
+                                       compiled (into #{} (map second) forms))
+         missing (unbound-ast-symbols stamped program)]
+     (if (seq missing)
+       {:status :blocked :phase :admission :blocked-by (vec (sort missing))
+        :owners (into {} (for [s missing]
+                           [s (mapv second (filter #(some #{s} (tree-seq coll? seq %)) program))]))}
+       {:status :compiled :ast stamped :forms forms :compiled-ast compiled
+        :admission-origin admission-origin
+        :admission-scope admission-scope
+        :admission-ordinal admission-ordinal
+        :site-table (into {} (map (juxt :site identity)) sites)
+        :site-table-hash source-hash
+        :sites sites
+        :canonical-source-hash source-hash}))))
 
 
 (defn- kernel-compile-in-run
@@ -2553,51 +2560,134 @@
     (assoc compiled :lane lane)))
 
 
+;; =============================================================================
+;; Depth harness (max live-K per workload)
+;; =============================================================================
+;;
+;; Measurement only: no admission gate and no correctness assertions. Each
+;; kernel-gate fixture is a workload; the max continuation depth (the semantic
+;; lane's K-vector length, the walker lane's :next chain length) is recorded
+;; per lane. The same instrumentation applies to the pre-port outcome-model
+;; tree and the post-port continuation tree, so the two numbers are directly
+;; comparable.
+
+(defn- kernel-lane-depth
+  "The max live-K depth of one compiled fixture on `lane`."
+  [compiled lane]
+  (when (= :compiled (:status compiled))
+    (:max-depth (compiler-test/run-guest-machine-depth
+                  (:ast compiled) (oracle-registry yang/kind-module) lane 4000000))))
+
+
+(defn kernel-gate-depths
+  "Per-workload max live-K depth for the kernel-gate corpus, both lanes, as a
+   sorted map fixture-id -> {:walker n :semantic m}."
+  []
+  (let [run (fresh-admission-run :depth-harness)]
+    (into (sorted-map)
+          (for [fixture (:fixtures kernel-gate-corpus)
+                :let [compiled (kernel-compile-in-run run fixture)]]
+            [(:id fixture)
+             {:walker (kernel-lane-depth compiled :walker)
+              :semantic (kernel-lane-depth compiled :semantic)}]))))
+
+
+(defn write-kernel-gate-depths!
+  "Measure the checked-out revision and write its depth EDN to `file`."
+  [file]
+  (let [{:keys [exit out err]} (shell/sh "git" "rev-parse" "--short=8" "HEAD")
+        _ (when-not (zero? exit)
+            (throw (ex-info "Cannot determine depth measurement revision" {:error err})))
+        revision (str/trim out)
+        depths (kernel-gate-depths)]
+    (spit file (str ";; GENERATED max live-K depth per kernel-gate workload (both lanes), " revision ".\n"
+                    (pr-str {:revision revision
+                             :workload-count (count depths)
+                             :workloads depths}) "\n"))
+    depths))
+
+
+(defn write-kernel-gate-comparison!
+  "Compare the two depth EDNs and write the complete comparison to `file`."
+  [baseline-file post-file file]
+  (let [baseline (edn/read-string (slurp baseline-file))
+        post (edn/read-string (slurp post-file))
+        b (:workloads baseline)
+        p (:workloads post)
+        ids (sort (keys p))
+        depth #(apply max (vals %))]
+    (when-not (and (= (set (keys b)) (set ids))
+                   (= (:workload-count baseline) (count b))
+                   (= (:workload-count post) (count p))
+                   (every? #(and (every? integer? (vals (b %)))
+                                 (every? integer? (vals (p %)))
+                                 (pos? (depth (b %)))) ids))
+      (throw (ex-info "Incomplete or invalid depth comparison" {})))
+    (let [ratios (map #(/ (depth (p %)) (depth (b %))) ids)
+          maximum (apply max ratios)
+          flagged (filter #(> (/ (depth (p %)) (depth (b %))) 10) ids)]
+      (spit file
+            (str "# Kernel-gate depth comparison\n\n"
+                 "Baseline: `" (:revision baseline) "` (outcome model). Post-port: `"
+                 (:revision post) "`. Each depth is the maximum of the walker and semantic lane maxima. "
+                 "Ratios are post-port / baseline, rounded to two decimals.\n\n"
+                 "Overlap: " (count ids) "/" (count p) ".\n\n"
+                 "| Workload | Baseline | Post-port | Ratio |\n|---|---:|---:|---:|\n"
+                 (apply str (for [id ids]
+                              (str "| " (name id) " | " (depth (b id)) " | " (depth (p id))
+                                   " | " (format "%.2f×" (double (/ (depth (p id)) (depth (b id))))) " |\n")))
+                 "\n" (if (seq flagged)
+                        (str "exceeds-10x: " (str/join ", " (map name flagged)))
+                        "none-exceeds-10x")
+                 " / max-ratio: " (format "%.2f×" (double maximum)) "\n"))
+      maximum)))
+
+
 (deftest test-kernel-proof-fresh-supply
   (testing "explicit have types advance the supply; inferred types and prior contexts are preserved"
     (let [run (fresh-admission-run :proof-fresh-supply)]
-     (doseq [[name next-name] [['h 'h2] ['_ '_]]
-            [ty allocations] [['A 1] ['_ 0]]]
-      (let [fixture
-            {:call
-             (walk/postwalk-replace
-               {'H name 'H2 next-name 'TY ty}
-               '(let [k0 env
-                      [s1 [k1 ctx1 deps1 uses1]]
-                      (latte-kernel.proof/elab-have k0 '[[A ✳] [x A]] [] {} 'H 'TY 'x {})
-                      [s2 [k2 ctx2 deps2 uses2]]
-                      (latte-kernel.proof/elab-have k1 ctx1 deps1 uses1 'H2 'TY 'x {})
-                      [s3 [k3 ctx3 deps3 uses3]]
-                      (latte-kernel.proof/elab-declare k2 ctx2 deps2 uses2 'z 'A {})
-                      [s4 [k4 ctx4 deps4 uses4]]
-                      (latte-kernel.proof/elab-have k3 ctx3 deps3 uses3 '_ 'A 'z {})]
-                  [[s1 s2 s3 s4]
-                   [(:fresh k0) (:fresh k1) (:fresh k2) (:fresh k3) (:fresh k4)]
-                   (mapv (fn [k] (count (second (:definitions k)))) [k0 k1 k2 k3 k4])
-                   (= ctx1 '[[A ✳] [x A]]) (= ctx1 ctx2)]))}
-            expected [[:ok :ok :ok :ok] [0 allocations (* 2 allocations)
-                                         (inc (* 2 allocations)) (+ 2 (* 2 allocations))]
-                      (if (= name '_) [0 0 0 0 0] [0 1 2 2 2])
-                      true true]
-            compiled (kernel-compile-in-run run fixture)]
-        (is (= {:value expected} (:outcome (kernel-b fixture))))
-        (doseq [lane [:walker :semantic]]
-          (let [c (kernel-c compiled lane)]
-            (is (= [:yin.k/ok expected] (:outcome c)) (str name " " lane " " c))))))))
+      (doseq [[name next-name] [['h 'h2] ['_ '_]]
+              [ty allocations] [['A 1] ['_ 0]]]
+        (let [fixture
+              {:call
+               (walk/postwalk-replace
+                 {'H name 'H2 next-name 'TY ty}
+                 '(let [k0 env
+                        [s1 [k1 ctx1 deps1 uses1]]
+                        (latte-kernel.proof/elab-have k0 '[[A ✳] [x A]] [] {} 'H 'TY 'x {})
+                        [s2 [k2 ctx2 deps2 uses2]]
+                        (latte-kernel.proof/elab-have k1 ctx1 deps1 uses1 'H2 'TY 'x {})
+                        [s3 [k3 ctx3 deps3 uses3]]
+                        (latte-kernel.proof/elab-declare k2 ctx2 deps2 uses2 'z 'A {})
+                        [s4 [k4 ctx4 deps4 uses4]]
+                        (latte-kernel.proof/elab-have k3 ctx3 deps3 uses3 '_ 'A 'z {})]
+                    [[s1 s2 s3 s4]
+                     [(:fresh k0) (:fresh k1) (:fresh k2) (:fresh k3) (:fresh k4)]
+                     (mapv (fn [k] (count (second (:definitions k)))) [k0 k1 k2 k3 k4])
+                     (= ctx1 '[[A ✳] [x A]]) (= ctx1 ctx2)]))}
+              expected [[:ok :ok :ok :ok] [0 allocations (* 2 allocations)
+                                           (inc (* 2 allocations)) (+ 2 (* 2 allocations))]
+                        (if (= name '_) [0 0 0 0 0] [0 1 2 2 2])
+                        true true]
+              compiled (kernel-compile-in-run run fixture)]
+          (is (= {:value expected} (:outcome (kernel-b fixture))))
+          (doseq [lane [:walker :semantic]]
+            (let [c (kernel-c compiled lane)]
+              (is (= [:yin.k/ok expected] (:outcome c)) (str name " " lane " " c))))))))
   (testing "the proof loop carries the returned supply to the next step and qed"
     (let [run (fresh-admission-run :proof-loop)]
-     (doseq [[script fresh]
-            [['((:have h A x {}) (:have h2 A x {}) (:qed x {})) 2]
-             ['((:have _ A x {}) (:have _ A x {}) (:qed x {})) 2]
-             ['((:declare z A {}) (:have h A z {}) (:declare w A {}) (:have h2 A w {}) (:qed w {})) 4]]]
-      (let [fixture {:call (list 'let ['r (list 'latte-kernel.proof/elab-proof 'env ''[[A ✳] [x A]]
-                                                (list 'quote script))]
-                                 '[(first r) (:fresh (first (second r))) (:fresh env) (:definitions env)])}
-            expected [:ok fresh 0 [{} {}]]
-            compiled (kernel-compile-in-run run fixture)]
-        (is (= {:value expected} (:outcome (kernel-b fixture))))
-        (doseq [lane [:walker :semantic]]
-          (is (= [:yin.k/ok expected] (:outcome (kernel-c compiled lane))) (str lane)))))))
+      (doseq [[script fresh]
+              [['((:have h A x {}) (:have h2 A x {}) (:qed x {})) 2]
+               ['((:have _ A x {}) (:have _ A x {}) (:qed x {})) 2]
+               ['((:declare z A {}) (:have h A z {}) (:declare w A {}) (:have h2 A w {}) (:qed w {})) 4]]]
+        (let [fixture {:call (list 'let ['r (list 'latte-kernel.proof/elab-proof 'env ''[[A ✳] [x A]]
+                                                  (list 'quote script))]
+                                   '[(first r) (:fresh (first (second r))) (:fresh env) (:definitions env)])}
+              expected [:ok fresh 0 [{} {}]]
+              compiled (kernel-compile-in-run run fixture)]
+          (is (= {:value expected} (:outcome (kernel-b fixture))))
+          (doseq [lane [:walker :semantic]]
+            (is (= [:yin.k/ok expected] (:outcome (kernel-c compiled lane))) (str lane)))))))
   (testing "check-proof keeps the rebuilt context under its own def-env' binding"
     ;; Observe the context passed to the final comparison: check-proof's public
     ;; result contains only the proof term and type, so it cannot expose :fresh.
@@ -2692,15 +2782,14 @@
    reconciled compiler publishes for a guest closure: a true function-type
    marker, an entry that is a minted closure, and an admission witness.
    Structurally invalid shapes - a bare `{:type :closure}` map, a scalar or
-   missing entry, a missing or non-closure witness, an outcomes marker that
-   is missing or false - fail. Descriptor AUTHENTICITY (that the witness is
-   this compiler's own mint, not a copy) is the compiler's admission check
-   upstream of the outcome; this predicate is the test-side structural
-   half, and the payload/message/call guards around it carry revalidation."
+   missing entry, a missing or non-closure witness - fail. Descriptor
+   AUTHENTICITY (that the witness is this compiler's own mint, not a copy) is
+   the compiler's admission check upstream of the outcome; this predicate is
+   the test-side structural half, and the payload/message/call guards around
+   it carry revalidation."
   [value]
   (and (map? value)
        (= :function (:clj/type value))
-       (true? (:clj/outcomes? value))
        (values/closure? (get value :yang.call/entry))
        (values/closure? (get value :clj/admission))))
 
@@ -2838,7 +2927,6 @@
                                        :meta {:nonportable-host-value (str (class clojure.core/meta))}}}}}
           descriptor {:yang.call/entry (values/closure nil {})
                       :clj/type :function
-                      :clj/outcomes? true
                       :clj/admission (values/closure nil {})}
           c-with (fn [meta]
                    {:status :completed
@@ -2890,14 +2978,6 @@
                                              (c-with (assoc descriptor :clj/type :data))
                                              (c-with (assoc descriptor :clj/type :data))))
           "a descriptor with a wrong type marker fails")
-      (is (nil? (kernel-host-value-deviation fixture a a
-                                             (c-with (assoc descriptor :clj/outcomes? false))
-                                             (c-with (assoc descriptor :clj/outcomes? false))))
-          "a descriptor with a false outcomes marker fails")
-      (is (nil? (kernel-host-value-deviation fixture a a
-                                             (c-with (dissoc descriptor :clj/outcomes?))
-                                             (c-with (dissoc descriptor :clj/outcomes?))))
-          "a descriptor with a missing outcomes marker fails")
       (is (nil? (kernel-host-value-deviation fixture a a (c-with {:type :closure}) (c-with {:type :closure}))))
       ;; A descriptor copied across calls: the structurally valid
       ;; check-after-qed descriptor submitted under the elab-after-qed
@@ -3149,14 +3229,14 @@
         by-id (fn [id] (first (filter #(= id (:id %)) (:fixtures kernel-gate-corpus))))
         f2 (kernel-row-in-run run (by-id :h3-3-registered-definition-ambient))
         explicit-2 (kernel-row-in-run run {:id :battery-explicit-2
-                                :call '(latte-kernel.defenv/registered-definition?
-                                         env (quote gate-no-such-definition))})
+                                           :call '(latte-kernel.defenv/registered-definition?
+                                                    env (quote gate-no-such-definition))})
         unexecuted-1 (kernel-row-in-run run {:id :battery-unexecuted-ambient
-                                  :call '(if false
-                                           (latte-kernel.defenv/registered-definition?
-                                             (quote gate-no-such-definition))
-                                           (latte-kernel.defenv/registered-definition?
-                                             env (quote gate-no-such-definition)))})]
+                                             :call '(if false
+                                                      (latte-kernel.defenv/registered-definition?
+                                                        (quote gate-no-such-definition))
+                                                      (latte-kernel.defenv/registered-definition?
+                                                        env (quote gate-no-such-definition)))})]
     (testing "case 1: an explicit /2 call supplying an empty environment does not credit /1"
       (is (= :pass (:status explicit-2)))
       ;; the supplied context VALUE is the empty environment — value-identical
@@ -3564,7 +3644,7 @@
   "The integer site a stamping wrapper carries, or nil."
   [wrapper]
   (when (kernel-stamped-args? wrapper)
-    (let [k (get-in wrapper [:operands 0 :operands 1 :operands 1 :value])]
+    (let [k (get-in wrapper [:operands 1 :operands 1 :value])]
       (when (integer? k) k))))
 
 
@@ -3572,7 +3652,7 @@
   "The explicit stamped→pre-stamp path correspondence (cc3 r2 item 1):
    `{stamped-path pre-stamp-path}` over the grammar positions of both
    trees, built by traversing them together and removing the
-   recognized stamping wrappers (`kernel-stamped-args?` — the three
+   recognized stamping wrappers (`kernel-stamped-args?` — the two
    applications a stamp inserts around an argument node). A stamped
    site inside a stamped argument therefore maps to the path it held
    before stamping, never to the unrelated application its stamped
@@ -3588,11 +3668,10 @@
                           {:rule :cc3-stamp-correspondence
                            :pre-stamp-path pre-path
                            :stamped-path stamped-path})))
-        ;; the wrapped argument node sits at operands[0]/operands[1]/
-        ;; operands[2] of the wrapper — application operands are
-        ;; grammar position 3
+        ;; the wrapped argument node sits at operands[1]/operands[2] of
+        ;; the wrapper — application operands are grammar position 3
         (cc3-correspond pre (kernel-stamped-args? stamped)
-                        pre-path (conj stamped-path [3 0] [3 1] [3 2])
+                        pre-path (conj stamped-path [3 1] [3 2])
                         acc))
 
     (and (map? pre) (:type pre) (map? stamped) (:type stamped))
@@ -3823,8 +3902,8 @@
             "uncredited helpers and generated applications are C1 occurrences but NOT oracle sites"))
       (testing "post-transformation coverage: the stamped tree as executed (item 5)"
         ;; independently derived inserted helpers: each stamped site
-        ;; wraps its argument node in three new applications
-        ;; (data/nth, dsg__intra_call, conj) — applications of the
+        ;; wraps its argument node in two new applications
+        ;; (dsg__intra_call, conj) — applications of the
         ;; stamped tree that are not C1 occurrences of the compiled
         ;; program, accounted for here as their own set
         (let [wrapper-paths (into #{}
@@ -3834,12 +3913,12 @@
                                   (cc3-walk (:ast compiled) [] []))
               inserted (into #{}
                              (mapcat (fn [p]
-                                       [(conj p) (conj p [3 0])
-                                        (conj p [3 0] [3 1])]))
+                                       [(conj p) (conj p [3 1])]))
                              wrapper-paths)
               inserted-keys (into #{}
-                                  (map (fn [p] [origin
-                                                (:root stamped-tree) p]))
+                                  (map (fn [p]
+                                         [origin
+                                          (:root stamped-tree) p]))
                                   inserted)]
           (is (= (count sites) (count wrapper-paths))
               "one stamping wrapper per oracle site")
@@ -3848,9 +3927,9 @@
           (is (= stamped-eligible
                  (set/union stamped-marked inserted-keys))
               "the stamped application set is exactly the marked occurrences plus the inserted helpers")
-          (is (= (+ (count marked) (* 3 (count sites)))
+          (is (= (+ (count marked) (* 2 (count sites)))
                  (count stamped-eligible))
-              "stamping inserted three applications per site and nothing else")))
+              "stamping inserted two applications per site and nothing else")))
       (testing "stamped paths are translated, never reused as pre-stamp paths (item 1)"
         (is (every? (fn [[k [_ _ pre-path]]]
                       (= pre-path (get correspondence (get stamped-paths k))))
@@ -4005,8 +4084,8 @@
                                   p))
                               entries)
             mutated (cc3-assoc-at stamped callee-path
-                                   (fn [node]
-                                     (assoc-in node [:operands 0 :name] 'h)))]
+                                  (fn [node]
+                                    (assoc-in node [:operands 0 :name] 'h)))]
         (is (some? callee-path))
         (is (= :cc3-stamp-correspondence (refusal outer mutated))
             "a renamed nested callee refuses through the stamped tree")))
@@ -4014,11 +4093,11 @@
       (let [wrapper (some (fn [[_ node]]
                             (when (kernel-stamped-args? node) node))
                           (cc3-walk stamped [] []))
-            mutated (assoc-in wrapper [:operands 0 :operands 0 :name]
+            mutated (assoc-in wrapper [:operands 0 :name]
                               'not-gate-site!)]
         (is (some? wrapper) "precondition: a real stamping wrapper exists")
         (is (nil? (kernel-stamped-args? mutated))
-            "a 3-arg application around another helper is no wrapper")
+            "a 2-arg application around another helper is no wrapper")
         (is (= :cc3-stamp-correspondence (refusal outer
                                                   (cc3-assoc-at
                                                     stamped
@@ -4039,10 +4118,9 @@
             [p2 _] (second wrappers)
             k (cc3-stamp-site-id (second (first wrappers)))
             duplicated (cc3-assoc-at (:ast compiled) p2
-                                      (fn [w]
-                                        (assoc-in w [:operands 0 :operands 1
-                                                     :operands 1 :value]
-                                                  k)))]
+                                     (fn [w]
+                                       (assoc-in w [:operands 1 :operands 1 :value]
+                                                 k)))]
         (is (= :compiled (:status compiled)))
         (is (<= 2 (count wrappers)) "precondition: at least two stamped sites")
         (is (some? k))
@@ -4081,8 +4159,8 @@
     (is (= ["run-a" 1] (nth (:admission-origin a1) 2))
         "a nonzero ordinal rides the token, not the member index")
     (is (= 0 (nth (:admission-origin a) 3)
-             (nth (:admission-origin b) 3)
-             (nth (:admission-origin a1) 3))
+           (nth (:admission-origin b) 3)
+           (nth (:admission-origin a1) 3))
         "separately admitted single-member batches keep member index 0")
     (is (not= (:admission-origin a) (:admission-origin b))
         "distinct scopes with restarted ordinals mint distinct origins")

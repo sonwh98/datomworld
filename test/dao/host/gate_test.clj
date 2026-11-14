@@ -678,22 +678,18 @@
    "src/cljc/yang/clojure.cljc" (entry :dialect-arm :stays ":375 runtime type name in diagnostic text")
    "src/cljc/yin/vm/engine.cljc" (entry :dialect-arm :stays ":929 runtime type name in diagnostic text")
    "src/cljc/yin/repl/adapter.cljc" (entry :dialect-arm :stays ":58 the dialect's EDN reader")
-   "src/cljc/yin/repl/dht.cljc" (entry :dialect-arm :stays ":104 the dialect's EDN reader")
    ;; Seams and driver: every lane-specific file, the selector, the driver
    "src/clj/dao/jing/content/driver.clj" (entry :seam-driver :stays)
-   "src/clj/dao/stream/datagram/jvm.clj" (entry :seam-driver :stays)
    "src/clj/dao/stream/waitset/driver.clj" (entry :seam-driver :stays)
    "src/clj/dao/stream/ws/jvm.clj" (entry :seam-driver :stays)
    "src/clj/yang/antlr/cst.clj" (entry :seam-driver :stays)
    "src/clj/yin/repl/host/jvm.clj" (entry :seam-driver :stays)
-   "src/cljs/dao/stream/datagram/node.cljs" (entry :seam-driver :stays)
    "src/cljs/dao/stream/waitset/driver.cljs" (entry :seam-driver :stays)
    "src/cljs/dao/stream/ws/node.cljs" (entry :seam-driver :stays)
    "src/cljs/yang/antlr/cst.cljs" (entry :seam-driver :stays)
    "src/cljs/yin/repl/host.cljs" (entry :seam-driver :stays)
    "src/cljd/dao/stream/cbor/cljd.cljd" (entry :seam-driver :stays)
    "src/cljd/dao/stream/transit/cljd.cljd" (entry :seam-driver :stays)
-   "src/cljd/dao/stream/datagram/dart.cljd" (entry :seam-driver :stays)
    "src/cljd/dao/stream/waitset/driver.cljd" (entry :seam-driver :stays)
    "src/cljd/dao/stream/ws/dart.cljd" (entry :seam-driver :stays)
    "src/cljd/yang/antlr/cst.cljd" (entry :seam-driver :stays)
@@ -708,7 +704,6 @@
    "src/cljc/dao/space/store.cljc" (entry :deferred-scope :stays)
    "src/cljc/dao/stream/journal/file.cljc" (entry :deferred-scope :stays)
    "src/cljc/dao/jing/coordinate.cljc" (entry :deferred-scope :stays)
-   "src/cljc/dao/space/dht.cljc" (entry :deferred-scope :stays)
    "src/cljc/dao/stream/rpc.cljc" (entry :deferred-scope :stays ":114 rand, deferred entropy (§9.1); H0 finding")
    "src/cljc/yin/repl.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/php/antlr/lower.cljc" (entry :deferred-scope :stays)
@@ -719,7 +714,6 @@
    "src/cljc/yang/python/antlr/render.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/repl_probe.cljc" (entry :deferred-scope :stays)
    "src/cljc/yin/repl/frontends.cljc" (entry :deferred-scope :stays)
-   "src/cljc/yin/repl/store.cljc" (entry :deferred-scope :stays)
    "src/cljc/dao/stream/journal.cljc" (entry :deferred-scope :stays "locking")
    "src/cljc/dao/space/transactor.cljc" (entry :deferred-scope :stays)
    "src/cljc/yin/vm/ucf/authority.cljc" (entry :deferred-scope :stays "locking")})
@@ -746,12 +740,9 @@
    "src/cljc/yin/vm/ucf/holder/driver.cljc" {:random-uuid 1}
    "src/cljc/yin/vm/telemetry.cljc" {:random-uuid 1}
    "src/cljc/yin/repl.cljc" {:random-uuid 4, :ambient 3}
-   "src/cljc/yin/repl/dht.cljc" {:random-uuid 1}
    ;; §3.2 rand, secure generators (sign :79 is jvm-pair's deterministic
    ;; seed-replay SecureRandom proxy, §2.5), gensym
    "src/cljc/dao/stream/rpc.cljc" {:rand 3}
-   "src/cljc/dao/jing/dht.cljc" {:rand 1}
-   "src/cljc/dao/space/dht.cljc" {:secure-random 3}
    "src/cljc/yin/vm/linker/sign.cljc" {:secure-random 2}
    ;; yang.clojure.cljc left the gensym list in slice 7: the library's gensym
    ;; uses an explicit supply and the and/or expansion temps are dsg__-prefixed,
@@ -760,7 +751,6 @@
    ;; §3.2 clocks, ambient reads, printing, timers: the driver and the seams
    "src/cljc/yin/repl/main.cljc" {:ambient 6, :clock 4, :print 14}
    "src/clj/dao/jing/content/driver.clj" {:clock 2, :timer 1}
-   "src/clj/dao/stream/datagram/jvm.clj" {:timer 1}
    "src/clj/dao/stream/ws/jvm.clj" {:clock 1}
    "src/cljs/dao/stream/ws/node.cljs" {:clock 1}
    "src/cljs/dao/stream/waitset/driver.cljs" {:timer 2}
@@ -984,12 +974,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after the sanctioned PHP ANTLR census re-record: 163 / 161 / 159 files, 152 shared"
+  (testing "§3.1 after the yin.repl DHT decoupling: 151 / 149 / 147 files, 141 shared"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 163 (count (files :clj))))
-      (is (= 161 (count (files :cljs))))
-      (is (= 159 (count (files :cljd))))
-      (is (= 152 (count (apply set/intersection (vals files)))))
+      (is (= 151 (count (files :clj))))
+      (is (= 149 (count (files :cljs))))
+      (is (= 147 (count (files :cljd))))
+      (is (= 141 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
@@ -1006,8 +996,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 175 (count (closure-files))) "the union of the three lanes")
-    (is (= 175 (count (gate-files))) "no profile addition outside the closure after H3")
+    (is (= 161 (count (closure-files))) "the union of the three lanes")
+    (is (= 161 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))

@@ -1,6 +1,6 @@
 (ns jolt-workload-w-run
   "Independent watchdog and sampler for the single-threaded Workload W worker.
-   Run with bb workload-w:jolt [workload-w|quick-w|cross-host|served-stream|all]."
+   Run with bb workload-w:jolt (no alternate modes)."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]))
 
@@ -17,7 +17,7 @@
 (defn- p99
   [samples]
   (when (seq samples)
-    (nth (sort samples) (min (dec (count samples)) (int (* 0.99 (count samples)))))))
+    (nth (vec (sort samples)) (dec (long (Math/ceil (* 0.99 (count samples))))))))
 
 
 (defn- observe-line
@@ -25,11 +25,22 @@
   (cond
     (str/starts-with? line "W-SAMPLE ")
     (let [sample (try (edn/read-string (subs line 9)) (catch Exception _ nil))]
-      (if (and (number? sample) (<= 0 sample))
-        (-> state
-            (update :samples conj sample)
-            (assoc :last-output-at (now-ms)))
+      (if (and (map? sample) (integer? (:id sample))
+               (boolean? (:cohort? sample))
+               (every? #(and (number? %) (<= 0 %) (< % Double/POSITIVE_INFINITY))
+                       (map sample [:scheduled-at :sent-at :received-at :rtt-ms :arrival-ms]))
+               (<= (:scheduled-at sample) (:sent-at sample) (:received-at sample))
+               (= (:rtt-ms sample) (- (:received-at sample) (:sent-at sample)))
+               (= (:arrival-ms sample) (- (:received-at sample) (:scheduled-at sample))))
+        (cond-> (assoc state :last-output-at (now-ms))
+          (:cohort? sample) (update :samples conj sample))
         (assoc state :sample-error line)))
+
+    (str/starts-with? line "W-RESULT ")
+    (let [result (try (edn/read-string (subs line 9)) (catch Exception _ nil))]
+      (println line)
+      (flush)
+      (assoc state :result result :last-output-at (now-ms)))
 
     (str/starts-with? line "W-CALL ")
     (let [call (try (edn/read-string (subs line 7)) (catch Exception _ nil))
@@ -57,7 +68,11 @@
       (flush)
       (cond-> (assoc state :last-output-at (now-ms))
         (str/starts-with? line "W-PHASE ") (assoc :phase (subs line 8))
-        (= line "FAIL workload-w") (assoc :reported-failure? true)))))
+        (or (= line "FAIL workload-w") (= line "FAILURE workload-w"))
+        (assoc :reported-failure? true)
+        (or (str/starts-with? line "W-PROGRESS ") (str/starts-with? line "W-STATE "))
+        (assoc :progress (try (edn/read-string (subs line (inc (.indexOf line " "))))
+                              (catch Exception _ nil)))))))
 
 
 (defn- read-output
@@ -83,7 +98,9 @@
   (println "WATCHDOG TELEMETRY"
            (pr-str {:elapsed-ms elapsed,
                     :samples (count (:samples state)),
-                    :running-p99-ms (or (p99 (:samples state)) "ABSENT"),
+                    :running-p99-ms (or (p99 (map :rtt-ms (:samples state))) "ABSENT"),
+                    :scheduled-arrival-p99-ms (or (p99 (map :arrival-ms (:samples state))) "ABSENT"),
+                    :progress (:progress state),
                     :first-round-phase (:phase state),
                     :active-call (:active-call state),
                     :active-call-age-ms (when-let [entered (:call-entered-at state)]
@@ -163,7 +180,11 @@
                       status (.exitValue process)]
                   (when (and (not (zero? status)) (not (:reported-failure? state)))
                     (failure! state elapsed :worker-failure))
-                  status))
+                  (if (and (zero? status)
+                           (or (:reported-failure? state)
+                               (not= :pass (get-in state [:result :status]))))
+                    (do (failure! state elapsed :missing-or-failed-result) 1)
+                    status)))
 
               :else
               (do

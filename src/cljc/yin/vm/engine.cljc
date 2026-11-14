@@ -2447,7 +2447,7 @@
    preserves the entry's `:provenance` sibling; only the mint attaches one,
    and only at allocation."
   [state id seal v]
-  (update-in state [:heap id] (fn [entry] (assoc entry :value v, :seal seal))))
+  (update-in state [:heap id] (fn [entry] (assoc (or entry {}) :value v, :seal seal))))
 
 
 ;; =============================================================================

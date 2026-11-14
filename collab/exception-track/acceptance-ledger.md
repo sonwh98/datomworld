@@ -504,3 +504,190 @@ Steward dispositions of the php lane findings (1794541429000):
    consistent with the owner ruling that suite-scale runs belong remote; NOT a php defect. The
    orphaned JVM (pid 75393) was REAPED by the steward this session.
 3. Duplicate-dispatch trail (r9/r10): noted, corrected on the record; no action.
+
+## Round deltas — 2026-11-13 (the kit round retiring the clojure `finally` refusal)
+
+### Round Kit — branch `exception-kit-finally` @ `96633aaf` base (qwen3.8-max; sol reviews after)
+
+**P1-1 is RULED: RETIRE** (owner, 2026-11-13 09:20 +07,
+`1794556000000-owner-decision-finally-refusal-row.md`, verbatim "retire"). Recorded against that
+packet per the ruling's consequence 2. The MERGE STATE line above is left as filed; this section is
+the append-only record that P1-1 no longer gates.
+
+Governing principle of record: **a dialect's surface derives from its source language; the proof
+corpus verifies admissions, it does not author them.** v2 §3's finally-refusal clause and the
+`no finally` half of v2 R4 are superseded append-only in
+`1794960000000-owner-ruling-exception-uniformity-v2.md`. The single-catch / catch-class half of R4
+is **not** superseded and remains pinned.
+
+Kit deltas (three files, no `src/` and no frontend touched):
+
+- `exception_contract.clj` — the `:finally-replacement` clojure-caller exclusion is removed from
+  `pair-matrix`; the `:clojure-finally-refusal` pending-obligation row is **removed, not flipped**.
+  Rationale: `pending-obligations` is by its own docstring the set of obligations *not yet claimed*,
+  and `open-gates` closes a row only on a reported `:green`, so an `:execution :supports` row would
+  stay open forever. `:preserve-source-refusal` had exactly one consumer and is now unused.
+  `ledger-seed` for `:clojure` still yields `#{r1 r2 r3 r4 r5}` — `::r4` survives via
+  `:clojure-private-public-equivalence` — so `mechanically-derived-obligations-test` holds.
+- `exception_legs.clj` — the generate-time `(throw (ex-info "Clojure finally remains an explicit
+  source refusal" ...))` is removed and the `:finally-replacement` generator gains its `:clojure`
+  arms (`(def replacement (cell/new :replacement))`, `replacement_payload`,
+  `(try (donor_raise) (finally (throw replacement)))`). **This file was not in the dispatch's
+  two-file list, but the ruling names it as one of the three kit locations, and it is load-bearing:**
+  with the matrix exclusion gone, that `throw` fires inside `run-pair`'s `try` and would error
+  *every* leg of every clojure-caller pair, not just the new one.
+- `exception_source_test.clj` — `clojure-restricted-catch-surface-preserved-test` keeps only the
+  still-live `(catch Throwable e 2)` refusal; a new `clojure-finally-admitted-test` pins that
+  `(try 1 (finally 2))` lowers; a new `^:slow clojure-finally-replacement-leg-test` pins the single
+  `[:python :clojure :finally-replacement]` leg across the three vector VMs.
+
+**NO ROWS ARE CLAIMED BY THIS ENTRY.** The seat had no shell: nothing was executed, so no row moved
+and no green is asserted. New-leg status is for shiva to measure.
+
+**BLOCKER for the shiva run — the port is not in this branch.** `exception-kit-finally` is cut from
+`origin/master` @ `96633aaf`, which does **not** contain the clojure convergence port
+(`exception-r3-impl` @ `854b74c3` / `d4e31b74`, still unmerged per the MERGE STATE above). Verified
+three ways: `src/cljc/yang/clojure.cljc:1136` still rejects with "Portable try requires one
+Exception/ExceptionInfo catch and no finally"; `src/cljc/yang/clojure/` has zero hits for
+`%capture`, `clj.rt/ctx`, `clj/try`, `clj/raise` and `provenance`; and `cell/dsg__new-provenance`
+appears only in the python and php preludes. **Run against this branch alone and every
+clojure-caller `:finally-replacement` leg fails at COMPILE time, not at runtime** — including
+`all-directed-pair-sources-compile-test`, which iterates the whole matrix. That red is a
+branch-composition artifact and must not be read as a §8.10.8 cleanup-before-transfer finding. The
+kit round and the port must be measured together (merge, or rebase this branch onto `854b74c3`).
+
+### Round Kit completion — gpt-6.1-sol, 2026-11-13 (qwen3.8-max remains implementer of record)
+
+Review of qwen's F1–F6:
+
+- **F1 confirmed:** the kit branch still has base `96633aaf` and does not incorporate
+  the Clojure port. Verification uses an isolated, uncommitted merge of that base
+  with port `854b74c3`, plus the exact four changed kit/test files. No production
+  source or port merge is included in the kit commit.
+- **F2 verified on the composed tree:** removing both the matrix exclusion and the
+  generate-time throw is coherent. The Clojure replacement probe uses a real
+  `(finally (throw replacement))`; the directed source and batch compilation
+  checks pass for python→clojure, php→clojure and typescript→clojure.
+- **F3 completed:** `clojure-finally-normal-exit-test` observes public entries through
+  the existing kit. All three vector VMs return
+  `{:body-route :return :value 1 :cleanup-route :return :cleanup-count 1}` even
+  though the final cleanup expression is `2`. Body value preservation and
+  exactly-once normal cleanup are now execution assertions.
+- **F4 retained:** the newly admitted direction is donor→Clojure, not Clojure→donor.
+- **F5/F6 completed at the instrument level:** `php-to-clojure-test` and
+  `typescript-to-clojure-test` are added beside `python-to-clojure-test` in
+  `yang.python.antlr.exception-call-test`, with the same `check-pair` body,
+  slow/gate/frontend metadata, reporting and compliant expectations. No new runner
+  is introduced. The original R0 snapshot and frontend-round acceptance tags are
+  retained; adding a runnable deftest alone does not declare frontend conformance.
+
+Measured locally, scoped JVM verification only:
+
+| Tree | Command | Result |
+| --- | --- | --- |
+| Kit alone on `96633aaf` | `clojure -M:test -n yang.call.exception-source-test` | 6 tests, 121 assertions; 3 failures, 8 errors, from the still-live frontend finally rejection (F1); no semantic row claimed |
+| Base + port `854b74c3` + kit | same source namespace command | **6 tests, 124 assertions; 0 failures, 0 errors** |
+
+The composed source result includes `all-directed-pair-sources-compile-test`,
+the normal-exit pin, and the focused python→clojure finally-replacement leg on
+register/semantic/stack. The original qwen findings are committed unchanged
+(Git blob `4de60d913eb59e672e15d2f9091beaa11e24ec63`); this completion record
+supplies the later measurements rather than rewriting that report.
+
+Composed-tree pair execution used only these existing-shape deftests:
+
+```sh
+clojure -M:test -n yang.python.antlr.exception-call-test \
+  -v yang.python.antlr.exception-call-test/python-to-clojure-test \
+  -v yang.python.antlr.exception-call-test/php-to-clojure-test \
+  -v yang.python.antlr.exception-call-test/typescript-to-clojure-test
+```
+
+**3 tests, 69 assertions: 60 pass, 9 failures, 0 errors.** This is a measured
+subset, not an all-green pair gate or frontend acceptance claim.
+
+| Direction | Finally replacement: register / semantic / stack | Whole pair |
+| --- | --- | --- |
+| python→clojure | **green / green / green** | 24/24 assertions pass |
+| php→clojure | **green / green / green** | 15/24 pass; nine red observations below |
+| typescript→clojure | **green / green / green** | 21/21 assertions pass |
+
+All nine newly admitted finally-replacement observations equal
+`{:transferred true :once true :after false :reason :yang.call/thrown :payload-identical true}`.
+These legs use genuine source `finally` during foreign unwinding; the
+replacement payload's identity survives the public boundary.
+
+**Execution findings exposed by the new PHP pair deftest (not coverage omissions):**
+
+| PHP→Clojure scenario | Observed on each of register / semantic / stack | Expected delta |
+| --- | --- | --- |
+| `:retained-lifetime` | `{:transferred true :once true :after false :reason :yang.call/thrown :payload-identical false :retained true :local true}` | `:payload-identical` must be true |
+| `:unchanged-rethrow` | `{:transferred true :once true :after false :reason :yang.call/thrown :payload-identical false :caught true}` | `:payload-identical` must be true |
+| `:round-trip` | `{:returned false :value nil}` | `{:returned true :value true}` |
+
+These observations are consistent with the previously recorded PHP module-global
+lifetime limitation (the `php-exception-test` egress instrument documents
+`$original` disappearing at module shutdown). This completion does not establish
+that causal diagnosis independently, fix PHP runtime behavior, or weaken any
+expectation. All three failures are outside `:finally-replacement` and remain
+explicit findings for their frontend round.
+
+Additional scoped checks: `mechanically-derived-obligations-test` passed (1 test,
+4 assertions); `clojure -M:kondo --lint` on the three changed kit files plus
+`exception_call_test.clj` reported **0 errors / 0 warnings**; cljstyle
+`0.17.642` checked the same four files successfully; `git diff --check` passed.
+Generated Java parsers were built locally as prerequisites. No suite-scale local
+run was performed.
+
+**Coverage:** F5/F6's execution gap is closed for all three RETIRE directions on
+the JVM and all three vector VMs. Node/Dart host lanes, the remaining directed
+pairs and the wider acceptance obligations are not measured by this local round.
+The kit branch alone still needs composition with the port before its new tests
+can pass; the nine green retirement rows above belong to the explicitly composed
+tree, not standalone `96633aaf`.
+
+**KIT-2 follow-on to Round Kit completion — gpt-6.1-sol, 2026-11-13:** the
+steward-owned PHP instrument-shape repair is implemented in the shared kit.
+`exception_contract.clj` now defines a parsed-source PHP `seed` function that
+creates `$original` after `php/run-main` shutdown; `exception_probes.clj` uses
+its returned original in fresh-named, fresh-closure and local-reception.
+`exception_legs.clj` seeds once before each PHP-donor observation, so `payload`,
+`donor_raise`, retained rethrows and `home` share the same live object. No
+runtime, lifecycle rule, expected map, identity comparison, once count or
+after-call assertion changes. The R0 snapshot and earlier findings above are
+preserved as measured history.
+
+Verification uses the **existing** isolated composition from KIT-1 (base
+`96633aaf` + Clojure port `854b74c3` + kit `6b5dfa7f`), overlaid with these four
+repaired test files. The port is not merged into `exception-kit-finally`.
+
+`clj -M:test -n yang.call.exception-source-test` passes **7 tests, 312
+assertions, 0 failures, 0 errors** on that composition. The PHP fresh-named,
+fresh-closure and local-reception observations are now **9/9 green** across
+register/semantic/stack; all 34 other-frontend fixtures retain their original
+expectations and pass on all three VMs (**102/102 observations**).
+
+The existing scoped pair runner also passes:
+
+```sh
+clj -M:test -n yang.python.antlr.exception-call-test \
+  -v yang.python.antlr.exception-call-test/php-to-clojure-test
+```
+
+**1 test, 24 assertions, 0 failures, 0 errors.** In particular, KIT-1's nine
+PHP→Clojure residual observations (retained-lifetime, unchanged-rethrow and
+round-trip on the three VMs) are green with the runtime-seeded original;
+finally-replacement remains green. This supersedes those instrument findings
+for the repaired setup, without changing PHP shutdown semantics.
+
+The source namespace now checks all 47 original provenance fixtures, including
+the three PHP identity fixtures on register/semantic/stack, and the other
+frontends' original expectations. A separate before/after audit against
+`6b5dfa7f` confirms all 47 fixture contracts unchanged; source and donor-source
+strings for all three non-PHP frontends unchanged; all 34 non-PHP fixture
+observation forms and 69 non-PHP-donor leg observation forms identical with
+deterministically generated symbol names. No suite-scale local run, Node/Dart host gate or new frontend
+acceptance claim is made by this follow-on.
+
+`clj -M:kondo --lint` on all four changed Clojure files reports **0 errors /
+0 warnings**; cljstyle `0.17.642` and `git diff --check` pass.

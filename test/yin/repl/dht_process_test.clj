@@ -574,7 +574,7 @@
 
 
 (def ^:private published-line
-  #"dht: published :(segment/\S+) .*, acknowledged")
+  #"dht: (?:re)?published :(segment/\S+) .*, acknowledged")
 
 
 (defn- head-of-dir

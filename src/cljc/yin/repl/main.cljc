@@ -859,6 +859,14 @@
             comp-lines (cond-> comp-lines
                          (seq rechecked) (conj rechecked))
             stepped (driver/repl-step state now)
+            [stepped after-input] (if (and (nil? (get-in state [:repl :pending-run]))
+                                           (get-in stepped [:repl :pending-run])
+                                           (:recheck-after-input (:composition stepped))
+                                           (session-of stepped))
+                                    (let [[session text] ((:recheck-after-input (:composition stepped))
+                                                          (session-of stepped))]
+                                      [(with-session stepped session) text])
+                                    [stepped nil])
             stepped (if (:running? stepped)
                       (custody-program-step stepped)
                       (custody-stop stepped))
@@ -870,9 +878,10 @@
                                         (serve/take-outbox server')
                                         [[] nil])
             state'' (if server'' (assoc state' :repl (:repl server'')) state')]
-        [state'' server'' (into comp-lines
-                                (map entry-text)
-                                (into (vec entries) server-entries))]))))
+        [state'' server'' (cond-> (into comp-lines
+                                        (map entry-text)
+                                        (into (vec entries) server-entries))
+                            (seq after-input) (conj after-input))]))))
 
 
 (defn moved?
@@ -1080,7 +1089,8 @@
       (flush)
       (if (:running? state')
         (do (when (and (not headless?) (prompt-owed? state state' lines))
-              (do (print prompt) (flush)))
+              (print prompt)
+              (flush))
             (let [{:keys [cadence-state sleep-ms]}
                   (cadence/cadence-step cadence
                                         (moved? state' server' lines))]

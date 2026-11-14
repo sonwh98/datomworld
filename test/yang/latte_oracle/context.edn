@@ -115,11 +115,10 @@
  ;; Same typed-argument boundary as the slice-5 catch adaptation, now with
  ;; the real record field and calling convention (def-env ctx & typed-args).
  (defn unfold-typed-implicit [kernel ctx implicit-def targs args]
-   (let [outcome (yin.k/outcome-of (apply (:implicit-fn implicit-def) kernel ctx targs))]
-     (if (= :yin.k/error (first outcome))
-       [:ko (merge {:implicit (:name implicit-def) :msg (:yin.k/message (second outcome))}
-                   (:yin.k/data (second outcome))) nil]
-       [:ok (second outcome) args])))
+   (try [:ok (apply (:implicit-fn implicit-def) kernel ctx targs) args]
+        (catch Exception e
+          [:ko (merge {:implicit (:name implicit-def) :msg (ex-message e)}
+                      (ex-data e)) nil])))
  ;; These are the state/diagnostic arms of proof/elab-proof-step. The full
  ;; parsing/typing arms belong to slice 9; unsupported steps fail explicitly.
  ;; The updated context occupies the original def-env slot in :cont, so the

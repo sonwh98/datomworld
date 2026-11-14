@@ -204,14 +204,16 @@
 
 
 (deftest hand-packet-golden-test
-  (is (= (u/app (u/lam ['x]
-                       (u/then (u/then (u/app (u/v 'cell/set!)
-                                              (u/v 'x)
-                                              (u/lit (cbor/float64 1.0)))
-                                       (u/lit :js/undefined))
-                               (u/lit :js/undefined)))
-                (u/app (u/v 'cell/new) (u/lit :js/undefined)))
-         (lower/lower-module-body var-x))))
+  (is (= (u/annotate-call-sites
+           (u/app (u/lam ['x]
+                         (u/then (u/then (u/app (u/v 'cell/set!)
+                                                 (u/v 'x)
+                                                 (u/lit (cbor/float64 1.0)))
+                                         (u/lit :js/undefined))
+                                 (u/lit :js/undefined)))
+                  (u/app (u/v 'cell/new) (u/lit :js/undefined))))
+         (lower/lower-module-body var-x))
+      "the golden is C1 finalized, as every lowered tree now is"))
 
 
 (deftest unknown-rule-fails-qualified-test

@@ -1,0 +1,33 @@
+
+[Computer Use] First-time install
+  Package: open-computer-use@0.1.51
+  This will fetch ~50MB from the npm registry the first time.
+  Computer Use can click, type, and read your desktop apps.
+  On macOS you'll be guided through Accessibility and Screen Recording permissions next.
+Set QWEN_COMPUTER_USE_AUTO_APPROVE=1 to skip this prompt.
+**BLOCKED: no shell in this session** — edits complete and statically verified, but `clj -M:test`, `clj-kondo`, `git commit` and `git push` could not be run. No SHA, no test result.
+
+Probe: `tool_search` returned no `run_shell_command` and no `monitor`; `computer_use__list_apps` → *"Computer Use install declined by user"*; a subagent independently confirmed the same absence.
+
+## Edits made (worktree `datomworld-kitfinally`, branch `exception-kit-finally` @ base `96633aaf`, uncommitted)
+
+| File | Change |
+|---|---|
+| `test/yang/call/exception_contract.clj` | removed the `:finally-replacement` clojure-caller exclusion; **removed** (not flipped) `:clojure-finally-refusal` |
+| `test/yang/call/exception_legs.clj` | removed the generate-time refusal `throw`; added the three `:clojure` arms; corrected the `:58-60` comment |
+| `test/yang/call/exception_source_test.clj` | kept the still-live `catch Throwable` refusal; added `clojure-finally-admitted-test` + `^:slow clojure-finally-replacement-leg-test` |
+| v2 ruling + `acceptance-ledger.md` | append-only supersession note and retirement record (ruling consequences 4 and 2) |
+
+No `src/` or frontend file touched. Verified statically: paren balance by anchored regex, `case scenario` intact (all 8 scenarios), 5 deftests, and `mechanically-derived-obligations-test`'s four pins still hold — critically, `::r4` survives via `:clojure-private-public-equivalence`, so `ledger-seed` is unchanged.
+
+## Findings that change the plan
+
+**F1 (P1, blocker) — the port is not in this branch.** Item 3's premise is false here: `clojure.cljc:1136` still rejects with *"Portable try requires one Exception/ExceptionInfo catch and no finally"*, `src/cljc/yang/clojure/` has zero hits for `%capture`/`clj.rt/ctx`/`provenance`, and `cell/dsg__new-provenance` exists only in the python and php preludes. The new legs therefore fail at **compile** time, not runtime — the dispatch's pre-authorised §8.10.8 diagnosis does not apply. Kit and port (`exception-r3-impl` @ `854b74c3`) must be composed before shiva measures anything. I did not merge/rebase: that touches `src/` and is an orchestrator decision.
+
+**F2 (P1) — the two-file list was incomplete.** `exception_legs.clj:106-111` held an active generate-time `throw`. Removing only the matrix exclusion would not have reddened three legs: that `throw` sits inside `run-pair`'s `try`, so it would have errored *every* leg of *every* clojure-caller pair, and `all-directed-pair-sources-compile-test` (no `try`) would have failed outright. The ruling names this file as one of "the three kit locations", so I treated the list as an omission.
+
+**F3 (P2) — I did not pin "result 2".** In Clojure, `(try 1 (finally 2))` ⇒ **1**; `finally`'s value is discarded. Pinning 2 would encode the dialect divergence the owner's principle forbids. The DECIDED section names no value, so I pinned compilation and left runtime to the pair leg.
+
+**F4 (P2) — the new legs' direction is inverted in the brief.** The predicate filters `caller = :clojure` and the arrow is donor→caller, so the live rows are `python→clojure`, `php→clojure`, `typescript→clojure`. **F5:** `-v` targeting is impossible — `yang.call.exception-contract` has zero `deftest`s, hence the new single-leg pin. **F6:** only `python-to-clojure-test` exists, so two of the three new rows are compiled but **never executed**.
+
+Full detail, the exact command sequence, and a ready commit message carrying the required supersession line are in `collab/exception-track/1794569000000-engineer-kit-finally-retire.qwen3.8-max.findings.md`.

@@ -2669,7 +2669,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   (let [parked (:pending-run state)]
     (try
       (let [[state' vm' pending progress?] (drive-links state (:vm parked)
-                                                        initial-progress)]
+                                                        initial-progress)
+            pending (if (and (empty? pending) (link-waiting? vm'))
+                      (:links parked)
+                      pending)]
         (if (vm/halted? vm')
           (let [vm'' (engine/restore-initial-env (:env (:base parked)) vm')
                 [st text] (finalize-eval state

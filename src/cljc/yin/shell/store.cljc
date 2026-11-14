@@ -102,7 +102,10 @@
   ([spec] (open spec {}))
   ([spec opts]
    (if (composition-spec? spec)
-     (let [key (or (:key opts) (:publisher-key opts))
+     (let [_ (when (or (:content-store opts) (:content-client opts))
+               (throw (ex-info "A composed store cannot use a second content source"
+                               {:index-store-spec spec})))
+           key (or (:key opts) (:publisher-key opts))
            opened (shell.dht/open spec {:key key
                                         :ws (or (:ws opts) (:ws-host opts))
                                         :write-heads! (:write-heads! opts)

@@ -1,6 +1,7 @@
 (ns yang.core.call-test
   "Synthetic guest proof for the language-neutral calling runtime."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [yang.core.call :as call]
             [yang.core.prelude :as core]
             [yang.core.uast :as u]
@@ -155,6 +156,18 @@
 
 
 (deftest conditions-and-transfer-test
+  (testing "a missing raise exit is refused by both invocation variants"
+    ;; Simulate a rejected exit while retaining a callable observer, so the
+    ;; otherwise uncallable exit can expose the constructed refusal.
+    (let [emitter (u/then
+                    (u/def! 'test/reject-exit (u/sexp->uast '(fn [x] false)))
+                    (walk/postwalk #(if (= % (u/v 'data/callable?))
+                                      (u/v 'test/reject-exit) %) call/uast))]
+      (doseq [form ['(yang.call/invoke :callee [] [] (fn [c] c))
+                    '(yang.call/invoke-with :callee [] [] (fn [c] c) {})]]
+        (is (every? #(= {:yang.call/reason :yang.call/invalid-invocation
+                         :yang.call/data {:yang.call/reason :missing-raise-exit}} %)
+                    (vals (run-everywhere emitter form)))))))
   (testing "throwing wraps condition-shaped data; normal return remains data"
     (is (every? true?
                 (vals (run-everywhere

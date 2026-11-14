@@ -1,0 +1,40 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've completed the work and diagnosed a genuine blocker. Here is my report.
+
+---
+
+**Completed-GMT:** 2026-11-12 20:21:45 GMT · **Completed-Local:** 2026-11-13 03:21:45 +0700
+
+## Part 1 — rebase: CLEAN (zero conflicts)
+
+Rebased `exception-r3-impl` onto current `origin/master` (`b134207f`) and force-pushed (`d60038ef…8e1dab6d`). Contrary to the prompt's expectation of a `repl-query-link-forwarding-test` / `yin.shell.query` conflict, the rebase applied with **no conflicts** — the only file master touched in the port's region is `src/cljc/yin/vm/linker/pair.cljc`, which the port never touches, so it carried as master's automatically. The "resolution rule of record" was never exercised.
+
+`git diff origin/master..HEAD --stat` shows **only** the three port files (`clojure.cljc`, `prelude.cljc`, `clojure_test.clj`) — no `yin/vm` or `yin/shell` diff. (The named `repl-query-link-forwarding-test` actually lives in `test/yang/clojure_callsite_test.cljc`, untouched by the port.)
+
+## Part 2 — depth harness: BLOCKED
+
+The depth harness cannot be completed on this branch because the port (phase 1+2) **broke the LaTTe oracle's kernel-gate corpus** in two layers, both port regressions:
+
+1. **Admission** — `unbound-ast-symbols` (`latte_oracle_test.clj:200`) flags the port's `clj/` continuation family as unbound. The port emits these inline via `yang.clojure/continuation-family` (`clojure.cljc:895`): `clj/ctx clj/handlers clj/set-handlers! clj/restore! clj/frame-depth clj/frame clj/pop-frame clj/raise clj/throw clj/try clj/try-finally clj.rt/ctx` — none of which are in the admission globals, so every corpus fixture blocks at `:phase :admission`.
+
+2. **Runtime** (after admitting `clj/*`) — the corpus compiles but fails at execution with `data primitive refused: nth wrong-type`. The latte harness still runs the **outcome model** (`arg-vector-opts` `:outcomes true`; `oracle-registry` on `yang/outcome-adapter`), which the port is retiring, so the data adapters no longer line up under the gate's instrumented compilation (trace/site-stamping).
+
+This is **independent of my changes** — `test-kernel-unused-arity-execution` (which uses the pre-existing `kernel-c → run-guest-machine`, no new code) fails `:pass → :blocked`. The slice-level fixtures still pass (`test-oracle-slice4-loop-anchors`: 93 assertions, 0 failures), so the breakage is specific to the kernel-gate compilation path.
+
+## What I built and reverted
+
+I built the correct instrumentation (`run-guest-machine-depth` sampling `semantic-depth` = `(count (vm/continuation vm))` per `vm/step`, plus `kernel-semantic-depth`/`kernel-continuation-depths`, a baselines EDN, a `write-depth-baselines!` generator, and a `test-kernel-continuation-depth-baselines` assertion), and the correct admission fix. I then **reverted all of it**: with the corpus broken, the collection returns `{}` and the assertion passes *vacuously* — a misleading green. Committing unverifiable instrumentation over a broken corpus is worse than a clean revert. The working tree is left at the clean rebase only.
+
+## The sequencing problem ("pre-port")
+
+The baselines are specified "PRE-PORT" as the yardstick for the escalation thresholds (>10× depth / >10k frames post-port). But the port is *already* on this branch and is itself what broke the corpus. There is no pre-port (outcome-model) state left on this branch to measure against.
+
+## Recommendation
+
+Before baselines can land, the LaTTe kernel-gate harness must be ported to the continuation encoding (admit `clj/*`, move `arg-vector-opts`/`oracle-registry` off the outcome model) — a distinct, substantial task, not the depth harness. Either assign that port and re-run this task, or record the pre-port baselines on a pre-port checkout of `clojure.cljc`.
+
+---
+
+**PHASE 2B+3 BLOCKED: Part 1 rebase clean (pushed `8e1dab6d`); Part 2 depth harness blocked — the port broke the kernel-gate corpus (admission: unbound `clj/*`; runtime: `nth` wrong-type), so baselines cannot be recorded.**
+
+Note: I attempted to write the standard `findings.md` to `collab/exception-track/1794550000000-engineer-port-phase2b-rebase.deepseek-v4-pro.findings.md`, but that write is outside my worktree and is awaiting your permission — the full content is reproduced above. I also recorded the blocker in my persistent memory for future sessions.

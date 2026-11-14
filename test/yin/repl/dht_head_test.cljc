@@ -22,6 +22,7 @@
             [dao.stream :as stream]
             [dao.stream.loopback-net :as net]
             [yin.repl :as repl]
+            [yin.repl.driver :as driver]
             [yin.shell.dht :as repl.dht]
             [yin.repl.main :as main]
             [yin.shell.cli :as cli]
@@ -162,8 +163,23 @@
   "Evaluate `line` at shell `k`: the world, its text appended to `k`'s
    lines."
   [w k line]
-  (let [[repl text] (repl/eval-input (get-in w [k :repl]) line)]
-    (-> w (assoc-in [k :repl] repl) (update-in [:lines k] conj text))))
+  (let [[engine text] (repl/eval-input (get-in w [k :repl]) line)
+        state (assoc (get w k) :repl engine)
+        [state text] (loop [state state text text budget 32]
+                       (let [{session :session progressed? :progress?}
+                             (shell.session/serve (main/session-of state))
+                             state (main/with-session state session)]
+                         (if (and progressed? (pos? budget))
+                           (let [[session resumed] (shell.session/recheck-pending session true)]
+                             (recur (main/with-session state session)
+                                    (or resumed text) (dec budget)))
+                           (if (and (seq (get-in state [:repl :pending-run :links]))
+                                    (str/includes? (str text) ";; require still pending"))
+                             (let [[session pending-text]
+                                   (shell.session/recheck-pending (main/session-of state))]
+                               [(main/with-session state session) pending-text])
+                             [state text]))))]
+    (-> w (assoc k state) (update-in [:lines k] conj text))))
 
 
 (defn- value
@@ -275,6 +291,17 @@
 ;; =============================================================================
 ;; Following: first contact, the moved line, (reset), and a bare restart
 ;; =============================================================================
+
+(deftest live-loop-reports-the-name-of-a-new-pending-require
+  (let [key (sign/generate)
+        w (world)
+        w (assoc w :b (reader w key (temp-dir)))
+        state (:b w)]
+    (driver/submit-line! (:input state) "(require (quote my.lib))")
+    (let [[state _ lines] (main/step-all state nil 0)]
+      (is (some #(str/includes? % ";; require pending: my.lib") lines)
+          (pr-str lines))
+      (close! (assoc w :b state)))))
 
 (deftest ^:slow a-reader-follows-requires-moves-and-restarts-from-heads-edn
   (slow/guard
@@ -1230,10 +1257,10 @@
             (write-heads! dir (repl.dht/render-heads {:version 1 :heads {}}))
             (let [handle (open! dir (atom {}) false false)]
               (is (some? (:node handle)))
-              (durable/close! (:index-store handle))))))))
+              (durable/close! (:index-store handle)))))))))
 
 
-  #?(:cljd nil
+#?(:cljd nil
      :clj
      (deftest ^:slow a-fifo-at-heads-edn-is-refused-not-waited-on
        ;; In a child JVM, bounded: a regression blocks the child, not this
@@ -1257,4 +1284,4 @@
                    (do (.destroyForcibly child) "the child blocked"))]
          (is (zero? made) "mkfifo made the FIFO")
          (is done? "the read did not block on the FIFO")
-         (is (str/includes? out "it is not a regular file") out)))))
+         (is (str/includes? out "it is not a regular file") out))))

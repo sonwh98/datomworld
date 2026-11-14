@@ -1,0 +1,22 @@
+Review complete. Findings written to `collab/exception-track/1794554000000-reviewer-port-implementation.qwen3.8-max.findings.md`.
+
+**Verdict: REQUEST CHANGES** — two blocking findings, neither in the port's lowering.
+
+**No shell in this session.** `git diff`, `git status` and `clojure -M:test -n yang.clojure-test` were **not run**; the reported 103/993 0F/0E is unverified. I reconstructed the diff of record by reading `.git` metadata and comparing the branch worktree (`35d09aaa`, confirmed) against the master checkout file-by-file. Port surface: `clojure.cljc` −169, `clojure/prelude.cljc` +98, `clojure_test.clj` +505, `latte_oracle_test.clj` +26, 3 new depth artifacts — the accounting closes exactly.
+
+| Item | Verdict |
+|---|---|
+| 1 VM purity | **PASS** — non-doc VM total 40943 = 40943; `engine.cljc` 2934=2934, `module.cljc` 701=701; the only VM delta is master's own `docs/yin.repl.md` restructure (+337, exactly) |
+| 2 Encoding shape | **PASS** — `%capture` family mirrors py/ts/php; router, `:clj/outcomes?`, escape/outcome tokens, wrapper + retention forms all gone. Residue is the `[:yin.k/ok\|error]` harness wrapper only |
+| 3 §8.10.7 boundary | **PASS** — bridge wraps the named-arg check *and* binding; `(clj/restore! saved)` runs **before** `(handler r)`; raise exit never returns |
+| 4 R5 | **PASS** — always a fresh `yang.call/thrown`; admission still via `cell/authentic?`; forged-attribute pin present |
+| 5 finally | **PASS mechanism / FAIL coverage** — one assertion, normal exit only |
+| 6 Tail lane | **PASS** — token packet bypasses the bridge; `remark-tails` applied *after* the preamble wrap; 155/155, max 1.20×, max depth 28 (down from 32) |
+| 7 Kit integrity | **PASS** — 2360=2360, `exception_contract.clj` 211=211, `_test` 136=136, `exception_source_test` 41=41 |
+| 8 Test integrity | **PASS** — deftest set is a strict superset (95⊂103); latte oracle set identical (36); all 4 lost assertions located and explained as dead pins |
+| 9 Source surface | **PARTIAL** — one-catch was *not* lifted, only `finally`; documented in comments, while ruling v2 §3 and the kit still say "refuses" |
+
+**P1-1** — the `finally` lift falsifies the unchanged kit: `exception_source_test.clj:37-41` asserts `(try 1 (finally 2))` throws, the branch's own test asserts it returns `[:yin.k/ok 1]`. Shiva goes red for a governance reason; needs a ruling + kit round first.
+**P1-2** — R3's outbound half is unclosed: `call-entry`'s handler is an unconditional `yang.call/thrown`, so a rethrown protocol condition is reclassified at the public escape. The 18 red `:clojure/protocol-*` rows are predicted unchanged. Only authorized remedy left is the owner's pre-approved **(B)** closure carrier.
+
+Plus P2 ×3 (finally unwind untested; `missing-raise-exit` lost its only pin repo-wide; `clj/call-ec`/`clj/unwind-to` exported with zero callers) and P3 ×4.

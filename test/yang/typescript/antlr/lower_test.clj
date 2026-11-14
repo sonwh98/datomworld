@@ -69,11 +69,14 @@
 
 
 (defn- cells
-  "`body` under one lambda over fresh cells: `[name init]` pairs."
+  "`body` under one lambda over fresh cells: `[name init]` pairs. C1
+   finalized, as every tree the lowering answers now is
+   (`yang.typescript.antlr.lower`'s contract C1 block)."
   [pairs body]
-  (apply u/app
-         (u/lam (mapv (comp symbol first) pairs) body)
-         (map (fn [[_ init]] (u/app (u/v 'cell/new) init)) pairs)))
+  (u/annotate-call-sites
+    (apply u/app
+           (u/lam (mapv (comp symbol first) pairs) body)
+           (map (fn [[_ init]] (u/app (u/v 'cell/new) init)) pairs))))
 
 
 (def ^:private undefined (u/lit :js/undefined))
@@ -134,8 +137,9 @@
             (nodes (body "'\\uD83D\\uDE00';")))
       "an escaped surrogate pair normalizes to :js/str")
   (is (some #(= (u/lit {:js/str "a"}) %) (nodes (body "'a';"))))
-  (is (some #(= (u/app (u/v 'js/string->bigint)
-                       (u/lit {:js/str "123456789012345678901234567890"}))
+  (is (some #(= (u/annotate-call-sites
+                  (u/app (u/v 'js/string->bigint)
+                         (u/lit {:js/str "123456789012345678901234567890"})))
                 %)
             (nodes (body "123456789012345678901234567890n;")))
       "a BigInt past 2^53 - 1 is built by the guest"))

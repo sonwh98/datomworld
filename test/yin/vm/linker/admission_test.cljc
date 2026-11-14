@@ -23,6 +23,8 @@
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.main :as main]
+            [yin.shell.main :as shell.main]
+            [yin.shell.session :as session]
             [yin.vm :as vm]
             #?(:cljd nil :clj [yin.vm.ffi :as ffi])
             [yin.vm.linker.admission :as admission]
@@ -611,10 +613,11 @@
   ([w vm-type] (shell w vm-type {}))
   ([w vm-type opts]
    (-> (repl.frontends/create-state (merge {:vm-type vm-type
-                                            :dht-key a
+                                            :publisher-key a
                                             :principals [(:public b)]}
                                            opts))
-       (assoc :dht (:node w))
+       (assoc :node (:node w)
+              :session (session/transport-state (:node w) a))
        (assoc-in [:link-source :content] {:kind :dht})
        (#(assoc % :linker
                 (assoc (link/make (:link-source %)
@@ -622,10 +625,31 @@
                        :pair (get-in % [:linker :pair])))))))
 
 
+(defn- session-of [state]
+  (assoc (:session state) :node (:node state)
+         :engine (dissoc state :node :session)))
+
+
+(defn- state-of [s]
+  (assoc (:engine s) :node (:node s) :session (dissoc s :engine)))
+
+
+(defn- tick! [state events]
+  (let [[s text] (session/recheck-on-tick (session-of state) events)]
+    [(state-of s) text]))
+
+
 (defn- type!
   [state line]
-  (repl/eval-input state line))
-
+  (let [[engine text] (repl/eval-input (dissoc state :node :session) line)
+        state (assoc engine :node (:node state) :session (:session state))]
+    (loop [state state text text left repl/link-round-budget]
+      (let [{s :session progress? :progress?} (session/serve (session-of state))
+            state (state-of s)]
+        (if (and progress? (pos? left) (:pending-run state))
+          (let [[s t] (session/recheck-pending (session-of state) true)]
+            (recur (state-of s) (if t (str text t) text) (dec left)))
+          [state text])))))
 
 (defn- require!
   [state n]
@@ -647,8 +671,8 @@
           i 0]
      (if (or (done? state) (>= i 40))
        [state text]
-       (let [[node _] (dht/step (:dht state) (* 10 i))
-             [state t] (repl/recheck-pending (assoc state :dht node))]
+       (let [[node _] (dht/step (:node state) (* 10 i))
+             [state t] (tick! (assoc state :node node) [])]
          (recur state (str text t) (inc i)))))))
 
 
@@ -674,11 +698,11 @@
   "The shell with `n`'s closure loaded on its node, so an allow links at
    once."
   [state w n]
-  (loop [node (ld/load-module (:dht state) (address w n))
+  (loop [node (ld/load-module (:node state) (address w n))
          i 0]
     (if (or (= :loaded (:status (ld/module-status node (address w n))))
             (> i 40))
-      (assoc state :dht node)
+      (assoc state :node node)
       (recur (first (dht/step node (* 10 i))) (inc i)))))
 
 
@@ -713,9 +737,8 @@
       (let [w (world)
             allow! (fn [state]
                      (let [id (pending-admission state)]
-                       (first (settle (first (repl/recheck-on-tick
-                                               (answer-at! state (allow id))
-                                               []))
+                       (first (settle (first (tick! (answer-at! state (allow id))
+                                                    []))
                                       #(or (nil? (:pending-run %))
                                            (not= id (pending-admission %)))))))
             [state _] (require! (shell w vm-type {:admission :external})
@@ -740,7 +763,7 @@
         [state text] (require! (shell w :semantic) 'their.m)]
     (is (nil? (:pending-run state)) text)
     (is (str/includes? text "untrusted-principal") text)
-    (is (nil? (status (:dht state) w 'their.m)))
+    (is (nil? (status (:node state) w 'their.m)))
     (testing "trusted in the session's composition, it imports"
       (let [[state text] (require! (shell w :semantic {:admission
                                                        {:trusted #{pb}}})
@@ -753,9 +776,10 @@
   "The shell `yin.repl.main/boot` composes from `opts`, holding A's key
    and declaring B, over `w`'s node."
   [w opts]
-  (-> (main/boot (merge {:dht-key a :principals [(:public b)]} opts))
+  (-> (main/boot (merge {:publisher-key a :principals [(:public b)]} opts)
+                 shell.main/composition)
       :repl
-      (assoc :dht (:node w))
+      (assoc :node (:node w))
       (assoc-in [:link-source :content] {:kind :dht})
       (#(assoc % :linker
                (assoc (link/make (:link-source %)
@@ -771,7 +795,7 @@
         (is (= #{pa} (get-in state [:link-source :admission :decision])))
         (is (nil? (:pending-run state)) text)
         (is (str/includes? text "untrusted-principal") text)
-        (is (nil? (status (:dht state) w 'their.m)))))
+        (is (nil? (status (:node state) w 'their.m)))))
     (testing "an explicit admission passed to boot is honored: trusting B
               imports B's module"
       (let [state (booted w {:admission {:trusted #{pb}}})
@@ -822,7 +846,7 @@
           [state _] (require! (preload state w 'own.m) 'own.m)
           id2 (pending-admission state)
           _ (is (= 1 (second id2)))
-          [state text] (repl/recheck-on-tick (answer-at! state (allow id2)) [])]
+          [state text] (tick! (answer-at! state (allow id2)) [])]
       (testing "an unrelated trusted require completes on the same pair"
         (is (nil? (:pending-run state)) text)
         (is (= 'own.m (:last-value state)))
@@ -830,11 +854,10 @@
             "no response for the retired request"))
       (testing "a late allow for the retired id loads, prints and parks
                 nothing"
-        (let [[state' text] (repl/recheck-on-tick
-                              (answer-at! state (allow id)) [])]
+        (let [[state' text] (tick! (answer-at! state (allow id)) [])]
           (is (nil? text))
           (is (nil? (:pending-run state')))
-          (is (nil? (status (:dht state') w 'their.m)))
+          (is (nil? (status (:node state') w 'their.m)))
           (is (= 1 (count (shell-responses state'))))
           (is (= {} (get-in state' [:linker :admission :answers]))))))))
 
@@ -844,9 +867,7 @@
         allow! (fn [state]
                  (let [id (pending-admission state)]
                    (is (some? id) "parked on a question")
-                   [(first (repl/recheck-on-tick
-                             (answer-at! state (allow id))
-                             []))
+                   [(first (tick! (answer-at! state (allow id)) []))
                     id]))
         past (fn [id]
                #(or (nil? (:pending-run %))
@@ -917,17 +938,17 @@
       (let [state (-> (parked)
                       (unknown link/serve-budget)
                       allow-pending)
-            [state text] (repl/recheck-on-tick state [])]
+            [state text] (tick! state [])]
         (is (nil? text))
         (is (= 0 (get-in state [:pending-run :checks])))
-        (let [[state text] (repl/recheck-on-tick state [])]
+        (let [[state text] (tick! state [])]
           (is (some? text))
           (is (nil? (:pending-run state)))
           (is (= 'own.m (:last-value state))))))
     (testing "serve-budget unknown answers and no allow: three calls, no
               :checks, the cursor past all of them"
       (let [state (unknown (parked) link/serve-budget)
-            state (nth (iterate #(first (repl/recheck-on-tick % [])) state) 3)]
+            state (nth (iterate #(first (tick! % [])) state) 3)]
         (is (= 0 (get-in state [:pending-run :checks])))
         (is (some? (:pending-run state)))
         (is (= link/serve-budget
@@ -939,13 +960,13 @@
                       (preload w 'own.m))
             [state _] (require! state 'own.m)
             state (-> state (unknown 6) allow-pending)
-            [state _] (repl/recheck-on-tick state [])
-            [state _] (repl/recheck-on-tick state [])]
+            [state _] (tick! state [])
+            [state _] (tick! state [])]
         (is (nil? (:pending-run state)))
         (is (= 'own.m (:last-value state)))))
     (testing "with nothing pending the hook still drains"
       (let [state (unknown (shell w :semantic {:admission :external}) 2)
-            [state' text] (repl/recheck-on-tick state [])]
+            [state' text] (tick! state [])]
         (is (nil? text))
         (is (= 2 (position
                    (get-in state' [:linker :admission :pair :cursor]))))))))
@@ -961,13 +982,13 @@
     (is (str/includes? text "pending") text)
     (is (= 0 (second id)))
     (testing "an unrelated load event re-checks nothing"
-      (let [[state' text'] (repl/recheck-on-tick
-                             state
-                             [{:dao.space.dht/event :loaded
-                               :manifest (address w 'own2.m)}])]
-        (is (identical? state state'))
-        (is (nil? text'))))
-    (let [[state text] (repl/recheck-on-tick (answer-at! state (allow id)) [])]
+      (let [[state' text'] (tick! state
+                                   [{:dao.space.dht/event :loaded
+                                     :manifest (address w 'own2.m)}])]
+        (is (= state state'))
+        (is (nil? text'))
+        (is (= (:pending-run state) (:pending-run state')))))
+    (let [[state text] (tick! (answer-at! state (allow id)) [])]
       (is (some? text))
       (is (nil? (:pending-run state)))
       (is (= 'own.m (:last-value state))))))
@@ -988,7 +1009,7 @@
     (stream/append! m #{pa})
     (testing "the snapshot arrives: one re-check answers, drains and links,
               the interpreter's answer alone continuing the drive"
-      (let [[state text] (repl/recheck-on-tick state [])]
+      (let [[state text] (tick! state [])]
         (is (nil? (:pending-run state)) text)
         (is (= 'own.m (:last-value state)))))))
 
@@ -1027,9 +1048,9 @@
         [state _] (require! (shell w :semantic {:admission :external}) 'own.m)
         id (pending-admission state)
         old (first (:by-a w))
-        node (index! (:dht state) [old (retraction a old 8)
+        node (index! (:node state) [old (retraction a old 8)
                                    (assertion a 'own.m m2 9)])
-        state (assoc state :dht node)]
+        state (assoc state :node node)]
     (is (not= m1 m2))
     (is (= m2 (:address (ld/resolve-name node (link/authority
                                                 (:link-source state))
@@ -1040,14 +1061,14 @@
                 "re-checks neither re-resolve nor re-ask")
           _ (is (= 1 (count (questions-of
                               (get-in state [:linker :admission])))))
-          [state text] (repl/recheck-on-tick (answer-at! state (allow id)) [])
+          [state text] (tick! (answer-at! state (allow id)) [])
           [state text'] (settle state)
           [res] (shell-responses state)]
       (is (nil? (:pending-run state)) (str text text'))
       (is (= m1 (:yin.admit/address res)))
       (is (= (jing/get store m1 nil) (:manifest res)))
-      (is (some? (ld/module-status (:dht state) m1)))
-      (is (nil? (ld/module-status (:dht state) m2)))
+      (is (some? (ld/module-status (:node state) m1)))
+      (is (nil? (ld/module-status (:node state) m2)))
       (is (= {:yin.admit/id id
               :yin.admit/decision :allow
               :yin.admit/asserters [pa]
@@ -1063,8 +1084,8 @@
 (defn- traced-tick
   "JVM-only call-order evidence; other hosts observe state and streams."
   [state]
-  #?(:cljd {:result (repl/recheck-on-tick state [])}
-     :cljs {:result (repl/recheck-on-tick state [])}
+  #?(:cljd {:result (tick! state [])}
+     :cljs {:result (tick! state [])}
      :clj
      (let [trace (atom [])
            successors (atom [])
@@ -1074,9 +1095,9 @@
            origin (:origin (:vm (:pending-run state)))
            result (with-redefs
                     [link/round
-                     (fn [value node]
+                     (fn [value node budget]
                        (swap! trace conj :round)
-                       (let [r (round-fn value node link/serve-budget)]
+                       (let [r (round-fn value node budget)]
                          (swap! successors conj (:linker r))
                          r))
                      admission/drain
@@ -1089,7 +1110,7 @@
                        (when (and (= origin (:origin v)) (not (vm/halted? v)))
                          (swap! trace conj :run))
                        (run-fn v f))]
-                    (repl/recheck-on-tick state []))]
+                    (tick! state []))]
        {:result result :trace @trace :successors @successors})))
 
 
@@ -1252,7 +1273,7 @@
         _ (stream/append! requests parked)
         pair (assoc pair :responses (get-in state [:linker :pair :responses]))
         state (assoc-in state [:linker :pair] pair)
-        [successor text] (repl/recheck-on-tick state [])
+        [successor text] (tick! state [])
         cursor (get-in successor [:linker :pair :cursor])
         ;; The tick plus its initial VM handoff count as the first round.
         answered (* link/serve-budget repl/link-round-budget)
@@ -1265,7 +1286,7 @@
     (is (some? (:pending-run successor)))
     (is (= (get-in state [:linker :admission])
            (get-in successor [:linker :admission])))
-    (is (str/includes? text "require still pending"))
+    (is (str/includes? text "require pending"))
     (is (= 0 (get-in successor [:pending-run :checks]))))
 
 
@@ -1282,13 +1303,13 @@
            round-fn link/round
            [successor _]
            (with-redefs [link/round
-                         (fn [value node]
+                         (fn [value node budget]
                            (swap! rounds inc)
-                           (assoc (round-fn value node link/serve-budget)
+                           (assoc (round-fn value node budget)
                                   :progress? true))
                          ffi/maybe-run
                          (fn [v _f] (swap! runs inc) v)]
-             (repl/recheck-on-tick state []))]
+             (tick! state []))]
        (is (= repl/link-round-budget @rounds @runs))
        (is (some? (:pending-run successor)))
        (is (= 0 (get-in successor [:pending-run :checks]))))))
@@ -1427,11 +1448,11 @@
         (is (= serial (get-in state [:linker :admission :serial]))))
       (testing "a fresh question from B is refused without a load"
         (let [other (publish! (:store w) 'their2.m forty-two)
-              node (index! (:dht state) [(assertion b 'their2.m other 2)])
-              [state text] (require! (assoc state :dht node) 'their2.m)]
+              node (index! (:node state) [(assertion b 'their2.m other 2)])
+              [state text] (require! (assoc state :node node) 'their2.m)]
           (is (str/includes? text "untrusted-principal") text)
           (is (nil? (entry state 'their2.m)))
-          (is (nil? (ld/module-status (:dht state) other))))))))
+          (is (nil? (ld/module-status (:node state) other))))))))
 
 
 (deftest untrust-keeps-an-already-answered-allow-test
@@ -1445,7 +1466,7 @@
         ;; Switch from an absent snapshot to the default trust policy.
         state (assoc state :linker
                      (link/reconfigure (:linker state) {:trusted #{pb}}))
-        value (:linker (link/round (:linker state) (:dht state)))
+        value (:linker (link/round (:linker state) (:node state)))
         state (assoc state :linker value)
         [state _] (type! state (str "(untrust " (pr-str pb) ")"))
         [state _] (settle state)]
@@ -1483,15 +1504,14 @@
     (is (not-any? #{(first id)} (map :yin.link/id (shell-responses state))))
     (let [responses (shell-responses state)
           vm (:vm state)
-          [later text] (repl/recheck-on-tick
-                         (answer-at! state (allow id)) [])]
+          [later text] (tick! (answer-at! state (allow id)) [])]
       (is (nil? text))
       (is (= vm (:vm later)))
       (is (nil? (:pending-run later)))
       (is (= {} (get-in later [:linker :admission :asked])
              (get-in later [:linker :admission :answers])))
       (is (= responses (shell-responses later)))
-      (is (nil? (status (:dht later) w 'pym.e))))))
+      (is (nil? (status (:node later) w 'pym.e))))))
 
 
 (deftest trust-commands-preserve-external-attachment-test

@@ -87,8 +87,10 @@
                     (shell.linker/from-engine engine node) budget)
                   (shell.linker/serve-links
                     (shell.linker/from-engine engine node)))
-         served-compose {:engine (shell.linker/install engine
-                                                       (:composition linked))
+         engine (cond-> (shell.linker/install engine (:composition linked))
+                  (and (:pending-run engine) (seq (:pending linked)))
+                  (assoc-in [:pending-run :links] (:pending linked)))
+         served-compose {:engine engine
                          :node (:node (:composition linked))
                          :key (:key session)
                          :limits (:limits session)
@@ -104,32 +106,25 @@
 
 
 (defn recheck-on-tick
-  "One host tick: serve both media, then let the engine re-check a run it
-  has parked.  Answers `[session' text]` exactly as the engine's own
-  `yin.repl/recheck-on-tick` does.
-
-  `events` are the composition's own transport and follower events for the
-  tick.  They are translated before they cross
-  (`yin.shell.completion/completion-events`), so the engine sees only the
-  generic completions correlated to the work it parked and never a
-  transport keyword.  A round that made progress resumes the run with
-  that progress carried into the driver (`yin.repl/recheck-pending`'s
-  three-argument arity), so the parked VM runs at once: the composition
-  has consumed the request and delivered its response, and no further
-  round of internal progress need occur first.  A round that made none
-  leaves the resume to a matching completion."
+  "Serve and resume a parked run for at most `repl/link-round-budget`
+  rounds per host tick. Continue while serving makes progress, and offer
+  `events` as generic completions to at most one non-progress round."
   ([session events] (recheck-on-tick session events nil))
   ([session events budget]
-   (let [served (serve session budget)
-         session (:session served)
-         engine (:engine session)
-         [engine' text]
-         (if (:progress? served)
-           (repl/recheck-pending engine nil true)
-           (repl/recheck-on-tick engine
-                                 (completion/completion-events session
-                                                               events)))]
-     [(assoc session :engine engine') text])))
+   (loop [session session, text nil, left repl/link-round-budget, events events]
+     (let [served (serve session budget)
+           session (:session served)
+           engine (:engine session)
+           [engine' next-text]
+           (if (:progress? served)
+             (repl/recheck-pending engine nil true)
+             (repl/recheck-on-tick engine
+                                   (completion/completion-events session events)))
+           session (assoc session :engine engine')
+           text (if next-text (str text next-text) text)]
+       (if (and (:progress? served) (:pending-run engine') (> left 1))
+         (recur session text (dec left) events)
+         [session text])))))
 
 
 (defn recheck-pending
@@ -148,6 +143,13 @@
   ([session progress]
    (let [[engine text] (repl/recheck-pending (:engine session) nil progress)]
      [(assoc session :engine engine) text])))
+
+
+(defn recheck-after-input
+  "Serve requests made by newly evaluated input and report its parked run."
+  [session]
+  (let [{session :session progress? :progress?} (serve session)]
+    (recheck-pending session progress?)))
 
 
 (defn settle-publication

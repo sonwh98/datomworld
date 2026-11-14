@@ -1,0 +1,24 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+The rebase is complete and pushed. Here's the summary:
+
+## Result: REBASE CLEAN (6 commits / 3 conflicts resolved) — with a pre-existing red test flagged
+
+**What happened:** `git fetch origin` then rebased `exception-r3-impl` (was `e735ebb2`) onto `origin/master` (`fb493d52`, post-cc3). All 6 port commits preserved; force-pushed `e735ebb2…f37bc62b`.
+
+**Conflicts (3 hunks, each resolved to master — for the right reason, not mechanically):** The collision was cc3's provenance primitive vs. the port's retained-carrier seam, all in `yin/vm` (`engine.cljc` `heap-write`, `module.cljc` `cell-module`, `cell-profiles`). Each side:
+- master wanted `:provenance` preservation + `dsg__new-provenance`/`dsg__provenance` doors
+- port wanted `:retained` mark + `dsg__new-retained`/`retained?`
+
+I kept **master's provenance** everywhere, because the port's *own* `e735ebb2` (owner NO, decision 1794372000000) removes the retained seam — so the port's net effect on these two files is zero. Crucially, I did **not** apply `e735ebb2`'s `heap-write` revert (which would have dropped `:provenance`); provenance preservation is load-bearing for cc3's primitive and survives intact.
+
+**The prompt was slightly off:** it predicted a `yang/clojure.cljc` retention-state (r7-r11) conflict. There is none — that retention state lives in `yin/repl.cljc`, untouched by the port, preserved automatically. The only cc3 change to `yang/clojure.cljc` (`check-program-symbols!`) auto-merged cleanly and survived (verified at `:3319`).
+
+**Verification:**
+- ✅ `git diff origin/master..HEAD --stat` → only `yang/clojure.cljc` + `test/yang/clojure_test.clj` (engine/module byte-identical to master)
+- ✅ Contract test skipped (remote-only)
+- ⚠️ kondo — couldn't run (sandbox denied `clojure -M:kondo`); code compiles fine (test suite loaded)
+- ❌ `clojure -M:test -n yang.clojure-test` → **38 failures, 13 errors**
+
+**The one thing Phase 1 must know (pre-existing, not caused by this rebase):** the test fails with `Unable to resolve symbol: cell/retained?` because `e735ebb2` removed the VM retained-carrier seam (`cell/retained?`, `cell/dsg__new-retained`) from `module.cljc`, but `yang/clojure.cljc` (untouched by that commit) still emits those names in `condition-wrapper-form` (`:945`) and `condition-retained-form` (`:957`). The branch is mid-refactor — the seam is gone, the compiler-side re-expression via continuation encoding (which `e735ebb2`'s message promises) isn't on the branch yet. This is present at `e735ebb2` *before* the rebase and is unchanged by it.
+
+Full report written to `collab/exception-track/1794547000000-engineer-port-rebase.deepseek-v4-pro.findings.md`.
