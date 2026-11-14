@@ -1706,6 +1706,11 @@
                                  :content-store (mem/create-content-mem)}))))
       (testing "and the refusal left the directory unlocked"
         (close! (create-state {:index-store-spec (dht-spec dir {})})))
+      (is (some? (refusal-of #(create-state
+                                {:index-store-spec (dht-spec dir {})
+                                 :content-client {}}))))
+      (testing "and the client refusal left the directory unlocked"
+        (close! (create-state {:index-store-spec (dht-spec dir {})})))
       (finally
         (cleanup-dir! dir)))))
 
