@@ -152,6 +152,13 @@
      [(assoc session :engine engine) text])))
 
 
+(defn recheck-after-input
+  "Serve requests made by newly evaluated input and report its parked run."
+  [session]
+  (let [{session :session progress? :progress?} (serve session)]
+    (recheck-pending session progress?)))
+
+
 (defn settle-publication
   "`session` after the composition's local publication service has been
   stepped and every result it delivered consumed.  A composition that
