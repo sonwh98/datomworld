@@ -5,6 +5,7 @@
    constant folding, namespace block rules and the two missing stages have
    focused tests."
   (:require
+    [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
@@ -12,6 +13,7 @@
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.programs-p6 :as p6]
     [yang.php.antlr.publication :as publication]
+    [yang.php.antlr.siteset :as siteset]
     [yin.vm :as vm]))
 
 
@@ -45,10 +47,37 @@
                          {:values {}}))]]
     (testing (name id)
       (is (not= :banner oracle))
+      (is (= (set (keys lh/backends)) (set (keys (:values r)))) (str (name id) " backends"))
       (doseq [[k v] (:values r)]
         (is (= [out (vec diag) uncaught] (observed v)) (str (name id) " on " k)))
       (when warnings
         (is (= warnings (mapv :yang.php/diagnostic (:warnings r))) (name id))))))
+
+
+(deftest ^:slow mutual-include-ticks-on-every-vm-test
+  (let [base (some #(when (= :inc-mutual-once (:id %)) %) p6/enabled)]
+    (doseq [[label fixture expected-sites]
+            [[:inactive base 0]
+             [:active (update base :units
+                              (fn [units]
+                                (reduce (fn [m path]
+                                          (update m path #(str/replace-first
+                                                            % "<?php" "<?php declare(ticks=1);")))
+                                        units ["a.php" "b.php"]))) 6]]]
+      (testing (name label)
+        (let [units (parse-units fixture)
+              specs (lower/scc-module-specs (lh/registry)
+                                            (mapv (fn [p] {:name p :packet (get units p)})
+                                                  ["a.php" "b.php"])
+                                            (:address @lh/published) {})
+              bundle (:ast (first specs))
+              result (run fixture)]
+          (is (= expected-sites (count (:set (siteset/site-set-of bundle)))))
+          (is (#'siteset/deferred-module? (vm/semantic-bytecode->ast
+                                             (vm/ast->semantic-bytecode bundle))))
+          (is (= (set (keys lh/backends)) (set (keys (:values result)))))
+          (doseq [[backend value] (:values result)]
+            (is (= ["ab" [] nil] (observed value)) (str backend))))))))
 
 
 (deftest unit-path-rules-test

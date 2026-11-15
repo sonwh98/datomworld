@@ -107,6 +107,19 @@
            (stage {:store store} 'guest address)))))
 
 
+(deftest trailing-hook-requires-deferred-initialization
+  (let [safe (module/module-tree [(u/def! 'spec (u/lit {}))
+                                  (u/def! 'body (u/lam [] (u/lit 1)))
+                                  (module/require-node 'php)])
+        eager (module/module-tree [(u/def! 'body (u/app (u/v 'guest)))
+                                   (module/require-node 'php)])]
+    (is (#'siteset/deferred-module? safe))
+    (is (not (#'siteset/deferred-module? eager)))
+    (is (not (#'siteset/deferred-module?
+               (module/module-tree [(u/def! 'body (u/lam [] (u/lit nil)))
+                                    (module/require-node 'other)]))))))
+
+
 (deftest stage-publishes-derived-closure-and-record
   (let [store (mem/create-content-mem)
         registry (vm-module/default-registry)
@@ -134,8 +147,8 @@
         child-address (get-in derived [:yin.module/requires 'bundle])
         record (jing/get store (:derivation result) nil)]
     (is (= :ok (:status result)))
-    (is (not= (:address child) child-address))
-    (is (= (:address hook) (get-in derived [:yin.module/requires 'php.sp])))
+    (is (= (:address child) child-address))
+    (is (not (contains? (:yin.module/requires derived) 'php.sp)))
     (is (= (:yin.module/tree derived) (:yin.ledger/output record)))
     (is (= (:set-address alias-sites)
            (get-in record [:yin.ledger/profile :yang.site/published-set])))))
