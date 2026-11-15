@@ -510,6 +510,31 @@ and `git`.
 | `shiva.stigmergy.systems` | 24 / 62 GB | Server snapshot: java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.1. The repo's `mise.toml` selects Flutter `latest` on beta, not a fixed version. Activate the repo toolchain before running any lane. |
 | `jupiter.stigmergy.systems` | 48 / 62 GB | Server snapshot (rechecked 2026-10-29): java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.8 (the stale hand-symlinked 3.41.9 was replaced via `mise install flutter@3.47.8` after it failed to compile `dart:ui`-using cljd namespaces; if the Dart lane dies in the cljd compile, check `mise ls flutter` first). mise was moved off the apt package to the official user-local install (`~/.local/bin/mise`, 2026.11.2, owner action 2026-11-07) so both hosts share shiva's layout; toolchains in `~/.local/share/mise/installs/` were untouched. Tri-host quick tier verified green on 2026-10-29 (see Measured times). |
 
+### Peer dispatch: check the loads, route to the lower-loaded host
+
+shiva and jupiter are **peers**, not a primary and a spare (owner ruling
+2026-11-15, superseding the earlier "leave jupiter out, use shiva" routing).
+jupiter has the larger core budget (48 vs 24). Before dispatching any
+one-host job (an rverify job, a lane, a gate), check both hosts' loads and
+send the work to the lower-loaded one — measured as load average against
+core count, not the raw number:
+
+```sh
+for h in shiva.stigmergy.systems jupiter.stigmergy.systems; do
+  echo "== $h"; ssh "$h" uptime
+done
+```
+
+A host whose 1-minute load sits well inside its core count is available;
+a host at or above its core count is saturated and must not receive new
+work. If the loads are comparable, prefer jupiter (more cores). Two
+standing exceptions keep their fixed hosts: the nightly lane pair (below)
+keeps jupiter=JVM / shiva=node+dart because the lanes are sharded and
+co-ordinated, and a job already running on a host is not migrated mid-run
+for a marginal load difference — the check happens at dispatch time.
+Docker is usable on both hosts (29.9.3 on each; verified 2026-11-15), so
+containerized gates (e.g. the J6f Autobahn suite) are routable to either.
+
 **Never test in `~/workspace/datomworld` on either host.** It is a working copy
 that is behind origin (shiva: 45 commits behind on 2026-10-11) and belongs to its
 owner. Use a scratch clone under `~/ci/` and leave the working copy alone.

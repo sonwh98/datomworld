@@ -1,0 +1,16 @@
+Completed-GMT: 2026-11-13 UNKNOWN GMT
+Completed-Local: 2026-11-13 UNKNOWN Asia/Ho_Chi_Minh
+
+The time fields read `UNKNOWN` because **this session has no shell** — `tool_search` returned no `run_shell_command` and no `monitor`, so there is no `date`, no `clojure`, and no `git`. Nothing was executed and nothing is committed. Full accounting is §0 of the findings file.
+
+**Findings:** `/Users/sto/workspace/datomworld/collab/yang-typescript/1794514249000-engineer-ts-callsite-adoption.qwen3.8-max.findings.md` (write succeeded — not sandbox-blocked, so nothing staged at the worktree root).
+
+**Edits (6 files, uncommitted, branch `callsite-ts-adoption`):**
+- `src/cljc/yang/typescript/antlr/lower.cljc:2262-2361` — C1 block + `lower-module-body`, new private `lower-unit*` seam, `lower-unit`, `lower-units`, `lower-packet` each finalize once at their own outermost boundary via `u/annotate-call-sites`; the stage delegates to `lower-packet` so it is covered.
+- `src/cljc/yang/typescript/antlr/prelude.cljc:4364-4370` (`js`) and `…/safepoint.cljc:186-197` (`jssp`) — both published module trees finalized, mirroring `yang.core.call/module-uast`.
+- 6 golden assertions repaired in `lower_test.clj:71-79,140-145`, `lower_portable_test.cljc:206-217`, `linked_prelude_test.cljc:61-63` — by finalizing the *expected* side, not stripping the produced side.
+- **New** `test/yang/typescript_callsite_test.cljc` (728 lines, `.cljc`, 11 deftests): equality gate over 11 production trees, stage-origin pin, boundary/K-set, all nine validation rules, safepoint independence, canonical invariance, encoder claim verdict, publication claim, idempotence, cross-host equality, and the F2-shaped export-audit pin (closed set equality, so a *renamed* `dsg__` wrapper also flips red).
+
+**Judgement calls needing your ruling:** `jssp` marked (design `:278`/`:161` say "safepoint runtime" / "`js/jssp`"); bundled fragments (`prelude/uast`, `hooks/uast`) deliberately *not* marked at their own `def` — finalized by the owning publication instead; no `:injected-origin` supplied to the safepoint stage, so derived-envelope C1 rows intentionally under-cover; validator borrowed from `yang.clojure` (read-only) rather than re-implemented — suggest a follow-up lift into `yang.core`.
+
+**Also reported:** three citation defects in the brief (design filename, `uast.cljc:116-175` vs a 152-line file, "32 deftests" vs 38), and design `:168`'s mandatory TypeScript `publication.cljc` inventory item — answered as the "equivalent hook" branch, no file invented.

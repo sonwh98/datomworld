@@ -1595,11 +1595,11 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             |                   | J6 Python over the network.                                                                         |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J6: native WebSocket and network REPL peers | RFC 6455 host     | Preconditions: C0-C4 on master; the Autobahn release, case list and exception list pinned in the    |
-| landed (J6a-J6g; J6h pending)                | adapter on the    |
+| closed (J6a-J6g; J6h 2026-11-15)            | adapter on the    |                                                                                                     |
 |                                             | native socket +   | Native deployment only. ws:// only (owner-settled). The adapter's closure contains                  |
 |                                             | poller substrate  | `jolt.socket.native`, `jolt.io-poller` and `jolt.ffi` and not `jolt.socket` (ruling 2); `send!`     |
 |                                             |                   | never waits; `:queued-bytes` is exact and drains on readiness.                                      |
-|                                             | (§9.3), full §9.2 | **2026-10-27 proposal, owner ruling pending:** pinned harness/case policy; see note below.             |
+|                                             | (§9.3), full §9.2 | **Ratified at J6a (2026-10-28 re-pin):** 301 cases per role per platform; note below records.     |
 |                                             | contract, CBOR    |                                                                                                     |
 |                                             | subprotocol only  |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
@@ -1618,7 +1618,7 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | reporting         |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 
-**J6 harness amendment proposal (2026-10-27; not an adopted gate change).**
+**J6 harness amendment (ratified; landed with J6a).**
 The [Autobahn prep and proposed gate](../../tools/jolt-autobahn/README.md#5-proposed-j6-amendment-for-owner-ruling)
 pins official 25.10.1 by image digest and inventories 517 exact cases: 298
 must-pass, three assertion-constrained informational cases (7.1.6, 7.13.1, 7.13.2), 216 compression
@@ -1628,8 +1628,31 @@ non-strict outcomes, with raw evidence retained; all existing §9.6 and real
 jolt↔JVM/Node/Dart peer gates remain. Re-pinned 2026-10-28 (J6a) from 299/2/216
 to 298/3/216: upstream 7.1.6 labels both behaviors INFORMATIONAL unconditionally. The included jolt echo stub verifies
 harness plumbing only and makes no RFC 6455 or J6 conformance claim. Owner
-approval is required for the case/exception policy. This proposal does not
+approval is recorded (J6a, 2026-10-28): the 301-case/298-strict/3-informational policy above is
+the ratified gate. The Autobahn launcher (`tools/jolt-autobahn/launch.sh`) and the native
+testee (`src/dev/jolt_autobahn_testee.clj`) are landed and reviewed; the Docker conformance
+runs PASSED on jupiter (2026-11-14, both roles 298 OK + the three pinned informational
+exceptions, evidence retained in collab/jolt/) -- closing the Linux x86_64 half of J6f;
+the macOS arm64 leg is an OWNER-ACCEPTED GAP (ruling 2026-11-15: Linux-only evidence
+sufficient; the darwin stack is qualified by the probe matrix and the tri-host tiers,
+not by the suite). This amendment does not
 transfer the J7 UDP no-`full` policy to WebSocket or change WS backpressure.
+
+**J6 closure evidence (J6b-J6g; the ledger union, 2026-11-07).** Landed on master: the
+Autobahn policy re-pin 298/3/216 (J6a, `a99edbca`); the resumable rfc6455 parser + upgrade
+handshake (J6b, `70597ab4`); SHA-1 in jolt-crypto for the handshake accept key (J6c, `e8591cb5`);
+the TCP substrate + owner-thread pump with the A5 fail-connection amendment (J6d, `bec4904b`);
+the websocket host adapter + the `yin.repl.host` shadow over the pump (J6e, `63674368`, kimi
+r8 APPROVE); the Autobahn launcher routes + testee + the ratified policy wording (J6f,
+`9a70ceaa`, kimi r8 APPROVE). The workload W amended protocol PASSES on master (J6g,
+`05a596c5`; gate `j6ggate-fixrun2` on jupiter against the watchdog wire-format fix `8c4bf09c`): 600-sample prospective cohort, 0 violations,
+rtt-p99 4.08 ms, scheduled-arrival p99 5.8 ms, the 4 MiB payload delivered exactly once over
+the 120-second pacing, the REPL stepped every owner round (108,105 rounds). J6 is CLOSED (J6h
+final, 2026-11-15): the owner ruled the Linux-only Docker conformance evidence sufficient and
+the macOS arm64 Docker leg an accepted gap (the SSH-forwarding attempt red twice with a
+transport-layer handshake-drop signature while the adapter passed every direct probe; the red
+record and evidence are retained in collab/jolt/ as the gap's documentation). The J6 slice row
+above records the closure.
 
 
 ### 10.2 Order, dependencies and platforms
@@ -1644,10 +1667,14 @@ J0b or J0c failure does not erase a tracked-load result.
 
 Every slice needs both macOS arm64 and Linux x86_64 to close. A one-platform J0a
 report is useful partial evidence. A macOS-first partial report for J0b/J0c is
-proposed default 1 (§13.2). The Linux x86_64 machine of record is
-**`shiva.stigmergy.systems`** (owner: "leave jupiter out, use shiva"), run
-through the script-driven `~/ci/` scratch-clone setup in
-`docs/agents/build-n-test.md` (V: `:301-344`); there is no hosted CI. shiva's
+proposed default 1 (§13.2). The Linux x86_64 machines of record are
+**`shiva.stigmergy.systems` and `jupiter.stigmergy.systems` as peers**
+(owner ruling 2026-11-15, superseding "leave jupiter out, use shiva"):
+dispatch to the lower-loaded host at dispatch time per the peer-dispatch
+rule in `docs/agents/build-n-test.md` (jupiter has 48 cores, shiva 24;
+Docker usable on both). Run through the script-driven `~/ci/`
+scratch-clone setup in `docs/agents/build-n-test.md` (V: `:301-344`);
+there is no hosted CI. shiva's
 mise snapshot does not list Chez or CMake (V: `:309`), so provisioning them
 there is part of J0a. An unavailable machine leaves the slice incomplete, not
 passed.

@@ -3591,8 +3591,9 @@
                                  (leftmost-token-text ctx (first (core/rules ctx d "numericConstant")))))
                              ds)
         ticks (when tick-directive
-                (try #?(:clj (Long/parseLong tick-directive) :cljs (js/parseInt tick-directive 10))
-                     (catch #?(:clj Exception :cljs :default) _ (unsupported! n :ticks))))
+                (try #?(:cljd (int/parse tick-directive) :cljs (js/parseInt tick-directive 10)
+                        :clj (Long/parseLong tick-directive))
+                     (catch #?(:cljd Object :clj Exception :cljs :default) _ (unsupported! n :ticks))))
         _ (when (and ticks (neg? ticks)) (unsupported! n :ticks))
         body-ctx (if (some? ticks) (assoc ctx :ticks (atom ticks)) ctx)
         _ (when (and (some? ticks) (or (nil? body) semicolon?)) (reset! (:ticks ctx) ticks))]
