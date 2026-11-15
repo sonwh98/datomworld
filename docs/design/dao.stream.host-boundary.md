@@ -1153,6 +1153,15 @@ file" exemption is refused; the Dart Jing writer stays excluded from seams
 and on its H4 deletion path). The deferred design (§9) and the codec track
 (§8.3) each still own the files their class names, regardless of the
 list-1 row that permits the arm.
+
+The §8.1 runtime-prerequisites row also admits an invocation-local
+validation identity cache (eval-bridge amendment, astra ruling 2026-11-13):
+`src/cljc/yin/vm.cljc`'s `machine-data?` keeps a per-invocation visited map
+so shared closure graphs validate once per validation call. The cache's
+lifetime is one validation invocation; it preserves payload, metadata and
+exact-integer carrier validation; a cached success means validation
+completed; identity bookkeeping affects traversal cost only. The file's
+closure class `:runtime-prereq` records this bounded runtime permission.
 The tool lives at `src/dev/host_boundary/closure.clj` (H0's justified
 deviation: the repo keeps dev tools under `src/dev/`), and the design's
 earlier `dev/host_boundary/` path is read as that.
