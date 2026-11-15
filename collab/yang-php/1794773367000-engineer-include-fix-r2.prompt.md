@@ -1,6 +1,6 @@
 Created-GMT: 2026-11-16 (dispatch time)
 Coding-Agent: codex (terra, laptop lane)
-Session-ID: pending
+Session-ID: 01a1e0d4-9d90-7b42-9b32-2536d5dd2041 (codex thread.started, laptop POOL 1)
 
 # Task: include-fix r2 — implement the astra ticks-SCC ruling (guarded trailing placement)
 
