@@ -295,6 +295,41 @@ independence are defined in [`team.md`](../team.md); CLI flags and recipes are
 defined in [`delegate-invocation-reference.md`](../delegate-invocation-reference.md);
 commit message format is defined in [`format.md`](../format.md#git-commit-messages).
 
+### The shared checkout: branch discipline (2026-11-14/15 incidents)
+
+The main checkout is shared by multiple seats' sessions. Two incidents on
+2026-11-14/15 traced to branch-state drift while sessions interleaved: a
+landing push published the WRONG lineage (the p7b-ticks reconcile without the
+eval-bridge), and a gate ran on a branch that was not the intended one. Rules:
+
+1. **The main checkout stays on `master`.** Work happens in dedicated
+   worktrees (`git worktree add`). If a session leaves the checkout on another
+   branch, the next session restores it before working:
+   `git checkout master && git merge --ff-only origin/master`.
+2. **Verify `git branch --show-current` before any gate, landing or push.**
+   The verification is per-operation, not per-session: the checkout moves
+   between steps while seats interleave.
+3. **Keep local `master` synced with `origin/master` continuously**
+   (`git fetch origin master:master` while master is not checked out
+   anywhere). A stale local master is how a landing push published the wrong
+   lineage (the p7b-ticks reconcile landed as "master" without the
+   eval-bridge, discovered by the DRY orchestrator's discrepancy check).
+4. **The landing push: verify the target before publishing.** Confirm the
+   intended commits are in the pushed tip's ancestry
+   (`git merge-base --is-ancestor <sha> <tip>`) and that the pushed tip
+   contains `origin/master`'s tip (fast-forward or a resolved merge). The
+   2026-11-14 landing (a48343ed) pushed a reconcile that silently omitted the
+   eval-bridge — caught by the DRY orchestrator's ancestry check, corrected
+   the same night.
+5. **Discarded-merge recovery**: a merge commit missing from a branch tip but
+   present in the reflog can be re-landed (`git merge <sha>` — "Already up to
+   date" means it is already in the ancestry; verify with
+   `git merge-base --is-ancestor`). Check `git branch --contains` before
+   re-merging to avoid double-landing.
+6. **The push target**: `git push origin HEAD:master` from the master
+   checkout (the explicit refspec survives branch-state confusion; a bare
+   `git push origin master` can push a stale local ref).
+
 1. **Establish the seat.** The harness must be able to read and write the working
    tree, run every affected host's checks, and invoke delegate CLIs. Establish
    those capabilities before accepting work. At session start, create this
