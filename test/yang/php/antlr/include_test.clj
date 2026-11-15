@@ -7,8 +7,10 @@
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [clojure.walk :as walk]
     [dao.jing :as jing]
     [yang.core.module :as module]
+    [yang.core.uast :as u]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.linked-harness :as lh]
@@ -103,6 +105,35 @@
       (let [task (lh/run-linked backend ast source)]
         (println "cyclic-init" backend (pr-str (vm/value task)))
         (is (= bundle (vm/value task)) (str backend))))))
+
+
+(deftest ^:slow cyclic-init-with-registered-tick-handler-test
+  (let [units (mapv (fn [[name source]] {:name name, :packet (cst/parse-source source)})
+                    [["a.php" "<?php declare(ticks=1); echo 'a'; include_once 'b.php';"]
+                     ["b.php" "<?php declare(ticks=1); echo 'b'; include_once 'a.php';"]])
+        result (lh/publish-units! units)
+        bundle (first (keys (:bundles result)))
+        source (lh/source (lh/name-env result) result)
+        main (:ast (lower/lower-program
+                     (cst/parse-source "<?php function tick_handler() { echo 'T'; } register_tick_function('tick_handler'); echo 'M';")
+                     {:prelude :linked}))
+        insertions (atom 0)
+        main (walk/postwalk
+               (fn [node]
+                 (if (and (map? node) (= 'php/echo (get-in node [:operator :name]))
+                          (= "M" (get-in node [:operands 0 :operands 0 :value])))
+                   (do (swap! insertions inc) (u/then (module/require-node bundle) node))
+                   node)) main)
+        ast (u/mark-tails (u/seq-nodes [(module/require-node 'yang.call)
+                                        (module/require-node 'php)
+                                        (module/require-node 'php.sp)
+                                        main]))]
+    (is (= :ok (:status result)))
+    (is (= 1 @insertions))
+    (doseq [backend (keys lh/backends)]
+      (let [value (vm/value (lh/run-linked backend ast source))]
+        (println "cyclic-init-with-handler" backend (pr-str (observed value)))
+        (is (= ["M" [] nil] (observed value)) (str backend))))))
 
 
 (deftest unit-path-rules-test
