@@ -627,6 +627,17 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   `"permissions": {"allow": ["command(*)"]}` to the host's settings (or
   accept `--dangerously-skip-permissions`, which the delegate contract
   forbids) before the first headless dispatch on any new host.
+- **AGY 1.5.9: `--mode accept-edits` auto-denies commands EVEN WITH the
+  `permissions.allow` rule (measured 2026-11-15 on jupiter, agy 1.5.9)** —
+  the same settings that the default mode honors. Symptom identical to the
+  quirk above (silent empty `SUCCESS`, `auto-denied` in the log). The working
+  headless implementation invocation on 1.5.9 is NO mode flag:
+  `agy --model <model> --sandbox --output-format json -p "..."` — default
+  mode honors `permissions.allow` for commands AND performs file writes
+  (probed: command execution and an out-of-cwd write both succeed). Probe
+  cheaply before any implement dispatch: one echo command, then one file
+  write. `--mode auto` is account-gated ("not available for this account")
+  and silently falls back to default mode — do not rely on it.
 - **AGY resume is `--conversation <id>`, not `--resume <id>`** — `--resume`
   is not an agy flag; passing it makes the CLI print its help text and exit
   with no work done (observed 2026-11-03). Resumes keep the original mode,
