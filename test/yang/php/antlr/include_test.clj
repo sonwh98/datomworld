@@ -77,6 +77,7 @@
                                              (vm/ast->semantic-bytecode bundle))))
           (is (= (set (keys lh/backends)) (set (keys (:values result)))))
           (doseq [[backend value] (:values result)]
+            (println "mutual-include" label backend (pr-str (observed value)))
             (is (= ["ab" [] nil] (observed value)) (str backend))))))))
 
 
