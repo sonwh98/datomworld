@@ -102,7 +102,7 @@
     (doseq [backend (keys lh/backends)]
       (let [task (lh/run-linked backend ast source)]
         (println "cyclic-init" backend (pr-str (vm/value task)))
-        (is (= {:status :ok, :module bundle} (vm/value task)) (str backend))))))
+        (is (= bundle (vm/value task)) (str backend))))))
 
 
 (deftest unit-path-rules-test
