@@ -1,0 +1,122 @@
+#:blog{:title "CUDA and ROCm: From BrookGPU to Chiplet Compute Fabrics"
+       :date #inst "2026-11-15T00:00:00.000-00:00"
+       :abstract
+       [:p "CUDA and ROCm made GPUs programmable compute platforms through execution models, compilers, runtimes, and tuned libraries. Their history runs from graphics-pipeline workarounds and BrookGPU to AI accelerators, open compiler infrastructure, and multi-die systems. That history supplies useful precedents for the Tao Architecture, while exposing the hardware and software work behind portable execution."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "A fast arithmetic unit becomes a useful computing platform when programmers can express work, move data, coordinate execution, and reuse reliable libraries. CUDA and ROCm developed those capabilities along different paths. Their history explains why an execution model can outlast particular chips, and why hardware-specific optimization remains necessary beneath it."]
+          [:p
+           "This article follows CUDA from BrookGPU through Blackwell, and ROCm from its heterogeneous-computing roots through its 2026 build and release transition. It expands the historical background to "
+           [:a {:href "/blog/the-tao-architecture.blog"} "The Tao Architecture"]
+           ", whose proposed compute fabric separates canonical program data from the interpreters and backends that execute it."]
+
+          [:h2 "1. Before CUDA: General Computation Through Graphics APIs"]
+          [:p
+           "Early general-purpose GPU computing required expressing calculations through graphics interfaces. Arrays became textures, arithmetic ran in fragment or pixel shaders, and rendering operations drove computation. The GPU supplied substantial parallel throughput, but the programmer had to map an algorithm onto a pipeline designed for graphics."]
+          [:p
+           "At Stanford, Ian Buck and his collaborators developed "
+           [:a {:href "https://graphics.stanford.edu/papers/brookgpu/"} "Brook for GPUs"]
+           ", published at SIGGRAPH 2004. Brook extended C with data-parallel constructs and supplied a compiler and runtime that treated the GPU as a streaming coprocessor. Its graphics backends still relied on the underlying shader infrastructure, but the programmer could work with streams and kernels instead of spelling out every graphics operation."]
+          [:p
+           "BrookGPU demonstrated a recurring pattern: a compiler and runtime can make an awkward execution substrate accessible. It also made the remaining boundary visible. A more direct compute interface would let the software model use capabilities that graphics APIs did not expose conveniently."]
+
+          [:h2 "2. CUDA: A Compute Model Above Successive GPU Generations"]
+          [:h3 "G80 and the First CUDA Releases"]
+          [:p
+           "NVIDIA's G80, introduced with the GeForce 8800 in late 2006, used unified shader hardware. CUDA's public releases followed in 2007; NVIDIA announced "
+           [:a {:href "https://forums.developer.nvidia.com/t/cuda-1-0-released/982"} "CUDA Toolkit and SDK 1.0"]
+           " in June. Developers could express general computation through kernels, threads, blocks, and grids, with explicit memory and synchronization rules."]
+          [:p
+           "An important part of that separation was "
+           [:a {:href "https://docs.nvidia.com/cuda/parallel-thread-execution/"} "PTX (Parallel Thread Execution)"]
+           ", a virtual instruction set translated to the target GPU's native instructions. The programming model could persist as NVIDIA changed the physical implementation. Compatibility still depended on the supported PTX version, target features, and driver; portability had a defined execution contract."]
+
+          [:h3 "Fermi, Kepler, and the Growth of the Ecosystem"]
+          [:p
+           "Fermi (2010) expanded the compute-oriented design with L1/L2 caching, ECC support on relevant products, concurrent kernels, and improved scheduling. NVIDIA's "
+           [:a {:href "https://www.nvidia.com/content/PDF/fermi_white_papers/NVIDIA_Fermi_Compute_Architecture_Whitepaper.pdf"} "Fermi white paper"]
+           " describes hardware work distribution across streaming multiprocessors and warp scheduling within them. OS-like dispatch and resource-management work already lived partly in the device's execution machinery."]
+          [:p
+           "Kepler's GK110 (2012) added "
+           [:a {:href "https://docs.nvidia.com/cuda/archive/9.1/kepler-tuning-guide/index.html"} "Hyper-Q and Dynamic Parallelism"]
+           ". Hyper-Q provided multiple hardware work queues to reduce false dependencies between independent submissions. Dynamic Parallelism let a running GPU kernel launch additional kernels. GPU execution was becoming more autonomous, while retaining explicit runtime and hardware constraints."]
+          [:p
+           "In the same period, GPU computing became central to deep learning. The 2012 "
+           [:a {:href "https://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks"} "AlexNet paper"]
+           " described training on two GeForce GTX 580 GPUs. Libraries such as cuBLAS, cuFFT, and later cuDNN and NCCL helped turn individual optimized kernels into a reusable platform for numerical computing, neural networks, and communication."]
+
+          [:h3 "Pascal, Volta, and the AI Transition"]
+          [:p
+           "The Pascal-generation GP100 and Tesla P100 (2016) combined HBM2, NVLink, and hardware support for page-faulting Unified Memory. NVIDIA's "
+           [:a {:href "https://developer.nvidia.com/blog/inside-pascal/"} "Pascal overview"]
+           " connects those changes to compute and memory-system design. The original "
+           [:a {:href "https://papers.neurips.cc/paper/7181-attention-is-all-you-need.pdf"} "Transformer paper"]
+           " reported training on one machine with eight NVIDIA P100 GPUs."]
+          [:p
+           "Volta (2017) introduced Tensor Cores and "
+           [:a {:href "https://docs.nvidia.com/cuda/archive/9.1/volta-tuning-guide/index.html"} "Independent Thread Scheduling"]
+           ". Tensor Cores specialized execution for matrix operations; the scheduling changes required programmers to revisit assumptions about implicit warp synchronization. Ampere and Hopper subsequently expanded matrix-compute capabilities and mixed-precision execution. The high-level ecosystem endured, while efficient kernels and libraries continued to adapt to each generation."]
+
+          [:h3 "Blackwell: Two Dies and a Larger Fabric"]
+          [:p
+           "In 2024, NVIDIA's "
+           [:a {:href "https://nvidianews.nvidia.com/news/nvidia-blackwell-platform-arrives-to-power-a-new-era-of-computing/"} "B200 Blackwell design"]
+           " connected two reticle-limit GPU dies through a 10 TB/s chip-to-chip link into one logical GPU. At a larger scale, the GB200 NVL72 system connected 72 GPUs through NVLink. Die-to-die communication within a GPU and communication between GPUs remained distinct levels of the physical hierarchy."]
+          [:p
+           "CUDA's history therefore joins two developments: a comparatively stable programming model and increasingly specialized execution and communication hardware. Neither eliminates the other. Compilers, drivers, libraries, and synchronization contracts connect the model to each physical system."]
+
+          [:h2 "3. ROCm: Open Tools and Heterogeneous Computing"]
+          [:h3 "From ATI Compute Efforts to Boltzmann and ROCm"]
+          [:p
+           "AMD's path included ATI's Close to Metal, AMD Stream, the Accelerated Parallel Processing SDK and OpenCL, and the Heterogeneous System Architecture (HSA) initiative. These efforts explored exposing GPU compute and coordinating CPUs and accelerators through broader programming and runtime interfaces."]
+          [:p
+           "In November 2015, AMD announced the "
+           [:a {:href "https://ir.amd.com/news-events/press-releases/detail/652/amd-launches-boltzmann-initiative-to-dramatically-reduce-barriers-to-gpu-computing-on-amd-fireprotm-graphics"} "Boltzmann Initiative"]
+           ", including tools intended to reduce the work of bringing GPU applications to AMD hardware. AMD's "
+           [:a {:href "https://rocm.blogs.amd.com/ecosystems-and-partners/rocm-x-blog/README.html"} "ROCm retrospective"]
+           " dates ROCm 1.0 to April 2016. That first release supplied an open-source compute stack built around a C++ compiler and HIP."]
+          [:p
+           [:a {:href "https://rocm.docs.amd.com/projects/HIP/en/latest/what_is_hip.html"} "HIP"]
+           " provides a C++ runtime API and kernel language; HIPIFY assists conversion of CUDA source to HIP. Supported toolchains can target AMD and NVIDIA GPUs, but source portability still requires checking API coverage, dependencies, and performance on the destination. A source conversion does not make vendor binaries interchangeable."]
+
+          [:h3 "Compiler Infrastructure and Libraries"]
+          [:p
+           "ROCm's compiler stack evolved as AMD consolidated its tooling. Its "
+           [:a {:href "https://rocm.blogs.amd.com/ecosystems-and-partners/rocm-revisited-ecosy/README.html"} "compiler and ecosystem history"]
+           " describes the transition from the Heterogeneous-Compute Compiler (HCC) to HIP-Clang and the LLVM infrastructure. That gave the stack a shared compiler foundation to which AMD could contribute upstream support."]
+          [:p
+           "Libraries supplied another part of the platform: rocBLAS for linear algebra, MIOpen for neural-network operations, RCCL for collective communication, and additional numerical and framework integrations. As with CUDA, application portability depended on the surrounding ecosystem as well as the kernel language."]
+
+          [:h3 "Hardware Families and the Build-and-Release Transition"]
+          [:p
+           "AMD's Graphics Core Next lineage was followed by distinct RDNA graphics and CDNA compute architectures. Supporting different device families, operating systems, and framework versions made compatibility and packaging substantial engineering responsibilities. An open stack still needed coherent builds, supported combinations, and sustained optimization."]
+          [:p
+           "ROCm 7.0 shipped in September 2025. During 2026, TheRock became the production build foundation in ROCm 7.14, and ROCm 10.0 followed in August. AMD's "
+           [:a {:href "https://rocm.blogs.amd.com/ecosystems-and-partners/rocm-x-blog/README.html"} "ROCm 10.0 account"]
+           " describes automated open-source builds and an approximately six-week release cadence. The "
+           [:a {:href "https://rocm.docs.amd.com/en/latest/release/versions.html"} "release history"]
+           " records the versions and dates. This evolution highlights the work required to turn compiler and runtime components into an installable, maintainable platform."]
+
+          [:h2 "4. Chiplets Make Locality Visible"]
+          [:p
+           "Reticle limits, manufacturing yields, memory bandwidth, and packaging costs encouraged multi-die designs. AMD's "
+           [:a {:href "https://www.amd.com/content/dam/amd/en/documents/solutions/technologies/chiplet-architecture-white-paper.pdf"} "chiplet approach"]
+           " uses product-specific partitions of compute and other functions; NVIDIA's B200 joins two GPU dies into one logical device. These arrangements expose different communication and memory costs beneath interfaces that may present a unified resource."]
+          [:p
+           "At every scale, placement and communication matter: between execution units, between dies, between devices, and between hosts. A package interconnect and a wide-area network have very different latency, bandwidth, failure, and trust properties. Their common lesson is to make the relevant topology and costs available to the layer deciding where work runs."]
+
+          [:h2 "What This History Contributes to Tao"]
+          [:p
+           "CUDA and ROCm demonstrate the value of preserving a programming contract while improving its implementations. They also show that useful acceleration requires lowering, libraries, device access, and a disciplined account of memory and synchronization. Hardware autonomy can grow without removing those contracts."]
+          [:p
+           "The Tao Architecture applies those lessons to canonical program data, independent interpreters, and portable continuations. Its proposed fabric must establish compatibility, authority, custody, and performance across participating hosts. The history motivates that separation of responsibilities; a working Tao deployment must demonstrate its own guarantees."]
+          [:p
+           "Return to "
+           [:a {:href "/blog/the-tao-architecture.blog"} "The Tao Architecture: Turning Every Device Into One Global Computer"]
+           " for the axioms, the RISC-V board example, and the contracts for composing those devices."]]]]}
