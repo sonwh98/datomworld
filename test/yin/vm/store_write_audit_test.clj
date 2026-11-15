@@ -295,6 +295,10 @@
    ;; store, not a mutable VM store
    "src/cljc/yang/python/antlr/siteset.cljc"
    {["stage" "assoc"] 1}
+   ;; PHP staging likewise substitutes a buffered dao.jing byte-store
+   ;; handle in its context; this is not a VM program store write.
+   "src/cljc/yang/php/antlr/siteset.cljc"
+   {["stage" "assoc"] 1}
    "src/cljc/yin/vm/engine.cljc"
    {;; the one program write, and `put-active`, which routes every program
     ;; write -- definitions, direct store instructions, the :vm/store-put

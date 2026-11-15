@@ -141,7 +141,7 @@
                (nil? (vm/validate-rows tree))
                (every? (fn [[id row]]
                          (and (= id (first row))
-                              (= id (jing/segment-key (subvec row 1)))))
+                              (jing/segment-matches? id (subvec row 1))))
                        (:rows tree)))
       (let [{derived :tree selected :sites} (safepoint/insert tree (into {} set) profile)
             derivation (assoc-in (safepoint/derive-record (:root tree) (:root derived)

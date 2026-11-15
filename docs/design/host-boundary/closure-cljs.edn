@@ -412,7 +412,7 @@
   {:file "src/cljc/yin/vm.cljc",
    :ns yin.vm,
    :shared true,
-   :classes #{:consumer :profile-consumer}}
+   :classes #{:consumer :profile-consumer :runtime-prereq}}
   {:file "src/cljc/yin/vm/ast_walker.cljc",
    :ns yin.vm.ast-walker,
    :shared true,

@@ -525,6 +525,7 @@
    cannot go stale silently). A new row here is a §8.1 amendment."
   {"src/cljc/dao/space/transactor.cljc"
    {:category :deferred-scope :class :runtime-prereq
+
     :reason "§8.1 deferred row (locking); §3.1 table C"}
    "src/cljc/yin/vm/ucf/authority.cljc"
    {:category :deferred-scope :class :runtime-prereq
@@ -666,6 +667,7 @@
    "src/cljc/dao/data/btree.cljc" (entry :runtime-prereq :stays "atomic flag, weak/soft references")
    "src/cljc/dao/data/btree/storage.cljc" (entry :runtime-prereq :stays "promise facade, deferred §9.1")
    "src/cljc/dao/pretty.cljc" (entry :runtime-prereq :stays "display only")
+   "src/cljc/yin/vm.cljc" (entry :runtime-prereq :stays "Invocation-local identity cache for machine-data? validation; eval-bridge amendment (astra s81-arms ruling)")
    ;; Codec-track files
    "src/cljc/dao/stream/ws.cljc" (entry :codec-track :stays)
    "src/cljc/dao/stream/transit.cljc" (entry :codec-track :stays)

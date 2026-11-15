@@ -941,18 +941,40 @@
    as the plain map it was before D7. Rows and code datoms stay
    `plain-data?`, plus the exact-integer big carriers (ruling 4)."
   [x]
-  (or (nil? x)
-      (if (values/host-typed? x)
-        (machine-data? (values/payload x))
-        (and (cond (or (boolean? x) (number? x)
-                       (integer-host/big-carrier? x) (cbor/float64? x)
-                       (string? x) (keyword? x) (symbol? x))
-                   true
-                   (map? x) (and (every? machine-data? (keys x))
-                                 (every? machine-data? (vals x)))
-                   (coll? x) (every? machine-data? x)
-                   :else false)
-             (machine-data? (meta x))))))
+  #?(:clj
+     (let [seen (java.util.IdentityHashMap.)]
+       (letfn [(check
+                 [v]
+                 (cond
+                   (nil? v) true
+                   (.containsKey seen v) (= :valid (.get seen v))
+                   :else
+                   (do (.put seen v :visiting)
+                       (let [valid? (if (values/host-typed? v)
+                                      (check (values/payload v))
+                                      (and (cond (or (boolean? v) (number? v)
+                                                     (integer-host/big-carrier? v) (cbor/float64? v)
+                                                     (string? v) (keyword? v) (symbol? v)) true
+                                                 (map? v) (and (every? check (keys v))
+                                                               (every? check (vals v)))
+                                                 (coll? v) (every? check v)
+                                                 :else false)
+                                           (check (meta v))))]
+                         (.put seen v (if valid? :valid :invalid))
+                         valid?))))]
+         (check x)))
+     :default
+     (or (nil? x)
+         (if (values/host-typed? x)
+           (machine-data? (values/payload x))
+           (and (cond (or (boolean? x) (number? x)
+                          (integer-host/big-carrier? x) (cbor/float64? x)
+                          (string? x) (keyword? x) (symbol? x)) true
+                      (map? x) (and (every? machine-data? (keys x))
+                                    (every? machine-data? (vals x)))
+                      (coll? x) (every? machine-data? x)
+                      :else false)
+                (machine-data? (meta x)))))))
 
 
 (defn occurrence-origin?
