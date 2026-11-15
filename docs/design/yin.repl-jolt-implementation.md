@@ -1661,10 +1661,14 @@ J0b or J0c failure does not erase a tracked-load result.
 
 Every slice needs both macOS arm64 and Linux x86_64 to close. A one-platform J0a
 report is useful partial evidence. A macOS-first partial report for J0b/J0c is
-proposed default 1 (§13.2). The Linux x86_64 machine of record is
-**`shiva.stigmergy.systems`** (owner: "leave jupiter out, use shiva"), run
-through the script-driven `~/ci/` scratch-clone setup in
-`docs/agents/build-n-test.md` (V: `:301-344`); there is no hosted CI. shiva's
+proposed default 1 (§13.2). The Linux x86_64 machines of record are
+**`shiva.stigmergy.systems` and `jupiter.stigmergy.systems` as peers**
+(owner ruling 2026-11-15, superseding "leave jupiter out, use shiva"):
+dispatch to the lower-loaded host at dispatch time per the peer-dispatch
+rule in `docs/agents/build-n-test.md` (jupiter has 48 cores, shiva 24;
+Docker usable on both). Run through the script-driven `~/ci/`
+scratch-clone setup in `docs/agents/build-n-test.md` (V: `:301-344`);
+there is no hosted CI. shiva's
 mise snapshot does not list Chez or CMake (V: `:309`), so provisioning them
 there is part of J0a. An unavailable machine leaves the slice incomplete, not
 passed.
