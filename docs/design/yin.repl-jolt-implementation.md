@@ -1595,7 +1595,7 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             |                   | J6 Python over the network.                                                                         |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J6: native WebSocket and network REPL peers | RFC 6455 host     | Preconditions: C0-C4 on master; the Autobahn release, case list and exception list pinned in the    |
-| landed (J6a-J6g; J6h pending)                | adapter on the    |
+| closed (J6a-J6g; J6h 2026-11-15)            | adapter on the    |                                                                                                     |
 |                                             | native socket +   | Native deployment only. ws:// only (owner-settled). The adapter's closure contains                  |
 |                                             | poller substrate  | `jolt.socket.native`, `jolt.io-poller` and `jolt.ffi` and not `jolt.socket` (ruling 2); `send!`     |
 |                                             |                   | never waits; `:queued-bytes` is exact and drains on readiness.                                      |
@@ -1633,7 +1633,9 @@ the ratified gate. The Autobahn launcher (`tools/jolt-autobahn/launch.sh`) and t
 testee (`src/dev/jolt_autobahn_testee.clj`) are landed and reviewed; the Docker conformance
 runs PASSED on jupiter (2026-11-14, both roles 298 OK + the three pinned informational
 exceptions, evidence retained in collab/jolt/) -- closing the Linux x86_64 half of J6f;
-the macOS arm64 leg awaits the owner's Docker disposition. This amendment does not
+the macOS arm64 leg is an OWNER-ACCEPTED GAP (ruling 2026-11-15: Linux-only evidence
+sufficient; the darwin stack is qualified by the probe matrix and the tri-host tiers,
+not by the suite). This amendment does not
 transfer the J7 UDP no-`full` policy to WebSocket or change WS backpressure.
 
 **J6 closure evidence (J6b-J6g; the ledger union, 2026-11-07).** Landed on master: the
@@ -1645,10 +1647,12 @@ r8 APPROVE); the Autobahn launcher routes + testee + the ratified policy wording
 `9a70ceaa`, kimi r8 APPROVE). The workload W amended protocol PASSES on master (J6g,
 `05a596c5`; gate `j6ggate-fixrun2` on jupiter against the watchdog wire-format fix `8c4bf09c`): 600-sample prospective cohort, 0 violations,
 rtt-p99 4.08 ms, scheduled-arrival p99 5.8 ms, the 4 MiB payload delivered exactly once over
-the 120-second pacing, the REPL stepped every owner round (108,105 rounds). Remaining for J6
-closure (J6h): the macOS arm64 Docker conformance leg (the Linux x86_64 half PASSED 2026-11-14
-on jupiter, both roles against the ratified policy; the laptop has no Docker) -- pending the
-owner's disposition -- and the final closure inspection.
+the 120-second pacing, the REPL stepped every owner round (108,105 rounds). J6 is CLOSED (J6h
+final, 2026-11-15): the owner ruled the Linux-only Docker conformance evidence sufficient and
+the macOS arm64 Docker leg an accepted gap (the SSH-forwarding attempt red twice with a
+transport-layer handshake-drop signature while the adapter passed every direct probe; the red
+record and evidence are retained in collab/jolt/ as the gap's documentation). The J6 slice row
+above records the closure.
 
 
 ### 10.2 Order, dependencies and platforms
