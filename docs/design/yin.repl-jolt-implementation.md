@@ -1631,7 +1631,9 @@ harness plumbing only and makes no RFC 6455 or J6 conformance claim. Owner
 approval is recorded (J6a, 2026-10-28): the 301-case/298-strict/3-informational policy above is
 the ratified gate. The Autobahn launcher (`tools/jolt-autobahn/launch.sh`) and the native
 testee (`src/dev/jolt_autobahn_testee.clj`) are landed and reviewed; the Docker conformance
-runs remain pending the owner's Linux Docker slot (J6f, the J6h closure blocker). This amendment does not
+runs PASSED on jupiter (2026-11-14, both roles 298 OK + the three pinned informational
+exceptions, evidence retained in collab/jolt/) -- closing the Linux x86_64 half of J6f;
+the macOS arm64 leg awaits the owner's Docker disposition. This amendment does not
 transfer the J7 UDP no-`full` policy to WebSocket or change WS backpressure.
 
 **J6 closure evidence (J6b-J6g; the ledger union, 2026-11-07).** Landed on master: the
@@ -1644,9 +1646,9 @@ r8 APPROVE); the Autobahn launcher routes + testee + the ratified policy wording
 `05a596c5`; gate `j6ggate-fixrun2` on jupiter against the watchdog wire-format fix `8c4bf09c`): 600-sample prospective cohort, 0 violations,
 rtt-p99 4.08 ms, scheduled-arrival p99 5.8 ms, the 4 MiB payload delivered exactly once over
 the 120-second pacing, the REPL stepped every owner round (108,105 rounds). Remaining for J6
-closure (J6h): the Docker conformance runs (301 cases x both roles x both platforms, J6f) --
-blocked on the owner's Linux Docker slot -- folded into this section's qualification evidence
-once they land, and the final closure inspection.
+closure (J6h): the macOS arm64 Docker conformance leg (the Linux x86_64 half PASSED 2026-11-14
+on jupiter, both roles against the ratified policy; the laptop has no Docker) -- pending the
+owner's disposition -- and the final closure inspection.
 
 
 ### 10.2 Order, dependencies and platforms
