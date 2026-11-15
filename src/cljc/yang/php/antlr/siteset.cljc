@@ -148,7 +148,7 @@
                                                           profile selected)
                                  [:yin.ledger/profile :yang.site/published-set]
                                  (:yang.site/set record))]
-        {:tree derived, :record derivation,
+        {:tree derived, :record derivation, :selected selected,
          :record-address (jing/segment-key derivation),
          :site-set-address (:yang.site/set record)}))))
 
@@ -253,6 +253,29 @@
               :else (recur more))))))))
 
 
+(defn- deferred-module?
+  "Only a wide module of literal/closure definitions followed by require php
+   can safely acquire the hook after initialization of those definitions."
+  [ast]
+  (let [ops (:operands ast)
+        operator (:operator ast)
+        definition? (fn [node]
+                      (let [[key value] (:operands node)]
+                        (and (= :application (:type node))
+                             (= 'yin/def (get-in node [:operator :name]))
+                             (= 2 (count (:operands node)))
+                             (= :literal (:type key)) (symbol? (:value key))
+                             (contains? #{:literal :lambda} (:type value)))))]
+    (and (= :application (:type ast))
+         (= :lambda (:type operator))
+         (= :literal (get-in operator [:body :type]))
+         (nil? (get-in operator [:body :value]))
+         (= (count (:params operator)) (count ops))
+         (seq (butlast ops))
+         (every? definition? (butlast ops))
+         (= (core-module/require-node 'php) (last ops)))))
+
+
 (defn- derive-closure
   [ctx registry requirement records manifest derived]
   (let [handle (:store ctx)
@@ -283,13 +306,21 @@
                   (try
                     (let [d (derive-verified handle manifest (:record admitted) tree
                                              (:hooks-profile requirement))
-                          ast (when d (u/then (core-module/require-node 'php.sp)
-                                              (vm/semantic-bytecode->ast (:tree d))))
-                          requires (assoc (into {} (map (fn [[n a]]
+                          original (when d (vm/semantic-bytecode->ast tree))
+                          instrumented (when d (vm/semantic-bytecode->ast (:tree d)))
+                          selected? (seq (:selected d))
+                          ast (when d (cond
+                                        (not selected?) instrumented
+                                        (deferred-module? original)
+                                        (core-module/module-tree
+                                          [instrumented (core-module/require-node 'php.sp)])
+                                        :else (u/then (core-module/require-node 'php.sp)
+                                                      instrumented)))
+                          requires (cond-> (into {} (map (fn [[n a]]
                                                           [n (if (contains? runtime n) a
                                                                  (get (:derived below) a a))]))
                                                 (:yin.module/requires m))
-                                          'php.sp (:php-sp requirement))
+                                     selected? (assoc 'php.sp (:php-sp requirement)))
                           primitives (when ast
                                        (core-module/free-primitives
                                          :yang.php/error :yang.php/undeclared registry
