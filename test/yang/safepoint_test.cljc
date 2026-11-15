@@ -190,5 +190,5 @@
         out (vm/semantic-bytecode->ast (:tree result))]
     (is (= {:type :literal :value 42} (first (:operands out))))
     (is (= 'yang.safepoint/value (first (get-in out [:operator :params]))))
-    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Exception)
+    (is (thrown? #?(:cljd Object :clj Exception :cljs js/Error)
           (safepoint/insert input {} {:call {:hook 'h/call :after true}})))))
