@@ -249,12 +249,7 @@
    (docs/design/yin.repl.dht-composition.md section 6)."
   [spec]
   ;; jolt: a :file store opens since J4; this composition needs J7's UDP
-  ;; transport, so it is refused here, where a spec is checked for
-  ;; composition, after every flag has been parsed and validated as on
-  ;; the other hosts
-  #?(:jolt
-     (throw (ex-info "the dht: index store arrives at J7 on jolt"
-                     {:spec spec})))
+  ;; transport, joined in J7
   (if (and (map? spec) (= :dht (:type spec)))
     (let [spec (merge dht-defaults spec)]
       (if-some [refusal (dht-refusal spec)]
@@ -880,8 +875,15 @@
 ;; =============================================================================
 
 (def ^:private board-codec
-  "The head board's wire profile."
-  (:transit connect/codec-profiles))
+  "The head board's dial profile: CBOR on every host."
+  (:cbor connect/codec-profiles))
+
+
+(def ^:private board-codecs
+  "Profiles served by the head board: CBOR first on every host, plus Transit where supported."
+  (into [(:cbor connect/codec-profiles)]
+        (when-let [t (:transit connect/codec-profiles)]
+          [t])))
 
 
 (defn- serve-board
@@ -892,7 +894,7 @@
                                   :principal (:principal pub)
                                   :spec {:host host :port port}
                                   :host ws
-                                  :codecs [board-codec]})]
+                                  :codecs board-codecs})]
     [(assoc pub :server server :listen [host port])
      (when (= :refused (:status server))
        [(case (:reason server)

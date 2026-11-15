@@ -50,7 +50,9 @@
    `close!` discards them, and a node joined again repairs nothing from
    before.  Every blob stays local."
   (:refer-clojure :exclude [load])
-  (:require #?@(:cljd [["dart:math" :as math]
+  (:require #?@(:jolt [[dao.stream.udp :as datagram.host]
+                       [dao.posix.random :as posix.random]]
+                :cljd [["dart:math" :as math]
                        ["dart:typed_data" :as typed]
                        [dao.stream.datagram.dart :as datagram.host]]
                 :cljs [[dao.stream.datagram.node :as datagram.host]]
@@ -134,7 +136,8 @@
    JVM's, Node's `dgram` (required only when a socket binds, so a browser
    build compiles), or Dart's."
   []
-  #?(:cljd datagram.host/bind!
+  #?(:jolt datagram.host/bind!
+     :cljd datagram.host/bind!
      :cljs datagram.host/bind!
      :clj datagram.host/bind!))
 
@@ -142,7 +145,8 @@
 (defn secure-random-bytes
   "`n` bytes from the host's cryptographically secure generator."
   [n]
-  #?(:cljd (let [r (math/Random.secure)]
+  #?(:jolt (posix.random/rand-bytes n)
+     :cljd (let [r (math/Random.secure)]
              (typed/Uint8List.fromList
                (vec (repeatedly n #(.nextInt r 256)))))
      :clj (let [bs (byte-array n)]
@@ -1425,7 +1429,9 @@
   [node now]
   (if (:refusal node)
     [node []]
-    (let [node (tick node now)
+    (let [_ (when-let [step-fn (get-in node [:seam :step!])]
+              (step-fn))
+          node (tick node now)
           [node bound] (bind-step node)
           node (admit-repairs node)
           [node unknown] (admit-ledger node)
