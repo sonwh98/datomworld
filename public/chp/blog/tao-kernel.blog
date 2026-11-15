@@ -1,141 +1,110 @@
 #:blog{:title "The Tao Kernel: Single Address Space Meets Semantic Interpretation"
        :date #inst "2026-01-13T00:00:00.000-00:00"
-       :abstract [:p "The Tao Kernel treats data not as static files, but as an event stream. By combining Single Address Space principles with Semantic Interpretation, the Tao Kernel enables stream-based interpretation and isolated execution."]
-       :content [:section.blog-article
-                 [:div.section-inner
-                  [:article
-                   :$blog-title
-                   :$blog-date
+       :abstract
+       [:p "The Tao Kernel expresses OS-like coordination through interpreters of stream data. Confined computations can share a local address space, while explicit continuations and content references support composition across hosts. Scheduling, authority, storage, and device access each retain an explicit contract."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
 
-                   [:p "Operating Systems are traditionally viewed as managers (traffic cops that shuffle memory and schedule CPU cycles). This is a legacy view trapped in the paradigms of the 1970s."]
+          [:p
+           "A kernel must connect computation to memory, devices, and other computations. The Tao Kernel approaches that work through the four axioms of Datom.world: portable I/O crosses streams, interpreters create semantics, code and state are datoms, and resumable computation is an explicit continuation. "
+           "OS-like behavior emerges from interpreters over shared data: an evaluator executes a program, a scheduler interprets readiness, an authorization interpreter judges access, and a device interpreter performs requested effects."]
+          [:p
+           "This adapts the microkernel idea of small components connected by messages. "
+           [:code "dao.stream"]
+           " supplies the portable composition boundary. A deployment chooses the interpreters and transports it needs, from local buffers on a board to links between independently governed hosts. The broader "
+           [:a {:href "/blog/the-tao-architecture.blog"} "Tao Architecture"]
+           " applies the same model to heterogeneous compute fabrics."]
 
-                   [:p "In this architecture, the OS is not a manager. It is an Observer of event streams. "
-                    "This kernel is a twist on the microkernel idea: " [:strong "Tao Kernel"] "."]
+          [:h2 "Streams Carry Values; Interpreters Build State"]
+          [:p
+           "A stream carries values without deciding their meaning. Persistent facts use the canonical datom "
+           [:code "[e a v t m]"]
+           "; ephemeral streams and bulk payloads may carry other supported values. Independent readers advance their own cursors, so an evaluator and an index observer can consume the same program stream without knowing that the other exists."]
+          [:p
+           "In a datom, "
+           [:code "e"]
+           " names an entity, "
+           [:code "a"]
+           " an attribute, and "
+           [:code "v"]
+           " its value. "
+           [:code "t"]
+           " is a monotonic transaction ID local to the authoring stream; "
+           [:code "m"]
+           " is a local metadata entity reference through which an interpreter can obtain assertion or retraction, provenance, and cross-stream causal references. "
+           "The row combines a fact with its transaction and context. These fields retain their canonical meanings when a kernel interpreter reads them."]
+          [:p
+           "Each interpreter derives state from explicitly scoped inputs. An index observer materializes queryable relations; an evaluator constructs execution state; an authorization interpreter derives a permission decision. A bounded, retained input prefix permits a stable view without synchronizing every reader's progress. "
+           "Ordering across writers and atomicity across streams belong to explicit protocols above the stream. A stream reports gaps when history has been evicted. A composition that promises complete replay supplies the storage and checkpoints needed to satisfy that promise."]
 
-                   [:p "In Datom.world, interpreters interpret streams. The Tao Kernel is one such interpreter."]
+          [:h2 "1. A Local Single Address Space"]
+          [:p
+           "A Single Address Space (SASOS) deployment can place kernel machinery and confined computations in one local address space. The evaluator restricts which values and resources a guest can reach. Compiled execution must preserve those restrictions; native device access and DMA remain part of the trusted host's enforcement responsibilities."]
+          [:p
+           "Co-resident interpreters can exchange references to shared immutable buffers. This can avoid copying the payload, although publication, authorization, synchronization, and processing still have costs. A hosted deployment may also cross its host OS's privilege boundaries to operate devices. The architecture does not require every communication to change address spaces, and it does not promise that all host-kernel transitions disappear."]
+          [:p
+           "Three forms of reference must stay distinct. A local pointer addresses memory in one deployment. A content hash identifies canonically encoded content across hosts. Datom entity and transaction IDs retain their authoring stream's scope; a query keeps physical sources separate and joins them explicitly. "
+           "A network transport carries encoded values and portable references. Resuming on another host requires reconstructing an admitted execution context there."]
 
-                   [:p "The core innovation of the Tao Kernel is separating the raw stream from the interpreted state."]
+          [:h2 "2. Authority as an Interpretation of Facts"]
+          [:p
+           [:a {:href "/shibi.chp"} "ShiBi"]
+           " is the design direction for authentication, authorization, and metering over pure data. Grants, caveats, revocations, and usage facts are interpreted to establish whether a request is permitted. A token may be an interpreter's emitted representation; the capability system itself emerges from the facts and their interpretation."]
+          [:p
+           "The enforcement point is the resource-owning host. Its gate evaluates a request against an immutable policy snapshot and allows or refuses the operation. A scoped rule might permit a particular continuation to read an attribute on an entity in a particular stream. The gate receives the caller's authenticated context explicitly, and a guest cannot grant itself authority by appending an unauthenticated claim."]
+          [:ul.bulleted
+           [:li
+            [:strong "Delegation. "]
+            "An authorization interpretation must establish who may delegate which rights and how restrictions compose. Carrying a reference to a grant does not establish that the recipient may exercise it."]
+           [:li
+            [:strong "Revocation. "]
+            "A revocation affects checks once the relevant policy index has observed and published it. The deployment specifies freshness requirements and behavior when current authorization cannot be established."]
+           [:li
+            [:strong "Audit. "]
+            "Emitted decision and usage facts can be indexed alongside the grants and requests that explain them. An audit requires that those facts actually be recorded and retained."]
+           [:li
+            [:strong "Containment. "]
+            "VM restrictions and host resource gates work together. Capabilities express authority; the evaluator, compiled code, and device boundaries must enforce it."]]
+          [:p
+           "ShiBi's full capability and budget semantics remain a design target. The stream middleware provides attachment points for policy, while current deployments must state which concrete authorization mechanism they use. Hardware protection can support containment, and the choice of privilege levels belongs to the host implementation."]
 
-                   [:h3 "The DaoStream (The Raw Stream)"]
+          [:h2 "3. Shared Content Identity"]
+          [:p
+           [:code "dao.jing"]
+           " canonically encodes values and assigns content addresses without interpreting domain meaning. Equal canonical content converges on the same address. Explicit references between immutable values can form a Merkle DAG, allowing programs and state to share structure."]
+          [:p
+           "If several applications use the same canonical string, such as Sonny, a storage target can deduplicate that content. Decoded objects, replicas, and caches can still occupy multiple physical locations. The address supplies one logical identity while placement and retention determine where copies exist."]
+          [:p
+           "A portable continuation can refer to shared code and immutable inputs by content address. The receiver reuses locally available content and fetches missing dependencies. A warm receiver avoids redundant transfers; a cold receiver still needs the missing bytes. Hash verification establishes that content matches its address. Trust in code, permission to read it, and confidence in remote execution results require their own interpretations and policies."]
+          [:p
+           "Content identity is stable while availability depends on retained, reachable copies. Canonical program data must remain retrievable when execution uses lowered forms, and required recovery inputs must survive eviction from transient buffers. The composition supplies durable storage and any replication needed for its failure assumptions."]
 
-                   [:p "In microkernels, processes communicate via message passing. The DaoStream serves this role in the Tao Kernel. Persistent facts are always datoms " [:code "[e a v t m]"] "; ephemeral streams may carry other values."]
+          [:h2 "4. Continuations, Custody, and Devices"]
+          [:p
+           "Yin.VM represents resumable computation explicitly. A portable checkpoint must carry or reference the execution semantics, code, reachable state, and dependencies required to resume. A receiver validates compatibility and authority before admitting resources. Host-local functions and resources require explicit treatment and cannot become portable merely by being referenced."]
+          [:p
+           "Publishing that checkpoint does not choose a privileged reader or transfer exclusive execution rights. Where only one execution may act, a custody protocol fences the source and grants the receiver authority under an epoch checked at the effect boundary. "
+           [:code "dao.lease"]
+           " expresses tenure and renewal as facts; exclusion also requires the resource owner to reject obsolete authority."]
+          [:p
+           "Portable I/O follows the same boundary: a computation emits an effect request, a host interpreter operates the resource, and an outcome returns as stream data. External events enter through adapters that append plain values. Stable operation identities support correlation and deduplication. If a connection fails after an effect was performed but before its outcome was observed, the result is uncertain; recovery needs a retry, reconciliation, or compensation policy. Replaying computation alone cannot undo or safely repeat every external action."]
+          [:p
+           "A RISC-V board could host this model directly. A bare-metal port supplies boot, memory allocation, traps, timers, and device drivers beneath the stream boundary. Local interpreters coordinate work between cores; links to other boards extend the composition. Native execution must preserve guest confinement, and cross-board resumption must satisfy the same compatibility and custody contracts as any other host boundary. This is a hardware implementation direction rather than a claim of a completed board port."]
 
-                   [:ul
-                    [:li "This is the uninterpreted event stream. It is objective and immutable."]
-                    [:li "A Datom in the stream has no interpretation: Has it happened? Is it valid? Is it spam? The stream doesn't know. It just " [:em "is"] "."]]
-
-                   [:h3 "The Tao Kernel (The Observer)"]
-
-                   [:p "The Kernel does not merely \"store\" these Datoms. It " [:em "interprets"] " them. It transforms the raw stream into structured state."]
-
-                   [:p "The 5-tuple " [:code "[e a v t m]"] " is metaphorically " [:strong "space-time"] ": a single coordinate that locates a fact within both the semantic landscape and the causal timeline."]
-
-                   [:p "When the Tao Kernel reads a Datom, it deconstructs it into two fundamental particles:"]
-
-                   [:ul
-                    [:li [:strong "The Particle of Space (The Fact)"] ": " [:code "[e a v]"]
-                     [:ul
-                      [:li "This represents " [:em "Being"] "."]
-                      [:li "It is a timeless, content-addressable truth (Entity, Attribute, Value)."]
-                      [:li "Kernel's Interpretation: \"I assert that this relationship exists.\""]]]
-                    [:li [:strong "The Particle of Time (The Event)"] ": " [:code "[h t m]"]
-                     [:ul
-                      [:li [:em "h"] ": The Hash of the Fact (linking Space to Time)."]
-                      [:li [:em "t"] ": The Hash of the previous Event (The Log / Causality)."]
-                      [:li [:em "m"] ": The Hash of the Metadata (Context / Signature)."]
-                      [:li "Kernel's Interpretation: \"I assert that this fact occurred at this moment, authorized by this signature.\""]]]]
-
-                   [:h2 "The Architecture"]
-
-                   [:p "To support stream interpretation at high speed, the Tao Kernel discards the \"70s hacks\" of traditional OS design (Virtual Memory, Context Switching, Hardware Rings)."]
-
-                   [:p "The Tao Kernel fuses Yin.VM (continuations as processes) with microkernel ideas (streaming for messaging). Microkernels still separate kernel space and userspace. This separation is unnecessary when Yin.VM provides isolation via continuations running in sandboxed VMs."]
-
-                   [:h3 "1. Single Address Space (SASOS)"]
-
-                   [:ul
-                    [:li [:strong "Unified Address Space"] ": The entire OS runs in a single 64-bit address space. There is no artificial wall between \"User\" and \"Kernel.\""]
-                    [:li [:strong "Zero-Copy IPC"] ": Processes interact by passing Pointers, not by copying buffers. Inter-process communication becomes an O(1) operation."]]
-
-                   [:h3 "2. Capabilities Replace Hardware Rings"]
-
-                   [:p "Traditional operating systems enforce security through CPU privilege levels: ring0 (kernel) and ring3 (user). Every system call requires an expensive context switch. The Tao Kernel replaces this hardware mechanism with Shibi capabilities."]
-
-                   [:h4 "Why Capabilities?"]
-
-                   [:ul
-                    [:li [:strong "Fine-Grained Access"] ": Hardware rings are coarse: a process either has kernel access or it doesn't. Capabilities are precise: \"this continuation can read " [:code ":user/email"] " on entity 42.\""]
-                    [:li [:strong "No Context Switches"] ": Ring transitions (ring3→ring0) flush TLBs and pipelines. With capabilities in a single address space, \"syscalls\" are just function calls with capability checks."]
-                    [:li [:strong "Defense in Depth"] ": Capabilities combine with immutable data and isolated Yin.vm sandboxes. Code cannot corrupt what it cannot change or reach."]
-                    [:li [:strong "Delegation"] ": A continuation can pass a subset of its capabilities to another continuation without involving the kernel. Authority flows with the data."]
-                    [:li [:strong "Revocation"] ": Capabilities can be revoked without stopping processes or modifying objects. The capability token simply becomes invalid."]
-                    [:li [:strong "No Confused Deputy"] ": Capabilities are unforgeable cryptographic tokens. A malicious continuation cannot trick another into misusing its privileges."]]
-
-                   [:h4 "Portability and Distribution"]
-
-                   [:ul
-                    [:li [:strong "Hardware Independent"] ": The security model doesn't depend on x86 rings or ARM exception levels. Same semantics on any hardware."]
-                    [:li [:strong "Network Transparent"] ": A capability token works the same on your phone as on a cloud server. When continuations migrate, their capabilities migrate with them."]
-                    [:li [:strong "Auditable"] ": Every capability use can be logged as a datom. The security model becomes queryable history."]]
-
-                   [:h4 "Trade-offs"]
-
-                   [:p "Capabilities are not free:"]
-
-                   [:ul
-                    [:li [:strong "Capability Management"] ": Someone must grant initial capabilities. The Tao Kernel bootstraps with a root capability that can mint others."]
-                    [:li [:strong "Software Enforcement"] ": Capability checks run in software, not silicon. However, modern CPUs are adding hardware capability support (CHERI), and the Yin.vm can JIT capability checks into native code."]
-                    [:li [:strong "Debugging"] ": Without clear privilege boundaries, tracing security issues requires following capability chains through the datom history."]]
-
-                   [:p "The trade-off is worth it: capabilities turn security into data. And in Datom.world, data is what we do best."]
-
-                   [:h3 "3. The \"Interned\" Universe"]
-
-                   [:ul
-                    [:li [:strong "Structural Sharing"] ": Because the Kernel decomposes everything into content-addressable Triples, the entire memory state acts as a global Merkle DAG."]
-                    [:li [:strong "Local Deduplication"] ": If 50 apps use the string \"Sonny,\" it exists exactly once in physical RAM."]
-                    [:li [:strong "The Triple"] ": The Kernel is elegant because it only understands one data structure: The Triple. Whether it is storing a User (" [:code "[e a v]"] ") or a History Log (" [:code "[h t m]"] "), the structure is identical."]]
-
-                   [:p "The interned universe extends beyond a single machine. Content-addressable data has the same hash everywhere. The string \"Sonny\" hashes to the same value on your phone, my laptop, and every server on the internet. This has deep implications for distributed systems:"]
-
-                   [:ul
-                    [:li [:strong "Global Deduplication"] ": The entire internet can share the same \"Sonny\" string. When a continuation migrates from Nha Trang to Philadelphia, it doesn't copy data; it carries hashes. The destination either has the content or fetches it once."]
-                    [:li [:strong "Verification Without Trust"] ": If I claim to send you \"Sonny,\" you can verify the content matches the hash without trusting me. Data integrity is structural, not social."]
-                    [:li [:strong "Caching Everywhere"] ": Any node can cache any content. The hash is the address. CDNs, edge nodes, and local devices all participate in a global content-addressed mesh."]
-                    [:li [:strong "Immutable References"] ": A hash pointing to \"Sonny\" will always point to \"Sonny.\" Links never rot. History never rewrites."]]
-
-                   [:p "Traditional systems copy data between address spaces, between processes, between machines. The interned universe references data. The network becomes a single distributed heap where content lives exactly once and pointers span the globe."]
-
-                   [:h2 "Conclusion: The Tao Stack"]
-
-                   [:p "This moves beyond building a \"Database\" or an \"App.\" This is a new model for computing."]
-
-                   [:table
-                    [:thead
-                     [:tr
-                      [:th "Component"]
-                      [:th "Role"]
-                      [:th "Metaphor"]]]
-                    [:tbody
-                     [:tr
-                      [:td "DaoStream"]
-                      [:td "The Input"]
-                      [:td "The Event Stream (Raw Datoms)"]]
-                     [:tr
-                      [:td "Tao Kernel"]
-                      [:td "The Observer"]
-                      [:td "The Interpreter (Builds State from Stream)"]]
-                     [:tr
-                      [:td "Yin.vm"]
-                      [:td "The Logic"]
-                      [:td "Validation Rules"]]
-                     [:tr
-                      [:td "DaoSpace"]
-                      [:td "The State"]
-                      [:td "The Materialized View"]]
-                     [:tr
-                      [:td "Shibi"]
-                      [:td "The Energy"]
-                      [:td "Capability tokens (Security + Economic Resource)"]]]]
-
-                   [:p "The Tao Kernel is the machine that turns the chaos of the stream into structured state."]]]]}
+          [:h2 "The Tao Stack"]
+          [:table
+           [:thead
+            [:tr [:th "Component"] [:th "Role"]]]
+           [:tbody
+            [:tr [:td "dao.stream"] [:td "Portable I/O and composition boundary with independent readers"]]
+            [:tr [:td "dao.jing"] [:td "Canonical content encoding, addressing, storage, and retrieval"]]
+            [:tr [:td "dao.space"] [:td "Queryable state emerging from index and query interpreters"]]
+            [:tr [:td "Yin.VM"] [:td "Program evaluation, explicit continuations, and execution containment"]]
+            [:tr [:td "ShiBi"] [:td "Authorization and metering interpretations over facts, a design target"]]
+            [:tr [:td "Tao Kernel"] [:td "A composition of interpreters providing OS-like behavior"]]]]
+          [:p
+           "The Tao Kernel organizes computation around explicit data and interpretation. Local address-space sharing, content reuse, and continuation mobility follow different contracts, connected by one stream boundary. Those contracts make the model concrete enough to implement, inspect, and test on each participating host."]]]]}

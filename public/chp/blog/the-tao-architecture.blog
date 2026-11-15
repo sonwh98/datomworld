@@ -1,0 +1,245 @@
+#:blog{:title "The Tao Architecture: Turning Every Device Into One Global Computer"
+       :date #inst "2026-11-15T00:00:00.000-00:00"
+       :abstract
+       [:p
+        "The Tao Architecture is a distributed computing model built on four axioms: streams carry data, interpreters create semantics, code and state are datoms, and continuations make computation mobile. One global computer means that participating devices compose through explicit data and portable execution contracts. The model extends from a RISC-V board running the Tao Kernel to GPU-backed hosts, with locality, authority, and execution costs exposed as data."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "Modern NVIDIA and AMD GPUs embed OS-like scheduling, dispatch, and resource-management mechanisms in hardware and firmware. "
+           "The "
+           [:strong "Tao Architecture"]
+           ", the distributed computing model underlying Datom.world, places cross-device orchestration and portable execution state in a common software layer, treating vendor-specific execution machinery as a local backend. "
+           "One global computer means that participating devices compose through explicit data and portable execution contracts. Each GPU retains its hardware scheduling mechanisms, while the shared software layer exposes the different capabilities and costs of CPUs, GPUs, and edge devices as data."]
+
+          [:p
+           "Built on four foundational axioms, the Tao Architecture composes heterogeneous devices through interpreters over append-only streams. "
+           "The twenty-year evolution of "
+           [:a {:href "https://en.wikipedia.org/wiki/CUDA"} "CUDA"]
+           ", "
+           [:a {:href "https://rocm.docs.amd.com/projects/HIP/"} "AMD ROCm"]
+           ", and multi-chiplet packaging illustrates the value of portable execution models and explicit locality. Tao extends that direction across devices, where independent failures and trust boundaries require additional contracts."]
+
+          [:h2 "1. The Tao Architecture: Axioms and Primitives"]
+
+          [:p
+           "The four axioms establish the responsibilities of the architecture's core elements: immutable 5-tuple datoms ("
+           [:code "[e a v t m]"]
+           "), "
+           [:code "dao.stream"]
+           ", "
+           [:code "dao.space"]
+           " (backed by "
+           [:code "dao.jing"]
+           "), "
+           [:code "Yin.VM"]
+           ", and "
+           [:code "Shibi"]
+           " authorization and metering interpretations over grant, revocation, and usage facts. These elements occupy different roles: streams carry values; storage preserves content; query and execution interpreters give it meaning. "
+           "The "
+           [:strong "Yang"]
+           " compilers project supported source-language constructs into the Universal AST. Language coverage and the availability of required host functions determine which existing programs can participate."]
+
+          [:h3 "Axiom 1: Everything is a Stream (dao.stream as the Universal Bus)"]
+          [:p
+           [:a {:href "/dao-stream.chp"} "dao.stream"]
+           " is the payload-agnostic, append-only abstraction for portable I/O. Readers advance independent cursors; reading does not consume another reader's data. "
+           "An interpreter can derive a stable view from a bounded, retained prefix without a global reader lock. This establishes consistency relative to those inputs: ordering across writers, cross-stream atomicity, and exclusive ownership belong to explicit protocols above the stream. "
+           "Retention is declared by the transport; a reader encountering evicted history receives a gap rather than silently treating a suffix as a complete history. "
+           "Stream payloads can include datoms, bulk tensors, Arrow buffers, or execution snapshots where the transport supports their representation. Portable effects are stream emissions; direct-I/O host functions are explicitly local and non-migratable."]
+
+          [:h3 "Axiom 2: Interpretation Creates Semantics (One Stream, Many Backends)"]
+          [:p
+           "Streams carry values without deciding what those values mean. Over a program's datom stream, "
+           [:code "dao.space.index"]
+           " can materialize covered indexes (EAVT, AEVT, AVET, VAET), while "
+           [:a {:href "/yin.chp"} "Yin.VM"]
+           " independently evaluates the program. Neither observer needs to know the other exists, and neither requires the other to be installed. Queries interpret immutable indexed inputs; the evaluator interprets program data. "
+           "An execution interpreter can use CUDA or ROCm as a local backend and expose portable effects through the same stream boundary. The stream carries no privileged execution or query semantics."]
+
+          [:h3 "Axiom 3: Code and State are Datoms (A Shared Semantic Representation)"]
+          [:p
+           "Persistent facts, including program syntax and projected execution state, use the immutable 5-tuple datom "
+           [:code "[e a v t m]"]
+           " (Entity, Attribute, Value, Transaction, Metadata). "
+           "Bulk payloads retain suitable representations; streams impose no datom requirement on every value. The canonical Universal AST supplies shared syntax; conforming evaluators and lowering interpreters must preserve its specified execution semantics for the constructs they support. "
+           "The "
+           [:strong "Yang"]
+           " compiler ("
+           [:code "yang/compile"]
+           ") projects source languages into the canonical Universal AST, and "
+           [:code "vm/ast->datoms"]
+           " projects that AST into a datom stream. "
+           "Because code is inspectable data, lowering passes can be composed as interpreters over that data. The proposed CPU/GPU specialization follows this division of responsibility:"]
+          [:ul.bulleted
+           [:li "An irregular, branch-heavy agent loop is reduced step-by-step by a scalar Yin.VM interpreter on a CPU core."]
+           [:li "A lowering interpreter may target PTX, SPIR-V, or Metal for a region whose effects, parallel dependencies, data representation, and numerical semantics it can preserve. Unsupported regions retain a compatible general evaluator."]]
+          [:p
+           "The canonical AST remains retrievable when lowered artifacts are produced, keeping specialized execution tied to inspectable program data."]
+          [:p
+           "A workstation, a GPU-backed host, a smartphone, and a cloud server can expose execution capabilities and cost observations as data. A placement interpreter decides which of those hosts can run a given region and whether moving it is worthwhile."]
+
+          [:h3 "Axiom 4: Everything is a Continuation (Making Execution Portable)"]
+          [:p
+           [:strong "Yin.VM"]
+           " makes resumable computation explicit as state: control, environment, store, and continuation. Backends can use native execution structures between safe points and expose a portable representation at the boundaries. "
+           "The architectural consequence is that resumable state need not remain tied to an OS thread. Cross-host resumption additionally requires portable dependencies, compatible execution semantics, admitted resources, and an explicit custody handoff. Host-local functions and resources cannot acquire portability merely by being referenced in a continuation. "
+           "This supplies the basis for data gravity: a placement interpreter can move compatible computation toward its inputs when the expected savings exceed checkpoint, transfer, and recovery costs."]
+          [:p
+           "As explored in "
+           [:a {:href "/blog/tao-kernel.blog"} "The Tao Kernel"]
+           ", OS-like coordination can be expressed through interpreters of stream data. A Single Address Space (SASOS) deployment can place confined computations and kernel machinery in one local address space. "
+           [:code "Yin.VM"]
+           " containment and "
+           [:a {:href "/shibi.chp"} "Shibi"]
+           " authorization interpretations determine permitted resource access. "
+           [:code "dao.lease"]
+           " expresses tenure and renewal as facts; resources requiring exclusion also need fencing. The resource-owning host enforces admission and effects at its boundary. "
+           "A co-resident stream implementation may share immutable buffers without copying payloads. A local pointer addresses memory in that deployment; a content hash identifies canonical content across hosts. Datom entity and transaction IDs remain stream-local, and queries preserve each physical source's scope. Cross-host composition carries explicit references and dependencies through a transport."]
+
+          [:h3 "From a RISC-V Board to a Compute Fabric"]
+          [:p
+           "This composition model can begin on a simple printed circuit board. A board with RISC-V cores, sufficient memory, boot storage, and a communication interface could run the Tao Kernel directly as its operating environment. "
+           "A bare-metal port would initialize the hardware and provide memory allocation, trap handling, timers, and device drivers. RISC-V's "
+           [:a {:href "https://docs.riscv.org/reference/isa/_attachments/riscv-privileged.pdf"} "machine-mode execution"]
+           " permits that arrangement. A hosted deployment can instead use an existing OS to supply those facilities."]
+          [:p
+           "The four axioms determine how the board participates. Device adapters translate external events into stream values; host interpreters consume effect requests, operate devices, and append outcomes. Yin.VM interprets program datoms and makes continuations explicit. Scheduling and authorization interpreters derive decisions from facts, with the runtime enforcing those decisions at execution and resource boundaries."]
+          [:p
+           "Several processors on the board could execute independent program regions, while vector units or attached accelerators could serve regions supported by a lowering backend. Compilation, indexing, and content storage can run on other participating hosts, so a small execution node need only supply the interpreters and stream implementations its role requires. "
+           "Tao would occupy a role analogous to the compiler and runtime layers of CUDA or ROCm: turning available execution resources into a programmable platform. Arithmetic throughput and memory bandwidth would still come from the board's hardware, and efficient execution would require suitable lowering and libraries."]
+          [:p
+           "The resulting platform could extend from links between chips on a PCB to links between boards through the same stream abstraction. Fine-grained instruction scheduling stays local; cross-chip work is batched so useful computation can repay communication costs. "
+           "A program could begin on one core, delegate an independent batch to another, and later hand off a compatible continuation to another board. Each step retains the same program identity while making dependencies, placement, and custody explicit."]
+
+          [:h2 "2. Planetary Soft Silicon: Interpreting Locality and Content Identity"]
+
+          [:p
+           "Whether the resources share a PCB or communicate across the internet, Axiom 2 applies to topology as well as execution: latency samples, bandwidth observations, and resource availability are data; a placement interpreter constructs a topology and cost model from them. Measured costs can be directed and time-varying. A policy using mathematical metric-space algorithms must establish the properties those algorithms require."]
+
+          [:p
+           "The "
+           [:strong "soft silicon"]
+           " analogy describes composition: compute resources connect through a fabric, and locality affects placement. A placement interpreter can compare queue delay, execution time, missing-input transfer size and bandwidth, checkpoint cost, and declared price. Hysteresis can discourage migrations whose small predicted benefit would be overwhelmed by churn. "
+           "The following correspondences are design analogies; network links retain their own latency, failure, and trust characteristics:"]
+
+          [:table
+           [:thead
+            [:tr
+             [:th "GPU Chiplet Architecture"]
+             [:th "Tao Architecture (Datom.world)"]]]
+           [:tbody
+            [:tr
+             [:td "Compute Die (XCD / SM)"]
+             [:td "A host with a compatible Yin.VM evaluator or supported accelerator backend"]]
+            [:tr
+             [:td "Infinity Fabric / NVLink"]
+             [:td "dao.stream transports, with measured locality interpreted from telemetry facts"]]
+            [:tr
+             [:td "1-Hop Package / Interposer"]
+             [:td "Entanglement group: a policy-derived neighborhood whose explicitly scoped inputs can be queried together"]]
+            [:tr
+             [:td "Infinity Cache / Shared SRAM"]
+             [:td "Local content and index caches retained by an explicit policy"]]
+            [:tr
+             [:td "Resource management / protection"]
+             [:td "ShiBi authorization and metering interpretations, lease facts, and host-enforced resource boundaries"]]]]
+
+          [:h3 "The Interned Distributed Heap: Shared Identity, Explicit Transfer"]
+          [:p
+           "Axiom 3 makes code and projected state available as structured data. "
+           [:code "dao.jing"]
+           " assigns content identity through canonical encoding and hashing, without interpreting domain meaning. Explicit content references can form a Merkle DAG; equal canonical content has one logical address, while many hosts may retain physical copies. "
+           "A portable continuation can reference model weights, AST units, or immutable cache blocks by address. A destination reuses locally available content and fetches missing dependencies, so a warm destination avoids redundant transfers while a cold destination still pays for missing bytes. "
+           "Hash verification checks that fetched content matches its address. Admission policy separately determines whether to trust code, execution semantics, and reported results."]
+
+          [:h3 "Discovery and Calibration as Stream Interpretations"]
+          [:p
+           "Discovery is another interpretation over explicitly available media. A local discovery composition can exchange self-certifying public-key beacons on a "
+           [:code "dao.stream"]
+           ", authenticate echo exchanges, and emit "
+           [:code ":metric/rtt"]
+           " and "
+           [:code ":metric/hops"]
+           " datoms into "
+           [:code "dao.space"]
+           " as observations. This can avoid a central registry where local discovery is available; wider reachability still depends on an explicit bootstrap and transport composition. A public key establishes identity, while authorization remains a separate interpretation."]
+          [:p
+           "Calibration observers can update locality facts from correlated exchanges using a local monotonic clock; timestamps from unrelated hosts are not directly comparable without an additional clock model. Telemetry is a composition choice, with no mandatory timestamp shape added to every stream payload. "
+           "Datalog rules can derive candidate neighborhoods and placement decisions from these facts. A runtime may act on those decisions, checkpointing and handing off compatible continuations at safe points. Group membership and completion are also interpreted facts, with explicit rules for required causal inputs and unreachable participants. Local GPU barriers retain their execution and memory-ordering role inside lowered kernels."]
+
+          [:h2 "3. Lessons from CUDA, ROCm, and Chiplets"]
+
+          [:p
+           "CUDA and ROCm illustrate three requirements for a useful execution platform: a portable programming model, effective lowering and libraries, and hardware-aware placement. Their detailed history, from BrookGPU through CUDA's GPU generations and ROCm's compiler and release evolution, is preserved in "
+           [:a {:href "/blog/cuda-n-rocM.blog"} "CUDA and ROCm: From BrookGPU to Chiplet Compute Fabrics"]
+           "."]
+          [:p
+           "For Tao, the programming-model lesson is to preserve canonical program data and specified execution semantics while allowing backends to change. The performance lesson is that inspectable code becomes useful acceleration through suitable lowering and libraries. Each interpreter exposes the operations its installed hardware and runtime support, including their memory and synchronization constraints."]
+          [:p
+           "Chiplets add a locality lesson: a logical resource can span physical components with different communication costs. Tao exposes those costs to placement interpreters, from a RISC-V board to a network of hosts. Composition across independently governed devices additionally requires explicit failure, authority, and custody contracts."]
+
+          [:h2 "4. Contracts That Make the Fabric Work"]
+
+          [:p
+           "The axioms establish the composition model. A deployment makes that model executable by supplying the following contracts:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Compatible execution. "]
+            "A continuation names the versioned semantics and dependencies it requires, including primitive behavior, numerical rules, effects, and failure outcomes. A receiver validates support before attaching resources or resuming. Independent observers may construct different views; backends claiming equivalent execution must agree on observable behavior."]
+           [:li
+            [:strong "Custody and external effects. "]
+            "Publishing a continuation makes it observable to readers with access to its medium. Where only one execution may act, the source is fenced before publication; a grounded authority grants custody, and resource owners validate the receiver's epoch at effect boundaries. Stable operation identities support correlation and deduplication. A transport failure can leave an effect's outcome unknown; replay requires an explicit retry, reconciliation, or compensation policy."]
+           [:li
+            [:strong "Retention and recovery. "]
+            "Evicting a transient buffer must preserve access to canonical code and the inputs required for promised recovery. The composition supplies durable storage, checkpoints, and any required replicas, retaining the source facts that derived views depend on. A hash identifies content; storage custody and reachable copies make it available."]
+           [:li
+            [:strong "Enforced authority. "]
+            "The evaluator confines guest access, and compiled execution must preserve that confinement. Resource-owning hosts enforce authorization, native device access, and DMA boundaries. Grant and revocation decisions use an identified policy snapshot, so their freshness is part of the contract. Remote execution results require a stated trust or verification policy beyond checking content hashes."]
+           [:li
+            [:strong "Measured placement. "]
+            "Work must be large enough to repay dispatch, checkpoint, and communication costs. Measurements compare local execution with delegation and migration, including warm and cold caches, queue delay, and recovery after abrupt failures."]]
+
+          [:p
+           "The RISC-V bare-metal port, automatic accelerator specialization, and discovery-driven placement described here are development directions. ShiBi's full capability and budget semantics remain a design target. Continuation formats and handoff machinery require conformance across each supported execution and transport combination before a deployment can promise portable resumption. "
+           "An end-to-end demonstration can make those promises concrete: run a program on one board, delegate a batch to another, hand off a continuation with warm and cold dependencies, and interrupt a link during the handoff. Report transfer volume, execution and checkpoint time, custody outcomes, and the handling of pending effects."]
+
+          [:h2 "Conclusion: The Essence of Wu Wei in Systems Design"]
+
+          [:p
+           "In Daoist philosophy, "
+           [:a {:href "https://en.wikipedia.org/wiki/Wu_wei"} "Wu Wei"]
+           " (literally \"non-action\" or \"non-forcing\", often translated as effortless action) does not mean passivity or doing nothing. "
+           "It means acting in alignment with the natural grain and physics of a situation rather than fighting against them, like water flowing downhill to find its level without forcing a path. "
+           "(For deeper background, see the "
+           [:a {:href "https://plato.stanford.edu/entries/daoism/"} "Stanford Encyclopedia of Philosophy entry on Daoism"]
+           " and "
+           [:a {:href "https://www.britannica.com/topic/wuwei-Chinese-philosophy"} "Britannica on Wuwei"]
+           ".)"]
+
+          [:p
+           "Tao applies this principle by making dependencies and locality visible: streams preserve the inputs an interpreter observes; datoms expose code and state for inspection; continuations make compatible execution movable. Coordination is introduced where an application's invariants require it, with its scope and authority explicit."]
+
+          [:p
+           "The four axioms establish a common representation and composition model. Interpreters supply placement, authorization, indexing, and execution semantics; explicit contracts and measurements establish how a deployment behaves. "
+           "One global computer means that participating devices, from RISC-V boards running the Tao Kernel to GPU-backed hosts, can compose through explicit data and portable execution contracts. Latency, capacity, failure, and trust remain visible in that model, so computation can be placed where it fits."]
+
+          [:p [:strong "Related reading:"]]
+          [:ul.bulleted
+           [:li
+            [:a {:href "/blog/cuda-n-rocM.blog"} "CUDA and ROCm: From BrookGPU to Chiplet Compute Fabrics"]]
+           [:li
+            [:a {:href "/blog/tao-kernel.blog"} "The Tao Kernel: Single Address Space Meets Semantic Interpretation"]]
+           [:li
+            [:a {:href "/blog/federated-gpu-computing.blog"} "Federated GPU Computing: Better Hardware Utilization Through Mobile Continuations"]]
+           [:li
+            [:a {:href "/blog/datomworld-as-kernel-os.blog"} "Datom.World as an Operating System: A Kernel Built From Streams, Interpreters, and Yin.vm Isolation"]]
+           [:li
+            [:a {:href "/yin.chp"} "Yin VM"]
+            " and "
+            [:a {:href "/dao-stream.chp"} "DaoStream"]]]]]]}
