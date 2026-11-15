@@ -311,7 +311,8 @@
                           selected? (seq (:selected d))
                           ast (when d (cond
                                         (not selected?) instrumented
-                                        (deferred-module? original)
+                                        (and (deferred-module? original)
+                                             (deferred-module? instrumented))
                                         (core-module/module-tree
                                           [instrumented (core-module/require-node 'php.sp)])
                                         :else (u/then (core-module/require-node 'php.sp)
