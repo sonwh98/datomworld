@@ -7,6 +7,7 @@
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [dao.jing :as jing]
     [yang.core.module :as module]
     [yang.core.uast :as u]
     [yang.php.antlr.cst :as cst]
@@ -95,6 +96,10 @@
         source (lh/source (lh/name-env result) result)]
     (is (= :ok (:status result)))
     (is (= 1 (count (:bundles result))))
+    (doseq [address (vals (:addresses result))]
+      (is (= (get (:bundles result) bundle)
+             (get-in (jing/get (:store @lh/published) address nil)
+                     [:yin.module/requires bundle]))))
     (doseq [backend (keys lh/backends)]
       (let [task (lh/run-linked backend ast source)]
         (println "cyclic-init" backend (pr-str (vm/value task)))
