@@ -273,7 +273,7 @@
          (= (count (:params operator)) (count ops))
          (seq (butlast ops))
          (every? definition? (butlast ops))
-         (= (core-module/require-node 'php) (last ops)))))
+         (= (core-module/require-node 'php) (dissoc (last ops) :tail?)))))
 
 
 (defn- derive-closure
