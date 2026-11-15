@@ -82,70 +82,147 @@ immediately with the evidence, and only the user authorizes its revert,
 forward-fix, or force-push — the orchestrator never rewrites pushed history
 on its own authority.
 
-For cost constraints and CLI routing caveats, see [`team.md`](../team.md)'s
-**Available Subscriptions & Cost Constraints** table. For current, session-
-independent owner-relayed availability and budget status (an outage, a
-narrowed authorization, a near-empty quota), see
-[`routing-status.md`](../routing-status.md) — check it before routing to a
-metered destination, and add an entry when the owner relays a new status.
+## Authorization and security
 
-**Delegate dispatches run locally by default (2026-11-03 owner ruling).**
-A delegate CLI is invoked on THIS machine — the laptop — unless the work
-itself must run elsewhere: test/nightly lanes on the remote hosts, or a
-CLI that is genuinely missing locally (checked with `which <cli>` /
-`<cli> models` first, never assumed). Never route a dispatch to a remote
-host because a previous round ran there, because the per-host model
-catalog was measured there, or for convenience: per-host catalogs are a
-reason to run `<cli> models` wherever you dispatch, including locally,
-before writing a model name into a brief. Remote dispatch adds scp and
-ssh round-trips to every turn and resume of the session, with no benefit
-when the local checkout is current (push master first and it always is).
-Remote dispatch adds scp and
-ssh round-trips to every turn and resume of the session, with no benefit
-when the local checkout is current (push master first and it always is).
+Private repository content may be sent externally only with explicit user
+authorization for the exact payload and destination. Invoke from the authorized
+agent; consent does not carry over. Pass prompt paths or stdin, never private
+diffs or credentials in arguments. Use read-only/plan review and minimum write
+scope; never bypass permission checks. Preserve unrelated changes and never
+expose or commit tokens or configuration. The same rule binds delegates: a
+delegate that requests a credential gets the requirement escalated to the
+user — never satisfied by pasting a secret into a prompt file or environment
+the orchestrator controls. Before an archive commit, scan the batch for
+credential-shaped strings (keys, tokens, `sk-`, bearer values); a stdout log
+that captured a secret is redacted or left uncommitted and the incident
+recorded in the work log.
 
-**Long-running dispatches and remote gates wait via tracked background
-tasks — never foreground sleeps.** Launch the delegate or the remote
-gate so the host's task tracking owns the wait: in ZCode, run the
-command with the harness's background mode (`run_in_background`), not
-detached via `nohup … &` inside a foreground call — a detached process
-is invisible to the harness (no UI entry, no completion notification),
-which is how dispatches went missing from the user's view (2026-11-04).
-Remote gates launched through `bin/collab-tools/rverify.sh` run detached
-in tmux on the host by design; wait for them with a background task that
-polls the rverify `poll` subcommand on a long interval (≥ 5 min) and
-exits when the DONE marker lands — one completion notification, no
-foreground sleep chains. A foreground `sleep N; poll` chain blocks the
-turn, risks the harness's command timeout killing the wait mid-poll,
-and burns turns. If a foreground wait is cancelled or times out, the
-remote run is NOT affected (tmux survives) — re-check on demand, never
-restart it. Report dispatch and completion as explicit status entries so
-the user sees every long-running task in the UI.
+## Workspace discipline
+
+### Shared checkout and branch discipline
+
+The main checkout is shared by multiple seats. Work happens in dedicated
+worktrees; re-check branch state at each gate, landing, and push rather than
+assuming it stayed unchanged since session start.
+
+1. **The main checkout stays on `master`.** Use `git worktree add` for branch
+   work. If another session left the main checkout on a different branch,
+   restore it before working: `git checkout master && git merge --ff-only origin/master`.
+2. **Verify the branch per operation.** Run `git branch --show-current` before
+   any gate, landing, or push.
+3. **Keep local `master` synced with `origin/master`.** Fetch and fast-forward
+   in the worktree holding `master`. Use `git fetch origin master:master` only
+   when `master` is not checked out anywhere. Divergence requires a resolved
+   merge rather than an assumed fast-forward.
+4. **Verify ancestry before publishing.** Confirm the intended commits are in
+   the pushed tip's ancestry (`git merge-base --is-ancestor <sha> <tip>`) and
+   that the tip contains the fetched `origin/master` tip.
+5. **Check discarded-merge recovery before re-landing.** A missing merge
+   found in the reflog can be re-landed with `git merge <sha>` under the
+   coordination contract's authority. Check `git branch --contains` and
+   `git merge-base --is-ancestor` first to avoid double-landing.
+6. **Use an explicit push target.** From the verified master checkout, use
+   `git push origin HEAD:master`; a bare `git push origin master` can publish
+   a stale local ref.
+
+Provenance: the 2026-11-14/15 branch-drift incidents included landing
+`a48343ed`, which omitted the eval-bridge lineage, and a gate run against the
+wrong branch. These checks apply independently of commit authorization.
+
+### Concurrent work and worktree removal
+
+Read-only reviewers may share the main tree. Concurrent editors use separate
+worktrees from a committed base; uncommitted bases require serialization or
+explicit disjoint ownership. Test-lane sharing limits belong to
+[`build-n-test.md`](../build-n-test.md).
+
+Use absolute paths in briefs when participants use different worktrees.
+Tracked `collab/` content is present when included in a worktree's base;
+untracked artifacts exist only in the checkout that created them. Follow
+[Artifact lifecycle](#artifact-lifecycle) to archive those artifacts in their
+own worktree before merging.
+
+Remove a worktree only after its work has successfully merged to master
+under the coordination contract's authority, or on explicit user instruction
+to discard it. Confirm that no uncommitted tracked or untracked files would
+be lost, including collaboration artifacts. Comparing its `collab/` with the
+main tree is a safety check, not a substitute for committing and merging.
+Never run `git checkout --` or `git clean` merely to make removal possible.
+
+Provenance: the 2026-10-26 cleanup lost P3 oracle fixtures; the 2026-11-03
+worktree-deletion audit (`orchestrator-logs/1793358019`) found lost untracked
+collaboration logs. Folder placement alone does not make a file durable.
+
+### Shared-ledger merges
+
+Shared append-only ledgers such as `docs/agents/known-gaps.md` are append-only
+row by row. Never resolve a conflict by taking one side's file or land a
+rewritten or reformatted ledger inside a feature merge. Resolve to the union
+of both sides' rows under the existing column schema. A schema change is a
+proposal in the work log, agreed by seats and executed as a row-wise migration.
+
+Before pushing a commit or merge touching the ledger, verify that union and
+count rows on both parents and the result as a sanity check:
+`git show <rev>:docs/agents/known-gaps.md | grep -c '^|'`.
+The result must contain at least as many rows as either parent; a lower count
+requires restoring the union before pushing.
+
+Provenance: merge `4d6fd818` replaced the ledger with a rewritten variant and
+dropped about 66 rows (2026-10-26 ruling).
+
+## Delegate execution
+
+### Routing and session continuity
+
+[`team.md`](../team.md) owns role selection, reviewer independence, model fit,
+and cost constraints. Check [`routing-status.md`](../routing-status.md) before
+routing to a metered destination; add an entry when the owner relays a new
+availability or budget status.
+
+**Dispatch locally by default** (2026-11-03 owner ruling). Invoke the CLI on
+the laptop unless the work itself must run elsewhere, such as remote test or
+nightly lanes, or the CLI is genuinely missing locally. Check availability
+with `which <cli>` / `<cli> models`; never assume it. Prior remote dispatches
+and host-specific catalogs are not reasons to dispatch remotely. Run
+`<cli> models` on the chosen host before putting a model name in a brief.
+Remote dispatch adds scp and ssh round-trips to every turn and resume.
+
+Batch complete briefs, reuse sessions for related follow-ups, start new
+sessions for unrelated work, and never rely on CLI `--last` flags. Session-ID
+generation, capture, resume rules, flags, and recipes belong to
+[`delegate-invocation-reference.md`](../delegate-invocation-reference.md#session-continuity).
+
+### Tracked waits
+
+Long-running dispatches and remote gates wait through harness-tracked
+background tasks, never foreground sleep chains. In ZCode, use
+`run_in_background`; do not detach with `nohup … &` inside a foreground call,
+which hides the process from harness task tracking and completion notifications.
+
+Remote gates launched through `bin/collab-tools/rverify.sh` run in tmux by
+design. Wait with a tracked background task that polls the rverify `poll`
+subcommand at intervals of at least five minutes and exits when DONE appears.
+Cancelling or timing out the foreground wait does not stop the remote tmux
+run: re-check it, never restart it merely because the wait ended. Report both
+dispatch and completion as explicit status entries visible to the user.
+
+Provenance: untracked detached dispatches disappeared from the user's view
+on 2026-11-04.
 
 ## Artifact protocol
 
-Coordination is through repository artifacts, not hidden context. Artifacts
-are named `<timestamp>-<role>-<task>.prompt.md`,
-`<timestamp>-<role>-<task>.<sanitized-model>.findings.md`, and `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`.
-The `<timestamp>` prefix is a UNIX millisecond timestamp (e.g. `1725791234567`) so files sort
-chronologically in Git's untracked view; `<sanitized-model>` prevents parallel reviewers from colliding.
+Coordination uses repository artifacts rather than hidden context. Name them:
 
-**Decide the topic before writing.** An artifact
-is written directly into its destination topic subfolder
-(`collab/yang-python/`, `collab/dev/`, … per step 11's folder rules) when
-the subsystem it belongs to is known — which is essentially always, since
-dispatches are issued per track. The flat `collab/` root is reserved for
-artifacts whose track is genuinely undetermined (cross-track orchestration
-rulings, coordination whose destination is being decided), and filing them
-is an explicit orchestrator decision, not a cleanup afterthought. The
-motivating incident: the 2026-11-03 worktree-deletion audit
-(`orchestrator-logs/1793358019`) found that the only work lost when the
-`-orch` worktree was deleted was unfiled flat-root collab logs, while a
-findings file written into `collab/jolt/` from day one survived. Unfiled
-flat-root files are the fragile state; filed topic files are the durable
-one. In-flight vs archived is carried by GIT, not by the directory:
-untracked files (wherever they sit) are in-flight, committed files are the
-record.
+- `<timestamp>-<role>-<task>.prompt.md`
+- `<timestamp>-<role>-<task>.<sanitized-model>.findings.md`
+- `<timestamp>-<role>-<task>.<sanitized-model>.stdout.log`
+
+`<timestamp>` is an actual UNIX millisecond timestamp, such as
+`1725791234567`, so files sort chronologically in Git's untracked view.
+`<sanitized-model>` prevents parallel reviewers from colliding. Promote final
+responses to `.findings.md`; `.stdout.log` is an intermediate capture.
+
+### Prompt and report headers
 
 Every prompt starts with:
 
@@ -162,28 +239,6 @@ Implementers:
 
 Every report starts with the same header fields. Use actual timestamps; never fabricate them.
 
-`collab/` is append-only: artifacts are never edited after their round
-completes, and `collab/` must never be added to `.gitignore` or
-`.git/info/exclude` so its files stay visible and chronologically sorted in the user's Magit untracked
-view. Artifacts stay untracked while in flight — whether they sit in the
-flat root (undetermined track) or in their topic subfolder (the normal
-case, since the filing decision happens at write time) — and become the
-record only through the archive step (Workflow step 11), which commits
-them. The two states live in
-different worlds: the committed topic subfolders are on the master
-branch (pushed to origin — master's collab/ subfolders are the durable,
-durable-per-seat-readable record), while an in-flight artifact exists
-only as an untracked file in the checkout that created it — invisible
-from other checkouts and from every branch until it is committed. This
-visibility split is why a merged worktree's collab files must be
-committed before that worktree is deleted (the worktree-deletion rule in
-the Worktree section below), and why in-flight artifacts belong in their
-topic subfolder from
-birth: a committed topic file survives checkout deletion, a flat-root
-file does not. Promote final responses to
-`.findings.md`; `.stdout.log` is only
-an intermediate capture.
-
 On reassignment, append history inside `Implementers:`; never rewrite an earlier `Status:` line:
 
 ```text
@@ -196,32 +251,53 @@ instruction changed what should be done, not because the delegate failed — thi
 distinct case from `failed`/`timed-out` and should read that way in the artifact trail,
 not be inferred from a missing final report.
 
-Read-only reviewers may share the main tree. Concurrent editors use separate
-worktrees from a committed base; uncommitted bases require serialization or
-explicit disjoint ownership (lane-sharing limits like "only one process owns
-the CLJD lane" are test-execution constraints owned by
-[`build-n-test.md`](../build-n-test.md), not artifact rules). Auxiliary
-worktrees lack
-`collab/`, so briefs use absolute paths, and delegates there often stage
-their own reference copies of prompts/findings in a local `collab/`. The
-canonical procedure makes copy-out unnecessary: collab files generated in a
-worktree are committed there (step 11's `docs(collab):` commit) and reach
-master through the merge. Before removing a worktree, diff its `collab/`
-against the main tree's only as a safety check that no untracked file is
-being lost — a worktree merge moves only committed content. A worktree
-is deleted only after its work has been successfully merged to master
-under that authority — or on user instruction, which is a deliberate
-discard. Because deletion follows the merge, the merged content is
-already canonical; confirm only that no other uncommitted file in the
-worktree is being lost (a closed round has none: its artifacts were
-committed at round-close). Never run `git checkout --` or `git clean`
-on a worktree just to make it removable: that destroys in-flight work
-(observed 2026-10-26, when P3 oracle fixtures were lost this way).
+### Destination and preservation
 
-Batch complete briefs, reuse sessions for related follow-ups, start new sessions for unrelated work, and never rely on CLI `--last` flags. Session-ID generation, capture, and resume rules for
-every delegate CLI live in
-[`delegate-invocation-reference.md`](../delegate-invocation-reference.md#session-continuity),
-not here.
+Choose the topic before writing and write directly into `collab/<topic>/`.
+Reserve the flat `collab/` root for artifacts whose track is genuinely
+undetermined. Directory choice is explicit coordination, not deferred cleanup.
+
+- **Use the code's subsystem name.** When the work belongs to a subsystem in
+  [`src/dev/subsystems.edn`](../../../src/dev/subsystems.edn), use its name
+  with dots replaced by dashes: `yang.python` becomes `collab/yang-python/`,
+  and `yin.vm` becomes `collab/yin-vm/`. Do not invent variant spellings.
+- **Check existing folders first.** Reuse a fitting folder, including
+  established cross-cutting or track categories such as
+  `collab/orchestration/`, `collab/general/`, `collab/dao-star/`, and
+  `collab/jolt/`. Create a new folder only if none fits; use the subsystem or
+  durable topic, never a date, slice code, or seat name. If neither the
+  registry nor an existing folder fits, propose a name in the step 8 readiness
+  report for user or Architect confirmation before creating it.
+- **Preserve every distinct artifact and its provenance.** Never truncate or
+  overwrite an artifact, and never edit its contents after its round closes.
+  Filing an undetermined-track artifact into its final topic preserves its
+  exact filename. For same-name collisions, compare contents: identical bytes
+  may be deduplicated; differing artifacts are both retained under suffixed
+  variants (`-b`, `-r2`). These filing and collision operations are the only
+  naming/deletion exceptions; a move must never overwrite an existing file.
+  Secret-bearing captures follow [Authorization and security](#authorization-and-security).
+
+Never add `collab/` to `.gitignore` or `.git/info/exclude`; its in-flight files
+must remain visible in the user's Magit untracked view.
+
+### Artifact lifecycle
+
+1. **Create in the chosen topic.** In-flight artifacts stay untracked in the
+   checkout that creates them. They are not part of any branch's committed
+   history and are not available automatically in another worktree.
+2. **Finalize the round.** Preserve its prompt, findings, captured output,
+   and reassignment history. Completed-round contents are immutable; later
+   rounds create new artifacts.
+3. **Archive the closed task.** Once the task is committed or its track is
+   otherwise closed, commit its artifacts in their originating worktree using
+   Workflow step 11 and the coordination contract's authority. Move only
+   flat-root stragglers whose topic was previously undetermined, following
+   [Destination and preservation](#destination-and-preservation).
+4. **Publish and retain the record.** Archive commits reach master through
+   the authorized merge and push. Verify that committed records are included
+   and that no other uncommitted files would be lost before worktree removal.
+   Committed, published content is the durable record; a topic folder alone
+   does not protect an untracked file.
 
 ## Work log
 
@@ -273,246 +349,125 @@ canonical, so a successor creates its own log and still re-derives state from
 `git log`, `git status`, and the real diff, treating every prior log entry as a
 claim to verify rather than authority.
 
-## Authorization and security
-
-Private repository content may be sent externally only with explicit user
-authorization for the exact payload and destination. Invoke from the authorized
-agent; consent does not carry over. Pass prompt paths or stdin, never private
-diffs or credentials in arguments. Use read-only/plan review and minimum write
-scope; never bypass permission checks. Preserve unrelated changes and never
-expose or commit tokens or configuration. The same rule binds delegates: a
-delegate that requests a credential gets the requirement escalated to the
-user — never satisfied by pasting a secret into a prompt file or environment
-the orchestrator controls. Before an archive commit, scan the batch for
-credential-shaped strings (keys, tokens, `sk-`, bearer values); a stdout log
-that captured a secret is redacted or left uncommitted and the incident
-recorded in the work log.
-
 ## Workflow
 
 This section owns the execution sequence. Roster, role routing, and reviewer
-independence are defined in [`team.md`](../team.md); CLI flags and recipes are
-defined in [`delegate-invocation-reference.md`](../delegate-invocation-reference.md);
-commit message format is defined in [`format.md`](../format.md#git-commit-messages).
+independence belong to [`team.md`](../team.md); CLI recipes belong to
+[`delegate-invocation-reference.md`](../delegate-invocation-reference.md);
+commit messages follow [`format.md`](../format.md#git-commit-messages).
+Apply [Workspace discipline](#workspace-discipline) throughout.
 
-### The shared checkout: branch discipline (2026-11-14/15 incidents)
+### Execution sequence
 
-The main checkout is shared by multiple seats' sessions. Two incidents on
-2026-11-14/15 traced to branch-state drift while sessions interleaved: a
-landing push published the WRONG lineage (the p7b-ticks reconcile without the
-eval-bridge), and a gate ran on a branch that was not the intended one. Rules:
-
-1. **The main checkout stays on `master`.** Work happens in dedicated
-   worktrees (`git worktree add`). If a session leaves the checkout on another
-   branch, the next session restores it before working:
-   `git checkout master && git merge --ff-only origin/master`.
-2. **Verify `git branch --show-current` before any gate, landing or push.**
-   The verification is per-operation, not per-session: the checkout moves
-   between steps while seats interleave.
-3. **Keep local `master` synced with `origin/master` continuously**
-   (`git fetch origin master:master` while master is not checked out
-   anywhere). A stale local master is how a landing push published the wrong
-   lineage (the p7b-ticks reconcile landed as "master" without the
-   eval-bridge, discovered by the DRY orchestrator's discrepancy check).
-4. **The landing push: verify the target before publishing.** Confirm the
-   intended commits are in the pushed tip's ancestry
-   (`git merge-base --is-ancestor <sha> <tip>`) and that the pushed tip
-   contains `origin/master`'s tip (fast-forward or a resolved merge). The
-   2026-11-14 landing (a48343ed) pushed a reconcile that silently omitted the
-   eval-bridge — caught by the DRY orchestrator's ancestry check, corrected
-   the same night.
-5. **Discarded-merge recovery**: a merge commit missing from a branch tip but
-   present in the reflog can be re-landed (`git merge <sha>` — "Already up to
-   date" means it is already in the ancestry; verify with
-   `git merge-base --is-ancestor`). Check `git branch --contains` before
-   re-merging to avoid double-landing.
-6. **The push target**: `git push origin HEAD:master` from the master
-   checkout (the explicit refspec survives branch-state confusion; a bare
-   `git push origin master` can push a stale local ref).
-
-1. **Establish the seat.** The harness must be able to read and write the working
-   tree, run every affected host's checks, and invoke delegate CLIs. Establish
-   those capabilities before accepting work. At session start, create this
-   session's own `orchestrator-logs/<unix-time-stamp>-<coding-agent>-<model>-<brief-description>.md`
-   file under the repository root as specified in Work log. If a required
-   capability is missing, report it and do not issue a blind sign-off.
-2. **Re-derive state and authority.** Read `git log`, `git status`, and the real
-   diff; snapshots and phase summaries may be stale. Read
-   [`docs/agents/routing-status.md`](../routing-status.md) for current
-   owner-relayed delegate availability and budget constraints. When explicitly
-   continuing an earlier orchestration, read its referenced prior log as
-   historical claims, never as a file to append to. Bound the user's authorized
-   files, tools, payloads, and external destinations.
+1. **Establish the seat.** Confirm the harness can read and write the working
+   tree, run every affected host's checks, and invoke the required delegate
+   CLIs. Create this session's own log as specified in [Work log](#work-log).
+   Report missing capabilities; never issue a blind sign-off.
+2. **Re-derive state and authority.** Read `git log`, `git status`, and the
+   real diff. Check routing availability under [Delegate execution](#delegate-execution).
+   When continuing an earlier orchestration, read its log as historical claims,
+   never as a file to extend. Bound the user's authorized files, tools,
+   payloads, and external destinations.
 3. **Define the contract.** Express the task as tests or equally precise
-   acceptance criteria, invariants, phase-completion criteria, and bounded file
-   ownership.
-4. **Choose execution and review routes.** Follow the role selection and reviewer independence rules in
-   [`team.md`](../team.md). Implement simple, low-risk work directly when delegation would cost more in
-   coordination, tokens, or review. Otherwise, assign a specialized implementation role to the optimal
-   model per `team.md`'s model tables; its cost-constraint table takes precedence over model fit. Add
-   Architect or Security review when the role or risk requires it.
-5. **Brief and execute.** When delegating, use the selected role's delegation
-   prompt template — [`team.md`](../team.md)'s Roster table links each role
-   name to its template file under `docs/agents/roles/`; do not improvise a
-   brief from the roster's one-line description alone. Keep the brief
-   concise and unambiguous. When it relays an owner
-   instruction that is being reinterpreted, corrected, or applied to a design
-   (not simply passed through verbatim), quote the owner's exact words and
-   label them as a quote, kept visibly separate from your own paraphrase of
-   what they mean — a paraphrase fused into one voice hides the gap where a
-   misreading survives to execution instead of being caught first (this
-   happened in this project's own history: an ambiguous "no legacy support"
-   instruction was paraphrased as "drop the old algorithm entirely," the
-   opposite of what was meant, and nearly reached a delegate before the owner
-   caught it). If a plausible alternate reading of the owner's words exists,
-   ask before dispatching rather than letting a delegate execute an
-   unconfirmed interpretation. A delegate's exit code or promise is not a
-   deliverable: inspect the artifact and resume an unfinished turn. Quiet
-   output is not failure; wait for completion or an explicit error. Do not
-   terminate a healthy agent merely because it is quiet for several minutes
-   (especially true for DeepSeek).
-   - **Quiet vs. stalled is a procedure, not a judgment.** A delegate is
-     stalled only when, for 15 minutes, its stdout log has not grown AND no
-     live process matches it (`pgrep -f <cli>`); check the CLI's quirk entry
-     in [`delegate-invocation-reference.md`](../delegate-invocation-reference.md)
-     before concluding (some quiet runs are healthy, some "session in use"
-     messages mean the first run is still alive). A stalled run is killed,
-     its artifact inspected for partial work, and the round recovered by
-     resume-by-state or fresh session — never silently re-dispatched as if
-     nothing happened.
-   - **Delegate death has a terminal state.** After two failed rounds on the
-     same unit (different sessions, and at least two different models where
-     the roster allows), stop dispatching: record both failures in the work
-     log with their artifact trails and escalate to the user with the
-     evidence. A third model is chosen only on user instruction — an
-     unbounded retry loop is the failure mode this rule exists to end.
-6. **Verify — individual tests may run locally; suites run remotely (owner
-   ruling 2026-11-04).** Inspect the actual artifact and diff in the
-   orchestrator's environment. An individual test is fast: a single failing
-   test or one namespace's reproduction (`-v <ns>/<var>`, `-n <ns>`,
-   `--test=<ns>`, `--only <ns>`) may run on the laptop. Everything
-   suite-scale — subsystem lane sets (G1), changed-set runs (G2), full
-   suites, the slow tier, the nightly — runs on the remote hosts
-   (shiva/jupiter): the suite has outgrown the laptop, and local suite runs
-   are too slow and load the machine the owner is using. Delegate agents
-   (`claude`, `codex`, `glm`, …) can execute on the remote test hosts
-   directly — see [`build-n-test.md`](../build-n-test.md), section "Remote
-   agent execution" (the laptop-unload rule: bookkeeping locally, execution
-   remotely) and "Remote test servers" for the host recipes (scratch clones
-   under `~/ci/`, mise activation order, per-host lane overlap limits).
-   Delegated test claims are untrusted: the orchestrator reads the
-   remote run's actual output (log paths on the host), not the delegate's
-   summary. User-run results count as evidence only when the exact command,
-   output, and tested revision are available; otherwise run the checks.
-   Tell later reviewers which checks already passed so they spend their
-   budget on static analysis instead of redundant suites, except when
-   security review requires a rerun.
+   acceptance criteria, invariants, phase-completion criteria, and bounded
+   file ownership.
+4. **Choose execution and review routes.** Follow `team.md`'s role selection
+   and reviewer-independence rules. Implement simple, low-risk work directly
+   when delegation costs more in coordination, tokens, or review. Otherwise
+   assign the specialized role and model; cost constraints take precedence
+   over model fit. Add Architect or Security review when role or risk requires.
+5. **Brief and execute.** Use the selected role's delegation template linked
+   from `team.md`'s roster, not its one-line description alone. Keep the brief
+   concise and unambiguous, with the [Artifact protocol](#artifact-protocol)
+   header. When interpreting, correcting, or applying an owner instruction,
+   quote the exact words and keep your paraphrase visibly separate. Ask before
+   dispatch if a plausible alternate reading remains. Inspect the deliverable;
+   an exit code or promise is not the artifact. Resume unfinished work under
+   [Delegate recovery](#delegate-recovery), using [Tracked waits](#tracked-waits).
+6. **Verify: individual tests may run locally; suites run remotely**
+   (2026-11-04 owner ruling). Inspect the actual artifact and diff. A single
+   failing test or one namespace's reproduction (`-v <ns>/<var>`, `-n <ns>`,
+   `--test=<ns>`, `--only <ns>`) may run on the laptop. Suite-scale work,
+   including G1 subsystem lanes, G2 changed-set runs, full suites, the slow
+   tier, and nightly runs, executes on shiva/jupiter. See
+   [`build-n-test.md`](../build-n-test.md), "Remote agent execution" and
+   "Remote test servers", for host recipes, scratch clones, toolchain
+   activation, and overlap limits. Read the actual remote output, not a
+   delegate's summary. User-run results require the exact command, output,
+   and tested revision; otherwise run the checks. Tell reviewers which
+   checks passed so they avoid redundant suites, except where security
+   review requires a rerun.
 7. **Review and reconcile.** Give the verified diff to an independent reviewer
-   before committing (exceptions: the coordination contract's user waiver and
-   trivial-edit exemption). Weigh findings on their merits, fix accepted
-   defects, and resume the same reviewer to confirm the correction. Preserve
-   every round. Findings are reconciled when every one carries a recorded
-   disposition: fixed and reviewer-confirmed, rejected with evidence, or
-   deferred with user approval. A reviewer–architect dispute is terminated by
-   one architect adjudication per unit: the ruling is final for that unit,
-   and residual disagreement is recorded as an unresolved risk in the step 8
-   readiness report — never re-litigated by re-dispatching review rounds.
+   before committing, except under the coordination contract's user waiver
+   or trivial-edit exemption. Route accepted defects for correction and
+   resume the same reviewer to confirm fixes. Preserve every round. The
+   orchestrator records dispositions and verifies closure; substantive
+   disputes go to the Architect, and scope or authorization questions go to
+   the user, as specified in [Scope of judgment](#scope-of-judgment).
+   Every finding needs a recorded disposition: fixed and reviewer-confirmed,
+   rejected with the adjudication and evidence, or deferred with user approval.
+   One Architect adjudication ends a reviewer–Architect dispute for that unit;
+   record residual disagreement as an unresolved risk in step 8 rather than
+   re-dispatching review to re-litigate it.
 8. **Report readiness.** Report exact commands, assertion counts, reviewer
-   sign-off, unrun checks, unreviewed changes, unresolved risks, and any tool or
-   hook noise. Do not let the summary outrun the evidence. Append the unit's
-   entry to this session's own file under `orchestrator-logs/` in the same terms.
+   sign-off, unrun checks, unreviewed changes, unresolved risks, and tool or
+   hook noise. Keep the summary within the evidence and append the unit's
+   entry to this session's work log.
 9. **Stage, commit, and merge only when authorized** under the coordination
-   contract's commit authority. Stage only the authorized work, inspect the
-   staged diff immediately before committing, and commit only that diff.
-   Use the commit message format in
-   [`format.md`](../format.md#git-commit-messages). Before staging in the
-   shared main tree, re-run `git status` and compare against the state
-   derived in step 2: any working-tree change not attributable to this
-   seat's units (another seat's or the user's in-flight work) freezes the
-   commit — escalate, never stage around it, and never `git add -A` in the
-   main tree.
+   contract. Stage only authorized work, inspect the staged diff immediately
+   before committing, and commit only that diff. Follow `format.md`. Before
+   staging in the shared main tree, re-run `git status` against step 2's state:
+   any change not attributable to this seat's units freezes the commit.
+   Escalate, never stage around another seat's or the user's in-flight work,
+   and never use `git add -A` in the main tree.
 10. **Verify what landed.** Compare the commit's diff with the authorized
-    staged diff. If hooks or formatters changed what landed, review that delta and
-    rerun its affected checks — the pre-commit formatter hook can stage files
-    you never added (observed 2026-10-26: an untracked in-flight file of
-    another track was swept into a ledger commit; caught only by reading the
-    post-commit `--stat` against intent). A failure means the work is not
-    ready; rewrite history only as the coordination contract allows.
-    **Shared append-only ledgers (`docs/agents/known-gaps.md`) have a merge
-    rule** (2026-10-26, after merge 4d6fd818 silently dropped ~66 rows by
-    replacing the file with a rewritten 16-row variant): never resolve a
-    ledger conflict by taking one side's file, and never land a rewritten or
-    reformatted ledger inside a feature merge. The ledger is append-only
-    ROW-WISE: the only correct resolution is the union of both sides' rows
-    under the existing column schema; a schema change is a proposal to the
-    work log, agreed by seats, executed as a row-wise migration. Before
-    pushing any commit or merge that touches the ledger, count rows on both
-    parents and on the result — the result must be at least max(parents):
-    `git show <rev>:docs/agents/known-gaps.md | grep -c '^|'`. A smaller
-    number means you just dropped another seat's rows; restore per the union
-    rule before pushing.
-11. **Archive completed-task artifacts.** When collaboration artifacts are no
-    longer needed for active collaboration (their task is committed or its
-    track is otherwise closed), commit them — the storage model, the
-    write-time filing rule, and the ruling history are canonical in the
-    Artifact protocol; this step is only the mechanical procedure.
-    Artifacts filed at write time are archived by `git add collab/<topic>/`
-    plus the commit; the only files that need MOVING are flat-root
-    stragglers whose track was undetermined at write time — move those into
-    git-tracked, subsystem-organized subfolders of the same directory (e.g.
-    `collab/yang-python/`, `collab/dao-stream/`, `collab/yin-ucf/`,
-    `collab/yin-linker/`) under their exact filenames. Every archive batch
-    is committed (and pushed) as `docs(archive):` or `docs(collab):`; an
-    archive that is not committed is not an archive. Do not leave archived
-    files untracked, and do not invent intermediate locations. Organize
-    archived files by design subsystem, not by generic slice codes or
-    temporary folder names:
+    staged diff. Review any hook or formatter delta and rerun affected checks;
+    a hook can stage files you never added. Failed verification means the work
+    is not ready; history changes follow the coordination contract. Apply
+    [Shared-ledger merges](#shared-ledger-merges) before publishing any ledger
+    change, and re-check branch and ancestry before pushing.
+11. **Archive completed-task artifacts.** Identify the closed task's exact
+    artifact batch under [Artifact lifecycle](#artifact-lifecycle). Resolve
+    filing and collisions under [Destination and preservation](#destination-and-preservation),
+    scan for credentials under [Authorization and security](#authorization-and-security),
+    and inspect the staged batch. Commit and push it under the coordination
+    contract's authority as `docs(archive):` or `docs(collab):`; uncommitted
+    files are not archived. Archive only committed work or a closed track,
+    and only when no uncommitted tracked changes make ownership ambiguous.
 
-    - **The subsystem is defined by the code, not by the seat.** When the work
-      belongs to a subsystem in [`src/dev/subsystems.edn`](../../../src/dev/subsystems.edn)
-      (the same registry `bb test:sub` uses), the destination folder is that
-      subsystem's name with dots replaced by dashes (`yang.python` ->
-      `collab/yang-python/`, `yin.vm` -> `collab/yin-vm/`). Do not invent a
-      variant spelling of a subsystem that exists.
-    - **Check before creating.** Before creating any new destination folder,
-      list `collab/`'s existing subfolders and reuse one when the work belongs
-      there — including cross-cutting categories that predate the subsystem
-      registry (`collab/orchestration/`, `collab/general/`, and track
-      categories like `collab/dao-star/`, `collab/jolt/`). A new folder is
-      created only when no existing subfolder fits; name it after the
-      subsystem when there is one, otherwise after the durable track or topic
-      (never a date, a slice code, or a seat name). When neither the registry
-      nor an existing folder fits, propose the new folder name in the step 8
-      readiness report for user or architect confirmation instead of creating
-      it unilaterally — folder names are durable, and naming is a shared
-      convention, not a per-seat choice.
-    - **One artifact, one destination.** Same-named collisions resolve by
-      content comparison, never by size or ending heuristics: identical bytes
-      drop the duplicate; differing same-name artifacts are kept as suffixed
-      variants (the `-b`, `-r2` convention) — neither copy dies.
+## Failure and handoff procedures
 
-    Never delete, truncate, rename, or overwrite an artifact. Same-named
-    collisions (in whatever folder they meet) resolve by the rule above;
-    a `mv` that would land on an existing file leaves the collision in
-    place for that resolution. Archive only committed work and only when
-    no uncommitted tracked changes could make task ownership ambiguous.
+### Delegate recovery
 
-If the remaining budget cannot finish the next coherent unit, leave the tree
-readable and record incomplete work in the findings rather than leaving a
-half-applied edit, and append the unfinished-work entry naming what remains
-so a successor can continue it. The trigger is explicit: when the seat
-estimates its remaining budget is less than one more coherent unit requires,
-it writes the unfinished-work entry and issues the Seat Handoff Template
-(below) before attempting further work — it does not start a unit it cannot
-finish.
+Quiet output is not failure. Do not terminate a healthy delegate merely
+because it is quiet for several minutes, especially DeepSeek. A delegate is
+stalled only when its stdout log has not grown for 15 minutes **and** no live
+process matches it (`pgrep -f <cli>`). Check the CLI's quirk entry in the
+invocation reference first; a "session in use" message may mean the first run
+is still alive. For a stalled dispatch, terminate any remaining wrapper,
+inspect partial work, and recover by resume-by-state or a fresh session.
+Never silently redispatch as if the failed round did not happen.
 
-**Blocked on the user: park, don't poll.** When progress requires a user
-answer (authorization, scope, an adjudication this doc reserves to the
-user), stop the work: park every delegate (no session left running or
-metered while idle — the 144-minute idle-session incident is the cost this
-rule exists to end), record the blocker and the pending question in the
-work log's unfinished-work entry, and end the turn. The seat resumes only
-when the user's answer arrives.
+After two failed rounds on the same unit, using different sessions and at
+least two models where the roster allows, stop dispatching. Record both
+failures and artifact trails in the work log and escalate to the user. A
+third model requires user instruction.
+
+### Budget exhaustion
+
+Before beginning a coherent unit, check whether the remaining budget can
+finish it. If not, leave the tree readable, record incomplete work in the
+findings, append an unfinished-work entry naming the remaining steps, and
+issue the Seat Handoff Template. Do not begin a unit you cannot finish or
+leave a half-applied edit.
+
+### Blocked on the user
+
+When progress requires a user answer about authorization, scope, or an
+adjudication reserved to the user, park every delegate so no session remains
+running or metered while idle. Record the blocker and pending question in an
+unfinished-work log entry, then end the turn. Resume only when the answer
+arrives; do not poll while blocked.
 
 ## Orchestrator Seat Handoff Template
 
@@ -547,19 +502,17 @@ Read first:
 Every claim in this brief, in any prior orchestrator log, and in
 routing-status.md is something the outgoing seat believed at handoff time, not
 verified fact — re-derive tree state yourself from `git log`, `git status`, and
-the real diff before acting on any of it, the same posture this role's own Work
-Log section requires of any successor.
+the real diff before acting on any of it, as required by the Work log section.
 
 Required workflow:
 - Follow `docs/agents/roles/orchestrator.md#workflow` in order.
 - Create a new session log at `orchestrator-logs/<unix-time-stamp>-<coding-agent>-<model>-<brief-description>.md`; never append to the prior session's log.
-- Run <focused-test-command> on the remote test hosts (shiva/jupiter) per Workflow step 6; <lint-command> may run locally.
+- Verify with <focused-test-command> and <lint-command>; apply Workflow step 6 to choose local individual checks or remote suites.
 
-Do not broaden scope; do not stage, commit, or merge without an Architect
-sign-off, an explicit user instruction, or the trivial-edit exemption
-(see the Coordination contract above); do not trust
-delegated test claims without local evidence, or terminate a healthy agent
-merely because it is slow or temporarily quiet.
+Keep scope bounded and follow the Coordination contract for staging, commits,
+merges, pushes, and history changes. Inspect direct evidence tied to the tested
+revision, including remote logs; a delegate summary is not verification.
+Follow Failure and handoff procedures for quiet, failed, or blocked delegates.
 
 Begin the final response exactly with:
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
@@ -575,11 +528,7 @@ referencing the prior session's log path when continuing earlier work.
 
 ## Delegate Invocation Reference
 
-CLI flags, canonical recipes, and known quirks for every delegate CLI
-(claude, claude-cloud [the claude-api lane wrapper], glm, deepseek, muse, codex, cmd, agy, kimi) live in
-[`delegate-invocation-reference.md`](../delegate-invocation-reference.md),
-not here — read it before shelling out to any delegate CLI. It is reference
-material needed at the moment of dispatch, not on every orchestrator turn,
-which is why it is kept separate from this role's core identity and workflow.
-Dispatch is always by direct CLI invocation per that reference's canonical
-recipes. The legacy `dispatch.sh` helper has been deleted.
+Read [`delegate-invocation-reference.md`](../delegate-invocation-reference.md)
+at dispatch time for CLI flags, canonical recipes, and known quirks. Invoke
+delegates directly through those CLI recipes; the legacy `dispatch.sh` helper
+has been deleted.
