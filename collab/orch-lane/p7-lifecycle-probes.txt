@@ -1,0 +1,4 @@
+Oracle lifecycle probes: eval compile-fatal (class collision) on php:8.3.35 (shiva docker)
+lc1: output-before flushed; collision fatal uncatchable; SHUTDOWN FUNCTION RUNS after the fatal; destructors SUPPRESSED (created object's dtor did not fire); exit status 255
+lc2: an eval is ATOMIC — all declarations in one eval commit together; a collision fatal kills the remainder of THAT eval and the process (S3 never ran); PRIOR evals' declarations persist (S2 observed, first eval's classes/functions live)
+Consistency: matches the P5b2 oracle rows (fatal suppresses destructor output, shutdown runs, 255) — the existing guest/compile-fatal terminal path is the conforming engine policy.

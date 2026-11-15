@@ -538,6 +538,40 @@ containerized gates (e.g. the J6f Autobahn suite) are routable to either.
 **Never test in `~/workspace/datomworld` on either host.** It is a working copy
 that is behind origin (shiva: 45 commits behind on 2026-10-11) and belongs to its
 owner. Use a scratch clone under `~/ci/` and leave the working copy alone.
+### Gate log hygiene: per-run directories, never shared per-lane logs (2026-11-14 incident)
+
+`bb test:sub` writes its per-lane detail logs to `target/profile/sub-clj.log`,
+`sub-cljs.log`, `sub-cljd.log` inside the checkout — and **each invocation
+overwrites them**. A gate script that runs several suites back-to-back while
+only appending the summary stream to a shared out file loses every lane's
+per-fixture detail the moment the next suite starts. Measured 2026-11-14
+(yang.php branch-tip gate, jupiter): the yang.php lane failed with
+`yangphp-rc=1`; the dao.stream precondition that ran immediately after
+overwrote `sub-clj.log`, and the failure detail was unrecoverable — forcing a
+full lane rerun (~2 h).
+
+**Rule: one run, one directory.** Each remote gate run gets its own
+directory (per gate, per attempt), and every lane's log is copied there
+before the next suite starts:
+
+```sh
+# per-gate run dir; the summaries live beside the detail logs
+RUN=~/ci/logs/<gate-name>-\$(date +%Y%m%d-%H%M%S)
+mkdir -p "\$RUN"
+bb test:sub yang.php > "\$RUN"/yang-php.out 2>&1
+cp target/profile/sub-*.log "\$RUN"/          # bank BEFORE the next suite
+echo "yangphp-rc=\$?" >> "\$RUN"/summary.txt
+bb test:sub dao.stream > "\$RUN"/dao-stream.out 2>&1
+cp target/profile/sub-*.log "\$RUN"/
+echo "daostream-rc=\$?" >> "\$RUN"/summary.txt
+```
+
+Alternatively use a fresh `git worktree` (or clone) per gate when the
+compile caches make reuse expensive — the point is that no later
+invocation can overwrite an earlier lane's evidence. The failure summary
+(counts, rc) survives in the shared out file; the per-fixture detail
+survives only in the run directory.
+
 
 ### Kill remote processes by exact PID, never by name pattern
 

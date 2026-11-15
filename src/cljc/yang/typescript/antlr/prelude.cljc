@@ -4160,7 +4160,7 @@
                ;; `cell/authentic?` is load-bearing here: an alias map `=` to a held wrapper passes it and returns the genuine condition, which is harmless (holding the wrapper already grants rethrow).
                (if (cell/authentic? e)
                  (retained-lookup retained-lookup
-                                   (cell/get retained-store) e)
+                                  (cell/get retained-store) e)
                  nil)
                nil)))
          (yin/def (quote js.rt/raise-protocol)

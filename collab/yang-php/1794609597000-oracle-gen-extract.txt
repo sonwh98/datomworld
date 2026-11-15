@@ -1,0 +1,7 @@
+Oracle probes: generator destruction ordering + extract destructor ordering (php:8.3.35, shiva docker)
+gen: foreach (gen() as $x) { echo "R$x"; } echo "E1|"; $g = gen(); $g->current(); unset($g); echo "E2|";
+     -> "R1R2DE1|DE2||" exit 0
+     D fires when the GENERATOR OBJECT dies (foreach-end temp destruction; unset) — refcount-driven release, NOT at gen-exit statement completion. Two generators, two dtors.
+extract: class C { __destruct echoes D } function f() { extract(["o" => new C]); } f(); echo "A";
+     -> "DA|exit=0"
+     The extract-bound object's destructor fires at FUNCTION SCOPE END, BEFORE the caller's next statement. Hand-derived "DA" is CORRECT; the engine's "AD" is a real divergence (array-literal temporary not registered as a statement temporary — the ownership leak the engineer suspected is CONFIRMED).

@@ -2769,10 +2769,16 @@
        (if (nil? (get (cell/get php.rt/functions) lc))
          (do (cell/set! php.rt/functions (assoc (cell/get php.rt/functions) lc f))
              :php/null)
-         (php/throw-error "Error"
-                          (data/str-concat "Cannot redeclare "
-                                           (get (cell/get f) :name)
-                                           "()"))))]
+         (let [msg (data/str-concat "Cannot redeclare " (get (cell/get f) :name) "()")]
+           (do (php/warn-sink (php/warn-record 1 msg))
+               (php/guest-fatal msg)))))]
+    [php/declare-early-function!
+     (fn [lc f]
+       (if (nil? (get (cell/get php.rt/functions) lc))
+         (php/declare-function! lc f)
+         (let [msg (data/str-concat "Cannot redeclare " (get (cell/get f) :name) "()")]
+           (do (php/warn-sink (php/warn-record 64 msg))
+               (php/guest-fatal msg)))))]
     [php/static-slot (fn [f name] (get (get (cell/get f) :statics) name))]
     [php/static-init!
      ;; runs the initializer when execution first reaches the statement,
@@ -3850,9 +3856,10 @@
                  (cell/set! php.rt/class-order (php/vconj (cell/get php.rt/class-order) name))
                  (cell/set! php.rt/class-index (assoc (cell/get php.rt/class-index) (php/lc name) name))
                  c))
-           (php/throw-error "Error"
-                            (data/str-concat "Cannot declare " (php/kind-word kind) " " name
-                                             ", because the name is already in use")))))]
+           (let [msg (data/str-concat "Cannot declare " (php/kind-word kind) " " name
+                                      ", because the name is already in use")]
+             (do (php/warn-sink (php/warn-record 64 msg))
+                 (php/guest-fatal msg))))))]
     ;; ---------------------------------------------------------------- objects (P4 S2)
     ;; An object is `{:php/obj cell}`; the cell holds {:class name :props table
     ;; :id :rc :ord}. The props table is keyed by property identity (`:id` of the
@@ -3958,13 +3965,14 @@
      (fn [thunk]
        (let [spec (thunk)]
          (if (php/class-declarable? spec)
-           (if (nil? (php/class-lookup (get spec :name))) (php/declare-class! spec) :php/null)
-           :php/null)))]
+           (if (nil? (php/class-lookup (get spec :name)))
+             (do (php/declare-class! spec) true)
+             false)
+           false)))]
     [php/declare-late!
      ;; the declaration statement itself: a no-op when the class was hoisted
-     (fn [thunk]
-       (let [spec (thunk)]
-         (if (nil? (php/class-lookup (get spec :name))) (php/declare-class! spec) :php/null)))]
+     (fn [thunk hoisted?]
+       (if hoisted? :php/null (php/declare-class! (thunk))))]
     [php/static-of
      (fn [f]
        (let [s (get (cell/get f) :static)]
@@ -5297,7 +5305,8 @@
      (fn [g outcome]
        (let [s (php/gen-state g)]
          (do (php/gen-put! g (assoc {} :state :closed :return-value (get outcome 1)
-                                    :current (get s :current) :key (get s :key)))
+                                    :current (get s :current) :key (get s :key)
+                                    :cleanup (get s :cleanup)))
              (cell/set! php.rt/ctx (get s :caller-ctx))
              ((get s :return) outcome))))]
     [php/gen-fail (fn [g e] (php/gen-exit g (php/gen-outcome :raise e)))]
@@ -5387,7 +5396,7 @@
            :php/null
            (let [st (get s :state)]
              (do (php/gen-put! g (assoc {} :state :closed :return-value :php/null))
-                 (if (if (= st :created) false (not (= st :suspended)))
+                 (if (nil? (get s :cleanup))
                    :php/null
                    ((get s :cleanup)))
                  (php/delref (php/or-default (get s :current) :php/null))

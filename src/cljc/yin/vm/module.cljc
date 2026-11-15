@@ -697,9 +697,43 @@
   (handle-require state effect opts true))
 
 
+(defn code-entry-handler
+  "Read a declared export from an already installed, address-pinned module."
+  [state effect _opts]
+  (let [{:keys [module address export]} effect
+        entry (when (symbol? module) (module-entry (:modules (:modules state)) module))
+        manifest (:manifest entry)
+        reason (cond
+                 (nil? entry) :module-missing
+                 (or (nil? address) (not= address (:address entry))
+                     (not= address (jing/segment-key manifest))
+                     (not= module (:yin.module/name manifest))) :manifest-mismatch
+                 (not (contains? (:yin.module/exports manifest) export)) :export-undeclared
+                 (not (contains? (:bindings entry) export)) :binding-missing)]
+    {:state state, :blocked? false
+     :value (if reason
+              {:status :refused :reason reason :module module :export export}
+              (get (:bindings entry) export))}))
+
+
+(defn code-entry
+  "Construct an effect to retrieve a previously installed export."
+  [module address export]
+  (make-effect :code/entry {:module module :address address :export export}))
+
+
+(defn register-code-module
+  "Expose the profiled code/entry constructor to a composition."
+  [registry]
+  (register-host-module registry 'code {'entry code-entry}
+                        {'entry (vm/primitive-profile 'entry :effectful [3]
+                                                      #{:code/entry} :none)}))
+
+
 (defn default-registry
   "A registry with the built-in effect handlers and no modules."
   []
   (-> (empty-registry)
       (register-effect-handler :module/require require-handler)
-      (register-effect-handler :module/try-require try-require-handler)))
+      (register-effect-handler :module/try-require try-require-handler)
+      (register-effect-handler :code/entry code-entry-handler)))

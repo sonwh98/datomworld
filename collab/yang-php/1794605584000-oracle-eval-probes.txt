@@ -1,0 +1,8 @@
+Oracle probes: eval semantics on php:8.3.35 (shiva docker, 2026-11-13/14)
+1. eval class collision (redeclare) : UNCATCHABLE compile-phase fatal "Cannot declare class A, because the name is already in use"
+2. eval-defined class B             : persists to outer scope, get_class(new B) = B
+3. eval-defined function zf         : persists, zf() = 42
+4. eval "?>html"                    : mode-exit works, prints html
+5. eval sees caller variables       : $v=7, eval("return $v + 1;") = 8
+6. eval syntax error                : catchable as ParseError
+7. eval runtime fatal (undefined class): uncaught by default; standard catchable Error (probe needed ; fix, recorded as ParseError on malformed input)

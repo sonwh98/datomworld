@@ -361,6 +361,28 @@ fixture.
 scope, so it forces the dynamic-scope profile on its function. It is refused
 with `:yang.php/unsupported :eval` until its slice (P9).
 
+The eval bridge design preserves the exact PHP byte-string source and admits
+only well-formed UTF-8 in its initial compiler profile. At the worker boundary,
+strict decoding and re-encoding must reproduce those bytes. CST text is Unicode;
+spans and line starts refer to the original bytes. No replacement decoding,
+normalization, BOM removal or tag repair is permitted. Malformed UTF-8 is a
+classified unsupported eval/source-encoding refusal outside guest Throwable
+handling; arbitrary-byte parsing remains deferred. This is a profile restriction
+relative to PHP byte strings.
+
+The recorded eval class collision is an uncatchable guest compile fatal, not
+an Error, CompileError or ParseError. Declaration checks run in the caller task;
+only a declaration installed by the same execution may be skipped later in
+that execution. Each execution performs fresh checks. Guest compile-fatal
+termination is distinct from operational budget termination; cleanup and
+ordering require their pinned oracle fixtures. Successful eval declarations
+persist in the caller's request tables. The planned bridge shares caller cells,
+uses PHP-mode exit/reentry, and maps actual syntax errors to ParseError. It
+retains the caller's hooks and budget and a separate compilation environment.
+The local parser profile supports JVM and Node; execution hosts may use a
+configured compiler service. A composition without one retains the eval refusal.
+These are bridge requirements, not a claim that eval execution has landed.
+
 ## 4. The reference, array and object lifecycle
 
 PHP's observable aliasing (references, copy-on-write separation that unwraps
@@ -1949,7 +1971,7 @@ Compile time: `:yang.php/syntax`; `:yang.php/unsupported {:construct}`;
 `:yang.php/compile-error` for PHP's compile-time fatals (a function redeclared
 in one unit, `break 0`, a duplicate parameter, `$this` reassignment, a
 positional argument after a named one). Run time: guest warnings, notices and
-deprecations as records on the guest-diagnostics stream; fatals as `Error`
+deprecations as records on the guest-diagnostics stream; ordinary supported fatals as `Error`
 throws; the uncaught-exception text pinned. Operational failures stay
 operational (`yang.antlr.md` section 11).
 
