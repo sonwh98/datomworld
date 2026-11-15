@@ -1,0 +1,51 @@
+(ns dao.posix.random
+  "Fresh-entropy adapter for jolt drawing random bytes from the qualified
+   libcrypto CSPRNG wrapper (jolt_crypto_random).
+   dao.space and yin.vm both use this seam."
+  (:require
+    [clojure.string :as str]
+    [dao.host.bytes :as bytes]
+    [dao.host.hash]
+    [jolt.ffi :as ffi]))
+
+
+(def ^:private library
+  (let [os (str/lower-case (or (System/getProperty "os.name") ""))
+        arch (System/getProperty "os.arch")
+        darwin? (str/includes? os "mac")]
+    (str (System/getProperty "user.dir") "/build/native/"
+         (if darwin? "darwin" "linux") "-"
+         (if (#{"aarch64" "arm64"} arch) "arm64" "x86_64")
+         "/jolt-crypto/lib/libjolt_crypto" (if darwin? ".dylib" ".so"))))
+
+
+(ffi/load-library library)
+
+
+(ffi/defcfn ^:private c-random "jolt_crypto_random"
+            [:pointer :size_t] :int :blocking)
+
+
+(ffi/defcfn ^:private c-cleanse "jolt_crypto_cleanse" [:pointer :size_t] :void)
+
+
+(defn rand-bytes
+  "A fresh jolt byte array of `n` random bytes (n >= 0) from the qualified
+   libcrypto's CSPRNG. Randomness failure is an error: a nonzero wrapper
+   status throws."
+  [n]
+  (when (neg? n)
+    (throw (ex-info "dao.posix.random/rand-bytes negative count" {:n n})))
+  (let [size (max 1 n)
+        p (ffi/alloc size)]
+    (try
+      (when (ffi/null? p)
+        (throw (ex-info "jolt-crypto native allocation failed" {:bytes n})))
+      (let [status (c-random p n)]
+        (when-not (zero? status)
+          (throw (ex-info "jolt-crypto random failed" {:entry 'rand-bytes
+                                                       :status status})))
+        (if (pos? n) (ffi/read-array p n) (bytes/alloc 0)))
+      (finally
+        (try (c-cleanse p size)
+             (finally (ffi/free p)))))))
