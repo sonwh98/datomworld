@@ -7,6 +7,8 @@
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [yang.core.module :as module]
+    [yang.core.uast :as u]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.linked-harness :as lh]
@@ -72,6 +74,8 @@
                                             (:address @lh/published) {})
               bundle (:ast (first specs))
               result (run fixture)]
+          (is (= [(lower/path-module-symbol "a.php") (lower/path-module-symbol "b.php")]
+                 (mapv :name (rest specs))))
           (is (= expected-sites (count (:set (siteset/site-set-of bundle)))))
           (is (#'siteset/deferred-module? (vm/semantic-bytecode->ast
                                              (vm/ast->semantic-bytecode bundle))))
@@ -79,6 +83,22 @@
           (doseq [[backend value] (:values result)]
             (println "mutual-include" label backend (pr-str (observed value)))
             (is (= ["ab" [] nil] (observed value)) (str backend))))))))
+
+
+(deftest ^:slow cyclic-module-initialization-does-not-run-bodies-test
+  (let [units (mapv (fn [[name source]] {:name name, :packet (cst/parse-source source)})
+                    [["a.php" "<?php declare(ticks=1); echo 'a'; include_once 'b.php';"]
+                     ["b.php" "<?php declare(ticks=1); echo 'b'; include_once 'a.php';"]])
+        result (lh/publish-units! units)
+        bundle (first (keys (:bundles result)))
+        ast (u/then (module/require-node bundle) (u/lit :initialized))
+        source (lh/source (lh/name-env result) result)]
+    (is (= :ok (:status result)))
+    (is (= 1 (count (:bundles result))))
+    (doseq [backend (keys lh/backends)]
+      (let [task (lh/run-linked backend ast source)]
+        (println "cyclic-init" backend (pr-str (vm/value task)))
+        (is (= :initialized (vm/value task)) (str backend))))))
 
 
 (deftest unit-path-rules-test
