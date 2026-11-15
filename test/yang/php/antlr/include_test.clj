@@ -9,7 +9,6 @@
     [clojure.test :refer [deftest is testing]]
     [dao.jing :as jing]
     [yang.core.module :as module]
-    [yang.core.uast :as u]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.linked-harness :as lh]
@@ -92,7 +91,7 @@
                      ["b.php" "<?php declare(ticks=1); echo 'b'; include_once 'a.php';"]])
         result (lh/publish-units! units)
         bundle (first (keys (:bundles result)))
-        ast (u/then (module/require-node bundle) (u/lit :initialized))
+        ast (module/require-node bundle)
         source (lh/source (lh/name-env result) result)]
     (is (= :ok (:status result)))
     (is (= 1 (count (:bundles result))))
@@ -103,7 +102,7 @@
     (doseq [backend (keys lh/backends)]
       (let [task (lh/run-linked backend ast source)]
         (println "cyclic-init" backend (pr-str (vm/value task)))
-        (is (= :initialized (vm/value task)) (str backend))))))
+        (is (= {:status :ok, :module bundle} (vm/value task)) (str backend))))))
 
 
 (deftest unit-path-rules-test
