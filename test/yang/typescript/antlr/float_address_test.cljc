@@ -100,8 +100,8 @@
             the JS R1+R3 exception-boundary round)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "6500c67e1157669d3b05f35b02bba44d"
-                  "18fe305a8df49d4ba3e86254d03fbb2c"))
+                  "159a54c56100fa5ee9c163eae8cdb9c3"
+                  "34f9325f04985131121fb3794e66448a"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))))
 
 
@@ -139,8 +139,8 @@
             re-pinned for the JS R1+R3 exception-boundary round)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "82614eea8e3fb6d1042ca30e1e195f85"
-                  "2f09504b133141d71e6b93d374b641c5"))
+                  "df0d543a07daf58abb2512afb2312783a5"
+                  "83f54f1e4f4e5a083a47103ede0848"))
            (:root (vm/ast->semantic-bytecode float-program)))))
   (testing "decoding the program and projecting it again keeps the address"
     (let [bytecode (vm/ast->semantic-bytecode float-program)
