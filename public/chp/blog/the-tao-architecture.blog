@@ -2,7 +2,7 @@
        :date #inst "2026-11-15T00:00:00.000-00:00"
        :abstract
        [:p
-        "The Tao Architecture is a distributed computing model built on four axioms: streams carry data, interpreters create semantics, code and state are datoms, and continuations make computation mobile. One global computer means that participating devices compose through explicit data and portable execution contracts. The model extends from a RISC-V board running the Tao Kernel to GPU-backed hosts, with locality, authority, and execution costs exposed as data."]
+        "The Tao Architecture is a post-von Neumann distributed computing model built on four axioms: streams carry data, interpreters create semantics, code and state are datoms, and continuations make computation mobile. One global computer means that participating devices compose through explicit data and portable execution contracts. The model is designed to extend from future RISC-V boards running a theoretical Tao Kernel to GPU-backed hosts, with locality, authority, and execution costs exposed as data."]
        :content
        [:section.blog-article
         [:div.section-inner
@@ -11,19 +11,19 @@
           :$blog-date
 
           [:p
-           "Modern NVIDIA and AMD GPUs embed OS-like scheduling, dispatch, and resource-management mechanisms in hardware and firmware. "
-           "The "
-           [:strong "Tao Architecture"]
-           ", the distributed computing model underlying Datom.world, places cross-device orchestration and portable execution state in a common software layer, treating vendor-specific execution machinery as a local backend. "
-           "One global computer means that participating devices compose through explicit data and portable execution contracts. Each GPU retains its hardware scheduling mechanisms, while the shared software layer exposes the different capabilities and costs of CPUs, GPUs, and edge devices as data."]
+           "The traditional von Neumann architecture does not fit today's computing infrastructure needs. "
+           "Built around a single active processor reading and overwriting a flat, passive memory space across a shared bus, the von Neumann model breaks down when workloads span heterogeneous machines, multi-die packages, and wide-area networks. "
+           "Modern infrastructure is defined by non-uniform memory access, bandwidth walls, asynchronous failures, and distinct trust boundaries, where maintaining global mutable coherence and dragging large datasets across buses or oceans becomes the primary bottleneck."]
 
           [:p
-           "Built on four foundational axioms, the Tao Architecture composes heterogeneous devices through interpreters over append-only streams. "
-           "The twenty-year evolution of "
-           [:a {:href "https://en.wikipedia.org/wiki/CUDA"} "CUDA"]
-           ", "
-           [:a {:href "https://rocm.docs.amd.com/projects/HIP/"} "AMD ROCm"]
-           ", and multi-chiplet packaging illustrates the value of portable execution models and explicit locality. Tao extends that direction across devices, where independent failures and trust boundaries require additional contracts."]
+           "The "
+           [:strong "Tao Architecture"]
+           ", the post-von Neumann software, OS, and distributed execution model underlying Datom.world, replaces in-place mutable memory and fixed processor-to-memory buses with append-only streams, immutable datoms, mobile continuations, and decoupled interpreters. "
+           "While today's implementations still execute on von Neumann hardware (and use local mutable structures between stream boundaries for speed), the architecture demotes that hardware to local execution backends beneath a post-von Neumann distributed substrate."]
+
+          [:p
+           "One global computer means that participating devices, from future RISC-V boards running a theoretical Tao Kernel to edge nodes, servers, and accelerators, compose through explicit data and portable execution contracts. "
+           "The shared software layer exposes the different capabilities, locality, authority, and costs of each participating node as data, while independent failures and trust boundaries are governed by explicit contracts."]
 
           [:h2 "1. The Tao Architecture: Axioms and Primitives"]
 
@@ -93,7 +93,7 @@
           [:p
            "As explored in "
            [:a {:href "/blog/tao-kernel.blog"} "The Tao Kernel"]
-           ", OS-like coordination can be expressed through interpreters of stream data. A Single Address Space (SASOS) deployment can place confined computations and kernel machinery in one local address space. "
+           " (a theoretical kernel design that does not yet exist), OS-like coordination can be expressed through interpreters of stream data. A Single Address Space (SASOS) deployment can place confined computations and kernel machinery in one local address space. "
            [:code "Yin.VM"]
            " containment and "
            [:a {:href "/shibi.chp"} "Shibi"]
@@ -104,7 +104,7 @@
 
           [:h3 "From a RISC-V Board to a Compute Fabric"]
           [:p
-           "This composition model can begin on a simple printed circuit board. A board with RISC-V cores, sufficient memory, boot storage, and a communication interface could run the Tao Kernel directly as its operating environment. "
+           "This composition model could begin on a simple printed circuit board. Although the Tao Kernel is still a theoretical design and does not exist yet, a future board with RISC-V cores, sufficient memory, boot storage, and a communication interface could run it directly as its operating environment. "
            "A bare-metal port would initialize the hardware and provide memory allocation, trap handling, timers, and device drivers. RISC-V's "
            [:a {:href "https://docs.riscv.org/reference/isa/_attachments/riscv-privileged.pdf"} "machine-mode execution"]
            " permits that arrangement. A hosted deployment can instead use an existing OS to supply those facilities."]
@@ -176,6 +176,11 @@
           [:h2 "3. Lessons from CUDA, ROCm, and Chiplets"]
 
           [:p
+           "Modern NVIDIA and AMD GPUs embed OS-like scheduling, dispatch, and resource-management mechanisms in hardware and firmware, trading single-thread control logic for SIMT warp schedulers and thousands of parallel ALUs. "
+           "Even so, GPUs remain fundamentally von Neumann machines at their core: kernels and tensors still reside in mutable addressable memory (HBM, VRAM, shared SRAM) overwritten in place, threads still synchronize through shared-memory barriers and atomics, and the von Neumann bottleneck simply shifts to memory bandwidth and PCIe or NVLink transfers. "
+           "Each GPU retains its hardware scheduling mechanisms, while the Tao Architecture treats that vendor-specific machinery as a local backend beneath a post-von Neumann software layer."]
+
+          [:p
            "CUDA and ROCm illustrate three requirements for a useful execution platform: a portable programming model, effective lowering and libraries, and hardware-aware placement. Their detailed history, from BrookGPU through CUDA's GPU generations and ROCm's compiler and release evolution, is documented in "
            [:a {:href "/blog/cuda-n-rocM.blog"} "CUDA and ROCm: From BrookGPU to Chiplet Compute Fabrics"]
            "."]
@@ -227,7 +232,7 @@
 
           [:p
            "The four axioms establish a common representation and composition model. Interpreters supply placement, authorization, indexing, and execution semantics; explicit contracts and measurements establish how a deployment behaves. "
-           "One global computer means that participating devices, from RISC-V boards running the Tao Kernel to GPU-backed hosts, can compose through explicit data and portable execution contracts. Latency, capacity, failure, and trust remain visible in that model, so computation can be placed where it fits."]
+           "One global computer means that participating devices, from future RISC-V boards running a theoretical Tao Kernel to GPU-backed hosts, can compose through explicit data and portable execution contracts. Latency, capacity, failure, and trust remain visible in that model, so computation can be placed where it fits."]
 
           [:p [:strong "Related reading:"]]
           [:ul.bulleted
