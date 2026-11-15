@@ -176,7 +176,7 @@
           [:h2 "3. Lessons from CUDA, ROCm, and Chiplets"]
 
           [:p
-           "CUDA and ROCm illustrate three requirements for a useful execution platform: a portable programming model, effective lowering and libraries, and hardware-aware placement. Their detailed history, from BrookGPU through CUDA's GPU generations and ROCm's compiler and release evolution, is preserved in "
+           "CUDA and ROCm illustrate three requirements for a useful execution platform: a portable programming model, effective lowering and libraries, and hardware-aware placement. Their detailed history, from BrookGPU through CUDA's GPU generations and ROCm's compiler and release evolution, is documented in "
            [:a {:href "/blog/cuda-n-rocM.blog"} "CUDA and ROCm: From BrookGPU to Chiplet Compute Fabrics"]
            "."]
           [:p
