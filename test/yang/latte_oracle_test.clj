@@ -573,6 +573,103 @@
     [a c]))
 
 
+(def ^:private finally-oracle-fixtures
+  "Ordinary Clojure functions; record! observes body/cleanup order. The JVM
+   supplies a local recorder, and the compiled lanes supply a stream writer."
+  [{:id :result-through-cleanup
+    :form '(fn [record!]
+             (try (record! :body)
+                  :body-result
+                  (finally (record! :cleanup))))
+    :expected {:outcome {:value :body-result} :events [:body :cleanup]}}
+   {:id :caught-exception-cleanup
+    :form '(fn [record!]
+             (try (record! :body)
+                  (throw (ex-info "caught body" {:path :caught}))
+                  (catch Exception e
+                    (record! [:caught (ex-message e) (ex-data e)])
+                    :recovered)
+                  (finally (record! :cleanup))))
+    :expected {:outcome {:value :recovered}
+               :events [:body [:caught "caught body" {:path :caught}] :cleanup]}}
+   {:id :uncaught-exception-cleanup
+    :form '(fn [record!]
+             (try (record! :body)
+                  (throw (ex-info "uncaught body" {:path :uncaught}))
+                  (finally (record! :cleanup))))
+    :expected {:outcome {:thrown {:message "uncaught body" :data {:path :uncaught}}}
+               :events [:body :cleanup]}}
+   {:id :discard-finally-value
+    :form '(fn [record!]
+             (try 1
+                  (finally (record! :cleanup) 2)))
+    :expected {:outcome {:value 1} :events [:cleanup]}}
+   {:id :nested-cleanup-order
+    :form '(fn [record!]
+             (try (try (record! :body)
+                       :nested-result
+                       (finally (record! :inner)))
+                  (finally (record! :outer))))
+    :expected {:outcome {:value :nested-result} :events [:body :inner :outer]}}
+   {:id :loop-recur-cleanup
+    :form '(fn [record!]
+             (loop [i 0 total 0]
+               (if (< i 3)
+                 ;; JVM Clojure forbids recur across try: finish cleanup
+                 ;; before recurring, and observe it on every iteration.
+                 (let [value (try (record! [:body i])
+                                  i
+                                  (finally (record! [:cleanup i])))]
+                   (recur (inc i) (+ total value)))
+                 total)))
+    :expected {:outcome {:value 3}
+               :events [[:body 0] [:cleanup 0] [:body 1] [:cleanup 1] [:body 2] [:cleanup 2]]}}])
+
+
+(defn- finally-oracle-ast
+  [form]
+  (let [program ['(def finally-events (stream/make 32))
+                 (list 'def 'finally-fixture form)
+                 '(finally-fixture (fn [event]
+                                     (stream/put! finally-events event)
+                                     event))]
+        opts (update arg-vector-opts :native into
+                     (map (fn [[op profile]] [(symbol "stream" (name op)) profile])
+                          module/stream-profiles))]
+    (yang/compile-program (into (yang/library-for program) program) true opts)))
+
+
+(defn- finally-oracle-c
+  "Keep the raw outcome and drain the event stream only after halt, including
+   an error escaping the fixture. Each lane owns a fresh machine and stream."
+  [ast lane]
+  (let [machine (compiler-test/run-guest-machine ast (oracle-registry) lane 1000000)
+        ref (get-in machine [:store 'finally-events])
+        handle (get-in machine [:resources (:id ref)])]
+    (is (vm/halted? machine) (str lane " completes within the oracle budget"))
+    (is (some? handle) (str lane " retains its cleanup event stream"))
+    {:outcome (vm/value machine) :events (tu/drain handle)}))
+
+
+(deftest test-oracle-try-finally-fixtures
+  (doseq [{:keys [id form expected]} finally-oracle-fixtures]
+    (testing (name id)
+      (let [events (atom [])
+            record! (fn [event] (swap! events conj event) event)
+            a {:outcome (a-leg (eval form) [record!]) :events @events}
+            ast (finally-oracle-ast form)
+            walker (finally-oracle-c ast :walker)
+            semantic (finally-oracle-c ast :semantic)]
+        (is (= expected a) "JVM host pins the intended result and cleanup events")
+        (doseq [[lane c] [[:walker walker] [:semantic semantic]]]
+          (is (agrees? (:outcome a) (:outcome c))
+              (str lane " preserves the JVM value or uncaught exception"))
+          (is (= (:events a) (:events c)) (str lane " preserves cleanup order and count")))
+        (is (= walker semantic) "oracle lanes agree on the complete observation")
+        (is (= (result-shape walker) (result-shape semantic))
+            "oracle lane shapes and metadata agree")))))
+
+
 (deftest test-oracle-slice5-throw-site-fixtures
   (testing "utils/safe-get: success and failure"
     (let [[a1 _] (ab 'latte-kernel.utils/safe-get 'latte_kernel.utils '[safe-get] ['{:a 1} :a])
