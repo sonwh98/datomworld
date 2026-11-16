@@ -38,8 +38,14 @@
 
 (defn- run
   [fixture]
-  (lh/run-fixture (parse-units fixture) "main.php"
-                  {:computed? (:computed fixture), :class-map (:class-map fixture)}))
+  (let [units (parse-units fixture)
+        opts {:computed? (:computed fixture), :class-map (:class-map fixture)}]
+    (if (= :dynscope-v1 (:group fixture))
+      ;; Publish this row's units into its own runtime and compose its link
+      ;; source there. Lowering each packet constructs its own scope analysis.
+      (with-redefs [lh/published (delay (lh/make-published))]
+        (lh/run-fixture units "main.php" opts))
+      (lh/run-fixture units "main.php" opts))))
 
 
 (deftest ^:slow p6-fixtures-linked-on-every-vm-test
