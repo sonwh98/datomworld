@@ -169,7 +169,9 @@
           [:h2 "2. Planetary Soft Silicon: Interpreting Locality and Content Identity"]
 
           [:p
-           "Whether the resources share a PCB or communicate across the internet, Axiom 2 applies to topology as well as execution: latency samples, bandwidth observations, and resource availability are data; a placement interpreter constructs a topology and cost model from them. Measured costs can be directed and time-varying. A policy using mathematical metric-space algorithms must establish the properties those algorithms require."]
+           "Whether the resources share a PCB or communicate across the internet, Axiom 2 applies to topology as well as execution: latency samples, bandwidth observations, and resource availability are data; a placement interpreter constructs a topology and cost model from them. Measured costs can be directed and time-varying. A policy using mathematical "
+           [:a {:href "https://en.wikipedia.org/wiki/Metric_space"} "metric-space"]
+           " algorithms must establish the properties those algorithms require."]
 
           [:p
            "The "
