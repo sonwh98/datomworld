@@ -21,6 +21,15 @@ The historical service-protocol and taxonomy rulings have one home in
 not a W6 experiment. Owner decomposition, 2026-10-19: this compiler plan now
 references the extracted doctrine and stream implementation specs.
 
+**Owner retirement, 2026-11-17: [yin.vm.rust.md](./yin.vm.rust.md) is deleted.**
+jolt is now a first-class host for yin.vm, and the owner has set the wasm route as
+compiling the whole yin.vm stack to C via a Scheme→C compiler (Gambit) and then to
+wasm — superseding the compiled-bodies + Rust-engine-in-guest architecture and the
+native-port phases this document specified. All references to `yin.vm.rust.md`
+below are historical. The live boundary doctrine is
+[datom.world.abi.md](./datom.world.abi.md); the wasm stream implementation is
+[dao.stream.wasm.md](./dao.stream.wasm.md).
+
 The 2026-10-19 decomposition remains: engine representation/conformance
 method live in [yin.vm.engine.md](./yin.vm.engine.md) §E; register state,
 fixtures and acceptance gates in [yin.vm.debruijn.register.md](./yin.vm.debruijn.register.md)
@@ -37,7 +46,6 @@ laws, opcode rows, fixture obligations and artifact rules remain binding.
 - [yin.vm.debruijn.register.md](./yin.vm.debruijn.register.md): register contract, live sets, sparse continuations, and (`§10`) the register dimension's wasm-lane material (the eight materialized register fields, sparse continuations on wasm, `register-restore`, register fixture schema, and register-specific W0–W6 / Rust K1–K5 gates).
 - [yin.vm.linker.md](./yin.vm.linker.md): admission, offset tables and module transport.
 - [yin.vm.engine.md](./yin.vm.engine.md): scheduler, effects, custody, and (`§E.1–§E.5`) the in-instance engine, reference to the wasm stream implementation, and K0/W0 conformance method.
-- [yin.vm.rust.md](./yin.vm.rust.md): shared Rust crates, Value ownership, transition reuse and LLVM relationship.
 
 Source precedence and the explicit Rust-design reconciliations below are
 retained from r5.

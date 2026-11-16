@@ -14208,3 +14208,26 @@ Verification: ls collab confirms the filename.
 Delegates: none
 Next: unchanged.
 
+## 2026-11-17 — yin.vm.rust.md retired; the wasm route is the whole stack compiled to wasm via Scheme→C
+Owner ruling: "we can just delete yin.vm.rust.md. jolt can compile to C code via gambit which
+  can then be compiled to wasm." With jolt now a first-class host (J2/J2b closed on master),
+  the Rust engine's native-execution and standalone-node roles are superseded by the shared
+  sources compiling natively via Chez, and the wasm route is re-set as the whole yin.vm stack
+  compiled to C (Gambit) and then to wasm — the whole-interpreter-in-guest architecture, not
+  compiled body functions. Deleted: yin.vm.rust.md (the compiled-bodies + Rust-engine design,
+  K0–K5 phases, LLVM path, §6.4 adapter plan). Dated retirement notes added at the four
+  dependents (yang.wasm.md, yin.vm.engine.md §E, yin.vm.debruijn.register.md §10,
+  dao.stream.wasm.md); their rust-citation bodies are retained as historical. Unchanged and
+  fully live: datom.world.abi.md, dao.stream.wasm.md, dao.stream.md, register contract §10
+  fixtures.
+Two precision flags recorded for when the wasm lane revives: (1) jolt is pinned to Chez
+  10.4.1, which compiles to machine code, not C — the C route means a Scheme→C compiler such
+  as Gambit, i.e. porting the jolt host layer (reader, dao.host overrides, FFI facades) to a
+  Gambit-based variant or growing a Gambit backend in the fork; real, unscoped work. (2) The
+  Gambit/emscripten output will challenge yang.wasm's core-wasm-1.0-only feature profile, and
+  yang.wasm's compiler mechanics (23 opcode lowerings, trampoline, structuring) are moot under
+  whole-interpreter-in-guest — when the lane revives it gets rescoped around that route.
+Survivors of the wasm spec tree: datom.world.abi.md and dao.stream.wasm.md (doctrine and
+  adapter implementation, language-neutral), the register contract and its §10 fixtures.
+Next: owner-gated — jolt lane J2b remainder and J5; the wasm lane stays parked with its route
+  re-set; no W0/K0 commissioning.

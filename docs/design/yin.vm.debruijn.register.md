@@ -1210,6 +1210,16 @@ project does not stop at R2: R3's numbers inform, they do not decide.
 
 ## 10. The wasm lane: register bytecode lowered to wasm (2026-10-19, design only)
 
+**Owner retirement, 2026-11-17: [yin.vm.rust.md](./yin.vm.rust.md) is deleted.**
+jolt is now a first-class host for yin.vm, and the owner has set the wasm route as
+compiling the whole yin.vm stack to C via a Scheme→C compiler (Gambit) and then to
+wasm — superseding the compiled-bodies + Rust-engine-in-guest architecture and the
+native-port phases this document specified. All references to `yin.vm.rust.md`
+below are historical. The live boundary doctrine is
+[datom.world.abi.md](./datom.world.abi.md); the wasm stream implementation is
+[dao.stream.wasm.md](./dao.stream.wasm.md).
+
+
 Status: design, owner-authorized planning; not implemented. Sections 1–9 above
 (as amended on 2026-10-10 and 2026-10-15) remain authoritative for the register
 image contract and the landed R4 register kernel.
@@ -1244,7 +1254,6 @@ Authorities and companion specifications for §10:
 - [yin.vm.semantic.md](./yin.vm.semantic.md): A identity, semantic execution, and A→R derivation.
 - [yin.vm.linker.md](./yin.vm.linker.md): admission, offset tables, and module transport.
 - [yin.vm.engine.md](./yin.vm.engine.md): scheduler, effects, custody, and (`§E.1–§E.5`) the in-instance engine and reference to the wasm stream implementation, and K0/W0 differential conformance method.
-- [yin.vm.rust.md](./yin.vm.rust.md): shared Rust crates, `Value` ownership, transition reuse, and LLVM sibling relationship.
 - [yang.wasm.md](./yang.wasm.md): lowering register images to WebAssembly modules, the 10-region linear-memory layout, and all 23 opcode lowerings linked to the in-instance engine.
 
 ### 10.1 Register machine state and the register instance of the synchronization barrier

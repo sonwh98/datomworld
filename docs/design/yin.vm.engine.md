@@ -354,6 +354,16 @@ and the inline round from `ast_walker.cljc`) and is the owner's call.
 
 ## Extension (2026-10-19, design only): the in-instance engine and wasm implementation of dao.stream
 
+**Owner retirement, 2026-11-17: [yin.vm.rust.md](./yin.vm.rust.md) is deleted.**
+jolt is now a first-class host for yin.vm, and the owner has set the wasm route as
+compiling the whole yin.vm stack to C via a Scheme→C compiler (Gambit) and then to
+wasm — superseding the compiled-bodies + Rust-engine-in-guest architecture and the
+native-port phases this document specified. All references to `yin.vm.rust.md`
+below are historical. The live boundary doctrine is
+[datom.world.abi.md](./datom.world.abi.md); the wasm stream implementation is
+[dao.stream.wasm.md](./dao.stream.wasm.md).
+
+
 Status: design, owner-authorized planning; not implemented.
 
 This extension retains the five-round r5 consensus (gpt-6-astra author,
