@@ -1,0 +1,13 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p8 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p8/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+e2e gate running in background; engine code already confirms string-assign, strtoupper prelude, and dynamic base-location are present on the merged tree. Continuing once the run lands.Still waiting on the e2e gate; static trace already shows dynamic-var write-back supports paths.
+Probe still compiling; fixture and strtoupper pins applied. Will finish the remaining pins when it lands.Done. All three stale pins were real engine changes on the merged branch, verified and updated.
+
+- String-offset-write works: `$s="ab"; $s[0]="c";` renders `cb`. Fixture flipped to the working expectation, prelude pin now asserts `"xbc"`, and all 4 `G-str-offset-write` ledger rows in [known-gaps.md](/Users/sto/workspace/datomworld-p8/docs/agents/known-gaps.md) are marked closed citing `91c5c8cd`.
+- strtoupper is now a prelude builtin: no warning, renders `A`. Pin updated.
+- `$$a[0] = 1` assigns through as `${$a}[0]` (`$x=[10,20]` → `1,20`). Refusals entry removed, new `variable-variable-offset-assign-test` added.
+
+Committed as [bab43c51](https://github.com/sonwh98/datomworld/commit/bab43c51bd2736e4a59e50d23db6ff99cc5a5504) on `feat/p8-legacy-retirement`, not pushed. Findings with the seat's oracle-check list are in [1794550000000-engineer-p8-pin-fix-r2...findings.md](/Users/sto/workspace/datomworld-p8/collab/orch-lane/1794550000000-engineer-p8-pin-fix-r2.muse-spark-1.3-contributor.findings.md) (uncommitted).
+
+Gates: 5 focused vars, 569 assertions, green; kondo clean. Full e2e namespace and the php:8.3 oracle checks are the seat's job on shiva.

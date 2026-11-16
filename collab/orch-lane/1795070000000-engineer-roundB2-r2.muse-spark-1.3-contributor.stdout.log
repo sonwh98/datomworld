@@ -1,0 +1,38 @@
+muse: workspace root: /Users/sto/workspace/datomworld-b2 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-b2/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done.
+
+Committed [300dc2f3](https://github.com/datomworld-b2/commit/300dc2f3) `fix(yang.php): the B2 step-7 fixes` on `feat/p5b2-lifecycle`, not pushed. Findings left uncommitted at [collab/orch-lane/1795070000000-engineer-roundB2-r2.muse-spark-1.3-contributor.findings.md](/Users/sto/workspace/datomworld-b2/collab/orch-lane/1795070000000-engineer-roundB2-r2.muse-spark-1.3-contributor.findings.md).
+
+What changed (per the child report): init-time request binding moved inside the root protected region with loud empty-stack invariant, recursive integer-key merge, catchable `ValueError` for bad `trigger_error` levels, handled `E_USER_ERROR` continues else distinct guest-fatal with shutdown/drain, `http_response_code(0)` getter plus status-line parsing and case-insensitive header replacement, setcookie 7-positional/array-form rules, two-handler mask fixture, oracle B2 enumeration with nested serializer, recursive-merge prologue, and guest-fatal parsing.
+
+Gate (child-observed): 47 tests / 1095 assertions green, kondo and cljstyle clean, oracle dry-run verified. No e2e/slow run locally.
+
+Caveats from the worker: item 6 stream transport was not re-architected (vectors remain), and the architect spec file was absent so rulings were implemented from `/tmp/muse-b2r2.md` plus retro review.
+
+Task complete on `feat/p5b2-lifecycle`. Nothing pushed.
+
+Commits (verified via `git log`):
+
+- [300dc2f3](https://github.com/datomworld-b2/commit/300dc2f3) `fix(yang.php): the B2 step-7 fixes` — all 10 items from `/tmp/muse-b2r2.md` except item 6 was left partial.
+- [520f8a3f](https://github.com/datomworld-b2/commit/520f8a3f) `feat(yang.php): the P2 stream lifecycle over composition-supplied streams` — finishes item 6. No Co-Authored-By in either. Prior step-7 commit preserved.
+
+What 300dc2f3 did (child-reported):
+
+- [prelude.cljc](/Users/sto/workspace/datomworld-b2/src/yang/php/antlr/prelude.cljc): request binding moved inside the root protected region so init failures render as the ordinary `:php/uncaught` snapshot; empty-stack raise is a loud invariant violation; recursive integer-key request merge (preserve/overwrite/recurse for both key kinds); `E_USER_ERROR` handled-returns-non-false continues, otherwise a distinct guest-fatal that still runs shutdown functions and flushes buffers while marking objects destructed; invalid `trigger_error` levels throw catchable PHP 8.3 `ValueError`; `http_response_code(0)` is a getter; status-line parsing with case-insensitive header replacement; setcookie 7-positional max, array form rejects extras, case-insensitive options, unknown/numeric keys raise `ValueError`.
+- [programs_p5b2.cljc](/Users/sto/workspace/datomworld-b2/src/yang/php/antlr/programs_p5b2.cljc): fixed numeric merge fixture (`3020post`), sparse + nested-int fixtures, `ValueError` fixtures plus a caught case, handled/false-returning/shutdown-buffer guest-fatal fixtures, two-handler mask fixture, getter/status-line/replacement/setcookie fixtures, `:http-profile` flags.
+- [p5b2_lifecycle_test.clj](/Users/sto/workspace/datomworld-b2/test/yang/php/antlr/p5b2_lifecycle_test.clj): `:uncaught` expectations plus linked request/isolation/no-exported-cells coverage.
+- [oracle.clj](/Users/sto/workspace/datomworld-b2/test/yang/php/antlr/oracle.clj): B2 enumeration, nested request serializer, recursive-merge prologue, guest-fatal `:fatal` parsing, HTTP-profile 200 scaffold.
+
+What 520f8a3f did (item 6, verified 2 files, +134/-24):
+
+- [portable_harness.cljc](/Users/sto/workspace/datomworld-b2/test/yang/php/antlr/portable_harness.cljc): extracted the composition's ring-buffer constructor (`make-stream`), added `run-lifecycle-raw` — request appended to and consumed from a composition-supplied request stream via oldest-cursor/next, consumed record rides `run-main`'s operand channel, response/diagnostic records emitted on composition-supplied streams and drained back; `lower-through-stage`/`run-packet-raw` accept optional requests.
+- [p5b2_lifecycle_test.clj](/Users/sto/workspace/datomworld-b2/test/yang/php/antlr/p5b2_lifecycle_test.clj): new stream-lifecycle test covering superglobal seeding, `E_USER_NOTICE` emission, header-then-body order, nil-request defaults, drained-streams equal task value, and run-raw cross-agreement.
+
+Gate (child-observed): p5b2-lifecycle + request-context 7 tests / 153 assertions pass, oracle dry-run renders, kondo 0/0, no e2e/slow. Note: cljstyle was unavailable on that laptop run; style follows file conventions.
+
+Findings files: [1795070000000-engineer-roundB2-r2](/Users/sto/workspace/datomworld-b2/collab/orch-lane/1795070000000-engineer-roundB2-r2.muse-spark-1.3-contributor.findings.md) (updated, uncommitted, untracked) and an extra untracked [1795150000000-engineer-roundB2](/Users/sto/workspace/datomworld-b2/collab/orch-lane/1795150000000-engineer-roundB2.muse-spark-1.3-contributor.findings.md) also present.

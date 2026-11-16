@@ -1,0 +1,12 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cs (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cs/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done — the sweep was already landed on `feat/cellref-sweep` and I verified it this turn.
+
+- **Commit** `1636e3e9` on `feat/cellref-sweep`, ahead of origin/master, not pushed. Changes only [prelude.cljc](/Users/sto/workspace/datomworld-cs/src/cljc/yang/typescript/antlr/prelude.cljc) (`js/kind-of` now consults `cell/authentic?` before deref; unauthenticated cell-shaped maps fall through to the plain-map classification) plus two regressions in the TS prelude test.
+- **Sites 2 and 3**: verified no-change — `lower.cljc` has no guest-value shape test or `cell/get` (receiver deref lives downstream in `js/kind-of`/`yang.call`, both covered), and PHP `callable-in` consults shared `yang.call/entry` first. Evidence is recorded in the findings file.
+- **Findings** (uncommitted, as required): [1794590000000-engineer-cellref-sweep.muse-spark-1.3-contributor.findings.md](/Users/sto/workspace/datomworld-cs/collab/orch-lane/1794590000000-engineer-cellref-sweep.muse-spark-1.3-contributor.findings.md), with per-site evidence, regression names, and the shiva gate (matrix smoke 13/21/0, php e2e, ts subsystem lanes).
+- **Verified now**: `yang.typescript.antlr.prelude-test` + `prelude-parity-test` → 21 tests, 1832 assertions, 0 failures; kondo on both touched files → 0 errors, 0 warnings. No suite-scale runs, no forbidden-file edits.

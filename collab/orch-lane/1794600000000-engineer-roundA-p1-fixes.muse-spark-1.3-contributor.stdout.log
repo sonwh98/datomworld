@@ -1,0 +1,21 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p1fix (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p1fix/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Round A complete. All five review items fixed, each with its regression.
+
+What changed ([prelude.cljc](/Users/sto/workspace/datomworld-p1fix/src/cljc/yang/php/antlr/prelude.cljc), [safepoint.cljc](/Users/sto/workspace/datomworld-p1fix/src/cljc/yang/php/antlr/safepoint.cljc)):
+
+- **Exhaustion escape**: new `php/abandon-to` / `php/call-terminal` terminal escapes that bypass `finally` thunks. `php.sp/exhaust!` now goes through `php/root-fatal`, so a guest `finally { return 7; }` can no longer cancel the fatal.
+- **Shutdown path**: `php/run-main` reworked around nested fatal/exit/shutdown escapes. Operational `exc2` from shutdown yields `:php/fatal`, never a catchable Throwable.
+- **Budget validation**: `safepoint/program` throws named host-side `ex-info` (`:invalid-budget`) for anything outside non-negative integers.
+- **Exit semantics**: `php/exit` uses the root exit continuation — `try { exit(7); } finally { echo 'F'; }` prints no `F`, status preserved through shutdown.
+- **Buffer drain**: `php/shutdown!` drains unclosed nested buffers via the proven `ob_end_flush` path after destructors, before global release. `ob_start(); echo 'x';` emits `x`.
+
+Regressions: two new safepoint tests (try/finally exhaustion, shutdown exhaustion, budget validation) plus three `:oracle :pending` P5 fixtures (`:exit-skips-finally`, `:exit-in-finally-wins`, `:unclosed-buffer-drains`).
+
+Gate: 20 tests / 178 assertions / 0 failures across safepoint, request-context, exceptions, finalization, generators. The 4 failures + 4 errors in prelude/include/builtin-surfaces are identical on the unmodified tree (pre-existing, environment-related). No kondo/cljstyle gate is configured for these paths.
+
+Deliverable: committed as `0eade311` with the exact specified message, not pushed. Findings (uncommitted) at [1794600000000-engineer-roundA-p1-fixes...findings.md](/Users/sto/workspace/datomworld-p1fix/collab/orch-lane/1794600000000-engineer-roundA-p1-fixes.muse-spark-1.3-contributor.findings.md). One note: the tree was committed mid-session from outside this turn (reflog `commit (amend)`); I verified HEAD holds the final code and re-ran the gate on it.

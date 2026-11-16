@@ -1,0 +1,15 @@
+muse: workspace root: /Users/sto/workspace/datomworld-cs (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-cs/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. Committed `1636e3e9` on `feat/cellref-sweep`, not pushed; findings doc left uncommitted as instructed.
+
+- Site 1 (TS `js/kind-of`): fixed — consults `cell/authentic?` before deref; shaped maps now earn the plain-map `"number"` classification, genuine refs unchanged.
+- Site 2 (TS `lower.cljc` member-call): verified no-change — the lowering emits applications only and never shape-tests; coverage comes from the site-1 fix plus the shared `yang.call/_descriptor`. Two receiver regressions added proving it.
+- Site 3 (PHP `callable-in`): verified no-change — `yang.call/entry` is consulted first and the prelude has zero shape tests; a shaped map ends at the ordinary `Value not callable` guest error.
+
+Verification: pre-fix run showed the `Dead or forged cell reference` abort; post-fix the 2 new tests pass (32 assertions), full `prelude-test` + `prelude-parity-test` namespaces pass (21 tests, 1832 assertions), kondo clean on both touched files. cljstyle could not run (no binary available); noted in the findings.
+
+Shiva gate for the seat: matrix smoke (13/21/0), the php e2e namespace, and the ts subsystem lanes.

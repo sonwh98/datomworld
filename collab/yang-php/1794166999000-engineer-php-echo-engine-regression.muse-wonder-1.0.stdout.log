@@ -1,0 +1,107 @@
+muse: workspace root: /Users/sto/workspace/datomworld (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 39 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 2 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Completed-GMT: 2026-11-08 19:46 GMT
+Completed-Local: 2026-11-09 02:46 +07 (Asia/Ho_Chi_Minh)
+
+# PHP echo engine regression — root cause (static only)
+
+No tests were run and no files were edited, per the execution constraint. All findings below are from static reading and `git` archaeology. Current checkout is `feat/prelude-tree-balance` at [b7dc23c4](https://github.com/org/repo/commit/b7dc23c494ca961a5a01cde31c2064a90e5a8534); the regression was isolated on clean `master` at `c10ded19`.
+
+## Verdict
+
+The corpus expectation is correct. Do not re-record it.
+
+`<?php echo 1 + 2;` must print `3`. On clean master the child REPL instead answers `Error: java.lang.StackOverflowError` (or times out waiting for that same line). Nothing the transcript needs was removed. The P8 migration made every trivial PHP program drag a linear `then`-chain of ~899 prelude definitions through host-recursive tree walkers. On Linux hosts (shiva, jupiter; default thread stack 1024 KB) that chain crosses the stack budget in the spawned REPL process, which runs without the `-Xss64m` the in-process test lane has. On the macOS dev machine (2048 KB default) the same code passes, which is why this is host-sensitive.
+
+The contained fix already exists on this branch as `bf6f9027` and is not on master. The `gc_*` failures are a separate, long-standing known gap and are not the same defect.
+
+## 1. The recorded transcript
+
+The shell-session corpus is [local.edn](/Users/sto/workspace/datomworld/test/resources/yin/repl/transcripts/local.edn:1):
+
+- `:id :vm-corpus`, `:vms [:ast-walker :semantic :stack :register]`.
+- The PHP inputs are `(lang :yang/php)` then `<?php echo 1 + 2;`.
+- The expected outputs for those two lines are `Switched to :yang/php` then `3`.
+
+The runner that enforces it is [jolt_shell_session.clj](/Users/sto/workspace/datomworld/src/dev/jolt_shell_session.clj:180). Its `corpus` fn expands each `:vms` entry into one process per VM (`vm-corpus-ast-walker`, `-semantic`, `-stack`, `-register`), each launched with `--vm <name>`. For host `:jvm` the child command is `clj -M:clj-yin-repl --no-state` at [jolt_shell_session.clj:55](/Users/sto/workspace/datomworld/src/dev/jolt_shell_session.clj:55). Each sent line is awaited under a 180 s deadline and compared with `matches?`; any difference raises `transcript mismatch` at [jolt_shell_session.clj:94](/Users/sto/workspace/datomworld/src/dev/jolt_shell_session.clj:94). The JVM test entry is [shell_session_test.clj](/Users/sto/workspace/datomworld/test/yin/repl/shell_session_test.clj:8), which shells `bb src/dev/jolt_shell_session.clj --host jvm`.
+
+Index 14 of the `:in` vector is exactly the PHP line (counting from 0: `(host)` is 0, `(lang :yang/php)` is 13, the echo is 14). The `deadline waiting for response 14` signature recorded in commit `ae793ec4` is therefore this line, not a later one.
+
+## 2. What the engine should produce, and how
+
+`echo` is not a PHP function and is correctly absent from both builtin tables. It is a lowering arm plus a prelude function:
+
+- Lowering doc at [lower.cljc:25](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/lower.cljc:25): `echo a, b` is `(php/echo (php/to-string a))` per operand.
+- `echo-nodes` at [lower.cljc:2258](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/lower.cljc:2258) builds those applications; the statement dispatch is `"echoStatement"` at [lower.cljc:3584](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/lower.cljc:3584). `print` uses the same path at [lower.cljc:1298](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/lower.cljc:1298).
+- Prelude `php/echo` at [prelude.cljc:400](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude.cljc:400) conjs the string onto the last output buffer in `php.rt/out`. The REPL binding renders `:php/out` (see [frontends.cljc:87](/Users/sto/workspace/datomworld/src/cljc/yin/repl/frontends.cljc:87)).
+
+Integer addition is likewise intact:
+
+- `"Plus"` maps to `php/add` in `binary-ops` at [lower.cljc:850](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/lower.cljc:850).
+- `php/to-string` (int via `integer/format`) is at [prelude.cljc:758](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude.cljc:758); `php/add` (exact `integer/add` with float demotion) is at [prelude.cljc:828](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude.cljc:828).
+
+So `1 + 2` lowers to `(php/echo (php/to-string (php/add 1 2)))`, which evaluates to `3`. In-process tests pin exactly this and pass where the stack suffices: [frontend_catalog_test.cljc:73](/Users/sto/workspace/datomworld/test/yin/repl/frontend_catalog_test.cljc:73), [main_test.cljc:349](/Users/sto/workspace/datomworld/test/yin/repl/main_test.cljc:349), [repl_test.cljc:743](/Users/sto/workspace/datomworld/test/yin/repl_test.cljc:743), [python_antlr_test.cljc:404](/Users/sto/workspace/datomworld/test/yin/repl/python_antlr_test.cljc:404). The parser-only test at [php_parser_test.cljc:16](/Users/sto/workspace/datomworld/test/yin/repl/php_parser_test.cljc:16) also still accepts the source.
+
+The frontend wiring is [frontends.cljc:60](/Users/sto/workspace/datomworld/src/cljc/yin/repl/frontends.cljc:60): `php-manifest` (revision `antlr-p8`) with `:parse php.antlr.cst/parse-source`, `:lower php.antlr.lower/lower-packet`, `:render :php/out`. `lower-program` in the default `:bundled` profile prepends the whole prelude: `(u/then prelude/uast main)` in [lower.cljc:3763](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/lower.cljc:3763). That prepend is the load-bearing fact: a one-line program cannot avoid the prelude tree.
+
+### The `gc_collect` question
+
+The prompt's `gc_collect` is truncated. No function `gc_collect` exists in PHP or in this tree. The real name is `gc_collect_cycles()`:
+
+- It is in the pinned `catalogue` of known PHP names at [builtins.cljc:147](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/builtins.cljc:147), but it has never been in `supported` at [builtins.cljc:14](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/builtins.cljc:14), so the prelude never supplied it. A tree-wide search finds no `gc_*` definition under `src/cljc/yang/php/` at all.
+- The header at [builtins.cljc:1](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/builtins.cljc:1) states the contract: a catalogued name with no prelude definition gets an honest `Error: Call to undefined function` at run time; nothing is stubbed.
+- The design ledger records this as corner C1 in [yang.php.md:2176](/Users/sto/workspace/datomworld/docs/design/yang.php.md:2176): cyclic garbage lives until shutdown and `gc_collect_cycles()` returns 0 in the restricted reading. History confirms it was never removed: `git log -S gc_collect_cycles` shows only its introduction in the catalogue at P1 (`e6c532f6`); it was never added to `supported`.
+
+Therefore the `gc_013.phpt` / `gc_023.phpt` results are the recorded known gap itself, not a regression. The manifest records them verbatim as `:slow-known-gaps` with `:message "Call to undefined function gc_collect_cycles()"` in [phpt_quick_mismatch_manifest.edn:4](/Users/sto/workspace/datomworld/test/yang/php/antlr/phpt_quick_mismatch_manifest.edn:4), family count `:gc-cycle-collection 10`. The slow stress tests at [e2e_test.clj:577](/Users/sto/workspace/datomworld/test/yang/php/antlr/e2e_test.clj:577) assert that this gap persists (`run-phpt-stress-case` compares the live engine result to the recorded gap). A report that they “fail with Call to undefined function” is describing the expected gap unless the actual `:threw` value differs; the exact failing assertion text from the shiva log is needed to distinguish those (see “What to run”).
+
+## 3. Git archaeology: 0cc8dc1a, 094ca161, 359c0378
+
+None of the three removed the echo arm, `php/echo`, `php/add`, or any builtin the transcript needs.
+
+**0cc8dc1a (P8 legacy retirement merge).** This is the onset, but by growth, not removal. Against its first parent it deletes the legacy hand-written compiler `src/cljc/yang/php.cljc` (685 lines) and rewires [frontends.cljc](/Users/sto/workspace/datomworld/src/cljc/yin/repl/frontends.cljc:1) from `{:parse identity, :lower yang.php/compile}` to the ANTLR pair above. Commit `34e94513` moves the transcript input from `1 + 2;` to `<?php echo 1 + 2;` in both [local.edn](/Users/sto/workspace/datomworld/test/resources/yin/repl/transcripts/local.edn:8) and [main_test.cljc:349](/Users/sto/workspace/datomworld/test/yin/repl/main_test.cljc:349) to match. The legacy compiler never dragged a bundled prelude; the ANTLR path always does.
+
+The P8 deltas inside the PHP surface are additive or corrective:
+
+- [builtins.cljc](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/builtins.cljc:14): the only semantic change is extracting `str_replace`/`str_ireplace` into `count-out` with `:by-ref [3]`, plus correcting the `EXTR_*` constants. No name is dropped.
+- [lower.cljc](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/lower.cljc:1838): six lines making `extract`/`compact` lowering yield to a namespaced user function that shadows the builtin. The echo and binary arms are untouched.
+- [prelude.cljc](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude.cljc:418): empty-buffer warnings on `ob_end_clean`/`ob_get_clean`/`ob_end_flush`, plus whitespace. The prelude grows elsewhere: `prelude_p9.cljc` goes from 559 to 976 lines and `prelude_module.cljc` from 389 to 431 lines across the merge.
+
+Definition counts by `grep -c '^\s*\[php/'` make the growth concrete. Core definitions stay at 631; `prelude_p9` grows 148 → 187; `prelude_module` grows 59 → 63. With `yang.core.call` (16, unchanged) and the two tail entries, the bundled `functions-uast` holds 856 definitions before P8 and 899 on master. On master that list is still sequenced linearly:
+
+```clojure
+(def functions-uast
+  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form)))
+                    (into call/definitions definitions))))
+```
+
+with [prelude.cljc `uast`](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude.cljc:5447) as `(u/then functions-uast (php/init!))`. Since `u/then` at [uast.cljc:64](/Users/sto/workspace/datomworld/src/cljc/yang/core/uast.cljc:64) is `(app (lam [%_] b) a)` and `seq-nodes` reduces it left-to-right, each definition adds two nested tree levels. The walkers that then traverse this tree are host-recursive: `yang.tails/mark-tails` recurses in `walk` at [tails.cljc:11](/Users/sto/workspace/datomworld/src/cljc/yang/tails.cljc:11), and `lower-program` calls `u/mark-tails` over the whole bundled tree. Commit `9032649e` names the same family on Dart (`mark_tails` / `lower-through-stage`, “Stack Overflow for even the one-line echo packet once the prelude is deep”) and gates those tests on `:cljd`; the CESK execution itself is not the recursion.
+
+**094ca161 (post-P8 reconciliation).** Four files. In [prelude.cljc:423](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude.cljc:423) `ob_get_clean` goes silent on an empty buffer per the php-8.3.35 oracle; the rest is a regenerated string-offset packet, the `internal.phpt` manifest entry (totals 95 → 96), and the matching test normalization. Nothing here touches `echo`, `+`, or prelude depth.
+
+**359c0378 (provenance dates and JSON scanner).** Three files: two new `php/json-dot-bad-*` helpers and a depth-boundary fix in [prelude_p9.cljc](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude_p9.cljc:718), two JSON assertions, and manifest `:measured-at` stamps. It adds two definitions (deepening the chain by four levels) but is otherwise unrelated to the transcript. It is not the culprit; at most it is two more straws on an already-critical chain.
+
+Why the failure appears only in the process corpus: the `:test` alias carries `:jvm-opts ["-Xss64m"]` at [deps.edn:31](/Users/sto/workspace/datomworld/deps.edn:31), with a comment recording that Linux defaults to 1024 KB versus 2048 KB on macOS and that 4 MB “leaves headroom as the prelude grows”. The spawned REPL alias `:clj-yin-repl` at [deps.edn:86](/Users/sto/workspace/datomworld/deps.edn:86) has no `:jvm-opts`, so each child process runs at the platform default. In-process e2e and REPL unit tests inherit the 64 MB stack and pass; the four per-VM child processes do not. The QA inventory states the observed actual directly: prompt `<?php echo 1 + 2;` expects `3`, actual `Error: java.lang.StackOverflowError` on both `:ast-walker` and `:semantic`. Commit `ae793ec4` closes the attribution the same way: the identical failure reproduces on a clean master clone on shiva across `:vm-corpus-semantic`/`:stack`/`:register`, host-sensitive, pre-existing, outside the reporting branch.
+
+## 4. Disposition and minimal restoration
+
+This is an engine (host-stack) regression triggered by the P8 migration, not stale-record drift and not a missing builtin. Do not re-record the transcript to the error text; that would enshrine a host limitation as guest semantics.
+
+The minimal restoration is contained to `src/cljc/yang/php/` and already exists on this branch as `bf6f9027` (“balance the bundled prelude then-chain — the ~900-deep tree overflows the Dart stack in the recursive walkers”). It replaces the linear `functions-uast` sequencing in [prelude.cljc:5426](/Users/sto/workspace/datomworld/src/cljc/yang/php/antlr/prelude.cljc:5426) with `definitions->uast`, which builds a balanced `u/then` tree (halve recursively), preserving left-to-right effects and the last definition’s value. Depth drops from ~2×899 nested levels to ~2×⌈log₂ 899⌉ ≈ 20, which fits the default Linux stack and the Dart walkers without any stack-flag change. Master does not contain this change (`git diff master...HEAD` is exactly this hunk plus the collab ack), so landing it on master is the fix. Because it is already implemented here, no scratch worktree was created; duplicating it would add no evidence.
+
+Two alternatives were considered and rejected as the primary fix. Adding `-Xss` to `:clj-yin-repl` in `deps.edn` would mask the JVM symptom but is outside the PHP surface, does nothing for Dart, and contradicts the ledgered direction; it needs a design ruling and should only be a stopgap. Making `mark-tails` and the lowering stages iterative (the real fix noted in `9032649e`) is the durable cure but is a `yin.vm`/`yang.core` change, also requiring a ruling. Neither is needed to restore the transcript once the chain is balanced.
+
+For `gc_collect_cycles()`: no restoration is proposed. Implementing cyclic collection is the C1 work item recorded in the manifest and design ledger, a `yang.php` runtime feature, not a one-line builtin stub (the honest current behavior is precisely the recorded undefined-function error). It should be scheduled as its own slice, not bundled into this fix.
+
+## What to run (not run here; sandbox cannot ssh)
+
+Run solo, on a shiva scratch clone at clean master, one lane at a time, and keep `build/j3-logs/shell/jvm-vm-corpus-*.out/.err` plus the summary EDN:
+
+1. `bb src/dev/jolt_shell_session.clj --host jvm --only vm-corpus` — expect `transcript mismatch` (or deadline on response 14) at `<?php echo 1 + 2;` on master; after landing `bf6f9027`, expect four PASS lines.
+2. `clojure -M:test -n yin.repl.shell-session-test` on shiva as the parent-lane confirmation (this spawns the same children).
+3. `clojure -M:test -i :slow -n yang.php.antlr.e2e-test -v yang.php.antlr.e2e-test/phpt-gc-013-stress-test` and the `phpt-gc-023-stress-test` variant — capture the full assertion diff to confirm the actual still equals the recorded `gc_collect_cycles()` gap rather than a new `:threw` value.
+
+Do not run the slow tier or any suite locally.
