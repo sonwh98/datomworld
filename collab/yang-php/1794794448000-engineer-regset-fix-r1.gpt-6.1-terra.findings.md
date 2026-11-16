@@ -1,0 +1,19 @@
+Created-GMT: 2026-11-16
+Coding-Agent: codex (gpt-6.1-terra)
+Branch: fix/yangphp-regset, base 8a44b87a
+Disposition: INCOMPLETE — environment blocks full parser generation, the JVM gate, oracle, and branch publication. No production change made.
+
+## Attribution and probes
+
+- `class-model-test/declare-and-inherit-test`: reproduced the reported failure. `053ae9a8` replaces the duplicate-class `php/throw-error` with a diagnostic and `php/guest-fatal`; `php/run-main` maps that terminal to no `:php/uncaught`, while the old test reads `:php/uncaught :message`. A temporary overlay restoring only the prior duplicate-class branch makes the focused test pass. This is targeted-revert attribution, not a completed historical bisect. The change implements the eval collision fatal semantics protected by the ticks-SCC ruling; restoring the catchable exception conflicts with that ruling. Stop for a decision on the older assertion/contract, not a change to the boundary. Logs: `target/regset-r1/class-direct.log`, `target/regset-r1/class-revert-fatal.log`.
+- `finalization-test/shutdown-test`: reproduced `x21` versus `x12`. `d9e8731e` registers constructed arrays with `php/tmp!` and arranges statement temporary release. A temporary overlay reverting those two changes passes this test; individually removing either registration or release also passes. The likely mechanism is that `fresh-value?` still treats an array literal as movable without acquiring a reference, so the assignment and the temporary list share its one ownership; release destroys the array and drops its object references before shutdown. An overlay removing `arrayCreation` from `fresh-value?` passes the focused test. This candidate is not a validated fix: cleanup semantics, PHP oracle, and the full gate were unavailable; no production edit was made. Logs: `target/regset-r1/shutdown-direct.log`, `shutdown-revert-array.log`, `shutdown-no-tmp.log`, `shutdown-no-release.log`, `shutdown-acquire.log` (all under `target/regset-r1/`). This is targeted-revert evidence, not a complete historical bisect.
+- `e2e-test/permutation-corpus-quick-test`: not attributed. Loading this test failed for missing `yang.typescript.antlr.gen.TypeScriptLexer`; no corpus comparisons ran. A common root with either of the other failures is unproven. `target/regset-r1/permutation-direct.log`.
+
+## Gates and environment
+
+- `bb gen:antlr`: FAILED after generating PHP Java and JavaScript; fetch of a non-vendored upstream grammar helper failed with `java.net.SocketException: Operation not permitted` (`/tmp/clojure-10525237360199114944.edn`). `bb gen:antlr --grammar php --target java` succeeded, but does not satisfy the full generation gate.
+- `bb test:sub:clj yang.php`: 29 namespaces selected, run failed during loading before test counts, missing TypeScript lexer. Preserved immediately as `target/regset-r1/baseline-sub-clj.log`. Focused probes use a direct `clojure.test/test-vars` runner, which exits zero even for assertion failures; inspect their logs rather than their process status.
+- Docker access denied at `/var/run/docker.sock`; no local `php` executable. The requested shiva PHP 8.3 oracle and php-src validation did not run. Dart and Node not run.
+- Git common directory resolves to `/home/sto/ci/datomworld-p7b-j/.git`, outside the permitted writable roots. Network is restricted. No commit or push attempted; the branch remains at 8a44b87a. The findings file is the only worktree edit.
+
+Follow-up: run the full generator and baseline with network/cache access, bisect the remaining corpus failure with preserved per-run logs, check the proposed shutdown ownership fix against PHP 8.3 and eval cleanup tests, resolve the class assertion against the fatal contract, then run the full JVM gate and publish the branch. Do not weaken §8.10.7 or the ticks-SCC ruling.
