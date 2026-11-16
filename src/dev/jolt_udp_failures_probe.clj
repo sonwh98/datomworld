@@ -150,6 +150,82 @@
 
 (fake-host
   (fn []
+    ;; Helper acquisition: make-sockaddr address-string allocation failure during bind
+    (let [r (traffic)
+          oa ffi/alloc
+          of ffi/free
+          ms native/make-sockaddr
+          live (atom {})
+          seam
+          (with-redefs [ffi/alloc (fn [n] (let [p (oa n)] (swap! live assoc p n) p))
+                        ffi/free (fn [p] (swap! live dissoc p) (of p))
+                        native/make-sockaddr
+                        (fn [fam ip port]
+                          (if (= port 40001)
+                            (with-redefs [ffi/string->ptr (fn [_] (throw (ex-info "injected address string allocation failure" {})))]
+                              (ms fam ip port))
+                            (ms fam ip port)))]
+            (udp/bind! {:identity "partial-bind" :deposit r :bind-host "127.0.0.1" :bind-port 40001}))
+          evs (events r)]
+      (check 2 "Bind helper address-string failure leaves 0 unreleased bytes (no 16-byte leak)"
+             (empty? @live)
+             {:unreleased-sizes (vec (vals @live))})
+      (check 2 "Bind helper address-string failure closes acquired fd"
+             (= [123] @closes)
+             {:closes @closes})
+      (check 2 "Bind helper address-string failure deposits bind-failed"
+             (and (= 1 (count evs))
+                  (= :dao.stream.datagram/bind-failed (:dao.stream.datagram/event (first evs)))
+                  (= "injected address string allocation failure" (:dao.stream.datagram/reason (first evs))))
+             {:events evs})
+      (doseq [p (keys @live)] (of p)))))
+
+(fake-host
+  (fn []
+    ;; Helper acquisition: make-sockaddr address-string allocation failure during send
+    (let [r (traffic)
+          seam (bind-seam r)
+          oa ffi/alloc
+          of ffi/free
+          ms native/make-sockaddr
+          live (atom {})]
+      (with-redefs [ffi/alloc (fn [n] (let [p (oa n)] (swap! live assoc p n) p))
+                    ffi/free (fn [p] (swap! live dissoc p) (of p))
+                    native/make-sockaddr
+                    (fn [fam ip port]
+                      (if (= port 40002)
+                        (with-redefs [ffi/string->ptr (fn [_] (throw (ex-info "injected destination string allocation failure" {})))]
+                          (ms fam ip port))
+                        (ms fam ip port)))]
+        (let [res (try ((:send! seam) "127.0.0.1" 40002 (byte-array 32))
+                       (catch Throwable t (ex-message t)))]
+          (check 2 "Send helper address-string failure leaves 0 unreleased bytes (no buffer or sockaddr leak)"
+                 (empty? @live)
+                 {:unreleased-sizes (vec (vals @live)) :res res})
+          (doseq [p (keys @live)] (of p)))))))
+
+(fake-host
+  (fn []
+    ;; Helper acquisition: alloc-sockaddr length-cell allocation failure during receive
+    (let [r (traffic)
+          seam (bind-seam r)
+          oa ffi/alloc
+          of ffi/free
+          live (atom {})
+          result
+          (with-redefs [ffi/alloc (fn [n]
+                                    (if (= n 4)
+                                      (throw (ex-info "injected socklen allocation failure" {}))
+                                      (let [p (oa n)] (swap! live assoc p n) p)))
+                        ffi/free (fn [p] (swap! live dissoc p) (of p))]
+            (try ((:step! seam)) (catch Throwable t (ex-message t))))]
+      (check 2 "Receive helper length-cell failure leaves 0 unreleased bytes (no 128-byte leak)"
+             (empty? @live)
+             {:unreleased-sizes (vec (vals @live)) :result result})
+      (doseq [p (keys @live)] (of p)))))
+
+(fake-host
+  (fn []
     ;; Verify send-fn buffer cleanup when second allocation throws
     (let [r (traffic)
           seam (bind-seam r)

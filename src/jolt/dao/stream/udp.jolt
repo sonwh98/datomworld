@@ -104,6 +104,61 @@
 
 
 ;; =============================================================================
+;; Exception-Safe Native Helpers
+;; =============================================================================
+
+(defn- int-cell [v]
+  (let [p (ffi/alloc 4)]
+    (ffi/write p :int v 0)
+    p))
+
+(defn- write-header! [sa family len]
+  (if (= platform :macos)
+    (do (ffi/write sa :uint8 len 0) (ffi/write sa :uint8 family 1))
+    (ffi/write sa :uint16 family 0)))
+
+(defn- alloc-sockaddr
+  "Exception-safe allocation of sockaddr_storage and in/out length cell.
+   Wraps the acquisition sequence so if length-cell allocation throws,
+   the sockaddr buffer is freed immediately."
+  []
+  (let [sa (ffi/alloc native/sockaddr-storage-size)]
+    (try
+      (let [lenp (int-cell native/sockaddr-storage-size)]
+        [sa lenp])
+      (catch Throwable t
+        (ffi/free sa)
+        (throw t)))))
+
+(defn- make-sockaddr
+  "Exception-safe make-sockaddr: wraps acquisition sequence so that if
+   address-string allocation (or any subsequent step) throws,
+   the sockaddr buffer is freed immediately."
+  ([family ip port] (make-sockaddr family ip port 0))
+  ([family ip port scope-id]
+   (let [len (native/sockaddr-length family)
+         sa  (ffi/alloc len)]
+     (try
+       (let [src (ffi/string->ptr (str ip))]
+         (try
+           (native/write-header! sa family len)
+           (native/set-sockaddr-port! sa port)
+           (if (= 1 (native/c-inet-pton family src (+ sa (if (= family native/af-inet6) 8 4))))
+             (do (when (and (= family native/af-inet6) scope-id)
+                   (ffi/write sa :uint scope-id 24))
+                 [sa len])
+             (do (ffi/free sa) nil))
+           (finally
+             (ffi/free src))))
+       (catch Throwable t
+         (ffi/free sa)
+         (throw t))))))
+
+(alter-var-root #'native/alloc-sockaddr (constantly alloc-sockaddr))
+(alter-var-root #'native/make-sockaddr (constantly make-sockaddr))
+
+
+;; =============================================================================
 ;; Helpers
 ;; =============================================================================
 
