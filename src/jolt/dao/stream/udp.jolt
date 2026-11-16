@@ -80,9 +80,11 @@
 (def consts
   (case platform
     :macos {:sock-dgram 2 :ipproto-udp 17 :so-sndbuf 0x1001 :so-rcvbuf 0x1002
-            :eagain 35 :emsgsize 40 :enobufs 55 :ebadf 9 :eintr 4}
+            :eagain 35 :emsgsize 40 :enobufs 55 :ebadf 9 :enotsock 38 :epipe 32 :eintr 4
+            :econnrefused 61 :econnreset 54}
     :linux {:sock-dgram 2 :ipproto-udp 17 :so-sndbuf 7 :so-rcvbuf 8
-            :eagain 11 :emsgsize 90 :enobufs 105 :ebadf 9 :eintr 4}
+            :eagain 11 :emsgsize 90 :enobufs 105 :ebadf 9 :enotsock 88 :epipe 32 :eintr 4
+            :econnrefused 111 :econnreset 104}
     (throw (ex-info "dao.stream.udp: unsupported platform" {:platform platform}))))
 
 (def SOCK-DGRAM (:sock-dgram consts))
@@ -91,7 +93,11 @@
 (def ENOBUFS (:enobufs consts))
 (def EMSGSIZE (:emsgsize consts))
 (def EBADF (:ebadf consts))
+(def ENOTSOCK (:enotsock consts))
+(def EPIPE (:epipe consts))
 (def EINTR (:eintr consts))
+(def ECONNREFUSED (:econnrefused consts))
+(def ECONNRESET (:econnreset consts))
 
 (ffi/defcfn c-sendto "sendto" [:int :pointer :size_t :int :pointer :uint] :ssize_t
             {:capture-native-error true})
@@ -141,7 +147,7 @@
      (try
        (let [src (ffi/string->ptr (str ip))]
          (try
-           (native/write-header! sa family len)
+           (write-header! sa family len)
            (native/set-sockaddr-port! sa port)
            (if (= 1 (native/c-inet-pton family src (+ sa (if (= family native/af-inet6) 8 4))))
              (do (when (and (= family native/af-inet6) scope-id)
@@ -342,14 +348,21 @@
                                                                           :errno e
                                                                           :reason (str "recvfrom interrupted: errno " e)})
 
-                                                                  ;; fatal descriptor error: close seam once
-                                                                  :else
+                                                                  ;; genuine descriptor error: close seam once
+                                                                  (or (= e EBADF) (= e ENOTSOCK) (= e EPIPE))
                                                                   (do
                                                                     (swap! diagnostics conj
                                                                            {:kind :fatal-descriptor-error
                                                                             :errno e
                                                                             :reason (str "recvfrom fatal error: errno " e)})
-                                                                    (close-fn)))
+                                                                    (close-fn))
+
+                                                                  ;; asynchronous/non-fatal error: record diagnostic, seam stays open
+                                                                  :else
+                                                                  (swap! diagnostics conj
+                                                                         {:kind :receive-error
+                                                                          :errno e
+                                                                          :reason (str "recvfrom error: errno " e)}))
 
                                                                 :else
                                                                 (do

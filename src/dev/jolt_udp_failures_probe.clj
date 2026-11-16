@@ -304,22 +304,88 @@
 
 (fake-host
   (fn []
-    ;; Fatal error: EBADF (9)
+    ;; Asynchronous error: ECONNREFUSED (111 on Linux, 61 on macOS)
+    (let [r (traffic)
+          seam (bind-seam r)
+          calls (atom 0)
+          refused-errno udp/ECONNREFUSED]
+      (binding [udp/*recvfrom* (fn [& _]
+                                 (swap! calls inc)
+                                 (if (= 1 @calls)
+                                   [-1 refused-errno]
+                                   [-1 udp/EAGAIN]))]
+        (let [turn1 ((:step! seam))
+              turn2 ((:step! seam))
+              diag (udp/diagnostics seam)]
+          (check 3 "Injected ECONNREFUSED turn does not progress"
+                 (= {:progressed? false} turn1)
+                 {:turn1 turn1})
+          (check 3 "Injected ECONNREFUSED leaves seam open (fd not closed)"
+                 (empty? @closes)
+                 {:closes @closes})
+          (check 3 "Injected ECONNREFUSED retains diagnostic with errno and :receive-error kind"
+                 (and (seq diag)
+                      (= refused-errno (:errno (last diag)))
+                      (= :receive-error (:kind (last diag))))
+                 {:diagnostics diag})
+          (check 3 "Injected ECONNREFUSED allows subsequent turns without closing"
+                 (= {:progressed? false} turn2)
+                 {:turn2 turn2 :calls @calls})
+          ;; Next send is not closed
+          (with-redefs [udp/*sendto* (fn [& _] [1 0])]
+            (check 3 "Injected ECONNREFUSED leaves socket writable (send! succeeds, not closed)"
+                   (= :dao.stream/ok (:dao.stream/outcome ((:send! seam) "127.0.0.1" 40002 (byte-array 1))))
+                   {}))))
+      ;; Subsequent turn after ECONNREFUSED can receive packets when available
+      (let [turn (atom 0)]
+        (binding [udp/*recvfrom* (fn [fd buf cap flags rsa rlenp]
+                                   (if (zero? @turn)
+                                     (do (swap! turn inc)
+                                         (ffi/write rlenp :int 16 0)
+                                         [8 0])
+                                     [-1 udp/EAGAIN]))]
+          (let [turn3 ((:step! seam))]
+            (check 3 "Turn after ECONNREFUSED recovers and receives subsequent packets"
+                   (= {:progressed? true} turn3)
+                   {:turn3 turn3})
+            (check 3 "Seam remains open and unclosed after packet delivery"
+                   (empty? @closes)
+                   {:closes @closes}))))
+      ;; Finally, closing the seam explicitly closes exactly once
+      ((:close! seam))
+      ((:close! seam))
+      (check 3 "Explicit close after ECONNREFUSED closes fd exactly once"
+             (= [123] @closes)
+             {:closes @closes}))))
+
+(fake-host
+  (fn []
+    ;; Genuine descriptor error: EBADF (9) closes exactly once
     (let [r (traffic)
           seam (bind-seam r)
           calls (atom 0)]
       (binding [udp/*recvfrom* (fn [& _] (swap! calls inc) [-1 9])]
         (let [turn1 ((:step! seam))
+              turn2 ((:step! seam))
               evs (events r)]
-          (check 3 "EBADF fatal error closes fd once"
+          (check 3 "Injected EBADF closes fd exactly once"
                  (= [123] @closes)
                  {:closes @closes})
-          (check 3 "EBADF deposits closed event"
+          (check 3 "Injected EBADF deposits closed event"
                  (= :dao.stream.datagram/closed (:dao.stream.datagram/event (last evs)))
                  {:events evs})
-          (check 3 "EBADF retains diagnostic with errno 9"
+          (check 3 "Injected EBADF retains diagnostic with errno 9"
                  (= 9 (:errno (last (udp/diagnostics seam))))
-                 {:diagnostics (udp/diagnostics seam)}))))))
+                 {:diagnostics (udp/diagnostics seam)})
+          (check 3 "Injected EBADF ceases retrying on subsequent turn"
+                 (= 1 @calls)
+                 {:calls @calls :turn2 turn2})
+          ;; Repeated close! is idempotent
+          ((:close! seam))
+          ((:close! seam))
+          (check 3 "Subsequent close! on EBADF-closed seam is idempotent"
+                 (= [123] @closes)
+                 {:closes @closes}))))))
 
 (fake-host
   (fn []
