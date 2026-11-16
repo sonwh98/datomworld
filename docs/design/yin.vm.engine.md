@@ -358,6 +358,16 @@ and the inline round from `ast_walker.cljc`) and is the owner's call.
 jolt is now a first-class host for yin.vm, and the owner has set the wasm route as
 compiling the whole yin.vm stack to C via a Scheme→C compiler (Gambit) and then to
 wasm — superseding the compiled-bodies + Rust-engine-in-guest architecture and the
+native-port phases this document specified. The Gambit route's designed starting point is
+[yin.vm.debruijn.targets.md](./yin.vm.debruijn.targets.md): the
+tail-call-guaranteed family analysis (Gambit/Chez take Direction A direct-style —
+no driver loop, host closures, host tail calls; Gambit's C backend implements
+tail calls and call/cc, SFPW 2018), phase T3 (Scheme direct-style emitter, pure
+subset), and the Gambit/Chez common accepted subset. The owner confirms jolt has
+a portable Clojure runtime written in Scheme running on Gambit, so the route is
+concrete, not a from-scratch port. Residual per-backend work: the native facades
+(BLAKE3, libcrypto, ANTLR C++, sockets) are Chez-FFI and need Gambit-FFI
+equivalents, per the existing facade pattern.
 native-port phases this document specified. All references to `yin.vm.rust.md`
 below are historical. The live boundary doctrine is
 [datom.world.abi.md](./datom.world.abi.md); the wasm stream implementation is

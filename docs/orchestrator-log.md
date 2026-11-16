@@ -14231,3 +14231,16 @@ Survivors of the wasm spec tree: datom.world.abi.md and dao.stream.wasm.md (doct
   adapter implementation, language-neutral), the register contract and its §10 fixtures.
 Next: owner-gated — jolt lane J2b remainder and J5; the wasm lane stays parked with its route
   re-set; no W0/K0 commissioning.
+## 2026-11-17, correction — the Gambit route is concrete and pre-designed
+Owner clarification: "jolt has a portable clojure runtime written in scheme that runs on
+  gambit which we can use to compile to C." This supersedes the retirement entry's flag 1
+  (Chez→C porting concern): the vehicle exists in the fork — the portable Scheme runtime
+  running on Gambit, and Gambit's C backend is the wasm route. Moreover the route is
+  pre-designed: yin.vm.debruijn.targets.md already covers it — the tail-call-guaranteed
+  family (Gambit/Chez take Direction A direct-style: no driver loop, host closures, host
+  tail calls; Gambit's C back end implements tail calls and call/cc per SFPW 2018),
+  phase T3 (Scheme direct-style emitter), and the Gambit/Chez common accepted subset.
+  Residual per-backend work is the native-facade FFI (BLAKE3/libcrypto/ANTLR/sockets:
+  Chez foreign-procedure → Gambit equivalents) per the established facade pattern.
+  Retirement notes in yang.wasm.md, yin.vm.engine.md §E and register.md §10 updated with
+  the pointer. Wasm lane stays parked; the revival rescope starts from targets.md's T3.
