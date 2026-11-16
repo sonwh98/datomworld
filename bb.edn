@@ -72,6 +72,11 @@
    :task (System/exit
            (:exit (shell {:continue true} "sh" "src/dev/jolt_udp_probe.sh")))}
 
+  probe:jolt-udp-failures
+  {:doc "J7 regression probe: native UDP setup failure injection, exception/buffer cleanup, fatal error seam closure, and receive diagnostics (needs bb bootstrap:jolt)"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "src/dev/jolt_udp_failures_probe.sh")))}
+
   probe:jolt-tcp
   {:doc "J6d: the jolt TCP substrate and owner-thread pump (dao.stream.ws.tcp, dao.stream.ws.pump, driver sleep-fds!), one child jolt process per section: closure (no jolt.socket), address (literals/localhost, resolver trap), substrate (port 0, nonblocking accept/connect, EOF vs reset, gone-peer write survives), ordered (A3 short write, drain order, failure), fairness (A1 ii/iv), stdin (A1 i, held partial line), deadline (A2 seam), control (A3 event orders, A4 pong budget, D1 close slot), close (A5, D2, D3), listener (64 cap, lower-deadlines!, drained?); native memory and registry empty after close. Arguments select sections (needs bb bootstrap:jolt)"
    :task (let [sections (or (seq *command-line-args*)

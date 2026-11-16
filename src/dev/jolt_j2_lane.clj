@@ -124,9 +124,9 @@
     :reason "loads dao.stream.http.jvm, the JVM http-kit adapter (b55fdfe1, dao.star Mode 1); jolt has no http-kit, so the namespace cannot load (J4d probe: load failure on org.httpkit.server)"
     :capability "JVM HTTP server (http-kit)" :owner "dao.star"}
    {:ns "yin.repl.shell-session-test" :reason "JVM process corpus runs on JVM lane; bb test:jolt-shell runs both hosts" :capability "JVM subprocess harness" :owner "J3"}
-   {:ns "yin.repl.dht-test" :reason "UDP + durable store fixture" :capability "UDP + durable store" :owner "J7"}
-   {:ns "yin.repl.dht-head-test" :reason "WebSocket + durable store fixture" :capability "WebSocket + durable store" :owner "J6/J7"}
-   {:ns "yin.repl.dht-process-test" :reason "JVM process + UDP fixture" :capability "JVM process + UDP" :owner "J7"}
+   {:ns "yin.repl.dht-test" :reason "J7 slice 1+2 landed; networked DHT peer fixture open per design §§6-7" :capability "UDP + durable store" :owner "J7"}
+   {:ns "yin.repl.dht-head-test" :reason "J7 slice 1+2 landed; WebSocket + DHT fixture open per design §§6-7" :capability "WebSocket + durable store" :owner "J6/J7"}
+   {:ns "yin.repl.dht-process-test" :reason "J7 slice 1+2 landed; multi-process DHT role fixture open per design §§6-7" :capability "JVM process + UDP" :owner "J7"}
    {:ns "yin.repl.serve-connect-wire-test" :reason "JVM WebSocket peers fixture" :capability "JVM WebSocket peers" :owner "J6"}
    {:ns "yin.repl.build-test" :reason "JVM build tool fixture" :capability "JVM build tool" :owner "J8"}
    {:ns "yin.repl.host.jvm-test" :reason "JDK host fixture" :capability "JDK host" :owner "J6"}
@@ -179,19 +179,27 @@
     :owner "J6/J7 (J2b oracle)"}
    {:ns "dao.stream.ws-project-jvm-test"
     :reason "cross-host ws peer suite (JVM)" :capability "ws sockets + peer" :owner "J6/J7 (J2b oracle)"}
-   {:ns "dao.stream.udp-test" :reason "UDP sockets" :capability "udp sockets" :owner "J6/J7"}
-   {:ns "dao.stream.udp-raw-test" :reason "UDP sockets" :capability "udp sockets" :owner "J6/J7"}
+   {:ns "dao.stream.udp-test"
+    :reason "J7 slice 1 landed; portable suite passing on jolt test runner, excluded from J2 core lane pending full J7 acceptance"
+    :capability "udp sockets" :owner "J6/J7"}
+   {:ns "dao.stream.udp-raw-test"
+    :reason "J7 slice 1 landed; portable suite passing on jolt test runner, excluded from J2 core lane pending full J7 acceptance"
+    :capability "udp sockets" :owner "J6/J7"}
    {:ns "dao.stream.datagram.jvm-test"
-    :reason "JVM datagram socket seam" :capability "udp sockets" :owner "J6/J7"}
+    :reason "JVM datagram socket fixture; jolt native UDP host seam landed in slice 1"
+    :capability "udp sockets" :owner "J6/J7"}
    {:ns "dao.stream.datagram.node-test"
-    :reason "Node datagram lane (cljs)" :capability "udp sockets + Node" :owner "J6/J7"}
+    :reason "Node datagram lane (cljs); jolt native UDP host seam landed in slice 1"
+    :capability "udp sockets + Node" :owner "J6/J7"}
    {:ns "dao.stream.datagram.dart-test"
-    :reason "Dart datagram lane (cljd)" :capability "udp sockets + Dart" :owner "J6/J7"}
+    :reason "Dart datagram lane (cljd); jolt native UDP host seam landed in slice 1"
+    :capability "udp sockets + Dart" :owner "J6/J7"}
    {:ns "dao.jing.stream-test"
     :reason "requires dao.stream.transit (missed by the round-1 manifest; found by the round-2 load evidence)"
     :capability "transit codec" :owner "jolt seat (design 9.4 ruling)"}
    {:ns "dao.jing.dht.socket-test"
-    :reason "binds real datagram sockets" :capability "udp sockets" :owner "J6/J7"}
+    :reason "binds real JVM datagram sockets; native jolt process acceptance open per design §§6-7"
+    :capability "udp sockets" :owner "J6/J7"}
    {:ns "yin.vm.ffi.remote-serve-test"
     :reason "the FFI remote serve suite" :capability "FFI-remote" :owner "J7"}
    {:ns "yin.vm.ffi.remote-serve.responder-test"
@@ -202,19 +210,19 @@
     :reason "cross-host transfer over dao.stream.transit + remote peers"
     :capability "transit codec + peer" :owner "J2b + J6/J7"}
    {:ns "dao.space.dht-test"
-    :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
+    :reason "J7 slice 1+2 landed; multi-process network DHT acceptance open per design §§6-7"
     :capability "udp datagram host seam (java.net.DatagramSocket)" :owner "J6/J7"}
    {:ns "yin.vm.linker.dht-test"
-    :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
+    :reason "J7 slice 1+2 landed; multi-process network DHT acceptance open per design §§6-7"
     :capability "udp datagram host seam" :owner "J6/J7"}
    {:ns "yin.vm.linker.dht-end-to-end-test"
-    :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
+    :reason "J7 slice 1+2 landed; multi-process network DHT acceptance open per design §§6-7"
     :capability "udp datagram host seam + yin.repl" :owner "J6/J7 + J3"}
    {:ns "yin.vm.linker.head-board-test"
-    :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
+    :reason "J7 slice 1+2 landed; board fixture requires Transit; CBOR-only process acceptance open per design §§6-7"
     :capability "udp datagram host seam" :owner "J6/J7"}
    {:ns "yin.vm.linker.head-follow-test"
-    :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
+    :reason "J7 slice 1+2 landed; multi-process head follower acceptance open per design §§6-7"
     :capability "udp datagram host seam" :owner "J6/J7"}
    {:ns "dao.stream.ble-test"
     :reason "BLE radio transport tests (dao.stream.ble)"

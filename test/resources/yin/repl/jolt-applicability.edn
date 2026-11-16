@@ -4,29 +4,29 @@
 ;; original body unchanged.
 ;; Namespace exclusions live in src/dev/jolt_j2_lane.clj.
 {:test-exclusions [{:ns "yin.repl.main-test" :test "a-key-file-loads-the-stable-key-or-refuses-startup-with-its-reason"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer/follow acceptance open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "declared-principals-are-strict-hex-and-reach-the-composition"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer/follow acceptance open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "trusted-principals-are-strict-and-apart-from-declared-ones"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer/follow acceptance open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-join-expands-a-token-to-peer-principal-and-follow"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer/follow acceptance open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "a-printed-join-token-is-what-join-parses"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer/follow acceptance open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-follow-of-an-undeclared-principal-refuses-startup"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer/follow acceptance open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-manifest-suspends-following-for-the-run"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer/follow acceptance open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-init-publishes-with-a-key-and-localhost-peer"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer publication open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-serve-fetches-only"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer serving open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "codec-flag-selects-the-served-wire-profile"
                     :reason "J6 Transit capability unavailable in J3" :capability "J6 Transit" :owner "J6"}
                    {:ns "yin.repl.main-test" :test "with-the-dht-store-still-hydrating-a-renewal-and-a-pending-release-are-still-sent-test"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT peer hydration open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.state-test" :test "dht-join-saves-its-follow-and-a-bare-start-resumes-it"
-                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
+                    :reason "J7 slice 1+2 landed; networked DHT follow persistence open per design §§6-7" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "a-dart-client-attaches-to-this-jvm-server"
                     :reason "JVM socket fixture; portable injected endpoints remain active" :capability "JVM WebSocket peers" :owner "J6"}
                    {:ns "yin.repl.main-test" :test "killing-the-connection-is-observable-and-requests-are-lost"
