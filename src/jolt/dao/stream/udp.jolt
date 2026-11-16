@@ -151,29 +151,34 @@
             [fd sock-err] (native/c-socket family SOCK-DGRAM IPPROTO-UDP)]
         (if (neg? fd)
           (failed-seam deposit identity (str "socket failed: errno " sock-err))
-          (let [[r-nb err-nb] (do
-                                (native/close-on-exec! fd)
-                                (native/set-blocking! fd false))]
-            (if (neg? r-nb)
-              (do (native/c-close fd)
-                  (failed-seam deposit identity (str "O_NONBLOCK failed: errno " err-nb)))
-              (do
-                (when (= family native/af-inet6)
-                  (native/set-int-option! fd native/ipproto-ipv6 native/ipv6-v6only 1))
-                (let [[sa len] (native/make-sockaddr family bind-ip bind-port)]
-                  (if-not sa
+          (if-not (native/close-on-exec! fd)
+            (do (native/c-close fd)
+                (failed-seam deposit identity "close-on-exec! failed"))
+            (let [[r-nb err-nb] (native/set-blocking! fd false)]
+              (if (neg? r-nb)
+                (do (native/c-close fd)
+                    (failed-seam deposit identity (str "O_NONBLOCK failed: errno " err-nb)))
+                (let [v6-fail (when (= family native/af-inet6)
+                                (let [[r-v6 err-v6] (native/set-int-option! fd native/ipproto-ipv6 native/ipv6-v6only 1)]
+                                  (when (neg? r-v6)
+                                    (str "IPV6_V6ONLY failed: errno " err-v6))))]
+                  (if v6-fail
                     (do (native/c-close fd)
-                        (failed-seam deposit identity (str "make-sockaddr failed for " bind-ip ":" bind-port)))
-                    (let [[bind-r bind-err] (try
-                                              (native/c-bind fd sa len)
-                                              (finally (ffi/free sa)))]
-                      (if (neg? bind-r)
+                        (failed-seam deposit identity v6-fail))
+                    (let [[sa len] (native/make-sockaddr family bind-ip bind-port)]
+                      (if-not sa
                         (do (native/c-close fd)
-                            (failed-seam deposit identity (str "bind failed: errno " bind-err)))
-                        (let [local (native/local-address fd)]
-                          (if-not local
+                            (failed-seam deposit identity (str "make-sockaddr failed for " bind-ip ":" bind-port)))
+                        (let [[bind-r bind-err] (try
+                                                  (native/c-bind fd sa len)
+                                                  (finally (ffi/free sa)))]
+                          (if (neg? bind-r)
                             (do (native/c-close fd)
-                                (failed-seam deposit identity "getsockname failed"))
+                                (failed-seam deposit identity (str "bind failed: errno " bind-err)))
+                            (let [local (native/local-address fd)]
+                              (if-not local
+                                (do (native/c-close fd)
+                                    (failed-seam deposit identity "getsockname failed"))
                             (let [closed? (atom false)
                                   close-fn
                                   (fn []
