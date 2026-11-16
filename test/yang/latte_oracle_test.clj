@@ -4535,7 +4535,7 @@
                           (catch Exception e (ex-data e)))]
         (when-not (= :site-declarations (:stage mutation))
           (throw (ex-info "Mutated declaration was not refused" {:fixture (:id fixture) :stage :mutation})))
-        {:gate gate :mutation-stage (:stage mutation)
+        {:gate gate :mutation-stage (:stage mutation) :addresses addresses
          :admission-origin (:origin stored-snapshot) :evidence-address (:evidence addresses)
          :rows {:pre-stamp (count (:rows before-tree))
                 :stamped (count (:rows stamped-tree))}
@@ -4615,6 +4615,7 @@
                                           _ (when (seq (:spot-checks checked)) (reset! spot false))
                                           outcome {:status :pass
                                                    :admission-origin (:admission-origin checked)
+                                                   :addresses (:addresses checked)
                                                    :storage-bytes (- (d1-store-bytes store-dir) before-bytes)
                                                    :elapsed-ms (elapsed)
                                                    :rows (:rows checked)

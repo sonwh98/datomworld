@@ -6,6 +6,7 @@
    are run bookkeeping, not a verification result."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [dao.jing :as jing]
             [yin.vm :as vm]))
 
 
@@ -29,10 +30,12 @@
       (throw (outcome-refusal :outcome-status {:fixture fixture :status status})))
     (case status
       :pass (when-not (and (vm/occurrence-origin? (:admission-origin outcome))
-                           (pos-int? (:storage-bytes outcome)))
+                           (nat-int? (:storage-bytes outcome))
+                           (every? #(jing/segment-address? (get-in outcome [:addresses %]))
+                                   [:input :snapshot :evidence :profile :root :stamped-root]))
               (throw (outcome-refusal :pass-evidence
                                       {:fixture fixture
-                                       :requires [:admission-origin :storage-bytes]})))
+                                       :requires [:admission-origin :storage-bytes :addresses]})))
       :refused (when-not (keyword? (:stage outcome))
                  (throw (outcome-refusal :refusal-stage {:fixture fixture}))))
     outcome))
@@ -136,3 +139,38 @@
      :pass (get counts :pass 0)
      :refused (get counts :refused 0)
      :not-run (get counts :not-run 0)}))
+
+(defn corpus-index!
+  "Build an index of retained fixture addresses after checking their direct
+   content and admission coordinates. This is not a recipe or D1 record;
+   it does not verify transitive row closures or executable dependencies."
+  [handle progress]
+  (let [outcomes (:outcomes progress)
+        missing ::missing]
+    (when-not (and (map? outcomes) (pos-int? (:fixture-count progress))
+                   (= (:fixture-count progress) (count outcomes)))
+      (throw (outcome-refusal :corpus-shape {})))
+    {:scope :retained-static-corpus-index
+     :not-a-verification-result true
+     :fixtures
+     (into {}
+           (for [[fixture outcome] outcomes]
+             (do
+               (checked-outcome fixture outcome)
+               (when-not (= :pass (:status outcome))
+                 (throw (outcome-refusal :corpus-incomplete {:fixture fixture})))
+               (let [addresses (:addresses outcome)
+                     content (into {} (map (fn [[role address]]
+                                             [role (jing/get handle address missing)]))
+                                   (select-keys addresses [:input :snapshot :evidence :profile :root :stamped-root]))
+                     input (:input content)
+                     snapshot (:snapshot content)
+                     origin (:admission-origin outcome)]
+                 (when (or (some #{missing} (vals content))
+                           (not= fixture (get-in input [:fixture :id]) (:fixture snapshot))
+                           (not= origin (:admission-origin input) (:origin snapshot))
+                           (not= (:root addresses) (:root snapshot))
+                           (not= (:stamped-root addresses) (:stamped-root snapshot))
+                           (not (contains? (get-in content [:evidence :fixtures]) fixture)))
+                   (throw (outcome-refusal :corpus-content {:fixture fixture})))
+                 [fixture {:admission-origin origin :addresses addresses}]))))}))
