@@ -1,0 +1,18 @@
+muse: workspace root: /Users/sto/workspace/datomworld-b2 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-b2/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. Committed as `03465799` on `feat/p5b2-lifecycle`, not pushed; findings file left uncommitted at [collab/orch-lane/1795150000000-engineer-roundB2.muse-spark-1.3-contributor.findings.md](/Users/sto/workspace/datomworld-b2/collab/orch-lane/1795150000000-engineer-roundB2.muse-spark-1.3-contributor.findings.md).
+
+All four P2 items are in:
+
+- **Request lifecycle**: `run-main` takes the request as its second operand and binds it at initialization; the request flows as a lowering-stage option (`:request` in `option-keys`). The harness postwalk is deleted.
+- **`$_REQUEST` merge**: int keys append, string keys overwrite GET-then-POST, nested arrays recurse; `next-index` is seeded from actual keys so stream-built tables merge safely.
+- **Header/cookie/status**: `http_response_code(x)` returns the previous status, `header()` honors replace + status arg, `setcookie()` retains all options (positional and array forms).
+- **Error triggering**: only the four user levels accepted (else warning + false), unhandled `E_USER_ERROR` is fatal via the root escape, handler stack saves/restores callback and mask.
+
+Gate results: request-context + p5b2 suites pass (79 assertions), prelude + class-model pass (960 assertions), kondo clean. Nine new fixtures are all `:oracle :pending` for the shiva pass. Cljstyle couldn't run here (mise trust blocked by sandbox) — noted for the seat.
+
+Three escalations are in the findings: init-time `raise` answering errors as values, the invalid-level refusal shape needing oracle confirmation, and whether the `:linked` profile should also accept requests.

@@ -1,0 +1,41 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+All local checklist work that can complete has completed; three jobs remain in flight:
+
+- **Done**: Item 1 (binding test, 35 assertions green), Item 2 (43 + 57 tests green), Item 4 (six-cohort digest identity across the port boundary), Item 5 (canonical-invariance green + cross-shape byte identity), kondo clean, depth-evidence spot check.
+- **In flight**: Item 3's concrete-numbers evidence at both shapes (two JVM runs), Item 6's kit run on shiva (python leg, historically ~16 min).
+
+I'll assemble the final findings and report when they land.
+
+All monitors armed and jobs healthy. I'll report when they complete.
+
+Waiting on the three in-flight jobs — nothing further to run until they land.
+
+Waiting for the two remaining jobs (pre-port evidence on laptop, kit run on shiva).
+
+Waiting for the post-port evidence run (~6 min expected now that it runs alone).
+
+Waiting for the evidence namespace run (~6–8 min).
+
+Waiting for the evidence run.
+
+Completed-GMT: 2026-11-13 15:11:53 GMT
+Completed-Local: 2026-11-13 22:11:53 +07
+
+**Round complete: ALL SIX ITEMS PASS — no bijection break, no defect, no relay. Nothing committed, no tracked file modified.** Findings written per protocol (say-so convention, worktree mirror): `collab/yang-clojure/1794519755000-engineer-post-port-oracle-reverify.glm-5.3.findings.md` (193 lines, untracked).
+
+| # | Item | Outcome | Exact counts |
+|---|---|---|---|
+| 1 | The binding test | **PASS** | 1 test, **35 assertions, 0F/0E** (rc=0); both C lanes `:completed` |
+| 2 | cc3 battery + r7 net | **PASS** | callsite **43 tests / 583 assertions, 0F/0E**; index+query **57 tests / 1086 assertions, 0F/0E** |
+| 3 | Bijection under new lowering | **PASS-with-note (legitimate rebind)** | per-lane K sets equal; expected multiset independently recomputed from the post-port compiled tree = semantic/stack/register provenance; evidence ns: 2 sites / 2 bindings, marked 846 = eligible 846, stamped 850 = 846 + 2×2, walker AND semantic both `:completed`, all sites bound, K-set size 2 equal |
+| 4 | Provenance side-artifact integrity | **PASS** | cc4 matrix absent → recompute-and-record at BOTH shapes: 6 cohorts × {canonical CBOR, C1 metadata, provenance, call-provenance, vector} **byte-identical** pre-port `8afd82f5` vs post-port `ba3cc407`; sensitivity probe proves non-vacuity |
+| 5 | Canonical invariance | **PASS** | `-v canonical-invariance-test`: 1 test, 1 assertion, 0F/0E; corroborated cross-shape (roots `-17`, canonical/vector digests unchanged) |
+| 6 | Kit contract on shiva | **PASS** | `yang.call.exception-contract-test` at `origin/master` @ `ba3cc407`: **9 tests, 159 assertions, 0F/0E**; 47 PROVENANCE rows **47 green / 0 red** (the port's green kit state, not the pre-port 87F/21E baseline) |
+
+**The rebind (item 3's "say which"):** the binding *was* re-derived by the port — in **Phase 3r, commit `8456c2e9`**, not Phase 4 (`35d09aaa` touched only `clojure_test.clj`). The stamping wrapper went from three inserted applications per site (`data/nth` outcome-unwrap over `dsg__intra_call` over `conj`) to **two** (`dsg__intra_call` over `conj` — `gate-site!` now returns the argument vector as a plain value); site-id extraction path, correspondence translation (`[3 0]` dropped), coverage accounting (`* 2` per site), and the forgery-mutation geometry moved with it. The binding *contract* (K = [origin root path] from the retained admission record, the refusal rules, the bijection, the independent recomputation) is unchanged and holds. For the same fixture the occurrence count moved 987/981 → 846 (the retired outcome machinery's generated applications) while the 2 oracle sites survived 1:1 — the exact "shape moved, binding still resolves" case. **D1 evidence import should pin ≥ `8456c2e9`** (post-port wrapper shape); pre-port evidence remains valid only for pre-stamp K paths.
+
+**Escalation decision:** not triggered — no bijection break found anywhere, so no relay filed to `collab/exception-track/`.
+
+**Health checks:** kondo on the three port-touched files this round reads — 0 errors, 0 warnings. Depth evidence re-verified from the table (155 rows, max ratio 1.20×, max depth 28). Evidence bundle (all untracked): `verify/digest_cohort.clj`, `test/yang/item3_evidence.clj` (re-runnable), `target/postport/*` digests + the port's binding-machinery diff, shiva log `/tmp/ppkit-1794581084.log` (session `ppkit` killed after; other sessions untouched).
+
+One process disclosure: three of my early evidence-extraction attempts were silently running the full suite before I stopped them (the `-M:test -e` alias-main-opts trap — now recorded in memory with the why); no test result above came from those runs.

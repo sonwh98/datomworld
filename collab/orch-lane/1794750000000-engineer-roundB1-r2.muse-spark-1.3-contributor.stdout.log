@@ -1,0 +1,37 @@
+muse: workspace root: /Users/sto/workspace/datomworld-b1 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-b1/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+muse: retrying model turn in 1000ms (attempt 2/10): transport error [net-reset]: connection dropped mid-stream (meta stream, 193 KiB received, 18s)
+muse: retrying meta model stream in 60000ms (attempt 2/10)
+muse: retrying meta model stream in 60000ms (attempt 2/10)
+Done. All six residuals are fixed and committed as [a0c82c12](https://example.com/commit/a0c82c12) on `feat/roundB1-p9-contracts` (no Co-Authored-By, not pushed), with the findings file left uncommitted at [collab/orch-lane/1794750000000-engineer-roundB1-r2.muse-spark-1.3-contributor.findings.md](/Users/sto/workspace/datomworld-b1/collab/orch-lane/1794750000000-engineer-roundB1-r2.muse-spark-1.3-contributor.findings.md).
+
+What changed, in [prelude_p9.cljc](/Users/sto/workspace/datomworld-b1/src/cljc/yang/php/antlr/prelude_p9.cljc) and [prelude_module.cljc](/Users/sto/workspace/datomworld-b1/src/cljc/yang/php/antlr/prelude_module.cljc):
+
+- P1 nested `json_encode` failure: new `json-encode-value` gate passes a failed child through as `false` instead of concatenating the delimiter onto it, so `[INF]` warns once and answers `false` (throws under `JSON_THROW_ON_ERROR`).
+- `strrpos` negative offsets start from the end and search back (`-2` → 3); out-of-range offsets and empty needles are `ValueError`. The pinned wrong answer at [builtin_surfaces_test.clj:37](/Users/sto/workspace/datomworld-b1/test/yang/php/antlr/builtin_surfaces_test.clj:37) now expects 3.
+- Diff/intersect compare as strings (`array_diff(["1.0"],["1"])` keeps `"1.0"`); unique dispatch is now 0 = loose, 1 = numeric, else string.
+- `array_splice` re-indexes array replacements (string keys dropped) and treats explicit `null` as empty.
+- JSON: `+1` and raw control bytes rejected, `[1]` at depth 1 fails, `json_encode` enforces its depth argument, and flags outside the supported masks are refused with an `Error`.
+- Extract validates mode/prefix (`ValueError`), keeps the `_` separator for empty prefixes, and `PREFIX_ALL` imports numeric keys; `compact(1)` warns and skips. The stale `$p_z` fixture now pins `$p__z`.
+
+Gate: `builtin-surfaces-test` passes on the final formatted tree (3 tests, 158 assertions, 0 failures). The one `prelude-test` failure (string-offset-write known gap) reproduces on the untouched base, so it is pre-existing. Clj-kondo/cljstyle binaries are not installed here, so those gates could not run; this is noted in the findings file.All six architect residuals are fixed, committed, and gated. Complete summary:
+
+**Commit:** [a0c82c12](https://example.com/commit/a0c82c12) `fix(yang.php): the P9 contract residuals from the architect confirm` on `feat/roundB1-p9-contracts` — 4 files, no Co-Authored-By, not pushed. Findings at [collab/orch-lane/1794750000000-engineer-roundB1-r2.muse-spark-1.3-contributor.findings.md](/Users/sto/workspace/datomworld-b1/collab/orch-lane/1794750000000-engineer-roundB1-r2.muse-spark-1.3-contributor.findings.md), left uncommitted.
+
+**Fixes** (in [prelude_p9.cljc](/Users/sto/workspace/datomworld-b1/src/cljc/yang/php/antlr/prelude_p9.cljc) and [prelude_module.cljc](/Users/sto/workspace/datomworld-b1/src/cljc/yang/php/antlr/prelude_module.cljc), regressions in [builtin_surfaces_test.clj](/Users/sto/workspace/datomworld-b1/test/yang/php/antlr/builtin_surfaces_test.clj)):
+
+1. **P1 nested `json_encode` failure** — `json-encode` concatenated the delimiter onto a failed child (`false`), causing the host "data primitive refused" error. New `json-encode-value` gate passes failures through: quiet mode warns once and answers `false`, throw mode throws `JsonException`.
+2. **`strrpos` negative offsets** — negatives now start from the end and search back (`-2` → 3, not 2); out-of-range offsets and empty needles are `ValueError`. The pinned wrong answer at line 37 was corrected 2 → 3.
+3. **Diff/intersect + unique** — new `p9-diff-str-has?` compares string forms (`array_diff(["1.0"],["1"])` keeps `"1.0"`); unique dispatch corrected to 0 = loose, 1 = numeric, else string, so the default call now retains one value.
+4. **`array_splice`** — new `p9-splice-repl` drops string keys from array replacements; explicit `null` means empty replacement.
+5. **JSON grammar/depth/options** — leading `+` rejected, raw control bytes in strings rejected, decode depth counter starts at 1 (`[1]` at depth 1 fails), `json_encode` enforces its depth argument, and unsupported flag bits are refused with an `Error`.
+6. **Extract/compact** — invalid mode, missing prefix, or non-variable-name prefix are `ValueError`; empty prefix keeps the `_` separator (`$_z`); `PREFIX_ALL` imports numeric keys (`$p_0`); `compact(1)` warns and skips. The stale `$p_z` fixture in [programs_p9.cljc](/Users/sto/workspace/datomworld-b1/test/yang/php/antlr/programs_p9.cljc) now pins `$p__z`.
+
+**Gate results:**
+- `builtin-surfaces-test`: 3 tests, 158 assertions, 0 failures — run both before and after the pre-commit formatter's reformat.
+- `prelude-test`: 1 failure (`array-path-assign-test`, string-offset-write known gap) reproduced on the untouched base via `git stash`, so pre-existing and unrelated. `e2e-test` cannot load here (missing generated ANTLR lexer class) — environmental.
+- Kondo/cljstyle: neither binary is installed, and the repo has no `.clj-kondo` config and no lint task in `bb.edn`/`Makefile`/`bin/`, so there is no configured kondo invocation to run. Alternative verification on the committed tree: the repo's own pre-commit formatter ran clean, added lines have no trailing whitespace, all files end in newline, every new helper is defined and referenced, and the suite is green.

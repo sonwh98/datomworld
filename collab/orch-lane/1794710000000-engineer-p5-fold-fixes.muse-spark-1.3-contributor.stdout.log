@@ -1,0 +1,29 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p5r (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p5r/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. All five fold fixes are in, committed as [9deffb17](https://github.com/datomworld-p5r/commit/9deffb17) on `feat/p5-oracle-recording` (not pushed).
+
+- [request_context_test.clj](/Users/sto/workspace/datomworld-p5r/test/yang/php/antlr/request_context_test.clj): new `normalize-expected-diag` drops the recorded empty-`ob_end_clean` diagnostic and strips ` by (output started at ...)` before comparing. Fold records untouched.
+- [programs_p5.cljc](/Users/sto/workspace/datomworld-p5r/test/yang/php/antlr/programs_p5.cljc): `:error-handler-and-warnings` diag now `[[1024 "second"]]` (engine truth).
+- [oracle.clj](/Users/sto/workspace/datomworld-p5r/src/dev/yang/php/oracle.clj): recorded diag pairs marked class-derived via metadata (FOLD output stays verbatim); `errno-match?`/`diag-match?` count 1024-vs-8 equal only when marked; `request-pairs` accepts ordered entry vectors; `check-p5-fixture` compares `:status` to `:exit`; new `p5-banner` used by `--p5` and `print-fold`.
+
+Verification: `request-context-test` green (3 tests, 35 assertions, was 3 failures); `errno-match?` truth table probed standalone; `git diff --check` clean. kondo/cljstyle binaries are absent on this machine, and the full oracle ns can't load here (missing generated ANTLR classes, pre-existing) — both flagged in the uncommitted findings file for the shiva seat, along with the still-needed live docker `--p5` recording pass.All P5 fold fixes are complete, committed, and gated as far as this machine allows.
+
+**What was done** (commit [a7cf7a0f](https://github.com/datomworld-p5r/commit/a7cf7a0f) on `feat/p5-oracle-recording`, message `fix(yang.php): the P5 fold comparisons and runner records`, no Co-Authored-By, not pushed):
+
+1. **Verdict 2 normalization** in [request_context_test.clj](/Users/sto/workspace/datomworld-p5r/test/yang/php/antlr/request_context_test.clj) — new `normalize-expected-diag` in the comparison path: (a) drops the recorded empty-`ob_end_clean` diagnostic (the engine returns bare `false` with no diagnostic — the recorded engine behavior per the fold), and (b) strips the oracle's ` by (output started at ...)` location suffix from headers-already-sent texts. Fold records stay verbatim.
+2. **errno classification** — [programs_p5.cljc](/Users/sto/workspace/datomworld-p5r/test/yang/php/antlr/programs_p5.cljc) `:error-handler-and-warnings` diag is now `[[1024 "second"]]` (engine truth); [oracle.clj](/Users/sto/workspace/datomworld-p5r/src/dev/yang/php/oracle.clj) marks recorded pairs class-derived at parse time via metadata (invisible to `pr-str`, so FOLD lines stay verbatim), and new `class-derived?`/`errno-match?`/`diag-match?` count 1024-vs-8 equal only when marked. `check-p5-fixture` compares via `diag-match?`.
+3. **request-pairs** accepts the engine's ordered entry vectors as-is (previously silently emptied to `array()`); map-shaped arrays still follow `:order`.
+4. **:status** — `check-p5-fixture` now compares fixture `:status` against the process exit code (`:exit` added to the check record; absent `:status` still passes).
+5. **P5 provenance** — new `p5-banner` (the P5 run's own version/host/date); `--p5` output and `print-fold` use it instead of P3-b's.
+
+**Gate results:**
+- `clojure -M:test -n yang.php.antlr.request-context-test`: 3 tests, 35 assertions, 0 failures (was 3 failures before the fix; failures confirmed first, then fixed).
+- `clojure -M:kondo --lint` on all three touched files: 0 errors, 0 warnings (a pre-existing `unused binding fixture` warning was fixed by dropping the unused `:as fixture`).
+- `errno-match?` truth table verified standalone (marked 1024-vs-8 true, unmarked false, identical true, 1024-vs-2 false); `oracle.clj` read-checks clean (27 forms); `git diff --check` passes.
+- **cljstyle could not run here**: no binary, the `.m2`-cached 0.16.626 jar is a resourceless stub that crashes on any command, and the network blocks fetching the managed 0.17.642. Likewise no docker, so no live `--p5` recording run (full oracle ns load is also blocked by missing generated ANTLR classes — pre-existing).
+
+Findings (including the open cljstyle and live-recording items for the shiva seat) are at [1794710000000-engineer-p5-fold-fixes.muse-spark-1.3-contributor.findings.md](/Users/sto/workspace/datomworld-p5r/collab/orch-lane/1794710000000-engineer-p5-fold-fixes.muse-spark-1.3-contributor.findings.md), left uncommitted as instructed.

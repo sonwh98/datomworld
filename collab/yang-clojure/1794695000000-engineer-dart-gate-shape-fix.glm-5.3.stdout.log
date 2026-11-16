@@ -1,0 +1,32 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-11-14 08:17:34 GMT
+Completed-Local: 2026-11-14 15:17:34 +07
+
+**Done.** One file changed — `test/yang/clojure_callsite_test.cljc`, 10+/5−, nothing committed; working tree otherwise clean (4 pre-existing stash entries untouched).
+
+## The change
+
+5 JVM-only deftests converted from `#?(:clj (deftest …))` to `#?(:cljd nil :clj (deftest …))`. Only the two-line gate headers moved; bodies are byte-identical (same column, same paren count).
+
+## One deviation you should review
+
+The dispatch prescribed `:default` as the second branch; I landed `:clj` instead, with measured evidence:
+
+- These 5 deftests were previously **cljs-invisible** (`#?(:clj …)` → no branch on cljs). A `:default` branch exposes the JVM body (`java.io.File.`, `file-seq`, the `link` alias) to the cljs read — changing `:cljs` semantics, which the brief itself says must stay identical. I tested it: with `:default`, kondo's cljs pass reports **2 errors** (`Unresolved symbol: java`, `file-seq`), failing the round's own "0 errors" bar; with `:clj`, findings are identical to HEAD (1 pre-existing warning).
+- Repo precedent for exactly this case (JVM-only, previously `:clj`-gated): `corpus_test.cljc:267`, `int_contract_test.cljc:502/511` — all `#?(:cljd nil :clj …)`. The `:default` shape (`4d0d3e70`, `ws_codec_test.cljc:14`) is for tests that also run on node — true for `repl-query-link-forwarding-test`, false for these five. The `:cljd nil` branch is listed first, so the dart fix holds identically.
+
+If you overrule, it's a 5× two-line mechanical flip — but the kondo bar then fails as measured.
+
+## Disposition of all 14 occurrences
+
+**Converted (5):** the cc3 provenance/fabricated-evidence deftests at HEAD lines 2138, 2187, 2244 (file-store + `java.io.File.` cleanup), 2605, 2743 (`r10-withholding-source` reify + `link/composition` from the `:clj`-only require). They map 1:1 onto the nightly's dangling method names. **Stayed (9):** the requires (14 is a `#?@(:clj` splice, 33), four catch clauses already in portable `:cljd Object` form (111, 271, 2300, 2369), the established gate itself (1809), and three `defn-` helpers (2543/2559/2572 — non-deftests per the rule, callers now all inside gated deftests). No D1 deftests were `:clj`-gated, so nothing else was in scope.
+
+## Verification (all firsthand)
+
+1. **JVM unchanged:** `clojure -M:test -n yang.clojure-callsite-test` → **43 tests / 583 assertions / 0 failures** at HEAD content *and* on the fixed tree (swap-run-restore).
+2. **cljd compile** (the exact step `cljd_agg` runs, flutter 3.47.8 on the child PATH): **"Compilation succeeded"** on the fixed tree, emitted dart keeps the dart-runnable deftests and contains **zero references** to the 5 gated methods. At HEAD, the emitted dart *calls* all 5 while defining none (line 42: `lcoycc_test.repl_packet_provenance_survives_failure_test()` with 0 definitions) — the nightly's "Method not found" mechanism reproduced, then eliminated.
+3. **kondo:** `errors: 0, warnings: 1` (the `yin.repl.query` unused warning, pre-existing at HEAD).
+
+Notes: this worktree was missing the "pre-built" ANTLR outputs — I copied `build/antlr` + `lib/antlr` from the main worktree after diffing the `antlr/` pin trees (nothing tracked changed). The cljd compile ran as a ProcessBuilder child from a temporary probe test-ns (deleted afterwards). The emitted `test/cljd-out` tree and caches are left warm for your flutter-lane confirmation.
+
+**Deliverable:** worktree mirror at `collab/yang-clojure/1794695000000-engineer-dart-gate-shape-fix.glm-5.3.findings.md` (in this worktree — writing under `/Users/sto/workspace/datomworld` is forbidden for this seat), per the dispatch's mirror + say-so option.

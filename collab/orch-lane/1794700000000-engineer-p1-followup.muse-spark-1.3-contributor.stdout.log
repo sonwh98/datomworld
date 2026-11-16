@@ -1,0 +1,12 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p1fix (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p1fix/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. Both follow-ups are fixed in [prelude.cljc](/Users/sto/workspace/datomworld-p1fix/src/cljc/yang/php/antlr/prelude.cljc), committed as `d5f120d0` on `feat/p1-forward-fixes`, not pushed.
+
+- **Shutdown fallback:** the exc2 site now calls `(php/root-fatal (get exc2 :message))`. The old `fesc` was literally out of scope — its lambda closes over the body-exit terminal while the exc2 site sits in the sibling shutdown terminal — so it was a free variable that made `module-spec` refuse the linked module. Base shows `bundled-prelude-is-closed` FAIL + `module-spec` ERROR; both pass after the fix.
+- **Buffer drain:** removed from `php/shutdown!`, now runs once on the run-main exit path after the shutdown escape returns. The reported case yields out `"AS"` with status 3; the operational-fatal path still bypasses the drain (`fatal "boom"`, empty out).
+
+Gate: prelude + finalization + exceptions tests show only the pre-existing `array-path-assign` failure (identical on base); kondo 0 errors; cljstyle not runnable on this laptop. Findings are in the uncommitted [followup file](/Users/sto/workspace/datomworld-p1fix/collab/orch-lane/1794700000000-engineer-p1-followup.muse-spark-1.3-contributor.findings.md).

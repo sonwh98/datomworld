@@ -1,0 +1,48 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+The task is complete. Here is the final report.
+
+---
+
+## Engineer report — depth-probe driver fix
+
+**Outcome: the probe now passes 144/144, but the prompt's hypothesis was wrong — the defect was budget exhaustion, not effect dispatch.**
+
+### What I found (contradicting the prompt)
+
+The prompt hypothesized that the driver "doesn't route through the dispatching step" or "stops at the effect-block state" because it conflates completion with blocking. **That is not what the code does.** The current `step-depth` already applies corrections (a) and (b):
+
+- It steps through `vm/step` — which dispatches synchronous cell effects inline (semantic `vm-hot*` → `run-effect` in the `:host-fn` branch; de Bruijn `step1` → `run-effect`), not a restricted stepper.
+- It checks `vm/halted?` → `engine/halted-with-empty-queue?` (the halt predicate, not `:k` emptiness) and `vm/blocked?` → `:blocked?`.
+
+Empirically, **all 48 `n=16` measurements complete with correct results** (`try-finally`→16, `plain`→120, `caught-failure`→32, `outer-catch`→120). The 13 failing observations are all `:budget-exhausted true, :blocked? false` — the machines are making linear progress and simply run out of the 1M step budget.
+
+### Root cause
+
+The exception-heavy PHP fixtures (`caught-failure`, `try-finally`) do one `throw`/`catch`/`finally` round per source iteration, and the de Bruijn `stack` backend runs ~1.7× more instructions per iteration. Measured ceiling:
+
+| fixture | steps needed (stack backend) |
+|---|---|
+| php `caught-failure` n=256 | **6,783,191** |
+| php `caught-failure` n=64 | 1,738,583 |
+| php `try-finally` n=256 | 1,711,258 |
+| php `outer-catch`/`plain` n=256 | ~1,610,000 |
+| ts/py `caught-failure` n=256 | 1,191,276 – 1,607,442 |
+
+Exactly 13 observations exceed 1M — matching the prompt's expected-result signature ("512", "32640", "128", "256").
+
+### The fix
+
+Raised `step-budget` from `1000000` → `10000000` (with a rewritten docstring recording the ~6.8M ceiling and the stack-backend ~1.7× factor). This is the actual defect: the budget is the probe's non-termination guard, but it was set below the legitimate cost of the heaviest admitted fixture.
+
+### Verification
+
+- `clj -M:test -n yang.call.depth-probe-test` → **Ran 3 tests, 1347 assertions, 0 failures, 0 errors.**
+- All **216 measurement cells complete** (144 constant + 72 recursive), 0 incomplete, 0 budget-exhausted, D(16)=D(64)=D(256) per frontend/backend/variant.
+- Evidence artifact regenerated (`:budget 10000000`, `:dirty-state true` at generation time).
+- Committed `42440574` and pushed `exception-depth-probe` → `origin`.
+- `clj-kondo` is not installed in this environment (`which clj-kondo` → not found, no `.clj-kondo/` config), so the "kondo 0/0" check could not be run; the change is a single `def` value + docstring edit.
+
+Completed-GMT: 2026-11-14 12:20:40 GMT
+Completed-Local: 2026-11-14 12:20:40 +0700
+
+**DRIVER FIXED: 42440574 | matrix: 144/144 green** *(root cause: step-budget exhaustion, not effect dispatch)*

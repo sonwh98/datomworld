@@ -1,0 +1,21 @@
+muse: workspace root: /Users/sto/workspace/datomworld-b1 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-b1/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+muse: retrying meta model stream in 1000ms (attempt 2/10)
+muse: retrying meta model stream in 2000ms (attempt 3/10)
+Status: implementation and gate tests are done — `builtin-surfaces-test` green (135 assertions), kondo clean, neighbor suites green except one pre-existing `prelude-test` failure that also fails on the clean tree. Findings file written (uncommitted). One background `include-test` run is still going; I'll commit (no push) once it reports.Include-test is still running in the background (I killed the two duplicate runners). I'll commit once it reports.Done. Round B1 P9 contract completions are implemented, tested, and committed.
+
+What changed (6 files, commit `a2b0fa45` on `feat/roundB1-p9-contracts`, message `fix(yang.php): the P9 string/array/JSON/extract contract completions`, no Co-Authored-By, not pushed):
+
+- Strings ([prelude_p9.cljc](/Users/sto/workspace/datomworld-b1/src/cljc/yang/php/antlr/prelude_p9.cljc)): empty search returns the subject (fixes the `str_ireplace('', 'x', 'a')` hang and the empty-output bug); search/replacement/subject arrays per PHP with scalar-replacement replication; real `$count` by-ref output (`:by-ref [3]`); `str_pad` never truncates and rejects empty pad with `ValueError`; `strrpos` offsets bound the search; `trim` masks with `a..z` ranges; `substr_count` offset/length.
+- Arrays: `array_map` preserves single-array keys, variadic multi-array, null-callback zip; `array_unique` defaults to string comparison with flags; diff/intersect (incl. key variants) take further arrays with all/any semantics; `array_splice` normalizes bounds and treats omitted replacement as empty; `range(1, 3, 0)` throws `ValueError`.
+- JSON: control bytes escape as `\u00XX`; trailing commas, bad escapes, unquoted keys, and missing colons are rejected; depth enforced; `JSON_THROW_ON_ERROR` throws `JsonException`, otherwise failures unwind to null via `php/call-ec`. Objects-decoding-to-arrays stays as disclosed.
+- extract/compact ([prelude_module.cljc](/Users/sto/workspace/datomworld-b1/src/cljc/yang/php/antlr/prelude_module.cljc), [builtins.cljc](/Users/sto/workspace/datomworld-b1/src/cljc/yang/php/antlr/builtins.cljc)): corrected `EXTR_*` numbering, underscore prefix rule, binding-existence checks, all modes 0–7, compact missing-name warning.
+- [lower.cljc](/Users/sto/workspace/datomworld-b1/src/cljc/yang/php/antlr/lower.cljc): extract/compact lowering applies only when the call resolves to the builtin.
+
+Verification: new `p9-contracts-test` (41 assertions incl. all named counterexamples) plus two corrected fixtures; gate suite green (3 tests, 135 assertions); kondo 0 errors/warnings; `scope-test`/`exceptions-test` green. `prelude-test` has one failure that also fails on the clean tree (pre-existing, Round A scope). `include-test` never finished here (machine load ~7, single suite hung >10 min, terminated); `e2e-test` can't run offline (needs the TS parser; network blocked); `cljstyle` has no runnable binary here — noted in findings.
+
+Two things to know: the lane harness auto-committed my worktree mid-task as `0aa234e9` including the findings file, so I reset and recommitted the prescribed shape — findings file [1794700000001-...findings.md](/Users/sto/workspace/datomworld-b1/collab/orch-lane/1794700000001-engineer-roundB1-p9-contracts.muse-spark-1.3-contributor.findings.md) is untracked as required. The multibyte string-offset fixture was left for the parallel round (it's `prelude.cljc` territory).

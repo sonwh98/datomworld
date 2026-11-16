@@ -1,0 +1,17 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p8 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p8/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. All items from `/tmp/muse-p8-fixes.md` are implemented and committed as `[d6ab0779]` on `feat/p8-legacy-retirement` (not pushed, no Co-Authored-By).
+
+- Provenance: all 6 slow-gap records in [phpt_quick_mismatch_manifest.edn](/Users/sto/workspace/datomworld-p8/test/yang/php/antlr/phpt_quick_mismatch_manifest.edn) carry a one-line `:measured-at` map — `bug40809` points at tree `dbe9e072` / `~/ci/rm-40809-long.log`, the rest at `06cd429f` / `~/ci/rm-phpt-quick.log`. (`bug44069`/`bug63055` have no records left to annotate; both were removed after passing.)
+- (a) `array_unique` defaults to `SORT_STRING` (`['1.0','1']` → `"1.0,1"`); the test pinning loose-equality default is fixed, with explicit `SORT_REGULAR`/`SORT_NUMERIC` pins added.
+- (b) `json_encode` failure answers `false` with no warning; `[1]` at depth 1 fails (container counts as depth level 1, matching the decode side).
+- (c) Scanner keeps `+` in exponents (`1e+2`/`1E+2` → `float(100)`) while rejecting `+1`, `01`, `-01` (plus truncated forms like `1e+`, which the old check wrongly accepted).
+- (d) `EXTR_PREFIX_ONLY_IF_EXISTS` removed; mode 7 is a `ValueError`.
+
+Verification: regressions added first and observed failing (8 failures, each the architect's counterexample), then fixed. Gate green: `builtin-surfaces-test` + `request-context-test` (202 assertions, 0 failures), kondo 0/0. `cljstyle` has no binary or repo task on this laptop, so it wasn't run. Findings are in [1794950000000-engineer-p8-final-items.muse-spark-1.3-contributor.findings.md](/Users/sto/workspace/datomworld-p8/collab/orch-lane/1794950000000-engineer-p8-final-items.muse-spark-1.3-contributor.findings.md) (uncommitted).
+
+Two caveats, both noted in the findings: the cited landing-review log isn't in this checkout (citations taken from the task file; the file:line references match the tree), and at default depth 512 the encode fix allows 511 nesting levels rather than 512 — no PHP binary here to arbitrate that extreme.

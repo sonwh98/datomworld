@@ -1,0 +1,23 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-11-13 20:14:42 GMT
+Completed-Local: 2026-11-14 03:14:42 +07
+
+# D1 continuation r8 — complete: the corpus run, the retention measurement, the bounds draft
+
+## 1. The corpus run — 155/155 through the per-fixture gates
+
+Every one of the 155 kernel-gate fixtures ran through the full r7 static gate — fresh recorded admission → persisted evidence/input/snapshot/both row closures → close → reopen → re-fetch → independent source hash + site declarations + binding reconstruction + C1 marker coverage → per-fixture declaration-mutation refusal. The honest enumeration in `collab/yang-clojure/1794422563000-engineer-d1-correspondence-r8.outcomes.edn` (worktree mirror; SHA-256 `7c2f9a6a…`): **155 `:pass`, 0 `:refused`, 0 `:not-run`**, each entry carrying its admission origin, storage delta, elapsed, row counts, sites, and `:mutation-refusal :site-declarations`. No fixture failed its gate — nothing to attribute this round; the refusal machinery is evidenced instead by the mutation checks (per-fixture declaration mutation on all 155; the five-class battery — `:inputs`, `:source-hash`, `:site-declarations`, `:bindings`, `:metadata` — refusing at exactly its own stage on real fixture data). r7's two known-good fixtures stayed green; cross-check: 20,805 total sites = r2's independent inventory.
+
+Batched and interruption-safe by construction: batch 1 was killed at the 10-minute background limit (17 recorded) and its resume stopped (14 more) to fix a real scaling problem — per-fixture store close/reopen replays the whole content log (136 s/fixture at ~140 MB). The remaining 124 ran at one handle per batch invocation (cross-process reopen per batch — a stronger durability check). Recovery lost nothing: Σ per-fixture deltas = final store bytes exactly.
+
+## 2. Retention measurement — 734,451,961 B (700.4 MiB)
+
+The proposed `slice9_correspondence_store/content.jing` for the **full corpus** measures **734,451,961 B** (per-fixture max 17,903,978 B; no HEAD manifest — a published artifact adds one). Number + proposal only, as instructed: owner decision open, nothing committed, measurement store deleted after recording.
+
+## 3. Bounds-declaration draft — `collab/yang-clojure/1794671000001-d1-bounds-declaration-draft.md`
+
+cc3 v2 format: pin table (revision, diff hash, corpus/evidence/outcomes hashes, host/JVM), retained-object set, ceilings from measured maxima with headroom (24 MB / 1 GB / 20k rows / 700 sites / 300 s), exact procedure, maximum-based pass/fail. DRAFT ONLY — no run performed under it; heap and all lane quantities explicitly NOT declared (r9 must measure before its tagged run).
+
+## Verification
+
+Red-first throughout (batch namespace, driver, both initially failing). clj-kondo (via a ProcessBuilder child-process lane — direct `-M:kondo` is permission-gated here) caught one real defect: an odd-arity `assoc` making every refusal path throw the wrong exception, masked by `thrown? Exception` asserts — fixed. Final: kondo 0/0, battery **57 tests / 700 assertions** green, both r7 deftests green, scratch machinery deftest 16 assertions green. Full oracle suite and tagged lanes not run. **Nothing committed** — deliverables are the r8 findings, the complete outcomes file, and the declaration draft, all in the worktree collab mirror (say-so: mirror only, not promoted to canonical collab).

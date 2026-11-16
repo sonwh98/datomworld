@@ -1,0 +1,18 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p8 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p8/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. Committed `094ca161` on `feat/p8-legacy-retirement`, not pushed; findings left uncommitted.
+
+What changed (4 files):
+
+- [phpt manifest](test/yang/php/antlr/phpt_quick_mismatch_manifest.edn): `internal.phpt` added to `:named-parameter-binding`, counts 3→4 and total 95→96, description added. Engine result derived locally via `run-raw`: `Error: Named arguments are not supported for this function`, so it's a genuine fail in the right family. Seat confirms on shiva.
+- [packets.cljc](test/yang/php/antlr/packets.cljc): `:string-offset-write` packet regenerated from the new double-quoted source with the live `parse-source` path; verified byte-equal (`live == recorded`).
+- Portable string-offset: no portable-path gap. The stale packet replayed the old program (no `echo` → `""`). Same `php/string-assign` serves both paths; after the packet fix the portable run gives `"cb"`. No prelude change.
+- [prelude.cljc](src/cljc/yang/php/antlr/prelude.cljc): `ob_get_clean` on an empty buffer now returns `false` silently (repo's own 8.3.35 oracle records `[]`); `ob_end_clean`/`ob_end_flush` still warn. [request-context test](test/yang/php/antlr/request_context_test.clj): removed the stale fold that stripped the recorded `ob_end_clean` notice.
+
+Gate: touched namespaces green — 12 tests, 1312 assertions, 0 failures. `cljstyle` clean, `kondo` 0/0. `e2e` not run (forbidden; also unloadable here — missing generated parsers, no network). Its two assertions were verified by equivalent scripts.
+
+Two caveats for the seat: no rebase was possible (`git fetch origin` fails from this laptop), and the `internal.phpt` engine result is laptop-derived, pending the shiva pass. Both are in the [findings file](collab/orch-lane/1795090000000-engineer-p8-reconcile.muse-spark-1.3-contributor.findings.md) with the shiva gate list.

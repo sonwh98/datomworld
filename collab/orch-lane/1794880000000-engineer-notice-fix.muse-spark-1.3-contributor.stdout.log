@@ -1,0 +1,15 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p8 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p8/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+muse: Skills: 38 loaded · 1 warning
+muse:   `skills_catalog` was trimmed to fit its size limit (32 KB): 1 descriptions compacted, 0 skill ids omitted
+muse:   Run `muse skills list --source all` for full diagnostics.
+Done. The ruled empty-buffer notice is implemented and committed.
+
+- [prelude.cljc](/Users/sto/workspace/datomworld-p8/src/cljc/yang/php/antlr/prelude.cljc): `php/bi-ob-end-clean`, `php/bi-ob-get-clean`, and `php/bi-ob-end-flush` no-buffer arms each emit `php/warn` errno 8 with their function-matching message and return `false`. The get-clean/end-flush arms now check buffer depth directly, since `ob_get_contents()` is correctly silent on no buffer. `ob_get_contents()` itself left unchanged.
+- [programs_p5.cljc](/Users/sto/workspace/datomworld-p8/test/yang/php/antlr/programs_p5.cljc): `:output-buffer-flush` fixture gains `:diag [[8 "ob_end_clean(): Failed to delete buffer. No buffer to delete"]]` — it is the regression test.
+- No test-side suppression existed in the test or harness, so nothing to remove.
+
+Verification: `request-context-test` passes (3 tests, 35 assertions); kondo 0 errors/warnings; cljstyle clean. Committed as `004dfb44` on `feat/p8-legacy-retirement` with the exact message, no co-author, not pushed. Findings written to the `1794880000000-engineer-notice-fix` file, left uncommitted.
+
+One environment note: the generated PHP parser classes were absent at first, so I ran the `:antlr-gen` codegen (its trailing network step fails in this sandbox, but the classes completed and tests pass). A direct REPL probe of the fixture hits an unrelated missing Python3 generated parser; the fixture test's exact diag-equality assertion covers the emission instead.

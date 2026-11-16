@@ -1,0 +1,10 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p5r (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p5r/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+Done. Committed `982232ef` on `feat/p5-oracle-recording`, no push, no Co-Authored-By.
+
+- [Extended oracle](src/dev/yang/php/oracle.clj): `p5-prologue` generates the `auto_prepend_file` prologue from each fixture `:request` record, mirroring `php/bind-request!` — `$_GET`/`$_POST`/`$_COOKIE` from query/body/cookies, `$_SERVER` with `REQUEST_METHOD`/`REQUEST_URI` appended, `$_ENV`, `$_FILES`, `$_REQUEST = array_merge($_GET, $_POST)`. `--p5` runs only P5 fixtures and prints one `FOLD <id> {:oracle :out :diag :uncaught}` line per fixture in the P4 `pin` shape; `--print-prologue [id]` is the docker-free dry run.
+- Self-check: dry-run prologue for `:superglobals-from-request` hand-verified — its values in fixture echo order concatenate exactly to the fixture `:out`. `yang.php.antlr.request-context-test` green (3 tests, 35 assertions). Escaping edge case (quotes/backslashes, nils) probed OK. kondo/cljstyle binaries are absent here, so that gate is unverified — noted in the findings file for shiva.
+- [SEAT instructions](collab/orch-lane/1794560000000-engineer-p5-oracle-record.findings.md): ssh/run command (`timeout 300 clojure -M:dev:test -m yang.php.oracle --p5`, `php:8.3-cli`), what to paste back, fold rule.
+
+Two things to flag: I committed the findings file too (the commit covers the whole extension); say the word if you want it uncommitted instead. And `p5/fixtures` holds 8 fixtures, not 9 — the file notes the names so the seat can confirm which set to record.

@@ -1,0 +1,10 @@
+muse: workspace root: /Users/sto/workspace/datomworld-p8 (cwd default)
+muse: workspace trust: trusted source=run-flag
+muse: warning: rules file at /Users/sto/workspace/datomworld-p8/CLAUDE.md is ignored this session because AGENTS.md takes precedence in that directory; merge still-applicable guidance into AGENTS.md or remove one of the two files
+Done. The manifest is repaired and committed as [2e5f7f2f](https://github.com/org/repo/commit/2e5f7f2f) on `feat/p8-legacy-retirement` (manifest only; not pushed).
+
+- **bug64660**: selection entry has `:expectf`, no `:expect` — gap `:oracle-expect` set to `nil`, real oracle shape kept in a new `:oracle-expectf` key.
+- **bug63055**: added 8th slow gap record (`:undefined-builtin`, oracle `"okey"`, engine result and `Implement str_replace().` work item per the brief).
+- **Quick manifest**: removed the 7 departed ids present in the file from entries and descriptions; `:counts` recomputed (`:total 95`, `:unsupported 57`, zend 61 — the old 70 was stale vs 67 actual entries). All via EDN round-trip; parse re-validated.
+
+Per the hard constraint, no e2e/slow tests were run — the shiva run decides. Findings (uncommitted) are in [collab/orch-lane/1794410000000-engineer-p8-manifest-repair.muse-spark-1.3.findings.md](/Users/sto/workspace/datomworld-p8/collab/orch-lane/1794410000000-engineer-p8-manifest-repair.muse-spark-1.3.findings.md), flagging one off-by-one for the seat: this yields families `{other 63, total 95}` vs the nightly note's `{other 64, total 96}` (3 of the ~10 departed ids were already absent; suspect a `bug79836`/`bug79836_1` mix-up). cljstyle/kondo binaries aren't installed here and no repo lint config covers `.edn`, so no lint gate was runnable.
