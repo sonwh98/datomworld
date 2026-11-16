@@ -2,7 +2,7 @@
        :date #inst "2026-11-15T00:00:00.000-00:00"
        :abstract
        [:p
-        "The Tao Architecture is a post-von Neumann distributed computing model built on four axioms: streams carry data, interpreters create semantics, code and state are datoms, and continuations make computation mobile. One global computer means that participating devices compose through explicit data and portable execution contracts. The model is designed to extend from future RISC-V boards running a theoretical Tao Kernel to GPU-backed hosts, with locality, authority, and execution costs exposed as data."]
+        "The Tao Architecture is a post-von Neumann distributed computing model inspired by ant stigmergy and built on four axioms: streams carry data, interpreters create semantics, code and state are datoms, and continuations make computation mobile. One global computer means that participating devices compose through explicit data and portable execution contracts. The model is designed to extend from future RISC-V boards running a theoretical Tao Kernel to GPU-backed hosts, with locality, authority, and execution costs exposed as data."]
        :content
        [:section.blog-article
         [:div.section-inner
@@ -11,18 +11,52 @@
           :$blog-date
 
           [:p
-           "The traditional von Neumann architecture does not fit today's computing infrastructure needs. "
-           "Built around a single active processor reading and overwriting a flat, passive memory space across a shared bus, the von Neumann model breaks down when workloads span heterogeneous machines, multi-die packages, and wide-area networks. "
+           "The traditional "
+           [:a {:href "https://en.wikipedia.org/wiki/Von_Neumann_architecture"} "von Neumann architecture"]
+           " does not fit today's computing infrastructure needs. "
+           "As a practical hardware reification of the "
+           [:a {:href "https://en.wikipedia.org/wiki/Universal_Turing_machine"} "Universal Turing Machine"]
+           ", it is built around a single active processor reading and overwriting a flat, passive memory space across a shared bus. "
+           "That single-head, single-tape model breaks down when workloads span heterogeneous machines, multi-die packages, and wide-area networks. "
            "Modern infrastructure is defined by non-uniform memory access, bandwidth walls, asynchronous failures, and distinct trust boundaries, where maintaining global mutable coherence and dragging large datasets across buses or oceans becomes the primary bottleneck."]
+
+          [:p
+           "If global mutable coherence is the wrong foundation for a distributed substrate, what can replace it? "
+           "The initial inspiration for the Tao Architecture came from biology rather than computer hardware: "
+           [:a {:href "https://en.wikipedia.org/wiki/Stigmergy"} [:strong "ant stigmergy"]]
+           "."]
+
+          [:p
+           "In an ant colony, no central planner assigns routes, and ants do not maintain a shared mutable ledger or coordinate through point-to-point messages. "
+           "Instead, an ant acts locally and leaves a persistent trace (a pheromone trail) in a shared physical environment. "
+           "Reading that trace does not consume it. Other passing ants sense the local chemical gradient, interpret it according to their own role and state, and respond by following the trail, reinforcing it, or branching off to forage elsewhere. "
+           "A hive mind emerges indirectly from simple agents interacting through traces left in a shared medium."]
 
           [:p
            "The "
            [:strong "Tao Architecture"]
-           ", the post-von Neumann software, OS, and distributed execution model underlying Datom.world, replaces in-place mutable memory and fixed processor-to-memory buses with append-only streams, immutable datoms, mobile continuations, and decoupled interpreters. "
+           ", the post-von Neumann software, OS, and distributed execution model underlying Datom.world, translates this stigmergic principle into computing infrastructure. "
+           "It replaces in-place mutable memory and fixed processor-to-memory buses with append-only streams, immutable datoms, mobile continuations, and decoupled interpreters. "
            "While today's implementations still execute on von Neumann hardware (and use local mutable structures between stream boundaries for speed), the architecture demotes that hardware to local execution backends beneath a post-von Neumann distributed substrate."]
 
           [:p
-           "One global computer means that participating devices, from future RISC-V boards running a theoretical Tao Kernel to edge nodes, servers, and accelerators, compose through explicit data and portable execution contracts. "
+           "Every core element of Tao maps directly to a role in stigmergic coordination:"]
+          [:ul.bulleted
+           [:li
+            [:strong "The shared environment is " [:code "dao.stream"] " and " [:code "dao.space"] ". "]
+            "Just as terrain holds pheromone trails without caring which ant reads them, an append-only stream preserves facts without knowing who will consume them. Independent readers advance their own cursors; reading never destroys another observer's input."]
+           [:li
+            [:strong "The pheromone traces are immutable datoms. "]
+            "Facts, expressed as 5-tuple datoms " [:code "[e a v t m]"] " covering program syntax, projected execution state, locality metrics, leases, and capability grants, persist in the medium for any authorized observer to inspect."]
+           [:li
+            [:strong "The ants are decoupled interpreters. "]
+            [:code "dao.space.index"] " materializes queryable views, " [:code "Yin.VM"] " evaluates program datoms, lowering backends specialize hot regions, " [:code "Shibi"] " evaluates authority and metering, and placement policies weigh locality, all reacting to the same shared stream without needing to know each other exists."]
+           [:li
+            [:strong "Trail reinforcement is telemetry-driven placement and mobile continuations. "]
+            "As hosts emit latency, bandwidth, cache-warmth, and capacity observations as datoms, placement interpreters steer resumable " [:code "Yin.VM"] " continuations toward their data and away from congested or failing links, much as a colony reinforces efficient paths and abandons depleted ones."]]
+
+          [:p
+           "Through this stigmergic substrate, one global computer means that participating devices, from future RISC-V boards running a theoretical Tao Kernel to edge nodes, servers, and accelerators, compose through explicit data and portable execution contracts. "
            "The shared software layer exposes the different capabilities, locality, authority, and costs of each participating node as data, while independent failures and trust boundaries are governed by explicit contracts."]
 
           [:h2 "1. The Tao Architecture: Axioms and Primitives"]
@@ -86,8 +120,23 @@
 
           [:h3 "Axiom 4: Everything is a Continuation (Making Execution Portable)"]
           [:p
+           "Where von Neumann hardware reifies the Turing machine's single head mutating a flat tape, "
            [:strong "Yin.VM"]
-           " makes resumable computation explicit as state: control, environment, store, and continuation. Backends can use native execution structures between safe points and expose a portable representation at the boundaries. "
+           " follows a different lineage: the "
+           [:a {:href "https://en.wikipedia.org/wiki/CEK_Machine"} [:strong "CESK machine"]]
+           ", an abstract-machine operational semantics for the lambda calculus rather than a tape machine. "
+           "While equivalent in theoretical computability, CESK factors execution into four explicit, structured values instead of an opaque call stack and raw memory addresses: "
+           [:strong "Control"]
+           " (the current AST node or instruction), "
+           [:strong "Environment"]
+           " (lexical variable bindings), "
+           [:strong "Store"]
+           " (allocated state), and "
+           [:strong "Continuation"]
+           " (the explicit rest of the computation). "
+           "Yin.VM takes this model a step further by projecting those four components as immutable datoms and stream-compatible values rather than confining them to one process's mutable memory."]
+          [:p
+           "Backends can still use native execution structures between safe points and expose a portable representation at the boundaries. "
            "The architectural consequence is that resumable state need not remain tied to an OS thread. Cross-host resumption additionally requires portable dependencies, compatible execution semantics, admitted resources, and an explicit custody handoff. Host-local functions and resources cannot acquire portability merely by being referenced in a continuation. "
            "This supplies the basis for data gravity: a placement interpreter can move compatible computation toward its inputs when the expected savings exceed checkpoint, transfer, and recovery costs."]
           [:p
@@ -228,7 +277,7 @@
            ".)"]
 
           [:p
-           "Tao applies this principle by making dependencies and locality visible: streams preserve the inputs an interpreter observes; datoms expose code and state for inspection; continuations make compatible execution movable. Coordination is introduced where an application's invariants require it, with its scope and authority explicit."]
+           "Tao applies this principle by turning ant stigmergy into a systems substrate and making dependencies and locality visible: streams preserve the inputs an interpreter observes; datoms expose code and state for inspection; continuations make compatible execution movable. Just as an ant colony achieves global coordination without a central commander by letting individuals respond to local traces in the environment, coordination in Tao is introduced only where an application's invariants require it, with its scope and authority explicit."]
 
           [:p
            "The four axioms establish a common representation and composition model. Interpreters supply placement, authorization, indexing, and execution semantics; explicit contracts and measurements establish how a deployment behaves. "
