@@ -107,6 +107,19 @@
            (stage {:store store} 'guest address)))))
 
 
+(deftest trailing-hook-requires-deferred-initialization
+  (let [safe (module/module-tree [(u/def! 'spec (u/lit {}))
+                                  (u/def! 'body (u/lam [] (u/lit 1)))
+                                  (module/require-node 'php)])
+        eager (module/module-tree [(u/def! 'body (u/app (u/v 'guest)))
+                                   (module/require-node 'php)])]
+    (is (#'siteset/deferred-module? safe))
+    (is (not (#'siteset/deferred-module? eager)))
+    (is (not (#'siteset/deferred-module?
+               (module/module-tree [(u/def! 'body (u/lam [] (u/lit nil)))
+                                    (module/require-node 'other)]))))))
+
+
 (deftest stage-publishes-derived-closure-and-record
   (let [store (mem/create-content-mem)
         registry (vm-module/default-registry)
@@ -115,7 +128,7 @@
                 :primitives (module/free-primitives :test/error :test/undeclared
                                                     registry (set (keys requires)) ast)})
         hook (publish/publish-module! store (spec 'php.sp (u/lit nil) {}))
-        child-ast (u/lit 1)
+        child-ast (vary-meta (u/lit 1) assoc :yang/site [:line 1 {:ticks 1}])
         child (publish/publish-module! store (spec 'bundle child-ast {}))
         alias-ast (module/module-tree [(module/require-node 'bundle)])
         alias (publish/publish-module! store
@@ -126,7 +139,9 @@
         datoms (siteset/entry-datoms
                  [(siteset/signed-entry key (:address child) (:record-address child-sites))
                   (siteset/signed-entry key (:address alias) (:record-address alias-sites))])
-        stage (siteset/stage registry {:hooks true, :hooks-profile {},
+        stage (siteset/stage registry {:hooks true,
+                                       :hooks-profile {:line {:hook 'php.sp/line,
+                                                              :operands true, :after true}},
                                        :php-sp (:address hook)} {})
         result (stage {:store store, :datoms datoms, :principals [(:public key)]}
                       'alias (:address alias))
@@ -135,7 +150,9 @@
         record (jing/get store (:derivation result) nil)]
     (is (= :ok (:status result)))
     (is (not= (:address child) child-address))
-    (is (= (:address hook) (get-in derived [:yin.module/requires 'php.sp])))
+    (is (= (:address hook) (get-in (jing/get store child-address nil)
+                                   [:yin.module/requires 'php.sp])))
+    (is (not (contains? (:yin.module/requires derived) 'php.sp)))
     (is (= (:yin.module/tree derived) (:yin.ledger/output record)))
     (is (= (:set-address alias-sites)
            (get-in record [:yin.ledger/profile :yang.site/published-set])))))

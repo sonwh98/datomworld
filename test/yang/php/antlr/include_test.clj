@@ -5,13 +5,19 @@
    constant folding, namespace block rules and the two missing stages have
    focused tests."
   (:require
+    [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [clojure.walk :as walk]
+    [dao.jing :as jing]
+    [yang.core.module :as module]
+    [yang.core.uast :as u]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.linked-harness :as lh]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.programs-p6 :as p6]
     [yang.php.antlr.publication :as publication]
+    [yang.php.antlr.siteset :as siteset]
     [yin.vm :as vm]))
 
 
@@ -45,10 +51,89 @@
                          {:values {}}))]]
     (testing (name id)
       (is (not= :banner oracle))
+      (is (= (set (keys lh/backends)) (set (keys (:values r)))) (str (name id) " backends"))
       (doseq [[k v] (:values r)]
         (is (= [out (vec diag) uncaught] (observed v)) (str (name id) " on " k)))
       (when warnings
         (is (= warnings (mapv :yang.php/diagnostic (:warnings r))) (name id))))))
+
+
+(deftest ^:slow mutual-include-ticks-on-every-vm-test
+  (let [base (some #(when (= :inc-mutual-once (:id %)) %) p6/enabled)]
+    (doseq [[label fixture expected-sites]
+            [[:inactive base 0]
+             [:active (update base :units
+                              (fn [units]
+                                (reduce (fn [m path]
+                                          (update m path #(str/replace-first
+                                                            % "<?php" "<?php declare(ticks=1);")))
+                                        units ["a.php" "b.php"]))) 6]]]
+      (testing (name label)
+        (let [units (parse-units fixture)
+              specs (lower/scc-module-specs (lh/registry)
+                                            (mapv (fn [p] {:name p :packet (get units p)})
+                                                  ["a.php" "b.php"])
+                                            (:address @lh/published) {})
+              bundle (:ast (first specs))
+              result (run fixture)]
+          (is (= [(lower/path-module-symbol "a.php") (lower/path-module-symbol "b.php")]
+                 (mapv :name (rest specs))))
+          (is (= expected-sites (count (:set (siteset/site-set-of bundle)))))
+          (is (#'siteset/deferred-module? (vm/semantic-bytecode->ast
+                                             (vm/ast->semantic-bytecode bundle))))
+          (is (= (set (keys lh/backends)) (set (keys (:values result)))))
+          (doseq [[backend value] (:values result)]
+            (println "mutual-include" label backend (pr-str (observed value)))
+            (is (= ["ab" [] nil] (observed value)) (str backend))))))))
+
+
+(deftest ^:slow cyclic-module-initialization-does-not-run-bodies-test
+  (let [units (mapv (fn [[name source]] {:name name, :packet (cst/parse-source source)})
+                    [["a.php" "<?php declare(ticks=1); echo 'a'; include_once 'b.php';"]
+                     ["b.php" "<?php declare(ticks=1); echo 'b'; include_once 'a.php';"]])
+        result (lh/publish-units! units)
+        bundle (first (keys (:bundles result)))
+        ast (module/require-node bundle)
+        source (lh/source (lh/name-env result) result)]
+    (is (= :ok (:status result)))
+    (is (= 1 (count (:bundles result))))
+    (doseq [address (vals (:addresses result))]
+      (is (= (get (:bundles result) bundle)
+             (get-in (jing/get (:store @lh/published) address nil)
+                     [:yin.module/requires bundle]))))
+    (doseq [backend (keys lh/backends)]
+      (let [task (lh/run-linked backend ast source)]
+        (println "cyclic-init" backend (pr-str (vm/value task)))
+        (is (= bundle (vm/value task)) (str backend))))))
+
+
+(deftest ^:slow cyclic-init-with-registered-tick-handler-test
+  (let [units (mapv (fn [[name source]] {:name name, :packet (cst/parse-source source)})
+                    [["a.php" "<?php declare(ticks=1); echo 'a'; include_once 'b.php';"]
+                     ["b.php" "<?php declare(ticks=1); echo 'b'; include_once 'a.php';"]])
+        result (lh/publish-units! units)
+        bundle (first (keys (:bundles result)))
+        source (lh/source (lh/name-env result) result)
+        main (:ast (lower/lower-program
+                     (cst/parse-source "<?php function tick_handler() { echo 'T'; } register_tick_function('tick_handler'); echo 'M';")
+                     {:prelude :linked}))
+        insertions (atom 0)
+        main (walk/postwalk
+               (fn [node]
+                 (if (and (map? node) (= 'php/echo (get-in node [:operator :name]))
+                          (= "M" (get-in node [:operands 0 :operands 0 :value])))
+                   (do (swap! insertions inc) (u/then (module/require-node bundle) node))
+                   node)) main)
+        ast (u/mark-tails (u/seq-nodes [(module/require-node 'yang.call)
+                                        (module/require-node 'php)
+                                        (module/require-node 'php.sp)
+                                        main]))]
+    (is (= :ok (:status result)))
+    (is (= 1 @insertions))
+    (doseq [backend (keys lh/backends)]
+      (let [value (vm/value (lh/run-linked backend ast source))]
+        (println "cyclic-init-with-handler" backend (pr-str (observed value)))
+        (is (= ["M" [] nil] (observed value)) (str backend))))))
 
 
 (deftest unit-path-rules-test
