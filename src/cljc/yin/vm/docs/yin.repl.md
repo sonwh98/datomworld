@@ -1,13 +1,59 @@
 # yin.repl: Quick Start & User Guide
 
 `yin.repl` is the primary user interface into datom.world. It is a cross-host
-shell (JVM, Node, and Dart) that evaluates code on `yin.vm`, serves and
+shell (JVM, Node, Dart, and Jolt) that evaluates code on `yin.vm`, serves and
 connects to remote shells over WebSockets, and composes with `dao.jing.dht` to
 publish and load modules by signed name over a distributed hash table (DHT).
+The same CLI, flags and index-store schemes work on every host; only the
+launch command differs (section 1.1).
 
 ---
 
 ## 1. Quick Start: Launching the REPL
+
+### Launch on each host
+
+The engine, flags and `--index-store` schemes are identical on all four hosts;
+each host differs only in how the shell starts.
+
+**JVM** (the reference host; every flag is exercised here first):
+
+```bash
+clj -M:clj-yin-repl
+```
+
+**Node** (a self-contained `node-script` build; the first build needs the
+generated JS parser, which `bb build:yin-repl-node` produces):
+
+```bash
+bb build:yin-repl-node     # compiles the shadow-cljs :yin-repl build
+node target/yin-repl.js --index-store mem
+```
+
+**Dart** (ClojureDart compiles the shell to a Dart script):
+
+```bash
+clj -M:clojuredart:cljd-yin-repl-build    # emits build/yin-repl/yin_repl.dart
+dart run build/yin-repl/yin_repl.dart --index-store mem
+```
+
+**Jolt** (the native Chez host; the bootstrap materializes the pinned jolt and
+its stdlib — run it once per checkout, then always launch through
+`build/tools/jolt-env.sh` so `$JOLT_HOME/bin` leads PATH; a system/Homebrew
+jolt lacks the J6-era stdlib modules):
+
+```bash
+bb bootstrap:jolt
+. build/tools/jolt-env.sh
+export PATH="$JOLT_HOME/bin:$PATH"
+jolt -Srepro -M:jolt:jolt-yin-repl --index-store mem
+```
+
+Per-host store status for `--index-store`: `mem` everywhere; `file:<dir>` on
+JVM, Node, Dart and Jolt (J4+); `dht:<dir>` on JVM, Node, Dart, and on Jolt
+since the J7 slices 1-2 (2026-11-15; the sections 6-7 process/interop gate of
+yin.repl-jolt-implementation.md §10.1 remains open). `--help` works on every
+host.
 
 ### Local In-Memory REPL
 Start an interactive prompt on the JVM with an in-memory index store:
