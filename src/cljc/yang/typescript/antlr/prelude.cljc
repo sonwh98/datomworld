@@ -4321,17 +4321,7 @@
 
 (defn- definitions->uast
   [defs]
-  ;; A linear `then` chain adds two tree levels per definition and can
-  ;; overflow the host printer's stack. Balance the sequence, preserving
-  ;; left-to-right effects and the last definition's value.
-  (letfn [(sequence-tree
-            [nodes]
-            (if (<= (count nodes) 1)
-              (first nodes)
-              (let [middle (quot (count nodes) 2)]
-                (u/then (sequence-tree (subvec nodes 0 middle))
-                        (sequence-tree (subvec nodes middle))))))]
-    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
+  (core/balanced-definitions->uast defs))
 
 
 (def functions-uast

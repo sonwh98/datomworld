@@ -360,7 +360,7 @@
 
 (defn- definitions->uast
   [defs]
-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
+  (core/definitions->uast defs))
 
 
 (def uast

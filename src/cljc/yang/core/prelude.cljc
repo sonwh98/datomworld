@@ -175,3 +175,24 @@
                       (refusal refusal-ns "host-names"
                                {(keyword refusal-ns "missing") missing}))))
     registry))
+
+
+(defn balanced-definitions->uast
+  "Balanced definition-to-UAST emission: each [key form] pair maps to
+   u/def! and the vector splits at its midpoint, halving sequential depth
+   versus the linear u/seq-nodes chain. The tree shape is content-addressed:
+   empty input answers nil, and callers choose balanced versus linear
+   deliberately - never migrate between the two for style."
+  [defs]
+  (letfn [(sequence-tree [nodes]
+            (if (<= (count nodes) 1)
+              (first nodes)
+              (let [middle (quot (count nodes) 2)]
+                (u/then (sequence-tree (subvec nodes 0 middle))
+                        (sequence-tree (subvec nodes middle))))))]
+    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
+
+
+(defn definitions->uast
+  [defs]
+  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
