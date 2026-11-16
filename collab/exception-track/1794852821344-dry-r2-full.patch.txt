@@ -1,0 +1,540 @@
+diff --git a/src/cljc/yang/core/lower.cljc b/src/cljc/yang/core/lower.cljc
+index f5d8b096..32e8f30f 100644
+--- a/src/cljc/yang/core/lower.cljc
++++ b/src/cljc/yang/core/lower.cljc
+@@ -97,3 +97,15 @@
+                      (and (not (contains? stop (:rule k)))
+                           (contains-rule? ctx k rule-name stop)))))
+           (kids ctx n))))
++
++
++(defn code-point->str
++  [cp]
++  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
++     :clj (String. (Character/toChars (int cp)))
++     :cljs (.fromCodePoint js/String cp)))
++
++
++(defn build-vector
++  [vconj elems]
++  (reduce (fn [acc e] (app* vconj acc e)) (u/lit []) elems))
+diff --git a/src/cljc/yang/core/prelude.cljc b/src/cljc/yang/core/prelude.cljc
+index ee928753..c2085d49 100644
+--- a/src/cljc/yang/core/prelude.cljc
++++ b/src/cljc/yang/core/prelude.cljc
+@@ -175,3 +175,19 @@
+                       (refusal refusal-ns "host-names"
+                                {(keyword refusal-ns "missing") missing}))))
+     registry))
++
++
++(defn balanced-definitions->uast
++  [defs]
++  (letfn [(sequence-tree [nodes]
++            (if (<= (count nodes) 1)
++              (first nodes)
++              (let [middle (quot (count nodes) 2)]
++                (u/then (sequence-tree (subvec nodes 0 middle))
++                        (sequence-tree (subvec nodes middle))))))]
++    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
++
++
++(defn definitions->uast
++  [defs]
++  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
+diff --git a/src/cljc/yang/core/siteset_publication.cljc b/src/cljc/yang/core/siteset_publication.cljc
+new file mode 100644
+index 00000000..be123967
+--- /dev/null
++++ b/src/cljc/yang/core/siteset_publication.cljc
+@@ -0,0 +1,31 @@
++(ns yang.core.siteset-publication
++  "Shared signed site publication operations."
++  (:require [yin.vm.linker.sign :as sign]))
++
++
++(defn signed-entry
++  "Sign the association between a published manifest and its site record."
++  [key manifest record-address]
++  (let [env {:yang.site/op :publish,
++             :yang.site/manifest manifest,
++             :yang.site/record record-address,
++             :yin.module/asserted-by (sign/principal (:public key))}]
++    {:envelope env, :proof (sign/sign-envelope (:seed key) env)}))
++
++
++(defn entry-datoms
++  "Index signed site publications alongside name assertions."
++  [signed]
++  (vec (mapcat (fn [e {:keys [envelope proof]}]
++                 [[e :yang.site/envelope envelope]
++                  [e :yang.site/proof proof]])
++               (range) signed)))
++
++
++(defn signed-entries
++  "Sign all site publications returned by unit publication, including aliases."
++  [publisher sites addresses bundles]
++  (mapv (fn [[k s]]
++          (signed-entry publisher (or (get addresses k) (get bundles k))
++                        (:record-address s)))
++        (sort-by (comp str key) sites)))
+diff --git a/src/cljc/yang/core/siteset_store.cljc b/src/cljc/yang/core/siteset_store.cljc
+new file mode 100644
+index 00000000..9a02e7b3
+--- /dev/null
++++ b/src/cljc/yang/core/siteset_store.cljc
+@@ -0,0 +1,67 @@
++(ns yang.core.siteset-store
++  "Shared tree loading and buffered store operations."
++  (:require [yin.vm :as vm]))
++
++
++(defn load-tree
++  "The canonical row set `{:root :rows}` of the tree at `root` in `handle`,
++   every row fetched by its address, depth-first: `{:status :missing
++   :address a}` for the first row the handle does not hold, nil when a row
++   is not its address or no tree row."
++  [read-at absent? handle root]
++  (loop [todo [root]
++         rows {}]
++    (if-let [id (peek todo)]
++      (if (contains? rows id)
++        (recur (pop todo) rows)
++        (let [body (read-at handle id)
++              slots (when (vector? body)
++                      (get vm/semantic-bytecode-grammar (first body)))]
++          (cond
++            (absent? body) {:status :missing, :address id}
++            slots (recur (into (pop todo)
++                               (mapcat (fn [[_ kind] v]
++                                         (case kind
++                                           :node [v]
++                                           :nodes v
++                                           nil))
++                                       slots
++                                       (rest body)))
++                         (assoc rows id (into [id] body)))
++            :else nil)))
++      {:root root, :rows rows})))
++
++
++(defn overlay
++  "A write-buffering handle over `base`: reads see the buffer first, then
++   `base`; puts land in the buffer only, in put order. `flush!` writes the
++   buffer to `base`; dropping the overlay writes nothing."
++  [base]
++  (let [buf (atom {:bytes {}, :order []})
++        sentinel #?(:cljs (js-obj)
++                    :default (Object.))]
++    {:handle (assoc base
++                    :get-bytes-fn (fn [address not-found]
++                                    (let [bs (get-in @buf [:bytes address])]
++                                      (if (nil? bs)
++                                        ((:get-bytes-fn base) address not-found)
++                                        bs)))
++                    :put-bytes-fn (fn [address bs]
++                                    (if (or (contains? (:bytes @buf) address)
++                                            (let [existing ((:get-bytes-fn base)
++                                                            address
++                                                            sentinel)]
++                                              (and (some? existing)
++                                                   (not (identical? sentinel
++                                                                    existing)))))
++                                      :present
++                                      (do (swap! buf (fn [b]
++                                                       (-> b
++                                                           (assoc-in [:bytes address]
++                                                                     bs)
++                                                           (update :order conj
++                                                                   address))))
++                                          :inserted))))
++     :flush! (fn []
++               (let [{:keys [bytes order]} @buf]
++                 (doseq [a order] ((:put-bytes-fn base) a (get bytes a)))))}))
+diff --git a/src/cljc/yang/php/antlr/prelude.cljc b/src/cljc/yang/php/antlr/prelude.cljc
+index dbe4a374..6bf95677 100644
+--- a/src/cljc/yang/php/antlr/prelude.cljc
++++ b/src/cljc/yang/php/antlr/prelude.cljc
+@@ -6205,18 +6205,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  ;; A linear `then` chain adds two tree levels per definition; at this
+-  ;; prelude's size the bundled tree runs ~900 deep and overflows the Dart
+-  ;; stack in the recursive tree walkers. Balance the sequence, preserving
+-  ;; left-to-right effects and the last definition's value.
+-  (letfn [(sequence-tree
+-            [nodes]
+-            (if (<= (count nodes) 1)
+-              (first nodes)
+-              (let [middle (quot (count nodes) 2)]
+-                (u/then (sequence-tree (subvec nodes 0 middle))
+-                        (sequence-tree (subvec nodes middle))))))]
+-    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
++  (core/balanced-definitions->uast defs))
+ 
+ 
+ (def functions-uast
+diff --git a/src/cljc/yang/php/antlr/safepoint.cljc b/src/cljc/yang/php/antlr/safepoint.cljc
+index b769b2e7..835e9588 100644
+--- a/src/cljc/yang/php/antlr/safepoint.cljc
++++ b/src/cljc/yang/php/antlr/safepoint.cljc
+@@ -4,6 +4,7 @@
+    operational fatal, not a guest Throwable."
+   (:require
+     [yang.core.uast :as u]
++    [yang.core.prelude :as core-prelude]
+     [yang.core.module :as module]))
+ 
+ 
+@@ -39,7 +40,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
++  (core-prelude/definitions->uast defs))
+ 
+ 
+ (defn program
+diff --git a/src/cljc/yang/php/antlr/siteset.cljc b/src/cljc/yang/php/antlr/siteset.cljc
+index 3717f8a3..4b6f993b 100644
+--- a/src/cljc/yang/php/antlr/siteset.cljc
++++ b/src/cljc/yang/php/antlr/siteset.cljc
+@@ -2,6 +2,8 @@
+   "Publication of PHP occurrence marks beside canonical module rows."
+   (:require
+     [dao.jing :as jing]
++    [yang.core.siteset-store :as store]
++    [yang.core.siteset-publication :as publication]
+     [yang.safepoint :as safepoint]
+     [yang.core.module :as core-module]
+     [yang.core.uast :as u]
+@@ -81,20 +83,13 @@
+ (defn signed-entry
+   "Sign the association between a published manifest and its site record."
+   [key manifest record-address]
+-  (let [env {:yang.site/op :publish,
+-             :yang.site/manifest manifest,
+-             :yang.site/record record-address,
+-             :yin.module/asserted-by (sign/principal (:public key))}]
+-    {:envelope env, :proof (sign/sign-envelope (:seed key) env)}))
++  (publication/signed-entry key manifest record-address))
+ 
+ 
+ (defn entry-datoms
+   "Index signed site publications alongside name assertions."
+   [signed]
+-  (vec (mapcat (fn [e {:keys [envelope proof]}]
+-                 [[e :yang.site/envelope envelope]
+-                  [e :yang.site/proof proof]])
+-               (range) signed)))
++  (publication/entry-datoms signed))
+ 
+ 
+ (defn discover
+@@ -125,10 +120,7 @@
+ (defn signed-entries
+   "Sign all site publications returned by unit publication, including aliases."
+   [publisher sites addresses bundles]
+-  (mapv (fn [[k s]]
+-          (signed-entry publisher (or (get addresses k) (get bundles k))
+-                        (:record-address s)))
+-        (sort-by (comp str key) sites)))
++  (publication/signed-entries publisher sites addresses bundles))
+ 
+ 
+ (defn derive-verified
+@@ -164,67 +156,11 @@
+ 
+ 
+ (defn- load-tree
+-  "The canonical row set `{:root :rows}` of the tree at `root` in `handle`,
+-   every row fetched by its address, depth-first: `{:status :missing
+-   :address a}` for the first row the handle does not hold, nil when a row
+-   is not its address or no tree row."
+   [handle root]
+-  (loop [todo [root]
+-         rows {}]
+-    (if-let [id (peek todo)]
+-      (if (contains? rows id)
+-        (recur (pop todo) rows)
+-        (let [body (read-at handle id)
+-              slots (when (vector? body)
+-                      (get vm/semantic-bytecode-grammar (first body)))]
+-          (cond
+-            (absent? body) (missing id)
+-            slots (recur (into (pop todo)
+-                               (mapcat (fn [[_ kind] v]
+-                                         (case kind
+-                                           :node [v]
+-                                           :nodes v
+-                                           nil))
+-                                       slots
+-                                       (rest body)))
+-                         (assoc rows id (into [id] body)))
+-            :else nil)))
+-      {:root root, :rows rows})))
+-
+-
+-(defn- overlay
+-  "A write-buffering handle over `base`: reads see the buffer first, then
+-   `base`; puts land in the buffer only, in put order. `flush!` writes the
+-   buffer to `base`; dropping the overlay writes nothing."
+-  [base]
+-  (let [buf (atom {:bytes {}, :order []})
+-        sentinel #?(:cljs (js-obj)
+-                    :default (Object.))]
+-    {:handle (assoc base
+-                    :get-bytes-fn (fn [address not-found]
+-                                    (let [bs (get-in @buf [:bytes address])]
+-                                      (if (nil? bs)
+-                                        ((:get-bytes-fn base) address not-found)
+-                                        bs)))
+-                    :put-bytes-fn (fn [address bs]
+-                                    (if (or (contains? (:bytes @buf) address)
+-                                            (let [existing ((:get-bytes-fn base)
+-                                                            address
+-                                                            sentinel)]
+-                                              (and (some? existing)
+-                                                   (not (identical? sentinel
+-                                                                    existing)))))
+-                                      :present
+-                                      (do (swap! buf (fn [b]
+-                                                       (-> b
+-                                                           (assoc-in [:bytes address]
+-                                                                     bs)
+-                                                           (update :order conj
+-                                                                   address))))
+-                                          :inserted))))
+-     :flush! (fn []
+-               (let [{:keys [bytes order]} @buf]
+-                 (doseq [a order] ((:put-bytes-fn base) a (get bytes a)))))}))
++  (store/load-tree read-at absent? handle root))
++
++
++(def ^:private overlay store/overlay)
+ 
+ 
+ (defn- stage-refusal
+diff --git a/src/cljc/yang/python/antlr/lower.cljc b/src/cljc/yang/python/antlr/lower.cljc
+index 42858ca6..c4503b71 100644
+--- a/src/cljc/yang/python/antlr/lower.cljc
++++ b/src/cljc/yang/python/antlr/lower.cljc
+@@ -233,7 +233,7 @@
+ 
+ (defn- build-vector
+   [elems]
+-  (reduce (fn [acc e] (app* 'py/vconj acc e)) (u/lit []) elems))
++  (core/build-vector 'py/vconj elems))
+ 
+ 
+ (defn- truthy
+@@ -341,11 +341,7 @@
+       :else (int-literal ctx n text))))
+ 
+ 
+-(defn- code-point->str
+-  [cp]
+-  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
+-     :clj (String. (Character/toChars (int cp)))
+-     :cljs (.fromCodePoint js/String cp)))
++(def ^:private code-point->str core/code-point->str)
+ 
+ 
+ (defn- escape-value
+diff --git a/src/cljc/yang/python/antlr/safepoint.cljc b/src/cljc/yang/python/antlr/safepoint.cljc
+index 716e67d7..4b96161d 100644
+--- a/src/cljc/yang/python/antlr/safepoint.cljc
++++ b/src/cljc/yang/python/antlr/safepoint.cljc
+@@ -360,7 +360,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
++  (core/definitions->uast defs))
+ 
+ 
+ (def uast
+diff --git a/src/cljc/yang/python/antlr/siteset.cljc b/src/cljc/yang/python/antlr/siteset.cljc
+index 45ce752a..0a4e56cb 100644
+--- a/src/cljc/yang/python/antlr/siteset.cljc
++++ b/src/cljc/yang/python/antlr/siteset.cljc
+@@ -30,6 +30,8 @@
+    and publishes it beside its `:derive` record. An explicitly noninterruptible profile imports the module
+    as published, with none."
+   (:require [dao.jing :as jing]
++            [yang.core.siteset-store :as store]
++            [yang.core.siteset-publication :as publication]
+             [yang.python.antlr.lower :as lower]
+             [yang.safepoint :as safepoint]
+             [yin.vm :as vm]
+@@ -147,20 +149,13 @@
+    module at `manifest`: what the index carries so a reader discovers the
+    record from the published code."
+   [key manifest record-address]
+-  (let [env {:yang.site/op :publish,
+-             :yang.site/manifest manifest,
+-             :yang.site/record record-address,
+-             :yin.module/asserted-by (sign/principal (:public key))}]
+-    {:envelope env, :proof (sign/sign-envelope (:seed key) env)}))
++  (publication/signed-entry key manifest record-address))
+ 
+ 
+ (defn entry-datoms
+   "The index datoms of the signed entries `signed`, entity ids from 0."
+   [signed]
+-  (vec (mapcat (fn [e {:keys [envelope proof]}]
+-                 [[e :yang.site/envelope envelope]
+-                  [e :yang.site/proof proof]])
+-               (range) signed)))
++  (publication/entry-datoms signed))
+ 
+ 
+ (defn discover
+@@ -308,32 +303,8 @@
+ ;; =============================================================================
+ 
+ (defn- load-tree
+-  "The canonical row set `{:root :rows}` of the tree at `root` in `handle`,
+-   every row fetched by its address, depth-first: `{:status :missing
+-   :address a}` for the first row the handle does not hold, nil when a row
+-   is not its address or no tree row."
+   [handle root]
+-  (loop [todo [root]
+-         rows {}]
+-    (if-let [id (peek todo)]
+-      (if (contains? rows id)
+-        (recur (pop todo) rows)
+-        (let [body (read-at handle id)
+-              slots (when (vector? body)
+-                      (get vm/semantic-bytecode-grammar (first body)))]
+-          (cond
+-            (absent? body) (missing id)
+-            slots (recur (into (pop todo)
+-                               (mapcat (fn [[_ kind] v]
+-                                         (case kind
+-                                           :node [v]
+-                                           :nodes v
+-                                           nil))
+-                                       slots
+-                                       (rest body)))
+-                         (assoc rows id (into [id] body)))
+-            :else nil)))
+-      {:root root, :rows rows})))
++  (store/load-tree read-at absent? handle root))
+ 
+ 
+ (defn- derive-module
+@@ -456,39 +427,7 @@
+                                          (:address out))))))))))
+ 
+ 
+-(defn- overlay
+-  "A write-buffering handle over `base`: reads see the buffer first, then
+-   `base`; puts land in the buffer only, in put order. `flush!` writes the
+-   buffer to `base`; dropping the overlay writes nothing."
+-  [base]
+-  (let [buf (atom {:bytes {}, :order []})
+-        sentinel #?(:cljs (js-obj)
+-                    :default (Object.))]
+-    {:handle (assoc base
+-                    :get-bytes-fn (fn [address not-found]
+-                                    (let [bs (get-in @buf [:bytes address])]
+-                                      (if (nil? bs)
+-                                        ((:get-bytes-fn base) address not-found)
+-                                        bs)))
+-                    :put-bytes-fn (fn [address bs]
+-                                    (if (or (contains? (:bytes @buf) address)
+-                                            (let [existing ((:get-bytes-fn base)
+-                                                            address
+-                                                            sentinel)]
+-                                              (and (some? existing)
+-                                                   (not (identical? sentinel
+-                                                                    existing)))))
+-                                      :present
+-                                      (do (swap! buf (fn [b]
+-                                                       (-> b
+-                                                           (assoc-in [:bytes address]
+-                                                                     bs)
+-                                                           (update :order conj
+-                                                                   address))))
+-                                          :inserted))))
+-     :flush! (fn []
+-               (let [{:keys [bytes order]} @buf]
+-                 (doseq [a order] ((:put-bytes-fn base) a (get bytes a)))))}))
++(def ^:private overlay store/overlay)
+ 
+ 
+ (def reasons
+@@ -546,7 +485,4 @@
+    same transaction (`entry-datoms`); a module with no entry is refused
+    by every hook-profile reader."
+   [publisher sites addresses bundles]
+-  (mapv (fn [[k s]]
+-          (signed-entry publisher (or (get addresses k) (get bundles k))
+-                        (:record-address s)))
+-        (sort-by (comp str key) sites)))
++  (publication/signed-entries publisher sites addresses bundles))
+diff --git a/src/cljc/yang/typescript/antlr/lower.cljc b/src/cljc/yang/typescript/antlr/lower.cljc
+index 273e0417..ca85f523 100644
+--- a/src/cljc/yang/typescript/antlr/lower.cljc
++++ b/src/cljc/yang/typescript/antlr/lower.cljc
+@@ -178,7 +178,7 @@
+ 
+ (defn- build-vector
+   [elems]
+-  (reduce (fn [acc e] (app* 'js/vconj acc e)) (u/lit []) elems))
++  (core/build-vector 'js/vconj elems))
+ 
+ 
+ (defn- seq-of
+@@ -242,11 +242,7 @@
+ ;; Literals
+ ;; =============================================================================
+ 
+-(defn- code-point->str
+-  [cp]
+-  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
+-     :clj (String. (Character/toChars (int cp)))
+-     :cljs (.fromCodePoint js/String cp)))
++(def ^:private code-point->str core/code-point->str)
+ 
+ 
+ (defn- text-units
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index bcd56675..e8e44bf3 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -4321,17 +4321,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  ;; A linear `then` chain adds two tree levels per definition and can
+-  ;; overflow the host printer's stack. Balance the sequence, preserving
+-  ;; left-to-right effects and the last definition's value.
+-  (letfn [(sequence-tree
+-            [nodes]
+-            (if (<= (count nodes) 1)
+-              (first nodes)
+-              (let [middle (quot (count nodes) 2)]
+-                (u/then (sequence-tree (subvec nodes 0 middle))
+-                        (sequence-tree (subvec nodes middle))))))]
+-    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
++  (core/balanced-definitions->uast defs))
+ 
+ 
+ (def functions-uast
+diff --git a/src/cljc/yang/typescript/antlr/safepoint.cljc b/src/cljc/yang/typescript/antlr/safepoint.cljc
+index 7e889fd4..9182e80f 100644
+--- a/src/cljc/yang/typescript/antlr/safepoint.cljc
++++ b/src/cljc/yang/typescript/antlr/safepoint.cljc
+@@ -118,7 +118,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
++  (core/definitions->uast defs))
+ 
+ 
+ (def uast
