@@ -1604,10 +1604,11 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | subprotocol only  |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J7: UDP and DHT                             | Integrate the J0b | §8.4; J0b regressions retained; would-block/ENOBUFS is transport-error plus send-failed; no `full`, |
-| not started                                 | transport;        | no hidden retries. If deferred, network parity stays incomplete.                                    |
-|                                             | datagram contract |                                                                                                     |
-|                                             | and DHT/linker    |                                                                                                     |
-|                                             | composition       |                                                                                                     |
+| slices 1-2 landed (2026-11-15);            | transport;        | no hidden retries. Landed on jolt: the native UDP datagram seam (dao.stream.udp over                 |
+| sections 6-7 gate OPEN                      | datagram contract | jolt.socket.native, failure pairs verified by injection probes 83/83) and the dht: index-store       |
+|                                             | and DHT/linker    | composition on jolt (the solo smoke boots, evaluates, publishes; JVM parity green). OPEN: the       |
+|                                             | composition       | sections 6-7 process/interop gate (production-seam socket tests, DHT process roles, cross-host      |
+|                                             |                   | interop evidence) -- recorded open, not closed.                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J8: repo lane qualification                 | All-task, changed | Full supported fast/all/slow suites green; reviewed host-only applicability list; every entry path  |
 | not started                                 | and subsystem     | and J1-J7 gate on both platforms; existing three lanes green; same shared kit, no overlays/stubs,   |
