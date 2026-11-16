@@ -1346,13 +1346,13 @@
 
 
 (defn- fresh-value?
-  "True when expression `e` is syntactically a literal or constant, so the
-   value it answers is not another holder's (no ADDREF needed)."
+  "True when expression `e` is an uncounted literal or constant. Arrays are
+   registered as temporaries, so a holder must acquire its own reference."
   [ctx e]
   (let [ks (core/kids ctx e)]
     (and (= 1 (count ks))
          (p/rule? (first ks))
-         (contains? #{"constant" "string" "arrayCreation"} (:rule (first ks))))))
+         (contains? #{"constant" "string"} (:rule (first ks))))))
 
 
 (defn- acquired
