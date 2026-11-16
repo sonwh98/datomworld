@@ -40,6 +40,13 @@
   ([port budget] (common/port-step! port budget)))
 
 
+(defn diagnostics
+  "Access the instance-owned diagnostics of a datagram seam."
+  [seam]
+  (when-let [d (:diagnostics seam)]
+    (if (fn? d) (d) @d)))
+
+
 (deftype UdpHandle
   [port host dest-port descriptor]
 
@@ -73,9 +80,9 @@
 (def consts
   (case platform
     :macos {:sock-dgram 2 :ipproto-udp 17 :so-sndbuf 0x1001 :so-rcvbuf 0x1002
-            :eagain 35 :emsgsize 40 :enobufs 55 :ebadf 9}
+            :eagain 35 :emsgsize 40 :enobufs 55 :ebadf 9 :eintr 4}
     :linux {:sock-dgram 2 :ipproto-udp 17 :so-sndbuf 7 :so-rcvbuf 8
-            :eagain 11 :emsgsize 90 :enobufs 105 :ebadf 9}
+            :eagain 11 :emsgsize 90 :enobufs 105 :ebadf 9 :eintr 4}
     (throw (ex-info "dao.stream.udp: unsupported platform" {:platform platform}))))
 
 (def SOCK-DGRAM (:sock-dgram consts))
@@ -84,6 +91,7 @@
 (def ENOBUFS (:enobufs consts))
 (def EMSGSIZE (:emsgsize consts))
 (def EBADF (:ebadf consts))
+(def EINTR (:eintr consts))
 
 (ffi/defcfn c-sendto "sendto" [:int :pointer :size_t :int :pointer :uint] :ssize_t
             {:capture-native-error true})
@@ -126,11 +134,14 @@
 (defn- failed-seam
   [deposit identity reason]
   (deposit-event! deposit (datagram/bind-failed-event identity reason))
-  {:send! (fn [_ _ _]
-            {:dao.stream/outcome :dao.stream/transport-error
-             :dao.stream.datagram/reason "bind failed"})
-   :close! (fn [] nil)
-   :step! (fn [] {:progressed? false})})
+  (let [diagnostics (atom [{:kind :bind-failed :reason reason}])]
+    {:send! (fn [_ _ _]
+              {:dao.stream/outcome :dao.stream/transport-error
+               :dao.stream.datagram/reason "bind failed"})
+     :close! (fn [] nil)
+     :step! (fn [] {:progressed? false})
+     :diagnostics diagnostics
+     :diagnostic (fn [] (last @diagnostics))}))
 
 
 ;; =============================================================================
@@ -141,7 +152,7 @@
   "Bind one native datagram socket per the seam contract (§3).
    `:bind-host` defaults to '127.0.0.1', `:bind-port` to 0 (ephemeral),
    `:max-bytes` to 1200.
-   Returns {:send! f :close! f :step! f}."
+   Returns {:send! f :close! f :step! f :diagnostics a :diagnostic f}."
   [{:keys [identity deposit bind-host bind-port max-bytes]
     :or {bind-host "127.0.0.1" bind-port 0}}]
   (let [max-bytes (long (or max-bytes datagram/default-max-bytes))
@@ -161,34 +172,41 @@
                               (native/c-close fd)))]
             (try
               (if-not (native/close-on-exec! fd)
-                (do (close-fd!)
-                    (failed-seam deposit identity "close-on-exec! failed"))
+                (do
+                  (close-fd!)
+                  (failed-seam deposit identity "close-on-exec! failed"))
                 (let [[r-nb err-nb] (native/set-blocking! fd false)]
                   (if (neg? r-nb)
-                    (do (close-fd!)
-                        (failed-seam deposit identity (str "O_NONBLOCK failed: errno " err-nb)))
+                    (do
+                      (close-fd!)
+                      (failed-seam deposit identity (str "O_NONBLOCK failed: errno " err-nb)))
                     (let [v6-fail (when (= family native/af-inet6)
                                     (let [[r-v6 err-v6] (native/set-int-option! fd native/ipproto-ipv6 native/ipv6-v6only 1)]
                                       (when (neg? r-v6)
                                         (str "IPV6_V6ONLY failed: errno " err-v6))))]
                       (if v6-fail
-                        (do (close-fd!)
-                            (failed-seam deposit identity v6-fail))
+                        (do
+                          (close-fd!)
+                          (failed-seam deposit identity v6-fail))
                         (let [[sa len] (native/make-sockaddr family bind-ip bind-port)]
                           (if-not sa
-                            (do (close-fd!)
-                                (failed-seam deposit identity (str "make-sockaddr failed for " bind-ip ":" bind-port)))
+                            (do
+                              (close-fd!)
+                              (failed-seam deposit identity (str "make-sockaddr failed for " bind-ip ":" bind-port)))
                             (let [[bind-r bind-err] (try
                                                       (native/c-bind fd sa len)
                                                       (finally (ffi/free sa)))]
                               (if (neg? bind-r)
-                                (do (close-fd!)
-                                    (failed-seam deposit identity (str "bind failed: errno " bind-err)))
+                                (do
+                                  (close-fd!)
+                                  (failed-seam deposit identity (str "bind failed: errno " bind-err)))
                                 (let [local (native/local-address fd)]
                                   (if-not local
-                                    (do (close-fd!)
-                                        (failed-seam deposit identity "getsockname failed"))
-                                    (let [close-fn
+                                    (do
+                                      (close-fd!)
+                                      (failed-seam deposit identity "getsockname failed"))
+                                    (let [diagnostics (atom [])
+                                          close-fn
                                           (fn []
                                             (when (compare-and-set! closed? false true)
                                               (try (poller/cancel! fd) (catch Throwable _ nil))
@@ -252,40 +270,58 @@
                                                     (try
                                                       (let [progressed? (volatile! false)]
                                                         (loop [budget 64]
-                                                          (if (pos? budget)
-                                                            (do
-                                                              (ffi/write rlenp :int native/sockaddr-storage-size 0)
-                                                              (let [[n e] (*recvfrom* fd buf cap 0 rsa rlenp)]
+                                                          (when (pos? budget)
+                                                            (ffi/write rlenp :int native/sockaddr-storage-size 0)
+                                                            (let [[n e] (*recvfrom* fd buf cap 0 rsa rlenp)]
+                                                              (cond
+                                                                (neg? n)
                                                                 (cond
-                                                                  (neg? n)
-                                                                  (when-not (or (= e EAGAIN) (= e ENOBUFS))
-                                                                    (when (= e EBADF)
-                                                                      (close-fn)))
+                                                                  ;; would-block: silent
+                                                                  (or (= e EAGAIN) (= e ENOBUFS))
+                                                                  nil
 
+                                                                  ;; interruption: recoverable, no retry inside turn
+                                                                  (= e EINTR)
+                                                                  (swap! diagnostics conj
+                                                                         {:kind :interrupted
+                                                                          :errno e
+                                                                          :reason (str "recvfrom interrupted: errno " e)})
+
+                                                                  ;; fatal descriptor error: close seam once
                                                                   :else
                                                                   (do
-                                                                    (vreset! progressed? true)
-                                                                    (if (> n max-bytes)
-                                                                      ;; Oversize drop
-                                                                      (recur (dec budget))
-                                                                      (let [bs (if (zero? n)
-                                                                                 (bytes/alloc 0)
-                                                                                 (ffi/read-array buf n))
-                                                                            src-ip (native/sockaddr-ip rsa)
-                                                                            src-port (native/sockaddr-port rsa)]
-                                                                        (deposit-event! deposit
-                                                                                        (datagram/datagram-event identity src-ip src-port bs))
-                                                                        (recur (dec budget))))))))
-                                                            nil))
+                                                                    (swap! diagnostics conj
+                                                                           {:kind :fatal-descriptor-error
+                                                                            :errno e
+                                                                            :reason (str "recvfrom fatal error: errno " e)})
+                                                                    (close-fn)))
+
+                                                                :else
+                                                                (do
+                                                                  (vreset! progressed? true)
+                                                                  (if (> n max-bytes)
+                                                                    ;; Oversize drop
+                                                                    (recur (dec budget))
+                                                                    (let [bs (if (zero? n)
+                                                                               (bytes/alloc 0)
+                                                                               (ffi/read-array buf n))
+                                                                          src-ip (native/sockaddr-ip rsa)
+                                                                          src-port (native/sockaddr-port rsa)]
+                                                                      (deposit-event! deposit
+                                                                                      (datagram/datagram-event identity src-ip src-port bs))
+                                                                      (recur (dec budget)))))))))
                                                         {:progressed? @progressed?})
                                                       (finally
                                                         (when rsa (ffi/free rsa))
                                                         (when rlenp (ffi/free rlenp)))))
                                                   (finally
                                                     (ffi/free buf))))))
+
                                           seam {:send! send-fn
                                                 :close! close-fn
-                                                :step! step-fn}]
+                                                :step! step-fn
+                                                :diagnostics diagnostics
+                                                :diagnostic (fn [] (last @diagnostics))}]
                                       (deposit-event! deposit (datagram/bound-event identity (:ip local) (:port local)))
                                       seam))))))))))))
               (catch Throwable t
