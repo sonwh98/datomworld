@@ -1,6 +1,6 @@
 Created-GMT: 2026-11-16 (dispatch time)
 Coding-Agent: codex (gpt-6.1-terra, jupiter POOL 2)
-Session-ID: pending
+Session-ID: 01a1e212-82f3-7931-86ae-6541ed0ef8d8 (codex thread.started, jupiter POOL 2)
 
 # Task: regset-fix r1 — three yang.php JVM-lane regressions on master 8a44b87a
 
