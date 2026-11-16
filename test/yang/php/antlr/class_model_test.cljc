@@ -99,8 +99,11 @@
                         (yes '(php/class-is? "ArgumentCountError" "throwable"))
                         (yes '(php/class-is? "Error" "exception")))))))
   (testing "redeclaration, a missing or final parent, and a non-interface refuse"
-    (is (= "Cannot declare class a, because the name is already in use"
-           (uncaught-message (seq-forms (declare-form {:name "A"}) (declare-form {:name "a"})))))
+    (let [message "Cannot declare class a, because the name is already in use"
+          result (run-raw (seq-forms (declare-form {:name "A"}) (declare-form {:name "a"})))]
+      (is (= {:php/fatal message, :php/status 255, :php/uncaught nil}
+             (select-keys result [:php/fatal :php/status :php/uncaught])))
+      (is (= [[64 message]] (mapv (juxt :errno :message) (:php/diag result)))))
     (is (= "Class \"P\" not found"
            (uncaught-message (declare-form {:name "A", :parent "P"}))))
     (is (= "Class B cannot extend final class A"
