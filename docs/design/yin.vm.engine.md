@@ -354,24 +354,32 @@ and the inline round from `ast_walker.cljc`) and is the owner's call.
 
 ## Extension (2026-10-19, design only): the in-instance engine and wasm implementation of dao.stream
 
-**Owner retirement, 2026-11-17: [yin.vm.rust.md](./yin.vm.rust.md) is deleted.**
-jolt is now a first-class host for yin.vm, and the owner has set the wasm route as
-compiling the whole yin.vm stack to C via a Scheme→C compiler (Gambit) and then to
-wasm — superseding the compiled-bodies + Rust-engine-in-guest architecture and the
-native-port phases this document specified. The Gambit route's designed starting point is
-[yin.vm.debruijn.targets.md](./yin.vm.debruijn.targets.md): the
-tail-call-guaranteed family analysis (Gambit/Chez take Direction A direct-style —
-no driver loop, host closures, host tail calls; Gambit's C backend implements
-tail calls and call/cc, SFPW 2018), phase T3 (Scheme direct-style emitter, pure
-subset), and the Gambit/Chez common accepted subset. The owner confirms jolt has
-a portable Clojure runtime written in Scheme running on Gambit, so the route is
-concrete, not a from-scratch port. Residual per-backend work: the native facades
-(BLAKE3, libcrypto, ANTLR C++, sockets) are Chez-FFI and need Gambit-FFI
-equivalents, per the existing facade pattern.
-native-port phases this document specified. All references to `yin.vm.rust.md`
+**Owner retirement, 2026-11-17: `yin.vm.rust.md` (deleted 2026-11-17; content in git history) is deleted.**
+jolt is now a first-class host for yin.vm, superseding the Rust engine's
+native-execution and standalone-node roles. All references to `yin.vm.rust.md`
 below are historical. The live boundary doctrine is
 [datom.world.abi.md](./datom.world.abi.md); the wasm stream implementation is
 [dao.stream.wasm.md](./dao.stream.wasm.md).
+
+**Owner route ruling, 2026-11-17:** the wasm route is the whole yin.vm stack
+compiled to wasm via jolt's portable Clojure runtime — written in Scheme,
+running on Gambit — by Gambit's C back end to C, then to wasm, superseding the
+compiled-bodies + Rust-engine-in-guest architecture and the native-port phases
+this document specified. The route's designed starting point is
+[yin.vm.debruijn.targets.md](./yin.vm.debruijn.targets.md): the
+tail-call-guaranteed family analysis (Gambit/Chez take Direction A direct-style
+— no driver loop, host closures, host tail calls; Gambit's C backend implements
+tail calls and call/cc, SFPW 2018), phase T3 (Scheme direct-style emitter, pure
+subset), and the Gambit/Chez common accepted subset. Residual per-backend work:
+the native facades (BLAKE3, libcrypto, ANTLR C++, sockets) are Chez-FFI and
+need Gambit-FFI equivalents, per the existing facade pattern.
+
+Owner framing, 2026-11-17 (the Gambit route): the engine is the whole yin.vm interpreter
+compiled into the instance via jolt's portable runtime on Gambit → C → wasm. The i32-handle
+arena and the map↔memory synchronization barrier of §§E.1–E.2 belonged to the retired
+split-machine design and are historical; the machine-state-as-data discipline survives as
+ordinary shared-source behavior, and §E.5's conformance method survives unchanged — the
+lanes are the CLJS oracle and the in-instance interpreter under Node/Wasmtime/Wasmer.
 
 
 Status: design, owner-authorized planning; not implemented.
@@ -387,7 +395,7 @@ The historical rename and boundary/taxonomy supersessions are recorded only in
 remains superseded by the in-instance architecture.
 
 Authorities: [datom.world.md](./datom.world.md), [dao.stream.md](./dao.stream.md),
-[yin.vm.rust.md](./yin.vm.rust.md), [yin.vm.linker.md](./yin.vm.linker.md).
+`yin.vm.rust.md` (deleted 2026-11-17; content in git history), [yin.vm.linker.md](./yin.vm.linker.md).
 Compiler plan: [yang.wasm.md](./yang.wasm.md). Register instance/fixtures/gates:
 [yin.vm.debruijn.register.md](./yin.vm.debruijn.register.md) §10.
 
@@ -735,7 +743,7 @@ W0–W6 / Rust K1–K5 lane gates live in
 #### E.5.1 Oracle export, differential execution lanes, and trace comparison method
 
 The K0/W0 conformance kit is the single **shared deliverable** of
-[`yin.vm.rust.md`](./yin.vm.rust.md), this specification
+`yin.vm.rust.md` (deleted 2026-11-17), this specification
 (`§E.1–§E.5`), [`yang.wasm.md`](./yang.wasm.md), and
 [`yin.vm.debruijn.register.md`](./yin.vm.debruijn.register.md) (`§10`). It is
 exported from R4 and extended for wasm lowering, wasm implementation of dao.stream, and runtime conformance, not a second reference interpreter or a
@@ -903,7 +911,7 @@ none justifies restoring a second semantic service protocol.
 #### E.5.5 Reference conventions and open items
 
 CLJC helper names denote oracle semantics and shared Rust equivalents, not a
-requirement to load Clojure inside wasm. Rust-design references use sections of [yin.vm.rust.md](./yin.vm.rust.md).
+requirement to load Clojure inside wasm. Rust-design references use sections of `yin.vm.rust.md` (deleted 2026-11-17; content in git history).
 Adapter names in [dao.stream.wasm.md](./dao.stream.wasm.md) §1 are proposed imports.
 
 The owner ruling resolves the former compiled-call/service split: generated

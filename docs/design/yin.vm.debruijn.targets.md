@@ -45,6 +45,18 @@ the stack image. Nothing here changes B0-B7, R0-R5, H, R, the engine
 seam, or any existing namespace. Implementation of any phase below is a
 separate, later owner decision.
 
+**Owner amendment, 2026-11-17 (the Gambit track is the wasm route):** jolt is a first-class
+host for yin.vm and its portable Clojure runtime (Scheme) runs on Gambit; the owner has set
+the wasm route as Gambit → C → wasm. This elevates the Gambit track designed here: Direction
+A for the tail-call-guaranteed family (§2, §6's family table) and phase T3 (Scheme
+direct-style emitter, pure subset) are the wasm lane's designed emitter path, and the
+Gambit/Chez common accepted subset is the emitted-program language. The Rust track's roles
+are overtaken: native execution is served by the jolt lane
+([yin.repl-jolt-implementation.md](./yin.repl-jolt-implementation.md)), and the in-guest wasm
+engine role ended with the retirement of yin.vm.rust.md. T1/T4/T5 are parked accordingly; T3
+is the revival-time deliverable when the owner commissions the wasm lane. The historical
+"Rust first" framing below is retained unchanged.
+
 This document covers Rust first, and designs the same approach for Gambit
 Scheme, Chez Scheme, Clojure (the JVM host, distinct from this project's
 implementation language), and Python. C, ARM, x86 and WASM appear only as

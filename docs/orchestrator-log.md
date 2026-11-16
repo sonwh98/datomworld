@@ -14244,3 +14244,19 @@ Owner clarification: "jolt has a portable clojure runtime written in scheme that
   Chez foreign-procedure → Gambit equivalents) per the established facade pattern.
   Retirement notes in yang.wasm.md, yin.vm.engine.md §E and register.md §10 updated with
   the pointer. Wasm lane stays parked; the revival rescope starts from targets.md's T3.
+## 2026-11-17, later — the Gambit-route framing propagated to the spec tree
+Owner: "can you update the documentations to reflect this framing." Applied across the tree:
+  yang.wasm.md retitled to the lane ("the whole yin.vm stack compiled to WebAssembly via
+  Gambit") with a normative framing note — engine = whole interpreter in-instance (no host
+  arena, no sync barrier), emitter basis = targets.md Direction A / phase T3 (host tail calls
+  make the trampoline free), feature profile re-cut at revival, identity/boundary rules
+  retained, compiled-bodies design retained as the historical first architecture;
+  yin.vm.debruijn.targets.md amended — the Gambit track elevated (T3 = the revival-time
+  deliverable), Rust T1/T4/T5 parked (native = jolt; in-guest role retired with yin.vm.rust.md);
+  yin.vm.engine.md §E and yin.vm.debruijn.register.md §10 notes extended (the i32-handle arena
+  / eight-field sync are historical split-machine design; §E.5 method and §10.4 fixtures
+  unchanged); datom.world.abi.md's instance line updated; dao.stream.wasm.md's adapter-only
+  sentence cleaned. Also repaired a garbled insertion from the earlier retirement notes
+  (duplicated "native-port phases" sentence, ADD wedged mid-sentence) in all three notes.
+No normative redesign beyond the framing: the revival rescope (T3 + jolt-on-Gambit +
+  dao.stream.wasm adapters) remains owner-gated.

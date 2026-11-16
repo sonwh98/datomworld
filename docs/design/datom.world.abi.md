@@ -58,7 +58,7 @@ one abstraction boundary is the principle.** The boundary between wasm and datom
 `dao.stream`; its implementation uses whatever wasm exposes to the outside
 world. The exposed functions are **adapters to dao.stream**, which is the ABI
 to `yin.vm` and the whole ecosystem. Machine-internal work executes inside the
-wasm instance: the Rust engine crates and compiled register bodies share memory
+wasm instance: the whole yin.vm interpreter (jolt's portable runtime on Gambit → C → wasm) and its state share memory
 and direct calls. Only effects/facts cross through the stream adapters. World
 facts still require interaction with the world; moving engine implementation
 inside the machine does not manufacture those facts.

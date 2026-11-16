@@ -1,4 +1,4 @@
-# yang.wasm: compiler implementation plan — register bytecode to WebAssembly
+# yang.wasm: the wasm lane — the whole yin.vm stack compiled to WebAssembly via Gambit
 
 Status: design, owner-authorized planning; not implemented.
 
@@ -21,24 +21,48 @@ The historical service-protocol and taxonomy rulings have one home in
 not a W6 experiment. Owner decomposition, 2026-10-19: this compiler plan now
 references the extracted doctrine and stream implementation specs.
 
-**Owner retirement, 2026-11-17: [yin.vm.rust.md](./yin.vm.rust.md) is deleted.**
-jolt is now a first-class host for yin.vm, and the owner has set the wasm route as
-compiling the whole yin.vm stack to C via a Scheme→C compiler (Gambit) and then to
-wasm — superseding the compiled-bodies + Rust-engine-in-guest architecture and the
-native-port phases this document specified. The Gambit route's designed starting point is
-[yin.vm.debruijn.targets.md](./yin.vm.debruijn.targets.md): the
-tail-call-guaranteed family analysis (Gambit/Chez take Direction A direct-style —
-no driver loop, host closures, host tail calls; Gambit's C backend implements
-tail calls and call/cc, SFPW 2018), phase T3 (Scheme direct-style emitter, pure
-subset), and the Gambit/Chez common accepted subset. The owner confirms jolt has
-a portable Clojure runtime written in Scheme running on Gambit, so the route is
-concrete, not a from-scratch port. Residual per-backend work: the native facades
-(BLAKE3, libcrypto, ANTLR C++, sockets) are Chez-FFI and need Gambit-FFI
-equivalents, per the existing facade pattern.
-native-port phases this document specified. All references to `yin.vm.rust.md`
+**Owner retirement, 2026-11-17: `yin.vm.rust.md` (deleted 2026-11-17; content in git history) is deleted.**
+jolt is now a first-class host for yin.vm, superseding the Rust engine's
+native-execution and standalone-node roles. All references to `yin.vm.rust.md`
 below are historical. The live boundary doctrine is
 [datom.world.abi.md](./datom.world.abi.md); the wasm stream implementation is
 [dao.stream.wasm.md](./dao.stream.wasm.md).
+
+**Owner route ruling, 2026-11-17:** the wasm route is the whole yin.vm stack
+compiled to wasm via jolt's portable Clojure runtime — written in Scheme,
+running on Gambit — by Gambit's C back end to C, then to wasm, superseding the
+compiled-bodies + Rust-engine-in-guest architecture and the native-port phases
+this document specified. The route's designed starting point is
+[yin.vm.debruijn.targets.md](./yin.vm.debruijn.targets.md): the
+tail-call-guaranteed family analysis (Gambit/Chez take Direction A direct-style
+— no driver loop, host closures, host tail calls; Gambit's C backend implements
+tail calls and call/cc, SFPW 2018), phase T3 (Scheme direct-style emitter, pure
+subset), and the Gambit/Chez common accepted subset. Residual per-backend work:
+the native facades (BLAKE3, libcrypto, ANTLR C++, sockets) are Chez-FFI and
+need Gambit-FFI equivalents, per the existing facade pattern.
+
+**Owner framing, 2026-11-17 (the Gambit route — the normative architecture of this lane):**
+jolt's portable Clojure runtime — written in Scheme, running on Gambit — compiles the whole
+yin.vm stack by Gambit's C backend to C, then to wasm. Consequences:
+
+- **The engine is the whole interpreter, in-instance.** There is no host-owned engine, no
+  i32-handle arena, and no map↔memory synchronization barrier: those belonged to the retired
+  split-machine design (the Rust engine in-guest). The machine-state-as-data discipline
+  survives as ordinary shared-source behavior; the guest's only boundary is the dao.stream
+  implementation ([dao.stream.wasm.md](./dao.stream.wasm.md)).
+- **The emitter basis is [yin.vm.debruijn.targets.md](./yin.vm.debruijn.targets.md)'s
+  Direction A for the tail-call-guaranteed family:** direct-style host closures and host tail
+  calls — Gambit's C back end implements tail calls and call/cc (SFPW 2018) — so the
+  `br_table` body-function dispatch, the explicit trampoline, and the wasm-local register
+  mapping designed below are superseded: on Gambit the compiled-closure intent is nearly free.
+  Phase T3 (Scheme direct-style emitter, pure subset) and the Gambit/Chez common accepted
+  subset are the designed starting point.
+- **The feature profile is re-cut at revival** against Gambit/emscripten's actual output; the
+  W0–W6 schedule and its Rust-engine gates are superseded pending rescope.
+- **Retained unchanged and normative for any revival:** the identity rules (A the only code
+  identity; emitted wasm a disposable local artifact with none), byte-determinism of emitted
+  artifacts, and the boundary rule (imports implement dao.stream, nothing else). The
+  compiled-bodies design below (§§2–6) is retained as the historical first architecture.
 
 The 2026-10-19 decomposition remains: engine representation/conformance
 method live in [yin.vm.engine.md](./yin.vm.engine.md) §E; register state,
@@ -134,7 +158,7 @@ documents; and the semantic and register test corpora. In particular:
 
 ### 1.1 Rust-engine authority, scope and explicit reconciliations
 
-[`docs/design/yin.vm.rust.md`](./yin.vm.rust.md) retains the revision 2 technical core and is an authority for
+`yin.vm.rust.md` (deleted 2026-11-17; content in git history) retained the revision 2 technical core and was an authority for
 the shared implementation: opening status/authorities, crate workspace (§9)
 and decisions (§11). It remains **design-only**; the wasm plan depends on its
 shared crates without commissioning unrelated K4/full-K5 work. This
