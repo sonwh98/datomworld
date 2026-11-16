@@ -178,7 +178,7 @@
 
 (defn- build-vector
   [elems]
-  (reduce (fn [acc e] (app* 'js/vconj acc e)) (u/lit []) elems))
+  (core/build-vector 'js/vconj elems))
 
 
 (defn- seq-of
@@ -242,11 +242,7 @@
 ;; Literals
 ;; =============================================================================
 
-(defn- code-point->str
-  [cp]
-  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
-     :clj (String. (Character/toChars (int cp)))
-     :cljs (.fromCodePoint js/String cp)))
+(def ^:private code-point->str core/code-point->str)
 
 
 (defn- text-units
