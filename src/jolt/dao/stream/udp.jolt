@@ -103,15 +103,17 @@
   "Parse literal IP host (IPv4 or IPv6), stripping brackets if present.
    Rejects hostnames like 'localhost'."
   [h]
-  (when (string? h)
-    (let [clean (if (and (str/starts-with? h "[") (str/ends-with? h "]"))
-                  (subs h 1 (dec (count h)))
-                  h)]
-      (if-let [[sa _] (native/make-sockaddr native/af-inet clean 0)]
-        (do (ffi/free sa) {:family native/af-inet :ip clean})
-        (if-let [[sa _] (native/make-sockaddr native/af-inet6 clean 0)]
-          (do (ffi/free sa) {:family native/af-inet6 :ip clean})
-          nil)))))
+  (try
+    (when (string? h)
+      (let [clean (if (and (str/starts-with? h "[") (str/ends-with? h "]"))
+                    (subs h 1 (dec (count h)))
+                    h)]
+        (if-let [[sa _] (native/make-sockaddr native/af-inet clean 0)]
+          (do (ffi/free sa) {:family native/af-inet :ip clean})
+          (if-let [[sa _] (native/make-sockaddr native/af-inet6 clean 0)]
+            (do (ffi/free sa) {:family native/af-inet6 :ip clean})
+            nil))))
+    (catch Throwable _ nil)))
 
 
 (defn- deposit-event!
@@ -151,128 +153,141 @@
             [fd sock-err] (native/c-socket family SOCK-DGRAM IPPROTO-UDP)]
         (if (neg? fd)
           (failed-seam deposit identity (str "socket failed: errno " sock-err))
-          (if-not (native/close-on-exec! fd)
-            (do (native/c-close fd)
-                (failed-seam deposit identity "close-on-exec! failed"))
-            (let [[r-nb err-nb] (native/set-blocking! fd false)]
-              (if (neg? r-nb)
-                (do (native/c-close fd)
-                    (failed-seam deposit identity (str "O_NONBLOCK failed: errno " err-nb)))
-                (let [v6-fail (when (= family native/af-inet6)
-                                (let [[r-v6 err-v6] (native/set-int-option! fd native/ipproto-ipv6 native/ipv6-v6only 1)]
-                                  (when (neg? r-v6)
-                                    (str "IPV6_V6ONLY failed: errno " err-v6))))]
-                  (if v6-fail
-                    (do (native/c-close fd)
-                        (failed-seam deposit identity v6-fail))
-                    (let [[sa len] (native/make-sockaddr family bind-ip bind-port)]
-                      (if-not sa
-                        (do (native/c-close fd)
-                            (failed-seam deposit identity (str "make-sockaddr failed for " bind-ip ":" bind-port)))
-                        (let [[bind-r bind-err] (try
-                                                  (native/c-bind fd sa len)
-                                                  (finally (ffi/free sa)))]
-                          (if (neg? bind-r)
-                            (do (native/c-close fd)
-                                (failed-seam deposit identity (str "bind failed: errno " bind-err)))
-                            (let [local (native/local-address fd)]
-                              (if-not local
-                                (do (native/c-close fd)
-                                    (failed-seam deposit identity "getsockname failed"))
-                            (let [closed? (atom false)
-                                  close-fn
-                                  (fn []
-                                    (when (compare-and-set! closed? false true)
-                                      (try (poller/cancel! fd) (catch Throwable _ nil))
-                                      (try (poller/forget! fd) (catch Throwable _ nil))
-                                      (native/c-close fd)
-                                      (deposit-event! deposit (datagram/closed-event identity)))
-                                    nil)
+          (let [closed? (atom false)
+                close-fd! (fn []
+                            (when (compare-and-set! closed? false true)
+                              (try (poller/cancel! fd) (catch Throwable _ nil))
+                              (try (poller/forget! fd) (catch Throwable _ nil))
+                              (native/c-close fd)))]
+            (try
+              (if-not (native/close-on-exec! fd)
+                (do (close-fd!)
+                    (failed-seam deposit identity "close-on-exec! failed"))
+                (let [[r-nb err-nb] (native/set-blocking! fd false)]
+                  (if (neg? r-nb)
+                    (do (close-fd!)
+                        (failed-seam deposit identity (str "O_NONBLOCK failed: errno " err-nb)))
+                    (let [v6-fail (when (= family native/af-inet6)
+                                    (let [[r-v6 err-v6] (native/set-int-option! fd native/ipproto-ipv6 native/ipv6-v6only 1)]
+                                      (when (neg? r-v6)
+                                        (str "IPV6_V6ONLY failed: errno " err-v6))))]
+                      (if v6-fail
+                        (do (close-fd!)
+                            (failed-seam deposit identity v6-fail))
+                        (let [[sa len] (native/make-sockaddr family bind-ip bind-port)]
+                          (if-not sa
+                            (do (close-fd!)
+                                (failed-seam deposit identity (str "make-sockaddr failed for " bind-ip ":" bind-port)))
+                            (let [[bind-r bind-err] (try
+                                                      (native/c-bind fd sa len)
+                                                      (finally (ffi/free sa)))]
+                              (if (neg? bind-r)
+                                (do (close-fd!)
+                                    (failed-seam deposit identity (str "bind failed: errno " bind-err)))
+                                (let [local (native/local-address fd)]
+                                  (if-not local
+                                    (do (close-fd!)
+                                        (failed-seam deposit identity "getsockname failed"))
+                                    (let [close-fn
+                                          (fn []
+                                            (when (compare-and-set! closed? false true)
+                                              (try (poller/cancel! fd) (catch Throwable _ nil))
+                                              (try (poller/forget! fd) (catch Throwable _ nil))
+                                              (native/c-close fd)
+                                              (deposit-event! deposit (datagram/closed-event identity)))
+                                            nil)
 
-                                  send-fn
-                                  (fn [dest-host dest-port ^bytes payload]
-                                    (if @closed?
-                                      {:dao.stream/outcome :dao.stream/closed}
-                                      (let [parsed-dest (parse-literal-host dest-host)]
-                                        (if (or (nil? parsed-dest) (not= (:family parsed-dest) family))
-                                          (let [reason "IP family mismatch"]
-                                            (deposit-event! deposit (datagram/send-failed-event identity reason))
-                                            {:dao.stream/outcome :dao.stream/transport-error
-                                             :dao.stream.datagram/reason reason})
-                                          (let [len (bytes/length payload)
-                                                buf (ffi/alloc (max 1 len))
-                                                [dsa dlen] (native/make-sockaddr family (:ip parsed-dest) dest-port)]
-                                            (try
-                                              (if-not dsa
-                                                (let [reason "make-sockaddr failed for destination"]
-                                                  (deposit-event! deposit (datagram/send-failed-event identity reason))
-                                                  {:dao.stream/outcome :dao.stream/transport-error
-                                                   :dao.stream.datagram/reason reason})
-                                                (do
-                                                  (when (pos? len)
-                                                    (ffi/write-array buf payload))
-                                                  (let [[n e] (*sendto* fd buf len 0 dsa dlen)]
-                                                    (cond
-                                                      (neg? n)
-                                                      (let [reason (str "sendto failed: errno " e)]
-                                                        (deposit-event! deposit (datagram/send-failed-event identity reason))
-                                                        {:dao.stream/outcome :dao.stream/transport-error
-                                                         :dao.stream.datagram/reason reason})
+                                          send-fn
+                                          (fn [dest-host dest-port ^bytes payload]
+                                            (if @closed?
+                                              {:dao.stream/outcome :dao.stream/closed}
+                                              (let [parsed-dest (parse-literal-host dest-host)]
+                                                (if (or (nil? parsed-dest) (not= (:family parsed-dest) family))
+                                                  (let [reason "IP family mismatch"]
+                                                    (deposit-event! deposit (datagram/send-failed-event identity reason))
+                                                    {:dao.stream/outcome :dao.stream/transport-error
+                                                     :dao.stream.datagram/reason reason})
+                                                  (let [len (bytes/length payload)
+                                                        buf (ffi/alloc (max 1 len))]
+                                                    (try
+                                                      (let [[dsa dlen] (native/make-sockaddr family (:ip parsed-dest) dest-port)]
+                                                        (try
+                                                          (if-not dsa
+                                                            (let [reason "make-sockaddr failed for destination"]
+                                                              (deposit-event! deposit (datagram/send-failed-event identity reason))
+                                                              {:dao.stream/outcome :dao.stream/transport-error
+                                                               :dao.stream.datagram/reason reason})
+                                                            (do
+                                                              (when (pos? len)
+                                                                (ffi/write-array buf payload))
+                                                              (let [[n e] (*sendto* fd buf len 0 dsa dlen)]
+                                                                (cond
+                                                                  (neg? n)
+                                                                  (let [reason (str "sendto failed: errno " e)]
+                                                                    (deposit-event! deposit (datagram/send-failed-event identity reason))
+                                                                    {:dao.stream/outcome :dao.stream/transport-error
+                                                                     :dao.stream.datagram/reason reason})
 
-                                                      (not= n len)
-                                                      (let [reason (str "short send: sent " n " of " len " bytes")]
-                                                        (deposit-event! deposit (datagram/send-failed-event identity reason))
-                                                        {:dao.stream/outcome :dao.stream/transport-error
-                                                         :dao.stream.datagram/reason reason})
+                                                                  (not= n len)
+                                                                  (let [reason (str "short send: sent " n " of " len " bytes")]
+                                                                    (deposit-event! deposit (datagram/send-failed-event identity reason))
+                                                                    {:dao.stream/outcome :dao.stream/transport-error
+                                                                     :dao.stream.datagram/reason reason})
 
-                                                      :else
-                                                      {:dao.stream/outcome :dao.stream/ok}))))
-                                              (finally
-                                                (ffi/free buf)
-                                                (when dsa (ffi/free dsa)))))))))
+                                                                  :else
+                                                                  {:dao.stream/outcome :dao.stream/ok}))))
+                                                          (finally
+                                                            (when dsa (ffi/free dsa)))))
+                                                      (finally
+                                                        (ffi/free buf))))))))
 
-                                  step-fn
-                                  (fn []
-                                    (if @closed?
-                                      {:progressed? false}
-                                      (let [cap (inc max-bytes)
-                                            buf (ffi/alloc cap)
-                                            [rsa rlenp] (native/alloc-sockaddr)
-                                            progressed? (volatile! false)]
-                                        (try
-                                          (loop [budget 64]
-                                            (if (pos? budget)
-                                              (do
-                                                (ffi/write rlenp :int native/sockaddr-storage-size 0)
-                                                (let [[n e] (*recvfrom* fd buf cap 0 rsa rlenp)]
-                                                  (cond
-                                                    (neg? n)
-                                                    (when-not (or (= e EAGAIN) (= e ENOBUFS))
-                                                      (when (= e EBADF)
-                                                        (close-fn)))
+                                          step-fn
+                                          (fn []
+                                            (if @closed?
+                                              {:progressed? false}
+                                              (let [cap (inc max-bytes)
+                                                    buf (ffi/alloc cap)]
+                                                (try
+                                                  (let [[rsa rlenp] (native/alloc-sockaddr)]
+                                                    (try
+                                                      (let [progressed? (volatile! false)]
+                                                        (loop [budget 64]
+                                                          (if (pos? budget)
+                                                            (do
+                                                              (ffi/write rlenp :int native/sockaddr-storage-size 0)
+                                                              (let [[n e] (*recvfrom* fd buf cap 0 rsa rlenp)]
+                                                                (cond
+                                                                  (neg? n)
+                                                                  (when-not (or (= e EAGAIN) (= e ENOBUFS))
+                                                                    (when (= e EBADF)
+                                                                      (close-fn)))
 
-                                                    :else
-                                                    (do
-                                                      (vreset! progressed? true)
-                                                      (if (> n max-bytes)
-                                                        ;; Oversize drop
-                                                        (recur (dec budget))
-                                                        (let [bs (if (zero? n)
-                                                                   (bytes/alloc 0)
-                                                                   (ffi/read-array buf n))
-                                                              src-ip (native/sockaddr-ip rsa)
-                                                              src-port (native/sockaddr-port rsa)]
-                                                          (deposit-event! deposit
-                                                                          (datagram/datagram-event identity src-ip src-port bs))
-                                                          (recur (dec budget))))))))
-                                              nil))
-                                          (finally
-                                            (ffi/free buf)
-                                            (ffi/free rsa)
-                                            (ffi/free rlenp)))
-                                        {:progressed? @progressed?})))
-                                  seam {:send! send-fn
-                                        :close! close-fn
-                                        :step! step-fn}]
-                              (deposit-event! deposit (datagram/bound-event identity (:ip local) (:port local)))
-                              seam)))))))))))))))
+                                                                  :else
+                                                                  (do
+                                                                    (vreset! progressed? true)
+                                                                    (if (> n max-bytes)
+                                                                      ;; Oversize drop
+                                                                      (recur (dec budget))
+                                                                      (let [bs (if (zero? n)
+                                                                                 (bytes/alloc 0)
+                                                                                 (ffi/read-array buf n))
+                                                                            src-ip (native/sockaddr-ip rsa)
+                                                                            src-port (native/sockaddr-port rsa)]
+                                                                        (deposit-event! deposit
+                                                                                        (datagram/datagram-event identity src-ip src-port bs))
+                                                                        (recur (dec budget))))))))
+                                                            nil))
+                                                        {:progressed? @progressed?})
+                                                      (finally
+                                                        (when rsa (ffi/free rsa))
+                                                        (when rlenp (ffi/free rlenp)))))
+                                                  (finally
+                                                    (ffi/free buf))))))
+                                          seam {:send! send-fn
+                                                :close! close-fn
+                                                :step! step-fn}]
+                                      (deposit-event! deposit (datagram/bound-event identity (:ip local) (:port local)))
+                                      seam))))))))))))
+              (catch Throwable t
+                (close-fd!)
+                (failed-seam deposit identity (or (ex-message t) (str t)))))))))))
