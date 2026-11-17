@@ -125,3 +125,233 @@ fixtures (a per-fixture-fresh-store retention would be strictly larger);
 the store has no HEAD manifest (a published retention artifact adds one
 plus ownership records); heap sampling existed only transiently per
 batch and no durable heap maximum was recorded.
+
+## r9g laptop pilot supplement — measurements, not a final declaration
+
+The r9g dispatch explicitly authorizes tagged **pilot** measurements before a
+separate declaration-governed verification run. The pilot progress file
+`1794422563000-engineer-d1-r9f-measurements.edn`, SHA-256
+`1849a6d0fb8d9dece75306d20fafc8408b9d75b45fb12f8a9b01076391911cef`,
+records 155 passes, no refusals, each labeled `:pre-declaration true`, and
+zero detected loss for 310 lane traces. Pilot safety cap: 4,000,000 vm/step
+calls per lane. Process-wide heap sampler: totalMemory minus freeMemory every
+5 ms, including batch store opening; sampled r9g batch peaks 3,533,494,976,
+3,554,687,936 and 3,485,220,736 bytes. This can miss brief peaks, includes
+other process allocations and is not a live-object count. A previous r9e
+static batch sampled 3,677,225,328 bytes. Host was the r9e laptop with OpenJDK
+21.0.2, Clojure 1.12.4, -Xss64m, pinned at ccd3648d plus the uncommitted
+measurement helpers. The first pilot was `:minimal-last`, not
+`:beta-eq-false`; the latter was measured in r9g.
+
+| Metric, maximum per fixture/lane | Walker | Semantic |
+|---|---:|---:|
+| Guest vm/step calls | 2,544,482 | 1,398,649 |
+| Trace records | 2,345 | 2,345 |
+| Trace vector, printed EDN UTF-8 bytes | 67,500 | 67,500 |
+| Lane run wall time | 9,380 ms | 6,245 ms |
+| Trace drain wall time | 2 ms | 3 ms |
+
+Maximum fixture fetch wall time was 3,490 ms and total pilot fixture time
+19,121 ms. The lane timer includes setup/load/run; the fetch timer includes
+row fetch and AST conversion. This does not distinguish compile, expand,
+load, publish, query and verify phases or provide B/S baselines. The trace
+bytes are not retained ring occupancy or a worst-case per-record byte bound;
+ring capacity remains 1,000,000 records and drains after halt. Individual
+fixture observations, origins and addresses are in the progress file.
+
+**Still draft, not a declaration**: the input occurrence/depth/path and exact
+serialized-object profile is being gathered; byte capacity/peak retained
+trace memory, baseline/added-work comparisons, independently enforceable
+max-based time/memory limits, and the complete reconstruction/verification
+closure remain unresolved. These pilot maxima do not authorize a bounded
+verification run by themselves.
+
+### r9g static profile supplement
+
+`1794728000000-engineer-d1-r9g-static-profile.edn` (SHA-256
+`afc6ae799b6d4e3747855e292fc603570b75dfe605dd1fd2af6e239feeec6e9a`)
+records 155 passes. Maxima respectively for before/stamped trees:
+rows 10,732 / 12,193; occurrences 42,848 / 46,005; applications
+12,085 / 12,987; depth 462 / 464; sum of per-application canonical-CBOR
+encoded path lengths 3,423,911 / 3,730,572 bytes. Maxima are independent
+and need not come from the same fixture. The maximum encoded direct-object
+sizes were input 4,254,284 bytes, snapshot 12,266,106 bytes, profile 1,102
+bytes and whole evidence 6,334,093 bytes. The profiling process sampled
+3,776,231,752 bytes process used heap at 5 ms, including store opening; this
+is not live-object memory and is not comparable to a tagged-verification peak
+without matching procedure. Maximum full profile time was 12,541 ms. This
+pass fetched each stored tree, counted its occurrence places and encoded each
+application path separately. The original profiling driver encoded the
+missing sentinel rather than explicitly refusing if a direct object were
+absent; r9e independently fetched all 930 direct addresses after reopening,
+and the per-fixture input and snapshot are additionally checked by the
+profile's `check-retained-trees!`. The driver has been corrected for future
+runs; this limitation is not erased retroactively.
+
+The maxima supply more declaration inputs; they do not fill the outstanding
+trace-memory, baseline/delta, per-phase and enforcement gaps listed above.
+This remains a draft and does not authorize a bounded verification claim.
+
+### r10 trace graph pilot — measurement, not a finalized ceiling
+
+`1794729000000-engineer-d1-r10-trace-memory.edn` (SHA-256
+`42e60986b3ef0fbf4f8574aa678ff75ed12b214cc45a911a8901dc8b9d6431e7`)
+records 155 pre-declaration passes, 310 completed lanes and no detected
+prefix loss. Maximum per lane: 2,345 records, 67,500 UTF-8 bytes for the
+printed vector, 45 bytes for one printed record and 311,144 reachable JVM
+heap bytes from a halted trace-ring handle. The graph size sums Java
+`Instrumentation.getObjectSize` for identity-deduplicated objects reachable
+from the handle; it includes objects also reachable elsewhere, does not count
+native memory, assumes the specified JDK layout and is not exclusive retained
+size. It is sampled at halt, before drain, with this oracle's drain-after-halt
+schedule. Its observed maximum is not a proof of heap usage for 1,000,000
+arbitrary trace records. The process used-heap sampler observed a maximum of
+3,589,539,800 bytes for the 154-fixture batch, at 5 ms intervals, including
+store opening. Its comparability limits remain as above. The agent source and
+commands are scratch artifacts named in the r10 findings, not a committed
+retention or verifier dependency.
+
+The partially implemented runtime checker can refuse observed step, elapsed,
+used-heap, trace-record and printed-byte maxima at VM step boundaries and the
+progress writer can preserve a final failed-bound outcome. The checker is not
+an OS memory cap: one step may exceed a limit before the next boundary, and
+native/process memory is outside the used-heap reading. It has not been wired
+into a complete bounded verifier or exercised under a declared corpus run.
+The B/S and historical two-field comparisons, phase accounting, complete
+recipe and verifier, and the remaining enforceable maxima still need work.
+
+### r10 trace-free benchmark supplement — not complete B/S
+
+The trace-free benchmark record `1794729000000-engineer-d1-r10-baseline-pilot-02.edn`
+(SHA-256 `d57b6a06f6a05e8cf2e47efa1ab1c3c4c6c13f52788d306da6137378e2784e92`)
+contains 155 passes. The helper checks the retained input's assembled suffix,
+removes the fixed trace bootstrap and caller-site prelude, restores captured
+untraced source forms and retains the library prefix chosen for the original
+instrumented program. Its benchmark roots are different code and are not
+claimed as roots admitted under the r9e source origins. Each fixture compiles
+twice in one JVM, constructs an ephemeral application-path index and executes
+each backend twice on equal benchmark roots; 155 pairs had identical step
+counts per lane. Maximum walker/semantic baseline steps were 1,679,842 /
+927,761; the largest fixture-paired tagged-pilot increases were 864,640 /
+470,888 steps, with maximum fixture-paired ratios approximately 1.822 /
+1.810. These compare separately compiled roots and separate processes, and
+are instrumentation-cost observations rather than semantic equivalence proof.
+Maximum first compile was 60 ms and the local projection/path-index work
+6,814 ms, with maximum index size 4,257,499 canonical-CBOR bytes. The named
+first and second compiles are in a shared JVM, not fresh-cache cold and warm
+experiments. The index is not persisted C1, instruction provenance, or a
+query over independently published relations; the column named `:s-steps`
+is a repeat execution after creating that local index, not a complete S run.
+The first baseline attempt was refused due to metadata on the fixed, discarded
+bootstrap; it is preserved separately in `1794729000000-engineer-d1-r10-baseline-pilot.edn`.
+
+These figures do not supply the missing full B/S experiment, historical tracer
+comparison, tracked load/publish/query timings or runtime-enforced ceilings.
+This remains a draft, not a declaration under which a verification run may
+be claimed.
+
+### r10 historical two-field tracer pilot — measured comparison
+
+`1794729000000-engineer-d1-r10-two-field-pilot.edn` (SHA-256
+`e6e57f3f2bd22f156bac43c981d3856dadbd7c7859284e2497263a4b293cae8e`)
+records 155 pre-declaration passes, with no detected trace-prefix loss. Its
+body-entry instrumentation follows `kernel-trace-form` in revision
+`f2d7df870e5bb9953d44d1947c7ee4806de087a3`, applied to the current retained
+fixture inputs and the library prefix assembled for the current instrumented
+program. It is not a reproduction of the entire historical host environment
+and its benchmark roots are not claimed as persisted occurrences of the r9e
+admissions. Compile repetitions share a JVM.
+
+The maximum walker/semantic steps were 1,705,653 / 941,841; maximum trace
+records 2,345 and printed UTF-8 vector bytes 59,017 for either lane. Against
+r9g's tagged pilot, the largest fixture-paired walker/semantic step increases
+were 838,829 / 456,808; largest fixture-paired ratios approximately 1.777 /
+1.766. Record counts agreed per fixture and lane across the two experiments;
+that agreement is not a proof of equal records or outcomes. Maxima and ratios
+are over separate benchmark executions and roots. These results fill the
+requested historical-tracer comparison but not the full provenance B/S,
+fresh-cache cold/warm phase study, enforcement, or D1 verifier gaps. This
+file remains a draft, not a finalized run declaration.
+
+### r10 candidate ceilings for measured fields — non-binding
+
+These are reviewable candidate numbers, **not a finalized declaration and
+not authority to start the bounded tagged verification**. They use maxima
+above, rounded upward with at least roughly 50% headroom; they must be pinned
+alongside the missing fields and actual enforcement before the run.
+
+| Measured quantity | Observed maximum | Candidate ceiling |
+|---|---:|---:|
+| Walker guest steps | 2,544,482 | 4,000,000 |
+| Semantic guest steps | 1,398,649 | 2,200,000 |
+| Trace records per lane | 2,345 | 5,000 |
+| One printed UTF-8 trace record | 45 bytes | 100 bytes |
+| Printed trace vector per lane | 67,500 bytes | 150,000 bytes |
+| Reachable trace-ring JVM graph at halt | 311,144 bytes | 650,000 bytes |
+| Sampled process used heap across static and tagged pilots | 3,776,231,752 bytes | 6,000,000,000 bytes |
+| Combined tagged pilot fixture wall time | 19,121 ms | 60,000 ms |
+| Stamped rows / occurrences / applications | 12,193 / 46,005 / 12,987 | 20,000 / 75,000 / 20,000 |
+| Stamped maximum depth / encoded application-path bytes | 464 / 3,730,572 | 750 / 6,000,000 bytes |
+
+All listed candidates are maximum-based: any one observation greater than
+its ceiling fails. The graph ceiling is an at-halt observation, not an
+online buffer cap; the used-heap candidate is not a native/process RSS bound.
+The ring is physically configured for 1,000,000 records, while the proposed
+5,000-record and printed-byte limits would have to be checked by a completed
+bounded driver. A max of 100 printed bytes and 5,000 records implies at most
+505,001 bytes in the printed vector (two brackets plus records and separators)
+for an accepted trace; this is a logical serialization bound, not a bound on
+physical heap. No guarantee is claimed until the checker is wired, limit
+failures are durably recorded, all required independent inputs/phase limits
+are present, and the full declaration is frozen before its run.
+
+### r11 integrated guard pilots — still not a declaration
+
+The pre-declaration integrated-gate pilots found that the prior **60,000 ms
+combined-fixture candidate is inadequate**: the larger selected fixture took
+62,949 ms inside the gate after structural checks, and 69,876 ms including
+retained input fetch and replay compilation. Neither measurement includes
+opening the full content store. The earlier timed variant without structural
+walks observed 59,390 ms inside the gate. Both pilots remained explicitly
+pre-declaration and used 700 exploratory static-callee/arity queries, not the
+complete upstream credit set; they are not bounded verification results. A
+150,000 ms candidate would be over twice the observed 69,876 ms complete
+fixture path, but is **not declared**: workload coverage and full host-phase
+measurements remain incomplete, and store opening needs a separately justified
+limit. The earlier 60,000 ms value was never a frozen bound, so no declared
+ceiling has been raised and no bounded run result is overwritten.
+
+The current test-only fixture gate exercises the independent static checker,
+a declaration mutation, both guarded lanes and scoped queries; it refuses
+missing runtime, tree or trace-graph limits, checks tree size before lane
+execution, and can preserve measured exceedances as failures. It is not the
+complete D1 verifier, and its fixture timer is checked only at host-phase
+boundaries. The actual corpus claim set, cold/warm full C1 baseline,
+fetch/replay/store-open limits, executable recipe, derivation/provenance
+closure and integrated process-level failure handling remain open. Thus the
+candidate table above is not a complete declaration and does not authorize a
+corpus verification run.
+
+### r12 full-claim pilot — measurements, not a declaration
+
+The pre-declaration pilot in `1794735000000-engineer-d1-r12-claim-phase-pilot.edn`
+ran all 155 retained fixtures through the existing gate with 165 scoped
+symbol/arity queries each. All 155 pilot outcomes passed; this is not D1
+verification. Store opening took 195,419 ms separately; the 5 ms sampled
+process used-heap peak was 3,880,862,784 bytes. The maximum fixture time was
+67,358 ms, below the earlier r11 69,936 ms measurement supplied in the r12
+handoff. The maximum per-phase times were: row fetch 2,731 ms, direct content
+fetch 2,535 ms, replay 1,245 ms, gate 61,628 ms, tree check 4,614 ms,
+independent static check 22,099 ms, mutation check 9,367 ms, and query 288 ms.
+These are independent maxima, not additive phase timings. Walker and semantic
+lane maxima were 18,367 and 7,223 ms respectively. The pilot used safety caps,
+not frozen bounds. Samples and phase-boundary checks do not provide a hard
+process memory or wall-clock limit.
+
+The 23 supplied carrier relationships were subsequently rederived from the
+source and compared in a separate preflight, with agreement; the executable
+source and resolution environment are not yet retained as a complete,
+independently verifiable recipe. Static C1 comparisons are a separate pilot
+and do not fill the remaining end-to-end B/S/T and provenance requirements.
+The measurements above therefore do not finalize this draft or authorize a
+tagged verification run.
