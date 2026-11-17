@@ -23,7 +23,7 @@
 
                    [:p "Read it as a synchronous console program and it is almost trivial: read a command, update the cart, print the page, loop. The magic is where the read blocks. " [:code "await/<!"] " parks the entire continuation on the input stream. The VM saves the program state as data, the driver projects the current page, and the process serves other sessions. When your next HTTP request arrives carrying the session's token, the driver wakes exactly this continuation, and " [:code "cart"] " still holds what it held."]
 
-                   [:p "That is why the cart survives page reloads without a server-side cart table and without browser storage. The cart is a local variable of a suspended function. Cookies identify the lineage; nothing else is shared."]
+                   [:p "That is why the cart survives page reloads without a server-side cart table and without browser storage. The cart is a local variable of a suspended function. The session token in the URL identifies the lineage; nothing else is shared."]
 
                    [:h2 "The same program in yang.python"]
 
