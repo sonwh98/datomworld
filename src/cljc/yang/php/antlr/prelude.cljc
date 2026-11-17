@@ -2734,17 +2734,17 @@
                                      (let [result (cell/new :php/undef)]
                                        (php/try
                                          (fn []
-                                           (cell/set! result
-                                                      (let [callee (get invocation :yang.call/callee)
-                                                            positional (get invocation :yang.call/positional)
-                                                            named (get invocation :yang.call/named)
-                                                            args (if (> (data/count named) 0)
-                                                                   (php/place-named callee (get (cell/get callee) :spec)
-                                                                                    positional named 0 (data/count named)
-                                                                                    (php/empty-array))
-                                                                   positional)]
-                                                        ((get (cell/get callee) :code)
-                                                         callee args binding-profile))))
+                                           (let [callee (get invocation :yang.call/callee)
+                                                 positional (get invocation :yang.call/positional)
+                                                 named (get invocation :yang.call/named)
+                                                 args (if (> (data/count named) 0)
+                                                        (php/place-named callee (get (cell/get callee) :spec)
+                                                                         positional named 0 (data/count named)
+                                                                         (php/empty-array))
+                                                        positional)
+                                                 value ((get (cell/get callee) :code)
+                                                        callee args binding-profile)]
+                                             (cell/set! result value)))
                                          (fn [e]
                                            (let [retained (php.rt/retained-condition e)]
                                              (if (nil? retained)
