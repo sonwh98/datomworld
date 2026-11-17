@@ -232,7 +232,6 @@
            ["<?php function f(&...$a) {}" :variadic-reference]
            ["<?php $a = &new B;" :reference]
            ["<?php static $a = 1;" :static]
-           ["<?php echo FOO;" :constant]
            ["<?php echo \"a$b[0]\";" :interpolation]
            ["<?php echo \"a$b->c\";" :interpolation]
            ["<?php echo (array)1;" :cast/array]
@@ -242,6 +241,28 @@
           d (first diagnostics)]
       (is (= :yang.php/unsupported (:yang.php/diagnostic d)) source)
       (is (= construct (:construct d)) source))))
+
+
+(deftest undefined-bare-constant-is-a-runtime-error-test
+  (let [r (h/run-raw "<?php echo FOO; echo 'after';")]
+    (is (= "" (:php/out r)))
+    (is (= {:class "Error", :message "Undefined constant \"FOO\""}
+           (select-keys (:php/uncaught r) [:class :message])))
+    (is (= 255 (:php/status r)))
+    (is (nil? (:php/fatal r)))))
+
+
+(deftest constant-resolution-and-warning-handler-test
+  (let [r (h/run-raw (str "<?php namespace A; const V = 'local'; "
+                          "echo V, PHP_EOL === \\PHP_EOL ? 'builtin' : 'bad'; "
+                          "set_error_handler(function ($n, $s) { echo $n, ':', $s; return true; }); "
+                          "define('X', 1); var_dump(define('X', 2)); echo \\X;"))]
+    (is (= "localbuiltin2:Constant X already definedbool(false)\n1"
+           (h/latin1->text (:php/out r))))
+    (is (empty? (:php/diag r)))
+    (is (nil? (:php/uncaught r)))
+    (is (nil? (:php/fatal r)))
+    (is (= 0 (get r :php/status 0)))))
 
 
 (deftest variable-variable-offset-assign-test

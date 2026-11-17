@@ -53,9 +53,41 @@
       (is (not= :banner oracle))
       (is (= (set (keys lh/backends)) (set (keys (:values r)))) (str (name id) " backends"))
       (doseq [[k v] (:values r)]
-        (is (= [out (vec diag) uncaught] (observed v)) (str (name id) " on " k)))
+        (is (= [out (vec diag) uncaught] (observed v)) (str (name id) " on " k))
+        (when (= :constants-v1 (:group fixture))
+          (is (nil? (:php/uncaught v)) (str id " " k))
+          (is (nil? (:php/fatal v)) (str id " " k))
+          (is (= 0 (get v :php/status 0)) (str id " " k))))
       (when warnings
         (is (= warnings (mapv :yang.php/diagnostic (:warnings r))) (name id))))))
+
+
+(deftest ^:slow constant-admission-linked-test
+  (let [ids #{:const-declare-and-read :const-redeclare-warns
+              :const-undefined-error :const-define-redefinition}]
+    (doseq [{:keys [id out diag uncaught] :as fixture} (filter #(ids (:id %)) p6/enabled)]
+      (let [values (:values (run fixture))]
+        (is (= (set (keys lh/backends)) (set (keys values))) (str id))
+        (doseq [[backend value] values]
+          (println "constant-fixture" id backend (pr-str (observed value)))
+          (is (= [out (vec diag) uncaught] (observed value)) (str id " " backend))
+          (is (nil? (:php/fatal value)) (str id " " backend))
+          (is (= 0 (get value :php/status 0)) (str id " " backend))))))
+  (doseq [[label source out diag uncaught status]
+          [[:uncaught "<?php echo NOPE; echo 'after';" "" []
+            {:class "Error", :message "Undefined constant \"NOPE\""} 255]
+           [:caught-finally "<?php try { echo NOPE; } catch (Error $e) { echo 'caught'; } finally { echo 'finally'; }" "caughtfinally" [] nil 0]
+           [:values "<?php define('X', 7); echo X; define('F', false); define('Z', 0); define('N', null); var_dump(F, Z, N);" "7bool(false)\nint(0)\nNULL\n" [] nil 0]
+           [:read-before-declaration "<?php echo LATER; const LATER = 1;" "" []
+            {:class "Error", :message "Undefined constant \"LATER\""} 255]
+           [:fresh-request "<?php echo X;" "" []
+            {:class "Error", :message "Undefined constant \"X\""} 255]]]
+    (let [values (:values (run {:source source}))]
+      (is (= (set (keys lh/backends)) (set (keys values))) (name label))
+      (doseq [[backend value] values]
+        (is (= [out diag uncaught] (observed value)) (str label " " backend))
+        (is (= status (get value :php/status 0)) (str label " " backend))
+        (is (nil? (:php/fatal value)) (str label " " backend))))))
 
 
 (deftest ^:slow mutual-include-ticks-on-every-vm-test
