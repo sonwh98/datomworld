@@ -64,14 +64,28 @@
   :named-parameter-binding 4,
   :zend-regression 60,
   :array-pointer 1,
-  :total 95,
+  :total 104,
   :unset-cv 3,
-  :unsupported 57,
+  :unsupported 48,
+  :constant-admission-migration 9,
   :pass-by-reference 5,
   :array-reference 1,
   :gc-cycle-collection 10},
  :known-gaps
- [{:feature :zend-regression,
+ [{:feature :constant-admission-migration,
+   :engine-work-item
+   "These cases were previously refused for bare global constant reads. They now execute and mismatch for other existing gaps; investigate those gaps separately.",
+   :entries
+   ["Zend/tests/bug28072.phpt"
+    "Zend/tests/bug53305.phpt"
+    "Zend/tests/bug69755.phpt"
+    "Zend/tests/bug69788.phpt"
+    "Zend/tests/bug70398.phpt"
+    "Zend/tests/bug72944.phpt"
+    "Zend/tests/bug77738.phpt"
+    "Zend/tests/bug78396.phpt"
+    "Zend/tests/named_params/defaults.phpt"]}
+  {:feature :zend-regression,
    :entries
    ["Zend/tests/bug24773.phpt"
     "Zend/tests/bug29883.phpt"
@@ -185,7 +199,16 @@
   {:feature :array-pointer,
    :entries ["ext/standard/tests/array/current_variation6.phpt"]}],
  :descriptions
- {"Zend/tests/bug73663.phpt"
+ {"Zend/tests/bug28072.phpt" "Bug #28072 (static array with some constant keys will be incorrectly ordered)",
+  "Zend/tests/bug53305.phpt" "Bug #53305 (E_NOTICE when defining a constant starts with __COMPILER_HALT_OFFSET__)",
+  "Zend/tests/bug69755.phpt" "Bug #69755: segfault in ZEND_CONCAT_SPEC_TMPVAR_CONST_HANDLER",
+  "Zend/tests/bug69788.phpt" "Bug #69788: Malformed script causes Uncaught Error in php-cgi, valgrind SIGILL",
+  "Zend/tests/bug70398.phpt" "Bug #70398 (SIGSEGV, Segmentation fault zend_ast_destroy_ex)",
+  "Zend/tests/bug72944.phpt" "Bug #72944 (Null pointer deref in zval_delref_p).",
+  "Zend/tests/bug77738.phpt" "Bug #77738 (Nullptr deref in zend_compile_expr)",
+  "Zend/tests/bug78396.phpt" "Bug #78396: Second file_put_contents in Shutdown hangs script",
+  "Zend/tests/named_params/defaults.phpt" "Skipping over default parameters",
+  "Zend/tests/bug73663.phpt"
   "Bug #73663 (\"Invalid opcode 65/16/8\" occurs with a variable created with list())",
   "Zend/tests/bug61681.phpt" "Bug #61681: Malformed grammar",
   "Zend/tests/gc_021.phpt"
