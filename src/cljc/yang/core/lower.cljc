@@ -97,3 +97,15 @@
                      (and (not (contains? stop (:rule k)))
                           (contains-rule? ctx k rule-name stop)))))
           (kids ctx n))))
+
+
+(defn code-point->str
+  [cp]
+  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
+     :clj (String. (Character/toChars (int cp)))
+     :cljs (.fromCodePoint js/String cp)))
+
+
+(defn build-vector
+  [vconj elems]
+  (reduce (fn [acc e] (app* vconj acc e)) (u/lit []) elems))

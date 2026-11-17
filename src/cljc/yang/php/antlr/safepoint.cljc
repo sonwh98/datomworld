@@ -4,6 +4,7 @@
    operational fatal, not a guest Throwable."
   (:require
     [yang.core.uast :as u]
+    [yang.core.prelude :as core-prelude]
     [yang.core.module :as module]))
 
 
@@ -39,7 +40,7 @@
 
 (defn- definitions->uast
   [defs]
-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
+  (core-prelude/definitions->uast defs))
 
 
 (defn program

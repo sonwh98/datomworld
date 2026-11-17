@@ -76,3 +76,20 @@ existing track); a dedicated yang-compilers topic folder remains proposed for st
 readiness confirmation.
 
 — DRY orchestrator seat
+
+## Addendum (2026-11-17, per architect malleability review 1794853997820, finding P2-3)
+
+The conflict-resolution rule above ("never by duplicating the function back") is amended by
+the architect's governance note: when the STOP clause triggers because contracts genuinely
+diverge, an explicit target adapter or separate per-target implementation IS permitted after
+architectural review — preserve shared semantics only where they remain shared; do not
+accumulate policy flags in yang.core.* merely to retain deduplication. The rule of record:
+deduplication serves malleability, not the reverse.
+
+## Addendum 2 (2026-11-17, finding P2-2 disposition)
+
+The shared balanced emitter's rationale (halved sequential depth vs the linear seq-nodes
+chain; content-addressed tree shape; empty input nil; deliberate caller choice) is now
+documented as its docstring in yang/core/prelude.cljc on the rehearsal tree — applied
+post-review as a docstring-only amendment and CONFIRMED by the same reviewer
+(1794853997820-…review-r2…stdout.log, final line CONFIRMED).

@@ -14208,3 +14208,55 @@ Verification: ls collab confirms the filename.
 Delegates: none
 Next: unchanged.
 
+## 2026-11-17 — yin.vm.rust.md retired; the wasm route is the whole stack compiled to wasm via Scheme→C
+Owner ruling: "we can just delete yin.vm.rust.md. jolt can compile to C code via gambit which
+  can then be compiled to wasm." With jolt now a first-class host (J2/J2b closed on master),
+  the Rust engine's native-execution and standalone-node roles are superseded by the shared
+  sources compiling natively via Chez, and the wasm route is re-set as the whole yin.vm stack
+  compiled to C (Gambit) and then to wasm — the whole-interpreter-in-guest architecture, not
+  compiled body functions. Deleted: yin.vm.rust.md (the compiled-bodies + Rust-engine design,
+  K0–K5 phases, LLVM path, §6.4 adapter plan). Dated retirement notes added at the four
+  dependents (yang.wasm.md, yin.vm.engine.md §E, yin.vm.debruijn.register.md §10,
+  dao.stream.wasm.md); their rust-citation bodies are retained as historical. Unchanged and
+  fully live: datom.world.abi.md, dao.stream.wasm.md, dao.stream.md, register contract §10
+  fixtures.
+Two precision flags recorded for when the wasm lane revives: (1) jolt is pinned to Chez
+  10.4.1, which compiles to machine code, not C — the C route means a Scheme→C compiler such
+  as Gambit, i.e. porting the jolt host layer (reader, dao.host overrides, FFI facades) to a
+  Gambit-based variant or growing a Gambit backend in the fork; real, unscoped work. (2) The
+  Gambit/emscripten output will challenge yang.wasm's core-wasm-1.0-only feature profile, and
+  yang.wasm's compiler mechanics (23 opcode lowerings, trampoline, structuring) are moot under
+  whole-interpreter-in-guest — when the lane revives it gets rescoped around that route.
+Survivors of the wasm spec tree: datom.world.abi.md and dao.stream.wasm.md (doctrine and
+  adapter implementation, language-neutral), the register contract and its §10 fixtures.
+Next: owner-gated — jolt lane J2b remainder and J5; the wasm lane stays parked with its route
+  re-set; no W0/K0 commissioning.
+## 2026-11-17, correction — the Gambit route is concrete and pre-designed
+Owner clarification: "jolt has a portable clojure runtime written in scheme that runs on
+  gambit which we can use to compile to C." This supersedes the retirement entry's flag 1
+  (Chez→C porting concern): the vehicle exists in the fork — the portable Scheme runtime
+  running on Gambit, and Gambit's C backend is the wasm route. Moreover the route is
+  pre-designed: yin.vm.debruijn.targets.md already covers it — the tail-call-guaranteed
+  family (Gambit/Chez take Direction A direct-style: no driver loop, host closures, host
+  tail calls; Gambit's C back end implements tail calls and call/cc per SFPW 2018),
+  phase T3 (Scheme direct-style emitter), and the Gambit/Chez common accepted subset.
+  Residual per-backend work is the native-facade FFI (BLAKE3/libcrypto/ANTLR/sockets:
+  Chez foreign-procedure → Gambit equivalents) per the established facade pattern.
+  Retirement notes in yang.wasm.md, yin.vm.engine.md §E and register.md §10 updated with
+  the pointer. Wasm lane stays parked; the revival rescope starts from targets.md's T3.
+## 2026-11-17, later — the Gambit-route framing propagated to the spec tree
+Owner: "can you update the documentations to reflect this framing." Applied across the tree:
+  yang.wasm.md retitled to the lane ("the whole yin.vm stack compiled to WebAssembly via
+  Gambit") with a normative framing note — engine = whole interpreter in-instance (no host
+  arena, no sync barrier), emitter basis = targets.md Direction A / phase T3 (host tail calls
+  make the trampoline free), feature profile re-cut at revival, identity/boundary rules
+  retained, compiled-bodies design retained as the historical first architecture;
+  yin.vm.debruijn.targets.md amended — the Gambit track elevated (T3 = the revival-time
+  deliverable), Rust T1/T4/T5 parked (native = jolt; in-guest role retired with yin.vm.rust.md);
+  yin.vm.engine.md §E and yin.vm.debruijn.register.md §10 notes extended (the i32-handle arena
+  / eight-field sync are historical split-machine design; §E.5 method and §10.4 fixtures
+  unchanged); datom.world.abi.md's instance line updated; dao.stream.wasm.md's adapter-only
+  sentence cleaned. Also repaired a garbled insertion from the earlier retirement notes
+  (duplicated "native-port phases" sentence, ADD wedged mid-sentence) in all three notes.
+No normative redesign beyond the framing: the revival rescope (T3 + jolt-on-Gambit +
+  dao.stream.wasm adapters) remains owner-gated.

@@ -16,7 +16,7 @@ The import surface exists because wasm reaches outside through imported
 functions over linear memory. These adapters implement dao.stream operations.
 The specification is language-neutral: CLJS hosts and native embedders implement
 the same surface. The Rust host-side implementation plan lives in
-[yin.vm.rust.md](./yin.vm.rust.md) §6.4; the guest engine is not
+(the Rust host-adapter plan that occupied this role, `yin.vm.rust.md` §6.4, was retired 2026-11-17 — see the retirement note in [yang.wasm.md](./yang.wasm.md)); the guest engine is not
 implemented by those host adapters.
 
 With co-resident producers, an in-instance ring-buffer implementation may

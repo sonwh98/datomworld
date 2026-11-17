@@ -2734,17 +2734,17 @@
                                      (let [result (cell/new :php/undef)]
                                        (php/try
                                          (fn []
-                                           (cell/set! result
-                                                      (let [callee (get invocation :yang.call/callee)
-                                                            positional (get invocation :yang.call/positional)
-                                                            named (get invocation :yang.call/named)
-                                                            args (if (> (data/count named) 0)
-                                                                   (php/place-named callee (get (cell/get callee) :spec)
-                                                                                    positional named 0 (data/count named)
-                                                                                    (php/empty-array))
-                                                                   positional)]
-                                                        ((get (cell/get callee) :code)
-                                                         callee args binding-profile))))
+                                           (let [callee (get invocation :yang.call/callee)
+                                                 positional (get invocation :yang.call/positional)
+                                                 named (get invocation :yang.call/named)
+                                                 args (if (> (data/count named) 0)
+                                                        (php/place-named callee (get (cell/get callee) :spec)
+                                                                         positional named 0 (data/count named)
+                                                                         (php/empty-array))
+                                                        positional)
+                                                 value ((get (cell/get callee) :code)
+                                                        callee args binding-profile)]
+                                             (cell/set! result value)))
                                          (fn [e]
                                            (let [retained (php.rt/retained-condition e)]
                                              (if (nil? retained)
@@ -6205,18 +6205,7 @@
 
 (defn- definitions->uast
   [defs]
-  ;; A linear `then` chain adds two tree levels per definition; at this
-  ;; prelude's size the bundled tree runs ~900 deep and overflows the Dart
-  ;; stack in the recursive tree walkers. Balance the sequence, preserving
-  ;; left-to-right effects and the last definition's value.
-  (letfn [(sequence-tree
-            [nodes]
-            (if (<= (count nodes) 1)
-              (first nodes)
-              (let [middle (quot (count nodes) 2)]
-                (u/then (sequence-tree (subvec nodes 0 middle))
-                        (sequence-tree (subvec nodes middle))))))]
-    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
+  (core/balanced-definitions->uast defs))
 
 
 (def functions-uast

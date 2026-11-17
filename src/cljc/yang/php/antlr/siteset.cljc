@@ -2,6 +2,8 @@
   "Publication of PHP occurrence marks beside canonical module rows."
   (:require
     [dao.jing :as jing]
+    [yang.core.siteset-store :as store]
+    [yang.core.siteset-publication :as publication]
     [yang.safepoint :as safepoint]
     [yang.core.module :as core-module]
     [yang.core.uast :as u]
@@ -81,20 +83,13 @@
 (defn signed-entry
   "Sign the association between a published manifest and its site record."
   [key manifest record-address]
-  (let [env {:yang.site/op :publish,
-             :yang.site/manifest manifest,
-             :yang.site/record record-address,
-             :yin.module/asserted-by (sign/principal (:public key))}]
-    {:envelope env, :proof (sign/sign-envelope (:seed key) env)}))
+  (publication/signed-entry key manifest record-address))
 
 
 (defn entry-datoms
   "Index signed site publications alongside name assertions."
   [signed]
-  (vec (mapcat (fn [e {:keys [envelope proof]}]
-                 [[e :yang.site/envelope envelope]
-                  [e :yang.site/proof proof]])
-               (range) signed)))
+  (publication/entry-datoms signed))
 
 
 (defn discover
@@ -125,10 +120,7 @@
 (defn signed-entries
   "Sign all site publications returned by unit publication, including aliases."
   [publisher sites addresses bundles]
-  (mapv (fn [[k s]]
-          (signed-entry publisher (or (get addresses k) (get bundles k))
-                        (:record-address s)))
-        (sort-by (comp str key) sites)))
+  (publication/signed-entries publisher sites addresses bundles))
 
 
 (defn derive-verified
@@ -164,67 +156,11 @@
 
 
 (defn- load-tree
-  "The canonical row set `{:root :rows}` of the tree at `root` in `handle`,
-   every row fetched by its address, depth-first: `{:status :missing
-   :address a}` for the first row the handle does not hold, nil when a row
-   is not its address or no tree row."
   [handle root]
-  (loop [todo [root]
-         rows {}]
-    (if-let [id (peek todo)]
-      (if (contains? rows id)
-        (recur (pop todo) rows)
-        (let [body (read-at handle id)
-              slots (when (vector? body)
-                      (get vm/semantic-bytecode-grammar (first body)))]
-          (cond
-            (absent? body) (missing id)
-            slots (recur (into (pop todo)
-                               (mapcat (fn [[_ kind] v]
-                                         (case kind
-                                           :node [v]
-                                           :nodes v
-                                           nil))
-                                       slots
-                                       (rest body)))
-                         (assoc rows id (into [id] body)))
-            :else nil)))
-      {:root root, :rows rows})))
+  (store/load-tree read-at absent? handle root))
 
 
-(defn- overlay
-  "A write-buffering handle over `base`: reads see the buffer first, then
-   `base`; puts land in the buffer only, in put order. `flush!` writes the
-   buffer to `base`; dropping the overlay writes nothing."
-  [base]
-  (let [buf (atom {:bytes {}, :order []})
-        sentinel #?(:cljs (js-obj)
-                    :default (Object.))]
-    {:handle (assoc base
-                    :get-bytes-fn (fn [address not-found]
-                                    (let [bs (get-in @buf [:bytes address])]
-                                      (if (nil? bs)
-                                        ((:get-bytes-fn base) address not-found)
-                                        bs)))
-                    :put-bytes-fn (fn [address bs]
-                                    (if (or (contains? (:bytes @buf) address)
-                                            (let [existing ((:get-bytes-fn base)
-                                                            address
-                                                            sentinel)]
-                                              (and (some? existing)
-                                                   (not (identical? sentinel
-                                                                    existing)))))
-                                      :present
-                                      (do (swap! buf (fn [b]
-                                                       (-> b
-                                                           (assoc-in [:bytes address]
-                                                                     bs)
-                                                           (update :order conj
-                                                                   address))))
-                                          :inserted))))
-     :flush! (fn []
-               (let [{:keys [bytes order]} @buf]
-                 (doseq [a order] ((:put-bytes-fn base) a (get bytes a)))))}))
+(def ^:private overlay store/overlay)
 
 
 (defn- stage-refusal

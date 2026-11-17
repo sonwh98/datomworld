@@ -1210,6 +1210,27 @@ project does not stop at R2: R3's numbers inform, they do not decide.
 
 ## 10. The wasm lane: register bytecode lowered to wasm (2026-10-19, design only)
 
+**Owner retirement, 2026-11-17: `yin.vm.rust.md` (deleted 2026-11-17; content in git history) is deleted.**
+jolt is now a first-class host for yin.vm, superseding the Rust engine's
+native-execution and standalone-node roles. All references to `yin.vm.rust.md`
+below are historical. The live boundary doctrine is
+[datom.world.abi.md](./datom.world.abi.md); the wasm stream implementation is
+[dao.stream.wasm.md](./dao.stream.wasm.md).
+
+**Owner route ruling, 2026-11-17:** the wasm route is the whole yin.vm stack
+compiled to wasm via jolt's portable Clojure runtime — written in Scheme,
+running on Gambit — by Gambit's C back end to C, then to wasm, superseding the
+compiled-bodies + Rust-engine-in-guest architecture and the native-port phases
+this document specified. The route's designed starting point is
+[yin.vm.debruijn.targets.md](./yin.vm.debruijn.targets.md): the
+tail-call-guaranteed family analysis (Gambit/Chez take Direction A direct-style
+— no driver loop, host closures, host tail calls; Gambit's C backend implements
+tail calls and call/cc, SFPW 2018), phase T3 (Scheme direct-style emitter, pure
+subset), and the Gambit/Chez common accepted subset. Residual per-backend work:
+the native facades (BLAKE3, libcrypto, ANTLR C++, sockets) are Chez-FFI and
+need Gambit-FFI equivalents, per the existing facade pattern.
+
+
 Status: design, owner-authorized planning; not implemented. Sections 1–9 above
 (as amended on 2026-10-10 and 2026-10-15) remain authoritative for the register
 image contract and the landed R4 register kernel.
@@ -1231,6 +1252,12 @@ image contract and the landed R4 register kernel.
 > historical supersessions live in [datom.world.abi.md](./datom.world.abi.md);
 > the adapter implementation lives in [dao.stream.wasm.md](./dao.stream.wasm.md).
 > Fixtures and register transition semantics survive unchanged.
+
+Owner framing, 2026-11-17 (the Gambit route): the register contract is executed by the whole
+interpreter compiled in-instance (jolt's portable runtime on Gambit → C → wasm). The
+eight-field materialization and synchronization content below belonged to the retired
+split-machine design and is historical; the fixtures (§10.4) and the register contract remain
+the acceptance surface unchanged.
 > Wasmer's full-suite gate moves from W4 to W5 under the revised schedule.
 >
 > Earlier decomposition/fold provenance remains: engine method lives in
@@ -1244,7 +1271,6 @@ Authorities and companion specifications for §10:
 - [yin.vm.semantic.md](./yin.vm.semantic.md): A identity, semantic execution, and A→R derivation.
 - [yin.vm.linker.md](./yin.vm.linker.md): admission, offset tables, and module transport.
 - [yin.vm.engine.md](./yin.vm.engine.md): scheduler, effects, custody, and (`§E.1–§E.5`) the in-instance engine and reference to the wasm stream implementation, and K0/W0 differential conformance method.
-- [yin.vm.rust.md](./yin.vm.rust.md): shared Rust crates, `Value` ownership, transition reuse, and LLVM sibling relationship.
 - [yang.wasm.md](./yang.wasm.md): lowering register images to WebAssembly modules, the 10-region linear-memory layout, and all 23 opcode lowerings linked to the in-instance engine.
 
 ### 10.1 Register machine state and the register instance of the synchronization barrier

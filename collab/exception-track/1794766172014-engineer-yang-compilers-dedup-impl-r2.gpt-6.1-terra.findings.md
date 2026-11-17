@@ -1,7 +1,7 @@
 Created-GMT: 2026-11-15 18:26:26 GMT
 Created-Local: 2026-11-16 01:26:26 +07 (Asia/Ho_Chi_Minh)
 Coding-Agent: codex
-Session-ID: pending (provider-generated; thread id recoverable from the stdout log)
+Session-ID: 01a1e067-564b-7383-a67b-660b70c3efbb (promoted after capture from the stdout log's thread.started event, 2026-11-16)
 # Task: yang-compilers-dedup-impl-r2
 Role: Engineer
 
