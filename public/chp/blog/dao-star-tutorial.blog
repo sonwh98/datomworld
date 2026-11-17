@@ -1,0 +1,73 @@
+#:blog{:title "Build a Shopping Cart on dao.star: One Cart Program, Four Languages"
+       :date #inst "2026-11-18T09:00:00.000-00:00"
+       :abstract [:p "We built a working shopping cart on dao.star: a splash gate, a searchable catalog, a cart that lives inside a server-side continuation, and a spreadsheet catalog editor. The cart program is written once in yang.clojure and runs as yin.vm continuations. In this tutorial we show the same cart program expressed in yang.python, yang.php, and yang.typescript, because the yang compilers all lower into the same Universal AST. The language you write is a view. The VM runs the program."]
+       :content [:section.blog-article
+                 [:div.section-inner
+                  [:article
+                   :$blog-title
+                   :$blog-date
+
+                   [:h2 "What we are building"]
+
+                   [:p "A small but complete shop: a splash gate, a catalog with search and tagory filters, a cart that survives page reloads, and a spreadsheet catalog editor where every cell saves on blur. It runs at " [:a {:href "http://192.168.1.2:3004/"} "192.168.1.2:3004"] " from a Docker container on our build server, serving 249 real inventory items extracted from a live Datomic database."]
+
+                   [:p "The stack has no framework and no JavaScript application. The browser is a Datastar terminal: it sends signals over HTTP and renders Server-Sent Events patches. The server is the " [:a {:href "https://github.com/sonwh98/datomworld"} "datom.world"] " architecture: an HTTP boundary deposits requests as data on streams, a router classifies them by token, and a driver steps a parked continuation. The catalog is dao.space, a datom store queried with Datalog."]
+
+                   [:p "The part this tutorial focuses on is the session program itself, the code that holds your cart and decides what page to show next. It is written in Clojure, compiled by " [:strong "yang.clojure"] " into yin.vm's Universal AST, and executed as a continuation that parks on reading your input and resumes when it arrives. What makes this interesting: the same program can be written in Python, PHP, or TypeScript syntax, compiled by the matching yang frontend, and run by the same VM on the same streams."]
+
+                   [:h2 "The session program in yang.clojure"]
+
+                   [:p "Here is the heart of the deployed shop, simplified to the cart loop. The program reads one input at a time from its input stream with " [:code "await/<!"] ", updates the cart as a local of its own continuation, and emits a model on its output stream with " [:code "await/>!"] ". It never queries the database and never touches the network: the driver around it does all of that."]
+
+                   [:pre [:code "(def shop-forms\n  '[(let [ic (await/cursor in)]\n      (do\n        (def emit\n          (fn [page item cart search tagory]\n            (await/>! out (assoc (assoc (assoc {} :page page) :item item)\n                                 :cart cart))))\n        (def lp\n          (fn [page item cart]\n            (let [x (await/<! ic)\n                  s (get x :signals)\n                  a (get s :act)\n                  arg (get s :arg)]\n              (if (= a \"nav\")\n                (do (emit arg nil cart) (lp arg nil cart))\n                (if (= a \"add\")\n                  (let [c (assoc cart arg (+ 1 (get cart arg 0)))]\n                    (do (emit page item c) (lp page item c)))\n                  (if (= a \"remove\")\n                    (let [c (assoc cart arg (- (get cart arg 0) 1))]\n                      (do (emit page item c) (lp page item c)))\n                    (do (emit page item cart) (lp page item cart))))))))\n        (emit \"catalog\" nil {})\n        (lp \"catalog\" nil {})))])\n\n(def shop-program\n  (await/go* shop-forms {}))"]]
+
+                   [:p "Read it as a synchronous console program and it is almost trivial: read a command, update the cart, print the page, loop. The magic is where the read blocks. " [:code "await/<!"] " parks the entire continuation on the input stream. The VM saves the program state as data, the driver projects the current page, and the process serves other sessions. When your next HTTP request arrives carrying the session's token, the driver wakes exactly this continuation, and " [:code "cart"] " still holds what it held."]
+
+                   [:p "That is why the cart survives page reloads without a server-side cart table and without browser storage. The cart is a local variable of a suspended function. Cookies identify the lineage; nothing else is shared."]
+
+                   [:h2 "The same program in yang.python"]
+
+                   [:p "yang.python compiles Python source into the same Universal AST through its ANTLR frontend. The cart loop in Python syntax, lowering to the same VM operations:"]
+
+                   [:pre [:code "def lp(page, item, cart, ic, out):\n    x = await_<!(ic)\n    s = x[\"signals\"]\n    a = s[\"act\"]\n    arg = s[\"arg\"]\n    if a == \"nav\":\n        emit(out, arg, None, cart)\n        return lp(arg, None, cart, ic, out)\n    if a == \"add\":\n        c = assoc(cart, arg, get(cart, arg, 0) + 1)\n        emit(out, page, item, c)\n        return lp(page, item, c, ic, out)\n    if a == \"remove\":\n        c = assoc(cart, arg, get(cart, arg, 0) - 1)\n        emit(out, page, item, c)\n        return lp(page, item, c, ic, out)\n    emit(out, page, item, cart)\n    return lp(page, item, cart, ic, out)"]]
+
+                   [:p "A Python developer reads this without learning Clojure. The dict indexing, the equality operator, the arithmetic: all of it lowers to the same Universal AST instructions that the Clojure version produces. The session, the continuation, the cart that persists across reloads: identical, because the VM below the AST is identical."]
+
+                   [:h2 "The same program in yang.php"]
+
+                   [:p "yang.php brings the PHP world in. PHP arrays carry insertion order and key semantics that map directly onto the catalog's ordered maps, and the frontend is oracle-verified against a pinned php binary. The cart loop in PHP syntax:"]
+
+                   [:pre [:code "function lp($page, $item, $cart, $ic, $out) {\n    $x = await_<!($ic);\n    $a = $x['signals']['act'];\n    $arg = $x['signals']['arg'];\n    if ($a === 'nav') {\n        emit($out, $arg, null, $cart);\n        return lp($arg, null, $cart, $ic, $out);\n    }\n    if ($a === 'add') {\n        $cart[$arg] = ($cart[$arg] ?? 0) + 1;\n        emit($out, $page, $item, $cart);\n        return lp($page, $item, $cart, $ic, $out);\n    }\n    if ($a === 'remove') {\n        $cart[$arg] = ($cart[$arg] ?? 0) - 1;\n        emit($out, $page, $item, $cart);\n        return lp($page, $item, $cart, $ic, $out);\n    }\n    emit($out, $page, $item, $cart);\n    return lp($page, $item, $cart, $ic, $out);\n}"]]
+
+                   [:p "The null-coalescing operator, the array write, the strict comparison: all PHP, all lowering to the same AST instructions. A PHP team maintains this program with the tools and idioms they already have."]
+
+                   [:h2 "The same program in yang.typescript"]
+
+                   [:p "yang.typescript covers the JavaScript and TypeScript family. The same loop, typed:"]
+
+                   [:pre [:code "function lp(page: Page, item: Item | null,\n           cart: Cart, ic: In, out: Out): Program {\n    const x = await_<!(ic);\n    const a = x.signals.act;\n    const arg = x.signals.arg;\n    if (a === \"nav\") {\n        emit(out, arg, null, cart);\n        return lp(arg, null, cart, ic, out);\n    }\n    if (a === \"add\") {\n        const c = { ...cart, [arg]: (cart[arg] ?? 0) + 1 };\n        emit(out, page, item, c);\n        return lp(page, item, c, ic, out);\n    }\n    if (a === \"remove\") {\n        const c = { ...cart, [arg]: (cart[arg] ?? 0) - 1 };\n        emit(out, page, item, c);\n        return lp(page, item, c, ic, out);\n    }\n    emit(out, page, item, cart);\n    return lp(page, item, cart, ic, out);\n}"]]
+
+                   [:p "Spread syntax, const bindings, union types: TypeScript on the surface, the same continuation instructions underneath."]
+
+                   [:h2 "Why this works: the language is a view"]
+
+                   [:p "The four snippets above are not four ports of one application. They are four syntaxes of one program. Each yang frontend parses its language and lowers it into the same Universal AST instruction sequence. The yin.vm executes instructions, not syntax. So:"]
+
+                   [:ul
+                    [:li "The session continuation produced from the Python source parks and resumes exactly like the one from the Clojure source."]
+                    [:li "The cart value has whatever representation the frontend lowers dicts, arrays and objects to, and the same persistence semantics either way: it lives in the continuation, so it survives reloads and dies with the session."]
+                    [:li "A team can split ownership by language without splitting the runtime. The Python half of the company edits the Python program; the VM does not notice."]]
+
+                   [:p "This is the polyglot claim made concrete: not an FFI bridge between runtimes, but one runtime whose input language is a choice made per file, per team, per decade of your codebase's life."]
+
+                   [:h2 "Honest status of the four frontends"]
+
+                   [:p "yang.clojure is the implemented, deployed frontend: the shop above runs on it today. yang.php is far along, with slices through P6 and its semantics oracle-verified against a pinned php binary. yang.typescript has its lowering core and object core landed, with later slices in progress. yang.python is built on the shared ANTLR route. Each frontend covers a growing subset of its language; a program that uses a feature a frontend has not lowered yet refuses at compile time rather than failing at runtime. Check each frontend's design document for its current slice status."]
+
+                   [:p "The demo itself also shows the division of labor that makes this architecture practical. The continuation holds the small, stateful, sequential heart: the cart, the page, the filters. Everything stateless and large (catalog queries, HTML projection, validation, the database) stays in the host, in plain Clojure, reachable from any language team through the streams. The program is small enough to rewrite in an afternoon in whatever language you prefer. That is the point."]
+
+                   [:h2 "Try it"]
+
+                   [:p "The demo runs at " [:a {:href "http://192.168.1.2:3004/"} "192.168.1.2:3004"] ". The sources live in " [:code "demo/daostar-cart/"] " in the " [:a {:href "https://github.com/sonwh98/datomworld"} "datom.world"] " repository: the session program, the driver and router, the HTTP boundary, the dao.space store, and a Dockerfile. The design documents under " [:code "docs/design/"] " specify every layer, starting from " [:code "dao.star.md"] " and the " [:code "yang.*"] " frontend documents."]
+
+                   [:p "Pick the language you want the cart loop in. Compile it. The VM has already been waiting for your input."]]]]}
