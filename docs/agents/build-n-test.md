@@ -715,6 +715,20 @@ first lane:
    the missing `Python3Lexer.js`. Sighted independently on the p4 lane
    (PhpLexer ClassNotFoundException) and the yang.base cljs lane
    (2026-11-02). The lane-runner fix landed 2026-11-03 (eb27fd47).
+3. **`.clojuredart/` compiler cache** — cljd's per-namespace compile cache
+   under `.clojuredart/` survives branch checkouts and re-emits stale test
+   mains, so a dart lane can fail at LOAD with "Method not found" for deftest
+   methods whose sources changed or were gated away (measured 2026-11-13 on
+   shiva: 107–133 load failures after checkout until
+   `rm -rf .clojuredart test/cljd-out lib/cljd-out build/cljd-agg*`). Treat
+   `.clojuredart/` like `test/cljd-out/` when proving a checkout took effect.
+   Also: `#?(:clj (deftest …))` is not cljd-exclusive — ClojureDart's reader
+   honors `:clj`, so JVM-only deftests must use the `#?(:cljd nil :default …)`
+   gate shape (4d0d3e70 precedent); two further sightings of the same lesson:
+   the cc3 provenance deftests (dart lane 107–133 load failures, fixed by the
+   `dart-gate-shape-fix` conversion) and the PHP ticks directive parse
+   (5ae34f5c's missing `:cljd` branch crashed the cljd compile of
+   `yang.php.antlr.lower`; fixed 795f8d85).
 
 ### Merge verification: run the suite from a fresh clone, not the authoring worktree
 
