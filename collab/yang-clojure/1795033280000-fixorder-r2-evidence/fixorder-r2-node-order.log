@@ -1,0 +1,10 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.clojure-collection-order-test
+
+Ran 10 tests containing 91392 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (127 files, 3 compiled, 0 warnings, 557.83s)

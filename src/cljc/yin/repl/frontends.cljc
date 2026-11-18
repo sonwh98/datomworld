@@ -45,11 +45,18 @@
    occurrence carries `:yang/call-site` in the frontend-metadata side
    table, finalized over the post-expansion tree that executes and
    retained beside a published module's manifest — and that promise is
-   a support claim, so the revision and the support profile name it;
-   the shared legacy profiles no longer describe this frontend."
+   a support claim, so the revision and the support profile name it.
+   Revision c1-2 additionally declares the constructed-collections
+   lowering profile: a dynamically constructed map or set literal now
+   orders its constructor operands by compiled content
+   (:yang.clojure/constructed-collections-v1), a one-time canonical
+   shift for affected newly compiled artifacts; the C1 support claim,
+   the C1 marker value and the execution grammar versions are
+   unchanged."
   []
   (assoc (manifest :yang/clojure :clojure)
-         :yang.frontend/revision "c1-1"
+         :yang.frontend/revision "c1-2"
+         :yang.frontend/lowering-profile :yang.clojure/constructed-collections-v1
          :yang.frontend/support-profile :yang.clojure/c1))
 
 

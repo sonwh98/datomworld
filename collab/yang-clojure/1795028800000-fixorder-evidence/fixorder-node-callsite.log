@@ -1,0 +1,10 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.clojure-callsite-test
+
+Ran 41 tests containing 516 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (229 files, 228 compiled, 0 warnings, 29.69s)

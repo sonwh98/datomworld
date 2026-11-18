@@ -299,6 +299,16 @@
      :else false)))
 
 
+(defn- content-root
+  "The canonical semantic-bytecode root of one compiled child: the content
+   address of its projected executable content. Constructed collections
+   order their operands by these addresses (constructed-collections-v1);
+   the projection here is temporary compile-time data, never a published
+   root or ordering table."
+  [ast]
+  (:root (vm/ast->semantic-bytecode ast)))
+
+
 (defn- compile-constructed-collection
   "Lower a collection literal with dynamic elements to constructor calls over
    existing portable primitives, so unquoted vectors/maps/sets evaluate their
@@ -306,20 +316,55 @@
 
    [e1 e2 ...]  => (conj [] e1 e2 ...)
    #{e1 e2 ...} => (conj #{} e1 e2 ...)
-   {k1 v1 ...}  => (assoc {} k1 v1 k2 v2 ...)"
+   {k1 v1 ...}  => (assoc {} k1 v1 k2 v2 ...)
+
+   A host map or set has no portable iteration order, so a map's pairs and
+   a set's elements enter the operand vector in compiled-content order
+   (constructed-collections-v1): each child compiles once, pairs sort
+   ascending by jing/canonical-compare over the two-element vector
+   [key-root value-root] of the children's projected roots (key-root
+   primary, value-root secondary), set elements by their own root, after
+   the unchanged seed operand and before the unchanged operator resolution
+   and tail mark. Equal sort keys are equal executable content under the
+   content-address integrity contract, so a tie keeps its occurrences and
+   needs no further tie-break; no child is recompiled, deduplicated or
+   evaluated, and each compiled AST keeps its own attached metadata. A
+   vector retains its written element order."
   [form tail? env macro-env]
   (let [ctor (cond
                (vector? form) ['conj []]
                (set? form) ['conj #{}]
                :else ['assoc {}])
         [op seed] ctor
-        args (if (map? form)
-               (into [] (interleave (keys form) (vals form)))
-               (vec form))
+        compile-child #(compile-form % false env macro-env)
+        ;; each pair/element keeps its compiled ASTs and their content keys
+        ;; together, so sorting never recompiles or loses an occurrence
+        sorted-children
+        (cond
+          (vector? form) {:order :written, :children (mapv compile-child form)}
+          (map? form)
+          {:order :canonical
+           :records (mapv (fn [k v]
+                            (let [ck (compile-child k)
+                                  cv (compile-child v)]
+                              {:sort-key [(content-root ck) (content-root cv)]
+                               :children [ck cv]}))
+                          (keys form) (vals form))}
+          :else
+          {:order :canonical
+           :records (mapv (fn [e]
+                            (let [ce (compile-child e)]
+                              {:sort-key [(content-root ce)]
+                               :children [ce]}))
+                          form)})
+        operands (case (:order sorted-children)
+                   :written (:children sorted-children)
+                   (into [] (mapcat :children)
+                         (sort-by :sort-key jing/canonical-compare
+                                  (:records sorted-children))))
         call {:type :application,
               :operator {:type :variable, :name op},
-              :operands (into [{:type :literal, :value seed}]
-                              (map #(compile-form % false env macro-env) args))}]
+              :operands (into [{:type :literal, :value seed}] operands)}]
     (cond-> call tail? (assoc :tail? true))))
 
 

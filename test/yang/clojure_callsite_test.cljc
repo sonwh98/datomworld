@@ -952,6 +952,28 @@
       (published :clj clj-result clj-spec)])))
 
 
+(defn- collection-constructors
+  "The constructed-collection applications of compiled `ast`: an assoc over
+   the {} seed or a conj over the []/#{} seed -- the yang.clojure
+   collection emitter's output."
+  [ast]
+  (let [acc (atom [])]
+    (walk/postwalk
+      (fn [n]
+        (when (and (map? n)
+                   (= :application (:type n))
+                   (= :variable (get-in n [:operator :type]))
+                   (= :literal (get-in n [:operands 0 :type])))
+          (let [op (get-in n [:operator :name])
+                seed (get-in n [:operands 0 :value])]
+            (when (or (and (= op (quote assoc)) (= seed {}))
+                      (and (= op (quote conj)) (contains? #{[] #{}} seed)))
+              (swap! acc conj n))))
+        n)
+      ast)
+    @acc))
+
+
 (defn replay-snapshot
   "Digest the FULL canonical-sorted C1 relation and occurrence-key vector;
    no origin, generated name, path or expansion record is normalized away."
@@ -980,7 +1002,13 @@
 
 
 (def replay-expectations
-  "Recorded once on the JVM at dispatch revision 2687ab0c; shared by all hosts."
+  "The cc4 cohort's fixed expectations, shared by all hosts. Originally
+   recorded on the JVM at dispatch revision 2687ab0c; re-pinned once under
+   manifest c1-2 (constructed-collections-v1, ruling 1795017757000) after
+   the collection emitter began ordering constructor operands by compiled
+   content -- the argument-vector and lower-unit members changed canonical
+   bytes, the other six members are byte-identical. The pre-fix bundle is
+   retained at test/resources/yang/clojure/cc4-replay-snapshots-prefix-c1-1.edn."
   [{:id :native,
     :root
     :segment/blake3-0aac99defd315ce7623ecefc08106f31653bd138fb5ae3f1f1d466bd93893c70,
@@ -993,24 +1021,24 @@
     "1556afb1db35c20b88bbc254b112fcb09874e95b3c9bcd8d412fbd3e4d01f005"}
    {:id :argument-vector,
     :root
-    :segment/blake3-a0f9c217122ce675d1b3cd5f899740d604ec35f801eac9a4960153cbcd91d699,
+    :segment/blake3-4a9a1b91e8a113009af0dc68f8e5a5afbe1910a61e07741894f5922c20499b26,
     :applications 263,
     :keys-digest
-    "c566619c48987d2d8968f709b2a9fe878fa13d090d03e09a23ed476af4f3071f",
+    "aeb62bc089bd7b30f200d9b0645e7933e54286af39b9675c73823c4be8d0175d",
     :c1-digest
-    "82385d11b83bd1a6bd540cc80011ec88f23cf2e9a959fecfd604eff029a1ba2a",
+    "41b8f25ba2592d4f5d77364f97e7c8d058cbe4e2a428587cc2b43a5e4193387d",
     :instruction-provenance-digest
-    "46aaeddb12f05415c9291f48431f1f1d300685aefdb31ee7d1517bcb6e90cb22"}
+    "d0f4d14d0cef560ad313574f206a391b1eed7938b38b81f614549bc26cb8b3cb"}
    {:id :lower-unit,
     :root
-    :segment/blake3-44c06492b31348905205b1e1130c27aa1c769790010291ca223d3ab61bfa2775,
+    :segment/blake3-f4603726a6b554bf102dd63f752851e735c068d3804158b2435004161c6655b4,
     :applications 256,
     :keys-digest
-    "3d26c4d7ace79574c00ec69f676027cc95025ba8e108fc3958606471308c6618",
+    "18e26285f07ae96609caeea87f96e4b9fe8cea6b5223c87417d63edeac054670",
     :c1-digest
-    "654c6a31726250f58550db88ce905fda869f3040b350e298da0aa73995b581ed",
+    "1ab2dbf99e3fa7bbe4d53281c7d961f03b837cef6a6df5eb10f82d1ceff5849d",
     :instruction-provenance-digest
-    "3c755a27a4432a44786960a0bbf8771c07068707a23d260c2733c76078870100"}
+    "711d0c50ea119b0f6577868383a5e82462b17a77da52b0b09e049fddc68d4aa5"}
    {:id :prelude,
     :root
     :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c,
@@ -1110,6 +1138,61 @@
     (let [a (first artifacts) b (nth artifacts 5)]
       (is (= (:root (:tree a)) (:root (:tree b))))
       (is (not= (row-origins (:rows a)) (row-origins (:rows b)))))))
+
+
+(deftest constructed-collection-operand-order-test
+  "constructed-collections-v1 (ruling 1795017757000): the reproduced
+   arity-map constructor emits its pairs in compiled-content order --
+   ascending jing/canonical-compare over the children's projected
+   [key-root value-root] vectors -- so every host compiles the two members
+   carrying it to one operand vector. The full ordering battery lives in
+   yang.clojure-collection-order-test."
+  (letfn [(arity-ctors
+            [ast]
+            (->> (collection-constructors ast)
+                 (filter (fn [c]
+                           (some (fn [o]
+                                   (and (= :literal (:type o))
+                                        (contains? #{:yin.k/fn :yin.k/kind}
+                                                   (:value o))))
+                                 (:operands c))))))
+          (pair-keys
+            [c]
+            (mapv vec
+                  (partition 2
+                             (rest (mapv (fn [o] (:root (vm/ast->semantic-bytecode o)))
+                                         (:operands c))))))
+          (sorted-ascending?
+            [ks]
+            (every? (fn [[a b]] (neg? (jing/canonical-compare a b)))
+                    (partition 2 1 ks)))]
+    (doseq [[label ast] [[:argument-vector
+                          (yang/compile-program
+                            (quote [(defn replay
+                                      [x]
+                                      (let [[a b] [x 1.5]]
+                                        (+ (identity ^:replay a)
+                                           (identity ^:replay a) b)))
+                                    (replay 2)])
+                            true yang/unit-opts)]
+                         [:lower-unit
+                          (yang/lower-unit
+                            (quote [(defn replay
+                                      [x]
+                                      (let [[a b] [x 1.5]]
+                                        (+ (identity ^:replay a)
+                                           (identity ^:replay a) b)))
+                                    (replay 2)]))]]]
+      (testing (str label)
+        (let [ctors (arity-ctors ast)]
+          (is (pos? (count ctors)))
+          (doseq [c ctors]
+            (is (sorted-ascending? (pair-keys c)))
+            ;; the ruled named order: :yin.k/fn, :yin.vm.data/reason,
+            ;; :yin.k/argc (key roots 1e0366, 81b62c, 8930bf)
+            (is (= [:yin.k/fn :yin.vm.data/reason :yin.k/argc]
+                   (mapv (fn [i] (:value (nth (:operands c) (inc (* 2 i)))))
+                         (range 3))))))))))
 
 
 (deftest published-module-test
