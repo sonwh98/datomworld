@@ -8,6 +8,20 @@ node = "25.6.1"
 # jolt host lane (jolt-toolchain.edn): exact pins, never "latest"; a change of
 # either goes through the jolt upgrade gate
 chezscheme = "10.4.1"
+# gambit is not in mise's registry; the asdf plugin joeljuca/asdf-gambit builds
+# the v4.9.8 tag from source (pre-generated C in the tag archive, so no
+# gambit bootstrap step) — the same from-source 4.9.8 jolt's CI gates target
+# (Makefile GAMBIT_PREFIX comment; tests.yml). Plugin pinned to its full HEAD
+# SHA (mise rejects abbreviated ones). Never "latest".
+# Known divergence (review 1794970000000 P2-1): the plugin configures with
+# --enable-single-host only; jolt CI (tests.yml) additionally passes
+# --enable-default-runtime-options=f8,-8,t8. Gates pass with the plugin build;
+# revisit at the upgrade gate if a gate ever disagrees.
+# Fresh installs run a ~15-20 min from-source build including the plugin's
+# `make check` (review P2-2); Linux verified once before this pin landed.
+# [plugins] must stay the LAST table in this file — a mid-file table broke
+# mise's validation of the flutter entry (engineer findings 1794934400000).
+gambit = "4.9.8"
 cmake = "4.4.4"
 android-sdk = "latest"
 flutter = { version = "3.47.8", platforms = """
@@ -33,3 +47,6 @@ path = [
 [env]
 #FLUTTER_STORAGE_BASE_URL = "https://storage.flutter-io.cn"
 #PUB_HOSTED_URL = "https://pub.flutter-io.cn"
+
+[plugins]
+gambit = "https://github.com/joeljuca/asdf-gambit#b8a901e7af845c8b0a0ee1adc5b67687ba4c582b"
