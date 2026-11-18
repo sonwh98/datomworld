@@ -1,0 +1,163 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+
+┌─────────────────────────────────────────────────────────┐
+│ A new version of Flutter is available!                  │
+│                                                         │
+│ To update to the latest version, run "flutter upgrade". │
+└─────────────────────────────────────────────────────────┘
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (111.0.0 available)
++ analyzer 6.4.1 (14.7.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.8
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @22:48:48
+  yang.clojure-callsite-test
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 53, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 89, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member osError on target type dynamic of library dart:core  at line: 269, column: 38, file: yin/repl/state.cljc
+DYNAMIC WARNING: can't resolve member errorCode on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 553, column: 48, file: yin/repl.cljc
+DYNAMIC WARNING: can't resolve member toList on target type dynamic of library dart:core  at line: 34, column: 13, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member decisionToState on target type dynamic of library dart:core  at line: 35, column: 16, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member interpreter on target type dynamic of library dart:core  at line: 64, column: 3, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member interpreter on target type dynamic of library dart:core  at line: 70, column: 3, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+Compilation succeeded - Bravissimo! 👏 @22:49:02
+Running 1 test files in 1 shards
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 99.0.0 (111.0.0 available)
+  analyzer 12.1.0 (14.7.0 available)
+  bluez 0.8.3 (0.9.0 available)
+  cbor 6.5.1 (6.5.2 available)
+  clock 1.1.2 (1.1.3 available)
+  coverage 1.15.1 (1.16.0 available)
+  crypto 3.0.7 (3.0.8 available)
+  dbus 0.7.15 (0.8.0 available)
+  flutter_ble_peripheral 3.1.0 (3.2.0 available)
+  flutter_blue_plus 1.36.8 (2.3.15 available)
+  flutter_blue_plus_android 7.0.4 (9.0.5 available)
+  flutter_blue_plus_darwin 7.0.3 (9.0.5 available)
+  flutter_blue_plus_linux 7.0.3 (9.0.5 available)
+  flutter_blue_plus_platform_interface 7.0.0 (9.0.4 available)
+  flutter_blue_plus_web 7.0.2 (9.0.4 available)
+  frontend_server_client 4.0.0 (4.2.0 available)
+  glob 2.1.3 (2.2.0 available)
+  http_multi_server 3.2.2 (3.2.3 available)
+  io 1.0.5 (1.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  mime 2.0.0 (2.1.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  pool 1.5.2 (1.5.3 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  shelf 1.4.2 (1.4.3 available)
+  shelf_static 1.1.3 (1.2.0 available)
+  source_maps 0.10.13 (0.10.14 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test 1.31.1 (1.33.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  test_core 0.6.18 (0.6.21 available)
+  unorm_dart 0.3.1+1 (0.3.3 available)
+  vector_math 2.4.2 (2.4.4 available)
+  vm_service 15.2.0 (15.4.0 available)
+  web 1.1.1 (1.1.2 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+36 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /Users/sto/workspace/datomworld-cc4/build/cljd-agg/shard_0_test.dart
+00:00 +0: null yang.clojure-callsite-test/boundary-test
+00:00 +1: null yang.clojure-callsite-test/safepoint-correspondence-refusal-test
+00:00 +2: null yang.clojure-callsite-test/repl-fabricated-retention-evidence-is-ignored-on-link-resume-test
+00:01 +3: null yang.clojure-callsite-test/repl-fabricated-retention-evidence-is-ignored-test
+00:01 +4: null yang.clojure-callsite-test/portable-replay-cohort-test
+00:07 +4 -1: null yang.clojure-callsite-test/portable-replay-cohort-test [E]
+  Expected: (= replay-expectations snapshots)
+    Actual: Result:<(not (= [{:id :native, :root :segment/blake3-0aac99defd315ce7623ecefc08106f31653bd138fb5ae3f1f1d466bd93893c70, :c1-digest "c906019273e6253441e61306faca99b4212f122a00b08fd8226be0e0e7742c26", :keys-digest "fa8eac643ac38139bbfb9391e5e00725b24396a04067f812117dbf352a99dcee", :instruction-provenance-digest "1556afb1db35c20b88bbc254b112fcb09874e95b3c9bcd8d412fbd3e4d01f005", :applications 14} {:id :argument-vector, :root :segment/blake3-a0f9c217122ce675d1b3cd5f899740d604ec35f801eac9a4960153cbcd91d699, :c1-digest "82385d11b83bd1a6bd540cc80011ec88f23cf2e9a959fecfd604eff029a1ba2a", :keys-digest "c566619c48987d2d8968f709b2a9fe878fa13d090d03e09a23ed476af4f3071f", :instruction-provenance-digest "46aaeddb12f05415c9291f48431f1f1d300685aefdb31ee7d1517bcb6e90cb22", :applications 263} {:id :lower-unit, :root :segment/blake3-44c06492b31348905205b1e1130c27aa1c769790010291ca223d3ab61bfa2775, :c1-digest "654c6a31726250f58550db88ce905fda869f3040b350e298da0aa73995b581ed", :keys-digest "3d26c4d7ace79574c00ec69f676027cc95025ba8e108fc3958606471308c6618", :instruction-provenance-digest "3c755a27a4432a44786960a0bbf8771c07068707a23d260c2733c76078870100", :applications 256} {:id :prelude, :root :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c, :c1-digest "de8cc7425d8416de0eb8e3f6dc7ff80e5fb459f0fbdab7027d4df1b3c784925d", :keys-digest "07ec7e0a4ab5c70165680106dc382a9d9cfc53543b6262e0bed3f4c2dd8f7f9f", :instruction-provenance-digest "7392bb208443f93c42b29cd870d697b602a108b9420f443e7ba04583ee356d29", :applications 114} {:id :macro, :root :segment/blake3-a15528bb9aef22fa7dc4beaa90a7e08f079b4dfb9b6da51f7b16bb079c54134a, :c1-digest "08b6cca6ed5de79242687f08d6ef0a5206ab97a54c3f22e131d4bc4b7e9e5c17", :expansion-log-digest "73b67cf76e2ad7e5444fdcd9df1e26e538ac80bcab0e39c0243abc458230e605", :expansion-status :ok, :keys-digest "41d06797995ebdc416c2218d9bc6f359ee91f3374f2412cdeff3f5b03bc85d68", :instruction-provenance-digest "0977d7b1ec1637016b58cf457783f59b66881dd092e2308f760e6329c7e61b45", :applications 5} {:id :negative, :root :segment/blake3-0aac99defd315ce7623ecefc08106f31653bd138fb5ae3f1f1d466bd93893c70, :c1-digest "0922dc899c755e6524b5a99dd89d231fb66e0442bf64b4f1f12cd83caff7fe1e", :keys-digest "9af4019d1aac9117ea1c3c6722e51d1f485b5c12fb413696334ebf32bf8726dc", :instruction-provenance-digest "cf08d9827b5a9df3f78524904a5670f8e2e9c01962e9085c60553e2deae6b799", :applications 14} {:id :yang.call, :root :segment/blake3-7e7616ca801a9accdf762409584fdd792e055dc5c55d4528a8eb3fdb5596e37c, :c1-digest "3acde5f905ceea786f662156fbf6e90cd04dcbc40f3872ca9aaebbc26f39d519", :addresses {:record :segment/blake3-28e281229dc14d40416e033479004b021d89e599be66318a21102850b5c39cc3, :root :segment/blake3-7e7616ca801a9accdf762409584fdd792e055dc5c55d4528a8eb3fdb5596e37c, :provenance :segment/blake3-d7dab37d22c32674c2a33503818c570c54ac11486094144ebf295e44e5b2ed61, :manifest :segment/blake3-ef21320944b651140c11dedebd8b443fb91d32f99678f9c274568fbe4d07eea4, :table :segment/blake3-3acde5f905ceea786f662156fbf6e90cd04dcbc40f3872ca9aaebbc26f39d519}, :keys-digest "2039d1de6fef574d02f5f9afe4105ea682b03fe322871a7087cdd6d32e4e54a8", :instruction-provenance-digest "980ec0e7f2bc5e3b4ff2da60a90dab318d594e6a5a53319214f7bdf9f39a87bf", :provenance-digest "8218c68f1c2851edb821c62bfdc7c6c9488751c022016930f0dfac8b48ae76ef", :applications 100} {:id :clj, :root :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c, :c1-digest "167c6aeaedace3afd945c6b7c0f1aa31f73df5d4577366fdd2431059633c1050", :addresses {:record :segment/blake3-20d2e0c43539dbf3cb66fe04e6cffea673772d06d32f753b131de6f17d3daf35, :root :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c, :provenance :segment/blake3-3a43087e7ea783baa6e2f6f4041dc60c6f83aee4bc49842c871d2d20c12056c6, :manifest :segment/blake3-72efd5cba6d2c36bacae7a114fca2db95b5ef5cfe966d004d16e9e39a7179ee0, :table :segment/blake3-167c6aeaedace3afd945c6b7c0f1aa31f73df5d4577366fdd2431059633c1050}, :keys-digest "ad8a98a4a01addb84ff29055c9030e2eb8eab9509973ad7177aa4ed3ee54f952", :instruction-provenance-digest "57920a53ece61c4ea721a969c4107d32f846ec2628b4f77b62acb912677782c1", :provenance-digest "499f103a2af205e818483bb4ca301668bc8cf13d6e16f71e747ff0255b865287", :applications 114}] [{:id :native, :root :segment/blake3-0aac99defd315ce7623ecefc08106f31653bd138fb5ae3f1f1d466bd93893c70, :c1-digest "c906019273e6253441e61306faca99b4212f122a00b08fd8226be0e0e7742c26", :keys-digest "fa8eac643ac38139bbfb9391e5e00725b24396a04067f812117dbf352a99dcee", :instruction-provenance-digest "1556afb1db35c20b88bbc254b112fcb09874e95b3c9bcd8d412fbd3e4d01f005", :applications 14} {:id :argument-vector, :root :segment/blake3-02eac587af541bc180db4109b3accd5e3981a92eb5d1d00e63d6f12d74b484b0, :c1-digest "a7f9b710743fa0572fc24817d41abfdab16f14ddeef266d31e783fc9dcc59c69", :keys-digest "925fb133b20687477f47fa4991feed6ebfc96a7ff0281497007ad013883c3cd7", :instruction-provenance-digest "ccfc4bb19a763ed5ad1c4e650b951abee63b01cb42bb81c79b168487fd8afaa0", :applications 263} {:id :lower-unit, :root :segment/blake3-9fe835e99e3afc3c2dc7639e7f26d1bcb8ab08445ded6b08aa8d3c78d01546fa, :c1-digest "73663cae54144b2ea36899e0f134fda95004a66e47812f44a517309a21970514", :keys-digest "abadccb3d3ecae849b8c9b5ed39e996093c68f99734f7bf55d70364147bd756b", :instruction-provenance-digest "20af7391729a7f450f9e6a255701c3afde18a1e06bbecdd3ca067d2e955794cc", :applications 256} {:id :prelude, :root :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c, :c1-digest "de8cc7425d8416de0eb8e3f6dc7ff80e5fb459f0fbdab7027d4df1b3c784925d", :keys-digest "07ec7e0a4ab5c70165680106dc382a9d9cfc53543b6262e0bed3f4c2dd8f7f9f", :instruction-provenance-digest "7392bb208443f93c42b29cd870d697b602a108b9420f443e7ba04583ee356d29", :applications 114} {:id :macro, :root :segment/blake3-a15528bb9aef22fa7dc4beaa90a7e08f079b4dfb9b6da51f7b16bb079c54134a, :c1-digest "08b6cca6ed5de79242687f08d6ef0a5206ab97a54c3f22e131d4bc4b7e9e5c17", :expansion-log-digest "73b67cf76e2ad7e5444fdcd9df1e26e538ac80bcab0e39c0243abc458230e605", :expansion-status :ok, :keys-digest "41d06797995ebdc416c2218d9bc6f359ee91f3374f2412cdeff3f5b03bc85d68", :instruction-provenance-digest "0977d7b1ec1637016b58cf457783f59b66881dd092e2308f760e6329c7e61b45", :applications 5} {:id :negative, :root :segment/blake3-0aac99defd315ce7623ecefc08106f31653bd138fb5ae3f1f1d466bd93893c70, :c1-digest "0922dc899c755e6524b5a99dd89d231fb66e0442bf64b4f1f12cd83caff7fe1e", :keys-digest "9af4019d1aac9117ea1c3c6722e51d1f485b5c12fb413696334ebf32bf8726dc", :instruction-provenance-digest "cf08d9827b5a9df3f78524904a5670f8e2e9c01962e9085c60553e2deae6b799", :applications 14} {:id :yang.call, :root :segment/blake3-7e7616ca801a9accdf762409584fdd792e055dc5c55d4528a8eb3fdb5596e37c, :c1-digest "3acde5f905ceea786f662156fbf6e90cd04dcbc40f3872ca9aaebbc26f39d519", :addresses {:record :segment/blake3-28e281229dc14d40416e033479004b021d89e599be66318a21102850b5c39cc3, :root :segment/blake3-7e7616ca801a9accdf762409584fdd792e055dc5c55d4528a8eb3fdb5596e37c, :provenance :segment/blake3-d7dab37d22c32674c2a33503818c570c54ac11486094144ebf295e44e5b2ed61, :manifest :segment/blake3-ef21320944b651140c11dedebd8b443fb91d32f99678f9c274568fbe4d07eea4, :table :segment/blake3-3acde5f905ceea786f662156fbf6e90cd04dcbc40f3872ca9aaebbc26f39d519}, :keys-digest "2039d1de6fef574d02f5f9afe4105ea682b03fe322871a7087cdd6d32e4e54a8", :instruction-provenance-digest "980ec0e7f2bc5e3b4ff2da60a90dab318d594e6a5a53319214f7bdf9f39a87bf", :provenance-digest "8218c68f1c2851edb821c62bfdc7c6c9488751c022016930f0dfac8b48ae76ef", :applications 100} {:id :clj, :root :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c, :c1-digest "167c6aeaedace3afd945c6b7c0f1aa31f73df5d4577366fdd2431059633c1050", :addresses {:record :segment/blake3-20d2e0c43539dbf3cb66fe04e6cffea673772d06d32f753b131de6f17d3daf35, :root :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c, :provenance :segment/blake3-3a43087e7ea783baa6e2f6f4041dc60c6f83aee4bc49842c871d2d20c12056c6, :manifest :segment/blake3-72efd5cba6d2c36bacae7a114fca2db95b5ef5cfe966d004d16e9e39a7179ee0, :table :segment/blake3-167c6aeaedace3afd945c6b7c0f1aa31f73df5d4577366fdd2431059633c1050}, :keys-digest "ad8a98a4a01addb84ff29055c9030e2eb8eab9509973ad7177aa4ed3ee54f952", :instruction-provenance-digest "57920a53ece61c4ea721a969c4107d32f846ec2628b4f77b62acb912677782c1", :provenance-digest "499f103a2af205e818483bb4ca301668bc8cf13d6e16f71e747ff0255b865287", :applications 114}]))>
+     Which: occured in: yang.clojure-callsite-test/portable-replay-cohort-test
+            
+  
+  package:matcher                                              expect
+  test/cljd-out/yang/clojure-callsite-test_test.dart 14383:9   portable_replay_cohort_test.thunk$13533_$AUTO_$1.maybe_f$2
+  dart:async                                                   runZoned
+  test/cljd-out/yang/clojure-callsite-test_test.dart 14755:11  portable_replay_cohort_test.thunk$13533_$AUTO_$1
+  test/cljd-out/yang/clojure-callsite-test_test.dart 14763:8   portable_replay_cohort_test.<fn>.<fn>.maybe_f$3
+  dart:async                                                   runZoned
+  test/cljd-out/yang/clojure-callsite-test_test.dart 14796:11  portable_replay_cohort_test.<fn>.<fn>
+  
+00:07 +4 -1: null yang.clojure-callsite-test/record-call-site-admissions-r4-test
+00:07 +5 -1: null yang.clojure-callsite-test/pinned-replay-test
+00:07 +6 -1: null yang.clojure-callsite-test/validation-failure-test
+00:07 +7 -1: null yang.clojure-callsite-test/repl-retention-failure-is-observable-test
+00:08 +8 -1: null yang.clojure-callsite-test/repl-packet-call-provenance-test
+00:08 +9 -1: null yang.clojure-callsite-test/published-module-test
+00:19 +10 -1: null yang.clojure-callsite-test/encoder-projected-claim-shape-test
+00:19 +11 -1: null yang.clojure-callsite-test/repl-query-link-forwarding-test
+00:19 +12 -1: null yang.clojure-callsite-test/encoder-claim-test
+00:19 +13 -1: null yang.clojure-callsite-test/wrapper-provenance-r4-test
+00:19 +14 -1: null yang.clojure-callsite-test/module-from-index-c1-r3-test
+00:19 +15 -1: null yang.clojure-callsite-test/per-member-metadata-test
+00:19 +16 -1: null yang.clojure-callsite-test/unclaimed-batch-test
+00:19 +17 -1: null yang.clojure-callsite-test/repl-fabricated-retention-evidence-is-ignored-from-late-formatting-test
+00:20 +18 -1: null yang.clojure-callsite-test/post-expansion-coverage-test
+00:20 +19 -1: null yang.clojure-callsite-test/twin-identical-content-distinct-origin-test
+00:20 +20 -1: null yang.clojure-callsite-test/p1-packet-provenance-test
+00:20 +21 -1: null yang.clojure-callsite-test/per-member-claim-test
+00:20 +22 -1: null yang.clojure-callsite-test/module-from-index-c1-test
+00:20 +23 -1: null yang.clojure-callsite-test/equality-gate-test
+00:21 +24 -1: null yang.clojure-callsite-test/safepoint-c1-preservation-test
+00:21 +25 -1: null yang.clojure-callsite-test/safepoint-exit-hook-c1-test
+00:21 +26 -1: null yang.clojure-callsite-test/repl-fabricated-retention-evidence-is-ignored-from-the-renderer-test
+00:21 +27 -1: null yang.clojure-callsite-test/same-root-coexistence-test
+00:21 +28 -1: null yang.clojure-callsite-test/publish-version-reason-test
+00:21 +29 -1: null yang.clojure-callsite-test/publisher-scope-id-identity-test
+00:21 +30 -1: null yang.clojure-callsite-test/module-from-index-c1-adversarial-test
+00:22 +31 -1: null yang.clojure-callsite-test/successive-expansions-test
+00:22 +32 -1: null yang.clojure-callsite-test/encoder-projected-member-test
+00:22 +33 -1: null yang.clojure-callsite-test/canonical-invariance-test
+00:22 +34 -1: null yang.clojure-callsite-test/repl-call-site-surface-test
+00:22 +35 -1: null yang.clojure-callsite-test/publisher-scope-admission-identity-test
+00:22 +36 -1: null yang.clojure-callsite-test/safepoint-independence-test
+00:22 +37 -1: null yang.clojure-callsite-test/unclaimed-after-claimed-test
+00:22 +38 -1: null yang.clojure-callsite-test/published-instruction-provenance-test
+00:22 +39 -1: Some tests failed.
+
+Failing tests:
+  /Users/sto/workspace/datomworld-cc4/build/cljd-agg/shard_0_test.dart: null yang.clojure-callsite-test/portable-replay-cohort-test

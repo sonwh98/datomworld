@@ -1,0 +1,142 @@
+;; UNEXECUTED DRAFT: acceptance stopped on reproduced Dart divergence.
+;; Not a measured or validated budget implementation.
+(ns yang.latte-oracle.cc4-budget
+  "cc4 declaration v1: trace-free B/S pipeline. Raw samples, maximum verdicts.
+   B shares compiler annotation work but strips C1 before downstream stages."
+  (:require [yang.clojure-callsite-test :as cohort]
+            [dao.host.bytes :as bytes]
+            [dao.jing :as jing]
+            [dao.jing.mem :as mem]
+            [yin.vm :as vm]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.derive :as derive]))
+
+(def ceilings
+  {:per-artifact 2000000 :storage 32000000 :retained 96000000
+   :heap 2147483648 :pipeline 80000 :cold 160000
+   :rows 50000 :occurrences 100000 :applications 10000
+   :depth 256 :path-bytes 8000000})
+
+(defn now [] #?(:cljs (.now js/Date) :default (System/currentTimeMillis)))
+(defn heap [] #?(:jolt nil :cljd nil
+                 :clj (let [r (Runtime/getRuntime)] (- (.totalMemory r) (.freeMemory r)))
+                 :cljs (.-heapUsed (.memoryUsage js/process))))
+(defn gc-heap []
+  #?(:jolt nil :cljd nil
+     :clj (do (System/gc) (Thread/sleep 50) (System/gc) (heap))
+     :cljs (when (fn? (.-gc js/global)) ((.-gc js/global)) (heap))))
+
+(defn pipeline [annotated?]
+  (let [start (now)
+        artifacts (cohort/replay-artifacts annotated?)
+        built (now)
+        store (mem/create-content-mem)
+        entries
+        (mapv
+          (fn [{:keys [tree rows] :as artifact}]
+            (let [occ (vec (vm/occurrences tree))
+                  apps (filterv (fn [[_ _ id]] (= :application (nth (get (:rows tree) id) 1))) occ)
+                  paths (mapv second apps)
+                  counts {:rows (count (:rows tree)) :occurrences (count occ)
+                          :applications (count apps) :depth (apply max 0 (map count paths))
+                          :path-bytes (bytes/length (jing/canonical-bytes paths))}
+                  _ (doseq [k (keys counts)]
+                      (when (> (get counts k) (get ceilings k))
+                        (throw (ex-info "cc4 input bound exceeded before lowering" counts))))
+                  sem (linearize/project-rows tree nil (if annotated? rows []))
+                  stack (derive/stack-image (:vector sem)
+                                            {:segment-address :cc4/stack
+                                             :call-provenance (:call-provenance sem)})
+                  reg (derive/register-image (:vector sem)
+                                             {:segment-address :cc4/register
+                                              :call-provenance (:call-provenance sem)})
+                  relation [(:call-provenance sem) (:call-provenance stack) (:call-provenance reg)]
+                  record (when annotated?
+                           {:cc4/schema 1 :root (:root tree)
+                            :rows (jing/materialize! store rows)
+                            :relation (jing/materialize! store relation)})
+                  address (when record (jing/materialize! store record))
+                  payloads (if annotated?
+                             (into [rows relation record] (:published-payloads artifact)) [])
+                  sizes (if annotated?
+                          (mapv #(bytes/length (jing/canonical-bytes %)) payloads) [0])
+                  loaded (when address (jing/get store address nil))
+                  loaded-rows (if loaded (jing/get store (:rows loaded) nil) [])
+                  query (into #{} (map #(vec (take 3 %))) loaded-rows)]
+              (when (and annotated? (not= (set (map #(vec (take 3 %)) rows)) query))
+                (throw (ex-info "cc4 persisted query mismatch" {:id (:id artifact)})))
+              {:input artifact :images [(:vector sem) (:image stack) (:image reg)]
+               :relation (when annotated? relation) :record loaded :query query
+               :counts counts :sizes sizes :side-payloads payloads :stage-heap (heap)}))
+          artifacts)
+        done (now)
+        counts (reduce (fn [a e] (merge-with + a (dissoc (:counts e) :depth))) {} entries)
+        counts (assoc counts :depth (apply max (map #(get-in % [:counts :depth]) entries)))
+        _ (doseq [k (keys counts)]
+            (when (> (get counts k) (get ceilings k))
+              (throw (ex-info "cc4 aggregate input bound exceeded" counts))))]
+    {:holder [artifacts entries store]
+     :roots (mapv #(get-in % [:input :tree :root]) entries)
+     :image-digest (jing/content-hash (mapv :images entries))
+     :counts counts :per-member (mapv #(select-keys % [:counts :sizes]) entries)
+     :storage (reduce + (map #(bytes/length (jing/canonical-bytes %))
+                            (vals (into {} (map (juxt jing/segment-key identity))
+                                        (mapcat :side-payloads entries)))))
+     :largest-artifact (apply max (mapcat :sizes entries))
+     :stage-heap-max (when (heap) (apply max (heap) (keep :stage-heap entries)))
+     :stages-ms {:compile-expand-publish (- built start)
+                 :lower-persist-load-query (- done built)}
+     :elapsed-ms (- done start)}))
+
+(defn sample [annotated?]
+  #?(:clj
+     (let [stop (atom false) peak (atom (heap))
+           sampler (Thread. (fn [] (while (not @stop)
+                                    (swap! peak max (heap)) (Thread/sleep 2))))]
+       (.start sampler)
+       (try
+         (let [result (pipeline annotated?)]
+           (assoc (dissoc result :holder) :peak-used-heap @peak))
+         (finally (reset! stop true) (.join sampler))))
+     :default (dissoc (pipeline annotated?) :holder)))
+
+(defn retained [annotated?]
+  (when-let [before (gc-heap)]
+    (let [result (pipeline annotated?)
+          after (gc-heap)
+          ;; Refer to the holder after GC sampling so it remains live.
+          alive (count (first (:holder result)))]
+      {:before before :after after :delta (- after before) :retained-members alive})))
+
+(defn measure [annotated?]
+  (let [cold (sample annotated?)
+        _ (sample annotated?)
+        pipes (mapv (fn [_] (sample annotated?)) (range 3))
+        holds (vec (keep identity (map (fn [_] (retained annotated?)) (range 5))))
+        max-of (fn [k] (apply max (map k pipes)))
+        peak (cond (:peak-used-heap (first pipes)) (max-of :peak-used-heap)
+                   (:stage-heap-max (first pipes)) (max-of :stage-heap-max))]
+    {:configuration (if annotated? :S :B) :cold cold :pipeline-samples pipes
+     :retained-samples holds
+     :memory-method #?(:clj :jvm-gc-used-heap-2ms-peak
+                        :cljs :node-exposed-gc-stage-peak-lower-bound
+                        :default :heap-unavailable)
+     :maxima {:time (max-of :elapsed-ms) :storage (max-of :storage)
+              :per-artifact (max-of :largest-artifact) :heap peak
+              :retained (when (seq holds) (apply max (map :delta holds)))}
+     :verdicts {:cold (<= (:elapsed-ms cold) (:cold ceilings))
+                :pipeline (<= (max-of :elapsed-ms) (:pipeline ceilings))
+                :storage (<= (max-of :storage) (:storage ceilings))
+                :per-artifact (<= (max-of :largest-artifact) (:per-artifact ceilings))
+                :heap (when peak (<= peak (:heap ceilings)))
+                :retained (when (seq holds)
+                            (<= (apply max (map :delta holds)) (:retained ceilings)))}}))
+
+(defn -main [& _]
+  (let [b (measure false) s (measure true)
+        delta (into {} (for [k [:time :storage :retained]
+                             :let [bv (get-in b [:maxima k]) sv (get-in s [:maxima k])]
+                             :when (and bv sv)] [k (- sv bv)]))]
+    (prn {:cc4/budget 1 :ceilings ceilings :baseline b :static s :S-minus-B delta
+          :canonical-code-equal (= (get-in b [:cold :image-digest])
+                                   (get-in s [:cold :image-digest]))})))
