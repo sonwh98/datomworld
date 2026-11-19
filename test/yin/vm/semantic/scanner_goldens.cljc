@@ -826,6 +826,7 @@
         str-conv
         eq-items
         star-name
+        py.b/AssertionError
         str?
         mul
         py.b/Exception
@@ -1138,6 +1139,11 @@
        [make-exc true]
        [raise-new true]
        [py.b/TypeError true]
+       [truthy true]
+       [raise true]
+       [make-exc true]
+       [py.b/AssertionError true]
+       [= true]
        [content-type true]
        [= true]
        [= true]
@@ -2191,6 +2197,8 @@
        [vconj true]
        [arg true]
        [setattr true]
+       [= true]
+       [tuple true]
        [tuple true]
        [vconj true]
        [= true]
@@ -3719,6 +3727,9 @@
        [py.b/ValueError true]
        [dict-set true]
        [py.b/builtins true]
+       [py.b/AssertionError true]
+       [dict-set true]
+       [py.b/builtins true]
        [py.b/TypeError true]
        [dict-set true]
        [py.b/builtins true]
@@ -3810,6 +3821,8 @@
        [py.b/Exception true]
        [make-class true]
        [py.b/ImportError true]
+       [make-class true]
+       [py.b/Exception true]
        [make-class true]
        [py.b/Exception true]
        [make-class true]
@@ -4565,6 +4578,7 @@
        [data/float-value true]],
       :definitions
       [[py.b/ArithmeticError false]
+       [py.b/AssertionError false]
        [py.b/AttributeError false]
        [py.b/BaseException false]
        [py.b/Exception false]
@@ -4703,6 +4717,7 @@
        [make-exc false]
        [raise-new false]
        [type-error false]
+       [assert false]
        [as-exception false]
        [subclass? false]
        [class-match? false]
@@ -5020,6 +5035,7 @@
        [py.b/ImportError true]
        [py.b/AttributeError true]
        [py.b/ValueError true]
+       [py.b/AssertionError true]
        [py.b/TypeError true]
        [py.b/KeyError true]
        [py.b/IndexError true]
@@ -5030,7 +5046,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 4041,
+      :application-count 4051,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5299,6 +5315,7 @@
          ascii-lower
          setitem
          py.b/next
+         assert
          make-instance
          print
          getattr
@@ -5338,6 +5355,7 @@
          set-from
          eq-items
          star-name
+         py.b/AssertionError
          str?
          mul
          py.b/Exception
@@ -5545,6 +5563,7 @@
         [assoc true]
         [assoc true]
         [assoc true]
+        [= true]
         [= true]
         [= true]
         [get true]
@@ -6061,6 +6080,7 @@
         [= true]
         [= true]
         [get true]
+        [= true]
         [= true]
         [= true]
         [= true]

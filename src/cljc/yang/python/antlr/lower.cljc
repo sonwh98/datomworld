@@ -100,8 +100,6 @@
    "decorated" "decorator",
    "async_funcdef" "async def",
    "async_stmt" "async statement",
-   "annassign" "annotated assignment",
-   "assert_stmt" "assert statement",
    "match_stmt" "match statement",
    "subject_expr" "match statement",
    "star_named_expressions" "match statement",
@@ -146,7 +144,7 @@
 (def consumed-rules
   "Rules read only by their parent's arm; they never reach `lower` alone."
   #{"parameters" "typedargslist" "tfpdef" "varargslist" "vfpdef"
-    "augassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
+    "augassign" "annassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
     "subscript_" "sliceop" "arglist" "argument" "testlist_comp"
     "dictorsetmaker" "strings" "comp_for" "comp_iter" "comp_if" "with_item"
     "yield_arg" "dotted_name" "dotted_as_name" "dotted_as_names"
@@ -158,6 +156,7 @@
   #{"file_input" "stmt" "simple_stmts" "simple_stmt" "compound_stmt"
     "flow_stmt" "expr_stmt" "testlist_star_expr" "testlist" "exprlist"
     "pass_stmt" "break_stmt" "continue_stmt" "return_stmt" "raise_stmt"
+    "assert_stmt"
     "global_stmt" "nonlocal_stmt" "if_stmt" "while_stmt" "for_stmt"
     "try_stmt" "with_stmt" "funcdef" "classdef" "test" "test_nocond"
     "lambdef" "lambdef_nocond" "or_test" "and_test" "not_test" "comparison"
@@ -368,6 +367,66 @@
    "v" (code-point->str 11), "\n" ""})
 
 
+(def ^:private named-escapes
+  "The Unicode names \\N{...} accepts, statically: the ASCII letters and
+   digits, SPACE and the common punctuation and symbol names, plus the
+   Latin-1 letters. A name outside the table refuses loudly at lowering —
+   a compile-time diagnostic naming the escape — over a partial runtime
+   name lookup the prelude does not have."
+  (merge
+   ;; a name's letter is upper case even for the small letters
+   (into {}
+         (for [kind [["LATIN SMALL LETTER " 0x61 0x41]
+                     ["LATIN CAPITAL LETTER " 0x41 0x41]]
+               i (range 26)]
+           [(str (first kind) (code-point->str (+ (nth kind 2) i)))
+            (+ (second kind) i)]))
+   (into {}
+         (for [i (range 10)]
+           [(str "DIGIT " (code-point->str (+ 0x30 i))) (+ 0x30 i)]))
+   {"SPACE" 0x20
+    "EXCLAMATION MARK" 0x21, "QUOTATION MARK" 0x22, "NUMBER SIGN" 0x23,
+    "DOLLAR SIGN" 0x24, "PERCENT SIGN" 0x25, "AMPERSAND" 0x26,
+    "APOSTROPHE" 0x27, "LEFT PARENTHESIS" 0x28, "RIGHT PARENTHESIS" 0x29,
+    "ASTERISK" 0x2A, "PLUS SIGN" 0x2B, "COMMA" 0x2C, "HYPHEN-MINUS" 0x2D,
+    "FULL STOP" 0x2E, "SOLIDUS" 0x2F, "COLON" 0x3A, "SEMICOLON" 0x3B,
+    "LESS-THAN SIGN" 0x3C, "EQUALS SIGN" 0x3D, "GREATER-THAN SIGN" 0x3E,
+    "QUESTION MARK" 0x3F, "COMMERCIAL AT" 0x40, "LEFT SQUARE BRACKET" 0x5B,
+    "REVERSE SOLIDUS" 0x5C, "RIGHT SQUARE BRACKET" 0x5D,
+    "CIRCUMFLEX ACCENT" 0x5E, "LOW LINE" 0x5F, "GRAVE ACCENT" 0x60,
+    "LEFT CURLY BRACKET" 0x7B, "VERTICAL LINE" 0x7C,
+    "RIGHT CURLY BRACKET" 0x7D, "TILDE" 0x7E,
+    "NO-BREAK SPACE" 0xA0, "INVERTED EXCLAMATION MARK" 0xA1,
+    "CENT SIGN" 0xA2, "POUND SIGN" 0xA3, "SECTION SIGN" 0xA7,
+    "BROKEN BAR" 0xA6, "DIAERESIS" 0xA8, "COPYRIGHT SIGN" 0xA9,
+    "REGISTERED SIGN" 0xAE, "DEGREE SIGN" 0xB0, "PLUS-MINUS SIGN" 0xB1,
+    "MICRO SIGN" 0xB5, "PILCROW SIGN" 0xB6, "MULTIPLICATION SIGN" 0xD7,
+    "INVERTED QUESTION MARK" 0xBF, "DIVISION SIGN" 0xF7,
+    "LATIN SMALL LETTER SHARP S" 0xDF, "LATIN CAPITAL LETTER AE" 0xC6,
+    "LATIN SMALL LETTER AE" 0xE6, "LATIN SMALL LETTER A WITH ACUTE" 0xE1,
+    "LATIN SMALL LETTER E WITH ACUTE" 0xE9, "LATIN SMALL LETTER I WITH ACUTE" 0xED,
+    "LATIN SMALL LETTER O WITH ACUTE" 0xF3, "LATIN SMALL LETTER U WITH ACUTE" 0xFA,
+    "LATIN SMALL LETTER N WITH TILDE" 0xF1, "LATIN SMALL LETTER C WITH CEDILLA" 0xE7,
+    "LATIN CAPITAL LETTER A WITH ACUTE" 0xC1, "LATIN CAPITAL LETTER E WITH ACUTE" 0xC9,
+    "LATIN CAPITAL LETTER O WITH ACUTE" 0xD3, "LATIN CAPITAL LETTER U WITH ACUTE" 0xDA,
+    "LATIN CAPITAL LETTER N WITH TILDE" 0xD1,
+    "EN DASH" 0x2013, "EM DASH" 0x2014, "BULLET" 0x2022,
+    "HORIZONTAL ELLIPSIS" 0x2026, "LEFT SINGLE QUOTATION MARK" 0x2018,
+    "RIGHT SINGLE QUOTATION MARK" 0x2019, "LEFT DOUBLE QUOTATION MARK" 0x201C,
+    "RIGHT DOUBLE QUOTATION MARK" 0x201D, "EURO SIGN" 0x20AC,
+    "TRADE MARK SIGN" 0x2122, "LEFTWARDS ARROW" 0x2190,
+    "UPWARDS ARROW" 0x2191, "RIGHTWARDS ARROW" 0x2192,
+    "DOWNWARDS ARROW" 0x2193}))
+
+
+(defn- named-escape
+  "The code point of one \\N{NAME}: a compile-time diagnostic naming the
+   escape when the name is outside the table."
+  [n name]
+  (or (get named-escapes name)
+      (syntax! n (str "\\N{" name "} unknown Unicode character name"))))
+
+
 (defn- unescape
   [n body]
   (let [len (count body)]
@@ -390,7 +449,15 @@
                 (= e "U") (recur (+ i 10)
                                  (conj out (code-point->str
                                              (hex-value n (subs body (+ i 2) (min len (+ i 10)))))))
-                (= e "N") (unsupported! n "named unicode escape")
+                (= e "N")
+                (let [after (subs body (min len (+ i 2)))
+                      close (str/index-of after "}")]
+                  (when (or (not= (subs after 0 (min 1 (count after))) "{")
+                            (nil? close))
+                    (syntax! n "malformed \\N character escape"))
+                  (recur (+ i 2 close 1)
+                         (conj out (code-point->str
+                                     (named-escape n (subs after 1 close))))))
                 (re-matches #"[0-7]" e)
                 (let [digits (re-find #"^[0-7]{1,3}" (subs body (inc i)))]
                   (recur (+ i 1 (count digits))
@@ -1351,26 +1418,51 @@
           :else (unsupported! target "augmented assignment to a call"))))))
 
 
+(defn- assign-sides
+  "The store the plain and annotated assignments share: a simple name
+   binds the value directly; anything else evaluates it once into a
+   temporary and assigns each target from it."
+  [ctx n targets value-node]
+  (let [value ((:lower ctx) ctx value-node)]
+    (if (and (= 1 (count targets))
+             (scope/simple-name (:pk ctx) (first targets)))
+      (assign-target ctx (first targets) value)
+      (let [tmp (gen "v" n)]
+        (u/let1 tmp value
+                (u/seq-nodes (map #(assign-target ctx % (u/v tmp))
+                                  targets)))))))
+
+
+(defn- lower-annassign
+  "`x: T = v`, through expr_stmt's annassign child. The annotation is
+  erased metadata: the runtime has no type-checking layer, so annotations
+  are documentation, and the value assignment lowers exactly as a plain
+  assignment to the same target (`assign-sides`, so subscript and
+  attribute targets store like the plain path's).
+  `x: T` with no value binds nothing at run time and lowers to nothing;
+  the target's name binding comes from the scope analysis, as in CPython."
+  [ctx n target annassign]
+  (let [kas (kids ctx annassign)
+        value (when (some #(p/token? % "=") kas) (peek (vec kas)))]
+    (if value
+      (assign-sides ctx n [target] value)
+      none)))
+
+
 (defn- lower-expr-stmt
   [ctx n]
   (let [ks (kids ctx n)]
     (cond
       (= 1 (count ks)) ((:lower ctx) ctx (first ks))
-      (p/rule? (second ks) "annassign") (unsupported! n "annotated assignment")
+      (p/rule? (second ks) "annassign")
+      (lower-annassign ctx n (first ks) (second ks))
       (p/rule? (second ks) "augassign")
       (lower-augmented ctx n (first ks) (second ks) (nth ks 2))
       :else
       (let [sides (filterv p/rule? ks)
             value-node (peek sides)
-            targets (pop sides)
-            value ((:lower ctx) ctx value-node)]
-        (if (and (= 1 (count targets))
-                 (scope/simple-name (:pk ctx) (first targets)))
-          (assign-target ctx (first targets) value)
-          (let [tmp (gen "v" n)]
-            (u/let1 tmp value
-                    (u/seq-nodes (map #(assign-target ctx % (u/v tmp))
-                                      targets)))))))))
+            targets (pop sides)]
+        (assign-sides ctx n targets value-node)))))
 
 
 ;; -----------------------------------------------------------------------------
@@ -1760,6 +1852,19 @@
                                     ((:lower ctx) ctx (first tests))))))))
 
 
+(defn- lower-assert
+  "`assert test, msg`: a falsey test raises AssertionError with the
+   message as its args; the bare form asserts truthiness only and raises
+   one with no args. Lowered to the prelude's `py/assert`."
+  [ctx n]
+  (let [tests (rules ctx n "test")]
+    (app* 'py/assert
+          ((:lower ctx) ctx (first tests))
+          (if-let [msg (second tests)]
+            ((:lower ctx) ctx msg)
+            none))))
+
+
 (def ^:private comprehension-names
   {:list "list comprehension", :set "set comprehension", :dict "dict comprehension",
    :genexp "generator expression"})
@@ -1899,6 +2004,7 @@
     "continue_stmt" (lower-flow ctx n)
     "return_stmt" (lower-flow ctx n)
     "raise_stmt" (lower-flow ctx n)
+    "assert_stmt" (lower-assert ctx n)
     "yield_stmt" (lower ctx (first (kids ctx n)))
     "yield_expr" (lower-yield ctx n)
     ;; declarations were consumed by scope analysis

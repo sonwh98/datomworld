@@ -611,6 +611,61 @@
              "print(1)\nraise ValueError('bad')\nprint(2)\n"))
 
 
+(deftest ^:slow ^:quickwins assert-statement-test
+  ;; a true assertion runs on; a false one raises AssertionError, with the
+  ;; message its args and the bare form no args
+  (every-vm= (prints "after")
+             "assert 1\nassert True, 'nope'\nprint('after')\n")
+  (every-vm= {:py/out [], :py/exception {:type "AssertionError", :args []}}
+             "assert 0\n")
+  (every-vm= {:py/out [], :py/exception {:type "AssertionError", :args ["boom"]}}
+             "assert 0, 'boom'\n")
+  (every-vm= (prints "caught empty")
+             (str "try:\n"
+                  "    assert [], 'empty'\n"
+                  "except AssertionError as e:\n"
+                  "    print('caught', e.args[0])\n"))
+  (every-vm= {:py/out ["caught" "done"],
+              :py/exception {:type "AssertionError", :args []}}
+             (str "try:\n"
+                  "    assert 0\n"
+                  "except AssertionError:\n"
+                  "    print('caught')\n"
+                  "assert 'y'\n"
+                  "print('done')\n"
+                  "assert ()\n")))
+
+
+(deftest ^:slow ^:quickwins annotated-assignment-test
+  ;; the annotation is erased: the value assignment behaves exactly like
+  ;; `x = 1`, and the bare `x: int` binds nothing (a read is NameError)
+  (every-vm= (prints "1")
+             "x: int = 1\nprint(x)\n")
+  (every-vm= (prints "caught")
+             (str "try:\n"
+                  "    print(y)\n"
+                  "except NameError:\n"
+                  "    print('caught')\n"
+                  "y: int\n"))
+  (every-vm= (prints "[9]")
+             "a = [0]\na[0]: int = 9\nprint(a)\n")
+  (every-vm= (prints "5")
+             (str "class C:\n"
+                  "    pass\nc = C()\nc.v: int = 5\nprint(c.v)\n"))
+  (every-vm= (prints "7")
+             (str "def f():\n"
+                  "    z: int = 7\n"
+                  "    return z\n"
+                  "print(f())\n")))
+
+
+(deftest ^:slow ^:quickwins named-unicode-escape-test
+  (every-vm= (prints "a b")
+             "print('\\N{LATIN SMALL LETTER A} \\N{LATIN SMALL LETTER B}')\n")
+  (every-vm= (prints "<")
+             "print('\\N{LESS-THAN SIGN}')\n"))
+
+
 (deftest ^:slow classes-test
   (every-vm= (prints "40 4 True False")
              (str "class A:\n"

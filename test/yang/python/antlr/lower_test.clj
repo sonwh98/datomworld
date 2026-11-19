@@ -441,7 +441,8 @@
 
 (deftest unsupported-constructs-are-qualified-test
   ;; `import m` and `del x` lower since I1; the I2 import forms still
-  ;; refuse, naming their construct
+  ;; refuse, naming their construct; `assert` and `x: T = v` lower since
+  ;; the py-quickwins slice
   (doseq [[src rule construct]
           [["x = a @ b\n" "expr" "operator @"]
            ["x @= b\n" "augassign" "augmented @="]
@@ -451,13 +452,44 @@
            ["x = {**d}\n" "atom" "dict unpacking in a display"]
            ["x = f'{a}'\n" "atom" "f-string"]
            ["x = 1 <> 2\n" "comp_op" "comparison <>"]
-           ["class C(A, B): pass\n" "classdef" "multiple inheritance"]
-           ["assert x\n" "assert_stmt" "assert statement"]]]
+           ["class C(A, B): pass\n" "classdef" "multiple inheritance"]]]
     (testing src
       (is (= {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
               :rule rule,
               :construct construct}
              (refusal src))))))
+
+
+(deftest assert-golden-test
+  (testing "`assert x`: a falsey test raises AssertionError with no args"
+    (is (= (u/then (py 'py/assert (gget "x") none) none)
+           (body "assert x\n"))))
+  (testing "`assert x, 'nope'`: the message is the exception's args"
+    (is (= (u/then (py 'py/assert (gget "x") (u/lit {:py/str "nope"})) none)
+           (body "assert x, 'nope'\n"))))
+  (testing "the test lowers like any expression"
+    (is (= (u/then (py 'py/assert (call (builtin "len") (gget "a")) none) none)
+           (body "assert len(a)\n")))))
+
+
+(deftest annotated-assignment-golden-test
+  (testing "`x: T = v` assigns the value exactly as `x = v` does: the
+            annotation is erased metadata, documentation the runtime has
+            no type-checking layer for"
+    (is (= (body "x = 1\n") (body "x: int = 1\n")))
+    (is (= (u/then (gset "x" (u/lit 1)) none) (body "x: int = 1\n"))))
+  (testing "`x: T` with no value lowers to nothing"
+    (is (= (body "pass\n") (body "x: int\n"))))
+  (testing "a subscript target assigns like a plain assignment's"
+    (is (= (body "a[0] = 1\n") (body "a[0]: int = 1\n"))))
+  (testing "an attribute target assigns like a plain assignment's"
+    (is (= (body "a.b = 1\n") (body "a.b: int = 1\n")))))
+
+
+(deftest named-escape-golden-test
+  (testing "\\N{LATIN SMALL LETTER A} is the character it names"
+    (is (= (u/then (call (builtin "print") (u/lit {:py/str "abc"})) none)
+           (body "print('\\N{LATIN SMALL LETTER A}bc')\n")))))
 
 
 (deftest static-flow-errors-test
@@ -470,6 +502,12 @@
            ["while x:\n    def f():\n        break\n"
             "'break' outside loop"]
            ["x = '\\U00110000'\n" "illegal Unicode character in \\U escape"]
+           ["x = '\\N{NOT A NAME}'\n"
+            "\\N{NOT A NAME} unknown Unicode character name"]
+           ["x = '\\N{LATIN SMALL LETTER Z WITH CARON}'\n"
+            "\\N{LATIN SMALL LETTER Z WITH CARON} unknown Unicode character name"]
+           ["x = '\\Nq'\n" "malformed \\N character escape"]
+           ["x = '\\N{LATIN SMALL LETTER A'\n" "malformed \\N character escape"]
            ["a, *b, *c = x\n" "multiple starred expressions in assignment"]
            ["*a = x\n" "starred assignment target must be in a list or tuple"]
            ["f(a=1, a=2)\n" "keyword argument repeated: a"]
