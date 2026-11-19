@@ -166,12 +166,15 @@
 (defn preflight!
   "Fail-closed identity preflight for a driver: run a trivial child through
    the same launch seam and assert it reports `target` itself, before any
-   real child's pass/fail is trusted. `context` names the driver in errors."
-  [target context]
-  (let [t (resolve-target target)
-        r (run-child {:target t} "-e" (identity-probe-form t))]
-    (assert-child-target! {:target t
-                           :output (str (:out r) (:err r))
-                           :context context})
-    (println "PASS identity gate: child reported" (identity-line t))
-    t))
+   real child's pass/fail is trusted. `context` names the driver in errors.
+   Set :identity-opt-out true for a call that runs only JVM transcript children."
+  ([target context] (preflight! target context {}))
+  ([target context {:keys [identity-opt-out]}]
+   (let [t (resolve-target target)]
+     (when-not (true? identity-opt-out)
+       (let [r (run-child {:target t} "-e" (identity-probe-form t))]
+         (assert-child-target! {:target t
+                                :output (str (:out r) (:err r))
+                                :context context})
+         (println "PASS identity gate: child reported" (identity-line t))))
+     t)))

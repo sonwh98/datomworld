@@ -1,8 +1,7 @@
 ;; Lane B target-awareness (C5): --target chez (the default, unchanged) or
 ;; --target gambit, refused fail-closed — the REPL transcript lane is
-;; Chez-tier (fork host/gambit/ffi/README.md). A trivial child through the
-;; launch seam must report the requested target itself before a transcript
-;; verdict is trusted. The REPL children intentionally get NO JOLT_TARGET:
+;; Chez-tier (fork host/gambit/ffi/README.md). Runs that include jolt verify
+;; the target through a separate preflight. The REPL children get no JOLT_TARGET:
 ;; their output is compared byte-for-byte between the hosts, and an identity
 ;; line would corrupt the transcript contract.
 (when-not (resolve 'jolt-launch/run-child)
@@ -240,18 +239,17 @@
      :transit :absent :roots ["src/jolt" "src/cljc" "src/clj"]}))
 
 
-;; Lane B fail-closed target gate before any jolt child is started.
-(jlt/require-chez! (:target cli) "test:jolt-shell")
-(println "jolt-target:" (name (:target cli)))
-(jlt/preflight! (:target cli) "test:jolt-shell identity gate")
-
-
 (let [args (:args cli)
+      target (:target cli)
       host (some-> (second (drop-while #(not= "--host" %) args)) keyword)
       only (second (drop-while #(not= "--only" %) args))
       probe? (some #{"--probe"} args)
       hosts (if probe? [:jolt] (if (and host (not= :all host)) [host] [:jvm :jolt]))
       demo? (some #{"--demo"} args)]
+  (jlt/require-chez! target "test:jolt-shell")
+  (println "jolt-target:" (name target))
+  (jlt/preflight! target "test:jolt-shell identity gate"
+                  {:identity-opt-out (= [:jvm] hosts)})
   (fs/create-dirs "build/j3-logs/shell")
   (let [results (for [h hosts
                       case (cond probe? (mapv #(hash-map :id (keyword %))
