@@ -1,0 +1,16 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.clojure-collection-order-test
+
+FAIL in (corpus-cross-host-reference-test) (yang/clojure_collection_order_test.cljc:1538:13)
+:floats
+cross-host corpus divergence at :floats
+expected: (= expected (assoc (get actual case) :case case))
+  actual: (not (= {:case :floats, :root :segment/blake3-149c168e3b766d703fc230365be4ad940bbcf487e0bff36efff9cf6e3bf08958, :applications 2, :keys-digest "cb7365d53d55ad30e90e700206caff405d3fe1d5faf62566df91f4f1dcd4afb7", :c1-digest "f181b911a60e6e66217fecbf93bd6623d83354c41aa0afdb9e49f10f45f69fdd", :instruction-provenance-digest "e25482dac0a59eaa0801c1faea000ad518a5ab1d7e53b704d883ff6ecf495735"} {:root :segment/blake3-d4ee0ca368a18d7cf8010e211e50ed96df6f4ecc39befad11dd9aad01c57d5b1, :applications 2, :keys-digest "f6e32612f78e3299c469e14c953e8ee53cf3226ed825f3c12b69b5080d1f42da", :c1-digest "d8058ae46577532bdbc709df329d5c324b731abb7962ad29cf326a084ef99906", :instruction-provenance-digest "4aaeac91b2a2a1af5e3b980c325ac60b0534913df06ee069af2f03c89224456e", :case :floats}))
+
+Ran 15 tests containing 91477 assertions.
+1 failures, 0 errors.
+===============================================
+[:test] Build completed. (127 files, 3 compiled, 0 warnings, 607.28s)
