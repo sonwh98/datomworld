@@ -1,0 +1,11 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+:member :native :rows-equal true :rows-a 18 :rows-b 18
+:member :argument-vector :rows-equal true :rows-a 267 :rows-b 267
+:member :lower-unit :rows-equal true :rows-a 260 :rows-b 260
+:member :prelude :rows-equal true :rows-a 114 :rows-b 114
+:member :macro :rows-equal true :rows-a 5 :rows-b 5
+:member :negative :rows-equal true :rows-a 18 :rows-b 18
+:member :yang.call :rows-equal true :rows-a 100 :rows-b 100
+:member :clj :rows-equal true :rows-a 114 :rows-b 114
+:same-rows-order true
