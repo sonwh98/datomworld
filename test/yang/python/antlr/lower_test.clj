@@ -441,7 +441,8 @@
 
 (deftest unsupported-constructs-are-qualified-test
   ;; `import m` and `del x` lower since I1; the I2 import forms still
-  ;; refuse, naming their construct
+  ;; refuse, naming their construct; `assert` lowers since the
+  ;; py-quickwins slice
   (doseq [[src rule construct]
           [["x = a @ b\n" "expr" "operator @"]
            ["x @= b\n" "augassign" "augmented @="]
@@ -451,13 +452,24 @@
            ["x = {**d}\n" "atom" "dict unpacking in a display"]
            ["x = f'{a}'\n" "atom" "f-string"]
            ["x = 1 <> 2\n" "comp_op" "comparison <>"]
-           ["class C(A, B): pass\n" "classdef" "multiple inheritance"]
-           ["assert x\n" "assert_stmt" "assert statement"]]]
+           ["class C(A, B): pass\n" "classdef" "multiple inheritance"]]]
     (testing src
       (is (= {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
               :rule rule,
               :construct construct}
              (refusal src))))))
+
+
+(deftest assert-golden-test
+  (testing "`assert x`: a falsey test raises AssertionError with no args"
+    (is (= (u/then (py 'py/assert (gget "x") none) none)
+           (body "assert x\n"))))
+  (testing "`assert x, 'nope'`: the message is the exception's args"
+    (is (= (u/then (py 'py/assert (gget "x") (u/lit {:py/str "nope"})) none)
+           (body "assert x, 'nope'\n"))))
+  (testing "the test lowers like any expression"
+    (is (= (u/then (py 'py/assert (call (builtin "len") (gget "a")) none) none)
+           (body "assert len(a)\n")))))
 
 
 (deftest static-flow-errors-test

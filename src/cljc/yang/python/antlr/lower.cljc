@@ -101,7 +101,6 @@
    "async_funcdef" "async def",
    "async_stmt" "async statement",
    "annassign" "annotated assignment",
-   "assert_stmt" "assert statement",
    "match_stmt" "match statement",
    "subject_expr" "match statement",
    "star_named_expressions" "match statement",
@@ -158,6 +157,7 @@
   #{"file_input" "stmt" "simple_stmts" "simple_stmt" "compound_stmt"
     "flow_stmt" "expr_stmt" "testlist_star_expr" "testlist" "exprlist"
     "pass_stmt" "break_stmt" "continue_stmt" "return_stmt" "raise_stmt"
+    "assert_stmt"
     "global_stmt" "nonlocal_stmt" "if_stmt" "while_stmt" "for_stmt"
     "try_stmt" "with_stmt" "funcdef" "classdef" "test" "test_nocond"
     "lambdef" "lambdef_nocond" "or_test" "and_test" "not_test" "comparison"
@@ -1760,6 +1760,19 @@
                                     ((:lower ctx) ctx (first tests))))))))
 
 
+(defn- lower-assert
+  "`assert test, msg`: a falsey test raises AssertionError with the
+   message as its args; the bare form asserts truthiness only and raises
+   one with no args. Lowered to the prelude's `py/assert`."
+  [ctx n]
+  (let [tests (rules ctx n "test")]
+    (app* 'py/assert
+          ((:lower ctx) ctx (first tests))
+          (if-let [msg (second tests)]
+            ((:lower ctx) ctx msg)
+            none))))
+
+
 (def ^:private comprehension-names
   {:list "list comprehension", :set "set comprehension", :dict "dict comprehension",
    :genexp "generator expression"})
@@ -1899,6 +1912,7 @@
     "continue_stmt" (lower-flow ctx n)
     "return_stmt" (lower-flow ctx n)
     "raise_stmt" (lower-flow ctx n)
+    "assert_stmt" (lower-assert ctx n)
     "yield_stmt" (lower ctx (first (kids ctx n)))
     "yield_expr" (lower-yield ctx n)
     ;; declarations were consumed by scope analysis

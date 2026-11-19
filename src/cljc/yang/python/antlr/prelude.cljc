@@ -748,11 +748,27 @@
        (cell/new (assoc (assoc (assoc {} :py/type :instance) :class cls)
                         :attrs {})))]
     [py/make-exc
+     ;; a nil message is an exception with no args, the bare `assert`'s;
+     ;; every other caller passes a real message
      (fn [cls msg]
        (let [e (py/make-instance cls)]
-         (do (py/setattr e "args" (py/tuple (py/vconj [] msg))) e)))]
+         (do (py/setattr e "args"
+                         (if (= msg nil)
+                           (py/tuple [])
+                           (py/tuple (py/vconj [] msg))))
+             e)))]
     [py/raise-new (fn [cls msg] (py/raise (py/make-exc cls msg)))]
     [py/type-error (fn [msg] (py/raise-new py.b/TypeError msg))]
+    [py/assert
+     ;; `assert test, msg`: a falsey test raises AssertionError with the
+     ;; message as its args; the lowered bare form passes :py/None (the one
+     ;; divergence: a literal `assert x, None` raises AssertionError with
+     ;; no args, where CPython's args hold None)
+     (fn [test msg]
+       (if (py/truthy test)
+         :py/None
+         (py/raise (py/make-exc py.b/AssertionError
+                                (if (= msg :py/None) nil msg)))))]
     [py/as-exception
      ;; `raise X`: a BaseException subclass is instantiated, an instance of
      ;; one is raised as is, anything else is a TypeError
@@ -3419,6 +3435,8 @@
    ["IndexError" 'py.b/IndexError 'py.b/LookupError]
    ["KeyError" 'py.b/KeyError 'py.b/LookupError]
    ["TypeError" 'py.b/TypeError 'py.b/Exception]
+   ;; raised by a falsey `assert` test (the lowering's py/assert)
+   ["AssertionError" 'py.b/AssertionError 'py.b/Exception]
    ["ValueError" 'py.b/ValueError 'py.b/Exception]
    ["AttributeError" 'py.b/AttributeError 'py.b/Exception]
    ["ImportError" 'py.b/ImportError 'py.b/Exception]

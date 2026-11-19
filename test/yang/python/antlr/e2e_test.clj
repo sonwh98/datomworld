@@ -611,6 +611,31 @@
              "print(1)\nraise ValueError('bad')\nprint(2)\n"))
 
 
+(deftest ^:slow ^:quickwins assert-statement-test
+  ;; a true assertion runs on; a false one raises AssertionError, with the
+  ;; message its args and the bare form no args
+  (every-vm= (prints "after")
+             "assert 1\nassert True, 'nope'\nprint('after')\n")
+  (every-vm= {:py/out [], :py/exception {:type "AssertionError", :args []}}
+             "assert 0\n")
+  (every-vm= {:py/out [], :py/exception {:type "AssertionError", :args ["boom"]}}
+             "assert 0, 'boom'\n")
+  (every-vm= (prints "caught empty")
+             (str "try:\n"
+                  "    assert [], 'empty'\n"
+                  "except AssertionError as e:\n"
+                  "    print('caught', e.args[0])\n"))
+  (every-vm= {:py/out ["caught" "done"],
+              :py/exception {:type "AssertionError", :args []}}
+             (str "try:\n"
+                  "    assert 0\n"
+                  "except AssertionError:\n"
+                  "    print('caught')\n"
+                  "assert 'y'\n"
+                  "print('done')\n"
+                  "assert ()\n")))
+
+
 (deftest ^:slow classes-test
   (every-vm= (prints "40 4 True False")
              (str "class A:\n"
