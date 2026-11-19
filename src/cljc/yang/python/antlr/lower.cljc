@@ -381,9 +381,13 @@
                i (range 26)]
            [(str (first kind) (code-point->str (+ (nth kind 2) i)))
             (+ (second kind) i)]))
+   ;; the digits are keyed by their canonical Name words — CPython's Name
+   ;; property is DIGIT ZERO..DIGIT NINE, so `\N{DIGIT 0}` refuses
    (into {}
-         (for [i (range 10)]
-           [(str "DIGIT " (code-point->str (+ 0x30 i))) (+ 0x30 i)]))
+         (for [[i word] (map-indexed vector
+                                      ["ZERO" "ONE" "TWO" "THREE" "FOUR"
+                                       "FIVE" "SIX" "SEVEN" "EIGHT" "NINE"])]
+           [(str "DIGIT " word) (+ 0x30 i)]))
    {"SPACE" 0x20
     "EXCLAMATION MARK" 0x21, "QUOTATION MARK" 0x22, "NUMBER SIGN" 0x23,
     "DOLLAR SIGN" 0x24, "PERCENT SIGN" 0x25, "AMPERSAND" 0x26,

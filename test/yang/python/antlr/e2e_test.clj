@@ -684,7 +684,11 @@
   (every-vm= (prints "a b")
              "print('\\N{LATIN SMALL LETTER A} \\N{LATIN SMALL LETTER B}')\n")
   (every-vm= (prints "<")
-             "print('\\N{LESS-THAN SIGN}')\n"))
+             "print('\\N{LESS-THAN SIGN}')\n")
+  ;; the digit names are the canonical Name words, as CPython's Name
+  ;; property spells them — `\N{DIGIT 0}` refuses at lowering instead
+  (every-vm= (prints "0 9")
+             "print('\\N{DIGIT ZERO} \\N{DIGIT NINE}')\n"))
 
 
 (deftest ^:slow classes-test

@@ -511,7 +511,12 @@
 (deftest named-escape-golden-test
   (testing "\\N{LATIN SMALL LETTER A} is the character it names"
     (is (= (u/then (call (builtin "print") (u/lit {:py/str "abc"})) none)
-           (body "print('\\N{LATIN SMALL LETTER A}bc')\n")))))
+           (body "print('\\N{LATIN SMALL LETTER A}bc')\n"))))
+  (testing "\\N{DIGIT ZERO} resolves — the digit names are the canonical
+            Name words (DIGIT ZERO..DIGIT NINE), as CPython's Name property
+            spells them, not the glyphs"
+    (is (= (u/then (call (builtin "print") (u/lit {:py/str "x0"})) none)
+           (body "print('x\\N{DIGIT ZERO}')\n")))))
 
 
 (deftest static-flow-errors-test
@@ -528,6 +533,9 @@
             "\\N{NOT A NAME} unknown Unicode character name"]
            ["x = '\\N{LATIN SMALL LETTER Z WITH CARON}'\n"
             "\\N{LATIN SMALL LETTER Z WITH CARON} unknown Unicode character name"]
+           ;; the glyph-keyed name CPython refuses too: the digit names are
+           ;; the canonical words (DIGIT ZERO..DIGIT NINE)
+           ["x = '\\N{DIGIT 0}'\n" "\\N{DIGIT 0} unknown Unicode character name"]
            ["x = '\\Nq'\n" "malformed \\N character escape"]
            ["x = '\\N{LATIN SMALL LETTER A'\n" "malformed \\N character escape"]
            ["a, *b, *c = x\n" "multiple starred expressions in assignment"]
