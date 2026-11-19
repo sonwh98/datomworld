@@ -917,6 +917,99 @@
              "print('ab' + \"c\", len('h\\u00e9llo'), 'x' == 'x')\n"))
 
 
+(deftest ^:slow ^:quickwins fstring-test
+  (testing "interpolations are full expressions in the enclosing scope,
+            literal chunks concatenate in order, doubled braces are braces"
+    (every-vm= (prints "hello world, 4!" "{}" "" "world 5")
+               (str "name = 'world'\n"
+                    "n = 3\n"
+                    "print(f'hello {name}, {n + 1}!')\n"
+                    "print(f'{{}}')\n"
+                    "print(f'')\n"
+                    "s = f'{name}'\n"
+                    "print(s, len(s))\n")))
+  (testing "conversions: repr quotes a str, not an int; ascii escapes"
+    (every-vm= (prints "'a\"b' a\"b 'a\"b'" "42")
+               (str "v = 'a\"b'\n"
+                    "print(f'{v!r} {v!s} {v!a}')\n"
+                    "print(f'{42!r}')\n")))
+  (testing "the interpolated expressions evaluate once each, left to
+            right, in source order (the slice-1 review lesson)"
+    (every-vm= (prints "1" "2" "3 5")
+               (str "def tick(k):\n"
+                    "    print(k)\n"
+                    "    return k\n"
+                    "x = 2\n"
+                    "y = 3\n"
+                    "print(f'{x + tick(1)} {y + tick(2)}')\n")))
+  (testing "raw f-strings keep their backslashes"
+    (every-vm= (prints "a\\n1")
+               "print(rf'a\\n{1}')\n")))
+
+
+(deftest ^:slow ^:quickwins fstring-spec-test
+  (testing "the format-spec mini-language over int, str and float, and
+            the honest refusals at its edges"
+    (every-vm= (prints "    42." "42    ." " 42  ." "000042" "+42 1,234"
+                       "ff 0xff FF 11111111" "   ab." "000002.5." "A"
+                       "True 1")
+               (str "n = 42\n"
+                    "print(f'{n:>6}.')\n"
+                    "print(f'{n:<6}.')\n"
+                    "print(f'{n:^5}.')\n"
+                    "print(f'{n:06d}')\n"
+                    "print(f'{n:+d}', f'{1234:,}')\n"
+                    "print(f'{255:x} {255:#x} {255:X} {255:b}')\n"
+                    "print(f\"{'ab':>5}.\")\n"
+                    "print(f'{2.5:08}.')\n"
+                    "print(f'{65:c}')\n"
+                    "print(f'{True} {True:d}')\n")))
+  (testing "a str truncates under a precision"
+    (every-vm= (prints "abc")
+               "print(f\"{'abcdef':.3}\")\n"))
+  (testing "the zero flag sets fill 0 and align = where the spec gives
+            neither, and a width takes more than one digit (CPython's
+            10, 05, <06, =6, =06, 05c, #05x shapes)"
+    (every-vm= (prints "        42" "-0042" "420000" "    42" "000042"
+                       "0000A" "ab0000" "0x0ff")
+               (str "print(f'{42:10}')\n"
+                    "print(f'{-42:05}')\n"
+                    "print(f'{42:<06}')\n"
+                    "print(f'{42:=6}')\n"
+                    "print(f'{42:=06}')\n"
+                    "print(f'{65:05c}')\n"
+                    "print(f\"{'ab':<06}\")\n"
+                    "print(f'{255:#05x}')\n")))
+  (testing "'#' with d is CPython-legal and a no-op; grouping takes ','
+            and '_', three digits or fewer pass through, five hit the
+            no-leading-separator boundary"
+    (every-vm= (prints "1234" "1_234" "12,345" "123" "12")
+               (str "print(f'{1234:#d}')\n"
+                    "print(f'{1234:_d}')\n"
+                    "print(f'{12345:,}')\n"
+                    "print(f'{123:,}')\n"
+                    "print(f'{12:,}')\n")))
+  (testing "the edges refuse loudly: float type and precision, an unknown
+            code, a spec on an unsupported type"
+    (every-vm= (prints "E" "F" "E" "E")
+               (str "try:\n"
+                    "    print(f'{2.5:.2f}')\n"
+                    "except ValueError as e:\n"
+                    "    print('E')\n"
+                    "try:\n"
+                    "    print(f'{42:f}')\n"
+                    "except ValueError as e:\n"
+                    "    print('F')\n"
+                    "try:\n"
+                    "    print(f'{42:y}')\n"
+                    "except ValueError as e:\n"
+                    "    print('E')\n"
+                    "try:\n"
+                    "    print(f'{[1, 2]:>4}')\n"
+                    "except TypeError as e:\n"
+                    "    print('E')\n"))))
+
+
 (deftest ^:slow boolean-operators-test
   (every-vm= (prints "x 0 True True False 2")
              "print(0 or 'x', 1 and 0, not [], 1 < 2 < 3, 3 < 2 < 1, 1 + True)\n"))
