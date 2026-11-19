@@ -1,0 +1,907 @@
+diff --git a/src/cljc/yang/antlr/packet.cljc b/src/cljc/yang/antlr/packet.cljc
+index 096ece68..03fbde65 100644
+--- a/src/cljc/yang/antlr/packet.cljc
++++ b/src/cljc/yang/antlr/packet.cljc
+@@ -70,7 +70,7 @@
+   (text/code-points s))
+ 
+ 
+-(defn utf8-length
++(defn- utf8-length
+   "The UTF-8 byte count of one code point."
+   [cp]
+   (cond (< cp 0x80) 1
+@@ -120,7 +120,7 @@
+    :yang.cst/complete true})
+ 
+ 
+-(defn source-error
++(defn- source-error
+   [grammar-id unit message data]
+   (assoc (base grammar-id unit)
+          :yang.cst/outcome :yang.cst/source-error
+diff --git a/src/cljc/yang/clojure/prelude.cljc b/src/cljc/yang/clojure/prelude.cljc
+index 87756bdb..20e959cf 100644
+--- a/src/cljc/yang/clojure/prelude.cljc
++++ b/src/cljc/yang/clojure/prelude.cljc
+@@ -42,6 +42,7 @@
+    convention's call-address, as the other runtimes do, and refuses before
+    anything is published when a free name nothing supplies is read."
+   (:require [yang.core.prelude :as core]
++            [yang.core.prelude-admission :as prelude-admission]
+             [yang.clojure :as yang]
+             [yin.vm :as vm]
+             [yin.vm.data :as data]
+@@ -204,15 +205,16 @@
+    runtime's publication carries. A free name nothing supplies is refused
+    before anything is published. This namespace emits; it never publishes."
+   [registry call-address]
+-  (core/module-spec {:module-name module-name,
+-                     :ast module-uast,
+-                     :exports module-exports,
+-                     :requires {'yang.call call-address},
+-                     :free-names module-free-names,
+-                     :skip? #(= "yang.call" (namespace %)),
+-                     :registry registry,
+-                     :message "the clj module reads an undeclared name",
+-                     :refusal-ns "yang.clojure"}))
++  (prelude-admission/module-spec
++    {:module-name module-name,
++     :ast module-uast,
++     :exports module-exports,
++     :requires {'yang.call call-address},
++     :free-names module-free-names,
++     :skip? #(= "yang.call" (namespace %)),
++     :registry registry,
++     :message "the clj module reads an undeclared name",
++     :refusal-ns "yang.clojure"}))
+ 
+ 
+ (defn register-library-module
+diff --git a/src/cljc/yang/core/call.cljc b/src/cljc/yang/core/call.cljc
+index f203b2ca..6ccc10d5 100644
+--- a/src/cljc/yang/core/call.cljc
++++ b/src/cljc/yang/core/call.cljc
+@@ -3,6 +3,7 @@
+    §8.10). This namespace emits the same pure definitions into bundled
+    preludes and the linked `yang.call` module."
+   (:require [yang.core.prelude :as core]
++            [yang.core.prelude-admission :as prelude-admission]
+             [yang.core.uast :as u]))
+ 
+ 
+@@ -157,12 +158,7 @@
+ 
+ (def uast
+   "The bundled definitions, in source order and tail marked."
+-  (u/mark-tails
+-    (reduce (fn [ast [key form]]
+-              (u/then ast (u/def! key (u/sexp->uast form))))
+-            (u/def! (ffirst definitions)
+-                    (u/sexp->uast (second (first definitions))))
+-            (rest definitions))))
++  (u/mark-tails (core/definitions->uast definitions)))
+ 
+ 
+ (def module-uast
+@@ -187,11 +183,12 @@
+ (defn module-spec
+   "The linker module spec for `yang.call` over `registry`."
+   [registry]
+-  (core/module-spec {:module-name module-name
+-                     :ast module-uast
+-                     :exports module-exports
+-                     :requires {}
+-                     :free-names module-free-names
+-                     :registry registry
+-                     :message "the yang.call module reads an undeclared name"
+-                     :refusal-ns "yang.call"}))
++  (prelude-admission/module-spec
++    {:module-name module-name
++     :ast module-uast
++     :exports module-exports
++     :requires {}
++     :free-names module-free-names
++     :registry registry
++     :message "the yang.call module reads an undeclared name"
++     :refusal-ns "yang.call"}))
+diff --git a/src/cljc/yang/core/claims.cljc b/src/cljc/yang/core/claims.cljc
+index a607d3c9..1a397b40 100644
+--- a/src/cljc/yang/core/claims.cljc
++++ b/src/cljc/yang/core/claims.cljc
+@@ -9,7 +9,7 @@
+     [dao.stream :as stream]))
+ 
+ 
+-(defn evidence-record
++(defn- evidence-record
+   "The evidence record of `root` on the claims medium: its logical-stream
+    identity and a cursor minted by the caller."
+   [stream-identity cursor root]
+@@ -18,7 +18,7 @@
+    :yang.claims/root root})
+ 
+ 
+-(defn evidence-datom
++(defn- evidence-datom
+   "The ledger datom `[root :yang.claims/evidence record]`."
+   [record]
+   [(:yang.claims/root record) :yang.claims/evidence record])
+diff --git a/src/cljc/yang/core/module.cljc b/src/cljc/yang/core/module.cljc
+index 764c3538..4b3d450e 100644
+--- a/src/cljc/yang/core/module.cljc
++++ b/src/cljc/yang/core/module.cljc
+@@ -9,9 +9,8 @@
+   (:require
+     [clojure.string :as str]
+     [yang.core.prelude :as prelude]
+-    [yang.core.uast :as u]
+-    [yin.vm :as vm]
+-    [yin.vm.module :as module]))
++    [yang.core.prelude-admission :as prelude-admission]
++    [yang.core.uast :as u]))
+ 
+ 
+ (defn module-symbol
+@@ -43,27 +42,17 @@
+   (if (and (symbol? n) (some? (namespace n))
+            (contains? covered (symbol (namespace n))))
+     nil
+-    (if-let [profile (vm/profile-of vm/primitives n)]
+-      [n profile]
+-      (if-let [address (module/host-export-profile registry n)]
+-        (let [entry (module/module-entry (:modules registry)
+-                                         (symbol (namespace n)))
+-              f (get-in entry [:slice (symbol (name n))])]
+-          [n {:yin.k/profile address,
+-              :yin.k/effects
+-              (get (:callable-effects registry) f #{})}])
++    (or (prelude-admission/host-declaration registry n)
+         (throw (ex-info "the module reads an undeclared name"
+-                        {refusal-key refusal, :name n}))))))
++                        {refusal-key refusal, :name n})))))
+ 
+ 
+ (defn free-primitives
+   "The `:primitives` map declaring every free name of `ast` over `registry`."
+   [refusal-key refusal registry covered ast]
+-  (let [free (remove (conj (prelude/defined-keys ast) 'yin/def)
+-                     (prelude/free-names ast))]
+-    (into {}
+-          (keep (partial declare-free-name refusal-key refusal registry covered))
+-          (sort-by str free))))
++  (into {}
++        (keep (partial declare-free-name refusal-key refusal registry covered))
++        (prelude/free-name-vec ast)))
+ 
+ 
+ (defn module-spec
+diff --git a/src/cljc/yang/core/prelude.cljc b/src/cljc/yang/core/prelude.cljc
+index 8cd794c4..ec2afd43 100644
+--- a/src/cljc/yang/core/prelude.cljc
++++ b/src/cljc/yang/core/prelude.cljc
+@@ -5,9 +5,7 @@
+    and its refusal namespace; everything here is a pure function of those."
+   (:require
+     [clojure.walk :as walk]
+-    [yang.core.uast :as u]
+-    [yin.vm :as vm]
+-    [yin.vm.module :as module]))
++    [yang.core.uast :as u]))
+ 
+ 
+ (defn define
+@@ -26,7 +24,7 @@
+     sym))
+ 
+ 
+-(defn strip-form
++(defn- strip-form
+   "A prelude-notation form with every symbol `strip`ped: references,
+    definition keys and quoted keys alike. Keywords, strings and the
+    keys of literal maps are untouched."
+@@ -34,7 +32,7 @@
+   (walk/postwalk (partial strip ns-str) form))
+ 
+ 
+-(defn placeholder
++(defn- placeholder
+   "The `[k uninit]` definition for runtime key `k`, so each read of it is
+    discharged by an unconditional module-level definition."
+   [k uninit]
+@@ -115,68 +113,6 @@
+                 (remove (conj (defined-keys ast) 'yin/def) (free-names ast)))))
+ 
+ 
+-(defn- refusal
+-  [refusal-ns kind data]
+-  (merge {(keyword refusal-ns "refusal") (keyword refusal-ns kind)} data))
+-
+-
+-(defn host-declaration
+-  "`[n declaration]` for free name `n`: a primitive by its `vm/primitives`
+-   profile, a host export `ns/name` by the profile address the registry's
+-   host module `ns` publishes and its `:callable-effects` effect set; nil
+-   when neither supplies it."
+-  [registry n]
+-  (if-let [profile (vm/profile-of vm/primitives n)]
+-    [n profile]
+-    (when-let [address (module/host-export-profile registry n)]
+-      (let [entry (module/module-entry (:modules registry) (symbol (namespace n)))
+-            f (get-in entry [:slice (symbol (name n))])]
+-        [n {:yin.k/profile address,
+-            :yin.k/effects (get (:callable-effects registry) f #{})}]))))
+-
+-
+-(defn module-spec
+-  "`yin.vm.linker.publish/publish-module!`'s spec for module `module-name`.
+-   `skip?` (n -> bool) marks free names a requirement already declares;
+-   `requires` is the requirement map. A free name nothing supplies is
+-   refused with `message` under `refusal-ns` before anything is published.
+-   This namespace emits; it never publishes."
+-  [{:keys [module-name ast exports requires free-names skip? registry message
+-           refusal-ns]}]
+-  {:name module-name,
+-   :ast ast,
+-   :exports exports,
+-   :requires requires,
+-   :primitives
+-   (into {}
+-         (keep (fn [n]
+-                 (when-not (and skip? (skip? n))
+-                   (or (host-declaration registry n)
+-                       (throw (ex-info message
+-                                       (refusal refusal-ns "undeclared-free"
+-                                                {:name n})))))))
+-         free-names)})
+-
+-
+-(defn admit
+-  "Return `registry` when it supplies every one of `host-names`, else refuse
+-   it before any program runs, naming each missing export in
+-   `:<refusal-ns>/missing`."
+-  [registry host-names message refusal-ns]
+-  (let [missing (vec (sort-by str
+-                              (remove #(some? (module/resolve-module
+-                                                registry
+-                                                (symbol (str (namespace %)
+-                                                             "."
+-                                                             (name %)))))
+-                                      host-names)))]
+-    (when (seq missing)
+-      (throw (ex-info message
+-                      (refusal refusal-ns "host-names"
+-                               {(keyword refusal-ns "missing") missing}))))
+-    registry))
+-
+-
+ (defn balanced-definitions->uast
+   "Balanced definition-to-UAST emission: each [key form] pair maps to
+    u/def! and the vector splits at its midpoint, halving sequential depth
+diff --git a/src/cljc/yang/core/prelude_admission.cljc b/src/cljc/yang/core/prelude_admission.cljc
+new file mode 100644
+index 00000000..463ffb22
+--- /dev/null
++++ b/src/cljc/yang/core/prelude_admission.cljc
+@@ -0,0 +1,68 @@
++(ns yang.core.prelude-admission
++  "Constructs declarations/specifications and checks registries; does not publish, link, or execute."
++  (:require [yin.vm :as vm]
++            [yin.vm.module :as module]))
++
++
++(defn- refusal
++  [refusal-ns kind data]
++  (merge {(keyword refusal-ns "refusal") (keyword refusal-ns kind)} data))
++
++
++(defn host-declaration
++  "`[n declaration]` for free name `n`: a primitive by its `vm/primitives`
++   profile, a host export `ns/name` by the profile address the registry's
++   host module `ns` publishes and its `:callable-effects` effect set; nil
++   when neither supplies it."
++  [registry n]
++  (if-let [profile (vm/profile-of vm/primitives n)]
++    [n profile]
++    (when-let [address (module/host-export-profile registry n)]
++      (let [entry (module/module-entry (:modules registry) (symbol (namespace n)))
++            f (get-in entry [:slice (symbol (name n))])]
++        [n {:yin.k/profile address,
++            :yin.k/effects (get (:callable-effects registry) f #{})}]))))
++
++
++(defn module-spec
++  "`yin.vm.linker.publish/publish-module!`'s spec for module `module-name`.
++   `skip?` (n -> bool) marks free names a requirement already declares;
++   `requires` is the requirement map. A free name nothing supplies is
++   refused with `message` under `refusal-ns` before anything is published.
++   This namespace emits; it never publishes."
++  [{:keys [module-name ast exports requires free-names skip? registry message
++           refusal-ns]}]
++  {:name module-name,
++   :ast ast,
++   :exports exports,
++   :requires requires,
++   :primitives
++   (into {}
++         (keep (fn [n]
++                 (when-not (and skip? (skip? n))
++                   (or (host-declaration registry n)
++                       (throw (ex-info message
++                                       (refusal refusal-ns "undeclared-free"
++                                                {:name n})))))))
++         free-names)})
++
++
++(defn admit
++  "Return `registry` when it supplies every one of `host-names`, else refuse
++   it before any program runs, naming each missing export in
++   `:<refusal-ns>/missing`."
++  [registry host-names message refusal-ns]
++  (let [missing (vec (sort-by str
++                              (remove #(some? (module/resolve-module
++                                                registry
++                                                (symbol (str (namespace %)
++                                                             "."
++                                                             (name %)))))
++                                      host-names)))]
++    (when (seq missing)
++      (throw (ex-info message
++                      (refusal refusal-ns "host-names"
++                               {(keyword refusal-ns "missing") missing}))))
++    registry))
++
++
+diff --git a/src/cljc/yang/core/siteset_publication.cljc b/src/cljc/yang/core/siteset_publication.cljc
+index be123967..86bbcc86 100644
+--- a/src/cljc/yang/core/siteset_publication.cljc
++++ b/src/cljc/yang/core/siteset_publication.cljc
+@@ -1,6 +1,33 @@
+ (ns yang.core.siteset-publication
+-  "Shared signed site publication operations."
+-  (:require [yin.vm.linker.sign :as sign]))
++  "Shared site-set projection, publication and signing operations."
++  (:require [dao.jing :as jing]
++            [yang.safepoint :as safepoint]
++            [yin.vm :as vm]
++            [yin.vm.encoder :as encoder]
++            [yin.vm.linker.sign :as sign]))
++
++
++(defn site-set-of
++  "Project the canonical tree and occurrence set of `ast` under `medium`."
++  [medium ast]
++  (let [env (encoder/project (encoder/source-envelope medium [:site-set 0] [ast]))
++        tree (nth (:yin/batch env) (:yin/root env))
++        origin (vm/source-origin (:yin/source-medium env)
++                                 (:yin/batch-token env) (:yin/root env))
++        sites (safepoint/sites (:yin/frontend-metadata env) origin (:root tree))]
++    {:root (:root tree), :tree tree, :set (safepoint/site-set sites)}))
++
++
++(defn publish!
++  "Materialize the occurrence set, then its manifest/root binding."
++  [handle medium frontend-revision profile-address manifest ast]
++  (let [{:keys [root set]} (site-set-of medium ast)
++        set-address (jing/materialize! handle (vec set))
++        record {:yang.site/manifest manifest, :yang.site/root root,
++                :yang.site/revision frontend-revision,
++                :yang.site/profile profile-address, :yang.site/set set-address}]
++    {:record record, :record-address (jing/materialize! handle record),
++     :set-address set-address, :set set}))
+ 
+ 
+ (defn signed-entry
+diff --git a/src/cljc/yang/core/siteset_store.cljc b/src/cljc/yang/core/siteset_store.cljc
+index 9a02e7b3..646a589c 100644
+--- a/src/cljc/yang/core/siteset_store.cljc
++++ b/src/cljc/yang/core/siteset_store.cljc
+@@ -1,6 +1,27 @@
+ (ns yang.core.siteset-store
+   "Shared tree loading and buffered store operations."
+-  (:require [yin.vm :as vm]))
++  (:require [dao.jing :as jing]
++            [yin.vm :as vm]))
++
++
++(defn read-at
++  "Read a verified segment, returning `::absent` for missing bytes and nil for invalid data."
++  [handle address]
++  (when (jing/segment-address? address)
++    (let [bytes ((:get-bytes-fn handle) address ::absent)]
++      (cond
++        (or (nil? bytes) (= ::absent bytes)) ::absent
++        (jing/segment-bytes-match? address bytes) (jing/segment-value address bytes)))))
++
++
++(defn absent?
++  [x]
++  (= ::absent x))
++
++
++(defn missing
++  [address]
++  {:status :missing, :address address})
+ 
+ 
+ (defn load-tree
+@@ -8,7 +29,7 @@
+    every row fetched by its address, depth-first: `{:status :missing
+    :address a}` for the first row the handle does not hold, nil when a row
+    is not its address or no tree row."
+-  [read-at absent? handle root]
++  [handle root]
+   (loop [todo [root]
+          rows {}]
+     (if-let [id (peek todo)]
+diff --git a/src/cljc/yang/php/antlr/lower.cljc b/src/cljc/yang/php/antlr/lower.cljc
+index 98856ff4..1899cdc2 100644
+--- a/src/cljc/yang/php/antlr/lower.cljc
++++ b/src/cljc/yang/php/antlr/lower.cljc
+@@ -271,9 +271,7 @@
+ ;; Literals and constants
+ ;; =============================================================================
+ 
+-(defn- app*
+-  [op-sym & args]
+-  (apply core/app* op-sym args))
++(def ^:private app* core/app*)
+ 
+ 
+ (def ^:private max-safe-int 9007199254740991)
+@@ -870,7 +868,7 @@
+ (defn- args-vector
+   "A vector of the nodes `nodes`, evaluated left to right."
+   [nodes]
+-  (reduce (fn [acc node] (app* 'php/vconj acc node)) (u/lit []) nodes))
++  (core/build-vector 'php/vconj nodes))
+ 
+ 
+ ;; -----------------------------------------------------------------------------
+@@ -4018,9 +4016,8 @@
+   (let [ctx (assoc (context packet {:path path, :linked? true}) :module? true)
+         defs [(u/def! 'spec (u/lit {:path path, :strict-types (if strict-types 1 0)}))
+               (u/def! 'body (u/lam ['%scope '%ctx] (unit-node ctx true)))]
+-        operands (into [(core-module/require-node prelude/module-name)] defs)
+-        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
+-    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
++        operands (into [(core-module/require-node prelude/module-name)] defs)]
++    (core-module/module-tree operands)))
+ 
+ 
+ (defn module-spec
+@@ -4077,9 +4074,8 @@
+                       (reduce (fn [m p] (app* 'assoc m (u/lit p) (delivery-thunk p)))
+                               (u/lit {})
+                               paths))]
+-        operands (into [(core-module/require-node prelude/module-name)] defs)
+-        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
+-    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
++        operands (into [(core-module/require-node prelude/module-name)] defs)]
++    (core-module/module-tree operands)))
+ 
+ 
+ (defn classmap-spec
+diff --git a/src/cljc/yang/php/antlr/prelude.cljc b/src/cljc/yang/php/antlr/prelude.cljc
+index dbcd13c5..cea08fde 100644
+--- a/src/cljc/yang/php/antlr/prelude.cljc
++++ b/src/cljc/yang/php/antlr/prelude.cljc
+@@ -79,6 +79,7 @@
+     #?(:cljd [clojure.edn :as edn])
+     [clojure.string :as str]
+     [clojure.walk :as walk]
++    [yang.core.prelude-admission :as prelude-admission]
+     [yang.core.prelude :as core]
+     [yang.core.call :as call]
+     [yang.core.uast :as u]
+@@ -6311,15 +6312,16 @@
+    at `call-address`; a free name nothing supplies is refused before
+    anything is published. This namespace emits; it never publishes."
+   [registry call-address]
+-  (core/module-spec {:module-name module-name,
+-                     :ast module-uast,
+-                     :exports module-exports,
+-                     :requires {call/module-name call-address},
+-                     :free-names module-free-names,
+-                     :skip? #(= "yang.call" (namespace %)),
+-                     :registry registry,
+-                     :message "the php module reads an undeclared name",
+-                     :refusal-ns "yang.php"}))
++  (prelude-admission/module-spec
++    {:module-name module-name,
++     :ast module-uast,
++     :exports module-exports,
++     :requires {call/module-name call-address},
++     :free-names module-free-names,
++     :skip? #(= "yang.call" (namespace %)),
++     :registry registry,
++     :message "the php module reads an undeclared name",
++     :refusal-ns "yang.php"}))
+ 
+ 
+ (def min-integer-bits
+@@ -6353,6 +6355,6 @@
+    it before any program runs, naming each missing export in
+    `:yang.php/missing`."
+   [registry]
+-  (core/admit registry host-names
+-              "the composition lacks host names the prelude calls"
+-              "yang.php"))
++  (prelude-admission/admit registry host-names
++                           "the composition lacks host names the prelude calls"
++                           "yang.php"))
+diff --git a/src/cljc/yang/php/antlr/siteset.cljc b/src/cljc/yang/php/antlr/siteset.cljc
+index 4b6f993b..ea88c452 100644
+--- a/src/cljc/yang/php/antlr/siteset.cljc
++++ b/src/cljc/yang/php/antlr/siteset.cljc
+@@ -9,7 +9,6 @@
+     [yang.core.uast :as u]
+     [yin.vm.linker.publish :as publish]
+     [yin.vm :as vm]
+-    [yin.vm.encoder :as encoder]
+     [yin.vm.linker.sign :as sign]))
+ 
+ 
+@@ -25,36 +24,21 @@
+ 
+ 
+ (defn site-set-of
+-  "The canonical root and occurrence marks of module AST `ast`."
++  "The canonical root, tree and occurrence marks of module AST `ast`."
+   [ast]
+-  (let [env (encoder/project (encoder/source-envelope
+-                               :yang.php.antlr/site-set [:site-set 0] [ast]))
+-        tree (nth (:yin/batch env) (:yin/root env))
+-        origin (vm/source-origin (:yin/source-medium env)
+-                                 (:yin/batch-token env) (:yin/root env))
+-        sites (safepoint/sites (:yin/frontend-metadata env) origin (:root tree))]
+-    {:root (:root tree), :set (safepoint/site-set sites)}))
++  (publication/site-set-of :yang.php.antlr/site-set ast))
+ 
+ 
+ (defn publish!
+   "Publish the set, including an empty set, and its manifest/root binding."
+   [handle manifest ast]
+-  (let [{:keys [root set]} (site-set-of ast)
+-        set-address (jing/materialize! handle (vec set))
+-        record {:yang.site/manifest manifest, :yang.site/root root,
+-                :yang.site/revision frontend-revision,
+-                :yang.site/profile profile-address, :yang.site/set set-address}]
+-    {:record record, :record-address (jing/materialize! handle record),
+-     :set-address set-address, :set set}))
+-
+-
+-(defn- read-at
+-  [handle address]
+-  (when (jing/segment-address? address)
+-    (let [bytes ((:get-bytes-fn handle) address ::absent)]
+-      (cond
+-        (or (nil? bytes) (= ::absent bytes)) ::absent
+-        (jing/segment-bytes-match? address bytes) (jing/segment-value address bytes)))))
++  (publication/publish! handle :yang.php.antlr/site-set frontend-revision
++                        profile-address manifest ast))
++
++
++(def ^:private read-at store/read-at)
++(def ^:private absent? store/absent?)
++(def ^:private missing store/missing)
+ 
+ 
+ (defn verify
+@@ -145,19 +129,7 @@
+          :site-set-address (:yang.site/set record)}))))
+ 
+ 
+-(defn- absent?
+-  [x]
+-  (= ::absent x))
+-
+-
+-(defn- missing
+-  [address]
+-  {:status :missing, :address address})
+-
+-
+-(defn- load-tree
+-  [handle root]
+-  (store/load-tree read-at absent? handle root))
++(def ^:private load-tree store/load-tree)
+ 
+ 
+ (def ^:private overlay store/overlay)
+diff --git a/src/cljc/yang/python/antlr/lower.cljc b/src/cljc/yang/python/antlr/lower.cljc
+index c4503b71..507cbd82 100644
+--- a/src/cljc/yang/python/antlr/lower.cljc
++++ b/src/cljc/yang/python/antlr/lower.cljc
+@@ -2110,9 +2110,8 @@
+                     (lower-module-body packet unit))
+         defs [(u/def! 'spec (u/lit unit)) (u/def! 'body body)]
+         operands (into [(require-node 'yang.call)
+-                        (require-node prelude/module-name)] defs)
+-        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
+-    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
++                        (require-node prelude/module-name)] defs)]
++    (core-module/module-tree operands)))
+ 
+ 
+ (defn- declare-free-name
+diff --git a/src/cljc/yang/python/antlr/prelude.cljc b/src/cljc/yang/python/antlr/prelude.cljc
+index fec5dc7b..a2289642 100644
+--- a/src/cljc/yang/python/antlr/prelude.cljc
++++ b/src/cljc/yang/python/antlr/prelude.cljc
+@@ -183,6 +183,7 @@
+   (:require
+     #?(:cljd [clojure.edn :as edn])
+     [yang.core.call :as call]
++    [yang.core.prelude-admission :as prelude-admission]
+     [yang.core.prelude :as core]
+     [yang.python.antlr.uast :as u]
+     [yin.vm.integer :as integer]))
+@@ -3681,9 +3682,7 @@
+          ['py/init! (init-form)]]))
+ 
+ 
+-(defn- definitions->uast
+-  [defs]
+-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
++(def ^:private definitions->uast core/definitions->uast)
+ 
+ 
+ (def functions-uast
+@@ -3775,15 +3774,16 @@
+    refused before anything is published. This namespace emits; it never
+    publishes."
+   [registry call-address]
+-  (core/module-spec {:module-name module-name,
+-                     :ast module-uast,
+-                     :exports module-exports,
+-                     :requires {'yang.call call-address},
+-                     :free-names module-free-names,
+-                     :skip? #(= "yang.call" (namespace %)),
+-                     :registry registry,
+-                     :message "the py module reads an undeclared name",
+-                     :refusal-ns "yang.python.antlr"}))
++  (prelude-admission/module-spec
++    {:module-name module-name,
++     :ast module-uast,
++     :exports module-exports,
++     :requires {'yang.call call-address},
++     :free-names module-free-names,
++     :skip? #(= "yang.call" (namespace %)),
++     :registry registry,
++     :message "the py module reads an undeclared name",
++     :refusal-ns "yang.python.antlr"}))
+ 
+ 
+ (def min-integer-bits
+@@ -3815,6 +3815,6 @@
+    composition calls this after its registrars. Linking replaces it with
+    requirement discovery (yang.antlr.md 8.5.4)."
+   [registry]
+-  (core/admit registry host-names
+-              "the composition lacks host names the prelude calls"
+-              "yang.python.antlr"))
++  (prelude-admission/admit registry host-names
++                           "the composition lacks host names the prelude calls"
++                           "yang.python.antlr"))
+diff --git a/src/cljc/yang/python/antlr/safepoint.cljc b/src/cljc/yang/python/antlr/safepoint.cljc
+index 4b96161d..b068972f 100644
+--- a/src/cljc/yang/python/antlr/safepoint.cljc
++++ b/src/cljc/yang/python/antlr/safepoint.cljc
+@@ -51,6 +51,7 @@
+    invisible across a module boundary. Every key this prelude defines is
+    in `py.sp`."
+   (:require
++    [yang.core.prelude-admission :as prelude-admission]
+     [yang.core.prelude :as core]
+     [yang.python.antlr.prelude :as prelude]
+     [yang.python.antlr.uast :as u]))
+@@ -464,13 +465,14 @@
+    none of these supplies is refused before anything is published. This
+    namespace emits; it never publishes."
+   [registry py-address]
+-  (core/module-spec {:module-name module-name,
+-                     :ast module-uast,
+-                     :exports module-exports,
+-                     :requires {prelude/module-name py-address},
+-                     :free-names module-free-names,
++  (prelude-admission/module-spec
++    {:module-name module-name,
++     :ast module-uast,
++     :exports module-exports,
++     :requires {prelude/module-name py-address},
++     :free-names module-free-names,
+                      ;; the requirement declares names qualified by `py`
+-                     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
+-                     :registry registry,
+-                     :message "the pysp module reads an undeclared name",
+-                     :refusal-ns "yang.python.antlr"}))
++     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
++     :registry registry,
++     :message "the pysp module reads an undeclared name",
++     :refusal-ns "yang.python.antlr"}))
+diff --git a/src/cljc/yang/python/antlr/siteset.cljc b/src/cljc/yang/python/antlr/siteset.cljc
+index 0a4e56cb..d816369a 100644
+--- a/src/cljc/yang/python/antlr/siteset.cljc
++++ b/src/cljc/yang/python/antlr/siteset.cljc
+@@ -35,7 +35,6 @@
+             [yang.python.antlr.lower :as lower]
+             [yang.safepoint :as safepoint]
+             [yin.vm :as vm]
+-            [yin.vm.encoder :as encoder]
+             [yin.vm.linker.publish :as publish]
+             [yin.vm.linker.sign :as sign]))
+ 
+@@ -59,23 +58,10 @@
+   (jing/segment-key lowering-profile))
+ 
+ 
+-(defn- medium
+-  []
+-  :yang.python.antlr/site-set)
+-
+-
+ (defn site-set-of
+-  "`{:root address :tree tree :set [[path mark] ...]}` for the module map
+-   AST `ast`: the address of its canonical tree, the tree's rows and its
+-   sorted site set."
++  "The canonical root, tree and occurrence marks of module AST `ast`."
+   [ast]
+-  (let [env (encoder/project (encoder/source-envelope
+-                               (medium) [:site-set 0] [ast]))
+-        tree (nth (:yin/batch env) (:yin/root env))
+-        origin (vm/source-origin (:yin/source-medium env)
+-                                 (:yin/batch-token env) (:yin/root env))
+-        sites (safepoint/sites (:yin/frontend-metadata env) origin (:root tree))]
+-    {:root (:root tree), :tree tree, :set (safepoint/site-set sites)}))
++  (publication/site-set-of :yang.python.antlr/site-set ast))
+ 
+ 
+ (defn record
+@@ -90,45 +76,15 @@
+ 
+ 
+ (defn publish!
+-  "Publish the site set of module `ast` (published at manifest address
+-   `manifest`) into `handle`: the set as one blob, then its record. Answers
+-   `{:record r :record-address a :set-address s :set [...]}`."
++  "Publish the set, including an empty set, and its manifest/root binding."
+   [handle manifest ast]
+-  (let [{:keys [root set]} (site-set-of ast)
+-        set-address (jing/materialize! handle (vec set))
+-        r (record manifest root set-address)]
+-    {:record r,
+-     :record-address (jing/materialize! handle r),
+-     :set-address set-address,
+-     :set set}))
+-
+-
+-(defn- read-at
+-  "The value at `address` in `handle`: `::absent` when the handle holds no
+-   bytes for a segment address (the handle is asked with a not-found
+-   sentinel, as a byte store is), nil when `address` is no segment address
+-   or its bytes do not hash to it, else the value."
+-  [handle address]
+-  (if-not (jing/segment-address? address)
+-    nil
+-    (let [bs ((:get-bytes-fn handle) address ::absent)]
+-      (cond
+-        (= ::absent bs) ::absent
+-        (nil? bs) ::absent
+-        (jing/segment-bytes-match? address bs) (jing/segment-value address bs)
+-        :else nil))))
+-
+-
+-(defn- absent?
+-  [x]
+-  (= ::absent x))
++  (publication/publish! handle :yang.python.antlr/site-set frontend-revision
++                        profile-address manifest ast))
+ 
+ 
+-(defn- missing
+-  "The stage's report of the absent `address`: first one met, nothing
+-   written."
+-  [address]
+-  {:status :missing, :address address})
++(def ^:private read-at store/read-at)
++(def ^:private absent? store/absent?)
++(def ^:private missing store/missing)
+ 
+ 
+ (defn- fetch
+@@ -302,9 +258,7 @@
+ ;; Link-time application
+ ;; =============================================================================
+ 
+-(defn- load-tree
+-  [handle root]
+-  (store/load-tree read-at absent? handle root))
++(def ^:private load-tree store/load-tree)
+ 
+ 
+ (defn- derive-module
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index e8e44bf3..663b57ce 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -64,6 +64,7 @@
+   #?(:cljs (:require-macros [yang.typescript.antlr.prelude :refer [defquoted]]))
+   (:require
+     #?(:cljd [clojure.edn :as edn])
++    [yang.core.prelude-admission :as prelude-admission]
+     [yang.core.prelude :as core]
+     [yang.core.uast :as u]
+     [yang.core.call :as call]
+@@ -4404,15 +4405,16 @@
+    at `call-address`. A free name nothing supplies is refused before
+    anything is published. This namespace emits; it never publishes."
+   [registry call-address]
+-  (core/module-spec {:module-name module-name,
+-                     :ast module-uast,
+-                     :exports module-exports,
+-                     :requires {'yang.call call-address},
+-                     :free-names module-free-names,
+-                     :skip? #(= "yang.call" (namespace %)),
+-                     :registry registry,
+-                     :message "the js module reads an undeclared name",
+-                     :refusal-ns "yang.typescript.antlr"}))
++  (prelude-admission/module-spec
++    {:module-name module-name,
++     :ast module-uast,
++     :exports module-exports,
++     :requires {'yang.call call-address},
++     :free-names module-free-names,
++     :skip? #(= "yang.call" (namespace %)),
++     :registry registry,
++     :message "the js module reads an undeclared name",
++     :refusal-ns "yang.typescript.antlr"}))
+ 
+ 
+ (def min-integer-bits
+@@ -4440,6 +4442,6 @@
+    refuse it before any program runs, naming each missing export in
+    `:yang.typescript.antlr/missing`."
+   [registry]
+-  (core/admit registry host-names
+-              "the composition lacks host names the prelude calls"
+-              "yang.typescript.antlr"))
++  (prelude-admission/admit registry host-names
++                           "the composition lacks host names the prelude calls"
++                           "yang.typescript.antlr"))
+diff --git a/src/cljc/yang/typescript/antlr/safepoint.cljc b/src/cljc/yang/typescript/antlr/safepoint.cljc
+index 9182e80f..6eddcd58 100644
+--- a/src/cljc/yang/typescript/antlr/safepoint.cljc
++++ b/src/cljc/yang/typescript/antlr/safepoint.cljc
+@@ -36,6 +36,7 @@
+    `js/global-get`, ...), for `js.rt/*` is an internal store key invisible
+    across a module boundary. Every key this prelude defines is in `js.sp`."
+   (:require
++    [yang.core.prelude-admission :as prelude-admission]
+     [yang.core.prelude :as core]
+     [yang.core.uast :as u]
+     [yang.typescript.antlr.prelude :as prelude]))
+@@ -221,13 +222,14 @@
+    publishes. A free name none of these supplies is refused before anything
+    is published. This namespace emits; it never publishes."
+   [registry js-address]
+-  (core/module-spec {:module-name module-name,
+-                     :ast module-uast,
+-                     :exports module-exports,
+-                     :requires {prelude/module-name js-address},
+-                     :free-names module-free-names,
++  (prelude-admission/module-spec
++    {:module-name module-name,
++     :ast module-uast,
++     :exports module-exports,
++     :requires {prelude/module-name js-address},
++     :free-names module-free-names,
+                      ;; the requirement declares names qualified by `js`
+-                     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
+-                     :registry registry,
+-                     :message "the jssp module reads an undeclared name",
+-                     :refusal-ns "yang.typescript.antlr"}))
++     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
++     :registry registry,
++     :message "the jssp module reads an undeclared name",
++     :refusal-ns "yang.typescript.antlr"}))
