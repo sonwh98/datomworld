@@ -172,6 +172,18 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | engineering, integration work, network streams, VM runtimes,       | architecture decisions. Validate compiler-lowering and other        |
 |                             | moderate-complexity implementation, and subagent fallback.         | specialist work with focused tests and independent review.          |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-6.2-astra`             | GPT-6.2 flagship superseding gpt-6-astra; record agentic/terminal  | Premium tier / heaviest shared codex pool draw. **Avoid for:**      |
+|                             | benchmarks (Agents' Last Exam, Terminal-Bench-Science) while using | Routine coding or high-volume sweeps where gpt-6.2-sol, Terra, or   |
+|                             | fewer output tokens per task (stretching shared codex limits).     | Luna suffice; reserve for the highest-risk or hardest problems.     |
+|                             | **Best for:** Hardest architecture, security sign-offs, large      |                                                                     |
+|                             | codebases, computer use, and complex multi-step engineering.       |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gpt-6.2-sol`               | GPT-6.2 efficient workhorse superseding gpt-6.1-sol; completes     | Still draws the shared codex pool; sits below gpt-6.2-astra on      |
+|                             | heavy agentic tasks with fewer output tokens (better codex quota   | frontier architectural/security proofs. **Avoid for:** Highest-risk |
+|                             | mileage), tighter spec/template fidelity, and stronger multi-step  | consensus/cryptographic sign-offs (use gpt-6.2-astra) or trivial    |
+|                             | reasoning. **Best for:** Complex implementation, code review,      | high-volume tasks (use Luna/Flash).                                 |
+|                             | debugging, and everyday multi-step agentic workflows.              |                                                                     |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `kimi-for-coding-highspeed` | K2.7 Code Highspeed; 5-6x faster output with 256K context.         | Uses about 3x quota; fixed thinking; Pro tier required. **Avoid     |
 |                             | **Best for:** Latency-sensitive routine coding and iteration.      | for:** 1M-context work or tasks needing adjustable reasoning.       |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
