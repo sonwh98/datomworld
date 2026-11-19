@@ -109,7 +109,10 @@
              (case frontend
                :python "replacement = ValueError('replacement')\n"
                :typescript "globalThis.replacement = {marker: 'replacement'};\n"
-               :php "$replacement = new Exception('replacement');\n"
+               ;; run-main releases PHP globals before the observation.
+               :php (str "$replacement = new Exception('replacement');\n"
+                         "function seed_replacement() { global $replacement; "
+                         "$replacement = new Exception('replacement'); }\n")
                :clojure "(def replacement (cell/new :replacement))\n")
              (define frontend "replacement_payload" []
                (case frontend :python "return replacement"
@@ -194,6 +197,8 @@
                 (kit/observation-map-form (cond-> transfer
                                             (= scenario :unchanged-rethrow)
                                             (assoc :caught (list 'get (call caller "caught_once" []) :value))))))
+        (and (= donor :python) (= caller :php) (= scenario :finally-replacement))
+        (list 'let ['leg.replacement-seeded (call caller "seed_replacement" [])])
         (= donor :php) (list 'let ['leg.seeded (call donor "seed" [])])))))
 
 
