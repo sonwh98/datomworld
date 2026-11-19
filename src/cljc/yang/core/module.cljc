@@ -9,9 +9,8 @@
   (:require
     [clojure.string :as str]
     [yang.core.prelude :as prelude]
-    [yang.core.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.module :as module]))
+    [yang.core.prelude-admission :as prelude-admission]
+    [yang.core.uast :as u]))
 
 
 (defn module-symbol
@@ -43,27 +42,17 @@
   (if (and (symbol? n) (some? (namespace n))
            (contains? covered (symbol (namespace n))))
     nil
-    (if-let [profile (vm/profile-of vm/primitives n)]
-      [n profile]
-      (if-let [address (module/host-export-profile registry n)]
-        (let [entry (module/module-entry (:modules registry)
-                                         (symbol (namespace n)))
-              f (get-in entry [:slice (symbol (name n))])]
-          [n {:yin.k/profile address,
-              :yin.k/effects
-              (get (:callable-effects registry) f #{})}])
+    (or (prelude-admission/host-declaration registry n)
         (throw (ex-info "the module reads an undeclared name"
-                        {refusal-key refusal, :name n}))))))
+                        {refusal-key refusal, :name n})))))
 
 
 (defn free-primitives
   "The `:primitives` map declaring every free name of `ast` over `registry`."
   [refusal-key refusal registry covered ast]
-  (let [free (remove (conj (prelude/defined-keys ast) 'yin/def)
-                     (prelude/free-names ast))]
-    (into {}
-          (keep (partial declare-free-name refusal-key refusal registry covered))
-          (sort-by str free))))
+  (into {}
+        (keep (partial declare-free-name refusal-key refusal registry covered))
+        (prelude/free-name-vec ast)))
 
 
 (defn module-spec

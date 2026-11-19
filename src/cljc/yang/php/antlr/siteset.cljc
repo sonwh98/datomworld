@@ -9,7 +9,6 @@
     [yang.core.uast :as u]
     [yin.vm.linker.publish :as publish]
     [yin.vm :as vm]
-    [yin.vm.encoder :as encoder]
     [yin.vm.linker.sign :as sign]))
 
 
@@ -25,36 +24,21 @@
 
 
 (defn site-set-of
-  "The canonical root and occurrence marks of module AST `ast`."
+  "The canonical root, tree and occurrence marks of module AST `ast`."
   [ast]
-  (let [env (encoder/project (encoder/source-envelope
-                               :yang.php.antlr/site-set [:site-set 0] [ast]))
-        tree (nth (:yin/batch env) (:yin/root env))
-        origin (vm/source-origin (:yin/source-medium env)
-                                 (:yin/batch-token env) (:yin/root env))
-        sites (safepoint/sites (:yin/frontend-metadata env) origin (:root tree))]
-    {:root (:root tree), :set (safepoint/site-set sites)}))
+  (publication/site-set-of :yang.php.antlr/site-set ast))
 
 
 (defn publish!
   "Publish the set, including an empty set, and its manifest/root binding."
   [handle manifest ast]
-  (let [{:keys [root set]} (site-set-of ast)
-        set-address (jing/materialize! handle (vec set))
-        record {:yang.site/manifest manifest, :yang.site/root root,
-                :yang.site/revision frontend-revision,
-                :yang.site/profile profile-address, :yang.site/set set-address}]
-    {:record record, :record-address (jing/materialize! handle record),
-     :set-address set-address, :set set}))
+  (publication/publish! handle :yang.php.antlr/site-set frontend-revision
+                        profile-address manifest ast))
 
 
-(defn- read-at
-  [handle address]
-  (when (jing/segment-address? address)
-    (let [bytes ((:get-bytes-fn handle) address ::absent)]
-      (cond
-        (or (nil? bytes) (= ::absent bytes)) ::absent
-        (jing/segment-bytes-match? address bytes) (jing/segment-value address bytes)))))
+(def ^:private read-at store/read-at)
+(def ^:private absent? store/absent?)
+(def ^:private missing store/missing)
 
 
 (defn verify
@@ -145,19 +129,7 @@
          :site-set-address (:yang.site/set record)}))))
 
 
-(defn- absent?
-  [x]
-  (= ::absent x))
-
-
-(defn- missing
-  [address]
-  {:status :missing, :address address})
-
-
-(defn- load-tree
-  [handle root]
-  (store/load-tree read-at absent? handle root))
+(def ^:private load-tree store/load-tree)
 
 
 (def ^:private overlay store/overlay)

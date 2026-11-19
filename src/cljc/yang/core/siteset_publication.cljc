@@ -1,6 +1,33 @@
 (ns yang.core.siteset-publication
-  "Shared signed site publication operations."
-  (:require [yin.vm.linker.sign :as sign]))
+  "Shared site-set projection, publication and signing operations."
+  (:require [dao.jing :as jing]
+            [yang.safepoint :as safepoint]
+            [yin.vm :as vm]
+            [yin.vm.encoder :as encoder]
+            [yin.vm.linker.sign :as sign]))
+
+
+(defn site-set-of
+  "Project the canonical tree and occurrence set of `ast` under `medium`."
+  [medium ast]
+  (let [env (encoder/project (encoder/source-envelope medium [:site-set 0] [ast]))
+        tree (nth (:yin/batch env) (:yin/root env))
+        origin (vm/source-origin (:yin/source-medium env)
+                                 (:yin/batch-token env) (:yin/root env))
+        sites (safepoint/sites (:yin/frontend-metadata env) origin (:root tree))]
+    {:root (:root tree), :tree tree, :set (safepoint/site-set sites)}))
+
+
+(defn publish!
+  "Materialize the occurrence set, then its manifest/root binding."
+  [handle medium frontend-revision profile-address manifest ast]
+  (let [{:keys [root set]} (site-set-of medium ast)
+        set-address (jing/materialize! handle (vec set))
+        record {:yang.site/manifest manifest, :yang.site/root root,
+                :yang.site/revision frontend-revision,
+                :yang.site/profile profile-address, :yang.site/set set-address}]
+    {:record record, :record-address (jing/materialize! handle record),
+     :set-address set-address, :set set}))
 
 
 (defn signed-entry

@@ -3,6 +3,7 @@
    §8.10). This namespace emits the same pure definitions into bundled
    preludes and the linked `yang.call` module."
   (:require [yang.core.prelude :as core]
+            [yang.core.prelude-admission :as prelude-admission]
             [yang.core.uast :as u]))
 
 
@@ -157,12 +158,7 @@
 
 (def uast
   "The bundled definitions, in source order and tail marked."
-  (u/mark-tails
-    (reduce (fn [ast [key form]]
-              (u/then ast (u/def! key (u/sexp->uast form))))
-            (u/def! (ffirst definitions)
-                    (u/sexp->uast (second (first definitions))))
-            (rest definitions))))
+  (u/mark-tails (core/definitions->uast definitions)))
 
 
 (def module-uast
@@ -187,11 +183,12 @@
 (defn module-spec
   "The linker module spec for `yang.call` over `registry`."
   [registry]
-  (core/module-spec {:module-name module-name
-                     :ast module-uast
-                     :exports module-exports
-                     :requires {}
-                     :free-names module-free-names
-                     :registry registry
-                     :message "the yang.call module reads an undeclared name"
-                     :refusal-ns "yang.call"}))
+  (prelude-admission/module-spec
+    {:module-name module-name
+     :ast module-uast
+     :exports module-exports
+     :requires {}
+     :free-names module-free-names
+     :registry registry
+     :message "the yang.call module reads an undeclared name"
+     :refusal-ns "yang.call"}))

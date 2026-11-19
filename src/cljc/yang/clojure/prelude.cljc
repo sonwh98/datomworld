@@ -42,6 +42,7 @@
    convention's call-address, as the other runtimes do, and refuses before
    anything is published when a free name nothing supplies is read."
   (:require [yang.core.prelude :as core]
+            [yang.core.prelude-admission :as prelude-admission]
             [yang.clojure :as yang]
             [yin.vm :as vm]
             [yin.vm.data :as data]
@@ -204,15 +205,16 @@
    runtime's publication carries. A free name nothing supplies is refused
    before anything is published. This namespace emits; it never publishes."
   [registry call-address]
-  (core/module-spec {:module-name module-name,
-                     :ast module-uast,
-                     :exports module-exports,
-                     :requires {'yang.call call-address},
-                     :free-names module-free-names,
-                     :skip? #(= "yang.call" (namespace %)),
-                     :registry registry,
-                     :message "the clj module reads an undeclared name",
-                     :refusal-ns "yang.clojure"}))
+  (prelude-admission/module-spec
+    {:module-name module-name,
+     :ast module-uast,
+     :exports module-exports,
+     :requires {'yang.call call-address},
+     :free-names module-free-names,
+     :skip? #(= "yang.call" (namespace %)),
+     :registry registry,
+     :message "the clj module reads an undeclared name",
+     :refusal-ns "yang.clojure"}))
 
 
 (defn register-library-module

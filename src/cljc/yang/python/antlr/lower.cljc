@@ -2110,9 +2110,8 @@
                     (lower-module-body packet unit))
         defs [(u/def! 'spec (u/lit unit)) (u/def! 'body body)]
         operands (into [(require-node 'yang.call)
-                        (require-node prelude/module-name)] defs)
-        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
-    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
+                        (require-node prelude/module-name)] defs)]
+    (core-module/module-tree operands)))
 
 
 (defn- declare-free-name

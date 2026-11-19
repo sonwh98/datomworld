@@ -35,7 +35,6 @@
             [yang.python.antlr.lower :as lower]
             [yang.safepoint :as safepoint]
             [yin.vm :as vm]
-            [yin.vm.encoder :as encoder]
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.sign :as sign]))
 
@@ -59,23 +58,10 @@
   (jing/segment-key lowering-profile))
 
 
-(defn- medium
-  []
-  :yang.python.antlr/site-set)
-
-
 (defn site-set-of
-  "`{:root address :tree tree :set [[path mark] ...]}` for the module map
-   AST `ast`: the address of its canonical tree, the tree's rows and its
-   sorted site set."
+  "The canonical root, tree and occurrence marks of module AST `ast`."
   [ast]
-  (let [env (encoder/project (encoder/source-envelope
-                               (medium) [:site-set 0] [ast]))
-        tree (nth (:yin/batch env) (:yin/root env))
-        origin (vm/source-origin (:yin/source-medium env)
-                                 (:yin/batch-token env) (:yin/root env))
-        sites (safepoint/sites (:yin/frontend-metadata env) origin (:root tree))]
-    {:root (:root tree), :tree tree, :set (safepoint/site-set sites)}))
+  (publication/site-set-of :yang.python.antlr/site-set ast))
 
 
 (defn record
@@ -90,45 +76,15 @@
 
 
 (defn publish!
-  "Publish the site set of module `ast` (published at manifest address
-   `manifest`) into `handle`: the set as one blob, then its record. Answers
-   `{:record r :record-address a :set-address s :set [...]}`."
+  "Publish the set, including an empty set, and its manifest/root binding."
   [handle manifest ast]
-  (let [{:keys [root set]} (site-set-of ast)
-        set-address (jing/materialize! handle (vec set))
-        r (record manifest root set-address)]
-    {:record r,
-     :record-address (jing/materialize! handle r),
-     :set-address set-address,
-     :set set}))
+  (publication/publish! handle :yang.python.antlr/site-set frontend-revision
+                        profile-address manifest ast))
 
 
-(defn- read-at
-  "The value at `address` in `handle`: `::absent` when the handle holds no
-   bytes for a segment address (the handle is asked with a not-found
-   sentinel, as a byte store is), nil when `address` is no segment address
-   or its bytes do not hash to it, else the value."
-  [handle address]
-  (if-not (jing/segment-address? address)
-    nil
-    (let [bs ((:get-bytes-fn handle) address ::absent)]
-      (cond
-        (= ::absent bs) ::absent
-        (nil? bs) ::absent
-        (jing/segment-bytes-match? address bs) (jing/segment-value address bs)
-        :else nil))))
-
-
-(defn- absent?
-  [x]
-  (= ::absent x))
-
-
-(defn- missing
-  "The stage's report of the absent `address`: first one met, nothing
-   written."
-  [address]
-  {:status :missing, :address address})
+(def ^:private read-at store/read-at)
+(def ^:private absent? store/absent?)
+(def ^:private missing store/missing)
 
 
 (defn- fetch
@@ -302,9 +258,7 @@
 ;; Link-time application
 ;; =============================================================================
 
-(defn- load-tree
-  [handle root]
-  (store/load-tree read-at absent? handle root))
+(def ^:private load-tree store/load-tree)
 
 
 (defn- derive-module

@@ -79,6 +79,7 @@
     #?(:cljd [clojure.edn :as edn])
     [clojure.string :as str]
     [clojure.walk :as walk]
+    [yang.core.prelude-admission :as prelude-admission]
     [yang.core.prelude :as core]
     [yang.core.call :as call]
     [yang.core.uast :as u]
@@ -6320,15 +6321,16 @@
    at `call-address`; a free name nothing supplies is refused before
    anything is published. This namespace emits; it never publishes."
   [registry call-address]
-  (core/module-spec {:module-name module-name,
-                     :ast module-uast,
-                     :exports module-exports,
-                     :requires {call/module-name call-address},
-                     :free-names module-free-names,
-                     :skip? #(= "yang.call" (namespace %)),
-                     :registry registry,
-                     :message "the php module reads an undeclared name",
-                     :refusal-ns "yang.php"}))
+  (prelude-admission/module-spec
+    {:module-name module-name,
+     :ast module-uast,
+     :exports module-exports,
+     :requires {call/module-name call-address},
+     :free-names module-free-names,
+     :skip? #(= "yang.call" (namespace %)),
+     :registry registry,
+     :message "the php module reads an undeclared name",
+     :refusal-ns "yang.php"}))
 
 
 (def min-integer-bits
@@ -6362,6 +6364,6 @@
    it before any program runs, naming each missing export in
    `:yang.php/missing`."
   [registry]
-  (core/admit registry host-names
-              "the composition lacks host names the prelude calls"
-              "yang.php"))
+  (prelude-admission/admit registry host-names
+                           "the composition lacks host names the prelude calls"
+                           "yang.php"))
