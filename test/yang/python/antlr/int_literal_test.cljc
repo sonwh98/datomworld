@@ -6,8 +6,10 @@
    A literal up to 2^53 - 1 lowers to a native `:literal`; a larger one to
    `(py/int-lit \"<canonical lowercase hex>\")`. Every spelling of one
    value gives one row set, one byte string and one address (JVM goldens).
-   A decimal token obeys the packet's digit budget at lowering; hex, octal
-   and binary tokens have none. Evaluated literals reproduce the frozen S0
+   A decimal token obeys the packet's digit budget at lowering, the
+   declared one or the 4300-digit default (CPython's
+   `set_int_max_str_digits` default); hex, octal and binary tokens have
+   none. Evaluated literals reproduce the frozen S0
    columns, a bignum survives every container and prints exactly, and
    malformed encodings and wrong carriers keep their refusals."
   (:require [yin.vm.semantic.linearize :as sr-linearize]
@@ -366,9 +368,10 @@
         (is (some? (diagnostic-of (with-budget (assign-program past)))))
         (is (some? (diagnostic-of (with-budget (assign-program
                                                  (grouped past 3))))))))
-    (testing "with no budget declared a decimal literal above 2^53 - 1 is a
-              diagnostic; up to it, and any hex, octal or binary, is not"
-      (is (some? (diagnostic-of (assign-program "9007199254740992"))))
+    (testing "with no budget declared the 4300-digit default applies: any
+              decimal literal within it lowers, as does any hex, octal or
+              binary literal"
+      (is (nil? (diagnostic-of (assign-program "9007199254740992"))))
       (is (nil? (diagnostic-of (assign-program "9007199254740991"))))
       (is (nil? (diagnostic-of (assign-program "0x20000000000000"))))
       (is (nil? (diagnostic-of (assign-program (str "0x" hex)))))
@@ -485,6 +488,57 @@
   [x]
   (let [c (f/call (f/module 100000 100000) 'normalize x)]
     (and (= c x) (= (host/big-carrier? c) (host/big-carrier? x)))))
+
+
+(defn- run-everywhere-default
+  "The value of program packet `pk`, lowered with no declared budget (so
+   the 4300-digit default applies), on each VM."
+  [pk]
+  (let [ast (lower/lower-packet pk)]
+    (into {}
+          (map (fn [[k run]]
+                 [k (try (run ast)
+                         (catch #?(:cljd Object :clj Exception :cljs :default) e
+                           [:thrown (ex-message e)]))])
+               @runners))))
+
+
+(deftest default-budget-boundary-test
+  (testing "with no packet budget the 4300-digit default applies"
+    (testing "2^53 - 1 stays a native literal; 2^53 and 2^64 lower to
+              py/int-lit over canonical lowercase hex"
+      (is (= (u/lit 9007199254740991) (literal-node "9007199254740991")))
+      (is (= (u/app (u/v 'py/int-lit) (u/lit "20000000000000"))
+             (literal-node "9007199254740992")))
+      (is (= (u/app (u/v 'py/int-lit) (u/lit "10000000000000000"))
+             (literal-node "18446744073709551616"))))
+    (testing "the boundary literals evaluate and print exactly on every VM"
+      (let [tokens ["9007199254740991" "9007199254740992"
+                    "18446744073709551616"]]
+        (doseq [[k result] (run-everywhere-default (print-program tokens))]
+          (is (= {:py/out [(str/join " " tokens)], :py/exception nil}
+                 (render/output result))
+              (str k)))))
+    (testing "a 4300-digit decimal literal compiles and evaluates; 4301
+              digits refuse with the budget named"
+      (let [at (apply str "1" (repeat 4299 "0"))
+            past (str at "0")]
+        (is (nil? (diagnostic-of (assign-program at))))
+        (doseq [[k result] (run-everywhere-default (print-program [at]))]
+          (is (= {:py/out [at], :py/exception nil}
+                 (render/output result))
+              (str k)))
+        (let [d (diagnostic-of (assign-program past))]
+          (is (= :yang.python.antlr/syntax
+                 (:yang.python.antlr/diagnostic d)))
+          (is (str/includes? (:message d) "(4300 digits)")))))
+    (testing "an explicit packet budget still wins"
+      (is (some? (diagnostic-of
+                   (assoc (assign-program (apply str (repeat 20 "9")))
+                          :yang.python.antlr/max-digits 10))))
+      (is (nil? (diagnostic-of
+                  (assoc (assign-program (apply str (repeat 20 "9")))
+                         :yang.python.antlr/max-digits 20)))))))
 
 
 (deftest evaluated-literals-test

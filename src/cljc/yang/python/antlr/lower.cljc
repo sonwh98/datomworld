@@ -293,8 +293,8 @@
    module under limits fitted to this one token (no host double, no
    native-width parser): a native literal up to 2^53 - 1, else
    `(py/int-lit hex)` over canonical lowercase hex, which the AST can
-   carry on every host. A decimal token obeys the packet's digit budget;
-   with none declared it must stay within 2^53 - 1. Hex, octal and binary
+   carry on every host. A decimal token obeys the packet's digit budget,
+   the declared one or the 4300-digit default. Hex, octal and binary
    tokens have no digit budget."
   [ctx n t]
   (let [[radix digits] (int-digits n t)
@@ -317,9 +317,6 @@
       (cond
         (and (not (keyword? v)) (<= ((get m 'compare) v max-safe-int) 0))
         (u/lit v)
-        (and decimal? (nil? budget))
-        (unsupported! n (str "decimal integer literal beyond 2^53 - 1 "
-                             "with no digit budget declared"))
         :else (app* 'py/int-lit (u/lit ((get m 'format) v 16)))))))
 
 
@@ -1959,17 +1956,25 @@
 ;; Packets
 ;; =============================================================================
 
+(def ^:private default-max-digits
+  "The decimal digit budget of a packet that declares none: CPython's
+   `set_int_max_str_digits` default, so the lowering refusal matches the
+   runtime ValueError a guest conversion of the same literal would raise."
+  4300)
+
+
 (defn- digit-budget
   "The packet's decimal digit budget, `:yang.python.antlr/max-digits`, or
-   nil when it declares none (then no decimal literal may exceed
-   2^53 - 1). There is no default."
+   `default-max-digits` (4300, CPython's `set_int_max_str_digits`
+   default) when it declares none."
   [packet]
-  (when (contains? packet :yang.python.antlr/max-digits)
+  (if (contains? packet :yang.python.antlr/max-digits)
     (let [b (:yang.python.antlr/max-digits packet)]
       (when-not (and (int? b) (pos? b))
         (throw (ex-info "the digit budget must be a positive integer"
                         {:yang.python.antlr/max-digits b})))
-      b)))
+      b)
+    default-max-digits))
 
 
 ;; A bare expression statement carries one child; an assignment, an augmented
@@ -2329,7 +2334,8 @@
 (defn lower-transform
   "The lowering stage's transform (`yang.core.stage/lower-transform`). The
    state's `:max-digits`, when the composition declares one, is the digit
-   budget of a packet that declares none; its `:prelude` (`:bundled` by
+   budget of a packet that declares none (otherwise that packet keeps the
+   4300-digit default); its `:prelude` (`:bundled` by
    default, or `:linked`) is `lower-packet`'s. Stateless."
   [state packet]
   (core-stage/lower-transform
@@ -2342,7 +2348,9 @@
   "A lowering stage reading CST packets from `cst-stream`, writing program
    batches to `program-stream`, whose logical identity is `medium`, and
    diagnostics to `diagnostics-stream`. `max-digits`, when given, is the
-   decimal digit budget of every packet that declares none. The fourth
+   decimal digit budget of every packet that declares none; without it
+   such a packet keeps the 4300-digit default (CPython's
+   `set_int_max_str_digits` default). The fourth
    argument may instead be an options map `{:medium :max-digits
    :prelude}`; `:prelude` is `lower-packet`'s, `:bundled` by default."
   ([cst-stream program-stream diagnostics-stream]
