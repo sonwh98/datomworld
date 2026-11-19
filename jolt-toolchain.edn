@@ -94,6 +94,16 @@
         :mise-tool "chezscheme"
         :threaded true
         :binary "bin/scheme"}
+ ;; Gambit host (jolt host/gambit gates, G1): built from source by mise via the
+ ;; asdf plugin joeljuca/asdf-gambit (mise.toml) at the exact pin — the same
+ ;; from-source 4.9.8 jolt's CI gates target. Only gsi is needed by the gates
+ ;; (the Makefile passes GAMBIT_PREFIX/bin/gsi); JOLT_GAMBIT is set explicitly
+ ;; in build/tools/jolt-env.sh, never left to a PATH search (gsc on PATH is
+ ;; Ghostscript).
+ :gambit {:version "4.9.8"
+          :provider :mise
+          :mise-tool "gambit"
+          :binary "bin/gsi"}
  :cmake {:version "4.4.4"
          :provider :mise
          :mise-tool "cmake"}

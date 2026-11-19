@@ -1,0 +1,190 @@
+diff --git a/src/cljc/yang/core/lower.cljc b/src/cljc/yang/core/lower.cljc
+index f5d8b096..32e8f30f 100644
+--- a/src/cljc/yang/core/lower.cljc
++++ b/src/cljc/yang/core/lower.cljc
+@@ -97,3 +97,15 @@
+                      (and (not (contains? stop (:rule k)))
+                           (contains-rule? ctx k rule-name stop)))))
+           (kids ctx n))))
++
++
++(defn code-point->str
++  [cp]
++  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
++     :clj (String. (Character/toChars (int cp)))
++     :cljs (.fromCodePoint js/String cp)))
++
++
++(defn build-vector
++  [vconj elems]
++  (reduce (fn [acc e] (app* vconj acc e)) (u/lit []) elems))
+diff --git a/src/cljc/yang/core/prelude.cljc b/src/cljc/yang/core/prelude.cljc
+index ee928753..c2085d49 100644
+--- a/src/cljc/yang/core/prelude.cljc
++++ b/src/cljc/yang/core/prelude.cljc
+@@ -175,3 +175,19 @@
+                       (refusal refusal-ns "host-names"
+                                {(keyword refusal-ns "missing") missing}))))
+     registry))
++
++
++(defn balanced-definitions->uast
++  [defs]
++  (letfn [(sequence-tree [nodes]
++            (if (<= (count nodes) 1)
++              (first nodes)
++              (let [middle (quot (count nodes) 2)]
++                (u/then (sequence-tree (subvec nodes 0 middle))
++                        (sequence-tree (subvec nodes middle))))))]
++    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
++
++
++(defn definitions->uast
++  [defs]
++  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
+diff --git a/src/cljc/yang/php/antlr/prelude.cljc b/src/cljc/yang/php/antlr/prelude.cljc
+index dbe4a374..6bf95677 100644
+--- a/src/cljc/yang/php/antlr/prelude.cljc
++++ b/src/cljc/yang/php/antlr/prelude.cljc
+@@ -6205,18 +6205,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  ;; A linear `then` chain adds two tree levels per definition; at this
+-  ;; prelude's size the bundled tree runs ~900 deep and overflows the Dart
+-  ;; stack in the recursive tree walkers. Balance the sequence, preserving
+-  ;; left-to-right effects and the last definition's value.
+-  (letfn [(sequence-tree
+-            [nodes]
+-            (if (<= (count nodes) 1)
+-              (first nodes)
+-              (let [middle (quot (count nodes) 2)]
+-                (u/then (sequence-tree (subvec nodes 0 middle))
+-                        (sequence-tree (subvec nodes middle))))))]
+-    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
++  (core/balanced-definitions->uast defs))
+ 
+ 
+ (def functions-uast
+diff --git a/src/cljc/yang/php/antlr/safepoint.cljc b/src/cljc/yang/php/antlr/safepoint.cljc
+index b769b2e7..835e9588 100644
+--- a/src/cljc/yang/php/antlr/safepoint.cljc
++++ b/src/cljc/yang/php/antlr/safepoint.cljc
+@@ -4,6 +4,7 @@
+    operational fatal, not a guest Throwable."
+   (:require
+     [yang.core.uast :as u]
++    [yang.core.prelude :as core-prelude]
+     [yang.core.module :as module]))
+ 
+ 
+@@ -39,7 +40,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
++  (core-prelude/definitions->uast defs))
+ 
+ 
+ (defn program
+diff --git a/src/cljc/yang/python/antlr/lower.cljc b/src/cljc/yang/python/antlr/lower.cljc
+index 42858ca6..c4503b71 100644
+--- a/src/cljc/yang/python/antlr/lower.cljc
++++ b/src/cljc/yang/python/antlr/lower.cljc
+@@ -233,7 +233,7 @@
+ 
+ (defn- build-vector
+   [elems]
+-  (reduce (fn [acc e] (app* 'py/vconj acc e)) (u/lit []) elems))
++  (core/build-vector 'py/vconj elems))
+ 
+ 
+ (defn- truthy
+@@ -341,11 +341,7 @@
+       :else (int-literal ctx n text))))
+ 
+ 
+-(defn- code-point->str
+-  [cp]
+-  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
+-     :clj (String. (Character/toChars (int cp)))
+-     :cljs (.fromCodePoint js/String cp)))
++(def ^:private code-point->str core/code-point->str)
+ 
+ 
+ (defn- escape-value
+diff --git a/src/cljc/yang/python/antlr/safepoint.cljc b/src/cljc/yang/python/antlr/safepoint.cljc
+index 716e67d7..4b96161d 100644
+--- a/src/cljc/yang/python/antlr/safepoint.cljc
++++ b/src/cljc/yang/python/antlr/safepoint.cljc
+@@ -360,7 +360,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
++  (core/definitions->uast defs))
+ 
+ 
+ (def uast
+diff --git a/src/cljc/yang/typescript/antlr/lower.cljc b/src/cljc/yang/typescript/antlr/lower.cljc
+index 273e0417..ca85f523 100644
+--- a/src/cljc/yang/typescript/antlr/lower.cljc
++++ b/src/cljc/yang/typescript/antlr/lower.cljc
+@@ -178,7 +178,7 @@
+ 
+ (defn- build-vector
+   [elems]
+-  (reduce (fn [acc e] (app* 'js/vconj acc e)) (u/lit []) elems))
++  (core/build-vector 'js/vconj elems))
+ 
+ 
+ (defn- seq-of
+@@ -242,11 +242,7 @@
+ ;; Literals
+ ;; =============================================================================
+ 
+-(defn- code-point->str
+-  [cp]
+-  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
+-     :clj (String. (Character/toChars (int cp)))
+-     :cljs (.fromCodePoint js/String cp)))
++(def ^:private code-point->str core/code-point->str)
+ 
+ 
+ (defn- text-units
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index bcd56675..e8e44bf3 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -4321,17 +4321,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  ;; A linear `then` chain adds two tree levels per definition and can
+-  ;; overflow the host printer's stack. Balance the sequence, preserving
+-  ;; left-to-right effects and the last definition's value.
+-  (letfn [(sequence-tree
+-            [nodes]
+-            (if (<= (count nodes) 1)
+-              (first nodes)
+-              (let [middle (quot (count nodes) 2)]
+-                (u/then (sequence-tree (subvec nodes 0 middle))
+-                        (sequence-tree (subvec nodes middle))))))]
+-    (sequence-tree (mapv (fn [[k form]] (u/def! k (u/sexp->uast form))) defs))))
++  (core/balanced-definitions->uast defs))
+ 
+ 
+ (def functions-uast
+diff --git a/src/cljc/yang/typescript/antlr/safepoint.cljc b/src/cljc/yang/typescript/antlr/safepoint.cljc
+index 7e889fd4..9182e80f 100644
+--- a/src/cljc/yang/typescript/antlr/safepoint.cljc
++++ b/src/cljc/yang/typescript/antlr/safepoint.cljc
+@@ -118,7 +118,7 @@
+ 
+ (defn- definitions->uast
+   [defs]
+-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
++  (core/definitions->uast defs))
+ 
+ 
+ (def uast

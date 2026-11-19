@@ -904,7 +904,13 @@ Two tiers, by target and purpose:
 
 An orchestrator landing a slice cites the subset runs plus the gate
 sign-off; the nightly catches what the subset could not see, and a red
-nightly owns the follow-up.
+nightly owns the follow-up. A gate claim names its tier: fast
+`bb test:sub:clj <sub>` excludes `^:slow` tests, so "0 failures" from it
+never asserts the slow tier ran — when the diff touches slow-tagged tests
+(G2's `--slow` clause), the claim cites the slow-tier or per-test linked
+runs separately (2026-11-17 lesson: three include/const gate claims read
+"green" while the slow linked rows were only proven by separate fresh-JVM
+runs).
 
 **The merge precondition (2026-10-30 owner ruling, restored 2026-10-31 —
 a dedup pass dropped this section along with a stale duplicate of the
