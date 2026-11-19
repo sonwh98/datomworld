@@ -49,7 +49,9 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | Provider        | Cost Structure                         | Routing Notes                                                                                               |
 +=================+========================================+=============================================================================================================+
-| agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget.                                                   |
+| agy             | Flat: Included                         | Treated as a flat subscription. Use freely within budget. `gemini-4-hydrogen` and `gemini-4-neon` share     |
+|                 |                                        | the fast-resetting quota window (separate from `gemini-4-argon`'s longer-resetting pool); prefer            |
+|                 |                                        | Hydrogen over Neon for speed/token efficiency, not separate quota capacity.                                 |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | qwen            | Token Plan subscription (Alibaba Cloud | The `qwen` CLI is Alibaba's own coding agent (`@qwen-code/qwen-code@0.17.0`, npm-global under nvm node      |
 |                 | Model Studio, ap-southeast-1)          | v26.1.0), not a Claude Code wrapper. Headless dispatch and session mechanics measured (2026-11-04): caller  |
@@ -125,11 +127,18 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | **Best for:** System architecture, design/code review, complex     | headless tasks requiring in-session JVM test execution.             |
 |                             | debugging, and multi-step implementation.                          |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gemini-4-hydrogen`         | Fast, high-efficiency Gemini 4 workhorse; 1M unified context and   | Defaults to high effort, which increases reasoning token overhead   |
-|                             | multimodal support; configurable effort (low/medium/high/xhigh);   | if untuned; sits below Argon on high-order axiomatic proofs.        |
-|                             | strong tool orchestration and repo-level coding in fewer turns.    | **Avoid for:** Top-level architectural sign-offs on consensus or    |
-|                             | **Best for:** High-throughput agentic workflows, everyday coding,  | cryptographic boundaries (use Argon/Astra); high-volume tasks with  |
-|                             | debugging, frontend/visual inspection, and rapid TDD loops.        | unmanaged default high thinking where token budgets are tight.      |
+| `gemini-4-hydrogen`         | Fast, low-latency Gemini 4 workhorse (~2x cheaper per token than   | Defaults to high effort (adds reasoning token overhead if untuned); |
+|                             | Neon); 1M unified context, multimodal support, and configurable    | shallower reasoning than Neon and sits below Argon on high-order    |
+|                             | effort (low/medium/high/xhigh). **Best for:** High-throughput      | axiomatic proofs. **Avoid for:** Complex multi-file coding/debugging|
+|                             | agentic loops, rapid TDD/QA, bounded subagent execution (paired    | where Neon reduces turns; top-level consensus/cryptographic         |
+|                             | with Neon/Argon planning), and routine/high-volume automation.     | sign-offs (use Argon/Astra).                                        |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gemini-4-neon`             | Successor to Hydrogen positioned below Argon; 1M context,          | Slower and ~2x costlier than Hydrogen for simple/high-volume tasks; |
+|                             | multimodal support, and configurable effort (low/medium/high/      | sits below Argon on top-level axiomatic proofs and architectural    |
+|                             | xhigh); stronger coding/reasoning than Hydrogen at ~2x token       | sign-offs. **Avoid for:** Routine/mechanical sweeps or low-latency  |
+|                             | cost. **Best for:** Complex multi-file coding, debugging, planner  | loops (use Hydrogen/Flash); highest-stakes consensus or             |
+|                             | roles (paired with Hydrogen/Flash executors), and tool-heavy       | cryptographic sign-offs (use Argon/Astra).                          |
+|                             | agentic workflows.                                                 |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `glm-5.3`                   | Scaled post-training for exceptional long-horizon tasks and        | Heavier footprint; can overcomplicate simple data framing. **Avoid  |
 |                             | cybersecurity. **Best for:** Complex programming workflows, VMs,   | for:** UI/UX, canvas, or WebGPU tasks.                              |
