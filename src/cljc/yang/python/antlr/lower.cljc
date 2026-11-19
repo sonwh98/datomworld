@@ -95,9 +95,6 @@
   "Grammar rules outside the phase-A subset, with the construct each names."
   {"single_input" "interactive input",
    "eval_input" "eval input",
-   "decorator" "decorator",
-   "decorators" "decorator",
-   "decorated" "decorator",
    "async_funcdef" "async def",
    "async_stmt" "async statement",
    "match_stmt" "match statement",
@@ -159,6 +156,7 @@
     "assert_stmt"
     "global_stmt" "nonlocal_stmt" "if_stmt" "while_stmt" "for_stmt"
     "try_stmt" "with_stmt" "funcdef" "classdef" "test" "test_nocond"
+    "decorated" "decorators" "decorator"
     "lambdef" "lambdef_nocond" "or_test" "and_test" "not_test" "comparison"
     "expr" "star_expr" "atom_expr" "atom" "name" "yield_stmt" "yield_expr"
     "del_stmt" "import_stmt" "import_name" "import_from"})
@@ -374,53 +372,51 @@
    a compile-time diagnostic naming the escape — over a partial runtime
    name lookup the prelude does not have."
   (merge
-   ;; a name's letter is upper case even for the small letters
-   (into {}
-         (for [kind [["LATIN SMALL LETTER " 0x61 0x41]
-                     ["LATIN CAPITAL LETTER " 0x41 0x41]]
-               i (range 26)]
-           [(str (first kind) (code-point->str (+ (nth kind 2) i)))
-            (+ (second kind) i)]))
-   ;; the digits are keyed by their canonical Name words — CPython's Name
-   ;; property is DIGIT ZERO..DIGIT NINE, so `\N{DIGIT 0}` refuses
-   (into {}
-         (for [[i word] (map-indexed vector
+    ;; a name's letter is upper case even for the small letters
+    (into {}
+          (for [kind [["LATIN SMALL LETTER " 0x61 0x41]
+                      ["LATIN CAPITAL LETTER " 0x41 0x41]]
+                i (range 26)]
+            [(str (first kind) (code-point->str (+ (nth kind 2) i)))
+             (+ (second kind) i)]))
+    (into {}
+          (for [[i word] (map-indexed vector
                                       ["ZERO" "ONE" "TWO" "THREE" "FOUR"
                                        "FIVE" "SIX" "SEVEN" "EIGHT" "NINE"])]
-           [(str "DIGIT " word) (+ 0x30 i)]))
-   {"SPACE" 0x20
-    "EXCLAMATION MARK" 0x21, "QUOTATION MARK" 0x22, "NUMBER SIGN" 0x23,
-    "DOLLAR SIGN" 0x24, "PERCENT SIGN" 0x25, "AMPERSAND" 0x26,
-    "APOSTROPHE" 0x27, "LEFT PARENTHESIS" 0x28, "RIGHT PARENTHESIS" 0x29,
-    "ASTERISK" 0x2A, "PLUS SIGN" 0x2B, "COMMA" 0x2C, "HYPHEN-MINUS" 0x2D,
-    "FULL STOP" 0x2E, "SOLIDUS" 0x2F, "COLON" 0x3A, "SEMICOLON" 0x3B,
-    "LESS-THAN SIGN" 0x3C, "EQUALS SIGN" 0x3D, "GREATER-THAN SIGN" 0x3E,
-    "QUESTION MARK" 0x3F, "COMMERCIAL AT" 0x40, "LEFT SQUARE BRACKET" 0x5B,
-    "REVERSE SOLIDUS" 0x5C, "RIGHT SQUARE BRACKET" 0x5D,
-    "CIRCUMFLEX ACCENT" 0x5E, "LOW LINE" 0x5F, "GRAVE ACCENT" 0x60,
-    "LEFT CURLY BRACKET" 0x7B, "VERTICAL LINE" 0x7C,
-    "RIGHT CURLY BRACKET" 0x7D, "TILDE" 0x7E,
-    "NO-BREAK SPACE" 0xA0, "INVERTED EXCLAMATION MARK" 0xA1,
-    "CENT SIGN" 0xA2, "POUND SIGN" 0xA3, "SECTION SIGN" 0xA7,
-    "BROKEN BAR" 0xA6, "DIAERESIS" 0xA8, "COPYRIGHT SIGN" 0xA9,
-    "REGISTERED SIGN" 0xAE, "DEGREE SIGN" 0xB0, "PLUS-MINUS SIGN" 0xB1,
-    "MICRO SIGN" 0xB5, "PILCROW SIGN" 0xB6, "MULTIPLICATION SIGN" 0xD7,
-    "INVERTED QUESTION MARK" 0xBF, "DIVISION SIGN" 0xF7,
-    "LATIN SMALL LETTER SHARP S" 0xDF, "LATIN CAPITAL LETTER AE" 0xC6,
-    "LATIN SMALL LETTER AE" 0xE6, "LATIN SMALL LETTER A WITH ACUTE" 0xE1,
-    "LATIN SMALL LETTER E WITH ACUTE" 0xE9, "LATIN SMALL LETTER I WITH ACUTE" 0xED,
-    "LATIN SMALL LETTER O WITH ACUTE" 0xF3, "LATIN SMALL LETTER U WITH ACUTE" 0xFA,
-    "LATIN SMALL LETTER N WITH TILDE" 0xF1, "LATIN SMALL LETTER C WITH CEDILLA" 0xE7,
-    "LATIN CAPITAL LETTER A WITH ACUTE" 0xC1, "LATIN CAPITAL LETTER E WITH ACUTE" 0xC9,
-    "LATIN CAPITAL LETTER O WITH ACUTE" 0xD3, "LATIN CAPITAL LETTER U WITH ACUTE" 0xDA,
-    "LATIN CAPITAL LETTER N WITH TILDE" 0xD1,
-    "EN DASH" 0x2013, "EM DASH" 0x2014, "BULLET" 0x2022,
-    "HORIZONTAL ELLIPSIS" 0x2026, "LEFT SINGLE QUOTATION MARK" 0x2018,
-    "RIGHT SINGLE QUOTATION MARK" 0x2019, "LEFT DOUBLE QUOTATION MARK" 0x201C,
-    "RIGHT DOUBLE QUOTATION MARK" 0x201D, "EURO SIGN" 0x20AC,
-    "TRADE MARK SIGN" 0x2122, "LEFTWARDS ARROW" 0x2190,
-    "UPWARDS ARROW" 0x2191, "RIGHTWARDS ARROW" 0x2192,
-    "DOWNWARDS ARROW" 0x2193}))
+            [(str "DIGIT " word) (+ 0x30 i)]))
+    {"SPACE" 0x20
+     "EXCLAMATION MARK" 0x21, "QUOTATION MARK" 0x22, "NUMBER SIGN" 0x23,
+     "DOLLAR SIGN" 0x24, "PERCENT SIGN" 0x25, "AMPERSAND" 0x26,
+     "APOSTROPHE" 0x27, "LEFT PARENTHESIS" 0x28, "RIGHT PARENTHESIS" 0x29,
+     "ASTERISK" 0x2A, "PLUS SIGN" 0x2B, "COMMA" 0x2C, "HYPHEN-MINUS" 0x2D,
+     "FULL STOP" 0x2E, "SOLIDUS" 0x2F, "COLON" 0x3A, "SEMICOLON" 0x3B,
+     "LESS-THAN SIGN" 0x3C, "EQUALS SIGN" 0x3D, "GREATER-THAN SIGN" 0x3E,
+     "QUESTION MARK" 0x3F, "COMMERCIAL AT" 0x40, "LEFT SQUARE BRACKET" 0x5B,
+     "REVERSE SOLIDUS" 0x5C, "RIGHT SQUARE BRACKET" 0x5D,
+     "CIRCUMFLEX ACCENT" 0x5E, "LOW LINE" 0x5F, "GRAVE ACCENT" 0x60,
+     "LEFT CURLY BRACKET" 0x7B, "VERTICAL LINE" 0x7C,
+     "RIGHT CURLY BRACKET" 0x7D, "TILDE" 0x7E,
+     "NO-BREAK SPACE" 0xA0, "INVERTED EXCLAMATION MARK" 0xA1,
+     "CENT SIGN" 0xA2, "POUND SIGN" 0xA3, "SECTION SIGN" 0xA7,
+     "BROKEN BAR" 0xA6, "DIAERESIS" 0xA8, "COPYRIGHT SIGN" 0xA9,
+     "REGISTERED SIGN" 0xAE, "DEGREE SIGN" 0xB0, "PLUS-MINUS SIGN" 0xB1,
+     "MICRO SIGN" 0xB5, "PILCROW SIGN" 0xB6, "MULTIPLICATION SIGN" 0xD7,
+     "INVERTED QUESTION MARK" 0xBF, "DIVISION SIGN" 0xF7,
+     "LATIN SMALL LETTER SHARP S" 0xDF, "LATIN CAPITAL LETTER AE" 0xC6,
+     "LATIN SMALL LETTER AE" 0xE6, "LATIN SMALL LETTER A WITH ACUTE" 0xE1,
+     "LATIN SMALL LETTER E WITH ACUTE" 0xE9, "LATIN SMALL LETTER I WITH ACUTE" 0xED,
+     "LATIN SMALL LETTER O WITH ACUTE" 0xF3, "LATIN SMALL LETTER U WITH ACUTE" 0xFA,
+     "LATIN SMALL LETTER N WITH TILDE" 0xF1, "LATIN SMALL LETTER C WITH CEDILLA" 0xE7,
+     "LATIN CAPITAL LETTER A WITH ACUTE" 0xC1, "LATIN CAPITAL LETTER E WITH ACUTE" 0xC9,
+     "LATIN CAPITAL LETTER O WITH ACUTE" 0xD3, "LATIN CAPITAL LETTER U WITH ACUTE" 0xDA,
+     "LATIN CAPITAL LETTER N WITH TILDE" 0xD1,
+     "EN DASH" 0x2013, "EM DASH" 0x2014, "BULLET" 0x2022,
+     "HORIZONTAL ELLIPSIS" 0x2026, "LEFT SINGLE QUOTATION MARK" 0x2018,
+     "RIGHT SINGLE QUOTATION MARK" 0x2019, "LEFT DOUBLE QUOTATION MARK" 0x201C,
+     "RIGHT DOUBLE QUOTATION MARK" 0x201D, "EURO SIGN" 0x20AC,
+     "TRADE MARK SIGN" 0x2122, "LEFTWARDS ARROW" 0x2190,
+     "UPWARDS ARROW" 0x2191, "RIGHTWARDS ARROW" 0x2192,
+     "DOWNWARDS ARROW" 0x2193}))
 
 
 (defn- named-escape
@@ -1439,16 +1435,10 @@
 
 (defn- lower-annassign
   "`x: T = v`, through expr_stmt's annassign child. The annotation is
-  erased metadata: the runtime has no type-checking layer and no
-  `__annotations__` to store it in, so annotations are documentation,
-  and the value assignment lowers exactly as a plain assignment to the
-  same target (`assign-sides`, so subscript and attribute targets store
-  like the plain path's). The residue of that erasure is an observable
-  divergence from CPython at module and class scope, where CPython
-  evaluates the annotation (and stores it in `__annotations__`): here
-  `x: side_effect() = v` never calls `side_effect()` — function-locally
-  CPython skips the annotation too, so only the module/class scope
-  diverges. A pin names the divergence in e2e_test.
+  erased metadata: the runtime has no type-checking layer, so annotations
+  are documentation, and the value assignment lowers exactly as a plain
+  assignment to the same target (`assign-sides`, so subscript and
+  attribute targets store like the plain path's).
   `x: T` with no value binds nothing at run time and lowers to nothing;
   the target's name binding comes from the scope analysis, as in CPython."
   [ctx n target annassign]
@@ -1664,6 +1654,70 @@
     (u/let1 cls
             (app* 'py/make-class (u/lit nm) base)
             (u/seq-nodes (concat body [(assign-name ctx nm (u/v cls))])))))
+
+
+(defn- dotted-decorator-expr
+  "A `dotted_name` rule as an expression: the first segment read as a
+   name, each further one an attribute access. The decorator grammar
+   admits no other expression shape; a call's arguments ride in
+   `lower-decorator`."
+  [ctx n]
+  (let [lower (:lower ctx)]
+    (reduce (fn [acc k]
+              (if (p/rule? k "name")
+                (if acc
+                  (app* 'py/getattr acc (u/lit (name-of ctx k)))
+                  (lower ctx k))
+                acc))
+            nil
+            (kids ctx n))))
+
+
+(defn- lower-decorator
+  "One `@` line: the decorator expression, evaluated ONCE, at decoration
+   time (the def's scope) -- a dotted name, or a call of one, whose
+   argument list lowers like any call's. A bare `@d` is the name itself,
+   not a zero-argument call."
+  [ctx n]
+  (let [f (dotted-decorator-expr ctx (first (rules ctx n "dotted_name")))]
+    (if (some #(p/token? % "(") (kids ctx n))
+      (let [{:keys [args kwargs]} (call-parts ctx n)]
+        (if kwargs
+          (app* 'py/call-kw f args kwargs)
+          (app* 'py/call f args)))
+      f)))
+
+
+(defn- lower-decorated
+  "`@d1 ... @dn def f` (or `class`): the def's own lowering, then the
+   rebinding `f = dn(...(d1(f)))` -- CPython evaluates the decorator
+   expressions in order, top line first, at decoration time, and applies
+   them bottom-up. The rebinding lands where the def bound (`assign-name`:
+   the module dict at top level, the enclosing class scope for a method),
+   so it is an ordinary assignment after an ordinary def; `decorated`
+   over an `async_funcdef` still refuses."
+  [ctx n]
+  (let [decorators (mapcat #(rules ctx % "decorator")
+                           (rules ctx n "decorators"))
+        [target] (filter #(contains? #{"funcdef" "classdef" "async_funcdef"}
+                                     (:rule %))
+                         (kids ctx n))]
+    (when (= "async_funcdef" (:rule target)) (unsupported! target "async def"))
+    (let [nm (name-of ctx (first (rules ctx target "name")))
+          binds (map (fn [d] [(gen "dec" d) (lower-decorator ctx d)])
+                     decorators)
+          ;; outermost let first, so the expressions evaluate top line first
+          body (u/seq-nodes
+                 [((:lower ctx) ctx target)
+                  (assign-name ctx nm
+                               (reduce (fn [acc [d _]]
+                                         (app* 'py/call (u/v d) (build-vector [acc])))
+                                       (read-name ctx target nm)
+                                       (reverse binds)))])
+          rebinding (reduce (fn [inner [d v]] (u/let1 d v inner))
+                            body
+                            (reverse binds))]
+      rebinding)))
 
 
 ;; -----------------------------------------------------------------------------
@@ -2034,6 +2088,7 @@
     "with_stmt" (lower-with ctx n)
     "funcdef" (lower-funcdef ctx n)
     "classdef" (lower-classdef ctx n)
+    "decorated" (lower-decorated ctx n)
     "del_stmt" (lower-del ctx n)
     "import_stmt" ((:lower ctx) ctx (first (kids ctx n)))
     "import_name" (lower-import ctx n)
