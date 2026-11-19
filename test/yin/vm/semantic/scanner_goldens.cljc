@@ -536,6 +536,7 @@
         integer/add
         modules-put!
         fill-defaults
+        ascii-chunk
         bind-keyword
         finite?
         float-text
@@ -543,8 +544,10 @@
         hash-signed
         bind-keywords
         ctx
+        fmt-precision
         dict-del-quiet
         float-floor
+        format-spec
         as-exception
         py.rt/out
         zero-like
@@ -552,6 +555,7 @@
         py.b/IndexError
         dict-has?
         gen-enter
+        fmt-num
         py.b/divmod
         py.b/sum
         py.b/LookupError
@@ -604,6 +608,7 @@
         bind
         iter-at
         py.b/set-add
+        fmt-align
         py.b/ValueError
         iter-outcome
         py.b/builtins
@@ -624,11 +629,14 @@
         cell/get
         num
         float-conv
+        ascii-walk
         float?
         py.rt/sys
         py.b/float
         py.b/dict-keys
+        fmt-char
         star-copy-all
+        format-float
         py.b/print
         py.b/KeyboardInterrupt
         py.b/dict-items
@@ -650,13 +658,16 @@
         conj
         py.b/list-append
         float-abs
+        fmt-upper
         pop-frame
         py.b/round
         import-namespace-check
+        fmt-number
         get
         check-print-all
         py.b/StopIteration
         user-delegate-step
+        fmt-align?
         integer/format
         str-escape
         yang.call/invoke
@@ -676,6 +687,7 @@
         index
         py.b/gen-next
         gen-throw
+        fmt-group
         integer/sub
         raise
         float-power
@@ -724,6 +736,7 @@
         read-digits
         -
         slice-int
+        format-int
         py.b/type
         arith
         modules-ref
@@ -753,6 +766,7 @@
         float-to-int
         int-text
         import-refused
+        format-bool
         py.b/all
         range-small?
         radix-conv
@@ -768,6 +782,7 @@
         strip-space
         cell/dsg__provenance
         py.b/reload
+        format-str
         not
         attr-error
         dict-ref
@@ -779,6 +794,7 @@
         snapshot-obj
         py.b/gen-iter
         outcome
+        fmt-invalid
         gen-send
         repeat-items
         slice-bound
@@ -813,6 +829,7 @@
         py.b/ZeroDivisionError
         type-error
         py.b/RecursionError
+        fmt-digit?
         strip-end
         py.b/range
         module-dict
@@ -853,6 +870,7 @@
         collect
         py.b/import-module
         pad
+        fmt-spec-parse
         import-hooks-fail
         integer/compare
         py.b/dict-get
@@ -862,7 +880,9 @@
         py.b/any
         float-repr
         integer/mul
+        fmt-group-walk
         restore!
+        !=
         class-lookup
         function-entry
         py.b/hex
@@ -903,6 +923,7 @@
         snapshot-all
         integer/true-div
         float-divmod
+        fmt-prefix
         lookup-pair
         py.b/OverflowError
         int-refusal?
@@ -2016,6 +2037,113 @@
        [raise-new true]
        [py.b/NotImplementedError true]
        [type-text true]
+       [< true]
+       [data/code-points->str true]
+       [vconj true]
+       [< true]
+       [integer/format true]
+       [integer/format true]
+       [< true]
+       [data/count true]
+       [ascii-walk true]
+       [+ true]
+       [data/str-concat true]
+       [ascii-chunk true]
+       [get true]
+       [str true]
+       [ascii-walk true]
+       [data/str->code-points true]
+       [get true]
+       [str-conv true]
+       [str true]
+       [format-spec true]
+       [get true]
+       [= true]
+       [= true]
+       [= true]
+       [= true]
+       [<= true]
+       [<= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [= true]
+       [= true]
+       [num true]
+       [data/code-points->str true]
+       [vconj true]
+       [= true]
+       [= true]
+       [= true]
+       [<= true]
+       [conj true]
+       [get true]
+       [fmt-digit? true]
+       [get true]
+       [fmt-precision true]
+       [+ true]
+       [+ true]
+       [* true]
+       [- true]
+       [get true]
+       [fmt-spec-parse true]
+       [= true]
+       [< true]
+       [data/count true]
+       [get true]
+       [< true]
+       [data/str-concat true]
+       [fmt-char true]
+       [get true]
+       [data/str->code-points true]
+       [= true]
+       [= true]
+       [<= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [!= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [data/str-concat true]
+       [fmt-num true]
+       [= true]
+       [= true]
+       [fmt-num true]
+       [= true]
+       [= true]
+       [= true]
+       [= true]
+       [fmt-num true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [data/str-concat true]
+       [format-int true]
+       [!= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [data/str-concat true]
+       [<= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [!= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [float-repr true]
+       [num true]
+       [= true]
+       [get true]
+       [str-conv true]
+       [data/str->code-points true]
        [int? true]
        [abs true]
        [num true]
@@ -2800,6 +2928,47 @@
        [int-lit true]
        [get true]
        [data/str->code-points true]
+       [data/str-concat true]
+       [< true]
+       [data/str-length true]
+       [data/str-concat true]
+       [< true]
+       [= true]
+       [= true]
+       [< true]
+       [+ true]
+       [fmt-align? true]
+       [get true]
+       [+ true]
+       [data/str-length true]
+       [fmt-upper true]
+       [+ true]
+       [data/str-concat true]
+       [fmt-char true]
+       [<= true]
+       [<= true]
+       [- true]
+       [+ true]
+       [<= true]
+       [data/count true]
+       [fmt-group-walk true]
+       [- true]
+       [data/count true]
+       [= true]
+       [= true]
+       [<= true]
+       [<= true]
+       [fmt-number true]
+       [fmt-char true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [< true]
+       [< true]
+       [= true]
+       [data/substring true]
+       [fmt-spec-parse true]
+       [data/count true]
        [float true]
        [< true]
        [* true]
@@ -3530,6 +3699,52 @@
        [vconj true]
        [= true]
        [get true]
+       [< true]
+       [= true]
+       [fmt-align? true]
+       [<= true]
+       [- true]
+       [= true]
+       [< true]
+       [fmt-group-walk true]
+       [- true]
+       [data/str-concat true]
+       [fmt-group-walk true]
+       [- true]
+       [= true]
+       [= true]
+       [!= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [!= true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [data/str-concat true]
+       [= true]
+       [= true]
+       [get true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [data/str-concat true]
+       [int-result true]
+       [integer/format true]
+       [abs true]
+       [= true]
+       [= true]
+       [fmt-number true]
+       [data/substring true]
+       [data/str-length true]
+       [get true]
        [integer/compare true]
        [int-result true]
        [integer/mul true]
@@ -4030,6 +4245,33 @@
        [get true]
        [= true]
        [get true]
+       [data/str-concat true]
+       [text-repeat true]
+       [- true]
+       [data/str-length true]
+       [= true]
+       [= true]
+       [= true]
+       [= true]
+       [= true]
+       [data/str-concat true]
+       [text-repeat true]
+       [= true]
+       [get true]
+       [integer/floor-div-mod true]
+       [data/str-concat true]
+       [text-repeat true]
+       [data/str-concat true]
+       [<= true]
+       [< true]
+       [data/str-length true]
+       [data/substring true]
+       [!= true]
+       [fmt-group true]
+       [int-result true]
+       [integer/format true]
+       [abs true]
+       [get true]
        [> true]
        [= true]
        [= true]
@@ -4311,6 +4553,68 @@
        [get true]
        [ascii-lower true]
        [data/subvec true]
+       [fmt-spec-parse true]
+       [+ true]
+       [fmt-char true]
+       [fmt-char true]
+       [get true]
+       [+ true]
+       [fmt-spec-parse true]
+       [+ true]
+       [fmt-char true]
+       [fmt-spec-parse true]
+       [+ true]
+       [fmt-char true]
+       [= true]
+       [fmt-spec-parse true]
+       [+ true]
+       [= true]
+       [= true]
+       [fmt-spec-parse true]
+       [+ true]
+       [= true]
+       [fmt-digit? true]
+       [fmt-spec-parse true]
+       [+ true]
+       [+ true]
+       [* true]
+       [- true]
+       [= true]
+       [= true]
+       [= true]
+       [fmt-spec-parse true]
+       [+ true]
+       [fmt-char true]
+       [= true]
+       [fmt-digit? true]
+       [get true]
+       [+ true]
+       [fmt-precision true]
+       [+ true]
+       [raise-new true]
+       [py.b/ValueError true]
+       [str true]
+       [= true]
+       [= true]
+       [+ true]
+       [conj true]
+       [fmt-char true]
+       [fmt-invalid true]
+       [data/str-concat true]
+       [text-repeat true]
+       [data/str-concat true]
+       [text-repeat true]
+       [- true]
+       [+ true]
+       [data/str-length true]
+       [data/str-length true]
+       [fmt-align true]
+       [= true]
+       [fmt-number true]
+       [= true]
+       [fmt-upper true]
+       [data/str->code-points true]
+       [get true]
        [int-result true]
        [integer/mul true]
        [int-result true]
@@ -4433,6 +4737,18 @@
        [data/float-value true]
        [float-decimal true]
        [= true]
+       [= true]
+       [< true]
+       [data/str-concat true]
+       [text-repeat true]
+       [= true]
+       [- true]
+       [fmt-align true]
+       [data/str-concat true]
+       [= true]
+       [!= true]
+       [fmt-group true]
+       [get true]
        [raise true]
        [raise true]
        [assoc true]
@@ -4484,6 +4800,9 @@
        [= true]
        [= true]
        [get true]
+       [fmt-number true]
+       [fmt-prefix true]
+       [get true]
        [try true]
        [vconj true]
        [tuple true]
@@ -4508,6 +4827,7 @@
        [= true]
        [get true]
        [+ true]
+       [get true]
        [cell/set! true]
        [get true]
        [bind-args true]
@@ -4524,6 +4844,7 @@
        [vconj true]
        [vconj true]
        [vconj true]
+       [get true]
        [nil? true]
        [assoc true]
        [get true]
@@ -4531,6 +4852,7 @@
        [get true]
        [read-digits true]
        [data/str-concat true]
+       [get true]
        [get true]
        [get true]
        [get true]
@@ -4548,6 +4870,7 @@
        [data/str->code-points true]
        [get true]
        [float-text-error true]
+       [get true]
        [= true]
        [get true]
        [data/count true]
@@ -4568,6 +4891,18 @@
        [int-text-error true]
        [int-result true]
        [integer/neg true]
+       [str? true]
+       [format-str true]
+       [= true]
+       [= true]
+       [format-bool true]
+       [int? true]
+       [format-int true]
+       [float? true]
+       [format-float true]
+       [raise-new true]
+       [py.b/TypeError true]
+       [type-text true]
        [integer/decimal->float true]
        [int-result true]
        [integer/sub true]
@@ -4941,6 +5276,28 @@
        [float-text false]
        [float-conv false]
        [str-conv false]
+       [ascii-chunk false]
+       [ascii-walk false]
+       [ascii-conv false]
+       [format false]
+       [fmt-align? false]
+       [fmt-digit? false]
+       [fmt-invalid false]
+       [fmt-num false]
+       [fmt-char false]
+       [fmt-prefix false]
+       [fmt-spec-parse false]
+       [fmt-precision false]
+       [fmt-align false]
+       [fmt-upper false]
+       [fmt-group-walk false]
+       [fmt-group false]
+       [fmt-number false]
+       [format-str false]
+       [format-int false]
+       [format-bool false]
+       [format-float false]
+       [format-spec false]
        [abs-conv false]
        [radix-conv false]
        [round-integer false]
@@ -5046,7 +5403,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 4051,
+      :application-count 4398,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5064,14 +5421,17 @@
          int-result
          modules-put!
          fill-defaults
+         ascii-chunk
          bind-keyword
          finite?
          float-text
          hash-signed
          bind-keywords
          ctx
+         fmt-precision
          dict-del-quiet
          float-floor
+         format-spec
          as-exception
          py.rt/out
          zero-like
@@ -5079,6 +5439,7 @@
          py.b/IndexError
          dict-has?
          gen-enter
+         fmt-num
          py.b/divmod
          py.b/sum
          py.b/LookupError
@@ -5129,6 +5490,7 @@
          bind
          iter-at
          py.b/set-add
+         fmt-align
          in
          py.b/ValueError
          iter-outcome
@@ -5149,12 +5511,15 @@
          yield-from
          num
          float-conv
+         ascii-walk
          float?
          py.rt/sys
          py.b/float
          py.b/dict-keys
+         fmt-char
          star-copy-all
          yield
+         format-float
          py.b/print
          py.b/KeyboardInterrupt
          py.b/dict-items
@@ -5170,16 +5535,20 @@
          user-forward
          module-run
          iterable
+         format
          ge
          py.b/list-append
          float-abs
+         fmt-upper
          pop-frame
          py.b/round
          import-namespace-check
+         fmt-number
          object-class
          check-print-all
          py.b/StopIteration
          user-delegate-step
+         fmt-align?
          str-escape
          exc-matches
          init!
@@ -5197,6 +5566,7 @@
          index
          py.b/gen-next
          gen-throw
+         fmt-group
          raise
          float-power
          gen-result
@@ -5249,6 +5619,7 @@
          import-module?
          read-digits
          slice-int
+         format-int
          py.b/type
          arith
          modules-ref
@@ -5278,8 +5649,10 @@
          float-to-int
          make-generator
          int-text
+         ascii-conv
          global-del-quiet
          import-refused
+         format-bool
          py.b/all
          range-small?
          radix-conv
@@ -5297,6 +5670,7 @@
          slice-positions
          strip-space
          py.b/reload
+         format-str
          attr-error
          dict-ref
          crossing-base
@@ -5309,6 +5683,7 @@
          snapshot-obj
          py.b/gen-iter
          outcome
+         fmt-invalid
          gen-send
          repeat-items
          slice-bound
@@ -5342,6 +5717,7 @@
          py.b/ZeroDivisionError
          type-error
          py.b/RecursionError
+         fmt-digit?
          strip-end
          py.b/range
          module-dict
@@ -5383,6 +5759,7 @@
          py.b/import-module
          pad
          import-sub
+         fmt-spec-parse
          import-hooks-fail
          py.b/dict-get
          py.b/NotImplementedError
@@ -5393,6 +5770,7 @@
          py.b/any
          with
          float-repr
+         fmt-group-walk
          restore!
          slice
          class-lookup
@@ -5431,6 +5809,7 @@
          import-from
          global-get
          float-divmod
+         fmt-prefix
          lookup-pair
          bitxor
          py.b/OverflowError
@@ -6003,6 +6382,68 @@
         [= true]
         [= true]
         [integer/format true]
+        [< true]
+        [data/code-points->str true]
+        [< true]
+        [integer/format true]
+        [integer/format true]
+        [< true]
+        [data/count true]
+        [+ true]
+        [data/str-concat true]
+        [get true]
+        [data/str->code-points true]
+        [get true]
+        [get true]
+        [= true]
+        [= true]
+        [= true]
+        [= true]
+        [<= true]
+        [<= true]
+        [= true]
+        [= true]
+        [data/code-points->str true]
+        [= true]
+        [= true]
+        [= true]
+        [<= true]
+        [conj true]
+        [get true]
+        [get true]
+        [+ true]
+        [+ true]
+        [* true]
+        [- true]
+        [get true]
+        [= true]
+        [< true]
+        [data/count true]
+        [get true]
+        [< true]
+        [data/str-concat true]
+        [get true]
+        [data/str->code-points true]
+        [= true]
+        [= true]
+        [<= true]
+        [= true]
+        [!= true]
+        [data/str-concat true]
+        [= true]
+        [= true]
+        [= true]
+        [= true]
+        [= true]
+        [= true]
+        [data/str-concat true]
+        [!= true]
+        [data/str-concat true]
+        [<= true]
+        [!= true]
+        [= true]
+        [get true]
+        [data/str->code-points true]
         [integer/floor-div-mod true]
         [= true]
         [>= true]
@@ -6495,6 +6936,37 @@
         [+ true]
         [get true]
         [data/str->code-points true]
+        [data/str-concat true]
+        [< true]
+        [data/str-length true]
+        [data/str-concat true]
+        [< true]
+        [= true]
+        [= true]
+        [< true]
+        [+ true]
+        [get true]
+        [+ true]
+        [data/str-length true]
+        [+ true]
+        [data/str-concat true]
+        [<= true]
+        [<= true]
+        [- true]
+        [+ true]
+        [<= true]
+        [data/count true]
+        [- true]
+        [data/count true]
+        [= true]
+        [= true]
+        [<= true]
+        [<= true]
+        [< true]
+        [< true]
+        [= true]
+        [data/substring true]
+        [data/count true]
         [< true]
         [* true]
         [data/float-value true]
@@ -6921,6 +7393,31 @@
         [+ true]
         [= true]
         [get true]
+        [< true]
+        [= true]
+        [<= true]
+        [- true]
+        [= true]
+        [< true]
+        [- true]
+        [data/str-concat true]
+        [- true]
+        [= true]
+        [= true]
+        [!= true]
+        [= true]
+        [!= true]
+        [data/str-concat true]
+        [= true]
+        [= true]
+        [get true]
+        [data/str-concat true]
+        [integer/format true]
+        [= true]
+        [= true]
+        [data/substring true]
+        [data/str-length true]
+        [get true]
         [integer/compare true]
         [integer/mul true]
         [get true]
@@ -7098,6 +7595,27 @@
         [get true]
         [= true]
         [get true]
+        [data/str-concat true]
+        [- true]
+        [data/str-length true]
+        [= true]
+        [= true]
+        [= true]
+        [= true]
+        [= true]
+        [data/str-concat true]
+        [= true]
+        [get true]
+        [integer/floor-div-mod true]
+        [data/str-concat true]
+        [data/str-concat true]
+        [<= true]
+        [< true]
+        [data/str-length true]
+        [data/substring true]
+        [!= true]
+        [integer/format true]
+        [get true]
         [> true]
         [= true]
         [= true]
@@ -7216,6 +7734,43 @@
         [= true]
         [get true]
         [data/subvec true]
+        [+ true]
+        [get true]
+        [+ true]
+        [+ true]
+        [+ true]
+        [= true]
+        [+ true]
+        [= true]
+        [= true]
+        [+ true]
+        [= true]
+        [+ true]
+        [+ true]
+        [* true]
+        [- true]
+        [= true]
+        [= true]
+        [= true]
+        [+ true]
+        [= true]
+        [get true]
+        [+ true]
+        [+ true]
+        [= true]
+        [= true]
+        [+ true]
+        [conj true]
+        [data/str-concat true]
+        [data/str-concat true]
+        [- true]
+        [+ true]
+        [data/str-length true]
+        [data/str-length true]
+        [= true]
+        [= true]
+        [data/str->code-points true]
+        [get true]
         [integer/mul true]
         [integer/add true]
         [> true]
@@ -7288,6 +7843,15 @@
         [data/float-value true]
         [data/float-value true]
         [= true]
+        [= true]
+        [< true]
+        [data/str-concat true]
+        [= true]
+        [- true]
+        [data/str-concat true]
+        [= true]
+        [!= true]
+        [get true]
         [assoc true]
         [assoc true]
         [assoc true]
@@ -7324,6 +7888,7 @@
         [= true]
         [= true]
         [get true]
+        [get true]
         [< true]
         [data/subvec true]
         [= true]
@@ -7337,6 +7902,7 @@
         [= true]
         [get true]
         [+ true]
+        [get true]
         [cell/set! true]
         [get true]
         [cell/dsg__provenance true]
@@ -7347,11 +7913,13 @@
         [= true]
         [get true]
         [+ true]
+        [get true]
         [nil? true]
         [assoc true]
         [get true]
         [get true]
         [data/str-concat true]
+        [get true]
         [get true]
         [get true]
         [get true]
@@ -7366,6 +7934,7 @@
         [get true]
         [data/count true]
         [data/str->code-points true]
+        [get true]
         [get true]
         [= true]
         [get true]
@@ -7381,6 +7950,8 @@
         [integer/parse true]
         [data/str-concat true]
         [integer/neg true]
+        [= true]
+        [= true]
         [integer/decimal->float true]
         [integer/sub true]
         [data/str-length true]

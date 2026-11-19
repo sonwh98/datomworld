@@ -3030,6 +3030,354 @@
                      py.b/NotImplementedError
                      (py/type-text "str() of '" x
                                    "' is not supported")))))))))]
+    [py/ascii-chunk
+     ;; one code point's text in an ascii() rendering: itself below 128,
+     ;; \xNN below 256, \uNNNN below 65536, \UNNNNNNNN above
+     (fn [c]
+       (if (< c 128)
+         (data/code-points->str (py/vconj [] c))
+         (if (< c 256)
+           (let [h (integer/format c 16)]
+             (data/str-concat "\\x"
+                              (if (< 1 (data/str-length h)) h (data/str-concat "0" h))))
+           (let [h (integer/format c 16)
+                 wide (if (< c 65536) "\\u" "\\U")
+                 w (if (< c 65536) 4 8)]
+             (data/str-concat wide
+                              (py/text-repeat "0" (- w (data/str-length h)) "")
+                              h)))))]
+    [py/ascii-walk
+     ;; the ascii() rendering of a repr text, code point by code point
+     (fn [cs i acc]
+       (if (< i (data/count cs))
+         (py/ascii-walk cs (+ i 1)
+                        (data/str-concat acc (py/ascii-chunk (get cs i))))
+         acc))]
+    [py/ascii-conv
+     ;; ascii(x): repr(x) with every non-ASCII code point escaped; the
+     ;; repr of every scalar this profile supports is ASCII apart from
+     ;; string content, so the walk starts from the repr text
+     (fn [x]
+       (py/str (py/ascii-walk
+                 (data/str->code-points
+                   (get (py/str-conv x true) :py/str))
+                 0 "")))]
+    [py/format
+     ;; str.__format__(value, spec): the empty spec is str(value); the
+     ;; format-spec mini-language below accepts the fill/align/sign/#/0/
+     ;; width/grouping/precision/type surface CPython's format() supports
+     ;; for str, int and float (bool goes through int, None and other
+     ;; types take the empty spec only), and refuses the rest loudly.
+     ;; The answer is one py-str map every way out: format-spec renders a
+     ;; raw string, py/str wraps it
+     (fn [x spec]
+       (py/str (py/format-spec x (get spec :py/str))))]
+    ;; ---------------------------------------------------------- format spec
+    ;; The format-spec mini-language of format() (and so of f-strings'
+    ;; literal specs), over CPython 3.9.6's grammar for str, int and float
+    ;; ([[fill]align][sign][z][#][0][width][,/_][.precision][type], order
+    ;; strict). Supported: str fill/align/width/precision/'s'; int and
+    ;; bool fill/align/sign/#/0/width/grouping/d b o x X c; float
+    ;; fill/align/sign/0/width only. Everything else -- 'z', 'n', float
+    ;; precision and type codes, nested specs, the '=' debug suffix --
+    ;; refuses loudly, naming what is missing.
+    [py/fmt-align?
+     (fn [c]
+       (if (= c 60)
+         true
+         (if (= c 62)
+           true
+           (if (= c 61) true (= c 94)))))]
+    [py/fmt-digit?
+     (fn [c] (if (<= 48 c) (<= c 57) false))]
+    [py/fmt-invalid
+     (fn [] (py/raise-new py.b/ValueError (py/str "Invalid format specifier")))]
+    [py/fmt-num
+     ;; the int value of an int or bool
+     (fn [x]
+       (if (= x true)
+         1
+         (if (= x false) 0 (py/num x))))]
+    [py/fmt-char
+     (fn [c] (data/code-points->str (py/vconj [] c)))]
+    [py/fmt-prefix
+     (fn [t]
+       (if (= t "b")
+         "0b"
+         (if (= t "o") "0o" (if (= t "X") "0X" "0x"))))]
+    [py/fmt-spec-parse
+     ;; [fill align sign alt zero width grouping prec type end] over the
+     ;; spec's code points; anything off the grammar is CPython's invalid
+     ;; specifier. width 0 and prec -1 mean absent; missing strings are "".
+     (fn [cs n i fill align sign alt zero width grouping prec type]
+       (if (<= n i)
+         (conj [] fill align sign alt zero width grouping prec type i)
+         (let [c (get cs i)
+               fill-align?
+               (if (= "" align)
+                 (if (= "" fill)
+                   (if (< (+ i 1) n)
+                     (py/fmt-align? (get cs (+ i 1)))
+                     false)
+                   false)
+                 false)
+               align-only? (if (= "" align) (py/fmt-align? c) false)
+               sign? (if (= "" sign)
+                       (if (= c 43)
+                         true
+                         (if (= c 45) true (= c 32)))
+                       false)]
+           (if fill-align?
+             (py/fmt-spec-parse cs n (+ i 2) (py/fmt-char c)
+                                (py/fmt-char (get cs (+ i 1)))
+                                sign alt zero width grouping prec type)
+             (if align-only?
+               (py/fmt-spec-parse cs n (+ i 1) fill (py/fmt-char c)
+                                  sign alt zero width grouping prec type)
+               (if sign?
+                 (py/fmt-spec-parse cs n (+ i 1) fill align (py/fmt-char c)
+                                    alt zero width grouping prec type)
+                 (if (if alt false (= c 35))
+                   (py/fmt-spec-parse cs n (+ i 1) fill align sign true zero
+                                      width grouping prec type)
+                   (if (if (if zero false (= 0 width)) (= c 48) false)
+                     (py/fmt-spec-parse cs n (+ i 1) fill align sign alt true
+                                        width grouping prec type)
+                     (if (if (= "" grouping) (py/fmt-digit? c) false)
+                       (py/fmt-spec-parse cs n (+ i 1) fill align sign alt zero
+                                          (+ (* width 10) (- c 48))
+                                          grouping prec type)
+                       (if (if (= "" grouping)
+                             (if (= c 44) true (= c 95))
+                             false)
+                         (py/fmt-spec-parse cs n (+ i 1) fill align sign alt
+                                            zero width (py/fmt-char c)
+                                            prec type)
+                         (if (= c 46)
+                           (if (py/fmt-digit? (get cs (+ i 1) -1))
+                             (py/fmt-precision cs n (+ i 1) 0 fill align sign
+                                               alt zero width grouping)
+                             (py/raise-new py.b/ValueError
+                                           (py/str "Format specifier missing precision")))
+                           (if (if (= "" type) (= (+ i 1) n) false)
+                             (conj [] fill align sign alt zero width grouping
+                                   prec (py/fmt-char c) n)
+                             (py/fmt-invalid)))))))))))))]
+    [py/fmt-precision
+     (fn [cs n i acc fill align sign alt zero width grouping]
+       (if (py/fmt-digit? (get cs i -1))
+         (py/fmt-precision cs n (+ i 1) (+ (* acc 10) (- (get cs i) 48))
+                           fill align sign alt zero width grouping)
+         (py/fmt-spec-parse cs n i fill align sign alt zero width grouping
+                            acc "")))]
+    [py/fmt-align
+     ;; body padded to width w with fill (default space) per align '<',
+     ;; '^' (left half floor) or '>' (also the default)
+     (fn [body w fill align]
+       (let [f (if (= "" fill) " " fill)
+             n (data/str-length body)]
+         (if (<= w n)
+           body
+           (let [m (- w n)]
+             (if (= align "<")
+               (data/str-concat body (py/text-repeat f m ""))
+               (if (= align "^")
+                 (let [l (get (integer/floor-div-mod m 2) 0)]
+                   (data/str-concat (py/text-repeat f l "")
+                                    (data/str-concat
+                                      body (py/text-repeat f (- m l) ""))))
+                 (data/str-concat (py/text-repeat f m "") body)))))))]
+    [py/fmt-upper
+     ;; uppercase a-f in a hex digit text, for int type 'X'
+     (fn [cs i acc]
+       (if (< i (data/count cs))
+         (let [c (get cs i)]
+           (py/fmt-upper cs (+ i 1)
+                         (data/str-concat
+                           acc (py/fmt-char
+                                 (if (if (<= 97 c) (<= c 102) false)
+                                   (- c 32)
+                                   c)))))
+         acc))]
+    [py/fmt-group-walk
+     ;; digits grouped from the right, one separator every three
+     (fn [cs i since acc sep]
+       (if (< i 0)
+         acc
+         (let [s (data/str-concat (py/fmt-char (get cs i)) acc)
+               k (+ since 1)]
+           (if (if (= 3 k) (< 0 i) false)
+             (py/fmt-group-walk cs (- i 1) 0 (data/str-concat sep s) sep)
+             (py/fmt-group-walk cs (- i 1) k s sep)))))]
+    [py/fmt-group
+     (fn [digits sep]
+       (let [cs (data/str->code-points digits)]
+         (if (<= (data/count cs) 3)
+           digits
+           (py/fmt-group-walk cs (- (data/count cs) 1) 0 "" sep))))]
+    [py/fmt-number
+     ;; a formatted number body: sign, prefix, then the digits. The 0
+     ;; flag sets fill "0" and align "=" where the spec gives neither
+     ;; (CPython's 06d, <06 and =06 shapes), '=' pads right after the
+     ;; sign and prefix, everything else aligns to width
+     (fn [neg sign-str mag prefix width zero align fill]
+       (let [fill (if (if zero (= "" fill) false) "0" fill)
+             align (if (if zero (= "" align) false) "=" align)
+             sign (if neg
+                    "-"
+                    (if (= sign-str "+")
+                      "+"
+                      (if (= sign-str " ") " " "")))
+             head (data/str-concat sign prefix)
+             body-len (+ (data/str-length head) (data/str-length mag))]
+         (if (if (= align "=") (< body-len width) false)
+           (data/str-concat head
+                            (py/text-repeat (if (= "" fill) " " fill)
+                                            (- width body-len) "")
+                            mag)
+           (py/fmt-align (data/str-concat head mag) width fill
+                         (if (= "" align) ">" align)))))]
+    [py/format-str
+     ;; str's rules, CPython's own messages; the 0 flag sets fill "0"
+     ;; and align "=" where the spec gives neither, so 0 alone is the
+     ;; '=' refusal while <0 still zero-fills
+     (fn [s fill align sign alt zero width grouping prec type]
+       (let [fill (if (if zero (= "" fill) false) "0" fill)
+             align (if (if zero (= "" align) false) "=" align)]
+         (if (!= "" sign)
+           (py/raise-new py.b/ValueError (py/str "Sign not allowed in string format specifier"))
+           (if (= align "=")
+             (py/raise-new py.b/ValueError
+                           (py/str "'=' alignment not allowed in string format specifier"))
+             (if alt
+               (py/raise-new py.b/ValueError
+                             (py/str "Alternate form (#) not allowed in string format specifier"))
+               (if (!= "" grouping)
+                 (py/raise-new py.b/ValueError
+                               (py/str (data/str-concat "Cannot specify '" grouping
+                                                        "' with 's'.")))
+                 (if (if (= "" type) true (= type "s"))
+                   (let [text (get s :py/str)
+                         cut (if (if (<= 0 prec)
+                                   (< prec (data/str-length text))
+                                   false)
+                               (data/substring text 0 prec)
+                               text)]
+                     (py/fmt-align cut width fill (if (= "" align) "<" align)))
+                   (py/raise-new py.b/ValueError
+                                 (py/str (data/str-concat "Unknown format code '" type
+                                                          "' for object of type 'str'"))))))))))]
+    [py/format-int
+     ;; int (and bool) values through int's rules; tname names the type
+     ;; in the unknown-code error, as CPython's does
+     (fn [x tname fill align sign alt zero width grouping prec type]
+       (if (<= 0 prec)
+         (py/raise-new py.b/ValueError
+                       (py/str "Precision not allowed in integer format specifier"))
+         (if (= type "c")
+           (if alt
+             (py/raise-new py.b/ValueError
+                           (py/str "Alternate form (#) not allowed with integer format specifier 'c'"))
+             (if (!= "" grouping)
+               (py/raise-new py.b/ValueError
+                             (py/str (data/str-concat "Cannot specify '" grouping
+                                                      "' with 'c'.")))
+               (let [n (py/fmt-num x)]
+                 (if (if (<= 0 n) (<= n 1114111) false)
+                   (py/fmt-number false "" (py/fmt-char n) "" width zero align fill)
+                   (py/raise-new py.b/ValueError
+                                 (py/str "%c arg not in range(0x110000)"))))))
+           (if (if (= "" type) true (= type "d"))
+             ;; '#' with 'd' is CPython-legal (the alternate form is a
+             ;; no-op there), so alt passes silently
+             (let [n (py/fmt-num x)
+                   neg (< n 0)
+                   ds (py/int-result (integer/format (py/abs n) 10))
+                   ds (if (!= "" grouping) (py/fmt-group ds grouping) ds)]
+               (py/fmt-number neg sign ds "" width zero align fill))
+             (if (if (= type "b")
+                   true
+                   (if (= type "o")
+                     true
+                     (if (= type "x") true (= type "X"))))
+               (let [n (py/fmt-num x)
+                     neg (< n 0)
+                     base (if (= type "b") 2 (if (= type "o") 8 16))
+                     ds (py/int-result (integer/format (py/abs n) base))
+                     ds (if (= type "X")
+                          (py/fmt-upper (data/str->code-points ds) 0 "")
+                          ds)
+                     ds (if (!= "" grouping) (py/fmt-group ds grouping) ds)]
+                 (py/fmt-number neg sign ds (if alt (py/fmt-prefix type) "")
+                                width zero align fill))
+               (py/raise-new py.b/ValueError
+                             (py/str (data/str-concat "Unknown format code '" type
+                                                      "' for object of type '"
+                                                      tname "'"))))))))]
+    [py/format-bool
+     ;; a bool formats through int's rules; the empty spec alone said
+     ;; True or False, and py/format-spec answered that already
+     (fn [x fill align sign alt zero width grouping prec type]
+       (py/format-int x "bool" fill align sign alt zero width grouping
+                      prec type))]
+    [py/format-float
+     ;; only fill/align/sign/0/width: the digit-exact float type codes
+     ;; and precision need a float-to-decimal surface the runtime does
+     ;; not have, and they refuse naming it
+     (fn [x fill align sign alt zero width grouping prec type]
+       (if (!= "" type)
+         (py/raise-new py.b/ValueError
+                       (py/str (data/str-concat
+                                 "float format type '" type
+                                 "' is not supported yet: the format-spec mini-language"
+                                 " covers fill/align/sign/0/width for floats only")))
+         (if (<= 0 prec)
+           (py/raise-new py.b/ValueError
+                         (py/str "float format precision is not supported yet: the format-spec mini-language covers fill/align/sign/0/width for floats only"))
+           (if (!= "" grouping)
+             (py/raise-new py.b/ValueError
+                           (py/str "float format ',' grouping is not supported yet: the format-spec mini-language covers fill/align/sign/0/width for floats only"))
+             (let [text (py/float-repr (py/num x))
+                   neg (= "-" (data/substring text 0 1))]
+               (py/fmt-number neg sign
+                              (if neg
+                                (data/substring text 1 (data/str-length text))
+                                text)
+                              "" width zero align fill))))))]
+    [py/format-spec
+     ;; format(x, spec) with the spec's text; the empty spec is str(x),
+     ;; bool goes through int's rules, and a type the profile does not
+     ;; carry __format__ for refuses with CPython's message. The answer
+     ;; is a raw string every way out; py/format wraps it into a py-str
+     (fn [x spec]
+       (if (= spec "")
+         (get (py/str-conv x false) :py/str)
+         (let [cs (data/str->code-points spec)
+               p (py/fmt-spec-parse cs (data/count cs) 0 "" "" "" false
+                                    false 0 "" -1 "")
+               fill (get p 0)
+               align (get p 1)
+               sign (get p 2)
+               alt (get p 3)
+               zero (get p 4)
+               width (get p 5)
+               grouping (get p 6)
+               prec (get p 7)
+               type (get p 8)]
+           (if (py/str? x)
+             (py/format-str x fill align sign alt zero width grouping prec type)
+             (if (if (= x true) true (= x false))
+               (py/format-bool x fill align sign alt zero width grouping
+                               prec type)
+               (if (py/int? x)
+                 (py/format-int x "int" fill align sign alt zero width
+                                grouping prec type)
+                 (if (py/float? x)
+                   (py/format-float x fill align sign alt zero width
+                                    grouping prec type)
+                   (py/raise-new py.b/TypeError
+                                 (py/type-text "unsupported format string passed to "
+                                               x ".__format__")))))))))]
     [py/abs-conv
      (fn [x]
        (if (py/int? x)
