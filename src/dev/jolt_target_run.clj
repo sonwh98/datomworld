@@ -19,6 +19,15 @@
   (:require [jolt-launch :as jlt]))
 
 
+;; babashka does NOT flush its buffered stdout before System/exit — every
+;; relayed output must be printed AND flushed, or the child's output is lost
+;; (review round 3, P1-A).
+(defn- emit!
+  "Print `x` to `w` (default *out*) and flush immediately."
+  ([x] (print x) (flush))
+  ([w x] (binding [*out* w] (print x) (flush))))
+
+
 (let [[target args] (jlt/parse-target-arg *command-line-args*)
       [mode script alias child-args]
       (loop [xs args script nil alias nil]
@@ -32,6 +41,7 @@
           :else [:passthrough script alias (vec xs)]))]
   (println "== jolt-target-run" (name target)
            (when script (str "--script " script)))
+  (flush)
   (if (= :script mode)
     ;; Known repo child: assert the child's own identity line before
     ;; trusting its exit. The child is a Clojure script, so :gambit (a bare
@@ -43,12 +53,14 @@
                                                      :alias alias}
                                                     child-args)
               combined (str out err)]
-          (print out)
-          (binding [*out* *err*] (print err))
+          (emit! out)
+          (emit! *err* err)
+          (flush)
           (jlt/assert-child-target! {:target target :output combined
                                      :context (str "jolt-target-run --script " script)})
           (when-not (zero? exit)
-            (println "jolt-target-run: child exited" exit))
+            (println "jolt-target-run: child exited" exit)
+            (flush))
           (System/exit exit)))
     ;; Passthrough: preflight identity gate, then hand the arguments to the
     ;; child unchanged.
@@ -57,15 +69,18 @@
       (jlt/assert-child-target! {:target target
                                  :output (str out err)
                                  :context "jolt-target-run passthrough preflight"})
-      (println out)
+      (emit! (str out "\n"))
       (when-not (zero? exit)
         (println "jolt-target-run: preflight child exited" exit)
+        (flush)
         (System/exit exit))
       (println "PASS identity gate: child reported" (jlt/identity-line target))
+      (flush)
       ;; The real child, byte-identical command shape, exit propagated.
       (let [{:keys [exit out err]} (apply jlt/run-child
                                           {:target target}
                                           child-args)]
-        (print out)
-        (binding [*out* *err*] (print err))
+        (emit! out)
+        (emit! *err* err)
+        (flush)
         (System/exit exit)))))

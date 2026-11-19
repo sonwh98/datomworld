@@ -486,7 +486,24 @@
                    "exec \"$JOLT_HOME/bin/jolt\" -Srepro " aliases
                    " " script " \"$@\" > " log " 2>&1")
         r (run-watched (into ["sh" "-c" inner "jolt"] args) timeout-ms)]
-    (assoc r :out (try (slurp log) (catch Exception _ "")))))
+    (assoc r :out (let [out (try (slurp log) (catch Exception _ ""))]
+                    ;; Lane B: fail-closed per-child identity assert — the
+                    ;; child prints the line itself (jolt_j2_probe and the
+                    ;; test runner embed the snippet); a child that reports
+                    ;; another host is never trusted as a step result. The
+                    ;; step contract says run-jolt never throws, so a
+                    ;; mismatch becomes a failing step (exit 99).
+                    (if (try (jlt/assert-child-target! {:target lane-target
+                                                        :output out
+                                                        :context (str "j2 child " script)})
+                             :ok
+                             (catch Exception e
+                               (binding [*out* *err*]
+                                 (println "FAIL j2 child identity:" (ex-message e)))
+                               false))
+                      out
+                      (do (spit log (str out "\nFAIL j2 child identity mismatch\n"))
+                          (assoc (dissoc r :out) :exit 99 :out out)))))))
 
 
 (defn- parse-lines

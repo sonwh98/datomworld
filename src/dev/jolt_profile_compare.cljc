@@ -21,11 +21,6 @@
 ;;     [:refused class entry]        a profile refusal's throw data
 ;;     [:threw message-class keys]   any other throw (not a profile refusal)
 (ns jolt-profile-compare
-
-  ;; Lane B: the child reports which host scheme launched it (silent when
-  ;; JOLT_TARGET is unset, so legacy invocations keep their output
-  ;; byte-identical, and dual-host scripts do not misreport on the JVM).
-  (when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
   (:require
     [clojure.string :as str]
     [dao.host.bytes :as bytes]
@@ -35,6 +30,12 @@
     [dao.host.number :as number]
     [dao.host.sign :as sign]
     [dao.host.text :as text]))
+
+
+;; Lane B: the child reports which host scheme launched it (silent when
+;; JOLT_TARGET is unset, so legacy invocations keep their output
+;; byte-identical, and dual-host scripts do not misreport on the JVM).
+(when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
 
 
 (def namespaces

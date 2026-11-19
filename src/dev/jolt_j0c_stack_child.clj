@@ -16,15 +16,16 @@
 ;; shapes grow super-linearly in time long before they overflow). A native
 ;; crash ends the process at the depth after the last OK line.
 (ns jolt-j0c-stack-child
-
-  ;; Lane B: the child reports which host scheme launched it (silent when
-  ;; JOLT_TARGET is unset, so legacy invocations keep their output
-  ;; byte-identical, and dual-host scripts do not misreport on the JVM).
-  (when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
   (:require
     [clojure.string :as str]
     [jolt.ffi :as ffi]
     [yang.antlr.cst :as cst]))
+
+
+;; Lane B: the child reports which host scheme launched it (silent when
+;; JOLT_TARGET is unset, so legacy invocations keep their output
+;; byte-identical, and dual-host scripts do not misreport on the JVM).
+(when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
 
 
 ;; J5: yang.antlr.cst loads the native library on first use; load it before

@@ -93,6 +93,12 @@
   (let [r (apply p/shell {:out :string :err :string :continue true :extra-env child-env}
                  jolt "-Srepro" "-M:jolt" "src/dev/jolt_j0c_stack_child.clj"
                  shape where mode (str max-ms) (map str depths))
+        ;; Lane B: fail-closed per-child identity assert (the child prints
+        ;; the line itself; a child that reports another host is never
+        ;; trusted as a measurement).
+        _ (jlt/assert-child-target! {:target target
+                                     :output (str (:out r) (:err r))
+                                     :context (str "j0c-stack child " shape " " where " " mode)})
         lines (str/split-lines (:out r))
         info (some #(when (str/starts-with? % "INFO ") (read-string (subs % 5))) lines)
         oks (keep #(when (str/starts-with? % "OK ")
