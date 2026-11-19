@@ -264,6 +264,121 @@
            (body src)))))
 
 
+(defn- second-decorator-sym
+  "The `%dec` symbol of the second `@` line of `src`."
+  [src]
+  (symbol (str "%dec" (:id (second (filter #(= "decorator" (:rule %))
+                                           (:yang.cst/nodes (parser/parse-source src))))))))
+
+
+(deftest decorator-golden-test
+  (testing "a decorator is the def's own lowering, then the rebinding
+            `g = d(g)`; the decorator expression is evaluated once, at
+            decoration time, into a generated name"
+    (let [src "@a\ndef g(): return 1\n"
+          ret (sym "ret" src "funcdef")
+          args (sym "args" src "funcdef")
+          dec (sym "dec" src "decorator")]
+      (is (= (u/then
+               (u/let1 dec
+                       (gget "a")
+                       (u/then
+                         (gset "g"
+                               (fobj "g" [] args
+                                     (py 'py/call-ec
+                                         (u/lam [ret]
+                                                (u/then (u/app (u/v ret) (u/lit 1))
+                                                        none)))))
+                         (gset "g" (call (u/v dec) (gget "g")))))
+               none)
+             (body src)))))
+  (testing "two decorators apply bottom-up: `@a @b def g` rebinds
+            `g = a(b(g))`, the top line's expression evaluated first"
+    (let [src "@a\n@b\ndef g(): pass\n"
+          args (sym "args" src "funcdef")
+          a (sym "dec" src "decorator")
+          b (second-decorator-sym src)]
+      (is (= (u/then
+               (u/let1 a
+                       (gget "a")
+                       (u/let1 b
+                               (gget "b")
+                               (u/then
+                                 (gset "g" (fobj "g" [] args (u/then none none)))
+                                 (gset "g" (call (u/v a)
+                                                 (call (u/v b) (gget "g")))))))
+               none)
+             (body src)))))
+  (testing "a decorator with call arguments lowers like any call"
+    (let [src "@f(x)\ndef g(): pass\n"
+          args (sym "args" src "funcdef")
+          dec (sym "dec" src "decorator")]
+      (is (= (u/then
+               (u/let1 dec
+                       (call (gget "f") (gget "x"))
+                       (u/then
+                         (gset "g" (fobj "g" [] args (u/then none none)))
+                         (gset "g" (call (u/v dec) (gget "g")))))
+               none)
+             (body src)))))
+  (testing "a dotted decorator is attribute accesses off the first segment"
+    (let [src "@a.b.c\ndef g(): pass\n"
+          args (sym "args" src "funcdef")
+          dec (sym "dec" src "decorator")]
+      (is (= (u/then
+               (u/let1 dec
+                       (py 'py/getattr
+                           (py 'py/getattr (gget "a") (u/lit "b"))
+                           (u/lit "c"))
+                       (u/then
+                         (gset "g" (fobj "g" [] args (u/then none none)))
+                         (gset "g" (call (u/v dec) (gget "g")))))
+               none)
+             (body src)))))
+  (testing "a class decorator rebinds the class the same way"
+    (let [src "@d\nclass C(): pass\n"
+          cls (sym "cls" src "classdef")
+          dec (sym "dec" src "decorator")]
+      (is (= (u/then
+               (u/let1 dec
+                       (gget "d")
+                       (u/then
+                         (u/let1 cls
+                                 (py 'py/make-class (u/lit "C") (py 'py/object-class))
+                                 (u/then none (gset "C" (u/v cls))))
+                         (gset "C" (call (u/v dec) (gget "C")))))
+               none)
+             (body src)))))
+  (testing "a method decorator rebinds inside the class scope: the read of
+            the just-bound method goes through the class namespace, the
+            rebinding through setattr"
+    (let [src "class C():\n    @d\n    def m(self): pass\n"
+          cls (sym "cls" src "classdef")
+          args (sym "args" src "funcdef")
+          dec (sym "dec" src "decorator")]
+      (is (= (u/then
+               (u/let1 cls
+                       (py 'py/make-class (u/lit "C") (py 'py/object-class))
+                       (u/then
+                         (u/let1 dec
+                                 (gget "d")
+                                 (u/then
+                                   (py 'py/setattr (u/v cls) (u/lit "m")
+                                       (fobj "m" ["self"] args
+                                             (u/app (u/lam '[self] (u/then none none))
+                                                    (py 'cell/new
+                                                        (py 'py/arg (u/v args) (u/lit 0))))))
+                                   (py 'py/setattr
+                                       (u/v cls) (u/lit "m")
+                                       (call (u/v dec)
+                                             (py 'py/class-ns-get
+                                                 (u/v cls) (u/lit "m")
+                                                 (u/lam [] (gget "m")))))))
+                         (gset "C" (u/v cls))))
+               none)
+             (body src))))))
+
+
 (deftest assignment-order-golden-test
   (testing "the value is evaluated once, before any target, and targets are
             assigned left to right"
@@ -452,7 +567,10 @@
            ["x = {**d}\n" "atom" "dict unpacking in a display"]
            ["x = f'{a}'\n" "atom" "f-string"]
            ["x = 1 <> 2\n" "comp_op" "comparison <>"]
-           ["class C(A, B): pass\n" "classdef" "multiple inheritance"]]]
+           ["class C(A, B): pass\n" "classdef" "multiple inheritance"]
+           ;; decorated over funcdef and classdef lower since the
+           ;; py-decorators slice; decorated async still refuses
+           ["@d\nasync def f(): pass\n" "async_funcdef" "async def"]]]
     (testing src
       (is (= {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
               :rule rule,
