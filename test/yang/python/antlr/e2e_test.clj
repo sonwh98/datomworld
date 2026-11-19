@@ -666,6 +666,74 @@
              "print('\\N{LESS-THAN SIGN}')\n"))
 
 
+(deftest ^:slow ^:py-decorators decorator-test
+  ;; a decorator factory (a call with arguments) wraps the function; the
+  ;; wrapped behavior is what the rebound name runs
+  (every-vm= (prints "x = 42")
+             (str "def tag(prefix):\n"
+                  "    def deco(fn):\n"
+                  "        def wrapper():\n"
+                  "            print(prefix, fn())\n"
+                  "        return wrapper\n"
+                  "    return deco\n"
+                  "@tag('x =')\n"
+                  "def val():\n"
+                  "    return 42\n"
+                  "val()\n"))
+  ;; two decorators apply bottom-up: b wraps first, a is outermost, so a
+  ;; runs before b on the way in -- CPython's order of application
+  (every-vm= (prints "a-in" "b-in" "body")
+             (str "def a(fn):\n"
+                  "    def wa():\n"
+                  "        print('a-in')\n"
+                  "        fn()\n"
+                  "    return wa\n"
+                  "def b(fn):\n"
+                  "    def wb():\n"
+                  "        print('b-in')\n"
+                  "        fn()\n"
+                  "    return wb\n"
+                  "@a\n"
+                  "@b\n"
+                  "def g():\n"
+                  "    print('body')\n"
+                  "g()\n"))
+  ;; a dotted decorator resolves through attribute reads
+  (every-vm= (prints "D" "f")
+             (str "class D:\n"
+                  "    def deco(fn):\n"
+                  "        def w():\n"
+                  "            print('D')\n"
+                  "            fn()\n"
+                  "        return w\n"
+                  "@D.deco\n"
+                  "def f():\n"
+                  "    print('f')\n"
+                  "f()\n"))
+  ;; a class decorator rebinds the class: the name now runs the
+  ;; decorator's return value
+  (every-vm= (prints "1 99")
+             (str "def stamp(cls):\n"
+                  "    cls.extra = 99\n"
+                  "    return cls\n"
+                  "@stamp\n"
+                  "class C:\n"
+                  "    v = 1\n"
+                  "print(C().v, C.extra)\n"))
+  ;; a method decorator rebinds inside the class scope
+  (every-vm= (prints "call" "7")
+             (str "def trace(fn):\n"
+                  "    def logged(self):\n"
+                  "        print('call')\n"
+                  "        return fn(self)\n"
+                  "    return logged\n"
+                  "class C:\n"
+                  "    @trace\n"
+                  "    def m(self):\n"
+                  "        return 7\n"
+                  "print(C().m())\n")))
+
+
 (deftest ^:slow classes-test
   (every-vm= (prints "40 4 True False")
              (str "class A:\n"
