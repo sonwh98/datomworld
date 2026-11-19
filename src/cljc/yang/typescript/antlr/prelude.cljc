@@ -64,6 +64,7 @@
   #?(:cljs (:require-macros [yang.typescript.antlr.prelude :refer [defquoted]]))
   (:require
     #?(:cljd [clojure.edn :as edn])
+    [yang.core.prelude-admission :as prelude-admission]
     [yang.core.prelude :as core]
     [yang.core.uast :as u]
     [yang.core.call :as call]
@@ -4404,15 +4405,16 @@
    at `call-address`. A free name nothing supplies is refused before
    anything is published. This namespace emits; it never publishes."
   [registry call-address]
-  (core/module-spec {:module-name module-name,
-                     :ast module-uast,
-                     :exports module-exports,
-                     :requires {'yang.call call-address},
-                     :free-names module-free-names,
-                     :skip? #(= "yang.call" (namespace %)),
-                     :registry registry,
-                     :message "the js module reads an undeclared name",
-                     :refusal-ns "yang.typescript.antlr"}))
+  (prelude-admission/module-spec
+    {:module-name module-name,
+     :ast module-uast,
+     :exports module-exports,
+     :requires {'yang.call call-address},
+     :free-names module-free-names,
+     :skip? #(= "yang.call" (namespace %)),
+     :registry registry,
+     :message "the js module reads an undeclared name",
+     :refusal-ns "yang.typescript.antlr"}))
 
 
 (def min-integer-bits
@@ -4440,6 +4442,6 @@
    refuse it before any program runs, naming each missing export in
    `:yang.typescript.antlr/missing`."
   [registry]
-  (core/admit registry host-names
-              "the composition lacks host names the prelude calls"
-              "yang.typescript.antlr"))
+  (prelude-admission/admit registry host-names
+                           "the composition lacks host names the prelude calls"
+                           "yang.typescript.antlr"))

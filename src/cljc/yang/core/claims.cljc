@@ -9,7 +9,7 @@
     [dao.stream :as stream]))
 
 
-(defn evidence-record
+(defn- evidence-record
   "The evidence record of `root` on the claims medium: its logical-stream
    identity and a cursor minted by the caller."
   [stream-identity cursor root]
@@ -18,7 +18,7 @@
    :yang.claims/root root})
 
 
-(defn evidence-datom
+(defn- evidence-datom
   "The ledger datom `[root :yang.claims/evidence record]`."
   [record]
   [(:yang.claims/root record) :yang.claims/evidence record])

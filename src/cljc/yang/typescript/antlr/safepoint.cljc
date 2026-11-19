@@ -36,6 +36,7 @@
    `js/global-get`, ...), for `js.rt/*` is an internal store key invisible
    across a module boundary. Every key this prelude defines is in `js.sp`."
   (:require
+    [yang.core.prelude-admission :as prelude-admission]
     [yang.core.prelude :as core]
     [yang.core.uast :as u]
     [yang.typescript.antlr.prelude :as prelude]))
@@ -221,13 +222,14 @@
    publishes. A free name none of these supplies is refused before anything
    is published. This namespace emits; it never publishes."
   [registry js-address]
-  (core/module-spec {:module-name module-name,
-                     :ast module-uast,
-                     :exports module-exports,
-                     :requires {prelude/module-name js-address},
-                     :free-names module-free-names,
+  (prelude-admission/module-spec
+    {:module-name module-name,
+     :ast module-uast,
+     :exports module-exports,
+     :requires {prelude/module-name js-address},
+     :free-names module-free-names,
                      ;; the requirement declares names qualified by `js`
-                     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
-                     :registry registry,
-                     :message "the jssp module reads an undeclared name",
-                     :refusal-ns "yang.typescript.antlr"}))
+     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
+     :registry registry,
+     :message "the jssp module reads an undeclared name",
+     :refusal-ns "yang.typescript.antlr"}))

@@ -183,6 +183,7 @@
   (:require
     #?(:cljd [clojure.edn :as edn])
     [yang.core.call :as call]
+    [yang.core.prelude-admission :as prelude-admission]
     [yang.core.prelude :as core]
     [yang.python.antlr.uast :as u]
     [yin.vm.integer :as integer]))
@@ -3681,9 +3682,7 @@
          ['py/init! (init-form)]]))
 
 
-(defn- definitions->uast
-  [defs]
-  (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
+(def ^:private definitions->uast core/definitions->uast)
 
 
 (def functions-uast
@@ -3775,15 +3774,16 @@
    refused before anything is published. This namespace emits; it never
    publishes."
   [registry call-address]
-  (core/module-spec {:module-name module-name,
-                     :ast module-uast,
-                     :exports module-exports,
-                     :requires {'yang.call call-address},
-                     :free-names module-free-names,
-                     :skip? #(= "yang.call" (namespace %)),
-                     :registry registry,
-                     :message "the py module reads an undeclared name",
-                     :refusal-ns "yang.python.antlr"}))
+  (prelude-admission/module-spec
+    {:module-name module-name,
+     :ast module-uast,
+     :exports module-exports,
+     :requires {'yang.call call-address},
+     :free-names module-free-names,
+     :skip? #(= "yang.call" (namespace %)),
+     :registry registry,
+     :message "the py module reads an undeclared name",
+     :refusal-ns "yang.python.antlr"}))
 
 
 (def min-integer-bits
@@ -3815,6 +3815,6 @@
    composition calls this after its registrars. Linking replaces it with
    requirement discovery (yang.antlr.md 8.5.4)."
   [registry]
-  (core/admit registry host-names
-              "the composition lacks host names the prelude calls"
-              "yang.python.antlr"))
+  (prelude-admission/admit registry host-names
+                           "the composition lacks host names the prelude calls"
+                           "yang.python.antlr"))

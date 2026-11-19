@@ -1,6 +1,27 @@
 (ns yang.core.siteset-store
   "Shared tree loading and buffered store operations."
-  (:require [yin.vm :as vm]))
+  (:require [dao.jing :as jing]
+            [yin.vm :as vm]))
+
+
+(defn read-at
+  "Read a verified segment, returning `::absent` for missing bytes and nil for invalid data."
+  [handle address]
+  (when (jing/segment-address? address)
+    (let [bytes ((:get-bytes-fn handle) address ::absent)]
+      (cond
+        (or (nil? bytes) (= ::absent bytes)) ::absent
+        (jing/segment-bytes-match? address bytes) (jing/segment-value address bytes)))))
+
+
+(defn absent?
+  [x]
+  (= ::absent x))
+
+
+(defn missing
+  [address]
+  {:status :missing, :address address})
 
 
 (defn load-tree
@@ -8,7 +29,7 @@
    every row fetched by its address, depth-first: `{:status :missing
    :address a}` for the first row the handle does not hold, nil when a row
    is not its address or no tree row."
-  [read-at absent? handle root]
+  [handle root]
   (loop [todo [root]
          rows {}]
     (if-let [id (peek todo)]

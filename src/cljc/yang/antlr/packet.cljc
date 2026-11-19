@@ -70,7 +70,7 @@
   (text/code-points s))
 
 
-(defn utf8-length
+(defn- utf8-length
   "The UTF-8 byte count of one code point."
   [cp]
   (cond (< cp 0x80) 1
@@ -120,7 +120,7 @@
    :yang.cst/complete true})
 
 
-(defn source-error
+(defn- source-error
   [grammar-id unit message data]
   (assoc (base grammar-id unit)
          :yang.cst/outcome :yang.cst/source-error

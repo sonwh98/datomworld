@@ -51,6 +51,7 @@
    invisible across a module boundary. Every key this prelude defines is
    in `py.sp`."
   (:require
+    [yang.core.prelude-admission :as prelude-admission]
     [yang.core.prelude :as core]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.uast :as u]))
@@ -464,13 +465,14 @@
    none of these supplies is refused before anything is published. This
    namespace emits; it never publishes."
   [registry py-address]
-  (core/module-spec {:module-name module-name,
-                     :ast module-uast,
-                     :exports module-exports,
-                     :requires {prelude/module-name py-address},
-                     :free-names module-free-names,
+  (prelude-admission/module-spec
+    {:module-name module-name,
+     :ast module-uast,
+     :exports module-exports,
+     :requires {prelude/module-name py-address},
+     :free-names module-free-names,
                      ;; the requirement declares names qualified by `py`
-                     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
-                     :registry registry,
-                     :message "the pysp module reads an undeclared name",
-                     :refusal-ns "yang.python.antlr"}))
+     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
+     :registry registry,
+     :message "the pysp module reads an undeclared name",
+     :refusal-ns "yang.python.antlr"}))

@@ -271,9 +271,7 @@
 ;; Literals and constants
 ;; =============================================================================
 
-(defn- app*
-  [op-sym & args]
-  (apply core/app* op-sym args))
+(def ^:private app* core/app*)
 
 
 (def ^:private max-safe-int 9007199254740991)
@@ -870,7 +868,7 @@
 (defn- args-vector
   "A vector of the nodes `nodes`, evaluated left to right."
   [nodes]
-  (reduce (fn [acc node] (app* 'php/vconj acc node)) (u/lit []) nodes))
+  (core/build-vector 'php/vconj nodes))
 
 
 ;; -----------------------------------------------------------------------------
@@ -4020,9 +4018,8 @@
   (let [ctx (assoc (context packet {:path path, :linked? true}) :module? true)
         defs [(u/def! 'spec (u/lit {:path path, :strict-types (if strict-types 1 0)}))
               (u/def! 'body (u/lam ['%scope '%ctx] (unit-node ctx true)))]
-        operands (into [(core-module/require-node prelude/module-name)] defs)
-        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
-    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
+        operands (into [(core-module/require-node prelude/module-name)] defs)]
+    (core-module/module-tree operands)))
 
 
 (defn module-spec
@@ -4079,9 +4076,8 @@
                       (reduce (fn [m p] (app* 'assoc m (u/lit p) (delivery-thunk p)))
                               (u/lit {})
                               paths))]
-        operands (into [(core-module/require-node prelude/module-name)] defs)
-        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
-    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
+        operands (into [(core-module/require-node prelude/module-name)] defs)]
+    (core-module/module-tree operands)))
 
 
 (defn classmap-spec
