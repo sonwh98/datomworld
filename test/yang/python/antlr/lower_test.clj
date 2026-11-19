@@ -486,6 +486,12 @@
     (is (= (body "a.b = 1\n") (body "a.b: int = 1\n")))))
 
 
+(deftest named-escape-golden-test
+  (testing "\\N{LATIN SMALL LETTER A} is the character it names"
+    (is (= (u/then (call (builtin "print") (u/lit {:py/str "abc"})) none)
+           (body "print('\\N{LATIN SMALL LETTER A}bc')\n")))))
+
+
 (deftest static-flow-errors-test
   (doseq [[src message]
           [["break\n" "'break' outside loop"]
@@ -496,6 +502,12 @@
            ["while x:\n    def f():\n        break\n"
             "'break' outside loop"]
            ["x = '\\U00110000'\n" "illegal Unicode character in \\U escape"]
+           ["x = '\\N{NOT A NAME}'\n"
+            "\\N{NOT A NAME} unknown Unicode character name"]
+           ["x = '\\N{LATIN SMALL LETTER Z WITH CARON}'\n"
+            "\\N{LATIN SMALL LETTER Z WITH CARON} unknown Unicode character name"]
+           ["x = '\\Nq'\n" "malformed \\N character escape"]
+           ["x = '\\N{LATIN SMALL LETTER A'\n" "malformed \\N character escape"]
            ["a, *b, *c = x\n" "multiple starred expressions in assignment"]
            ["*a = x\n" "starred assignment target must be in a list or tuple"]
            ["f(a=1, a=2)\n" "keyword argument repeated: a"]

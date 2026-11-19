@@ -367,6 +367,66 @@
    "v" (code-point->str 11), "\n" ""})
 
 
+(def ^:private named-escapes
+  "The Unicode names \\N{...} accepts, statically: the ASCII letters and
+   digits, SPACE and the common punctuation and symbol names, plus the
+   Latin-1 letters. A name outside the table refuses loudly at lowering —
+   a compile-time diagnostic naming the escape — over a partial runtime
+   name lookup the prelude does not have."
+  (merge
+   ;; a name's letter is upper case even for the small letters
+   (into {}
+         (for [kind [["LATIN SMALL LETTER " 0x61 0x41]
+                     ["LATIN CAPITAL LETTER " 0x41 0x41]]
+               i (range 26)]
+           [(str (first kind) (code-point->str (+ (nth kind 2) i)))
+            (+ (second kind) i)]))
+   (into {}
+         (for [i (range 10)]
+           [(str "DIGIT " (code-point->str (+ 0x30 i))) (+ 0x30 i)]))
+   {"SPACE" 0x20
+    "EXCLAMATION MARK" 0x21, "QUOTATION MARK" 0x22, "NUMBER SIGN" 0x23,
+    "DOLLAR SIGN" 0x24, "PERCENT SIGN" 0x25, "AMPERSAND" 0x26,
+    "APOSTROPHE" 0x27, "LEFT PARENTHESIS" 0x28, "RIGHT PARENTHESIS" 0x29,
+    "ASTERISK" 0x2A, "PLUS SIGN" 0x2B, "COMMA" 0x2C, "HYPHEN-MINUS" 0x2D,
+    "FULL STOP" 0x2E, "SOLIDUS" 0x2F, "COLON" 0x3A, "SEMICOLON" 0x3B,
+    "LESS-THAN SIGN" 0x3C, "EQUALS SIGN" 0x3D, "GREATER-THAN SIGN" 0x3E,
+    "QUESTION MARK" 0x3F, "COMMERCIAL AT" 0x40, "LEFT SQUARE BRACKET" 0x5B,
+    "REVERSE SOLIDUS" 0x5C, "RIGHT SQUARE BRACKET" 0x5D,
+    "CIRCUMFLEX ACCENT" 0x5E, "LOW LINE" 0x5F, "GRAVE ACCENT" 0x60,
+    "LEFT CURLY BRACKET" 0x7B, "VERTICAL LINE" 0x7C,
+    "RIGHT CURLY BRACKET" 0x7D, "TILDE" 0x7E,
+    "NO-BREAK SPACE" 0xA0, "INVERTED EXCLAMATION MARK" 0xA1,
+    "CENT SIGN" 0xA2, "POUND SIGN" 0xA3, "SECTION SIGN" 0xA7,
+    "BROKEN BAR" 0xA6, "DIAERESIS" 0xA8, "COPYRIGHT SIGN" 0xA9,
+    "REGISTERED SIGN" 0xAE, "DEGREE SIGN" 0xB0, "PLUS-MINUS SIGN" 0xB1,
+    "MICRO SIGN" 0xB5, "PILCROW SIGN" 0xB6, "MULTIPLICATION SIGN" 0xD7,
+    "INVERTED QUESTION MARK" 0xBF, "DIVISION SIGN" 0xF7,
+    "LATIN SMALL LETTER SHARP S" 0xDF, "LATIN CAPITAL LETTER AE" 0xC6,
+    "LATIN SMALL LETTER AE" 0xE6, "LATIN SMALL LETTER A WITH ACUTE" 0xE1,
+    "LATIN SMALL LETTER E WITH ACUTE" 0xE9, "LATIN SMALL LETTER I WITH ACUTE" 0xED,
+    "LATIN SMALL LETTER O WITH ACUTE" 0xF3, "LATIN SMALL LETTER U WITH ACUTE" 0xFA,
+    "LATIN SMALL LETTER N WITH TILDE" 0xF1, "LATIN SMALL LETTER C WITH CEDILLA" 0xE7,
+    "LATIN CAPITAL LETTER A WITH ACUTE" 0xC1, "LATIN CAPITAL LETTER E WITH ACUTE" 0xC9,
+    "LATIN CAPITAL LETTER O WITH ACUTE" 0xD3, "LATIN CAPITAL LETTER U WITH ACUTE" 0xDA,
+    "LATIN CAPITAL LETTER N WITH TILDE" 0xD1,
+    "EN DASH" 0x2013, "EM DASH" 0x2014, "BULLET" 0x2022,
+    "HORIZONTAL ELLIPSIS" 0x2026, "LEFT SINGLE QUOTATION MARK" 0x2018,
+    "RIGHT SINGLE QUOTATION MARK" 0x2019, "LEFT DOUBLE QUOTATION MARK" 0x201C,
+    "RIGHT DOUBLE QUOTATION MARK" 0x201D, "EURO SIGN" 0x20AC,
+    "TRADE MARK SIGN" 0x2122, "LEFTWARDS ARROW" 0x2190,
+    "UPWARDS ARROW" 0x2191, "RIGHTWARDS ARROW" 0x2192,
+    "DOWNWARDS ARROW" 0x2193}))
+
+
+(defn- named-escape
+  "The code point of one \\N{NAME}: a compile-time diagnostic naming the
+   escape when the name is outside the table."
+  [n name]
+  (or (get named-escapes name)
+      (syntax! n (str "\\N{" name "} unknown Unicode character name"))))
+
+
 (defn- unescape
   [n body]
   (let [len (count body)]
@@ -389,7 +449,15 @@
                 (= e "U") (recur (+ i 10)
                                  (conj out (code-point->str
                                              (hex-value n (subs body (+ i 2) (min len (+ i 10)))))))
-                (= e "N") (unsupported! n "named unicode escape")
+                (= e "N")
+                (let [after (subs body (min len (+ i 2)))
+                      close (str/index-of after "}")]
+                  (when (or (not= (subs after 0 (min 1 (count after))) "{")
+                            (nil? close))
+                    (syntax! n "malformed \\N character escape"))
+                  (recur (+ i 2 close 1)
+                         (conj out (code-point->str
+                                     (named-escape n (subs after 1 close))))))
                 (re-matches #"[0-7]" e)
                 (let [digits (re-find #"^[0-7]{1,3}" (subs body (inc i)))]
                   (recur (+ i 1 (count digits))

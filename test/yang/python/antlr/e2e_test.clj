@@ -659,6 +659,13 @@
                   "print(f())\n")))
 
 
+(deftest ^:slow ^:quickwins named-unicode-escape-test
+  (every-vm= (prints "a b")
+             "print('\\N{LATIN SMALL LETTER A} \\N{LATIN SMALL LETTER B}')\n")
+  (every-vm= (prints "<")
+             "print('\\N{LESS-THAN SIGN}')\n"))
+
+
 (deftest ^:slow classes-test
   (every-vm= (prints "40 4 True False")
              (str "class A:\n"
