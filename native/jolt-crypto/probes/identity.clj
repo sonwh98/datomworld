@@ -7,6 +7,12 @@
             [jolt.ffi :as ffi]))
 
 
+;; Lane B: the child reports which host scheme launched it (silent when
+;; JOLT_TARGET is unset, so legacy invocations keep their output
+;; byte-identical, and dual-host scripts do not misreport on the JVM).
+(when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
+
+
 (def library
   (let [os (str/lower-case (or (System/getProperty "os.name") ""))
         arch (System/getProperty "os.arch")

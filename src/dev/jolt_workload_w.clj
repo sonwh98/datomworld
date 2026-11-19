@@ -22,6 +22,12 @@
             [yin.repl.main :as repl.main]))
 
 
+;; Lane B: the child reports which host scheme launched it (silent when
+;; JOLT_TARGET is unset, so legacy invocations keep their output
+;; byte-identical, and dual-host scripts do not misreport on the JVM).
+(when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
+
+
 (def message-bytes 4194304)
 (def transfer-ms 120000)
 (def offer-ms 100)

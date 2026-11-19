@@ -22,10 +22,33 @@
 ;;
 ;; Needs bb bootstrap:jolt and bb build:jolt-native. Prints PASS/FAIL and
 ;; RECORD lines; exits nonzero on any FAIL. Scratch under build/j5-acceptance/.
+(when-not (resolve 'jolt-launch/run-child)
+  ((requiring-resolve 'babashka.classpath/add-classpath) "src/dev"))
+
+
 (ns jolt-j5-acceptance
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            ;; the target-aware launch seam (Lane B C5)
+            [jolt-launch :as jlt]))
+
+
+;; Lane B target-awareness: --target chez (the default, unchanged) or
+;; --target gambit, refused fail-closed — the native parser wrapper and the
+;; jolt REPL lane are Chez-tier (fork host/gambit/ffi/README.md). A trivial
+;; child through the launch seam must report the requested target itself
+;; before any acceptance verdict is trusted.
+(def target
+  (let [[t args] (jlt/parse-target-arg *command-line-args*)]
+    (when (seq args)
+      (binding [*out* *err*]
+        (println "test:jolt-j5: unknown arguments" (pr-str args) "(--target chez|gambit)"))
+      (System/exit 2))
+    (jlt/require-chez! t "test:jolt-j5")
+    (println "jolt-target:" (name t))
+    (jlt/preflight! t "test:jolt-j5 identity gate")
+    t))
 
 
 (def failures (atom 0))

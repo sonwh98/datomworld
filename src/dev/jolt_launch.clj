@@ -45,13 +45,18 @@
 
 (defn parse-target-arg
   "Pull [--target <t> | --target=<t>] out of `args`; answers
-   [target remaining-args]. Throws on an unknown target."
+   [target remaining-args]. Throws on an unknown target or a trailing bare
+   --target with no value."
   [args]
   (loop [args (vec args) target nil acc []]
     (if (seq args)
       (let [a (first args)]
         (cond
-          (= "--target" a) (recur (subvec args 2) (resolve-target (nth args 1 nil)) acc)
+          (= "--target" a)
+          (do (when-not (seq (rest args))
+                (throw (ex-info "--target needs a value (chez or gambit)"
+                                {:arg a})))
+              (recur (subvec args 2) (resolve-target (nth args 1)) acc))
           (str/starts-with? a "--target=") (recur (subvec args 1) (resolve-target (subs a 9)) acc)
           :else (recur (subvec args 1) target (conj acc a))))
       [(or target :chez) (vec acc)])))
@@ -123,3 +128,50 @@
                            " — refusing to trust this child's result")
                       {:wanted target :observed observed})))
     target))
+
+
+;; The child-side identity print, for repo scripts that run UNDER jolt (where
+;; the bb seam namespace cannot load): scripts embed this one line near their
+;; entry. Silent when JOLT_TARGET is unset, so dual-host scripts (JVM leg) and
+;; legacy invocations keep their output byte-identical.
+(def child-print-snippet
+  "(when-let [t (System/getenv \"JOLT_TARGET\")] (println (str \"jolt-target: \" t)))")
+
+
+(def ^:private identity-probe-forms
+  {:chez "(do (println (str \"jolt-target: \" (or (System/getenv \"JOLT_TARGET\") \"chez\"))))"
+   :gambit "(begin (display \"jolt-target: \")(display (or (getenv \"JOLT_TARGET\") \"gambit\"))(newline))"})
+
+
+(defn identity-probe-form
+  "The -e form a trivial identity child evaluates under `target` (chez:
+   bin/jolt -e evaluates Clojure; gambit: gsi -e evaluates Scheme)."
+  [target]
+  (get identity-probe-forms (resolve-target target)))
+
+
+(defn require-chez!
+  "Fail-closed refusal for lanes whose children are Chez-tier only (the
+   fork's Gambit FFI tier carries no native wrapper / build CLI yet —
+   host/gambit/ffi/README.md): `lane` names the refusing driver in the error."
+  [target lane]
+  (when (= :gambit (resolve-target target))
+    (binding [*out* *err*]
+      (println lane "FAILED: target gambit is not qualified for this lane;"
+               "the Gambit FFI tier does not carry it yet"
+               "(jolt fork host/gambit/ffi/README.md); refusing to run"))
+    (System/exit 1)))
+
+
+(defn preflight!
+  "Fail-closed identity preflight for a driver: run a trivial child through
+   the same launch seam and assert it reports `target` itself, before any
+   real child's pass/fail is trusted. `context` names the driver in errors."
+  [target context]
+  (let [t (resolve-target target)
+        r (run-child {:target t} "-e" (identity-probe-form t))]
+    (assert-child-target! {:target t
+                           :output (str (:out r) (:err r))
+                           :context context})
+    (println "PASS identity gate: child reported" (identity-line t))
+    t))

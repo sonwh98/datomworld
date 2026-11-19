@@ -68,6 +68,12 @@
             [jolt.socket.native :as native]))
 
 
+;; Lane B: the child reports which host scheme launched it (silent when
+;; JOLT_TARGET is unset, so legacy invocations keep their output
+;; byte-identical, and dual-host scripts do not misreport on the JVM).
+(when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
+
+
 (require '[clojure.string :as str]
          '[dao.host.text :as text]
          '[dao.stream :as stream]

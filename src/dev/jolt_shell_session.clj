@@ -1,3 +1,14 @@
+;; Lane B target-awareness (C5): --target chez (the default, unchanged) or
+;; --target gambit, refused fail-closed — the REPL transcript lane is
+;; Chez-tier (fork host/gambit/ffi/README.md). A trivial child through the
+;; launch seam must report the requested target itself before a transcript
+;; verdict is trusted. The REPL children intentionally get NO JOLT_TARGET:
+;; their output is compared byte-for-byte between the hosts, and an identity
+;; line would corrupt the transcript contract.
+(when-not (resolve 'jolt-launch/run-child)
+  ((requiring-resolve 'babashka.classpath/add-classpath) "src/dev"))
+
+
 (ns jolt-shell-session
   "Foreground process transcripts, one corpus and two host lanes. A held
    stdin pipe proves typed quit without EOF. Every wait has a deadline;
@@ -6,7 +17,13 @@
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.edn :as edn]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [jolt-launch :as jlt]))
+
+
+(def ^:private cli
+  (let [[t remaining] (jlt/parse-target-arg *command-line-args*)]
+    {:target t :args (vec remaining)}))
 
 
 (def prompt "yin> ")
@@ -223,7 +240,13 @@
      :transit :absent :roots ["src/jolt" "src/cljc" "src/clj"]}))
 
 
-(let [args *command-line-args*
+;; Lane B fail-closed target gate before any jolt child is started.
+(jlt/require-chez! (:target cli) "test:jolt-shell")
+(println "jolt-target:" (name (:target cli)))
+(jlt/preflight! (:target cli) "test:jolt-shell identity gate")
+
+
+(let [args (:args cli)
       host (some-> (second (drop-while #(not= "--host" %) args)) keyword)
       only (second (drop-while #(not= "--only" %) args))
       probe? (some #{"--probe"} args)

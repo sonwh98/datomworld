@@ -45,11 +45,35 @@
 ;; Needs bb bootstrap:jolt and bb build:jolt-native. Prints PASS/FAIL per
 ;; gate and RECORD per observation; exits nonzero on any FAIL. Fake roots and
 ;; the copy live under build/j1b-probe/ and are rebuilt each run.
+(when-not (resolve 'jolt-launch/run-child)
+  ((requiring-resolve 'babashka.classpath/add-classpath) "src/dev"))
+
+
 (ns run
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.edn :as edn]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            ;; the target-aware launch seam (Lane B C5; src/dev on bb's
+            ;; classpath — run via the bb task or `bb -cp src/dev ...`)
+            [jolt-launch :as jlt]))
+
+
+;; Lane B target-awareness: --target chez (the default, unchanged) or
+;; --target gambit, refused fail-closed — the libcrypto wrapper protocol is
+;; a Chez-tier one (fork host/gambit/ffi/README.md: P2/P3 consumers remain
+;; Chez-only). Before any gate's verdict is trusted, a trivial child through
+;; the launch seam must itself report the requested target.
+(def target
+  (let [[t args] (jlt/parse-target-arg *command-line-args*)]
+    (when (seq args)
+      (binding [*out* *err*]
+        (println "probe:jolt-crypto: unknown arguments" (pr-str args) "(--target chez|gambit)"))
+      (System/exit 2))
+    (jlt/require-chez! t "probe:jolt-crypto")
+    (println "jolt-target:" (name t))
+    (jlt/preflight! t "probe:jolt-crypto identity gate")
+    t))
 
 
 (def failures (atom 0))

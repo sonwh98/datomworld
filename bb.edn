@@ -24,17 +24,18 @@
            (:exit (shell {:continue true} "bb" "src/dev/jolt_bootstrap.clj" "--test-negative")))}
 
   smoke:jolt
-  {:doc "J0a baseline smoke under jolt -Srepro -M:jolt: tracked load of yang.antlr.export/packet and defcfn :blocking calls (needs bb bootstrap:jolt)"
+  {:doc "J0a baseline smoke under jolt -Srepro -M:jolt: tracked load of yang.antlr.export/packet and defcfn :blocking calls (needs bb bootstrap:jolt; Lane B: --target chez|gambit, the child reports jolt-target and the driver asserts it fail-closed — the gambit child runs the same smoke form under $JOLT_GAMBIT)"
    :task (System/exit
-           (:exit (shell {:continue true} "sh" "-c"
-                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_smoke.clj")))}
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "src/dev/jolt_target_run.clj" "--script" "src/dev/jolt_smoke.clj" "--"
+                         *command-line-args*)))}
 
   jolt
-  {:doc "Run jolt -Srepro -M:jolt with the arguments given (a script path, -e ...), under build/tools/jolt-env.sh"
+  {:doc "Run jolt -Srepro -M:jolt with the arguments given (a script path, -e ...), under build/tools/jolt-env.sh (Lane B: --target chez|gambit; a fail-closed identity preflight child runs first, then the arguments pass through unchanged)"
    :task (System/exit
-           (:exit (apply shell {:continue true} "sh" "-c"
-                         ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt \"$@\""
-                         "jolt" *command-line-args*)))}
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "src/dev/jolt_target_run.clj" "--"
+                         *command-line-args*)))}
 
   smoke:jolt-target
   {:doc "Lane B target-aware launcher smoke: run a trivial child under the requested host scheme through the jolt-launch seam (--target chez, the default, or --target gambit via JOLT_GAMBIT) and fail closed unless the child itself reports jolt-target: <target> (needs bb bootstrap:jolt; the gambit leg needs the mise-pinned gsi)"
@@ -49,9 +50,10 @@
            (:exit (shell {:continue true} "bb" "-cp" "src/dev" "native/jolt-crypto/qualify.clj")))}
 
   probe:jolt-crypto
-  {:doc "J1b: libcrypto provenance (qualified, missing, undeclared, version-floor, wrong-library-first, Linux LD_PRELOAD) and 256 MiB :blocking hash collect-safety, each in a child jolt process (needs bb build:jolt-native)"
+  {:doc "J1b: libcrypto provenance (qualified, missing, undeclared, version-floor, wrong-library-first, Linux LD_PRELOAD) and 256 MiB :blocking hash collect-safety, each in a child jolt process (needs bb build:jolt-native; Lane B: --target chez|gambit, fail-closed identity gate, gambit refused — the wrapper protocol is Chez-tier)"
    :task (System/exit
-           (:exit (shell {:continue true} "bb" "native/jolt-crypto/probes/run.clj")))}
+           (:exit (apply shell {:continue true} "bb" "native/jolt-crypto/probes/run.clj"
+                         *command-line-args*)))}
 
   test:jolt-j5
   {:doc "J5 acceptance: one Python session through the JVM and jolt REPL entry points with the standard catalog (output equal line for line), the multiline probe sequence, and the unavailable-library REPL legs (needs bb build:jolt-native)"

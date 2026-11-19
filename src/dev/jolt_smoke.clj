@@ -17,6 +17,12 @@
   (:require [jolt.ffi :as ffi]))
 
 
+;; Lane B: the child reports which host scheme launched it (silent when
+;; JOLT_TARGET is unset, so legacy invocations keep their output
+;; byte-identical).
+(when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
+
+
 ;; Loaded here rather than in the ns form, so the libs they add are observable.
 (def ^:private before (set (loaded-libs)))
 (require '[yang.antlr.export :as export] '[yang.antlr.packet :as packet])

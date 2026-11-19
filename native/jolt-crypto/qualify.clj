@@ -8,6 +8,15 @@
 ;; computes the canonical path and SHA-256 of the declared :path and refuses
 ;; to print an entry unless they agree and the version is at least
 ;; :min-version. Exits nonzero on any disagreement.
+;;
+;; Invoked both as `bb -cp src/dev native/jolt-crypto/qualify.clj` (bb.edn)
+;; and bare (`bb native/jolt-crypto/qualify.clj`, e.g.
+;; native/jolt-crypto/probes/run.clj:228), so it puts src/dev on bb's
+;; classpath itself before the seam namespace loads — one seam, no divergent copy.
+(when-not (resolve 'jolt-launch/run-child)
+  ((requiring-resolve 'babashka.classpath/add-classpath) "src/dev"))
+
+
 (ns qualify
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
