@@ -58,15 +58,12 @@
    set to the composition's store. Linker admission is a separate step."
   [{:keys [worker store registry stage-requirement]} request]
   (let [{:keys [cst identity] :as prepared} (compile-transport-request worker request)
-        correlation (when (map? request)
-                      (select-keys request [:yang.compile/request :yang.compile/unit
-                                            :yang.compile/provenance]))]
+        correlation (transport/correlation request)]
     (cond
       (:yang.compile/outcome prepared) prepared
       (not= :yang.cst/ok (:yang.cst/outcome cst))
-      (merge correlation {:yang.compile/outcome :yang.compile/rejected
-                          :yang.compile/reason :yang.compile/invalid-source
-                          :yang.compile/diagnostics (:yang.cst/errors cst)})
+      (transport/rejected request :yang.compile/invalid-source
+                          {:yang.compile/diagnostics (:yang.cst/errors cst)})
       :else
       (let [name (symbol (str "eval." (name (jing/segment-key identity))))
             result (publication/publish! store registry name prepared)]
@@ -79,9 +76,8 @@
                 derived (when stage (stage {:store store :datoms [] :principals []}
                                            name address))]
             (if (and derived (not= :ok (:status derived)))
-              (merge correlation {:yang.compile/outcome :yang.compile/rejected
-                                  :yang.compile/reason :yang.compile/derivation-failed
-                                  :yang.compile/detail derived})
+              (transport/rejected request :yang.compile/derivation-failed
+                                  {:yang.compile/detail derived})
               (merge correlation {:yang.compile/outcome :yang.compile/published
                                   :yang.compile/module name
                                   :yang.compile/address address
@@ -89,9 +85,8 @@
                                   :yang.compile/site-record (:record-address site)}
                      (when derived {:yang.compile/active-address (:address derived)
                                     :yang.compile/derivation (:derivation derived)}))))
-          (merge correlation {:yang.compile/outcome :yang.compile/rejected
-                              :yang.compile/reason :yang.compile/publication-failed
-                              :yang.compile/detail (select-keys result [:reason :status])}))))))
+          (transport/rejected request :yang.compile/publication-failed
+                              {:yang.compile/detail (select-keys result [:reason :status])}))))))
 
 
 (defn compile-and-publish!
@@ -102,15 +97,12 @@
     (catch #?(:cljd Object :clj Exception :cljs :default) e
       (let [diagnostic (ex-data e)]
         (if (:yang.php/diagnostic diagnostic)
-          (merge (when (map? request)
-                   (select-keys request [:yang.compile/request :yang.compile/unit
-                                         :yang.compile/provenance]))
-                 {:yang.compile/outcome :yang.compile/rejected
-                  :yang.compile/reason (if (= :yang.php/compile-error
-                                              (:yang.php/diagnostic diagnostic))
-                                         :yang.compile/invalid-source
-                                         :yang.compile/unsupported)
-                  :yang.compile/diagnostic diagnostic})
+          (transport/rejected request
+                              (if (= :yang.php/compile-error
+                                     (:yang.php/diagnostic diagnostic))
+                                :yang.compile/invalid-source
+                                :yang.compile/unsupported)
+                              {:yang.compile/diagnostic diagnostic})
           (throw e))))))
 
 

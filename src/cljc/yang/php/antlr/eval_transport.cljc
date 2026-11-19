@@ -32,3 +32,20 @@
     (not (map? (:yang.compile/options request))) :options-shape
     (not (portable-data? request)) :non-portable-data
     :else nil))
+
+
+(defn correlation
+  "The portable request correlation fields, when the request is a map."
+  [request]
+  (when (map? request)
+    (select-keys request [:yang.compile/request :yang.compile/unit
+                          :yang.compile/provenance])))
+
+
+(defn rejected
+  "Construct a rejection retaining request correlation."
+  [request reason extra]
+  (merge (correlation request)
+         {:yang.compile/outcome :yang.compile/rejected
+          :yang.compile/reason reason}
+         extra))

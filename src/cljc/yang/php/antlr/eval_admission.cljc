@@ -1,7 +1,8 @@
 (ns yang.php.antlr.eval-admission
   "Strict UTF-8 admission for an eval source carried as one character per byte.
    This boundary does not execute or compile the admitted source."
-  (:require [dao.host.text :as text])
+  (:require [dao.host.text :as text]
+            [yang.php.antlr.eval-transport :as transport])
   #?(:cljd (:import ["dart:typed_data" Uint8List])))
 
 
@@ -74,14 +75,8 @@
   [request]
   (let [{:keys [source diagnostic reason]} (admit (:yang.php/source request))]
     (cond
-      diagnostic (assoc (select-keys request [:yang.compile/request :yang.compile/unit
-                                              :yang.compile/provenance])
-                        :yang.compile/outcome :yang.compile/rejected
-                        :yang.compile/reason :yang.compile/unsupported
-                        :yang.compile/diagnostic diagnostic)
-      reason (assoc (select-keys request [:yang.compile/request :yang.compile/unit
-                                          :yang.compile/provenance])
-                    :yang.compile/outcome :yang.compile/rejected
-                    :yang.compile/reason :yang.compile/invalid-request
-                    :yang.compile/detail reason)
+      diagnostic (transport/rejected request :yang.compile/unsupported
+                                     {:yang.compile/diagnostic diagnostic})
+      reason (transport/rejected request :yang.compile/invalid-request
+                                 {:yang.compile/detail reason})
       :else {:request request :source source})))

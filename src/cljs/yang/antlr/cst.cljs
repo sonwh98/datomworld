@@ -109,8 +109,8 @@
                                       (.-stop offending))
 
                    (instance? (.-Lexer antlr4) recognizer)
-                   [(export/offset-at offsets (._tokenStartCharIndex recognizer))
-                    (export/offset-at offsets (.. recognizer -_input -index))]
+                   (export/lexer-span offsets (._tokenStartCharIndex recognizer)
+                                      (.. recognizer -_input -index))
 
                    :else nil)]
         (vswap! errors conj (export/syntax-error msg line column span))))))
@@ -155,8 +155,7 @@
         _ (.removeErrorListeners parser)
         _ (.addErrorListener parser l)
         tree ((:start profile) parser)]
-    (export/result profile unit @errors
-                   #(export/export-nodes (ops parser) cps offsets tree))))
+    (export/export-tree profile unit cps offsets @errors #(ops parser) tree)))
 
 
 (defn parse-transform

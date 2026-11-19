@@ -1,11 +1,14 @@
 (ns yang.io
-  "Platform-specific I/O for Yang compiler on JVM.
+  "Platform-specific I/O for Yang compiler.
 
   Provides functions to compile Clojure source files to Universal AST."
   (:require
-    [clojure.java.io :as io]
-    [clojure.tools.reader :as reader]
-    [clojure.tools.reader.reader-types :as reader-types]
+    #?@(:clj [[clojure.java.io :as io]
+              [clojure.tools.reader :as reader]
+              [clojure.tools.reader.reader-types :as reader-types]]
+        :cljs [["fs" :as fs]
+               [cljs.tools.reader :as reader]
+               [cljs.tools.reader.reader-types :as reader-types]])
     [yang.clojure :as yang]))
 
 
@@ -21,12 +24,19 @@
   "Read Clojure source code from a file.
   Returns a sequence of forms."
   [file-path]
-  (try (with-open [r (io/reader file-path)]
-         (read-forms r file-path))
-       (catch Exception e
-         (throw (ex-info "Failed to read source file"
-                         {:file file-path, :error (.getMessage e)}
-                         e)))))
+  #?(:clj (try (with-open [r (io/reader file-path)]
+                  (read-forms r file-path))
+                (catch Exception e
+                  (throw (ex-info "Failed to read source file"
+                                  {:file file-path, :error (.getMessage e)}
+                                  e))))
+     :cljs (try (let [content (.readFileSync fs file-path "utf8")
+                      forms (read-forms content file-path)]
+                  forms)
+                (catch js/Error e
+                  (throw (ex-info "Failed to read source file"
+                                  {:file file-path, :error (.-message e)}
+                                  e))))))
 
 
 (defn compile-file
@@ -48,7 +58,8 @@
   "Write compiled AST to a file as EDN.
   The AST is a map-based structure that can be serialized to EDN."
   [ast-nodes file-path]
-  (spit file-path (pr-str ast-nodes)))
+  #?(:clj (spit file-path (pr-str ast-nodes))
+     :cljs (.writeFileSync fs file-path (pr-str ast-nodes) "utf8")))
 
 
 (defn compile-and-save

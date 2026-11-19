@@ -407,8 +407,7 @@
   (export/syntax-error message line column
                        (case span-kind
                          1 (export/token-span offsets a b)
-                         2 [(export/offset-at offsets a)
-                            (export/offset-at offsets b)]
+                         2 (export/lexer-span offsets a b)
                          nil)))
 
 
@@ -418,9 +417,9 @@
   (let [cps (packet/code-points source)
         offsets (export/byte-offsets cps)
         records (export-records worker source)]
-    (export/result (:profile worker) unit
-                   (mapv #(error-record offsets %) (:errors records))
-                   #(export/export-nodes (ops records) cps offsets 0))))
+    (export/export-tree (:profile worker) unit cps offsets
+                        (mapv #(error-record offsets %) (:errors records))
+                        #(ops records) 0)))
 
 
 (defn parse-transform

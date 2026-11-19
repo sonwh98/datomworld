@@ -22,9 +22,14 @@
   (packet/byte-offsets cps))
 
 
-(defn offset-at
+(defn- offset-at
   [offsets i]
   (nth offsets (max 0 (min i (dec (count offsets))))))
+
+
+(defn lexer-span
+  [offsets start stop]
+  [(offset-at offsets start) (offset-at offsets stop)])
 
 
 (defn token-span
@@ -81,7 +86,7 @@
      :span [(offset-at offsets start) (offset-at offsets (inc stop))]}))
 
 
-(defn export-nodes
+(defn- export-nodes
   "Preorder records for the parse tree under `root`; a record's id is its
    index."
   [ops cps offsets root]
@@ -126,7 +131,7 @@
       @out)))
 
 
-(defn result
+(defn- result
   "The packet for a parse: an error packet when `errors` is non-empty."
   [profile unit errors nodes]
   (let [base (packet/base (:grammar-id profile) unit)]
@@ -138,6 +143,12 @@
              :yang.cst/outcome :yang.cst/ok
              :yang.cst/root 0
              :yang.cst/nodes (nodes)))))
+
+
+(defn export-tree
+  "Export a tree only when parsing produced no errors."
+  [profile unit cps offsets errors ops-fn tree]
+  (result profile unit errors #(export-nodes (ops-fn) cps offsets tree)))
 
 
 (defn failure-kind

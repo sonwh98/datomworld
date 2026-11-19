@@ -71,6 +71,22 @@
      :parser-cache (PredictionContextCache.)}))
 
 
+(defn- own-lexer!
+  [^Lexer lexer worker]
+  (.setInterpreter lexer
+                   (LexerATNSimulator. lexer ^ATN (:lexer-atn worker)
+                                       ^"[Lorg.antlr.v4.runtime.dfa.DFA;" (:lexer-dfa worker)
+                                       ^PredictionContextCache (:lexer-cache worker))))
+
+
+(defn- own-parser!
+  [^Parser parser worker]
+  (.setInterpreter parser
+                   (ParserATNSimulator. parser ^ATN (:parser-atn worker)
+                                        ^"[Lorg.antlr.v4.runtime.dfa.DFA;" (:parser-dfa worker)
+                                        ^PredictionContextCache (:parser-cache worker))))
+
+
 ;; =============================================================================
 ;; Export
 ;; =============================================================================
@@ -87,9 +103,8 @@
                                         (.getStopIndex t)))
                    (if (instance? Lexer recognizer)
                      (let [^Lexer lx recognizer]
-                       [(export/offset-at offsets (._tokenStartCharIndex lx))
-                        (export/offset-at offsets
-                                          (.index (.getInputStream lx)))])
+                       (export/lexer-span offsets (._tokenStartCharIndex lx)
+                                          (.index (.getInputStream lx))))
                      nil))]
         (vswap! errors conj (export/syntax-error msg line column span))))))
 
@@ -129,28 +144,15 @@
         errors (volatile! [])
         listener (error-listener errors offsets)
         lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
-        _ (.setInterpreter lexer
-                           (LexerATNSimulator. lexer
-                                               ^ATN (:lexer-atn worker)
-                                               ^"[Lorg.antlr.v4.runtime.dfa.DFA;"
-                                               (:lexer-dfa worker)
-                                               ^PredictionContextCache
-                                               (:lexer-cache worker)))
+        _ (own-lexer! lexer worker)
         _ (.removeErrorListeners lexer)
         _ (.addErrorListener lexer listener)
         parser ^Parser ((:make-parser profile) (CommonTokenStream. lexer))
-        _ (.setInterpreter parser
-                           (ParserATNSimulator. parser
-                                                ^ATN (:parser-atn worker)
-                                                ^"[Lorg.antlr.v4.runtime.dfa.DFA;"
-                                                (:parser-dfa worker)
-                                                ^PredictionContextCache
-                                                (:parser-cache worker)))
+        _ (own-parser! parser worker)
         _ (.removeErrorListeners parser)
         _ (.addErrorListener parser listener)
         tree ((:start profile) parser)]
-    (export/result profile unit @errors
-                   #(export/export-nodes (ops parser) cps offsets tree))))
+    (export/export-tree profile unit cps offsets @errors #(ops parser) tree)))
 
 
 (defn parse-transform
@@ -177,8 +179,7 @@
    use the listener's offending token instead — their hosts' cst
    namespaces carry that rationale). A lexer error has no token."
   [worker source]
-  (let [{:keys [profile lexer-atn lexer-dfa lexer-cache parser-atn
-                parser-dfa parser-cache]}
+  (let [{:keys [profile]}
         worker
         failure (volatile! nil)
         lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
@@ -193,21 +194,11 @@
                                   (instance? NoViableAltException e)
                                   (dec (count (.getTokens tokens)))
                                   :else (.getTokenIndex ^Token offending))))))
-        _ (.setInterpreter
-            lexer
-            (LexerATNSimulator. lexer
-                                ^ATN lexer-atn
-                                ^"[Lorg.antlr.v4.runtime.dfa.DFA;" lexer-dfa
-                                ^PredictionContextCache lexer-cache))
+        _ (own-lexer! lexer worker)
         _ (.removeErrorListeners lexer)
         _ (.addErrorListener lexer ^ANTLRErrorListener listener)
         parser ^Parser ((:make-parser profile) tokens)
-        _ (.setInterpreter
-            parser
-            (ParserATNSimulator. parser
-                                 ^ATN parser-atn
-                                 ^"[Lorg.antlr.v4.runtime.dfa.DFA;" parser-dfa
-                                 ^PredictionContextCache parser-cache))
+        _ (own-parser! parser worker)
         _ (.removeErrorListeners parser)
         _ (.addErrorListener parser ^ANTLRErrorListener listener)]
     ((:start profile) parser)
