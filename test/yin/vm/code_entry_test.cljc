@@ -15,6 +15,12 @@
         effect {:module 'eval.unit :address address :export 'entry}
         run #(module/code-entry-handler state % {})]
     (is (= :callable (:value (run effect))))
+    (is (= state (:state (run effect))))
+    (is (false? (:blocked? (run effect))))
+    (doseq [[bad reason] [[(assoc effect :address :wrong) :manifest-mismatch]
+                          [(assoc effect :export 'missing) :export-undeclared]
+                          [(assoc effect :module 'absent) :module-missing]]]
+      (is (= reason (get-in (run bad) [:value :reason]))))
     (doseq [bad [(assoc effect :address :wrong)
                  (assoc effect :export 'missing)
                  (assoc effect :module 'absent)]]

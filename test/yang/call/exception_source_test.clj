@@ -97,3 +97,11 @@
     (is (some? leg))
     (doseq [[backend actual] (legs/run-leg leg)]
       (is (= (legs/expected leg) actual) (str backend)))))
+
+(deftest ^:slow python-php-finally-replacement-leg-test
+  (let [leg (first (filter #(= [:python :php :finally-replacement] (:id %))
+                           contract/pair-matrix))
+        results (legs/run-leg leg)]
+    (is (= #{:register :semantic :stack} (set (keys results))))
+    (doseq [[backend actual] results]
+      (is (= (legs/expected leg) actual) (str backend)))))

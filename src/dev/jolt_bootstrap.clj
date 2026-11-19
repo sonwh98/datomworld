@@ -12,8 +12,9 @@
      The one-time nil-platform acceptance is remembered in
      build/tools/jolt-patches.edn; deleting that record resets it.
      Advancing the pin is the upgrade gate's job.
-   * build/tools/jolt-env.sh is written with JOLT_CHEZ set explicitly, so jolt
-     never searches PATH for a Chez.
+   * build/tools/jolt-env.sh is written with JOLT_CHEZ and JOLT_GAMBIT set
+     explicitly, so jolt never searches PATH for a Chez or a gsi (bare gsc on
+     PATH is Ghostscript).
    * First of all, on a Debian-family host, the :os-packages :debian
      :required packages are checked with dpkg-query; a missing one fails the
      task before mise is asked for anything, naming the exact
@@ -69,6 +70,24 @@
     (when (and threaded (not= "#t" t)) (fail! "Chez at " scheme " is not threaded"))
     (println "chez" v "threaded" t scheme)
     scheme))
+
+
+(defn- check-gambit
+  "Analogous to check-chez: resolve gsi through mise at the exact pin, require
+   the reported version (system-version-string, e.g. \"v4.9.8\") to equal the
+   pin, and smoke the interpreter. Required, not warned: mise.toml pins gambit
+   for every host, so `mise install` provisions it before this runs, and the
+   jolt Gambit gates (Makefile GAMBIT_PREFIX targets) are part of the lane —
+   bootstrapping without it would silently leave JOLT_GAMBIT unset."
+  [{:keys [version binary]}]
+  (let [gsi (mise-bin "gambit" version (str (fs/file-name binary)))
+        v (sh gsi "-e" "(display (system-version-string))")
+        t (sh gsi "-e" "(display (+ 1 2))")]
+    (when-not (= (str "v" version) v)
+      (fail! "Gambit at " gsi " reports " v ", pinned " version))
+    (when-not (= "3" t) (fail! "Gambit at " gsi " failed the interpreter smoke"))
+    (println "gambit" v gsi)
+    gsi))
 
 
 (defn- check-cmake
@@ -320,9 +339,10 @@
 
 (defn -main
   [& _]
-  (let [{:keys [jolt chez cmake os-packages]} (edn/read-string (slurp "jolt-toolchain.edn"))
+  (let [{:keys [jolt chez gambit cmake os-packages]} (edn/read-string (slurp "jolt-toolchain.edn"))
         _ (check-os-packages os-packages)
         scheme (check-chez chez)
+        gsi (check-gambit gambit)
         _ (check-cmake cmake)
         dir (str (fs/absolutize (or (System/getenv "JOLT_BOOTSTRAP_TEST_DIR") (:dir jolt))))
         jolt (assoc jolt :dir dir)
@@ -333,6 +353,7 @@
       (spit env-file
             (str "# written by bb bootstrap:jolt from jolt-toolchain.edn; do not edit\n"
                  "export JOLT_CHEZ='" scheme "'\n"
+                 "export JOLT_GAMBIT='" gsi "'\n"
                  "export JOLT_HOME='" dir "'\n"
                  "export JOLT_PATCHES='" record "'\n"))
       (println "wrote" env-file))))

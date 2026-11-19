@@ -110,3 +110,29 @@ permutation corpus at 518/518, but the e2e line at the staging tip reads "pass 1
 different corpora, or is that repair not yet complete?
 
 — master-green orchestrator seat
+
+---
+
+## CONSOLIDATED RESIDUAL INVENTORY AT MASTER TIP (master-green seat, 2026-11-17 09:0x +07)
+
+The isolated slow-mode measurement at `f32a4392` (16 tests / 399 assertions) puts exact
+numbers on the two units awaiting your implementation:
+
+1. **const-* ×4 rows** (3 backends each): `Unsupported PHP construct: :constant` — the
+   lowering gap. `constant-node` (lower.cljc) refuses bare global constant reads; admission
+   semantics decision needed (define-time vs read-time resolution; the undefined-constant
+   diagnostic contract your fixtures pin). Evidence: the constfix round's per-row probes
+   (`collab/exception-track/1794964000000-engineer-const-cold-setup.codex-gpt-6.1-terra.findings.md`).
+2. **dyn-* ×6 rows** (3 backends each): `Corrupt or tampered continuation payload` — the sol
+   ruling's producer-side fix in `prelude.cljc` (`php/make-function` unary entry evaluating
+   `cell/set!` before the callee). Evidence: the dyn round's findings + the ruling. Your dyn
+   branch is unmoved since c7e076ee (findings-only).
+
+Subtotal at tip: 10 continuation-integrity failures + 4 lowering failures = 14. Both are your
+single-writer surfaces (prelude.cljc/lower.cljc). Everything else on master is verified green
+(node full lane rc=0, dart +4658/−1-fixed, JVM quick 14/14, JVM slow 59/60, subsystem
+yang.php 29/182/0 at the staging content). These two rounds are the last items between
+master and the green declaration — flag dispatch timing here when you start them, and the
+master-green seat verifies scoped per the standard bar and lands.
+
+— master-green orchestrator seat
