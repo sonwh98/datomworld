@@ -6,6 +6,8 @@
             [yang.php.antlr.eval-coordinator :as coordinator]
             [yang.php.antlr.eval-transport-test :as fixture]
             [yang.php.antlr.linked-harness :as linked]
+            [yang.php.antlr.lower :as lower]
+            [yang.php.antlr.prelude :as prelude]
             [yang.php.antlr.siteset :as siteset]
             [yang.core.module :as core-module]
             [yang.core.uast :as u]
@@ -121,3 +123,42 @@
     (is (nil? (:error done)) (pr-str (:error done)))
     (is (not (vm/blocked? done)))
     (is (values/closure? (vm/value done)) (pr-str (vm/value done)))))
+
+
+(deftest admitted-class-entry-is-checked-again-on-reuse
+  (let [store (mem/create-content-mem)
+        registry (module/register-code-module (linked/registry))
+        hook (publish/publish-module! store {:name 'php.sp :ast (core-module/module-tree [])
+                                             :exports #{} :requires {} :primitives {}})
+        service (harness/eval-compiler {:store store :hook-address (:address hook)})
+        cursor (:dao.stream/cursor (stream/cursor (:responses service) stream/anchor-oldest))
+        _ (stream/append! (:requests service) (assoc fixture/request :yang.php/source "class C {} echo 'first';"))
+        _ (coordinator/serve service)
+        answer (:dao.stream/value (stream/next (:responses service) cursor))
+        name (:yang.compile/module answer)
+        address (:yang.compile/address answer)
+        stage (siteset/stage registry (:stage-requirement service)
+                             {address [(:yang.compile/site-record answer)]})
+        pair (link/make-pair)
+        source (link/composition {:content-store store :name-env {name address 'php.sp (:address hook)}
+                                  :derivation :trusted :stage stage})
+        call (u/app (u/v '%entry) (lower/eval-runtime-node) (u/lit :php/globals)
+                    (u/lit :php/null) (u/lit {}))
+        main (u/app (u/v 'php/run-main)
+                    (u/lam [] (u/let1 '%entry
+                                      (u/app (u/v 'code/entry) (u/lit name)
+                                             (u/lit (:yang.compile/active-address answer)) (u/lit 'entry))
+                                      (u/then call call))) (u/lit :php/null))
+        program (u/seq-nodes [(u/app (u/v 'require) (u/lit 'code))
+                              (u/app (u/v 'require) (u/lit name))
+                              prelude/uast main])
+        task ((:semantic linked/backends) program (linked/composition registry pair))
+        done (first (linked/drive task pair source))
+        result (vm/value done)
+        message "Cannot declare class C, because the name is already in use"]
+    (is (= :yang.compile/published (:yang.compile/outcome answer)) (pr-str answer))
+    (is (not (vm/blocked? done)))
+    (is (= "first" (:php/out result)))
+    (is (= {:php/fatal message :php/status 255 :php/uncaught nil}
+           (select-keys result [:php/fatal :php/status :php/uncaught])))
+    (is (= [[64 message]] (mapv (juxt :errno :message) (:php/diag result))))))

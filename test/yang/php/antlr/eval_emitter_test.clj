@@ -46,6 +46,23 @@
     (is (not-any? #(= "php.rt" (namespace %)) free))))
 
 
+(deftest eval-operational-refusal-is-not-a-guest-parse-error
+  (let [refusal {:yang.compile/outcome :yang.compile/rejected
+                 :yang.compile/reason :yang.compile/unsupported
+                 :yang.compile/diagnostic {:reason :source-encoding}}
+        call (u/app (u/v 'php/eval-run) (u/lit refusal)
+                    (u/lam ['%answer] (u/app (u/v 'php/echo) (u/lit "entry"))))
+        guarded (u/app (u/v 'php/try) (u/lam [] call)
+                       (u/lam ['%e] (u/app (u/v 'php/echo) (u/lit "catch")))
+                       (u/lam [] (u/app (u/v 'php/echo) (u/lit "finally"))))
+        main (u/app (u/v 'php/run-main) (u/lam [] guarded) (u/lit :php/null))
+        session (tu/make-observer-session (tu/create-vm {:modules (harness/host-registry)}))]
+    (tu/queue-ast! session (u/then prelude/uast main))
+    (let [result (vm/value (:consumer (tu/run-session session)))]
+      (is (= "" (:php/out result)))
+      (is (= refusal (:php/fatal result))))))
+
+
 (deftest eval-module-is-code-only
   (let [spec (lower/eval-module-spec (harness/host-registry)
                                      'eval.test (packet "return 7;"))]

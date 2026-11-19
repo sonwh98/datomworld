@@ -1280,7 +1280,9 @@
   (when-not (:eval-service? ctx) (unsupported! n :eval))
   (let [answer (core/gen "eval" n)
         frame (cond (:fn ctx) (u/v '%fn) (:module? ctx) (u/v '%ctx) :else (u/lit :php/null))]
-    (u/let1 answer (app* 'eval.compiler/compile (app* 'php/to-string (lower ctx operand)))
+    (app* 'php/eval-run
+          (app* 'eval.compiler/compile (app* 'php/to-string (lower ctx operand)))
+          (u/lam [answer]
             (u/then (app* 'require (app* 'get (u/v answer) (u/lit :yang.compile/module)))
                     (u/app (app* 'code/entry
                                  (app* 'get (u/v answer) (u/lit :yang.compile/module))
@@ -1288,7 +1290,7 @@
                                  (u/lit 'entry))
                            (u/v (if (:eval-unit? ctx) '%runtime '%eval-runtime))
                            (dynamic-scope-node ctx) frame
-                           (u/v (if (:eval-unit? ctx) '%hooks '%eval-hooks)))))))
+                           (u/v (if (:eval-unit? ctx) '%hooks '%eval-hooks))))))))
 
 
 (defn- lower-prefix

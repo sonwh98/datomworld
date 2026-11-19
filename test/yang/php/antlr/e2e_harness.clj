@@ -111,7 +111,10 @@
 
 (defn- eval-registry
   [service publications]
-  (let [handler (fn [state effect _]
+  (let [service-state (atom (assoc service :registry (compiler-registry)))
+        response-cursor (atom (:dao.stream/cursor (stream/cursor (:responses service) stream/anchor-oldest)))
+        sequence-id (atom 0)
+        handler (fn [state effect _]
                   (let [request {:yang.compile/request [:eval (:source effect)]
                                  :yang.compile/unit :eval
                                  :yang.compile/frontend-revision :frontend-v1
@@ -120,11 +123,19 @@
                                  :yang.compile/provenance {:path "main.php"}
                                  :yang.compile/options {}
                                  :yang.php/source (:source effect)}
-                        result (eval-coordinator/compile-and-publish!
-                                 (assoc service :registry (compiler-registry)) request)]
-                    (when-not (= :yang.compile/published (:yang.compile/outcome result))
-                      (throw (ex-info "Eval compilation refused" result)))
-                    (when-not (= :dao.stream/ok (:dao.stream/outcome (stream/append! publications result)))
+                        request (assoc request :yang.compile/request [:eval (swap! sequence-id inc)])
+                        appended (stream/append! (:requests service) request)
+                        _ (when-not (= :dao.stream/ok (:dao.stream/outcome appended))
+                            (throw (ex-info "Eval request stream refused" appended)))
+                        _ (swap! service-state eval-coordinator/serve)
+                        read (stream/next (:responses service) @response-cursor)
+                        result (:dao.stream/value read)]
+                    (when-not (and (= :dao.stream/ok (:dao.stream/outcome read))
+                                   (= (:yang.compile/request request) (:yang.compile/request result)))
+                      (throw (ex-info "Eval response correlation failed" {:request request :response read})))
+                    (reset! response-cursor (:dao.stream/cursor read))
+                    (when (and (= :yang.compile/published (:yang.compile/outcome result))
+                               (not= :dao.stream/ok (:dao.stream/outcome (stream/append! publications result))))
                       (throw (ex-info "Eval publication stream full" result)))
                     {:state state :value result :blocked? false}))]
     (-> (compiler-registry)
@@ -140,7 +151,7 @@
     {:store store :hook-address (:address hook)}))
 
 
-(defn- run-eval-vm
+(defn run-eval-vm
   [backend ast]
   (let [published (eval-published)
         service (eval-compiler published)
