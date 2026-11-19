@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a1f4e4-354c-7a33-88fb-4e3330341d0b"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"This session was recorded with model `gpt-6.2-sol` but is resuming with `gpt-6.1-sol`. Consider switching back to `gpt-6.2-sol` as it may affect Codex performance."}}
+{"type":"turn.started"}
+{"type":"error","message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 3:17 AM."}
+{"type":"turn.failed","error":{"message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at 3:17 AM."}}
