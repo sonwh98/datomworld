@@ -1855,14 +1855,21 @@
 (defn- lower-assert
   "`assert test, msg`: a falsey test raises AssertionError with the
    message as its args; the bare form asserts truthiness only and raises
-   one with no args. Lowered to the prelude's `py/assert`."
+   one with no args. The message lowers inside the failure arm of an
+   inline `if` (the same conditional shape every statement-level branch
+   takes), so it is evaluated only when the test is falsey, as CPython
+   evaluates the message only on failure — `assert x, f()` never calls
+   `f()` while `x` is truthy. The bare form lowers to the prelude's
+   `py/assert`, whose message slot is nothing at all."
   [ctx n]
-  (let [tests (rules ctx n "test")]
-    (app* 'py/assert
-          ((:lower ctx) ctx (first tests))
-          (if-let [msg (second tests)]
-            ((:lower ctx) ctx msg)
-            none))))
+  (let [tests (rules ctx n "test")
+        test ((:lower ctx) ctx (first tests))]
+    (if-let [msg (second tests)]
+      (u/if-node (truthy test)
+                 none
+                 (app* 'py/raise
+                       (app* 'py/make-exc ((:lower ctx) ctx msg))))
+      (app* 'py/assert test none))))
 
 
 (def ^:private comprehension-names

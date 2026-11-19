@@ -749,7 +749,8 @@
                         :attrs {})))]
     [py/make-exc
      ;; a nil message is an exception with no args, the bare `assert`'s;
-     ;; every other caller passes a real message
+     ;; every other caller passes a real message (which may itself be the
+     ;; guest's None — `assert x, None` carries (None,), as CPython does)
      (fn [cls msg]
        (let [e (py/make-instance cls)]
          (do (py/setattr e "args"
@@ -760,10 +761,11 @@
     [py/raise-new (fn [cls msg] (py/raise (py/make-exc cls msg)))]
     [py/type-error (fn [msg] (py/raise-new py.b/TypeError msg))]
     [py/assert
-     ;; `assert test, msg`: a falsey test raises AssertionError with the
-     ;; message as its args; the lowered bare form passes :py/None (the one
-     ;; divergence: a literal `assert x, None` raises AssertionError with
-     ;; no args, where CPython's args hold None)
+     ;; the bare `assert test`: a falsey test raises AssertionError with no
+     ;; args. Only the bare form reaches here — the message form lowers
+     ;; inline into an if's failure arm (lower-assert), so the message
+     ;; evaluates only when the test is falsey and a literal `assert x,
+     ;; None` keeps CPython's (None,) args through py/make-exc
      (fn [test msg]
        (if (py/truthy test)
          :py/None

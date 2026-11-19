@@ -633,7 +633,28 @@
                   "    print('caught')\n"
                   "assert 'y'\n"
                   "print('done')\n"
-                  "assert ()\n")))
+                  "assert ()\n"))
+  ;; CPython evaluates the message only when the test is falsey: with a
+  ;; true test, `assert x, f()` never calls f() and `assert x, 1/0` does
+  ;; not divide — the message lowers inside the failure arm of an if
+  (every-vm= (prints "ok")
+             (str "def boom():\n"
+                  "    print('boom')\n"
+                  "    return 'x'\n"
+                  "assert 1, boom()\n"
+                  "assert True, 1 / 0\n"
+                  "print('ok')\n"))
+  ;; a falsey test still evaluates the message, even a failing one
+  (every-vm= {:py/out [], :py/exception {:type "ZeroDivisionError", :args []}}
+             "assert 0, 1 / 0\n")
+  ;; a literal None message keeps CPython's (None,) args — only the bare
+  ;; form raises with empty args (the slice-1 note's divergence, resolved
+  ;; by lowering the message inline instead of through py/assert)
+  (every-vm= (prints "None caught")
+             (str "try:\n"
+                  "    assert 0, None\n"
+                  "except AssertionError as e:\n"
+                  "    print(e.args[0], 'caught')\n")))
 
 
 (deftest ^:slow ^:quickwins annotated-assignment-test

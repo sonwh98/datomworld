@@ -464,9 +464,31 @@
   (testing "`assert x`: a falsey test raises AssertionError with no args"
     (is (= (u/then (py 'py/assert (gget "x") none) none)
            (body "assert x\n"))))
-  (testing "`assert x, 'nope'`: the message is the exception's args"
-    (is (= (u/then (py 'py/assert (gget "x") (u/lit {:py/str "nope"})) none)
+  (testing "`assert x, 'nope'`: the message lowers inside the failure arm
+            of an if, so it is evaluated only when the test is falsey, as
+            CPython evaluates the message only on failure"
+    (is (= (u/then (u/if-node (py 'py/truthy (gget "x"))
+                              none
+                              (py 'py/raise
+                                  (py 'py/make-exc (u/lit {:py/str "nope"}))))
+                   none)
            (body "assert x, 'nope'\n"))))
+  (testing "`assert x, f()`: the message's call sits in the failure arm —
+            it lowers where CPython evaluates it, not beside the test"
+    (is (= (u/then (u/if-node (py 'py/truthy (gget "x"))
+                              none
+                              (py 'py/raise
+                                  (py 'py/make-exc (call (gget "f")))))
+                   none)
+           (body "assert x, f()\n"))))
+  (testing "`assert x, None`: a literal None message passes through
+            py/make-exc, so the args hold None as CPython's do; only the
+            bare form raises with empty args (py/assert's nil message)"
+    (is (= (u/then (u/if-node (py 'py/truthy (gget "x"))
+                              none
+                              (py 'py/raise (py 'py/make-exc none)))
+                   none)
+           (body "assert x, None\n"))))
   (testing "the test lowers like any expression"
     (is (= (u/then (py 'py/assert (call (builtin "len") (gget "a")) none) none)
            (body "assert len(a)\n")))))
