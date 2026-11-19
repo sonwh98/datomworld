@@ -85,7 +85,7 @@
       (fn [node]
         (let [in (get in-degree node 0)
               out (get out-degree node 0)]
-          (or (>= in threshold) (>= out threshold))))
+          (>= (+ in out) threshold)))
       all-nodes)))
 
 
@@ -152,7 +152,7 @@
         edges (parse-dot-file dot-file)
         graph (build-graph edges)
         cycles (find-cycles graph)
-        high-degree (find-high-degree-nodes edges 5)
+        high-degree (find-high-degree-nodes edges 6)
         sccs (find-strongly-connected-components graph)]
 
     (println "\n=== DEPENDENCY COUPLING ANALYSIS ===\n")
