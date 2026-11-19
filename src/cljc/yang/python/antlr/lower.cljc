@@ -65,6 +65,7 @@
     [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
+    [yang.python.antlr.parser :as parser]
     [yang.core.module :as core-module]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
@@ -466,21 +467,304 @@
             (recur (inc i) (conj out c))))))))
 
 
-(defn- parse-string
-  "The value of one STRING token: prefixes u and r only."
-  [n text]
+(defn- string-token
+  "The parts of one STRING token's text: `{:prefix .. :body .. :raw? ..}`,
+   the body stripped of its quotes (short or triple), or :bytes when the
+   prefix declares bytes. The grammar admits only the prefixes the lexer
+   spells out (u, r, f, b and their two-letter f/r, b/r combinations), so
+   no prefix validation is needed here."
+  [text]
   (let [prefix (str/lower-case (re-find #"^[A-Za-z]*" text))
         quoted (subs text (count prefix))
         q3 (subs quoted 0 (min 3 (count quoted)))
         body (if (or (= q3 "'''") (= q3 "\"\"\""))
                (subs quoted 3 (- (count quoted) 3))
                (subs quoted 1 (dec (count quoted))))]
-    (case prefix
-      ("" "u") (unescape n body)
-      "r" body
-      (unsupported! n (if (str/includes? prefix "b")
-                        "bytes literal"
-                        "f-string")))))
+    (if (str/includes? prefix "b")
+      :bytes
+      {:prefix prefix, :body body, :raw? (str/includes? prefix "r")})))
+
+
+(defn- parse-string
+  "The value of one STRING token: prefixes u and r only. An f-string
+   reaches this only from a context that lowers interpolations as
+   expressions of its own (a literal import_module argument), and there
+   it refuses: the token's braces would silently become name text."
+  [n text]
+  (let [s (string-token text)]
+    (if (= :bytes s)
+      (unsupported! n "bytes literal")
+      (if (str/includes? (:prefix s) "f")
+        (unsupported! n "f-string")
+        (if (:raw? s)
+          (:body s)
+          (unescape n (:body s)))))))
+
+
+;; -----------------------------------------------------------------------------
+;; f-strings
+;; -----------------------------------------------------------------------------
+
+(def ^:private conversion-chars
+  "The conversions an f-string interpolation accepts."
+  #{"r" "s" "a"})
+
+
+(defn- skip-string
+  "The index one past the string literal that starts at `i` in an
+   interpolation's text (its quote is `q`, triple when `triple?`), or nil
+   when it never ends. Backslash escapes are skipped whatever they
+   escape: the text is re-parsed whole, so no escape matters here."
+  [text i q triple?]
+  (let [lim (count text)
+        end (if triple? (str q q q) q)]
+    (loop [k (if triple? (+ i 3) (inc i))]
+      (cond
+        (>= k lim) nil
+        (= "\\" (subs text k (inc k))) (recur (+ k 2))
+        (and triple?
+             (<= (+ k 3) lim)
+             (= (subs text k (+ k 3)) end)) (+ k 3)
+        (= q (subs text k (inc k))) (if triple? (recur (inc k)) (+ k 1))
+        :else (recur (inc k))))))
+
+
+(defn- nested-fstring?
+  "True when the quote at `i` opens a nested f-string: an f (or the f of
+   an rf combination) in the one or two letters immediately before it.
+   A nested f-string is CPython 3.12's PEP 701 surface, which this
+   profile does not take."
+  [text i]
+  (let [prev (subs text (max 0 (dec i)) i)
+        prev2 (subs text (max 0 (- i 2)) i)]
+    (boolean (or (re-matches #"[fF]" prev)
+                 (re-matches #"[rR][fF]" prev2)))))
+
+
+(defn- scan-interpolation
+  "The parts of one interpolation: `{:expr s :conv conv :spec s :end k}`,
+   the expression text raw (it re-parses whole), the conversion nil or
+   one of r, s, a, the spec's raw text, and `k` one past the closing `}`.
+   `i` is at the opening `{`. The expression ends at the top-level `:`
+   (always, also before a '=': CPython 3.9.6 reads f'{42:=6}' as 42 with
+   the '=' align spec, a ':=' lives only inside brackets),
+   `!r|s|a` (not an `!=`), or `}`; the spec runs to the closing `}`. A
+   nested format spec (a brace in the spec), a `=` debug suffix, a
+   newline or a backslash outside the expression's string literals, a
+   comment, a nested f-string and an unterminated shape all refuse
+   loudly, naming the shape."
+  [n text i]
+  (let [lim (count text)
+        peek (fn [j k] (subs text j (min lim (+ j k))))
+        at (fn [j c] (and (< j lim) (= c (subs text j (inc j)))))]
+    (loop [j (inc i), depth 0, expr [], phase :expr, spec [], conv nil]
+      (cond
+        (>= j lim)
+        (syntax! n "f-string: expecting '}'")
+        (and (= phase :expr) (or (at j "'") (at j "\"")))
+        (if (nested-fstring? text j)
+          (unsupported! n "f-string nested f-string")
+          (let [q (subs text j (inc j))
+                triple? (= (peek j 3) (str q q q))
+                k (skip-string text j q triple?)]
+            (when (nil? k)
+              (syntax! n "f-string: unterminated string in the interpolation"))
+            (recur k depth (conj expr (subs text j k)) phase spec conv)))
+        (and (= phase :expr) (at j "\\"))
+        (syntax! n "f-string: backslash in the interpolation expression")
+        (and (= phase :expr) (or (at j "{") (at j "(") (at j "[")))
+        (recur (inc j) (inc depth) (conj expr (subs text j (inc j))) phase spec conv)
+        (and (= phase :expr) (or (at j ")") (at j "]")))
+        (if (zero? depth)
+          (syntax! n "f-string: unmatched bracket in the interpolation")
+          (recur (inc j) (dec depth) (conj expr (subs text j (inc j))) phase spec conv))
+        (and (= phase :expr) (at j "}"))
+        (if (zero? depth)
+          (do (when (str/blank? (str/join expr))
+                (syntax! n "f-string: empty expression"))
+              {:expr (str/join expr), :conv nil, :spec "", :end (inc j)})
+          (recur (inc j) (dec depth) (conj expr "}") phase spec conv))
+        (and (= phase :expr) (at j ":"))
+        ;; CPython 3.9.6's interpolation scanner: ':' at depth 0 always
+        ;; opens the spec (f'{42:=6}' is 42 with the '=' align spec), a
+        ;; ':=' lives only inside brackets, where it is expression text
+        (if (zero? depth)
+          (recur (inc j) depth expr :spec spec conv)
+          (recur (inc j) depth (conj expr ":") phase spec conv))
+        (and (= phase :expr) (at j "!"))
+        (if (zero? depth)
+          (if (= "=" (peek (inc j) 1))
+            (recur (+ j 2) depth (conj expr "!=") phase spec conv)
+            (let [cv (when (< (inc j) lim) (subs text (inc j) (+ j 2)))]
+              (when-not (contains? conversion-chars cv)
+                (syntax! n "f-string: conversion must be !r, !s or !a"))
+              (recur (+ j 2) depth expr :conv spec cv)))
+          (recur (inc j) depth (conj expr "!") phase spec conv))
+        (and (= phase :expr) (zero? depth) (at j "="))
+        (if (= "=" (peek (inc j) 1))
+          (recur (+ j 2) depth (conj expr "==") phase spec conv)
+          (unsupported! n "f-string '=' debug suffix"))
+        (and (= phase :expr) (zero? depth) (at j "#"))
+        (syntax! n "f-string: comment in the interpolation")
+        (= phase :conv)
+        (cond
+          (at j "}")
+          {:expr (str/join expr), :conv conv, :spec "", :end (inc j)}
+          (at j ":")
+          (recur (inc j) depth expr :spec spec conv)
+          :else (syntax! n "f-string: invalid conversion character"))
+        (at j "{")
+        (unsupported! n "f-string nested format spec")
+        (at j "}")
+        {:expr (str/join expr), :conv conv, :spec (str/join spec), :end (inc j)}
+        :else
+        (recur (inc j) depth
+               (if (= phase :expr) (conj expr (subs text j (inc j))) expr)
+               phase
+               (if (= phase :spec) (conj spec (subs text j (inc j))) spec)
+               conv)))))
+
+
+(defn- fstring-parts
+  "The parts of one f-string token text, in source order: `[:lit s]` for
+   literal chunks (escapes processed unless raw, `{{` and `}}` one brace)
+   and `[:expr s :conv c :spec s]` for interpolations."
+  [n text]
+  (let [s (string-token text)
+        _ (when (= :bytes s) (unsupported! n "bytes literal"))
+        body (:body s)
+        raw? (:raw? s)
+        keep-escapes (if raw? identity (fn [t] (unescape n t)))
+        lim (count body)
+        at (fn [i c] (and (< (inc i) lim) (= c (subs body (inc i) (+ i 2)))))]
+    (loop [i 0, lit [], out []]
+      (if (>= i lim)
+        (if (seq lit)
+          (conj out [:lit (keep-escapes (apply str lit))])
+          out)
+        (let [c (subs body i (inc i))]
+          (cond
+            (and (= "{" c) (at i "{"))
+            (recur (+ i 2) (conj lit "{") out)
+            (= "{" c)
+            (let [p (scan-interpolation n body i)
+                  out (if (seq lit)
+                        (conj out [:lit (keep-escapes (apply str lit))])
+                        out)]
+              (recur (:end p) []
+                     (conj out [:expr (:expr p) (:conv p)
+                                (keep-escapes (:spec p))])))
+            (and (= "}" c) (at i "}"))
+            (recur (+ i 2) (conj lit "}") out)
+            (= "}" c)
+            (syntax! n "f-string: single '}' is not allowed")
+            (= "\\" c)
+            (if (< (inc i) lim)
+              (recur (+ i 2) (conj lit c (subs body (inc i) (+ i 2))) out)
+              (recur (inc i) (conj lit c) out))
+            :else (recur (inc i) (conj lit c) out)))))))
+
+
+(defn- fstring-expr
+  "The lowering of one interpolation's expression `text`: the snippet
+   source parsed as its own packet and its expression statement lowered
+   in the enclosing scope (the nodes join the program's packet at ids
+   past its own, the snippet's scopes join the analysis with its module
+   scope handing unresolved reads to the enclosing scope), then the
+   conversion applied. A newline in the expression refuses: CPython
+   3.9.6's f-strings span no lines inside an interpolation."
+  [ctx n text conv]
+  (when (re-find #"[\n\r]" text)
+    (unsupported! n "f-string multi-line interpolation"))
+  (let [pk (parser/parse-source (str text "\n"))]
+    (when-not (= :yang.cst/ok (:yang.cst/outcome pk))
+      (syntax! n "f-string: invalid expression in the interpolation"))
+    (let [root (p/root pk)
+          stmts (p/child-rules pk root "stmt")
+          _ (when-not (= 1 (count stmts))
+              (syntax! n "f-string: invalid expression in the interpolation"))
+          ss (first (p/child-rules pk (first stmts) "simple_stmts"))
+          st (first (p/child-rules pk ss "simple_stmt"))
+          es (first (p/child-rules pk st "expr_stmt"))
+          ks (p/children pk es)
+          expr (first ks)
+          _ (when (or (nil? es)
+                      (not= 1 (count ks))
+                      (not (p/rule? expr "testlist_star_expr")))
+              (syntax! n "f-string: invalid expression in the interpolation"))
+          outer-nodes (vec (:yang.cst/nodes (:pk ctx)))
+          offset (count outer-nodes)
+          merged-pk (assoc (:pk ctx)
+                           :yang.cst/nodes
+                           (into outer-nodes
+                                 (map (fn [m]
+                                        (assoc m
+                                               :id (+ offset (:id m))
+                                               :children (mapv #(+ offset %)
+                                                               (:children m)))))
+                                 (:yang.cst/nodes pk)))
+          inner-analysis (scope/analyze pk)
+          scopes (assoc (into {}
+                              (map (fn [[id s]] [(+ offset id) s]))
+                              (:scopes inner-analysis))
+                        (+ offset (:id root))
+                        {:kind :lambda, :parent (:scope ctx), :params [],
+                         :assigned [], :globals #{}, :nonlocals #{},
+                         :locals []})
+          analysis {:scopes (into (:scopes (:analysis ctx)) scopes),
+                    :global-names (into (:global-names (:analysis ctx))
+                                        (:global-names inner-analysis)),
+                    :module (:module (:analysis ctx))}
+          ctx' (assoc ctx
+                      :pk merged-pk,
+                      :analysis analysis,
+                      :lines (into (:lines ctx) (newline-lines pk)),
+                      :display-id nil)
+          value ((:lower ctx') ctx' (p/node merged-pk (+ offset (:id expr))))]
+      (case conv
+        nil value
+        "s" (app* 'py/str-conv value (u/lit false))
+        "r" (app* 'py/str-conv value (u/lit true))
+        "a" (app* 'py/ascii-conv value)))))
+
+
+(defn- lower-strings
+  "The value of the atom's STRING tokens: one literal when every token is
+   a plain u/r string, else the f-string lowering with every token's
+   parts concatenated in source order."
+  [ctx n ks]
+  (if (every? #(not (str/includes? (str/lower-case
+                                     (re-find #"^[A-Za-z]*" (:text %)))
+                                   "f"))
+              ks)
+    (u/lit {:py/str (apply str (map #(parse-string n (:text %)) ks))})
+    (let [parts (mapcat (fn [t]
+                          (let [prefix (str/lower-case
+                                         (re-find #"^[A-Za-z]*" (:text t)))]
+                            (cond
+                              (str/includes? prefix "b")
+                              (unsupported! n "bytes literal")
+                              (str/includes? prefix "f")
+                              (fstring-parts n (:text t))
+                              :else [[:lit (parse-string n (:text t))]])))
+                        ks)
+          built (mapv (fn [p]
+                        (if (= :lit (first p))
+                          {:text (second p)}
+                          {:node (app* 'py/format
+                                       (fstring-expr ctx n (second p) (nth p 2))
+                                       (u/lit {:py/str (nth p 3)}))}))
+                      parts)
+          built (remove (fn [b] (and (contains? b :text) (= "" (:text b)))) built)]
+      (case (count built)
+        0 (u/lit {:py/str ""})
+        1 (or (:node (first built)) (u/lit {:py/str (:text (first built))}))
+        (app* 'py/str
+              (apply app* 'data/str-concat
+                     (mapv #(if (contains? % :text)
+                              (u/lit (:text %))
+                              (app* 'get (:node %) (u/lit :py/str)))
+                           built)))))))
 
 
 ;; =============================================================================
@@ -1058,8 +1342,7 @@
       (p/token? head "False") (u/lit false)
       (p/token? head "...") (unsupported! n "Ellipsis")
       (= "NUMBER" (:type head)) (parse-number ctx n (:text head))
-      (= "STRING" (:type head))
-      (u/lit {:py/str (apply str (map #(parse-string n (:text %)) ks))})
+      (= "STRING" (:type head)) (lower-strings ctx n ks)
       :else (unsupported! n "atom"))))
 
 

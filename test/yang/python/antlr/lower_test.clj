@@ -565,7 +565,8 @@
            ["a[1:2:3] = x\n" "trailer" "extended slice assignment"]
            ["x = a[1:2, 3]\n" "trailer" "multi-dimensional slicing"]
            ["x = {**d}\n" "atom" "dict unpacking in a display"]
-           ["x = f'{a}'\n" "atom" "f-string"]
+           ["x = f'{a:>{w}}'\n" "atom" "f-string nested format spec"]
+           ["x = f'{a=} k'\n" "atom" "f-string '=' debug suffix"]
            ["x = 1 <> 2\n" "comp_op" "comparison <>"]
            ["class C(A, B): pass\n" "classdef" "multiple inheritance"]
            ;; decorated over funcdef and classdef lower since the
@@ -635,6 +636,100 @@
             spells them, not the glyphs"
     (is (= (u/then (call (builtin "print") (u/lit {:py/str "x0"})) none)
            (body "print('x\\N{DIGIT ZERO}')\n")))))
+
+
+(defn- fmt
+  "A `py/format` call over `value` with the literal spec `spec`."
+  [value spec]
+  (py 'py/format value (u/lit {:py/str spec})))
+
+
+(defn- conv
+  "The conversion `!c` applies: repr, str or ascii."
+  [value c]
+  (case c
+    "r" (py 'py/str-conv value (u/lit true))
+    "s" (py 'py/str-conv value (u/lit false))
+    "a" (py 'py/ascii-conv value)))
+
+
+(defn- concat-parts
+  "The lowered concatenation of `parts` (each a UAST node or a literal
+   string), the shape the f-string lowering emits for a mixed f-string."
+  [parts]
+  (py 'py/str
+      (apply py 'data/str-concat
+             (mapv #(if (string? %) (u/lit %)
+                        (py 'get % (u/lit :py/str)))
+                   parts))))
+
+
+(deftest fstring-golden-test
+  (testing "a literal-only f-string is one string literal"
+    (is (= (u/then (gset "x" (u/lit {:py/str "abc"})) none)
+           (body "x = f'abc'\n"))))
+  (testing "one interpolation: the expression lowers in the enclosing
+            scope, str(format) concatenates in source order"
+    (is (= (u/then (gset "x" (concat-parts ["a " (fmt (gget "b") "") " c"])) none)
+           (body "x = f'a {b} c'\n"))))
+  (testing "a conversion applies before the format call"
+    (is (= (u/then (gset "x" (fmt (conv (gget "b") "r") "")) none)
+           (body "x = f'{b!r}'\n")))
+    (is (= (u/then (gset "x" (fmt (conv (gget "b") "s") "")) none)
+           (body "x = f'{b!s}'\n")))
+    (is (= (u/then (gset "x" (fmt (conv (gget "b") "a") "")) none)
+           (body "x = f'{b!a}'\n"))))
+  (testing "a literal spec travels whole to py/format"
+    (is (= (u/then (gset "x" (fmt (gget "b") ">10.2f")) none)
+           (body "x = f'{b:>10.2f}'\n"))))
+  (testing "a ':' before '=' still opens the spec, not a walrus
+            (CPython 3.9.6: f'{42:=6}' is 42 with the '=' align spec)"
+    (is (= (u/then (gset "x" (fmt (gget "b") "=6")) none)
+           (body "x = f'{b:=6}'\n"))))
+  (testing "doubled braces are literal braces"
+    (is (= (u/then (gset "x" (u/lit {:py/str "a{b}c"})) none)
+           (body "x = f'a{{b}}c'\n"))))
+  (testing "nested quotes inside the interpolation re-parse as their own
+            tokens, here a string subscript key"
+    (is (= (u/then (gset "x" (fmt (py 'py/getitem (gget "d")
+                                      (u/lit {:py/str "k"})) "")) none)
+           (body "x = f'{d[\"k\"]}'\n"))))
+  (testing "an interpolation's expression re-lowers through the test arm:
+            a call with its arguments"
+    (is (= (u/then (gset "x" (fmt (call (gget "f") (u/lit 1) (gget "y")) "")) none)
+           (body "x = f'{f(1, y)}'\n"))))
+  (testing "implicit concatenation joins an f-string with plain strings
+            in source order (the tokens of one atom)"
+    (is (= (u/then (gset "x" (concat-parts ["a " (fmt (gget "b") "") "c" " d"])) none)
+           (body "x = (f'a {b}'\n    'c'\n    ' d')\n"))))
+  (testing "raw f-strings keep their backslashes and still interpolate"
+    (is (= (u/then (gset "x" (concat-parts ["a\\n" (fmt (gget "b") "")])) none)
+           (body "x = rf'a\\n{b}'\n")))))
+
+
+(deftest fstring-refusal-test
+  (doseq [[src message]
+          [["x = f'{a:>{w}}'\n"
+            "Unsupported Python construct: f-string nested format spec"]
+           ["x = f'{a=} k'\n"
+            "Unsupported Python construct: f-string '=' debug suffix"]
+           ["x = f'''{a\n}'''\n"
+            "Unsupported Python construct: f-string multi-line interpolation"]
+           ["x = f'{f\"{a}\"}'\n"
+            "Unsupported Python construct: f-string nested f-string"]
+           ["x = f'{a!z}'\n" "f-string: conversion must be !r, !s or !a"]
+           ["x = f'{a\\b}'\n"
+            "f-string: backslash in the interpolation expression"]
+           ["x = f'{}'\n" "f-string: empty expression"]
+           ["x = f'a{b'\n" "f-string: expecting '}'"]
+           ["x = f'a}'\n" "f-string: single '}' is not allowed"]
+           ["x = b'x'\n" "Unsupported Python construct: bytes literal"]
+           ["x = f'{a # c}'\n" "f-string: comment in the interpolation"]]]
+    (testing src
+      (is (= message
+             (try (body src)
+                  nil
+                  (catch clojure.lang.ExceptionInfo e (ex-message e))))))))
 
 
 (deftest static-flow-errors-test
