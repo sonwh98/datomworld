@@ -1,0 +1,1368 @@
+antlr cache hit (inputs and outputs verified)
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/home/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+
+┌─────────────────────────────────────────────────────────┐
+│ A new version of Flutter is available!                  │
+│                                                         │
+│ To update to the latest version, run "flutter upgrade". │
+└─────────────────────────────────────────────────────────┘
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (111.0.0 available)
++ analyzer 6.4.1 (14.7.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.8
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @04:40:04
+  yin.repl.slice-peer
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 53, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 89, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member osError on target type dynamic of library dart:core  at line: 269, column: 38, file: yin/repl/state.cljc
+DYNAMIC WARNING: can't resolve member errorCode on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 553, column: 48, file: yin/repl.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member toList on target type dynamic of library dart:core  at line: 34, column: 13, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member decisionToState on target type dynamic of library dart:core  at line: 35, column: 16, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member interpreter on target type dynamic of library dart:core  at line: 64, column: 3, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member interpreter on target type dynamic of library dart:core  at line: 70, column: 3, file: yang/antlr/cst.cljd
+Compilation succeeded - All clear! 👌 @04:40:20
+Generated: /home/sto/ci/datomworld-fixorder/build/yin-repl-peer
+npm-ci cache miss; running npm ci
+
+added 70 packages, and audited 71 packages in 1s
+
+6 packages are looking for funding
+  run `npm fund` for details
+
+2 vulnerabilities (1 moderate, 1 high)
+
+To address all issues, run:
+  npm audit fix
+
+Run `npm audit` for details.
+Loading initial Timbre config from: :default
+[:yin-repl] Compiling ...
+[:yin-repl] Build completed. (258 files, 257 compiled, 0 warnings, 12.17s)
+DEPRECATED: Libs must be qualified, change codox => codox/codox (/home/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
+DEPRECATED: Libs must be qualified, change codox => codox/codox (/home/sto/.gitlibs/libs/latte-kernel/latte-kernel/86fca0d1d054af005cb37395eae04500d45e6279/deps.edn)
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+WARNING: derive already refers to: #'clojure.core/derive in namespace: yang.typescript-callsite-test, being replaced by: #'yang.typescript-callsite-test/derive
+
+Testing dao.await-test
+
+Testing dao.data.arrays-test
+
+Testing dao.data.btree.cursor-test
+
+Testing dao.data.btree.storage-read-test
+
+Testing dao.data.btree-async-test
+
+Testing dao.data.btree-durability-test
+
+Testing dao.data.btree-protocols-test
+
+Testing dao.data.btree-test
+
+Testing dao.data.btree-transients-test
+
+Testing dao.data.sorted-user-type-test
+
+Testing dao.data-test
+
+Testing dao.gui.compiler-test
+
+Testing dao.gui.event.arena-test
+
+Testing dao.gui.event.bind-test
+"dao.gui.event output gone; dropping pending" {:destination :gesture, :outcome :dao.stream/closed}
+
+Testing dao.gui.event.core-test
+
+Testing dao.gui.event.fixture-test
+
+Testing dao.gui.event.longpress-test
+
+Testing dao.gui.event.machine-test
+
+Testing dao.gui.event.pan-test
+
+Testing dao.gui.event.pointer-test
+
+Testing dao.gui.event.policy-test
+
+Testing dao.gui.event.terminal-test
+
+Testing dao.gui.event.transform-test
+
+Testing dao.gui.runtime-test
+
+Testing dao.host.bytes-test
+
+Testing dao.host.conformance-test
+
+Testing dao.host.float-test
+
+Testing dao.host.gate-test
+
+FAIL in (an-injected-host-arm-outside-list-1-fails-the-gate) (gate_test.clj:1100)
+expected: (= [target] (map :file (:arm-violations r)))
+  actual: (not (= ["src/cljc/dao/data.cljc"] ("src/cljc/dao/data.cljc" "src/cljc/yang/core/lower.cljc" "src/cljc/yang/php/antlr/cst.cljc")))
+
+FAIL in (gate-passes-on-the-current-tree) (gate_test.clj:1005)
+expected: (= [] (:arm-violations r))
+  actual: (not (= [] [{:file "src/cljc/yang/core/lower.cljc", :lines [104]} {:file "src/cljc/yang/php/antlr/cst.cljc", :lines [43]}]))
+
+FAIL in (gate-passes-on-the-current-tree) (gate_test.clj:1007)
+expected: (= :pass (:verdict r))
+  actual: (not (= :pass :fail))
+
+FAIL in (an-injected-random-uuid-outside-list-2-fails-the-gate) (gate_test.clj:1113)
+expected: (= [] (:arm-violations r))
+  actual: (not (= [] [{:file "src/cljc/yang/core/lower.cljc", :lines [104]} {:file "src/cljc/yang/php/antlr/cst.cljc", :lines [43]}]))
+
+FAIL in (list-1-equals-the-observed-arms) (gate_test.clj:1013)
+every list-1 file is in the closure and still holds a host arm
+expected: (= (set (keys list-1)) observed)
+  actual: (not (= #{"src/cljc/yin/vm/ucf/authority.cljc" "src/cljd/dao/stream/waitset/driver.cljd" "src/cljc/yang/python/antlr/render.cljc" "src/clj/dao/jing/content/driver.clj" "src/cljc/dao/data/arrays.cljc" "src/cljs/dao/stream/ws/node.cljs" "src/cljc/yin/repl/frontends.cljc" "src/cljd/yang/antlr/cst.cljd" "src/cljc/dao/stream/journal/file.cljc" "src/cljc/dao/stream/ringbuffer.cljc" "src/cljc/dao/host/hash.cljc" "src/cljs/yin/repl/host.cljs" "src/cljc/dao/stream/journal.cljc" "src/cljc/yang/php/antlr/lower.cljc" "src/cljc/dao/stream/rpc.cljc" "src/cljc/dao/host/number.cljc" "src/cljc/dao/stream/cbor/boring.cljc" "src/cljc/yang/python/antlr/prelude.cljc" "src/cljc/yin/repl/state.cljc" "src/cljc/yin/vm/data.cljc" "src/cljd/dao/stream/transit/cljd.cljd" "src/cljc/yang/python/antlr/repl_probe.cljc" "src/cljc/yin/vm/debruijn_code.cljc" "src/cljs/dao/stream/waitset/driver.cljs" "src/cljc/yang/python/antlr/parser.cljc" "src/cljc/yin/repl/connect.cljc" "src/cljc/dao/space/query.cljc" "src/cljc/dao/stream/cbor.cljc" "src/cljc/yin/vm/linker/sign.cljc" "src/clj/yang/antlr/cst.clj" "src/cljc/dao/host/sign.cljc" "src/cljc/dao/jing/coordinate.cljc" "src/cljc/dao/host/float.cljc" "src/cljc/dao/data/btree.cljc" "src/cljc/yang/python/antlr/lower.cljc" "src/cljc/dao/stream/transit.cljc" "src/cljc/dao/pretty.cljc" "src/cljc/dao/host/integer.cljc" "src/cljc/dao/data/btree/storage.cljc" "src/clj/yin/repl/host/jvm.clj" "src/cljd/dao/stream/ws/dart.cljd" "src/cljd/yin/repl/host.cljd" "src/cljc/yin/repl/adapter.cljc" "src/cljc/dao/jing.cljc" "src/cljc/yin/repl.cljc" "src/cljc/dao/stream/codec.cljc" "src/cljc/yin/repl/host.cljc" "src/cljc/dao/host/text.cljc" "src/cljc/dao/jing/cbor.cljc" "src/cljc/yang/php/antlr/quoted.cljc" "src/cljc/yang/clojure.cljc" "src/cljd/dao/stream/cbor/cljd.cljd" "src/cljc/dao/space/transactor.cljc" "src/cljs/yang/antlr/cst.cljs" "src/cljc/dao/space/store/fs.cljc" "src/cljc/dao/space/store.cljc" "src/cljc/dao/host/bytes.cljc" "src/cljc/yin/repl/main.cljc" "src/cljc/dao/stream/ws.cljc" "src/cljc/yin/vm/debruijn.cljc" "src/cljc/dao/jing/file.cljc" "src/clj/dao/stream/ws/jvm.clj" "src/cljc/yin/vm.cljc" "src/cljc/yin/vm/values.cljc" "src/cljc/dao/stream/base64.cljc" "src/clj/dao/stream/waitset/driver.clj" "src/cljc/yin/vm/engine.cljc"} #{"src/cljc/yin/vm/ucf/authority.cljc" "src/cljd/dao/stream/waitset/driver.cljd" "src/cljc/yang/python/antlr/render.cljc" "src/clj/dao/jing/content/driver.clj" "src/cljc/dao/data/arrays.cljc" "src/cljs/dao/stream/ws/node.cljs" "src/cljc/yin/repl/frontends.cljc" "src/cljd/yang/antlr/cst.cljd" "src/cljc/dao/stream/journal/file.cljc" "src/cljc/dao/stream/ringbuffer.cljc" "src/cljc/dao/host/hash.cljc" "src/cljs/yin/repl/host.cljs" "src/cljc/dao/stream/journal.cljc" "src/cljc/yang/php/antlr/lower.cljc" "src/cljc/dao/stream/rpc.cljc" "src/cljc/dao/host/number.cljc" "src/cljc/dao/stream/cbor/boring.cljc" "src/cljc/yang/python/antlr/prelude.cljc" "src/cljc/yin/repl/state.cljc" "src/cljc/yin/vm/data.cljc" "src/cljd/dao/stream/transit/cljd.cljd" "src/cljc/yang/python/antlr/repl_probe.cljc" "src/cljc/yang/php/antlr/cst.cljc" "src/cljc/yin/vm/debruijn_code.cljc" "src/cljs/dao/stream/waitset/driver.cljs" "src/cljc/yang/python/antlr/parser.cljc" "src/cljc/yin/repl/connect.cljc" "src/cljc/dao/space/query.cljc" "src/cljc/dao/stream/cbor.cljc" "src/cljc/yin/vm/linker/sign.cljc" "src/clj/yang/antlr/cst.clj" "src/cljc/dao/host/sign.cljc" "src/cljc/dao/jing/coordinate.cljc" "src/cljc/dao/host/float.cljc" "src/cljc/dao/data/btree.cljc" "src/cljc/yang/core/lower.cljc" "src/cljc/yang/python/antlr/lower.cljc" "src/cljc/dao/stream/transit.cljc" "src/cljc/dao/pretty.cljc" "src/cljc/dao/host/integer.cljc" "src/cljc/dao/data/btree/storage.cljc" "src/clj/yin/repl/host/jvm.clj" "src/cljd/dao/stream/ws/dart.cljd" "src/cljd/yin/repl/host.cljd" "src/cljc/yin/repl/adapter.cljc" "src/cljc/dao/jing.cljc" "src/cljc/yin/repl.cljc" "src/cljc/dao/stream/codec.cljc" "src/cljc/yin/repl/host.cljc" "src/cljc/dao/host/text.cljc" "src/cljc/dao/jing/cbor.cljc" "src/cljc/yang/php/antlr/quoted.cljc" "src/cljc/yang/clojure.cljc" "src/cljd/dao/stream/cbor/cljd.cljd" "src/cljc/dao/space/transactor.cljc" "src/cljs/yang/antlr/cst.cljs" "src/cljc/dao/space/store/fs.cljc" "src/cljc/dao/space/store.cljc" "src/cljc/dao/host/bytes.cljc" "src/cljc/yin/repl/main.cljc" "src/cljc/dao/stream/ws.cljc" "src/cljc/yin/vm/debruijn.cljc" "src/cljc/dao/jing/file.cljc" "src/clj/dao/stream/ws/jvm.clj" "src/cljc/yin/vm.cljc" "src/cljc/yin/vm/values.cljc" "src/cljc/dao/stream/base64.cljc" "src/clj/dao/stream/waitset/driver.clj" "src/cljc/yin/vm/engine.cljc"}))
+
+FAIL in (effect-calls-escape-neither-body-vectors-nor-other-scopes) (gate_test.clj:1130)
+H0-R1: a call inside a function-body vector
+expected: (= [] (:arm-violations r))
+  actual: (not (= [] [{:file "src/cljc/yang/core/lower.cljc", :lines [104]} {:file "src/cljc/yang/php/antlr/cst.cljc", :lines [43]}]))
+
+FAIL in (effect-calls-escape-neither-body-vectors-nor-other-scopes) (gate_test.clj:1136)
+H0-R2: one arity's parameter does not shadow core in another arity
+expected: (= [] (:arm-violations r))
+  actual: (not (= [] [{:file "src/cljc/yang/core/lower.cljc", :lines [104]} {:file "src/cljc/yang/php/antlr/cst.cljc", :lines [43]}]))
+
+FAIL in (effect-calls-escape-neither-body-vectors-nor-other-scopes) (gate_test.clj:1142)
+H0-R2: a :cljs definition does not shadow core on :clj
+the definition's arm is a host arm too
+expected: (= [target] (map :file (:arm-violations r)))
+  actual: (not (= ["src/cljc/dao/data.cljc"] ("src/cljc/dao/data.cljc" "src/cljc/yang/core/lower.cljc" "src/cljc/yang/php/antlr/cst.cljc")))
+
+FAIL in (effect-calls-escape-neither-body-vectors-nor-other-scopes) (gate_test.clj:1148)
+H0-R5: specify!'s target expression is walked
+expected: (= [] (:arm-violations r))
+  actual: (not (= [] [{:file "src/cljc/yang/core/lower.cljc", :lines [104]} {:file "src/cljc/yang/php/antlr/cst.cljc", :lines [43]}]))
+
+Testing dao.host.hash-test
+
+Testing dao.host.text-test
+
+Testing dao.jing.cbor-conformance-test
+CONFORMANCE jvm cases=372 run=367 skipped=["coll/map-integer-width-duplicate" "coll/set-decimal-scale-collapse" "coll/set-signed-zero-collapse" "coll/set-vector-list-collapse" "num/js-unsafe-integer"]
+CONFORMANCE-DIGEST jvm refusal n=154 915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa
+CONFORMANCE-DIGEST jvm canonical n=208 8268b4d38ae11743dc6fc9f36191c7e68077c84f4abcbc2a7392aabff6c9c299
+
+Testing dao.jing.cbor-content-equality-test
+
+Testing dao.jing.cbor-fixtures-test
+
+Testing dao.jing.cbor-test
+SKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart
+
+Testing dao.jing.content.step-test
+
+Testing dao.jing.content-test
+
+Testing dao.jing.dht.facade-test
+
+Testing dao.jing.dht.kad-test
+
+Testing dao.jing.dht.socket-test
+
+Testing dao.jing.dht-test
+
+Testing dao.jing.file-test
+
+Testing dao.jing.hash-registry-contract-test
+
+FAIL in (architectural-lint-sweeps-production-sources) (hash_registry_contract_test.cljc:479)
+source sweep: no equality comparison against dao.jing default minting vars
+Found forbidden equality validation in src/cljc/yin/vm/module.cljc: (defn code-entry-handler "Read a declared export from an already installed, address-pinned module." [state effect _opts] (let [{:keys [module address export]} effect entry (when (symbol? module) (module-entry (:modules (:modules state)) module)) manifest (:manifest entry) reason (cond (nil? entry) :module-missing (or (nil? address) (not= address (:address entry)) (not= address (jing/segment-key manifest)) (not= module (:yin.module/name manifest))) :manifest-mismatch (not (contains? (:yin.module/exports manifest) export)) :export-undeclared (not (contains? (:bindings entry) export)) :binding-missing)] {:state state, :blocked? false, :value (if reason {:status :refused, :reason reason, :module module, :export export} (get (:bindings entry) export))}))
+expected: (not (flags-equality-validation? form))
+  actual: (not (not true))
+
+Testing dao.jing.mem-test
+
+Testing dao.jing.stream-test
+
+Testing dao.jing-test
+
+Testing dao.lease-composition-test
+
+Testing dao.lease-test
+
+Testing dao.postgraphics.lowering-test
+
+Testing dao.postgraphics.math-test
+
+Testing dao.postgraphics.packing-test
+
+Testing dao.postgraphics.raster-test
+
+Testing dao.postgraphics.terminal-test
+
+Testing dao.pretty-test
+
+Testing dao.space.datomic-query-conformance-test
+
+Testing dao.space.dht-test
+
+Testing dao.space.index-numeric-test
+
+Testing dao.space.index-test
+
+Testing dao.space.positional-query-test
+
+Testing dao.space.published-read-test
+
+Testing dao.space.query.datomic-execution-test
+
+Testing dao.space.query.datomic-test
+
+Testing dao.space.query.execution-test
+
+Testing dao.space.query.published-bounded-test
+
+Testing dao.space.query-aggregates-test
+
+Testing dao.space.query-numeric-test
+
+Testing dao.space.query-rules-test
+
+Testing dao.space.query-test
+
+Testing dao.space.schema-test
+
+Testing dao.space.stigmergy-test
+
+Testing dao.space.store.fs-test
+
+Testing dao.space.transact-test
+
+Testing dao.space.transactor-test
+
+Testing dao.star.driver-test
+
+Testing dao.star.facts-test
+
+Testing dao.star.loopback-test
+
+Testing dao.star.peer-close-test
+
+Testing dao.star.r2-test
+
+Testing dao.star.r3-test
+
+Testing dao.star.r4-test
+
+Testing dao.star.r5-test
+
+Testing dao.star.router-test
+
+Testing dao.star.signals-test
+
+Testing dao.stream.apply-test
+
+Testing dao.stream.base64-test
+
+Testing dao.stream.ble.links-test
+
+Testing dao.stream.ble.mesh-test
+
+Testing dao.stream.ble-test
+
+Testing dao.stream.cbor-test
+
+Testing dao.stream.chunks-test
+
+Testing dao.stream.codec-fixtures-test
+
+Testing dao.stream.codec-test
+
+Testing dao.stream.datagram.jvm-test
+
+Testing dao.stream.datagram-test
+
+Testing dao.stream.forward-test
+
+Testing dao.stream.http-test
+
+Testing dao.stream.journal.file-test
+
+Testing dao.stream.journal-test
+
+Testing dao.stream.memory-log-test
+
+Testing dao.stream.middleware-test
+
+Testing dao.stream.observe-test
+
+Testing dao.stream.observer-test
+
+Testing dao.stream.remote-channel-test
+
+Testing dao.stream.remote-meet-test
+
+Testing dao.stream.remote-pair-test
+
+Testing dao.stream.remote-route-test
+
+Testing dao.stream.remote-test
+
+Testing dao.stream.ringbuffer-test
+
+Testing dao.stream.rpc-test
+
+Testing dao.stream.transit-test
+
+Testing dao.stream.udp-raw-test
+
+Testing dao.stream.udp-test
+
+Testing dao.stream.waitset.cadence-test
+
+Testing dao.stream.waitset.driver-test
+
+Testing dao.stream.waitset-test
+
+Testing dao.stream.ws.jvm-test
+
+Testing dao.stream.ws.rfc6455-test
+
+Testing dao.stream.ws.upgrade-test
+
+Testing dao.stream.ws-codec-test
+
+Testing dao.stream.ws-project-cross-jvm-test
+;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer
+;; SKIPPED a-dart-dialer-reads-a-jvm-server: build/ws-project-peer is absent -- compile it first: clojure -M:clojuredart:cljd compile dao.stream.ws-project-peer && dart compile exe lib/cljd-out/dao/stream/ws-project-peer.dart -o build/ws-project-peer
+
+Testing dao.stream.ws-project-jvm-test
+
+Testing dao.stream.ws-project-test
+
+Testing dao.stream.ws-test
+
+Testing dao.stream-test
+
+Testing datomworld.demo.artifact-runner-test
+
+Testing datomworld.demo.artifact-scene-test
+
+Testing datomworld.demo.continuation-handoff-test
+
+Testing datomworld.demo.earth-moon-scene-test
+
+Testing datomworld.demo.solar-system-scene-test
+
+Testing datomworld.demo.voxel-controls-test
+
+Testing datomworld.demo.voxel-input-test
+
+Testing datomworld.demo.voxel-runner-test
+
+Testing datomworld.demo.voxel-scene-test
+
+Testing yang.antlr.packet-test
+
+Testing yang.call.conformance-test
+
+Testing yang.call.depth-probe-test
+
+Testing yang.call.exception-source-test
+
+Testing yang.call.php-exception-test
+
+Testing yang.call.python-exception-test
+
+Testing yang.clojure.donor-link-test
+
+Testing yang.clojure.stream-eval-test
+
+Testing yang.clojure-callsite-test
+
+Testing yang.clojure-collection-order-test
+
+Testing yang.clojure-test
+FFI hello world
+
+Testing yang.core.call-test
+
+Testing yang.core.claims-test
+
+Testing yang.core.names-test
+
+Testing yang.cross-lang-test
+
+Testing yang.frontend-test
+
+Testing yang.latte-oracle-test
+KERNEL-FIXTURE :minimal-last :pass
+KERNEL-FIXTURE :minimal-with-meta :pass
+KERNEL-FIXTURE :minimal-nth :pass
+KERNEL-FIXTURE :minimal-var :pass
+KERNEL-FIXTURE :minimal-gensym-freshness :pass
+KERNEL-FIXTURE :rebuild-type-explicit-supply :pass
+KERNEL-FIXTURE :parse-binder :pass
+KERNEL-FIXTURE :parse-application :pass
+KERNEL-FIXTURE :parse-empty :pass
+KERNEL-FIXTURE :parse-bad-binding :pass
+KERNEL-FIXTURE :parse-reserved :pass
+KERNEL-FIXTURE :parse-short-arrow :pass
+KERNEL-FIXTURE :subst-capture :pass
+KERNEL-FIXTURE :subst-shadow :pass
+KERNEL-FIXTURE :subst-three-arity :pass
+KERNEL-FIXTURE :free-vars-local-capture :pass
+KERNEL-FIXTURE :nbe-beta :pass
+KERNEL-FIXTURE :nbe-binder :pass
+KERNEL-FIXTURE :normalize-beta :pass
+KERNEL-FIXTURE :normalize-one-arity :pass
+KERNEL-FIXTURE :normalize-two-arity :pass
+KERNEL-FIXTURE :nbe-delta :pass
+KERNEL-FIXTURE :normalize-opaque :pass
+KERNEL-FIXTURE :normalize-delta :pass
+KERNEL-FIXTURE :beta-eq-true :pass
+KERNEL-FIXTURE :beta-eq-false :pass
+KERNEL-FIXTURE :beta-eq-three-arity :pass
+KERNEL-FIXTURE :typing-type :pass
+KERNEL-FIXTURE :typing-lambda :pass
+KERNEL-FIXTURE :typing-unknown :pass
+KERNEL-FIXTURE :typing-kind :pass
+KERNEL-FIXTURE :typing-ascription :recorded-upstream-failure
+KERNEL-FIXTURE :type-of-valid :pass
+KERNEL-FIXTURE :type-of-context :pass
+KERNEL-FIXTURE :type-of-invalid :pass
+KERNEL-FIXTURE :type-check-valid :pass
+KERNEL-FIXTURE :type-check-wrong :pass
+KERNEL-FIXTURE :type-check-unbound :pass
+KERNEL-FIXTURE :compile-proof :pass
+KERNEL-FIXTURE :compile-assume :pass
+KERNEL-FIXTURE :compile-malformed :recorded-upstream-failure
+KERNEL-FIXTURE :compile-unknown :pass
+KERNEL-FIXTURE :opacity-context-proof :pass
+KERNEL-FIXTURE :opacity-context-refusal :pass
+KERNEL-FIXTURE :elab-accepted :pass
+KERNEL-FIXTURE :elab-rejected :pass
+KERNEL-FIXTURE :elab-incomplete :pass
+KERNEL-FIXTURE :elab-after-qed :recorded-deviation
+KERNEL-FIXTURE :check-accepted :pass
+KERNEL-FIXTURE :check-assume-have-discharge :pass
+KERNEL-FIXTURE :check-rejected :pass
+KERNEL-FIXTURE :check-incomplete :pass
+KERNEL-FIXTURE :check-after-qed :recorded-deviation
+KERNEL-FIXTURE :h3-2-elab-inferred-anonymous :pass
+KERNEL-FIXTURE :h3-2-elab-discharge-states :pass
+KERNEL-FIXTURE :h3-2-have-duplicate :pass
+KERNEL-FIXTURE :h3-2-declare-invalid :pass
+KERNEL-FIXTURE :h3-2-have-mismatched-type :pass
+KERNEL-FIXTURE :h3-2-discharge-incorrect :pass
+KERNEL-FIXTURE :h3-2-discharge-empty-context :pass
+KERNEL-FIXTURE :implicit-typed-closure :pass
+KERNEL-FIXTURE :implicit-throwing-closure :pass
+KERNEL-FIXTURE :parse-to-normalize-to-type :pass
+KERNEL-FIXTURE :unparser-guest-closure :pass
+KERNEL-FIXTURE :constructor-mkenv :pass
+KERNEL-FIXTURE :constructor-mkenv-empty :pass
+KERNEL-FIXTURE :entry-beta-red :pass
+KERNEL-FIXTURE :entry-beta-red-refusal :pass
+KERNEL-FIXTURE :entry-delta-normalize :pass
+KERNEL-FIXTURE :entry-delta-normalize-refusal :pass
+KERNEL-FIXTURE :entry-delta-local :pass
+KERNEL-FIXTURE :entry-delta-local-global :pass
+KERNEL-FIXTURE :entry-delta-local-missing :pass
+KERNEL-FIXTURE :entry-delta-local-namespace-shadow :pass
+KERNEL-FIXTURE :predicate-exists :pass
+KERNEL-FIXTURE :predicate-exists-ascii :pass
+KERNEL-FIXTURE :predicate-exists-refusal :pass
+KERNEL-FIXTURE :display-deftype :pass
+KERNEL-FIXTURE :display-deftype-axiom :pass
+KERNEL-FIXTURE :display-deftype-theorem :pass
+KERNEL-FIXTURE :display-deftype-implicit :pass
+KERNEL-FIXTURE :display-deftype-unknown :pass
+KERNEL-FIXTURE :syntax-appify :pass
+KERNEL-FIXTURE :syntax-appify-empty :pass
+KERNEL-FIXTURE :syntax-term :pass
+KERNEL-FIXTURE :syntax-term-refusal :pass
+KERNEL-FIXTURE :syntax-bound-vars :pass
+KERNEL-FIXTURE :syntax-bound-vars-free :pass
+KERNEL-FIXTURE :proper-type-one :pass
+KERNEL-FIXTURE :proper-type-one-refusal :pass
+KERNEL-FIXTURE :proper-type-two :pass
+KERNEL-FIXTURE :proper-type-two-refusal :pass
+KERNEL-FIXTURE :proper-type-three :pass
+KERNEL-FIXTURE :proper-type-three-refusal :pass
+KERNEL-FIXTURE :product-unparser :pass
+KERNEL-FIXTURE :product-unparser-dependent :pass
+KERNEL-FIXTURE :product-unparser-nonproduct :pass
+KERNEL-FIXTURE :fundamental-install-use :pass
+KERNEL-FIXTURE :predicate-pair :pass
+KERNEL-FIXTURE :predicate-pair-refusal :pass
+KERNEL-FIXTURE :predicate-vectorn :pass
+KERNEL-FIXTURE :predicate-vectorn-refusal :pass
+KERNEL-FIXTURE :lookup-safe-get :pass
+KERNEL-FIXTURE :lookup-safe-get-missing :pass
+KERNEL-FIXTURE :lookup-safe-get-false :pass
+KERNEL-FIXTURE :lookup-safe-get-nil :pass
+KERNEL-FIXTURE :removal-vremove :pass
+KERNEL-FIXTURE :removal-vremove-none :pass
+KERNEL-FIXTURE :removal-vremove-refusal :pass
+KERNEL-FIXTURE :unfold-install-use :pass
+KERNEL-FIXTURE :unfold-install-refusal :pass
+KERNEL-FIXTURE :opacity-install-use :pass
+KERNEL-FIXTURE :opacity-install-refusal :pass
+KERNEL-FIXTURE :h3-3-axiom-true :pass
+KERNEL-FIXTURE :h3-3-registered-definition-ambient :pass
+KERNEL-FIXTURE :h3-3-nbe-evaluation-one :pass
+KERNEL-FIXTURE :h3-3-nbe-evaluation-var :pass
+KERNEL-FIXTURE :h3-3-nbe-instantiate-def :pass
+KERNEL-FIXTURE :h3-3-redex-true :pass
+KERNEL-FIXTURE :h3-3-beta-reduction :pass
+KERNEL-FIXTURE :h3-3-beta-step-one :pass
+KERNEL-FIXTURE :h3-3-beta-step-binder :pass
+KERNEL-FIXTURE :h3-3-beta-step-no-redex :pass
+KERNEL-FIXTURE :h3-3-beta-step-two :pass
+KERNEL-FIXTURE :h3-3-beta-step-args :pass
+KERNEL-FIXTURE :h3-3-norm-instantiate-def :pass
+KERNEL-FIXTURE :h3-3-norm-instantiate-def-partial :pass
+KERNEL-FIXTURE :h3-3-delta-step-four-local :pass
+KERNEL-FIXTURE :h3-3-delta-step-four-global :pass
+KERNEL-FIXTURE :h3-3-delta-step-args :pass
+KERNEL-FIXTURE :h3-3-parse-one :pass
+KERNEL-FIXTURE :h3-3-binderify :pass
+KERNEL-FIXTURE :h3-3-binderify-empty :pass
+KERNEL-FIXTURE :h3-3-mk-fresh-two :pass
+KERNEL-FIXTURE :h3-3-mk-fresh-two-empty :pass
+KERNEL-FIXTURE :h3-3-mk-fresh-three :pass
+KERNEL-FIXTURE :h3-3-mk-fresh-three-level-zero :pass
+KERNEL-FIXTURE :h3-3-readable-term :pass
+KERNEL-FIXTURE :h3-3-readable-term-var :pass
+KERNEL-FIXTURE :h3-3-readable-term-2 :pass
+KERNEL-FIXTURE :h3-3-readable-term-3 :pass
+KERNEL-FIXTURE :h3-3-unregister-unparser :pass
+KERNEL-FIXTURE :h3-3-axiom-definition :pass
+KERNEL-FIXTURE :h3-3-axiom-map :pass
+KERNEL-FIXTURE :h3-3-registered-definition-nonsymbol :pass
+KERNEL-FIXTURE :h3-3-nbe-evaluation-missing :pass
+KERNEL-FIXTURE :h3-3-nbe-instantiate-def-too-many :pass
+KERNEL-FIXTURE :h3-3-redex-application :pass
+KERNEL-FIXTURE :h3-3-redex-variable :pass
+KERNEL-FIXTURE :h3-3-beta-reduction-nonredex :pass
+KERNEL-FIXTURE :h3-3-norm-instantiate-def-too-many :pass
+KERNEL-FIXTURE :h3-3-delta-step-missing :pass
+KERNEL-FIXTURE :h3-3-parse-one-empty :pass
+KERNEL-FIXTURE :h3-3-parse-one-reserved :pass
+KERNEL-FIXTURE :h3-3-unregister-unparser-absent :pass
+KERNEL-GATE {:gate-status :pass, :counts {:pass 151, :recorded-upstream-failure 2, :recorded-deviation 2}, :fixture-count 155, :manifest-bindings 155, :function-arity-candidates 175, :recorded-portability-boundaries [{:id :elab-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :elab-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}} {:id :check-after-qed, :status :recorded-deviation, :recorded-deviation {:boundary :nonportable-host-value, :upstream-value clojure.core/meta, :evidence {:file "slice9_evidence.edn", :fixture-id :check-after-qed, :path [:a :outcome :thrown :data :meta]}, :reason "Upstream embeds a host function in error data; the guest carries its closure. No agreement is claimed."}}], :recorded-upstream-failures [{:id :typing-ascription, :status :recorded-upstream-failure, :recorded-upstream-failure {:boundary :upstream-unbound-definition, :reason "Pinned upstream declares type-of-ascribe without a definition; B/C explicitly refuse that branch.", :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279", :evidence {:file "slice9_evidence.edn", :fixture-id :typing-ascription, :paths [[:a] [:b] [:c-walker] [:c-semantic]]}}} {:id :compile-malformed, :status :recorded-upstream-failure, :recorded-upstream-failure {:boundary :upstream-malformed-proof-sequence, :reason "Scalar proof step raises a native sequence exception upstream and a portable sequence refusal in C; no agreement is claimed.", :upstream-revision "86fca0d1d054af005cb37395eae04500d45e6279", :evidence {:file "slice9_evidence.edn", :fixture-id :compile-malformed, :paths [[:a] [:b] [:c-walker] [:c-semantic]]}}}]}
+KERNEL-RECORDED-UPSTREAM-FAILURE {:id :typing-ascription, :status :recorded-upstream-failure, :blocked-by nil, :a :blocked, :b :completed, :c-walker :completed, :c-semantic :completed}
+KERNEL-RECORDED-UPSTREAM-FAILURE {:id :compile-malformed, :status :recorded-upstream-failure, :blocked-by nil, :a :blocked, :b :blocked, :c-walker :completed, :c-semantic :completed}
+KERNEL-RECORDED-BOUNDARY {:id :elab-after-qed, :status :recorded-deviation, :blocked-by nil, :a :completed, :b :completed, :c-walker :completed, :c-semantic :completed}
+KERNEL-RECORDED-BOUNDARY {:id :check-after-qed, :status :recorded-deviation, :blocked-by nil, :a :completed, :b :completed, :c-walker :completed, :c-semantic :completed}
+ORACLE latte-kernel.defenv/mkenv A= [[] {}] C= {:status :ok, :value [[] {}]}
+ORACLE latte-kernel.utils/vectorn? A= true C= {:status :ok, :value true}
+
+Testing yang.php.antlr.builtin-surfaces-test
+
+Testing yang.php.antlr.class-model-test
+
+Testing yang.php.antlr.cst-test
+
+Testing yang.php.antlr.e2e-test
+php-src quick selection: 271 entries; pass 119 unsupported 48 fail 104
+
+Testing yang.php.antlr.eval-admission-test
+
+Testing yang.php.antlr.eval-bridge-test
+
+Testing yang.php.antlr.eval-coordinator-test
+
+Testing yang.php.antlr.eval-emitter-test
+
+Testing yang.php.antlr.eval-publication-test
+
+Testing yang.php.antlr.eval-scope-cleanup-test
+
+Testing yang.php.antlr.eval-service-test
+
+Testing yang.php.antlr.eval-transport-test
+
+Testing yang.php.antlr.exceptions-test
+
+Testing yang.php.antlr.finalization-test
+
+Testing yang.php.antlr.generators-test
+
+Testing yang.php.antlr.include-test
+
+Testing yang.php.antlr.legacy-corpus-test
+
+Testing yang.php.antlr.lower-portable-test
+
+Testing yang.php.antlr.objects-test
+
+Testing yang.php.antlr.p5b2-lifecycle-test
+
+Testing yang.php.antlr.prelude-test
+
+Testing yang.php.antlr.request-context-test
+
+Testing yang.php.antlr.safepoint-test
+
+Testing yang.php.antlr.scope-test
+
+Testing yang.php.antlr.siteset-test
+
+Testing yang.php.antlr.ticks-test
+
+Testing yang.php.antlr.zz-probe2-test
+ htmlDocument
+   phpBlock
+     topStatement
+       statement
+         expressionStatement
+           expression
+             constant
+               qualifiedNamespaceName
+                 Namespace "namespace"
+                 namespaceNameList
+                   identifier
+                     Label "A"
+           SemiColon ";"
+     topStatement
+       useDeclaration
+         Use "use"
+         useDeclarationContentList
+           useDeclarationContent
+             namespaceNameList
+               identifier
+                 Label "B"
+               NamespaceSeparator "\\"
+               namespaceNameTail
+                 identifier
+                   Label "C"
+                 As "as"
+                 identifier
+                   Label "D"
+         SemiColon ";"
+     topStatement
+       statement
+         echoStatement
+           Echo "echo"
+           expressionList
+             expression
+               constant
+                 literalConstant
+                   numericConstant
+                     Decimal "1"
+           SemiColon ";"
+   EOF "<EOF>"
+== :ns-class-not-found OK
+== :ns-undefined-function OK
+== :ns-undefined-constant OK
+== :ns-function-global-fallback OK
+== :ns-builtin-constant-global-fallback OK
+== :ns-instanceof-across-units DIFF
+   expected: ["bool(true)\n" [] nil] nil
+   actual:   [[:semantic ["" [[2 "include(lib/c.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/c.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"L\\C\" not found"}]] [:stack ["" [[2 "include(lib/c.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/c.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"L\\C\" not found"}]] [:register ["" [[2 "include(lib/c.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/c.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"L\\C\" not found"}]]]
+== :ns-use-class-alias DIFF
+   expected: ["7sL\\Cy" [] nil] nil
+   actual:   [[:semantic ["" [[2 "include(lib/c.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/c.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"L\\C\" not found"}]] [:stack ["" [[2 "include(lib/c.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/c.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"L\\C\" not found"}]] [:register ["" [[2 "include(lib/c.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/c.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"L\\C\" not found"}]]]
+== :ns-function-and-magic OK
+== :ns-braced-blocks OK
+== :ns-use-function-const DIFF
+   expected: ["gk" [] nil] nil
+   actual:   [[:semantic ["" [[2 "include(lib/u.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/u.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function U\\g()"}]] [:stack ["" [[2 "include(lib/u.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/u.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function U\\g()"}]] [:register ["" [[2 "include(lib/u.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/u.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function U\\g()"}]]]
+== :ns-use-const-alias DIFF
+   expected: ["[b-eol]" [] nil] nil
+   actual:   [[:semantic ["" [[2 "include(lib/b.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/b.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Undefined constant \"B\\PHP_EOL\""}]] [:stack ["" [[2 "include(lib/b.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/b.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Undefined constant \"B\\PHP_EOL\""}]] [:register ["" [[2 "include(lib/b.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/b.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Undefined constant \"B\\PHP_EOL\""}]]]
+== :ns-shadows-global-function OK
+== :ns-grouped-use OK
+
+Testing yang.php.antlr.zz-probe3-test
+ htmlDocument
+   phpBlock
+     topStatement
+       statement
+         expressionStatement
+           expression
+             constant
+               qualifiedNamespaceName
+                 Namespace "namespace"
+                 namespaceNameList
+                   identifier
+                     Label "A"
+           SemiColon ";"
+     topStatement
+       useDeclaration
+         Use "use"
+         useDeclarationContentList
+           useDeclarationContent
+             namespaceNameList
+               identifier
+                 Label "B"
+               NamespaceSeparator "\\"
+               namespaceNameTail
+                 identifier
+                   Label "C"
+                 As "as"
+                 identifier
+                   Label "D"
+         SemiColon ";"
+     topStatement
+       statement
+         echoStatement
+           Echo "echo"
+           expressionList
+             expression
+               constant
+                 literalConstant
+                   numericConstant
+                     Decimal "1"
+           SemiColon ";"
+   EOF "<EOF>"
+== :auto-loader-requires-computed-path DIFF
+   expected: ["Foo" [] nil] nil
+   actual:   [[:semantic ["" [[2 "require(lib/Foo.php): Failed to open stream: No such file or directory"]] {:class "Error", :message "Failed opening required 'lib/Foo.php' (include_path='.:/usr/local/lib/php')"}]] [:stack ["" [[2 "require(lib/Foo.php): Failed to open stream: No such file or directory"]] {:class "Error", :message "Failed opening required 'lib/Foo.php' (include_path='.:/usr/local/lib/php')"}]] [:register ["" [[2 "require(lib/Foo.php): Failed to open stream: No such file or directory"]] {:class "Error", :message "Failed opening required 'lib/Foo.php' (include_path='.:/usr/local/lib/php')"}]]]
+== :auto-classmap-loader DIFF
+   expected: ["foo" [] nil] nil
+   actual:   "Module link refused: missing-site-set {:status :refused, :reason :yang.php.antlr/missing-site-set, :manifest :segment/blake3-61c8284d5abb7deaff5096de3c8be11036389d88853bc373826b60476ccf16ba, :name phpm.$classmap, :yin.link/canonical :segment/blake3-61c8284d5abb7deaff5096de3c8be11036389d88853bc373826b60476ccf16ba, :yin.link/id [:t0 192], :link-module phpm.$classmap}"
+== :auto-classmap-unmapped DIFF
+   expected: ["Error" [[2 "require(lib/Bar.php): Failed to open stream: No such file or directory"]] nil] nil
+   actual:   "Module link refused: missing-site-set {:status :refused, :reason :yang.php.antlr/missing-site-set, :manifest :segment/blake3-ea98b522acf1245023fdbe6ed6c157bdccb892dd3659671447d78684e8302085, :name phpm.$classmap, :yin.link/canonical :segment/blake3-ea98b522acf1245023fdbe6ed6c157bdccb892dd3659671447d78684e8302085, :yin.link/id [:t0 192], :link-module phpm.$classmap}"
+== :auto-class-exists-without-autoload OK
+== :auto-unregister OK
+== :auto-recursion-guard OK
+== :auto-extends-loads-parent DIFF
+   expected: ["B" [] nil] nil
+   actual:   [[:semantic ["" [[2 "include(lib/B.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/B.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"B\" not found"}]] [:stack ["" [[2 "include(lib/B.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/B.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"B\" not found"}]] [:register ["" [[2 "include(lib/B.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/B.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"B\" not found"}]]]
+== :auto-static-call-loads DIFF
+   expected: ["S" [] nil] nil
+   actual:   [[:semantic ["" [[2 "include(lib/S.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/S.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"S\" not found"}]] [:stack ["" [[2 "include(lib/S.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/S.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"S\" not found"}]] [:register ["" [[2 "include(lib/S.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'lib/S.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Class \"S\" not found"}]]]
+== :auto-instanceof-does-not-load OK
+== :auto-loader-order OK
+
+Testing yang.php.antlr.zz-probe-test
+ htmlDocument
+   phpBlock
+     topStatement
+       statement
+         expressionStatement
+           expression
+             constant
+               qualifiedNamespaceName
+                 Namespace "namespace"
+                 namespaceNameList
+                   identifier
+                     Label "A"
+           SemiColon ";"
+     topStatement
+       useDeclaration
+         Use "use"
+         useDeclarationContentList
+           useDeclarationContent
+             namespaceNameList
+               identifier
+                 Label "B"
+               NamespaceSeparator "\\"
+               namespaceNameTail
+                 identifier
+                   Label "C"
+                 As "as"
+                 identifier
+                   Label "D"
+         SemiColon ";"
+     topStatement
+       statement
+         echoStatement
+           Echo "echo"
+           expressionList
+             expression
+               constant
+                 literalConstant
+                   numericConstant
+                     Decimal "1"
+           SemiColon ";"
+   EOF "<EOF>"
+== :miss-include OK
+== :miss-include-once OK
+== :miss-require OK
+== :miss-require-once OK
+== :miss-not-marked-probe OK
+== :strict-caller-strict-callee-coercive DIFF
+   expected: ["TE" [] nil] nil
+   actual:   [[:semantic ["" [[2 "include(f.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'f.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function f()"}]] [:stack ["" [[2 "include(f.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'f.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function f()"}]] [:register ["" [[2 "include(f.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'f.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function f()"}]]]
+== :strict-caller-coercive-callee-strict DIFF
+   expected: ["5" [] nil] nil
+   actual:   [[:semantic ["" [[2 "include(f.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'f.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function f()"}]] [:stack ["" [[2 "include(f.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'f.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function f()"}]] [:register ["" [[2 "include(f.php): Failed to open stream: No such file or directory"] [2 "include(): Failed opening 'f.php' for inclusion (include_path='.:/usr/local/lib/php')"]] {:class "Error", :message "Call to undefined function f()"}]]]
+
+Testing yang.python.antlr.c3-gate-parser-test
+
+Testing yang.python.antlr.c3-gate-test
+
+Testing yang.python.antlr.call-entry-test
+
+Testing yang.python.antlr.cst-export-test
+
+Testing yang.python.antlr.dht-import-test
+
+Testing yang.python.antlr.e2e-c2-test
+
+Testing yang.python.antlr.e2e-test
+
+Testing yang.python.antlr.float-address-test
+
+Testing yang.python.antlr.float-text-test
+
+Testing yang.python.antlr.import-test
+
+Testing yang.python.antlr.int-contract-test
+SKIP cpython-recomputes-the-pinned-columns: python3 is not CPython 3.9.6 here (exit 0 version "3.12.3"  ); the CPython pins were NOT rechecked
+
+Testing yang.python.antlr.int-conv-test
+
+Testing yang.python.antlr.int-heap-test
+
+Testing yang.python.antlr.int-literal-test
+
+Testing yang.python.antlr.int-ops-test
+
+Testing yang.python.antlr.linked-prelude-test
+
+Testing yang.python.antlr.linked-safepoint-test
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yang.python.antlr.lower-test
+
+Testing yang.python.antlr.oracle-parity-test
+RECORD j2b {:valid true, :strict true, :address "c5de46fd8b401de7c1c418cdef7948b76e824295dc380c0f385153dfc5e36329", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :arith-add, :oracle-address "c5de46fd8b401de7c1c418cdef7948b76e824295dc380c0f385153dfc5e36329", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "3b55f88f8544fcdd534522c65538d36338eaa4c9fb94a9b94f1b8637ce70d23a", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :arith-assign, :oracle-address "3b55f88f8544fcdd534522c65538d36338eaa4c9fb94a9b94f1b8637ce70d23a", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "d28411656ac74e71e11cfe538c9067c2ad6f859be4f852095da497d41055abff", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :arith-mixed, :oracle-address "d28411656ac74e71e11cfe538c9067c2ad6f859be4f852095da497d41055abff", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "d7d07894ae72cd31036e4454c580047e99816bb229a84f177fe89a548f6816bf", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :arith-int64-max, :oracle-address "d7d07894ae72cd31036e4454c580047e99816bb229a84f177fe89a548f6816bf", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "7b703bd97dda5728a077e1e61dbe67414e017c87f323a8db57d6e8705c63337f", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :arith-compare-bool, :oracle-address "7b703bd97dda5728a077e1e61dbe67414e017c87f323a8db57d6e8705c63337f", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "4e551cf958637735aad0b79ca64c9414662995eae1d5ca961de262bd9b53dbc7", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :call-and-literals, :oracle-address "4e551cf958637735aad0b79ca64c9414662995eae1d5ca961de262bd9b53dbc7", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "98944c3e5042b1b028e9f9994ed1d87758400bd04cb187c4bc8bac38e2743bfa", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-one, :oracle-address "98944c3e5042b1b028e9f9994ed1d87758400bd04cb187c4bc8bac38e2743bfa", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "7cc769ea456f406caa65d656b02d63130ee57389e9613ace58a9da7849d54f7f", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-nested, :oracle-address "7cc769ea456f406caa65d656b02d63130ee57389e9613ace58a9da7849d54f7f", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "cb4709cd38580913b55ca2348f2d30701d65c73e5dc07ed6e570f8b2bd743649", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-double-dedent-eof, :oracle-address "cb4709cd38580913b55ca2348f2d30701d65c73e5dc07ed6e570f8b2bd743649", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "7d29fc7075711bd2ce3140fb4150f1f9e1044bb3da7865a928269ff394cf8a19", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-tab, :oracle-address "7d29fc7075711bd2ce3140fb4150f1f9e1044bb3da7865a928269ff394cf8a19", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "f0f7cdb14b0649e5d0316543de94491200f46fe3b5795802c9311649cf47954e", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-blank-and-comment-lines, :oracle-address "f0f7cdb14b0649e5d0316543de94491200f46fe3b5795802c9311649cf47954e", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "43f8684287153fb76ef4e631937f90cfe95dcc8c37b1c796874268d5d1aa8653", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-mixed-tab, :oracle-address "43f8684287153fb76ef4e631937f90cfe95dcc8c37b1c796874268d5d1aa8653", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "df982a82a346db8f61881cd1236a669547033dd5e5803009e4c6d40b7773cbcd", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-formfeed, :oracle-address "df982a82a346db8f61881cd1236a669547033dd5e5803009e4c6d40b7773cbcd", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "472c15e8a2496310f0ae4d6ffa5762bcd0ec279593374625fd07d12ece05bd94", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-nbsp, :oracle-address "472c15e8a2496310f0ae4d6ffa5762bcd0ec279593374625fd07d12ece05bd94", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "9714855cdfd2da2799534d3fb42409e4353e3e8d7a4bf5e9334d308db8cda3c1", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :indent-nonascii-first-token, :oracle-address "9714855cdfd2da2799534d3fb42409e4353e3e8d7a4bf5e9334d308db8cda3c1", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "ff5834b5eb46a43384f14a9f4912ec12855b61da5a7b3f095afe6139e179ceef", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :dedent-at-eof-no-newline, :oracle-address "ff5834b5eb46a43384f14a9f4912ec12855b61da5a7b3f095afe6139e179ceef", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "eea0f82fe24fd5f3102a3e4069c582a00d43c47cac156e642c84e5d6046f8b6d", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :dedent-at-eof-comment, :oracle-address "eea0f82fe24fd5f3102a3e4069c582a00d43c47cac156e642c84e5d6046f8b6d", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "e2e8f5faecdebf4ce1eabea21b4032597a0f88e7701c9cb7f90cf78086cfd91c", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :empty, :oracle-address "e2e8f5faecdebf4ce1eabea21b4032597a0f88e7701c9cb7f90cf78086cfd91c", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "f1a30bbe8a293378442dbc260b51d2d1f012707e649a087d218d6d5642c822ee", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :only-newline, :oracle-address "f1a30bbe8a293378442dbc260b51d2d1f012707e649a087d218d6d5642c822ee", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "4d33989c090f19d16b94ff68ace439dd7efe3e86053d5242248378754b85d603", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :only-comment, :oracle-address "4d33989c090f19d16b94ff68ace439dd7efe3e86053d5242248378754b85d603", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "deb3d8e0d1383245d5662e76b71d4c88c4933a3f955a0ed27930ca401d1826db", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :blank-lines, :oracle-address "deb3d8e0d1383245d5662e76b71d4c88c4933a3f955a0ed27930ca401d1826db", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "080e7e3a9e839069818179ad9573b50fcefab284d02dfe2d1f520d0178cf9570", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :missing-final-newline, :oracle-address "080e7e3a9e839069818179ad9573b50fcefab284d02dfe2d1f520d0178cf9570", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "3a3247017d887c0922987668bc9e0ec4a1aa4743c2ee0968a86c98233b646538", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :nonascii-string, :oracle-address "3a3247017d887c0922987668bc9e0ec4a1aa4743c2ee0968a86c98233b646538", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "31f97e3b99933e84e02bcdb4d1c4ac98ac387ec49cd47c2b7f5578a566a04664", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :nonascii-identifier, :oracle-address "31f97e3b99933e84e02bcdb4d1c4ac98ac387ec49cd47c2b7f5578a566a04664", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "b08248020d6f71a41af1c03e6edd6a8c1529603bcab4b70b79efb923b382ba10", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :astral-comment, :oracle-address "b08248020d6f71a41af1c03e6edd6a8c1529603bcab4b70b79efb923b382ba10", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "11083061dcafdef2d5a03da64dca9c3f2de6745cf29564534a46c9a7f62943d4", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :nonascii-under-indent, :oracle-address "11083061dcafdef2d5a03da64dca9c3f2de6745cf29564534a46c9a7f62943d4", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "45d7b2523c4570708178b612247422977b39d15d3e54f4632f58178abb7ca4e1", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :astral-before-error, :oracle-address "45d7b2523c4570708178b612247422977b39d15d3e54f4632f58178abb7ca4e1", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "f67fc2247307db4e2634810a1daf10b8f6c3fbd7be6212988751ae19a540892d", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-trailing-op, :oracle-address "f67fc2247307db4e2634810a1daf10b8f6c3fbd7be6212988751ae19a540892d", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "c92a2940f7456dfd4f372e0453d43dadab5dd4d2bc09878f0ffb581b95230392", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-def, :oracle-address "c92a2940f7456dfd4f372e0453d43dadab5dd4d2bc09878f0ffb581b95230392", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "8f6de9ce11a4a433883dd9c48c8d98f8f333cf9d19e3ea6dd4a5ea5415c90c8c", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-lexer, :oracle-address "8f6de9ce11a4a433883dd9c48c8d98f8f333cf9d19e3ea6dd4a5ea5415c90c8c", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "e6bba42dd0e5a82cd3fd01b5d21e0b2b9e1ca731a3882434483aad9c2ce980ca", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-unexpected-indent, :oracle-address "e6bba42dd0e5a82cd3fd01b5d21e0b2b9e1ca731a3882434483aad9c2ce980ca", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "664bd4fb4c9c17603ca70758084a5a1ba591437ebe76b797c2b4fa5f847ff984", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-missing-indent, :oracle-address "664bd4fb4c9c17603ca70758084a5a1ba591437ebe76b797c2b4fa5f847ff984", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "1efacbe229a666157f4a831dc0518f110f25e2e8b3f910179f38595dc30e3df2", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-unexpected-newline, :oracle-address "1efacbe229a666157f4a831dc0518f110f25e2e8b3f910179f38595dc30e3df2", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "e4ab8dc3b07184ef371e81d02a162c74b26ae2e4bf4ccb25bb34efcedf07d8e0", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-unexpected-dedent, :oracle-address "e4ab8dc3b07184ef371e81d02a162c74b26ae2e4bf4ccb25bb34efcedf07d8e0", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "0080f261579ca4b5f95b8e85f0cdcc9d2cfbc0623b46facb8339c9e6069c33f1", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-closer, :oracle-address "0080f261579ca4b5f95b8e85f0cdcc9d2cfbc0623b46facb8339c9e6069c33f1", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "f38b9f65d220d5d97d3382c66b3573db2b6e630768eef19c95dfbf2ce5843cde", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :malformed-mismatched, :oracle-address "f38b9f65d220d5d97d3382c66b3573db2b6e630768eef19c95dfbf2ce5843cde", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "ca1e8e7c22644e4e3ceb9253a664b781d3e3668d96d16b6982890926288512d2", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :incomplete-def-header, :oracle-address "ca1e8e7c22644e4e3ceb9253a664b781d3e3668d96d16b6982890926288512d2", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "ec56b2a6a4b9bf2f3bd28dc350a0bfef89127728508a7f8d133964cfb2492c82", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :incomplete-block-open, :oracle-address "ec56b2a6a4b9bf2f3bd28dc350a0bfef89127728508a7f8d133964cfb2492c82", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "8ce46c20af8ffd5970a340cbcd96b6bc67e26893062ba00b79adeee1810611cb", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :incomplete-decorator, :oracle-address "8ce46c20af8ffd5970a340cbcd96b6bc67e26893062ba00b79adeee1810611cb", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "038cdddb61f33c6df32b9f433e374f52071bf07a1eef9f25afcb9c1e1dcfc145", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :incomplete-continuation, :oracle-address "038cdddb61f33c6df32b9f433e374f52071bf07a1eef9f25afcb9c1e1dcfc145", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "3309b006f5ca42ae7a7f3f9c5abbfef0589fbb583694cfd8fd1dbe2b1c419391", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :triple-closed, :oracle-address "3309b006f5ca42ae7a7f3f9c5abbfef0589fbb583694cfd8fd1dbe2b1c419391", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "a2768a28c12f4c95653f4fe5d4e2146595cf11acffef597f674b45ce5867fc5c", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :triple-closed-dq, :oracle-address "a2768a28c12f4c95653f4fe5d4e2146595cf11acffef597f674b45ce5867fc5c", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "babdababd2258653a3fb4e3435e7753bda5d13b70a1df6a338a1f81579b6fe60", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :triple-open, :oracle-address "babdababd2258653a3fb4e3435e7753bda5d13b70a1df6a338a1f81579b6fe60", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "1d8ebcec2fd55ebdefb996dbae1d9006a9607166617279e5c2d493a6bf57c56f", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :triple-open-in-block, :oracle-address "1d8ebcec2fd55ebdefb996dbae1d9006a9607166617279e5c2d493a6bf57c56f", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "929238b6a241ec35fe68e871ec4534250a40e91183d79eaf2abc9bc315b809d2", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :bracket-list-open, :oracle-address "929238b6a241ec35fe68e871ec4534250a40e91183d79eaf2abc9bc315b809d2", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "63b7d3bcc7b9b1ce25fca983fcfda85e26d3e5f00e07728314d6530123890496", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :bracket-call-open, :oracle-address "63b7d3bcc7b9b1ce25fca983fcfda85e26d3e5f00e07728314d6530123890496", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "6dfa3358632f1909ba0ef2d73f2d0d7666703ae8dbc242f21b34c1ac00d1cb4e", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :bracket-dict-open, :oracle-address "6dfa3358632f1909ba0ef2d73f2d0d7666703ae8dbc242f21b34c1ac00d1cb4e", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "c395687edab28bbd80f9d779305717db83430a54aa68dac81936d7109cef95f2", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :bracket-closed-multiline, :oracle-address "c395687edab28bbd80f9d779305717db83430a54aa68dac81936d7109cef95f2", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "677811c0d17401dfb4ecacb203aa617fccb5f68247f8b59a08d800cff9034712", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :early-under-bracket, :oracle-address "677811c0d17401dfb4ecacb203aa617fccb5f68247f8b59a08d800cff9034712", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "46861e49de36de3f006acc94a6f06bd1d3073b8621ec2ea7c5ca7d30ec07185e", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :early-under-call, :oracle-address "46861e49de36de3f006acc94a6f06bd1d3073b8621ec2ea7c5ca7d30ec07185e", :code-points :n/a}
+RECORD j2b {:valid true, :strict true, :address "21d9dc1d622012f82017cdb21eaaf42d9429fd17b7920bd2f6a0d5a4841a1ff8", :e1 [], :first-failure :same, :corpus :parser, :host :jvm, :id :early-star-under-paren, :oracle-address "21d9dc1d622012f82017cdb21eaaf42d9429fd17b7920bd2f6a0d5a4841a1ff8", :code-points :n/a}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :arith-add, :lowered {:address "445a6447bde2cc80e8e87cad13248602dbc95ebbd2375fa029bed283e8ec2560"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :arith-assign, :lowered {:address "1a6b67979556093baa479d0082984e30197377435cc4416287731496ba8987bf"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :arith-mixed, :lowered {:address "a48c4d89d73b519bd1dbd57c8e88401e91db321ad2f3741c5c21cd4098f430e1"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :arith-int64-max, :lowered {:refused {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported, :rule "atom", :construct "decimal integer literal beyond 2^53 - 1 with no digit budget declared", :span [4 23]}}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :arith-compare-bool, :lowered {:address "ac60a20549f142e5f3279f0af3650fdeff4811327b238b55788c63fe4f91bb55"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :call-and-literals, :lowered {:address "3614df4c8b420871a424f506752488cd74465a6b9d38b703f7d8813e040088b3"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :indent-one, :lowered {:address "fcf237016fe54117245f9d442d3c5ddc420f65882ca1d3b13249b784c4b2e512"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :indent-nested, :lowered {:address "da5cd8bdf669c4f568e29e82a2ba9396789a7796cc49772fe97e13afdcb0f7a4"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :indent-double-dedent-eof, :lowered {:address "5905579b20fd517b97b6ae4eb12a1fa91e40cc09e57eca1f927f705a123be684"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :indent-tab, :lowered {:address "d252cb4c7689651a23d9c1049edfee22c85c304934579abd3fac60fb733588ad"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :indent-blank-and-comment-lines, :lowered {:address "fcf237016fe54117245f9d442d3c5ddc420f65882ca1d3b13249b784c4b2e512"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :indent-mixed-tab, :lowered {:address "d673429f312728c6ff8b2799879a44d842b692635fad159f580b526e3bf67819"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :indent-formfeed, :lowered {:address "d252cb4c7689651a23d9c1049edfee22c85c304934579abd3fac60fb733588ad"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :indent-nonascii-first-token, :lowered {:address "1628b130dd18ae469601f574144c5f41f70525a5d6440ab3d60f39e2593731b4"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :dedent-at-eof-no-newline, :lowered {:address "d252cb4c7689651a23d9c1049edfee22c85c304934579abd3fac60fb733588ad"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :dedent-at-eof-comment, :lowered {:address "d252cb4c7689651a23d9c1049edfee22c85c304934579abd3fac60fb733588ad"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :empty, :lowered {:address "ae2e3e80606c76c15d59b090f151694f52642e5aa6fe0176c6e8dcb80e6235ea"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :only-newline, :lowered {:address "ae2e3e80606c76c15d59b090f151694f52642e5aa6fe0176c6e8dcb80e6235ea"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :only-comment, :lowered {:address "ae2e3e80606c76c15d59b090f151694f52642e5aa6fe0176c6e8dcb80e6235ea"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :nonascii-string, :lowered {:address "2365ae1e63e3296f8a2ea22068203ba88db59f913e1692a14d739d399e1e49d5"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :nonascii-identifier, :lowered {:address "b4b0023c5ea6eb8e5fff261f91e76601177f6f761d4122e40f95fea03b1bfac9"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :astral-comment, :lowered {:address "272cd0b76b6d5937381ef0f313051e5dd5fedb9f209d539551dd8b8fd161a3a9"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :nonascii-under-indent, :lowered {:address "7cb90864f6f1fb31ff989e727d96382a88afdbd5f5bdedad2eba8c64978cdec4"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :incomplete-block-open, :lowered {:address "1c2431929cfe4b01973425111ce0196fb1ae33101aff94155f992535d4df6d8a"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :triple-closed, :lowered {:address "1996bd35aab78bc567f0cedb7bf5b3aefec03138549b44ef93c56505ab25e9aa"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :triple-closed-dq, :lowered {:address "60d1f440be9a0f192bbd27feb1ed9c65fd7a5793fcd54a443aab9a13e1190d07"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-parser, :id :bracket-closed-multiline, :lowered {:address "842ec4fbdf06eecb23f38ee1ff23cdb8fb33904d7f990f8bee5bb43d40bbf1e3"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-input, :id :nul-in-string, :lowered {:address "9f9d1eb7ec96060a3abafa2f398dfaf643aed773ff938b0ec49108b6d8056aad"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-input, :id :nul-in-comment, :lowered {:address "1a6b67979556093baa479d0082984e30197377435cc4416287731496ba8987bf"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-input, :id :empty, :lowered {:address "ae2e3e80606c76c15d59b090f151694f52642e5aa6fe0176c6e8dcb80e6235ea"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-input, :id :crlf, :lowered {:address "272cd0b76b6d5937381ef0f313051e5dd5fedb9f209d539551dd8b8fd161a3a9"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-input, :id :lone-cr, :lowered {:address "272cd0b76b6d5937381ef0f313051e5dd5fedb9f209d539551dd8b8fd161a3a9"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-input, :id :replacement-char, :lowered {:address "65ce8d671f1004f37f20121f9a8b1573f6243cc569486e2746e7324385fb7295"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-input, :id :max-code-point, :lowered {:address "bd412a5cdf09bfb7d361a7447ace6cc536c4497d0c30b0aefc12422e81d80927"}, :same-as-oracle-packet true}
+RECORD j2b {:host :jvm, :corpus :lower-input, :id :noncharacter, :lowered {:address "14b8b8f7cd2b48a0a6822715cf1c376ef93cffc78941af1a5df094d0efdbdc60"}, :same-as-oracle-packet true}
+RECORD j2b {:valid true, :strict true, :address "0c3f96e211e537cdde917cae8c52683ad161c54d573309ddc78692878b0a4571", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :nul-in-string, :oracle-address "0c3f96e211e537cdde917cae8c52683ad161c54d573309ddc78692878b0a4571", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "b943fa56bcea44ec0f7cb10cd585e2ded212cf9b808b0e8b3c5d3a999e8a5c19", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :nul-in-comment, :oracle-address "b943fa56bcea44ec0f7cb10cd585e2ded212cf9b808b0e8b3c5d3a999e8a5c19", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "a407ac1a25c5bf400f53a25ae7dc98722877de8fdbd82a4502931bcedda1cd78", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :nul-after-statement, :oracle-address "a407ac1a25c5bf400f53a25ae7dc98722877de8fdbd82a4502931bcedda1cd78", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "d26c7acefc101073fd14b72248502f1d19cdcd311fd6b2159b279ecdd473f7ed", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :nul-only, :oracle-address "d26c7acefc101073fd14b72248502f1d19cdcd311fd6b2159b279ecdd473f7ed", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "1dc75194e59ba7f56c5e8910a6a5eaae2ad2b083f5d91379c2823bbe70a17b55", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :nul-in-indentation, :oracle-address "1dc75194e59ba7f56c5e8910a6a5eaae2ad2b083f5d91379c2823bbe70a17b55", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "e2e8f5faecdebf4ce1eabea21b4032597a0f88e7701c9cb7f90cf78086cfd91c", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :empty, :oracle-address "e2e8f5faecdebf4ce1eabea21b4032597a0f88e7701c9cb7f90cf78086cfd91c", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "e6a6a174e85dabb035eca28c00a91c61af19dd6ee302f695d1f0c9704e37ee51", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :crlf, :oracle-address "e6a6a174e85dabb035eca28c00a91c61af19dd6ee302f695d1f0c9704e37ee51", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "746d998b1590c8b173b9b99125b465f7da42b01765d31e61305ee8b776bf525d", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :lone-cr, :oracle-address "746d998b1590c8b173b9b99125b465f7da42b01765d31e61305ee8b776bf525d", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "0169b798a351b17d075a45e269c880d1315b0668a868fa3119762c686e5ac7ee", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :bom-at-start, :oracle-address "0169b798a351b17d075a45e269c880d1315b0668a868fa3119762c686e5ac7ee", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "b389c525fe0cb3fb603491facefef0c1a90beb9e17de3e533d5ec19e9e1dd573", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :replacement-char, :oracle-address "b389c525fe0cb3fb603491facefef0c1a90beb9e17de3e533d5ec19e9e1dd573", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "65f24967846b24e7d044cf2053db3af0af6e9ca67e7aa9084977277b9569cfef", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :max-code-point, :oracle-address "65f24967846b24e7d044cf2053db3af0af6e9ca67e7aa9084977277b9569cfef", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "df1d8872517f09d61d1ec55e415503fc5d289310c58b52ff3231a0275f83b803", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :noncharacter, :oracle-address "df1d8872517f09d61d1ec55e415503fc5d289310c58b52ff3231a0275f83b803", :code-points true}
+RECORD j2b {:valid true, :strict true, :address "38ffbe04621da6c60997509d955d9d9d3aaa6ac4862de8d50ac56d6a2c93c967", :e1 [], :first-failure :same, :corpus :input, :host :jvm, :id :del-control, :oracle-address "38ffbe04621da6c60997509d955d9d9d3aaa6ac4862de8d50ac56d6a2c93c967", :code-points true}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = 1", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "print(", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "print(\n", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "print((1,", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "d = {'a': [1, 2", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "if x:\n  y = {1: (2", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "f(a for a in b", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = (1 if y else", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "def f(n):", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "def f(n): # body next", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "@dec", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "def f(n):\n    return n", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "def f(n):\n    return n\n", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = \"\"\"hello", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = \"\"\"a\n  b\"\"\"", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = \"\"\"(\"\"\"", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = '(' # )", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = 'it\\'s ('", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = 'abc\\", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = 'abc\\  ", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "foo(\"\"\"a", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "if x:\n    s = '''a", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = * \"\"\"", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = 1 \\", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = 1 \\\n+ 2", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = 1 # \\", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = (1 + * 2", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = )", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "foo(1 2", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = (]", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x =", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "1 +", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "lambda x:", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = 'abc", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = 1 \"\"\"abc", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = = \"\"\"", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "foo(1 2 '''", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "x = (1 + * 2 'a\\", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "s = '𝄞'\nif é:", :answer :same, :calls :same}
+RECORD j2b {:host :jvm, :corpus :probe, :text "if x:\n    y = 'é'\n", :answer :same, :calls :same}
+
+Testing yang.python.antlr.prelude-parity-test
+
+Testing yang.python.antlr.publication-test
+
+Testing yang.python.antlr.safepoint-test
+
+Testing yang.python.antlr.scope-test
+
+Testing yang.python.antlr.siteset-test
+
+Testing yang.python.antlr.source-call-test
+
+Testing yang.safepoint-test
+
+Testing yang.typescript.antlr.corpus-test
+
+Testing yang.typescript.antlr.cst-test
+
+Testing yang.typescript.antlr.float-address-test
+
+Testing yang.typescript.antlr.global-write-test
+
+Testing yang.typescript.antlr.linked-prelude-test
+
+Testing yang.typescript.antlr.lower-portable-test
+
+Testing yang.typescript.antlr.lower-test
+
+Testing yang.typescript.antlr.object-parity-test
+
+Testing yang.typescript.antlr.prelude-module-test
+
+Testing yang.typescript.antlr.prelude-parity-test
+
+Testing yang.typescript.antlr.prelude-test
+
+Testing yang.typescript.antlr.safepoint-test
+
+Testing yang.typescript.antlr.scope-test
+
+Testing yang.typescript.antlr.source-call-parser-test
+
+Testing yang.typescript.antlr.string-forms-test
+
+Testing yang.typescript-callsite-test
+
+Testing yin.repl.adapter-test
+
+Testing yin.repl.ast-index-test
+
+Testing yin.repl.ast-query-e2e-test
+
+Testing yin.repl.build-test
+
+Testing yin.repl.connect-test
+
+Testing yin.repl.dht-head-test
+
+Testing yin.repl.dht-test
+
+Testing yin.repl.driver-test
+
+Testing yin.repl.embed-test
+
+Testing yin.repl.frontend-catalog-test
+
+Testing yin.repl.host.jvm-test
+
+Testing yin.repl.index-test
+
+Testing yin.repl.main-test
+Bye
+
+Bye
+
+
+Testing yin.repl.owner-test
+
+Testing yin.repl.php-parser-test
+
+Testing yin.repl.python-antlr-test
+
+Testing yin.repl.query-test
+
+Testing yin.repl.require-test
+
+Testing yin.repl.serve-connect-wire-test
+
+Testing yin.repl.serve-test
+
+Testing yin.repl.shell-session-test
+
+Testing yin.repl.state-test
+
+Testing yin.repl.store-test
+
+Testing yin.repl.trust-test
+
+Testing yin.repl-test
+
+Testing yin.vm.ast-walker-test
+
+Testing yin.vm.attach-image-test
+
+Testing yin.vm.bytes-to-str-test
+
+Testing yin.vm.cell-test
+
+Testing yin.vm.code-entry-test
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.data-test
+
+Testing yin.vm.debruijn.register-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.debruijn-code-test
+
+Testing yin.vm.debruijn-register-code-test
+
+Testing yin.vm.debruijn-register-effects-test
+
+Testing yin.vm.debruijn-test
+
+Testing yin.vm.effect-forgery-test
+
+Testing yin.vm.encoder-test
+
+Testing yin.vm.engine-gate-test
+
+Testing yin.vm.engine-test
+
+Testing yin.vm.ffi.remote-serve.responder-test
+
+Testing yin.vm.ffi.remote-serve-test
+
+Testing yin.vm.ffi-test
+
+Testing yin.vm.heap-reclamation-test
+
+Testing yin.vm.host-typed-values-test
+
+Testing yin.vm.integer-test
+
+Testing yin.vm.ledger-test
+
+Testing yin.vm.linker.admission-doc-test
+
+Testing yin.vm.linker.admission-test
+
+Testing yin.vm.linker.closure-test
+
+Testing yin.vm.linker.dht-end-to-end-test
+
+Testing yin.vm.linker.dht-test
+
+Testing yin.vm.linker.head-board-test
+
+Testing yin.vm.linker.head-follow-test
+
+Testing yin.vm.linker.head-test
+
+Testing yin.vm.linker.layering-test
+
+Testing yin.vm.linker.production-pipeline-test
+
+Testing yin.vm.linker.publish-test
+
+Testing yin.vm.linker.remote-transfer-test
+
+Testing yin.vm.linker.sign-test
+
+Testing yin.vm.linker-authority-ingestion-test
+
+Testing yin.vm.linker-authority-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-step-test
+
+Testing yin.vm.linker-test
+
+Testing yin.vm.machine-data-test
+
+Testing yin.vm.macro-build-test
+
+Testing yin.vm.macro-test
+
+Testing yin.vm.mint-test
+
+Testing yin.vm.module-test
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.pipeline-test
+
+Testing yin.vm.provenance-test
+
+Testing yin.vm.rule-r-test
+
+Testing yin.vm.semantic.analysis-test
+
+Testing yin.vm.semantic.code-test
+
+Testing yin.vm.semantic.derive-test
+
+Testing yin.vm.semantic.effects-test
+
+Testing yin.vm.semantic.frame-test
+
+Testing yin.vm.semantic.layout-test
+
+Testing yin.vm.semantic.linearize-test
+
+Testing yin.vm.semantic.link-test
+
+Testing yin.vm.semantic.load-paths-test
+
+Testing yin.vm.semantic.parity-test
+
+Testing yin.vm.semantic.safepoint-harness-test
+6d-a measured case: {:measured 42, :samples {:body-entry 0, :after-primitive 22, :before-park 2, :branch nil, :last-return 39}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 42, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 14, :row 1}
+6d-a measured case: {:measured 11, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 8}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 11, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 2}
+6d-a measured case: {:measured 10, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 7}, :coverage #{:return :body-entry :non-tail-call :ffi-park}, :to-final-halt 10, :segment :bare, :halt 1, :park 2, :excluded-leading [], :to-first-park 6, :row 3}
+6d-a measured case: {:measured 36, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 33}, :coverage #{:return :body-entry :non-tail-call :ffi-park}, :to-final-halt 36, :segment :bare, :halt 1, :park 28, :excluded-leading [], :to-first-park 6, :row 4}
+6d-a measured case: {:measured 28, :samples {:body-entry 0, :after-primitive 13, :before-park 2, :branch nil, :last-return 25}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 28, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 16, :row 5}
+6d-a measured case: {:measured 23, :samples {:body-entry 0, :after-primitive 14, :before-park 2, :branch nil, :last-return 20}, :coverage #{:return :body-entry :tail-transition :non-tail-call}, :to-final-halt 23, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 17, :row 6}
+6d-a measured case: {:measured 39, :samples {:body-entry 0, :after-primitive 4, :before-park 2, :branch nil, :last-return 36}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 39, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 7}
+6d-a measured case: {:measured 13, :samples {:body-entry 0, :after-primitive 4, :before-park 2, :branch nil, :last-return 10}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 13, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 8}
+6d-a measured case: {:measured 16, :samples {:body-entry 0, :after-primitive 7, :before-park 2, :branch nil, :last-return 13}, :coverage #{:return :body-entry :tail-transition :running-install-child :non-tail-call}, :to-final-halt 16, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 10, :row 9}
+6d-a measured case: {:measured 21, :samples {:body-entry 0, :after-primitive 4, :before-park 2, :branch nil, :last-return 18}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 21, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 10}
+6d-a measured case: {:measured 20, :samples {:body-entry 0, :after-primitive 4, :before-park 2, :branch nil, :last-return 17}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 20, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 11}
+6d-a measured case: {:measured 24, :samples {:body-entry 0, :after-primitive 7, :before-park 2, :branch nil, :last-return 21}, :coverage #{:return :body-entry :tail-transition :running-install-child :non-tail-call}, :to-final-halt 24, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 10, :row 12}
+6d-a measured case: {:measured 10, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 7}, :coverage #{:return :body-entry :non-tail-call :park :resume}, :to-final-halt 10, :segment :bare, :halt 1, :park 1, :excluded-leading [], :to-first-park 5, :row 13}
+6d-a measured case: {:measured 39, :samples {:body-entry 0, :after-primitive 19, :before-park 2, :branch nil, :last-return 36}, :coverage #{:return :body-entry :non-tail-call :capture}, :to-final-halt 39, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 26, :row 14}
+6d-a measured case: {:measured 41, :samples {:body-entry 0, :after-primitive 14, :before-park 2, :branch 17, :last-return 38}, :coverage #{:return :untaken-branch :body-entry :non-tail-call :taken-branch :capture :jump}, :to-final-halt 41, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 22, :row 15}
+6d-a measured case: {:measured 51, :samples {:body-entry 0, :after-primitive 23, :before-park 2, :branch nil, :last-return 48}, :coverage #{:return :body-entry :non-tail-call :capture}, :to-final-halt 51, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 37, :row 16}
+6d-a measured case: {:measured 18, :samples {:body-entry 16, :after-primitive 12, :before-park 18, :branch nil, :last-return 31}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 34, :segment :bare, :halt 1, :park 0, :excluded-leading [{:pc 0, :obligations #{host.mod/f}} {:pc 1, :obligations #{host.mod/f}} {:pc 2, :obligations #{host.mod/f}} {:pc 4, :obligations #{host.mod/f}} {:pc 5, :obligations #{host.mod/f}} {:pc 6, :obligations #{host.mod/f}} {:pc 7, :obligations #{host.mod/f}} {:pc 9, :obligations #{host.mod/f}} {:pc 10, :obligations #{host.mod/f}} {:pc 11, :obligations #{host.mod/f}} {:pc 13, :obligations #{host.mod/f}} {:pc 14, :obligations #{host.mod/f}} {:pc 15, :obligations #{host.mod/f}} {:pc 16, :obligations #{host.mod/f}} {:pc nil, :obligations #{host.mod/f}} {:pc nil, :obligations #{host.mod/f}}], :to-first-park 15, :row 17}
+6d-a measured case: {:measured 14, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 11}, :coverage #{:return :body-entry :non-tail-call :park :resume}, :to-final-halt 14, :segment :bare, :halt 1, :park 1, :excluded-leading [], :to-first-park 8, :row 18}
+6d-a measured case: {:measured 7, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 4}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 7, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park nil, :row 19}
+6d-a measured case: {:measured 31, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 28}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 31, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 20, :row 21}
+6d-a measured case: {:measured 44, :samples {:body-entry 0, :after-primitive 26, :before-park 2, :branch nil, :last-return 41}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 44, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 18, :row 22}
+6d-a measured case: {:measured 10, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 7}, :coverage #{:return :body-entry :non-tail-call :ffi-park}, :to-final-halt 10, :segment :bare, :halt 1, :park 2, :excluded-leading [], :to-first-park 6, :row 24}
+6d-a measured case: {:measured 13, :samples {:body-entry 4, :after-primitive 11, :before-park 3, :branch nil, :last-return 7}, :coverage #{:return :body-entry :tail-transition :non-tail-call}, :to-final-halt 16, :segment :unwrapped, :halt 2, :park 0, :excluded-leading [{:pc 0, :obligations #{s}} {:pc 1, :obligations #{s}} {:pc 2, :obligations #{s}}], :to-first-park 14, :row 20}
+6d-a quick boundary counts JVM: [{:measured 42, :samples {:body-entry 0, :after-primitive 22, :before-park 2, :branch nil, :last-return 39}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 42, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 14, :row 1} {:measured 11, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 8}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 11, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 2} {:measured 10, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 7}, :coverage #{:return :body-entry :non-tail-call :ffi-park}, :to-final-halt 10, :segment :bare, :halt 1, :park 2, :excluded-leading [], :to-first-park 6, :row 3} {:measured 36, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 33}, :coverage #{:return :body-entry :non-tail-call :ffi-park}, :to-final-halt 36, :segment :bare, :halt 1, :park 28, :excluded-leading [], :to-first-park 6, :row 4} {:measured 28, :samples {:body-entry 0, :after-primitive 13, :before-park 2, :branch nil, :last-return 25}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 28, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 16, :row 5} {:measured 23, :samples {:body-entry 0, :after-primitive 14, :before-park 2, :branch nil, :last-return 20}, :coverage #{:return :body-entry :tail-transition :non-tail-call}, :to-final-halt 23, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 17, :row 6} {:measured 39, :samples {:body-entry 0, :after-primitive 4, :before-park 2, :branch nil, :last-return 36}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 39, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 7} {:measured 13, :samples {:body-entry 0, :after-primitive 4, :before-park 2, :branch nil, :last-return 10}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 13, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 8} {:measured 16, :samples {:body-entry 0, :after-primitive 7, :before-park 2, :branch nil, :last-return 13}, :coverage #{:return :body-entry :tail-transition :running-install-child :non-tail-call}, :to-final-halt 16, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 10, :row 9} {:measured 21, :samples {:body-entry 0, :after-primitive 4, :before-park 2, :branch nil, :last-return 18}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 21, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 10} {:measured 20, :samples {:body-entry 0, :after-primitive 4, :before-park 2, :branch nil, :last-return 17}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 20, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 7, :row 11} {:measured 24, :samples {:body-entry 0, :after-primitive 7, :before-park 2, :branch nil, :last-return 21}, :coverage #{:return :body-entry :tail-transition :running-install-child :non-tail-call}, :to-final-halt 24, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 10, :row 12} {:measured 10, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 7}, :coverage #{:return :body-entry :non-tail-call :park :resume}, :to-final-halt 10, :segment :bare, :halt 1, :park 1, :excluded-leading [], :to-first-park 5, :row 13} {:measured 39, :samples {:body-entry 0, :after-primitive 19, :before-park 2, :branch nil, :last-return 36}, :coverage #{:return :body-entry :non-tail-call :capture}, :to-final-halt 39, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 26, :row 14} {:measured 41, :samples {:body-entry 0, :after-primitive 14, :before-park 2, :branch 17, :last-return 38}, :coverage #{:return :untaken-branch :body-entry :non-tail-call :taken-branch :capture :jump}, :to-final-halt 41, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 22, :row 15} {:measured 51, :samples {:body-entry 0, :after-primitive 23, :before-park 2, :branch nil, :last-return 48}, :coverage #{:return :body-entry :non-tail-call :capture}, :to-final-halt 51, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 37, :row 16} {:measured 18, :samples {:body-entry 16, :after-primitive 12, :before-park 18, :branch nil, :last-return 31}, :coverage #{:return :body-entry :running-install-child :non-tail-call}, :to-final-halt 34, :segment :bare, :halt 1, :park 0, :excluded-leading [{:pc 0, :obligations #{host.mod/f}} {:pc 1, :obligations #{host.mod/f}} {:pc 2, :obligations #{host.mod/f}} {:pc 4, :obligations #{host.mod/f}} {:pc 5, :obligations #{host.mod/f}} {:pc 6, :obligations #{host.mod/f}} {:pc 7, :obligations #{host.mod/f}} {:pc 9, :obligations #{host.mod/f}} {:pc 10, :obligations #{host.mod/f}} {:pc 11, :obligations #{host.mod/f}} {:pc 13, :obligations #{host.mod/f}} {:pc 14, :obligations #{host.mod/f}} {:pc 15, :obligations #{host.mod/f}} {:pc 16, :obligations #{host.mod/f}} {:pc nil, :obligations #{host.mod/f}} {:pc nil, :obligations #{host.mod/f}}], :to-first-park 15, :row 17} {:measured 14, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 11}, :coverage #{:return :body-entry :non-tail-call :park :resume}, :to-final-halt 14, :segment :bare, :halt 1, :park 1, :excluded-leading [], :to-first-park 8, :row 18} {:measured 7, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 4}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 7, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park nil, :row 19} {:measured 31, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 28}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 31, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 20, :row 21} {:measured 44, :samples {:body-entry 0, :after-primitive 26, :before-park 2, :branch nil, :last-return 41}, :coverage #{:return :body-entry :non-tail-call}, :to-final-halt 44, :segment :bare, :halt 1, :park 0, :excluded-leading [], :to-first-park 18, :row 22} {:measured 10, :samples {:body-entry 0, :after-primitive nil, :before-park 2, :branch nil, :last-return 7}, :coverage #{:return :body-entry :non-tail-call :ffi-park}, :to-final-halt 10, :segment :bare, :halt 1, :park 2, :excluded-leading [], :to-first-park 6, :row 24} {:measured 13, :samples {:body-entry 4, :after-primitive 11, :before-park 3, :branch nil, :last-return 7}, :coverage #{:return :body-entry :tail-transition :non-tail-call}, :to-final-halt 16, :segment :unwrapped, :halt 2, :park 0, :excluded-leading [{:pc 0, :obligations #{s}} {:pc 1, :obligations #{s}} {:pc 2, :obligations #{s}}], :to-first-park 14, :row 20}]
+6d-a measured case: {:measured 49, :samples {:body-entry 0, :after-primitive 11, :before-park 2, :branch nil, :last-return 46}, :coverage #{:return :active-plus-ready :body-entry :non-tail-call :active-plus-waits}, :to-final-halt 49, :segment :product, :halt 1, :park 0, :excluded-leading [], :to-first-park 4, :row :active-plus-waits}
+6d-a measured case: {:measured 8, :samples {:body-entry 0, :after-primitive nil, :before-park 1, :branch nil, :last-return nil}, :coverage #{:active-plus-ready :body-entry :ffi-park}, :to-final-halt 8, :segment :product, :halt 1, :park 3, :excluded-leading [], :to-first-park 3, :row :active-plus-ready}
+
+Testing yin.vm.semantic.scan-test
+
+Testing yin.vm.semantic.vm-test
+
+Testing yin.vm.semantic.walker-trace-test
+
+Testing yin.vm.semantic-engine-test
+
+Testing yin.vm.semantic-ffi-test
+
+Testing yin.vm.semantic-stream-observer-test
+
+Testing yin.vm.store-write-audit-test
+
+FAIL in (every-store-mutation-is-on-the-allowlist) (store_write_audit_test.clj:411)
+a new store mutation must go through engine/store-put or join the
+       allowlist with its reason; an unreadable file fails too
+expected: (= allowlist (source-sites))
+  actual: (not (= {"src/cljs/datomworld/demo/continuation_stream.cljs" {["vm->cesk" :map] 1}, "src/cljc/yin/vm/ucf/rows.cljc" {["row-table" :map] 1, ["restore-task" "engine/store-put"] 1, ["restore-task" "assoc"] 1}, "src/clj/yin/demo.clj" {["run-demo" "assoc"] 1}, "src/cljs/datomworld/demo/compilation_pipeline.cljs" {["walker-cesk" :map] 1}, "src/cljc/yang/php/antlr/siteset.cljc" {["stage" "assoc"] 1}, "src/cljc/yin/vm/linker/interpreter.cljc" {["dht-context" :map] 1}, "src/cljc/dao/space/query.cljc" {["open-published!" :map] 1, ["published-db" :map] 1, ["realize-checked-st" :map] 1}, "src/cljc/yin/vm/linker/pair.cljc" {["composition" :map] 1, ["answer" :map] 1}, "src/cljc/yang/python/antlr/siteset.cljc" {["stage" "assoc"] 1}, "src/cljc/datomworld/demo/continuation_handoff.cljc" {["datoms->semantic-vm" "update"] 1}, "src/cljc/yin/vm/macro.cljc" {["harvest" "assoc"] 1, ["harvest" "dissoc"] 1, ["post-harvest" "assoc"] 1, ["post-harvest" "dissoc"] 1, ["make-ctx" :map] 1, ["expand-batch" "assoc"] 2}, "src/cljc/yin/vm/debruijn/stack.cljc" {["create-vm" :map] 1, ["create-vm" "merge"] 1}, "src/cljc/yin/vm/semantic/layout.cljc" {["canonical-task" "assoc"] 1, ["kernel-task" "assoc"] 1}, "src/cljc/yin/vm/linker/dht.cljc" {["stage-walk" "assoc"] 1}, "src/cljc/dao/stream/waitset.cljc" {["check" :map] 1}, "src/cljc/yin/repl.cljc" {["inject-last-value" "update"] 1, ["make-expander" :map] 1}, "src/cljc/yin/vm/ucf/compose.cljc" {["bare-composition" :map] 1, ["driver-config" :map] 1, ["front-of" :map] 1}, "src/cljc/yin/vm/debruijn/register.cljc" {["create-vm" :map] 1, ["create-vm" "merge"] 1}, "src/cljc/yin/vm.cljc" {["empty-state" :map] 1}, "src/cljc/yin/vm/engine.cljc" {["store-put" "assoc"] 1, ["put-active" "assoc"] 1, ["put-active" "store-put"] 2, ["discharge-defect" :map] 1}} {"src/cljs/datomworld/demo/continuation_stream.cljs" {["vm->cesk" :map] 1}, "src/cljc/yin/vm/ucf/rows.cljc" {["row-table" :map] 1, ["restore-task" "engine/store-put"] 1, ["restore-task" "assoc"] 1}, "src/clj/yin/demo.clj" {["run-demo" "assoc"] 1}, "src/cljs/datomworld/demo/compilation_pipeline.cljs" {["walker-cesk" :map] 1}, "src/cljc/yang/php/antlr/siteset.cljc" {["stage" "assoc"] 1}, "src/cljc/yin/vm/linker/interpreter.cljc" {["dht-context" :map] 1}, "src/cljc/dao/space/query.cljc" {["published-db" :map] 1, ["open-published!" :map] 1, ["realize-checked-st" :map] 1}, "src/cljc/yin/vm/linker/pair.cljc" {["composition" :map] 1, ["answer" :map] 1}, "src/cljc/yang/php/antlr/eval_coordinator.cljc" {["compile-and-publish*!" :map] 1}, "src/cljc/yang/python/antlr/siteset.cljc" {["stage" "assoc"] 1}, "src/cljc/datomworld/demo/continuation_handoff.cljc" {["datoms->semantic-vm" "update"] 1}, "src/cljc/yin/vm/macro.cljc" {["harvest" "assoc"] 1, ["harvest" "dissoc"] 1, ["post-harvest" "assoc"] 1, ["post-harvest" "dissoc"] 1, ["expand-batch" "assoc"] 2, ["make-ctx" :map] 1}, "src/cljc/yin/vm/debruijn/stack.cljc" {["create-vm" :map] 1, ["create-vm" "merge"] 1}, "src/cljc/yin/vm/semantic/layout.cljc" {["canonical-task" "assoc"] 1, ["kernel-task" "assoc"] 1}, "src/cljc/yin/vm/linker/dht.cljc" {["stage-walk" "assoc"] 1}, "src/cljc/dao/stream/waitset.cljc" {["check" :map] 1}, "src/cljc/yin/repl.cljc" {["make-expander" :map] 1, ["inject-last-value" "update"] 1}, "src/cljc/yin/vm/ucf/compose.cljc" {["bare-composition" :map] 1, ["driver-config" :map] 1, ["front-of" :map] 1}, "src/cljc/yin/vm/debruijn/register.cljc" {["create-vm" :map] 1, ["create-vm" "merge"] 1}, "src/cljc/yin/vm.cljc" {["empty-state" :map] 1}, "src/cljc/yin/vm/engine.cljc" {["store-put" "assoc"] 1, ["put-active" "store-put"] 2, ["put-active" "assoc"] 1, ["discharge-defect" :map] 1}}))
+
+Testing yin.vm.stream-poll-test
+
+Testing yin.vm.telemetry-test
+
+Testing yin.vm.ucf.authority.admission-test
+
+Testing yin.vm.ucf.authority.completion-fold-test
+
+Testing yin.vm.ucf.authority.completion-test
+
+Testing yin.vm.ucf.authority.front-test
+
+Testing yin.vm.ucf.authority.grant-test
+
+Testing yin.vm.ucf.authority.inherited-test
+
+Testing yin.vm.ucf.authority.input-test
+
+Testing yin.vm.ucf.authority.reclaim-test
+
+Testing yin.vm.ucf.authority-test
+
+Testing yin.vm.ucf.compose-rows-test
+
+Testing yin.vm.ucf.compose-test
+
+Testing yin.vm.ucf.crash-cut-test
+
+Testing yin.vm.ucf.custody-test
+
+Testing yin.vm.ucf.durability-test
+
+Testing yin.vm.ucf.fencing-rows-test
+
+Testing yin.vm.ucf.holder.driver-test
+
+Testing yin.vm.ucf.holder.evidence-test
+
+Testing yin.vm.ucf.holder.export-test
+
+Testing yin.vm.ucf.holder.reader-test
+
+Testing yin.vm.ucf.holder.writer-test
+
+Testing yin.vm.ucf.ledger-fixture-test
+
+Testing yin.vm.ucf.ledger-test
+
+Testing yin.vm.ucf.remote-test
+
+Testing yin.vm.ucf.rows-checkpoint-test
+
+Testing yin.vm.ucf.rows-custody-test
+
+Testing yin.vm.ucf.rows-test
+counterexample-search random values 250 states: {:numbered 248, :refused 2, :max-work 395111} failures: 0
+counterexample-search frame-bearing 40 states: {:numbered 37, :refused 3, :max-work 125304} failures: 0
+counterexample-search with children 20 states: {:numbered 19, :refused 1, :max-work 308809} failures: 0
+counterexample-search incidence families 100 states: {:numbered 74, :refused 26, :max-work 421756} failures: 0
+SKIP host-collapse: slash-crossed identifiers remain distinct on JVM
+
+Testing yin.vm.ucf.stage-e-rows-test
+
+Testing yin.vm-test
+
+Ran 5181 tests containing 400386 assertions.
+11 failures, 0 errors.
+Error while executing task: test:clj

@@ -1,0 +1,14 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.clojure-test
+FFI hello world
+
+Testing yang.frontend-test
+
+Testing yin.repl.frontend-catalog-test
+
+Ran 116 tests containing 1082 assertions.
+0 failures, 0 errors.

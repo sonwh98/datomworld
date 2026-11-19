@@ -1,0 +1,8 @@
+[:segment/blake3-339d070ef739b0067484f7ff46930ab9e992cb3e4abadc27d403f294b8dea997 :variable assoc]
+[:segment/blake3-201f235cbac998f43954454e9df0eb633717e79de535776f3f51e198a3759b10 :literal {}]
+[:segment/blake3-81b62c1e0dbf783ce555376690c9cffdee2eaca50ff9da4247397a785d9340cf :literal :yin.vm.data/reason]
+[:segment/blake3-1db5dbd048522aa048759e5fb8ae47ccbf9e158906554b362080d77cf30a6178 :literal :arity]
+[:segment/blake3-8930bf5e7b03638896bc3bef03d4f1ae648e7460ed4b488bef2b9d5f619cbd90 :literal :yin.k/argc]
+[:segment/blake3-e60543d220d61497d02184c1f7a087c15c3a20d0f305cae88647987f5ec99e3b :application :segment/blake3-3c7f62d7e4a1aa87079864b44f09db28e0294efa3cc9d4faad602d24d50d549d [:segment/blake3-11fc1cf840ca040335bd111a67863ec4a6b7ee45cc383acbd5890a7aa83e961c] false]
+[:segment/blake3-1e03667ec9fa05b20761de3b84f623962235ff218fce26401bbcdd9d3aabeca8 :literal :yin.k/fn]
+[:segment/blake3-3156a0708410c1e18d4eb15f567790a8c1ac683f219e720a847b0e21e54ca778 :literal replay]

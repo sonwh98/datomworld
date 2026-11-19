@@ -345,7 +345,12 @@
    "yin.vm.ucf.holder.evidence-test"
    "yin.vm.ucf.authority.front-test"
    "yin.vm.ucf.fencing-rows-test" "yin.vm.ucf.holder.reader-test"
-   "yin.vm.ucf.holder.writer-test" "yin.vm.ucf.holder.driver-test"])
+   "yin.vm.ucf.holder.writer-test" "yin.vm.ucf.holder.driver-test"
+   ;; cc4: the frontend's own replay-equality gate is mandatory on Jolt.
+   "yang.clojure-callsite-test"
+   ;; constructed-collections-v1 (fix round, ruling 1795017757000): the
+   ;; canonical operand-ordering battery.
+   "yang.clojure-collection-order-test"])
 
 
 ;; Read only namespace tokens, never evaluate forms or resolve reader branches.
@@ -355,7 +360,8 @@
    unlisted namespace (and path) and stale entry before any lane work."
   [test-root included-nses excluded-suites]
   (let [dirs ["dao/host" "dao/jing" "dao/data" "dao/space" "dao/stream" "yin/vm" "yin/repl"]
-        bare ["dao/jing_test" "dao/stream_test" "dao/data_test" "yin/vm_test" "yin/repl_test"]
+        bare ["dao/jing_test" "dao/stream_test" "dao/data_test" "yin/vm_test" "yin/repl_test"
+              "yang/clojure_callsite_test" "yang/clojure_collection_order_test"]
         extensions ["clj" "cljc" "cljs" "cljd"]
         files (->> (concat
                      (mapcat #(->> (fs/glob (fs/path test-root %) "**")

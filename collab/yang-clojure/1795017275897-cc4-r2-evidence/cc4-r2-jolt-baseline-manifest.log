@@ -1,0 +1,40 @@
+mise WARN  failed to write cache file: /Users/sto/Library/Caches/mise/chezscheme/10.4.1/exec_env_f9003207cf9e4d4c-6a722.msgpack.z Operation not permitted (os error 1)
+mise WARN  failed to write cache file: /Users/sto/Library/Caches/mise/android-sdk/23.0/exec_env_f9003207cf9e4d4c-6a722.msgpack.z Operation not permitted (os error 1)
+Exception in thread "Thread-1" java.lang.RuntimeException: Operation not permitted (sysctl failed)
+	at java.base@25.0.4/java.lang.ProcessHandleImpl.getProcessPids0(Native Method)
+	at java.base@25.0.4/java.lang.ProcessHandleImpl.descendants(ProcessHandleImpl.java:434)
+	at babashka.process$destroy_tree.invokeStatic(process.cljc:172)
+	at babashka.process$destroy_tree.invoke(process.cljc:163)
+	at babashka.process$process_STAR_$fn__13910.invoke(process.cljc:431)
+	at clojure.lang.AFn.run(AFn.java:22)
+	at java.base@25.0.4/java.lang.Thread.runWith(Thread.java:1487)
+	at java.base@25.0.4/java.lang.Thread.run(Thread.java:1474)
+	at org.graalvm.nativeimage.builder/com.oracle.svm.core.thread.PlatformThreads.threadStartRoutine(PlatformThreads.java:832)
+	at org.graalvm.nativeimage.builder/com.oracle.svm.core.thread.PlatformThreads.threadStartRoutine(PlatformThreads.java:808)
+----- Error --------------------------------------------------------------------
+Type:     clojure.lang.ExceptionInfo
+Message:  J2 manifest FAILED:
+UNLISTED yin.repl.php-parser-test -- test/yin/repl/php_parser_test.cljc
+UNLISTED yin.vm.code-entry-test -- test/yin/vm/code_entry_test.cljc
+UNLISTED yin.vm.machine-data-test -- test/yin/vm/machine_data_test.clj
+UNLISTED yin.vm.provenance-test -- test/yin/vm/provenance_test.cljc
+Data:     {:unlisted {"yin.repl.php-parser-test" ["test/yin/repl/php_parser_test.cljc"], "yin.vm.code-entry-test" ["test/yin/vm/code_entry_test.cljc"], "yin.vm.machine-data-test" ["test/yin/vm/machine_data_test.clj"], "yin.vm.provenance-test" ["test/yin/vm/provenance_test.cljc"]}, :stale []}
+Location: /tmp/cc4-r2-j2-baseline-check.clj:12:3
+
+----- Context ------------------------------------------------------------------
+ 8:   (binding [*ns* (the-ns 'jolt-j2-lane)]
+ 9:     (eval original-included)
+10:     (eval (first (filter #(and (seq? %) (= 'defn (first %))
+11:                               (= 'check-manifest! (second %))) forms))))
+12:   (jolt-j2-lane/check-manifest! "test" jolt-j2-lane/included jolt-j2-lane/excluded))
+      ^--- J2 manifest FAILED:
+UNLISTED yin.repl.php-parser-test -- test/yin/repl/php_parser_test.cljc
+UNLISTED yin.vm.code-entry-test -- test/yin/vm/code_entry_test.cljc
+UNLISTED yin.vm.machine-data-test -- test/yin/vm/machine_data_test.clj
+UNLISTED yin.vm.provenance-test -- test/yin/vm/provenance_test.cljc
+
+----- Stack trace --------------------------------------------------------------
+jolt-j2-lane/check-manifest! - /Users/sto/workspace/datomworld-cc4/src/dev/jolt_j2_lane.clj:355:1
+user                         - /tmp/cc4-r2-j2-baseline-check.clj:12:3
+user                         - /tmp/cc4-r2-j2-baseline-check.clj:3:1
+

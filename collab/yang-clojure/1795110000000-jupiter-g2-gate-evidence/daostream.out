@@ -1,0 +1,142 @@
+Node discovery OK: 273 source files outside test/; ns-regexp "-test$"
+Read 831 code files under src/ and test/.
+Subsystems: dao.stream
+clj: 41 namespaces
+   dao.stream-test
+   dao.stream.apply-test
+   dao.stream.base64-test
+   dao.stream.ble-test
+   dao.stream.ble.links-test
+   dao.stream.ble.mesh-test
+   dao.stream.cbor-test
+   dao.stream.chunks-test
+   dao.stream.codec-fixtures-test
+   dao.stream.codec-test
+   dao.stream.datagram-test
+   dao.stream.datagram.jvm-test
+   dao.stream.forward-test
+   dao.stream.http-test
+   dao.stream.journal-test
+   dao.stream.journal.file-test
+   dao.stream.memory-log-test
+   dao.stream.middleware-test
+   dao.stream.observe-test
+   dao.stream.observer-test
+   dao.stream.remote-channel-test
+   dao.stream.remote-meet-test
+   dao.stream.remote-pair-test
+   dao.stream.remote-route-test
+   dao.stream.remote-test
+   dao.stream.ringbuffer-test
+   dao.stream.rpc-test
+   dao.stream.transit-test
+   dao.stream.udp-raw-test
+   dao.stream.udp-test
+   dao.stream.waitset-test
+   dao.stream.waitset.cadence-test
+   dao.stream.waitset.driver-test
+   dao.stream.ws-codec-test
+   dao.stream.ws-project-cross-jvm-test
+   dao.stream.ws-project-jvm-test
+   dao.stream.ws-project-test
+   dao.stream.ws-test
+   dao.stream.ws.jvm-test
+   dao.stream.ws.rfc6455-test
+   dao.stream.ws.upgrade-test
+cljs: 40 namespaces
+   dao.stream-test
+   dao.stream.apply-test
+   dao.stream.base64-test
+   dao.stream.ble-test
+   dao.stream.ble.links-test
+   dao.stream.ble.mesh-test
+   dao.stream.cbor-test
+   dao.stream.chunks-test
+   dao.stream.codec-fixtures-test
+   dao.stream.codec-test
+   dao.stream.datagram-test
+   dao.stream.datagram.node-test
+   dao.stream.forward-test
+   dao.stream.journal-test
+   dao.stream.journal.file-test
+   dao.stream.memory-log-test
+   dao.stream.middleware-test
+   dao.stream.observe-test
+   dao.stream.observer-test
+   dao.stream.remote-channel-test
+   dao.stream.remote-meet-test
+   dao.stream.remote-pair-test
+   dao.stream.remote-route-test
+   dao.stream.remote-test
+   dao.stream.ringbuffer-test
+   dao.stream.rpc-test
+   dao.stream.transit-test
+   dao.stream.udp-raw-test
+   dao.stream.udp-test
+   dao.stream.waitset-test
+   dao.stream.waitset.cadence-test
+   dao.stream.waitset.driver-test
+   dao.stream.ws-codec-test
+   dao.stream.ws-project-cross-node-test
+   dao.stream.ws-project-test
+   dao.stream.ws-test
+   dao.stream.ws.browser-test
+   dao.stream.ws.node-test
+   dao.stream.ws.rfc6455-test
+   dao.stream.ws.upgrade-test
+cljd: 39 namespaces
+   dao.stream-test
+   dao.stream.apply-test
+   dao.stream.base64-test
+   dao.stream.ble-test
+   dao.stream.ble.dart-test
+   dao.stream.ble.links-test
+   dao.stream.ble.mesh-test
+   dao.stream.cbor-test
+   dao.stream.chunks-test
+   dao.stream.codec-fixtures-test
+   dao.stream.codec-test
+   dao.stream.datagram-test
+   dao.stream.datagram.dart-test
+   dao.stream.forward-test
+   dao.stream.journal-test
+   dao.stream.journal.file-test
+   dao.stream.memory-log-test
+   dao.stream.middleware-test
+   dao.stream.observe-test
+   dao.stream.observer-test
+   dao.stream.remote-channel-test
+   dao.stream.remote-meet-test
+   dao.stream.remote-pair-test
+   dao.stream.remote-route-test
+   dao.stream.remote-test
+   dao.stream.ringbuffer-test
+   dao.stream.rpc-test
+   dao.stream.transit-test
+   dao.stream.udp-raw-test
+   dao.stream.udp-test
+   dao.stream.waitset-test
+   dao.stream.waitset.cadence-test
+   dao.stream.waitset.driver-test
+   dao.stream.ws-codec-test
+   dao.stream.ws-project-test
+   dao.stream.ws-test
+   dao.stream.ws.dart-test
+   dao.stream.ws.rfc6455-test
+   dao.stream.ws.upgrade-test
+Selected 48 of 379 test namespaces.
+Skipping build:yin-repl-peer (no selected test reaches its output)
+Skipping build:yin-repl-node (no selected test reaches its output)
+Skipping gen:antlr (no selected test reaches its output)
+Serializing clj then cljd (a JVM test runs the cljd compiler)
+cljs: 40 namespaces, log target/profile/sub-cljs.log
+clj: 41 namespaces, log target/profile/sub-clj.log
+clj: done, exit 0, 18 s
+cljd: 39 namespaces, log target/profile/sub-cljd.log
+cljs: done, exit 0, 73 s
+cljd: done, exit 0, 75 s
+
+lane  namespaces  tests failures seconds  status
+clj           41    589        0      18  pass
+cljs          40    579        0      73  pass
+cljd          39    509        0      75  pass

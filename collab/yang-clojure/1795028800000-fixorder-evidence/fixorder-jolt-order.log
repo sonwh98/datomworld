@@ -1,0 +1,5 @@
+J2 manifest FAILED:
+UNLISTED yin.repl.php-parser-test -- test/yin/repl/php_parser_test.cljc
+UNLISTED yin.vm.code-entry-test -- test/yin/vm/code_entry_test.cljc
+UNLISTED yin.vm.machine-data-test -- test/yin/vm/machine_data_test.clj
+UNLISTED yin.vm.provenance-test -- test/yin/vm/provenance_test.cljc

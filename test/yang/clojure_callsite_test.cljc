@@ -33,7 +33,9 @@
             #?(:clj [yin.vm.linker.interpreter :as link])
             [yin.vm.linker.publish :as publish]
             [yin.vm.macro :as macro]
-            [yin.vm.module :as module]))
+            [yin.vm.module :as module]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.derive :as derive]))
 
 
 (def ^:private origin [:source :program "batch-1" 0])
@@ -110,6 +112,26 @@
   (try (f) ::no-failure
        (catch #?(:cljd Object :clj Exception :cljs :default) e
          (:rule (ex-data e)))))
+
+
+(deftest pinned-replay-test
+  (let [ast (yang/compile-program
+              '[(defn replay
+                  [x]
+                  (let [y (+ x 1.5)]
+                    (+ (identity ^:replay y)
+                       (identity ^:replay y))))
+                (replay 2)])
+        {:keys [tree metadata]} (project ast)
+        keys (vec (sort-by pr-str (marked metadata)))
+        root :segment/blake3-ed66c4acafcaa0272ad446f46f10c90bccd2aadebb99de4b55d2f9024773d54f
+        paths [[2 3] [[3 0] [3 1] 3 2 3 [3 0]]
+               [[3 0] [3 1] 3 2 3 [3 1]] [[3 0] [3 1] 3 2 3]
+               [[3 0] [3 1] 3 [3 0]]
+               [[3 0] [3 1] 3] [[3 0]] []]]
+    (is (= root (:root tree)))
+    (is (= (mapv (fn [path] [origin root path]) paths) keys))
+    (is (= (eligible tree) (marked metadata)))))
 
 
 (deftest equality-gate-test
@@ -866,6 +888,311 @@
   (-> (module/default-registry)
       module/register-cell-module
       (data/register-data-module {::data/max-items 1048576})))
+
+
+(defn replay-artifacts
+  "The cc4 portable replay corpus. All admission coordinates and naming inputs
+   are supplied data. Kept public so the separately declared budget runner can
+   retain exactly the artifacts whose digests the equality gate checks."
+  ([] (replay-artifacts true))
+  ([annotated?]
+   (let [prepare (if annotated? identity
+                     #(walk/postwalk (fn [n]
+                                       (if (map? n)
+                                         (dissoc n :yang/call-site) n)) %))
+         forms '[(defn replay
+                   [x]
+                   (let [[a b] [x 1.5]]
+                     (+ (identity ^:replay a) (identity ^:replay a) b)))
+                 (replay 2)]
+         projected (fn [id ast token]
+                     (let [ast (prepare ast)
+                           p (encoder/project
+                               (encoder/source-envelope :cc4/replay token [ast]))]
+                       {:id id :compiled ast :tree (first (:yin/batch p))
+                        :rows (:yin/frontend-metadata p)}))
+         ast (yang/compile-program forms)
+         macro-ast (yang/compile-program
+                     '[(defmacro twin
+                         [x]
+                         (yin/if (yin/literal true) x
+                                 (yin/application (yin/variable 'f) [(yin/literal 1)])))
+                       (defn f
+                         [x]
+                         x) (twin (f 1))])
+         expansion (:result (expand-like-the-repl (prepare macro-ast)))
+         store (mem/create-content-mem)
+         call-spec (update (call/module-spec publish-registry) :ast prepare)
+         call-result (publish/publish-module! store call-spec)
+         clj-spec (update (clj-prelude/module-spec publish-registry (:address call-result))
+                          :ast prepare)
+         clj-result (publish/publish-module! store clj-spec)
+         published (fn [id result spec]
+                     (let [table (publish/published-call-site-table store result)]
+                       {:id id :compiled (:ast spec)
+                        :tree (or (:tree table) (vm/ast->semantic-bytecode (:ast spec)))
+                        :rows (or (:rows table) [])
+                        :addresses (assoc (dissoc (:call-sites result) :origin)
+                                          :manifest (:address result))
+                        :published-payloads
+                        (when (:call-sites result)
+                          (mapv #(jing/get store % nil)
+                                (map (:call-sites result) [:table :provenance :record])))
+                        :provenance (publish/published-instruction-provenance store result)}))]
+     [(projected :native ast "admission-a")
+      (projected :argument-vector (yang/compile-program forms true yang/unit-opts)
+                 "admission-a")
+      (projected :lower-unit (yang/lower-unit forms) "admission-a")
+      (projected :prelude clj-prelude/module-uast "admission-a")
+      {:id :macro :compiled (prepare macro-ast) :status (:status expansion)
+       :tree (macro/packet->row-set (:tree expansion))
+       :rows (:frontend-metadata expansion) :expansion-log (:log expansion)}
+      (projected :negative ast "admission-b")
+      (published :yang.call call-result call-spec)
+      (published :clj clj-result clj-spec)])))
+
+
+(defn- collection-constructors
+  "The constructed-collection applications of compiled `ast`: an assoc over
+   the {} seed or a conj over the []/#{} seed -- the yang.clojure
+   collection emitter's output."
+  [ast]
+  (let [acc (atom [])]
+    (walk/postwalk
+      (fn [n]
+        (when (and (map? n)
+                   (= :application (:type n))
+                   (= :variable (get-in n [:operator :type]))
+                   (= :literal (get-in n [:operands 0 :type])))
+          (let [op (get-in n [:operator :name])
+                seed (get-in n [:operands 0 :value])]
+            (when (or (and (= op (quote assoc)) (= seed {}))
+                      (and (= op (quote conj)) (contains? #{[] #{}} seed)))
+              (swap! acc conj n))))
+        n)
+      ast)
+    @acc))
+
+
+(defn replay-snapshot
+  "Digest the FULL canonical-sorted C1 relation and occurrence-key vector;
+   no origin, generated name, path or expansion record is normalized away."
+  [{:keys [id tree rows addresses provenance expansion-log status]}]
+  (let [c1 (vec (sort jing/canonical-compare
+                      (filter #(= :yang/call-site (nth % 3)) rows)))
+        keys (vec (sort jing/canonical-compare (marked rows)))
+        sem (linearize/project-rows tree nil rows)
+        stack (derive/stack-image (:vector sem)
+                                  {:segment-address :cc4/stack
+                                   :call-provenance (:call-provenance sem)})
+        register (derive/register-image (:vector sem)
+                                        {:segment-address :cc4/register
+                                         :call-provenance (:call-provenance sem)})]
+    (cond-> {:id id :root (:root tree) :applications (count keys)
+             :keys-digest (jing/content-hash keys)
+             :c1-digest (jing/content-hash c1)
+             :instruction-provenance-digest
+             (jing/content-hash [(:call-provenance sem)
+                                 (:call-provenance stack)
+                                 (:call-provenance register)])}
+      addresses (assoc :addresses addresses)
+      provenance (assoc :provenance-digest (jing/content-hash provenance))
+      expansion-log (assoc :expansion-log-digest (jing/content-hash expansion-log)
+                           :expansion-status status))))
+
+
+(def replay-expectations
+  "The cc4 cohort's fixed expectations, shared by all hosts. Originally
+   recorded on the JVM at dispatch revision 2687ab0c; re-pinned once under
+   manifest c1-2 (constructed-collections-v1, ruling 1795017757000) after
+   the collection emitter began ordering constructor operands by compiled
+   content -- the argument-vector and lower-unit members changed canonical
+   bytes, the other six members are byte-identical. The pre-fix bundle is
+   retained at test/resources/yang/clojure/cc4-replay-snapshots-prefix-c1-1.edn."
+  [{:id :native,
+    :root
+    :segment/blake3-0aac99defd315ce7623ecefc08106f31653bd138fb5ae3f1f1d466bd93893c70,
+    :applications 14,
+    :keys-digest
+    "fa8eac643ac38139bbfb9391e5e00725b24396a04067f812117dbf352a99dcee",
+    :c1-digest
+    "c906019273e6253441e61306faca99b4212f122a00b08fd8226be0e0e7742c26",
+    :instruction-provenance-digest
+    "1556afb1db35c20b88bbc254b112fcb09874e95b3c9bcd8d412fbd3e4d01f005"}
+   {:id :argument-vector,
+    :root
+    :segment/blake3-4a9a1b91e8a113009af0dc68f8e5a5afbe1910a61e07741894f5922c20499b26,
+    :applications 263,
+    :keys-digest
+    "aeb62bc089bd7b30f200d9b0645e7933e54286af39b9675c73823c4be8d0175d",
+    :c1-digest
+    "41b8f25ba2592d4f5d77364f97e7c8d058cbe4e2a428587cc2b43a5e4193387d",
+    :instruction-provenance-digest
+    "d0f4d14d0cef560ad313574f206a391b1eed7938b38b81f614549bc26cb8b3cb"}
+   {:id :lower-unit,
+    :root
+    :segment/blake3-f4603726a6b554bf102dd63f752851e735c068d3804158b2435004161c6655b4,
+    :applications 256,
+    :keys-digest
+    "18e26285f07ae96609caeea87f96e4b9fe8cea6b5223c87417d63edeac054670",
+    :c1-digest
+    "1ab2dbf99e3fa7bbe4d53281c7d961f03b837cef6a6df5eb10f82d1ceff5849d",
+    :instruction-provenance-digest
+    "711d0c50ea119b0f6577868383a5e82462b17a77da52b0b09e049fddc68d4aa5"}
+   {:id :prelude,
+    :root
+    :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c,
+    :applications 114,
+    :keys-digest
+    "07ec7e0a4ab5c70165680106dc382a9d9cfc53543b6262e0bed3f4c2dd8f7f9f",
+    :c1-digest
+    "de8cc7425d8416de0eb8e3f6dc7ff80e5fb459f0fbdab7027d4df1b3c784925d",
+    :instruction-provenance-digest
+    "7392bb208443f93c42b29cd870d697b602a108b9420f443e7ba04583ee356d29"}
+   {:id :macro,
+    :root
+    :segment/blake3-a15528bb9aef22fa7dc4beaa90a7e08f079b4dfb9b6da51f7b16bb079c54134a,
+    :applications 5,
+    :keys-digest
+    "41d06797995ebdc416c2218d9bc6f359ee91f3374f2412cdeff3f5b03bc85d68",
+    :c1-digest
+    "08b6cca6ed5de79242687f08d6ef0a5206ab97a54c3f22e131d4bc4b7e9e5c17",
+    :instruction-provenance-digest
+    "0977d7b1ec1637016b58cf457783f59b66881dd092e2308f760e6329c7e61b45",
+    :expansion-log-digest
+    "73b67cf76e2ad7e5444fdcd9df1e26e538ac80bcab0e39c0243abc458230e605",
+    :expansion-status :ok}
+   {:id :negative,
+    :root
+    :segment/blake3-0aac99defd315ce7623ecefc08106f31653bd138fb5ae3f1f1d466bd93893c70,
+    :applications 14,
+    :keys-digest
+    "9af4019d1aac9117ea1c3c6722e51d1f485b5c12fb413696334ebf32bf8726dc",
+    :c1-digest
+    "0922dc899c755e6524b5a99dd89d231fb66e0442bf64b4f1f12cd83caff7fe1e",
+    :instruction-provenance-digest
+    "cf08d9827b5a9df3f78524904a5670f8e2e9c01962e9085c60553e2deae6b799"}
+   {:id :yang.call,
+    :root
+    :segment/blake3-7e7616ca801a9accdf762409584fdd792e055dc5c55d4528a8eb3fdb5596e37c,
+    :applications 100,
+    :keys-digest
+    "2039d1de6fef574d02f5f9afe4105ea682b03fe322871a7087cdd6d32e4e54a8",
+    :c1-digest
+    "3acde5f905ceea786f662156fbf6e90cd04dcbc40f3872ca9aaebbc26f39d519",
+    :instruction-provenance-digest
+    "980ec0e7f2bc5e3b4ff2da60a90dab318d594e6a5a53319214f7bdf9f39a87bf",
+    :addresses
+    {:record
+     :segment/blake3-28e281229dc14d40416e033479004b021d89e599be66318a21102850b5c39cc3,
+     :table
+     :segment/blake3-3acde5f905ceea786f662156fbf6e90cd04dcbc40f3872ca9aaebbc26f39d519,
+     :provenance
+     :segment/blake3-d7dab37d22c32674c2a33503818c570c54ac11486094144ebf295e44e5b2ed61,
+     :root
+     :segment/blake3-7e7616ca801a9accdf762409584fdd792e055dc5c55d4528a8eb3fdb5596e37c,
+     :manifest
+     :segment/blake3-ef21320944b651140c11dedebd8b443fb91d32f99678f9c274568fbe4d07eea4},
+    :provenance-digest
+    "8218c68f1c2851edb821c62bfdc7c6c9488751c022016930f0dfac8b48ae76ef"}
+   {:id :clj,
+    :root
+    :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c,
+    :applications 114,
+    :keys-digest
+    "ad8a98a4a01addb84ff29055c9030e2eb8eab9509973ad7177aa4ed3ee54f952",
+    :c1-digest
+    "167c6aeaedace3afd945c6b7c0f1aa31f73df5d4577366fdd2431059633c1050",
+    :instruction-provenance-digest
+    "57920a53ece61c4ea721a969c4107d32f846ec2628b4f77b62acb912677782c1",
+    :addresses
+    {:record
+     :segment/blake3-20d2e0c43539dbf3cb66fe04e6cffea673772d06d32f753b131de6f17d3daf35,
+     :table
+     :segment/blake3-167c6aeaedace3afd945c6b7c0f1aa31f73df5d4577366fdd2431059633c1050,
+     :provenance
+     :segment/blake3-3a43087e7ea783baa6e2f6f4041dc60c6f83aee4bc49842c871d2d20c12056c6,
+     :root
+     :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c,
+     :manifest
+     :segment/blake3-72efd5cba6d2c36bacae7a114fca2db95b5ef5cfe966d004d16e9e39a7179ee0},
+    :provenance-digest
+    "499f103a2af205e818483bb4ca301668bc8cf13d6e16f71e747ff0255b865287"}])
+
+
+(deftest portable-replay-cohort-test
+  (let [artifacts (replay-artifacts)
+        snapshots (mapv replay-snapshot artifacts)]
+    (when (not= replay-expectations snapshots)
+      (doseq [[expected actual artifact] (map vector replay-expectations snapshots artifacts)
+              :when (not= expected actual)]
+        ;; Preserve the producer's actual rows and canonical tree. A failed
+        ;; equality gate is a defect report, never permission to re-pin a host.
+        (prn :cc4/replay-divergence
+             {:expected expected :actual actual
+              :artifact (select-keys artifact [:id :tree :rows :expansion-log])})))
+    (is (= replay-expectations snapshots))
+    (doseq [{:keys [id tree rows]} artifacts]
+      (testing (str id)
+        (is (= (occurrence-pairs tree) (marked-pairs rows)))))
+    (let [a (first artifacts) b (nth artifacts 5)]
+      (is (= (:root (:tree a)) (:root (:tree b))))
+      (is (not= (row-origins (:rows a)) (row-origins (:rows b)))))))
+
+
+(deftest constructed-collection-operand-order-test
+  "constructed-collections-v1 (ruling 1795017757000): the reproduced
+   arity-map constructor emits its pairs in compiled-content order --
+   ascending jing/canonical-compare over the children's projected
+   [key-root value-root] vectors -- so every host compiles the two members
+   carrying it to one operand vector. The full ordering battery lives in
+   yang.clojure-collection-order-test."
+  (letfn [(arity-ctors
+            [ast]
+            (->> (collection-constructors ast)
+                 (filter (fn [c]
+                           (some (fn [o]
+                                   (and (= :literal (:type o))
+                                        (contains? #{:yin.k/fn :yin.k/kind}
+                                                   (:value o))))
+                                 (:operands c))))))
+          (pair-keys
+            [c]
+            (mapv vec
+                  (partition 2
+                             (rest (mapv (fn [o] (:root (vm/ast->semantic-bytecode o)))
+                                         (:operands c))))))
+          (sorted-ascending?
+            [ks]
+            (every? (fn [[a b]] (neg? (jing/canonical-compare a b)))
+                    (partition 2 1 ks)))]
+    (doseq [[label ast] [[:argument-vector
+                          (yang/compile-program
+                            (quote [(defn replay
+                                      [x]
+                                      (let [[a b] [x 1.5]]
+                                        (+ (identity ^:replay a)
+                                           (identity ^:replay a) b)))
+                                    (replay 2)])
+                            true yang/unit-opts)]
+                         [:lower-unit
+                          (yang/lower-unit
+                            (quote [(defn replay
+                                      [x]
+                                      (let [[a b] [x 1.5]]
+                                        (+ (identity ^:replay a)
+                                           (identity ^:replay a) b)))
+                                    (replay 2)]))]]]
+      (testing (str label)
+        (let [ctors (arity-ctors ast)]
+          (is (pos? (count ctors)))
+          (doseq [c ctors]
+            (is (sorted-ascending? (pair-keys c)))
+            ;; the ruled named order: :yin.k/fn, :yin.vm.data/reason,
+            ;; :yin.k/argc (key roots 1e0366, 81b62c, 8930bf)
+            (is (= [:yin.k/fn :yin.vm.data/reason :yin.k/argc]
+                   (mapv (fn [i] (:value (nth (:operands c) (inc (* 2 i)))))
+                         (range 3))))))))))
 
 
 (deftest published-module-test
