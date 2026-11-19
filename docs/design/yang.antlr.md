@@ -2135,8 +2135,11 @@ kind and no AST tag (ruling 3):
   `lower/open-stage` takes an explicit composition digit budget that
   fills only a packet declaring no `:yang.python.antlr/max-digits` of
   its own (the packet's declaration wins); with neither, a decimal
-  literal above 2^53-1 is a diagnostic, and hexadecimal, octal and
-  binary literals are exempt from the budget.
+  literal above the 4300-digit default is a diagnostic, and hexadecimal,
+  octal and binary literals are exempt from the budget. The default is
+  CPython 3.11's `set_int_max_str_digits` limit: a composition that
+  raises it should raise the guest runtime's knob (the REPL already
+  declares 4300) so lowering and the digit-limit `ValueError` agree.
 - `42` and `42.0` stay distinct content although numerically equal.
 
 Exact-integer carriers are recognized as scalars in the encoder, the
