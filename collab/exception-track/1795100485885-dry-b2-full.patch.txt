@@ -1,0 +1,493 @@
+diff --git a/src/clj/yang/antlr/cst.clj b/src/clj/yang/antlr/cst.clj
+index 5848958e..18d4d441 100644
+--- a/src/clj/yang/antlr/cst.clj
++++ b/src/clj/yang/antlr/cst.clj
+@@ -71,6 +71,22 @@
+      :parser-cache (PredictionContextCache.)}))
+ 
+ 
++(defn- own-lexer!
++  [^Lexer lexer worker]
++  (.setInterpreter lexer
++                   (LexerATNSimulator. lexer ^ATN (:lexer-atn worker)
++                                       ^"[Lorg.antlr.v4.runtime.dfa.DFA;" (:lexer-dfa worker)
++                                       ^PredictionContextCache (:lexer-cache worker))))
++
++
++(defn- own-parser!
++  [^Parser parser worker]
++  (.setInterpreter parser
++                   (ParserATNSimulator. parser ^ATN (:parser-atn worker)
++                                        ^"[Lorg.antlr.v4.runtime.dfa.DFA;" (:parser-dfa worker)
++                                        ^PredictionContextCache (:parser-cache worker))))
++
++
+ ;; =============================================================================
+ ;; Export
+ ;; =============================================================================
+@@ -87,9 +103,8 @@
+                                         (.getStopIndex t)))
+                    (if (instance? Lexer recognizer)
+                      (let [^Lexer lx recognizer]
+-                       [(export/offset-at offsets (._tokenStartCharIndex lx))
+-                        (export/offset-at offsets
+-                                          (.index (.getInputStream lx)))])
++                       (export/lexer-span offsets (._tokenStartCharIndex lx)
++                                          (.index (.getInputStream lx))))
+                      nil))]
+         (vswap! errors conj (export/syntax-error msg line column span))))))
+ 
+@@ -129,28 +144,15 @@
+         errors (volatile! [])
+         listener (error-listener errors offsets)
+         lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
+-        _ (.setInterpreter lexer
+-                           (LexerATNSimulator. lexer
+-                                               ^ATN (:lexer-atn worker)
+-                                               ^"[Lorg.antlr.v4.runtime.dfa.DFA;"
+-                                               (:lexer-dfa worker)
+-                                               ^PredictionContextCache
+-                                               (:lexer-cache worker)))
++        _ (own-lexer! lexer worker)
+         _ (.removeErrorListeners lexer)
+         _ (.addErrorListener lexer listener)
+         parser ^Parser ((:make-parser profile) (CommonTokenStream. lexer))
+-        _ (.setInterpreter parser
+-                           (ParserATNSimulator. parser
+-                                                ^ATN (:parser-atn worker)
+-                                                ^"[Lorg.antlr.v4.runtime.dfa.DFA;"
+-                                                (:parser-dfa worker)
+-                                                ^PredictionContextCache
+-                                                (:parser-cache worker)))
++        _ (own-parser! parser worker)
+         _ (.removeErrorListeners parser)
+         _ (.addErrorListener parser listener)
+         tree ((:start profile) parser)]
+-    (export/result profile unit @errors
+-                   #(export/export-nodes (ops parser) cps offsets tree))))
++    (export/export-tree profile unit cps offsets @errors #(ops parser) tree)))
+ 
+ 
+ (defn parse-transform
+@@ -177,8 +179,7 @@
+    use the listener's offending token instead — their hosts' cst
+    namespaces carry that rationale). A lexer error has no token."
+   [worker source]
+-  (let [{:keys [profile lexer-atn lexer-dfa lexer-cache parser-atn
+-                parser-dfa parser-cache]}
++  (let [{:keys [profile]}
+         worker
+         failure (volatile! nil)
+         lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
+@@ -193,21 +194,11 @@
+                                   (instance? NoViableAltException e)
+                                   (dec (count (.getTokens tokens)))
+                                   :else (.getTokenIndex ^Token offending))))))
+-        _ (.setInterpreter
+-            lexer
+-            (LexerATNSimulator. lexer
+-                                ^ATN lexer-atn
+-                                ^"[Lorg.antlr.v4.runtime.dfa.DFA;" lexer-dfa
+-                                ^PredictionContextCache lexer-cache))
++        _ (own-lexer! lexer worker)
+         _ (.removeErrorListeners lexer)
+         _ (.addErrorListener lexer ^ANTLRErrorListener listener)
+         parser ^Parser ((:make-parser profile) tokens)
+-        _ (.setInterpreter
+-            parser
+-            (ParserATNSimulator. parser
+-                                 ^ATN parser-atn
+-                                 ^"[Lorg.antlr.v4.runtime.dfa.DFA;" parser-dfa
+-                                 ^PredictionContextCache parser-cache))
++        _ (own-parser! parser worker)
+         _ (.removeErrorListeners parser)
+         _ (.addErrorListener parser ^ANTLRErrorListener listener)]
+     ((:start profile) parser)
+diff --git a/src/cljc/yang/antlr/export.cljc b/src/cljc/yang/antlr/export.cljc
+index 539d33aa..062f01a7 100644
+--- a/src/cljc/yang/antlr/export.cljc
++++ b/src/cljc/yang/antlr/export.cljc
+@@ -22,11 +22,16 @@
+   (packet/byte-offsets cps))
+ 
+ 
+-(defn offset-at
++(defn- offset-at
+   [offsets i]
+   (nth offsets (max 0 (min i (dec (count offsets))))))
+ 
+ 
++(defn lexer-span
++  [offsets start stop]
++  [(offset-at offsets start) (offset-at offsets stop)])
++
++
+ (defn token-span
+   "The byte span of a token's code point range [start, stop]; a token whose
+    stop precedes its start is zero-width."
+@@ -81,7 +86,7 @@
+      :span [(offset-at offsets start) (offset-at offsets (inc stop))]}))
+ 
+ 
+-(defn export-nodes
++(defn- export-nodes
+   "Preorder records for the parse tree under `root`; a record's id is its
+    index."
+   [ops cps offsets root]
+@@ -126,7 +131,7 @@
+       @out)))
+ 
+ 
+-(defn result
++(defn- result
+   "The packet for a parse: an error packet when `errors` is non-empty."
+   [profile unit errors nodes]
+   (let [base (packet/base (:grammar-id profile) unit)]
+@@ -140,6 +145,12 @@
+              :yang.cst/nodes (nodes)))))
+ 
+ 
++(defn export-tree
++  "Export a tree only when parsing produced no errors."
++  [profile unit cps offsets errors ops-fn tree]
++  (result profile unit errors #(export-nodes (ops-fn) cps offsets tree)))
++
++
+ (defn failure-kind
+   "Classify a parse's first failure. `failure` is nil (the parse had none),
+    :lexical (a lexer error, which has no token), or the index of the failing
+diff --git a/src/clj/yang/io.clj b/src/cljc/yang/io.cljc
+similarity index 53%
+rename from src/clj/yang/io.clj
+rename to src/cljc/yang/io.cljc
+index 296dc0b4..0ffbc9e0 100644
+--- a/src/clj/yang/io.clj
++++ b/src/cljc/yang/io.cljc
+@@ -1,11 +1,14 @@
+ (ns yang.io
+-  "Platform-specific I/O for Yang compiler on JVM.
++  "Platform-specific I/O for Yang compiler.
+ 
+   Provides functions to compile Clojure source files to Universal AST."
+   (:require
+-    [clojure.java.io :as io]
+-    [clojure.tools.reader :as reader]
+-    [clojure.tools.reader.reader-types :as reader-types]
++    #?@(:clj [[clojure.java.io :as io]
++              [clojure.tools.reader :as reader]
++              [clojure.tools.reader.reader-types :as reader-types]]
++        :cljs [["fs" :as fs]
++               [cljs.tools.reader :as reader]
++               [cljs.tools.reader.reader-types :as reader-types]])
+     [yang.clojure :as yang]))
+ 
+ 
+@@ -21,12 +24,19 @@
+   "Read Clojure source code from a file.
+   Returns a sequence of forms."
+   [file-path]
+-  (try (with-open [r (io/reader file-path)]
+-         (read-forms r file-path))
+-       (catch Exception e
+-         (throw (ex-info "Failed to read source file"
+-                         {:file file-path, :error (.getMessage e)}
+-                         e)))))
++  #?(:clj (try (with-open [r (io/reader file-path)]
++                  (read-forms r file-path))
++                (catch Exception e
++                  (throw (ex-info "Failed to read source file"
++                                  {:file file-path, :error (.getMessage e)}
++                                  e))))
++     :cljs (try (let [content (.readFileSync fs file-path "utf8")
++                      forms (read-forms content file-path)]
++                  forms)
++                (catch js/Error e
++                  (throw (ex-info "Failed to read source file"
++                                  {:file file-path, :error (.-message e)}
++                                  e))))))
+ 
+ 
+ (defn compile-file
+@@ -48,7 +58,8 @@
+   "Write compiled AST to a file as EDN.
+   The AST is a map-based structure that can be serialized to EDN."
+   [ast-nodes file-path]
+-  (spit file-path (pr-str ast-nodes)))
++  #?(:clj (spit file-path (pr-str ast-nodes))
++     :cljs (.writeFileSync fs file-path (pr-str ast-nodes) "utf8")))
+ 
+ 
+ (defn compile-and-save
+diff --git a/src/cljc/yang/php/antlr/eval_admission.cljc b/src/cljc/yang/php/antlr/eval_admission.cljc
+index 4c703fbb..fece2d7c 100644
+--- a/src/cljc/yang/php/antlr/eval_admission.cljc
++++ b/src/cljc/yang/php/antlr/eval_admission.cljc
+@@ -1,7 +1,8 @@
+ (ns yang.php.antlr.eval-admission
+   "Strict UTF-8 admission for an eval source carried as one character per byte.
+    This boundary does not execute or compile the admitted source."
+-  (:require [dao.host.text :as text])
++  (:require [dao.host.text :as text]
++            [yang.php.antlr.eval-transport :as transport])
+   #?(:cljd (:import ["dart:typed_data" Uint8List])))
+ 
+ 
+@@ -74,14 +75,8 @@
+   [request]
+   (let [{:keys [source diagnostic reason]} (admit (:yang.php/source request))]
+     (cond
+-      diagnostic (assoc (select-keys request [:yang.compile/request :yang.compile/unit
+-                                              :yang.compile/provenance])
+-                        :yang.compile/outcome :yang.compile/rejected
+-                        :yang.compile/reason :yang.compile/unsupported
+-                        :yang.compile/diagnostic diagnostic)
+-      reason (assoc (select-keys request [:yang.compile/request :yang.compile/unit
+-                                          :yang.compile/provenance])
+-                    :yang.compile/outcome :yang.compile/rejected
+-                    :yang.compile/reason :yang.compile/invalid-request
+-                    :yang.compile/detail reason)
++      diagnostic (transport/rejected request :yang.compile/unsupported
++                                     {:yang.compile/diagnostic diagnostic})
++      reason (transport/rejected request :yang.compile/invalid-request
++                                 {:yang.compile/detail reason})
+       :else {:request request :source source})))
+diff --git a/src/cljc/yang/php/antlr/eval_coordinator.cljc b/src/cljc/yang/php/antlr/eval_coordinator.cljc
+index 08136bfb..b2bb9ffc 100644
+--- a/src/cljc/yang/php/antlr/eval_coordinator.cljc
++++ b/src/cljc/yang/php/antlr/eval_coordinator.cljc
+@@ -58,15 +58,12 @@
+    set to the composition's store. Linker admission is a separate step."
+   [{:keys [worker store registry stage-requirement]} request]
+   (let [{:keys [cst identity] :as prepared} (compile-transport-request worker request)
+-        correlation (when (map? request)
+-                      (select-keys request [:yang.compile/request :yang.compile/unit
+-                                            :yang.compile/provenance]))]
++        correlation (transport/correlation request)]
+     (cond
+       (:yang.compile/outcome prepared) prepared
+       (not= :yang.cst/ok (:yang.cst/outcome cst))
+-      (merge correlation {:yang.compile/outcome :yang.compile/rejected
+-                          :yang.compile/reason :yang.compile/invalid-source
+-                          :yang.compile/diagnostics (:yang.cst/errors cst)})
++      (transport/rejected request :yang.compile/invalid-source
++                          {:yang.compile/diagnostics (:yang.cst/errors cst)})
+       :else
+       (let [name (symbol (str "eval." (name (jing/segment-key identity))))
+             result (publication/publish! store registry name prepared)]
+@@ -79,9 +76,8 @@
+                 derived (when stage (stage {:store store :datoms [] :principals []}
+                                            name address))]
+             (if (and derived (not= :ok (:status derived)))
+-              (merge correlation {:yang.compile/outcome :yang.compile/rejected
+-                                  :yang.compile/reason :yang.compile/derivation-failed
+-                                  :yang.compile/detail derived})
++              (transport/rejected request :yang.compile/derivation-failed
++                                  {:yang.compile/detail derived})
+               (merge correlation {:yang.compile/outcome :yang.compile/published
+                                   :yang.compile/module name
+                                   :yang.compile/address address
+@@ -89,9 +85,8 @@
+                                   :yang.compile/site-record (:record-address site)}
+                      (when derived {:yang.compile/active-address (:address derived)
+                                     :yang.compile/derivation (:derivation derived)}))))
+-          (merge correlation {:yang.compile/outcome :yang.compile/rejected
+-                              :yang.compile/reason :yang.compile/publication-failed
+-                              :yang.compile/detail (select-keys result [:reason :status])}))))))
++          (transport/rejected request :yang.compile/publication-failed
++                              {:yang.compile/detail (select-keys result [:reason :status])}))))))
+ 
+ 
+ (defn compile-and-publish!
+@@ -102,15 +97,12 @@
+     (catch #?(:cljd Object :clj Exception :cljs :default) e
+       (let [diagnostic (ex-data e)]
+         (if (:yang.php/diagnostic diagnostic)
+-          (merge (when (map? request)
+-                   (select-keys request [:yang.compile/request :yang.compile/unit
+-                                         :yang.compile/provenance]))
+-                 {:yang.compile/outcome :yang.compile/rejected
+-                  :yang.compile/reason (if (= :yang.php/compile-error
+-                                              (:yang.php/diagnostic diagnostic))
+-                                         :yang.compile/invalid-source
+-                                         :yang.compile/unsupported)
+-                  :yang.compile/diagnostic diagnostic})
++          (transport/rejected request
++                              (if (= :yang.php/compile-error
++                                     (:yang.php/diagnostic diagnostic))
++                                :yang.compile/invalid-source
++                                :yang.compile/unsupported)
++                              {:yang.compile/diagnostic diagnostic})
+           (throw e))))))
+ 
+ 
+diff --git a/src/cljc/yang/php/antlr/eval_transport.cljc b/src/cljc/yang/php/antlr/eval_transport.cljc
+index aeedcd51..455d286b 100644
+--- a/src/cljc/yang/php/antlr/eval_transport.cljc
++++ b/src/cljc/yang/php/antlr/eval_transport.cljc
+@@ -32,3 +32,20 @@
+     (not (map? (:yang.compile/options request))) :options-shape
+     (not (portable-data? request)) :non-portable-data
+     :else nil))
++
++
++(defn correlation
++  "The portable request correlation fields, when the request is a map."
++  [request]
++  (when (map? request)
++    (select-keys request [:yang.compile/request :yang.compile/unit
++                          :yang.compile/provenance])))
++
++
++(defn rejected
++  "Construct a rejection retaining request correlation."
++  [request reason extra]
++  (merge (correlation request)
++         {:yang.compile/outcome :yang.compile/rejected
++          :yang.compile/reason reason}
++         extra))
+diff --git a/src/cljd/yang/antlr/cst.cljd b/src/cljd/yang/antlr/cst.cljd
+index 1993b82f..b5f68c67 100644
+--- a/src/cljd/yang/antlr/cst.cljd
++++ b/src/cljd/yang/antlr/cst.cljd
+@@ -98,8 +98,8 @@
+ 
+                    (instance? a/Lexer recognizer)
+                    (let [^a/Lexer lx recognizer]
+-                     [(export/offset-at offsets (.-tokenStartCharIndex lx))
+-                      (export/offset-at offsets (.-index (.-inputStream lx)))])
++                     (export/lexer-span offsets (.-tokenStartCharIndex lx)
++                                        (.-index (.-inputStream lx))))
+ 
+                    :else nil)]
+         (vswap! errors conj (export/syntax-error msg line column span))))))
+@@ -148,8 +148,7 @@
+         _ (.removeErrorListeners parser)
+         _ (.addErrorListener parser l)
+         tree ((:start profile) parser)]
+-    (export/result profile unit @errors
+-                   #(export/export-nodes (ops parser) cps offsets tree))))
++    (export/export-tree profile unit cps offsets @errors #(ops parser) tree)))
+ 
+ 
+ (defn parse-transform
+diff --git a/src/cljs/yang/antlr/cst.cljs b/src/cljs/yang/antlr/cst.cljs
+index 26ac2948..fd25da8c 100644
+--- a/src/cljs/yang/antlr/cst.cljs
++++ b/src/cljs/yang/antlr/cst.cljs
+@@ -109,8 +109,8 @@
+                                       (.-stop offending))
+ 
+                    (instance? (.-Lexer antlr4) recognizer)
+-                   [(export/offset-at offsets (._tokenStartCharIndex recognizer))
+-                    (export/offset-at offsets (.. recognizer -_input -index))]
++                   (export/lexer-span offsets (._tokenStartCharIndex recognizer)
++                                      (.. recognizer -_input -index))
+ 
+                    :else nil)]
+         (vswap! errors conj (export/syntax-error msg line column span))))))
+@@ -155,8 +155,7 @@
+         _ (.removeErrorListeners parser)
+         _ (.addErrorListener parser l)
+         tree ((:start profile) parser)]
+-    (export/result profile unit @errors
+-                   #(export/export-nodes (ops parser) cps offsets tree))))
++    (export/export-tree profile unit cps offsets @errors #(ops parser) tree)))
+ 
+ 
+ (defn parse-transform
+diff --git a/src/cljs/yang/io.cljs b/src/cljs/yang/io.cljs
+deleted file mode 100644
+index cf275eb2..00000000
+--- a/src/cljs/yang/io.cljs
++++ /dev/null
+@@ -1,63 +0,0 @@
+-(ns yang.io
+-  "Platform-specific I/O for Yang compiler on Node.js.
+-
+-  Provides functions to compile Clojure source files to Universal AST."
+-  (:require
+-    [cljs.tools.reader :as reader]
+-    [cljs.tools.reader.reader-types :as reader-types]
+-    [yang.clojure :as yang]))
+-
+-
+-(def fs (js/require "fs"))
+-
+-
+-(defn- read-forms
+-  [source file-name]
+-  (let [r (reader-types/indexing-push-back-reader source 1 file-name)]
+-    (loop [forms []]
+-      (let [form (reader/read {:eof ::eof} r)]
+-        (if (= form ::eof) forms (recur (conj forms form)))))))
+-
+-
+-(defn read-source
+-  "Read Clojure source code from a file.
+-  Returns a sequence of forms."
+-  [file-path]
+-  (try (let [content (.readFileSync fs file-path "utf8")
+-             forms (read-forms content file-path)]
+-         forms)
+-       (catch js/Error e
+-         (throw (ex-info "Failed to read source file"
+-                         {:file file-path, :error (.-message e)}
+-                         e)))))
+-
+-
+-(defn compile-file
+-  "Compile a Clojure source file to Universal AST.
+-  Returns a vector of compiled AST nodes, one for each top-level form."
+-  [file-path]
+-  (let [forms (read-source file-path)] (mapv yang/compile forms)))
+-
+-
+-(defn compile-string
+-  "Compile a string containing Clojure code to Universal AST.
+-  Returns a vector of compiled AST nodes, one for each form."
+-  [source-str]
+-  (let [forms (read-forms source-str "<string>")]
+-    (mapv yang/compile forms)))
+-
+-
+-(defn write-ast
+-  "Write compiled AST to a file as EDN.
+-  The AST is a map-based structure that can be serialized to EDN."
+-  [ast-nodes file-path]
+-  (.writeFileSync fs file-path (pr-str ast-nodes) "utf8"))
+-
+-
+-(defn compile-and-save
+-  "Compile a source file and save the AST to an output file.
+-  Returns the compiled AST."
+-  [source-path output-path]
+-  (let [ast (compile-file source-path)]
+-    (write-ast ast output-path)
+-    ast))
+diff --git a/src/jolt/yang/antlr/cst.jolt b/src/jolt/yang/antlr/cst.jolt
+index df03fa12..c7510e23 100644
+--- a/src/jolt/yang/antlr/cst.jolt
++++ b/src/jolt/yang/antlr/cst.jolt
+@@ -407,8 +407,7 @@
+   (export/syntax-error message line column
+                        (case span-kind
+                          1 (export/token-span offsets a b)
+-                         2 [(export/offset-at offsets a)
+-                            (export/offset-at offsets b)]
++                         2 (export/lexer-span offsets a b)
+                          nil)))
+ 
+ 
+@@ -418,9 +417,9 @@
+   (let [cps (packet/code-points source)
+         offsets (export/byte-offsets cps)
+         records (export-records worker source)]
+-    (export/result (:profile worker) unit
+-                   (mapv #(error-record offsets %) (:errors records))
+-                   #(export/export-nodes (ops records) cps offsets 0))))
++    (export/export-tree (:profile worker) unit cps offsets
++                        (mapv #(error-record offsets %) (:errors records))
++                        #(ops records) 0)))
+ 
+ 
+ (defn parse-transform
