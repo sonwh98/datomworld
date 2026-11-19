@@ -441,8 +441,8 @@
 
 (deftest unsupported-constructs-are-qualified-test
   ;; `import m` and `del x` lower since I1; the I2 import forms still
-  ;; refuse, naming their construct; `assert` lowers since the
-  ;; py-quickwins slice
+  ;; refuse, naming their construct; `assert` and `x: T = v` lower since
+  ;; the py-quickwins slice
   (doseq [[src rule construct]
           [["x = a @ b\n" "expr" "operator @"]
            ["x @= b\n" "augassign" "augmented @="]
@@ -470,6 +470,20 @@
   (testing "the test lowers like any expression"
     (is (= (u/then (py 'py/assert (call (builtin "len") (gget "a")) none) none)
            (body "assert len(a)\n")))))
+
+
+(deftest annotated-assignment-golden-test
+  (testing "`x: T = v` assigns the value exactly as `x = v` does: the
+            annotation is erased metadata, documentation the runtime has
+            no type-checking layer for"
+    (is (= (body "x = 1\n") (body "x: int = 1\n")))
+    (is (= (u/then (gset "x" (u/lit 1)) none) (body "x: int = 1\n"))))
+  (testing "`x: T` with no value lowers to nothing"
+    (is (= (body "pass\n") (body "x: int\n"))))
+  (testing "a subscript target assigns like a plain assignment's"
+    (is (= (body "a[0] = 1\n") (body "a[0]: int = 1\n"))))
+  (testing "an attribute target assigns like a plain assignment's"
+    (is (= (body "a.b = 1\n") (body "a.b: int = 1\n")))))
 
 
 (deftest static-flow-errors-test

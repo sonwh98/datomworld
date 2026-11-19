@@ -636,6 +636,29 @@
                   "assert ()\n")))
 
 
+(deftest ^:slow ^:quickwins annotated-assignment-test
+  ;; the annotation is erased: the value assignment behaves exactly like
+  ;; `x = 1`, and the bare `x: int` binds nothing (a read is NameError)
+  (every-vm= (prints "1")
+             "x: int = 1\nprint(x)\n")
+  (every-vm= (prints "caught")
+             (str "try:\n"
+                  "    print(y)\n"
+                  "except NameError:\n"
+                  "    print('caught')\n"
+                  "y: int\n"))
+  (every-vm= (prints "[9]")
+             "a = [0]\na[0]: int = 9\nprint(a)\n")
+  (every-vm= (prints "5")
+             (str "class C:\n"
+                  "    pass\nc = C()\nc.v: int = 5\nprint(c.v)\n"))
+  (every-vm= (prints "7")
+             (str "def f():\n"
+                  "    z: int = 7\n"
+                  "    return z\n"
+                  "print(f())\n")))
+
+
 (deftest ^:slow classes-test
   (every-vm= (prints "40 4 True False")
              (str "class A:\n"

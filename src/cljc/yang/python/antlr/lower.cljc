@@ -100,7 +100,6 @@
    "decorated" "decorator",
    "async_funcdef" "async def",
    "async_stmt" "async statement",
-   "annassign" "annotated assignment",
    "match_stmt" "match statement",
    "subject_expr" "match statement",
    "star_named_expressions" "match statement",
@@ -145,7 +144,7 @@
 (def consumed-rules
   "Rules read only by their parent's arm; they never reach `lower` alone."
   #{"parameters" "typedargslist" "tfpdef" "varargslist" "vfpdef"
-    "augassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
+    "augassign" "annassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
     "subscript_" "sliceop" "arglist" "argument" "testlist_comp"
     "dictorsetmaker" "strings" "comp_for" "comp_iter" "comp_if" "with_item"
     "yield_arg" "dotted_name" "dotted_as_name" "dotted_as_names"
@@ -1351,26 +1350,51 @@
           :else (unsupported! target "augmented assignment to a call"))))))
 
 
+(defn- assign-sides
+  "The store the plain and annotated assignments share: a simple name
+   binds the value directly; anything else evaluates it once into a
+   temporary and assigns each target from it."
+  [ctx n targets value-node]
+  (let [value ((:lower ctx) ctx value-node)]
+    (if (and (= 1 (count targets))
+             (scope/simple-name (:pk ctx) (first targets)))
+      (assign-target ctx (first targets) value)
+      (let [tmp (gen "v" n)]
+        (u/let1 tmp value
+                (u/seq-nodes (map #(assign-target ctx % (u/v tmp))
+                                  targets)))))))
+
+
+(defn- lower-annassign
+  "`x: T = v`, through expr_stmt's annassign child. The annotation is
+  erased metadata: the runtime has no type-checking layer, so annotations
+  are documentation, and the value assignment lowers exactly as a plain
+  assignment to the same target (`assign-sides`, so subscript and
+  attribute targets store like the plain path's).
+  `x: T` with no value binds nothing at run time and lowers to nothing;
+  the target's name binding comes from the scope analysis, as in CPython."
+  [ctx n target annassign]
+  (let [kas (kids ctx annassign)
+        value (when (some #(p/token? % "=") kas) (peek (vec kas)))]
+    (if value
+      (assign-sides ctx n [target] value)
+      none)))
+
+
 (defn- lower-expr-stmt
   [ctx n]
   (let [ks (kids ctx n)]
     (cond
       (= 1 (count ks)) ((:lower ctx) ctx (first ks))
-      (p/rule? (second ks) "annassign") (unsupported! n "annotated assignment")
+      (p/rule? (second ks) "annassign")
+      (lower-annassign ctx n (first ks) (second ks))
       (p/rule? (second ks) "augassign")
       (lower-augmented ctx n (first ks) (second ks) (nth ks 2))
       :else
       (let [sides (filterv p/rule? ks)
             value-node (peek sides)
-            targets (pop sides)
-            value ((:lower ctx) ctx value-node)]
-        (if (and (= 1 (count targets))
-                 (scope/simple-name (:pk ctx) (first targets)))
-          (assign-target ctx (first targets) value)
-          (let [tmp (gen "v" n)]
-            (u/let1 tmp value
-                    (u/seq-nodes (map #(assign-target ctx % (u/v tmp))
-                                      targets)))))))))
+            targets (pop sides)]
+        (assign-sides ctx n targets value-node)))))
 
 
 ;; -----------------------------------------------------------------------------
