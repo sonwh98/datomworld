@@ -677,7 +677,18 @@
              (str "def f():\n"
                   "    z: int = 7\n"
                   "    return z\n"
-                  "print(f())\n")))
+                  "print(f())\n"))
+  ;; the erasure's residue, pinned as the known divergence it is: at
+  ;; module scope CPython evaluates the annotation (and stores it in
+  ;; __annotations__), here the runtime has neither a type-checking layer
+  ;; nor __annotations__, so a side-effecting annotation expression never
+  ;; evaluates — only the value assignment runs
+  (every-vm= (prints "done")
+             (str "def side_effect():\n"
+                  "    print('side')\n"
+                  "    return int\n"
+                  "x: side_effect() = 1\n"
+                  "print('done')\n")))
 
 
 (deftest ^:slow ^:quickwins named-unicode-escape-test

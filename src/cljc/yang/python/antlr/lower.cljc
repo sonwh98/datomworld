@@ -1439,10 +1439,16 @@
 
 (defn- lower-annassign
   "`x: T = v`, through expr_stmt's annassign child. The annotation is
-  erased metadata: the runtime has no type-checking layer, so annotations
-  are documentation, and the value assignment lowers exactly as a plain
-  assignment to the same target (`assign-sides`, so subscript and
-  attribute targets store like the plain path's).
+  erased metadata: the runtime has no type-checking layer and no
+  `__annotations__` to store it in, so annotations are documentation,
+  and the value assignment lowers exactly as a plain assignment to the
+  same target (`assign-sides`, so subscript and attribute targets store
+  like the plain path's). The residue of that erasure is an observable
+  divergence from CPython at module and class scope, where CPython
+  evaluates the annotation (and stores it in `__annotations__`): here
+  `x: side_effect() = v` never calls `side_effect()` — function-locally
+  CPython skips the annotation too, so only the module/class scope
+  diverges. A pin names the divergence in e2e_test.
   `x: T` with no value binds nothing at run time and lowers to nothing;
   the target's name binding comes from the scope analysis, as in CPython."
   [ctx n target annassign]
