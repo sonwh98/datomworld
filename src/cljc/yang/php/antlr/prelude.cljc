@@ -318,6 +318,15 @@
                     (assoc (assoc (assoc {} "message" msg) "code" 0)
                            "previous" :php/null)))))]
     [php/throw-error (fn [cls msg] (php/raise (php/make-error cls msg)))]
+    [php/eval-run
+     (fn [answer invoke]
+       (if (= (get answer :yang.compile/outcome) :yang.compile/published)
+         (invoke answer)
+         (if (if (= (get answer :yang.compile/reason) :yang.compile/invalid-source)
+               (not (nil? (get answer :yang.compile/diagnostics)))
+               false)
+           (php/throw-error "ParseError" "syntax error in eval source")
+           (php/root-fatal answer))))]
     [php/snapshot-exc
      (fn [e]
        (if (nil? (get e :php/obj))
