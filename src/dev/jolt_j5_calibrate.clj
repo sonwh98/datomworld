@@ -54,7 +54,24 @@
             [clojure.edn :as edn]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
-            [jolt-j5-shapes :as shapes]))
+            [jolt-j5-shapes :as shapes]
+            ;; the target-aware launch seam (Lane B C5; src/dev is on bb's
+            ;; classpath through the task's -cp src/dev)
+            [jolt-launch :as jlt]))
+
+
+;; Lane B target-awareness: --target chez (the default, unchanged) or
+;; --target gambit, refused fail-closed — the calibration children measure
+;; the Chez-built native parser wrapper (fork host/gambit/ffi/README.md).
+;; A trivial child through the launch seam must report the requested target
+;; itself before any calibration number is trusted.
+(def target
+  (let [[t remaining] (jlt/parse-target-arg *command-line-args*)]
+    (jlt/require-chez! t "calibrate:jolt-j5")
+    (println "jolt-target:" (name t))
+    (jlt/preflight! t "calibrate:jolt-j5 identity gate")
+    (def cli-args (vec remaining))
+    t))
 
 
 (def root (str (fs/canonicalize ".")))
@@ -390,7 +407,7 @@
         0 1))))
 
 
-(let [{:keys [out build-only bounded probe thread] :as o} (options *command-line-args*)]
+(let [{:keys [out build-only bounded probe thread] :as o} (options cli-args)]
   (cond
     (:slopes o)
     ;; each axis's count at depths 10 and 20 on a cold worker, in the test build

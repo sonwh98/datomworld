@@ -24,27 +24,36 @@
            (:exit (shell {:continue true} "bb" "src/dev/jolt_bootstrap.clj" "--test-negative")))}
 
   smoke:jolt
-  {:doc "J0a baseline smoke under jolt -Srepro -M:jolt: tracked load of yang.antlr.export/packet and defcfn :blocking calls (needs bb bootstrap:jolt)"
+  {:doc "J0a baseline smoke under jolt -Srepro -M:jolt: tracked load of yang.antlr.export/packet and defcfn :blocking calls (needs bb bootstrap:jolt; Lane B: --target chez|gambit, the child reports jolt-target and the driver asserts it fail-closed — the gambit child runs the same smoke form under $JOLT_GAMBIT)"
    :task (System/exit
-           (:exit (shell {:continue true} "sh" "-c"
-                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_smoke.clj")))}
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "src/dev/jolt_target_run.clj" "--script" "src/dev/jolt_smoke.clj" "--"
+                         *command-line-args*)))}
 
   jolt
-  {:doc "Run jolt -Srepro -M:jolt with the arguments given (a script path, -e ...), under build/tools/jolt-env.sh"
+  {:doc "Run jolt -Srepro -M:jolt with the arguments given (a script path, -e ...), under build/tools/jolt-env.sh (Lane B: --target chez|gambit; a fail-closed identity preflight child runs first, then the arguments pass through unchanged)"
    :task (System/exit
-           (:exit (apply shell {:continue true} "sh" "-c"
-                         ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt \"$@\""
-                         "jolt" *command-line-args*)))}
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "src/dev/jolt_target_run.clj" "--"
+                         *command-line-args*)))}
+
+  smoke:jolt-target
+  {:doc "Lane B target-aware launcher smoke: run a trivial child under the requested host scheme through the jolt-launch seam (--target chez, the default, or --target gambit via JOLT_GAMBIT) and fail closed unless the child itself reports jolt-target: <target> (needs bb bootstrap:jolt; the gambit leg needs the mise-pinned gsi)"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "src/dev/jolt_target_smoke.clj"
+                         *command-line-args*)))}
 
   qualify:jolt-libcrypto
   {:doc "J1b requalification: print this platform's observed libcrypto identity {:canonical-path :version-num :version :sha256} for jolt-toolchain.edn :native :libcrypto :qualified (the digest from bb and from the library, required equal); changes nothing (needs a built wrapper: bb build:jolt-native, or --requalify after a library change)"
    :task (System/exit
-           (:exit (shell {:continue true} "bb" "native/jolt-crypto/qualify.clj")))}
+           (:exit (shell {:continue true} "bb" "-cp" "src/dev" "native/jolt-crypto/qualify.clj")))}
 
   probe:jolt-crypto
-  {:doc "J1b: libcrypto provenance (qualified, missing, undeclared, version-floor, wrong-library-first, Linux LD_PRELOAD) and 256 MiB :blocking hash collect-safety, each in a child jolt process (needs bb build:jolt-native)"
+  {:doc "J1b: libcrypto provenance (qualified, missing, undeclared, version-floor, wrong-library-first, Linux LD_PRELOAD) and 256 MiB :blocking hash collect-safety, each in a child jolt process (needs bb build:jolt-native; Lane B: --target chez|gambit, fail-closed identity gate, gambit refused — the wrapper protocol is Chez-tier)"
    :task (System/exit
-           (:exit (shell {:continue true} "bb" "native/jolt-crypto/probes/run.clj")))}
+           (:exit (apply shell {:continue true} "bb" "native/jolt-crypto/probes/run.clj"
+                         *command-line-args*)))}
 
   test:jolt-j5
   {:doc "J5 acceptance: one Python session through the JVM and jolt REPL entry points with the standard catalog (output equal line for line), the multiline probe sequence, and the unavailable-library REPL legs (needs bb build:jolt-native)"
@@ -54,7 +63,8 @@
   probe:jolt-j5
   {:doc "J5b: the native Python parser's budget (input 4 MiB; in-parser guards: 8192 rule frames, 4096 SLL lookahead links, 256 full-LL links, on a 16 MiB parse thread): the review's repros, at/over per shape against the predicted table, 10x the old crash depths, the JVM's packets (incl. a 20,000-deep 1+ tree), the old crash depths in children on the jolt thread, injected C++ faults, the abort-is-a-failure property, lifecycle and unavailable-library legs. Args select legs: budget below crash inject abort unavailable (needs bb build:jolt-native)"
    :task (System/exit
-           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j5_run.clj" *command-line-args*)))}
+           (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
+                         "src/dev/jolt_j5_run.clj" *command-line-args*)))}
 
   calibrate:jolt-j5
   {:doc "J5b C4 + J5c: build the guards-off calibration variant of native/jolt-parser and record each nesting shape's stack cost per rule frame and per lookahead link on the 16 MiB parse thread (asserting every bound fits a quarter of the stack; writes build/j5b/calibration.edn), or, with --work, the work metric's per-shape counts and the corpus sweep the work bound derives from (writes build/j5b/work.edn; needs bb build:jolt-native)"

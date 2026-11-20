@@ -27,11 +27,19 @@
 ;;
 ;; Needs bb bootstrap:jolt and bb build:jolt-native (the test build, for the
 ;; fault seam). Prints PASS/FAIL/RECORD; exits nonzero on any FAIL.
+;;
+;; Lane B target-awareness: --target chez (the default, unchanged) or
+;; --target gambit. :gambit is refused fail-closed (the Gambit tier carries
+;; no native parser wrapper yet), and a :chez run first passes a fail-closed
+;; identity gate: a child through the launch seam must itself report
+;; "jolt-target: chez" before any leg's verdict is trusted.
 (ns jolt-j5-run
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.edn :as edn]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            ;; the target-aware launch seam (Lane B C5)
+            [jolt-launch :as jlt]))
 
 
 (def failures (atom 0))
@@ -47,11 +55,56 @@
 (def root (str (fs/canonicalize ".")))
 
 
-(def legs
-  (let [named (set *command-line-args*)]
-    (if (empty? named)
-      #{"budget" "below" "crash" "inject" "abort" "unavailable"}
-      named)))
+;; Lane B C5: an explicit --target (default :chez, zero behavior change).
+;; The J5 children are launched by the `jolt` helper below, which asserts the
+;; child target on every invocation. :gambit is refused fail-closed: the
+;; fork's Gambit tier does not yet carry the native parser wrapper
+;; (host/gambit/ffi/README.md — P2/P3 consumers remain Chez-only).
+(def cli
+  (let [[t remaining] (jlt/parse-target-arg *command-line-args*)
+        named-legs (filter #(contains? #{"budget" "below" "crash" "inject" "abort" "unavailable"} %) remaining)]
+    (when-not (and (every? (fn [a]
+                             (or (str/starts-with? a "--")
+                                 (contains? #{"budget" "below" "crash" "inject" "abort" "unavailable"} a)))
+                           remaining)
+                   (every? #(str/starts-with? % "--target") (filter #(str/starts-with? % "--") remaining)))
+      (binding [*out* *err*]
+        (println "probe:jolt-j5: unknown arguments" (pr-str remaining)
+                 "(legs are budget below crash inject abort unavailable; --target chez|gambit)"))
+      (System/exit 2))
+    {:target t
+     :legs (set (or (seq named-legs)
+                    ["budget" "below" "crash" "inject" "abort" "unavailable"]))}))
+
+
+(def target
+  (let [t (:target cli)]
+    ;; Fail-closed refusal for :gambit: the fork's Gambit tier does not yet
+    ;; carry the native parser wrapper (host/gambit/ffi/README.md — P2/P3
+    ;; consumers remain Chez-only), so it can never run the J5 lane.
+    (when (= :gambit t)
+      (binding [*out* *err*]
+        (println "probe:jolt-j5 FAILED: target gambit is not qualified for the J5 lane:"
+                 "the Gambit FFI tier does not carry the native parser wrapper yet"
+                 "(jolt fork host/gambit/ffi/README.md); refusing to run"))
+      (System/exit 1))
+    (println "jolt-target:" (name t))
+    t))
+
+
+(def legs (:legs cli))
+
+
+;; Fail-closed identity preflight: before any leg's pass/fail is trusted, a
+;; trivial child through the same launch seam must report the requested
+;; target itself.
+(def _identity-gate
+  (let [r (jlt/run-child {:target target} "-e"
+                         "(do (println (str \"jolt-target: \" (or (System/getenv \"JOLT_TARGET\") \"chez\"))))")]
+    (jlt/assert-child-target! {:target target
+                               :output (str (:out r) (:err r))
+                               :context "probe:jolt-j5 identity gate"})
+    (println "PASS identity gate: child reported" (jlt/identity-line target))))
 
 
 (def scratch (fs/path root "build/j5-probe"))

@@ -31,11 +31,30 @@
 ;; Every child runs under this driver's watchdog (run-watched): past
 ;; --timeout-ms its whole process tree is killed and the step is recorded
 ;; with :status :timeout, which fails the lane.
+;; Lane B target-awareness (C5): --target chez (the default, unchanged) or
+;; --target gambit, refused fail-closed for the jolt-spawning modes — the J2
+;; lane is Chez-tier (fork host/gambit/ffi/README.md). A trivial child through
+;; the launch seam must report the requested target itself before any step's
+;; verdict is trusted, and every jolt child gets JOLT_TARGET so it reports
+;; its own identity line.
+(when-not (resolve 'jolt-launch/run-child)
+  ((requiring-resolve 'babashka.classpath/add-classpath) "src/dev"))
+
+
 (ns jolt-j2-lane
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.edn :as edn]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [jolt-launch :as jlt]))
+
+
+(def ^:private cli
+  (let [[t remaining] (jlt/parse-target-arg *command-line-args*)]
+    {:target t :args (vec remaining)}))
+
+
+(def ^:private lane-target (:target cli))
 
 
 ;; Resolve relative to this script so the manifest self-test can run the
@@ -469,10 +488,28 @@
   (fs/create-dirs (fs/parent log))
   (let [aliases (if diag? "-M:jolt:jolt-diag:jolt-test" "-M:jolt:jolt-test")
         inner (str ". build/tools/jolt-env.sh && "
+                   "export JOLT_TARGET=" (name lane-target) " && "
                    "exec \"$JOLT_HOME/bin/jolt\" -Srepro " aliases
                    " " script " \"$@\" > " log " 2>&1")
         r (run-watched (into ["sh" "-c" inner "jolt"] args) timeout-ms)]
-    (assoc r :out (try (slurp log) (catch Exception _ "")))))
+    (assoc r :out (let [out (try (slurp log) (catch Exception _ ""))]
+                    ;; Lane B: fail-closed per-child identity assert — the
+                    ;; child prints the line itself (jolt_j2_probe and the
+                    ;; test runner embed the snippet); a child that reports
+                    ;; another host is never trusted as a step result. The
+                    ;; step contract says run-jolt never throws, so a
+                    ;; mismatch becomes a failing step (exit 99).
+                    (if (try (jlt/assert-child-target! {:target lane-target
+                                                        :output out
+                                                        :context (str "j2 child " script)})
+                             :ok
+                             (catch Exception e
+                               (binding [*out* *err*]
+                                 (println "FAIL j2 child identity:" (ex-message e)))
+                               false))
+                      out
+                      (do (spit log (str out "\nFAIL j2 child identity mismatch\n"))
+                          (assoc (dissoc r :out) :exit 99 :out out)))))))
 
 
 (defn- parse-lines
@@ -766,6 +803,12 @@
 (defn -main
   [& args]
   (let [[mode & more] args]
+    ;; Lane B: fail-closed target gate on the jolt-spawning modes (jvm/list/
+    ;; report launch no jolt child, so a gambit target is a no-op there).
+    (when (contains? #{"probe" "core"} mode)
+      (jlt/require-chez! lane-target "test:jolt-j2")
+      (println "jolt-target:" (name lane-target))
+      (jlt/preflight! lane-target "test:jolt-j2 identity gate"))
     (when (contains? #{"list" "core" "probe" "jvm"} mode)
       (try
         (println "J2 manifest OK:" (pr-str (check-manifest! "test" included excluded)))
@@ -785,4 +828,4 @@
 
 ;; Run only as the script, so the timeout self-check can load this file.
 (when (= *file* (System/getProperty "babashka.file"))
-  (apply -main *command-line-args*))
+  (apply -main (:args cli)))

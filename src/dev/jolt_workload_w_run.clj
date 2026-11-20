@@ -1,8 +1,24 @@
+;; Lane B target-awareness (C5): --target chez (the default, unchanged) or
+;; --target gambit, refused fail-closed — the workload measures the Chez-tier
+;; jolt worker (fork host/gambit/ffi/README.md). A trivial child through the
+;; launch seam must report the requested target itself before the worker's
+;; verdict is trusted, and the worker child gets JOLT_TARGET so it reports
+;; its own identity line.
+(when-not (resolve 'jolt-launch/run-child)
+  ((requiring-resolve 'babashka.classpath/add-classpath) "src/dev"))
+
+
 (ns jolt-workload-w-run
   "Independent watchdog and sampler for the single-threaded Workload W worker.
    Run with bb workload-w:jolt (no alternate modes)."
   (:require [clojure.edn :as edn]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [jolt-launch :as jlt]))
+
+
+(def ^:private cli
+  (let [[t remaining] (jlt/parse-target-arg *command-line-args*)]
+    {:target t :args (vec remaining)}))
 
 
 (def hard-cap-ms 300000)
@@ -139,6 +155,8 @@
                        "jolt"] args)
         builder (ProcessBuilder. ^java.util.List command)
         _ (.put (.environment builder) "JOLT_WORKLOAD_W_SUPERVISED" "1")
+        ;; Lane B: the worker child reports its own target identity line.
+        _ (.put (.environment builder) "JOLT_TARGET" (name (:target cli)))
         _ (.redirectError builder java.lang.ProcessBuilder$Redirect/INHERIT)
         process (.start builder)]
     (try
@@ -196,4 +214,7 @@
         (when (.isAlive process) (kill-tree! process))))))
 
 
-(System/exit (run-watched *command-line-args*))
+(System/exit (do (jlt/require-chez! (:target cli) "workload-w:jolt")
+                 (println "jolt-target:" (name (:target cli)))
+                 (jlt/preflight! (:target cli) "workload-w:jolt identity gate")
+                 (run-watched (:args cli))))

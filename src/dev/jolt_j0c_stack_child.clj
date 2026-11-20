@@ -22,6 +22,12 @@
     [yang.antlr.cst :as cst]))
 
 
+;; Lane B: the child reports which host scheme launched it (silent when
+;; JOLT_TARGET is unset, so legacy invocations keep their output
+;; byte-identical, and dual-host scripts do not misreport on the JVM).
+(when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
+
+
 ;; J5: yang.antlr.cst loads the native library on first use; load it before
 ;; any raw jolt_parser_* binding below is called
 (when-not (cst/available?)

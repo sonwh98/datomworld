@@ -7,6 +7,12 @@
             [yin.vm.linker.random :as random]))
 
 
+;; Lane B: the child reports which host scheme launched it (silent when
+;; JOLT_TARGET is unset, so legacy invocations keep their output
+;; byte-identical, and dual-host scripts do not misreport on the JVM).
+(when-let [t (System/getenv "JOLT_TARGET")] (println (str "jolt-target: " t)))
+
+
 (def failures (atom 0))
 (def original-alloc ffi/alloc)
 (def original-free ffi/free)

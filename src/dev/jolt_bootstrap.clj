@@ -182,6 +182,21 @@
 
 (defn- smoke!
   [dir scheme form expect message]
+  ;; Fail-closed target identity (Lane B C5): the child is a Chez-host jolt
+  ;; bin, so it must itself report "jolt-target: chez" before any smoke
+  ;; expectation is trusted. Absent or mismatching line fails the task.
+  (let [id (p/shell {:out :string :err :string :continue true
+                     :extra-env {"JOLT_CHEZ" scheme "JOLT_HOME" dir
+                                 "JOLT_TARGET" "chez"}}
+                    (str (fs/path dir "bin" "jolt")) "-e"
+                    ;; bin/jolt -e evaluates a Clojure form and prints the
+                    ;; result via prn; the identity line is the first line.
+                    "(println (str \"jolt-target: \" (or (System/getenv \"JOLT_TARGET\") \"chez\")))")
+        id-out (first (str/split-lines (str/trim (str (:out id) (:err id)))))]
+    (when-not (and (zero? (:exit id)) (= "jolt-target: chez" id-out))
+      (patch-fail! "jolt child target identity mismatch: expected \"jolt-target: chez\", observed "
+                   (pr-str id-out) " (" (:err id) ")"))
+    (println "jolt-target: chez (child identity verified)"))
   (let [r (p/shell {:out :string :err :string :continue true
                     :extra-env {"JOLT_CHEZ" scheme "JOLT_HOME" dir}}
                    (str (fs/path dir "bin" "jolt")) "-e" form)]

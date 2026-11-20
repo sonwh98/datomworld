@@ -29,12 +29,31 @@
 ;; time-limited instead ({:time-limited ...}: the depth and its time). No
 ;; bound is chosen or enforced here; that is J5's.
 ;; Writes build/j0c/r5/stack-budget.edn (or --out) and prints a table.
+;; Lane B target-awareness (C5): --target chez (the default, unchanged) or
+;; --target gambit, refused fail-closed — the stack ladders run on the
+;; Chez-tier jolt bin (fork host/gambit/ffi/README.md). A trivial child
+;; through the launch seam must report the requested target itself before a
+;; measurement is trusted, and every child gets JOLT_TARGET so it reports its
+;; own identity line.
+(when-not (resolve 'jolt-launch/run-child)
+  ((requiring-resolve 'babashka.classpath/add-classpath) "src/dev"))
+
+
 (ns jolt-j0c-stack
   (:require
     [babashka.fs :as fs]
     [babashka.process :as p]
     [clojure.pprint :as pprint]
-    [clojure.string :as str]))
+    [clojure.string :as str]
+    [jolt-launch :as jlt]))
+
+
+(def ^:private cli
+  (let [[t remaining] (jlt/parse-target-arg *command-line-args*)]
+    {:target t :args (vec remaining)}))
+
+
+(def ^:private target (:target cli))
 
 
 ;; the exports of build/tools/jolt-env.sh, for the children when the caller
@@ -44,6 +63,12 @@
     {}
     (into {} (keep #(when-let [[_ k v] (re-matches #"export (\w+)='(.*)'" %)] [k v]))
           (str/split-lines (slurp "build/tools/jolt-env.sh")))))
+
+
+;; Lane B: every child sees JOLT_TARGET so the child script reports its own
+;; identity line.
+(def ^:private child-env
+  (assoc jolt-env "JOLT_TARGET" (name target)))
 
 
 (def jolt (str (or (System/getenv "JOLT_HOME") (jolt-env "JOLT_HOME")) "/bin/jolt"))
@@ -65,9 +90,15 @@
 
 (defn- child
   [shape where mode depths]
-  (let [r (apply p/shell {:out :string :err :string :continue true :extra-env jolt-env}
+  (let [r (apply p/shell {:out :string :err :string :continue true :extra-env child-env}
                  jolt "-Srepro" "-M:jolt" "src/dev/jolt_j0c_stack_child.clj"
                  shape where mode (str max-ms) (map str depths))
+        ;; Lane B: fail-closed per-child identity assert (the child prints
+        ;; the line itself; a child that reports another host is never
+        ;; trusted as a measurement).
+        _ (jlt/assert-child-target! {:target target
+                                     :output (str (:out r) (:err r))
+                                     :context (str "j0c-stack child " shape " " where " " mode)})
         lines (str/split-lines (:out r))
         info (some #(when (str/starts-with? % "INFO ") (read-string (subs % 5))) lines)
         oks (keep #(when (str/starts-with? % "OK ")
@@ -141,7 +172,12 @@
           :else (recur (rest args) (update o :shapes conj a)))))
 
 
-(let [{only :shapes, :keys [thread out], :as o} (options *command-line-args*)
+(jlt/require-chez! target "bb jolt:run probe:jolt-j0c-stack")
+(println "jolt-target:" (name target))
+(jlt/preflight! target "jolt-j0c-stack identity gate")
+
+
+(let [{only :shapes, :keys [thread out], :as o} (options (:args cli))
       out (or out "build/j0c/r5/stack-budget.edn")]
   (binding [max-ms (or (:max-ms o) max-ms)
             *top* (:top o)]
