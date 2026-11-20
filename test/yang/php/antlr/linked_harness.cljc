@@ -65,26 +65,28 @@
   "`units` (`[{:name path :packet p :strict-types b}]`) published into
    `php`'s own content store, where its pinned requirement already lives:
    `publication/publish-units!`'s answer."
-  [units]
-  (publication/publish-units! (:store @published) (registry) (:address @published) units))
+  ([units] (publish-units! @published units))
+  ([runtime units]
+   (publication/publish-units! (:store runtime) (registry) (:address runtime) units)))
 
 
 (defn source
   "The linked store and signed site publications for this fixture."
   ([name-env] (source name-env nil))
-  ([name-env result]
+  ([name-env result] (source @published name-env result))
+  ([runtime name-env result]
    (let [publisher (sign/generate)
          entries (siteset/signed-entries publisher (:sites result)
                                          (:addresses result) (:bundles result))
          datoms (siteset/entry-datoms entries)
          stage (siteset/stage (registry)
                               {:hooks true, :hooks-profile safepoint/ticks-profile,
-                               :php-sp (:hook-address @published)} {})]
+                               :php-sp (:hook-address runtime)} {})]
      (link/composition
-       {:content-store (:store @published),
-        :name-env (merge {'php (:address @published),
-                          'php.sp (:hook-address @published),
-                          'yang.call (:call-address @published)} name-env),
+       {:content-store (:store runtime),
+        :name-env (merge {'php (:address runtime),
+                          'php.sp (:hook-address runtime),
+                          'yang.call (:call-address runtime)} name-env),
         :derivation :trusted,
         :stage (fn [ctx name address]
                  (stage (assoc ctx :datoms datoms :principals [(:public publisher)])
@@ -155,11 +157,12 @@
    lowered `:linked` and run. `value` is `run-main`'s map."
   ([units] (run-fixture units lower/entry-path {}))
   ([units main opts]
-   (let [entry (get units main)
+   (let [runtime (or (:runtime opts) @published)
+         entry (get units main)
          others (cond-> (mapv (fn [[path packet]] {:name path, :packet packet})
                               (dissoc units main))
                   (:class-map opts) (conj (assoc (:class-map opts) :name lower/classmap-name)))
-         result (publish-units! others)]
+         result (publish-units! runtime others)]
      (when-not (= :ok (:status result))
        (throw (ex-info "fixture units failed to publish" {:result result})))
      (let [{:keys [ast warnings]}
@@ -167,11 +170,11 @@
                                 (cond-> (merge {:prelude :linked,
                                                 :path main,
                                                 :paths (when (:computed? opts) (keys (:addresses result)))}
-                                               (dissoc opts :computed? :src :request))
+                                               (dissoc opts :computed? :src :request :runtime))
                                   (:class-map opts) (assoc :class-map true)
                                   (some? (:request opts)) (assoc :request-node
                                                                  (portable/request-node (:request opts)))))
-           src (or (:src opts) (source (name-env result) result))
+           src (or (:src opts) (source runtime (name-env result) result))
            sites (:set (siteset/site-set-of ast))
            tree (vm/ast->semantic-bytecode ast)
            ast (u/seq-nodes [(core-module/require-node 'yang.call)

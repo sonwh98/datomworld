@@ -98,3 +98,10 @@
             encoded (base64/encode (apply b octets))]
         (is (base64/text? encoded))
         (is (bytes= (apply b octets) (base64/decode encoded)))))))
+
+
+(deftest large-payload-validation-is-stack-safe
+  (let [chunk (apply str (repeat 1000 "A"))
+        payload (apply str (repeat 4000 chunk))]
+    (is (base64/text? payload))
+    (is (not (base64/text? (str (subs payload 0 (- (count payload) 4)) "A!AA"))))))

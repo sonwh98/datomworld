@@ -12,14 +12,6 @@
     [dao.host.bytes :as bytes]))
 
 
-(def ^:private text-pattern
-  "Padded standard-alphabet Base64, anchored at both ends:
-   no whitespace, no URL-safe alphabet. A length-4k tail is 4 alphabet characters,
-   a length-4k+2 tail is two characters and two pads, a length-4k+3 tail is three
-   characters and one pad, and no other shape is text."
-  #"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
-
-
 (def ^:private ^String alphabet
   "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
 
@@ -33,7 +25,21 @@
   "True iff `s` is strict padded standard-alphabet Base64 text, the empty
    string included: exactly what a datagram event's :bytes field carries."
   [s]
-  (and (string? s) (boolean (re-matches text-pattern s))))
+  ;; A repeated four-character regex overflows Dart's regexp stack on large
+  ;; valid content-pair payloads. Scan the same alphabet and padding shape
+  ;; iteratively, in constant stack space on every host.
+  (and (string? s)
+       (let [n (count s)]
+         (and (zero? (mod n 4))
+              (let [padding (if (and (pos? n) (= \= (nth s (dec n))))
+                              (if (and (> n 1) (= \= (nth s (- n 2)))) 2 1)
+                              0)
+                    end (- n padding)]
+                (loop [i 0]
+                  (if (= i end)
+                    true
+                    (and (contains? decode-table (nth s i))
+                         (recur (inc i))))))))))
 
 
 (defn encode
