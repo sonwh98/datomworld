@@ -9,7 +9,9 @@
           [:h1 "Share data without losing control"]
           [:p.lead
            "Data has to be shared to be useful, but once it is shared, control is easy to lose. "
-           "Datom.World's architecture brings mobile continuations to encrypted data inside a Yin.VM environment on a trusted host or within appropriately attested hardware isolation. Capability-governed execution and disclosure, combined with zero-knowledge proofs of approved results, provide a path to useful computation while the source records remain private."]
+           "Datom.World is an implementation of "
+           [:a {:href "/blog/the-tao-architecture.blog"} "the Tao Architecture"]
+           ", bringing mobile continuations to encrypted data inside a Yin.VM environment on a trusted host or within appropriately attested hardware isolation. Capability-governed execution and disclosure, combined with zero-knowledge proofs of approved results, provide a path to useful computation while the source records remain private."]
           [:p.learn-more
            [:a {:href "/blog/sharing-data-without-losing-control.blog"}
             "How continuations, capabilities, and zero-knowledge proofs implement the goal"]
@@ -32,9 +34,24 @@
           "."]]]
        [:section.section-light
         [:div.section-inner
-         [:h2 {:id "axioms"} "The Axioms"]
-         [:p "Datom.World is built on four foundational axioms that create a new paradigm for computing. These axioms are woven throughout our architecture, from the Yin.VM to the DaoSpace database. Each axiom has links to more detailed articles for deeper exploration."]
-         [:div.concept-grid
+         [:h2 {:id "tao-architecture"} "The Tao Architecture"]
+         [:p
+          "Datom.World is an implementation of "
+          [:a {:href "/blog/the-tao-architecture.blog"} "the Tao Architecture"]
+          ", a post-von Neumann distributed computing model inspired by ant stigmergy. "
+          "Instead of a single processor mutating a flat memory space across a shared bus, participating devices compose through append-only streams, immutable datoms, mobile continuations, and decoupled interpreters, exposing locality, authority, and execution costs as data."]
+         [:p
+          "The architecture is built on four foundational axioms that establish the responsibilities of Datom.World's core elements: "
+          [:a {:href "/dao-stream.chp"} "DaoStream"] ", "
+          [:a {:href "/dao-space.chp"} "DaoSpace"] " (backed by "
+          [:a {:href "/dao-jing.chp"} "DaoJing"] "), "
+          [:a {:href "/yin.chp"} "Yin.VM"] ", "
+          [:a {:href "/yang.chp"} "Yang"] ", and "
+          [:a {:href "/shibi.chp"} "Shibi"]
+          ". For the full model, including contracts for execution compatibility, custody, retention, authority, and measured placement, read "
+          [:a {:href "/blog/the-tao-architecture.blog"} "The Tao Architecture: Turning Every Device Into One Global Computer"]
+          ". Each axiom below also links to deeper articles."]
+         [:div.concept-grid {:id "axioms"}
           [:article.concept-card
            [:h3 "1. Everything is a Stream"]
            [:p "The foundational axiom: " [:strong "everything is a stream"] ". Streams transport whatever values each layer requires. Persistent facts are datoms: immutable facts represented as " [:code "[e a v t m]"] " (entity, attribute, value, transaction ID, metadata). Transaction IDs are monotonic within each stream; cross-stream causality is determined via metadata. Code, data, state changes, execution traces, all are append-only logs of datoms in the knowledge base."]
@@ -48,7 +65,7 @@
            [:p.learn-more "Learn more: " [:a {:href "/blog/structure-vs-interpretation.blog"} "Structure vs Interpretation"] ", " [:a {:href "/blog/semantics-structure-interpretation.blog"} "Semantics is Structure Through Interpretation"] ", " [:a {:href "/blog/dimensional-gradients-recursive-interpreters.blog"} "Dimensional Gradients, Recursive Interpreters, and the Emergence of Work"] ", and " [:a {:href "/blog/datom-world-wave-function-collapse.blog"} "Datom.World and the Collapse of the Wave Function"] "."]]
           [:article.concept-card
            [:h3 "3. Code and State are Datoms"]
-           [:p "Because " [:strong "code and state are datoms"] ", the Universal Abstract Syntax Tree (AST) is the canonical representation of a program. The text you see is just one rendering of this AST. Like Chinese characters providing a shared semantic layer for different dialects, the Universal AST enables bijective translation between languages (Python to C++ with no meaning loss), syntax as preference (view/edit in your preferred language), and no parse errors (editing the structure itself)."]
+           [:p "Because " [:strong "code and state are datoms"] ", the Universal Abstract Syntax Tree (UAST) is the canonical representation of a program. The text you see is just one rendering of this AST. Like Chinese characters providing a shared semantic layer for different dialects, the UAST enables bijective translation between languages (Python to C++ with no meaning loss), syntax as preference (view/edit in your preferred language), and no parse errors (editing the structure itself)."]
            [:p.learn-more "Learn more: " [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"] ", " [:a {:href "/blog/semantic-impedance-mismatch.blog"} "The Semantic Impedance Mismatch"] ", " [:a {:href "/blog/ide-edits-ast-not-text.blog"} "When the IDE Edits AST, Not Text"] ", " [:a {:href "/blog/universal-ast-vs-assembly.blog"} "Universal AST vs Assembly"] ", and " [:a {:href "/blog/many-syntaxes-one-ast.blog"} "Many Syntaxes, One AST"] "."]]
           [:article.concept-card
            [:h3 "4. Everything is a Continuation"]
@@ -57,9 +74,9 @@
            [:p.learn-more "Learn more: " [:a {:href "/blog/computation-moves-data-stays.blog"} "Computation Moves, Data Stays"] ", " [:a {:href "/blog/continuations-universal-semantic-kernel.blog"} "Why Continuations Are the Universal Semantic Kernel"] ", " [:a {:href "/blog/why-udp-not-tcp.blog"} "Why TCP Is Too Semantic for Datom.world"] ", and " [:a {:href "/blog/devils-advocate.blog"} "Why yin.vm Succeeds Where Previous Attempts Failed"] "."]]]]]
        [:section.section-dark
         [:div.section-inner
-         [:h2 "Recomposing the Web around the Axioms"]
+         [:h2 "Recomposing the Web around the Tao Architecture"]
          [:p
-          "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around a new philosophy to build a new world wide web: everything is a stream, and everything is a continuation."]
+          "Datom.World can be thought of as a decomposition of the modern web browser into its elemental technologies, then recomposed around the Tao Architecture to build a new world wide web: everything is a stream, and everything is a continuation."]
          [:p
           "In the traditional web stack, the JavaScript VM drives execution, HTTP defines communication, the DOM structures the UI, and local storage keeps data persistent. "
           "Each of these layers was built to serve a client-server world, where the browser is a consumer of remote computation. "
