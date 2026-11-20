@@ -6,15 +6,15 @@
 ;; (`qualify:jolt-upgrade`, §6.4), with the explicit exception recorded below.
 {:jolt
  {:origin "https://github.com/sonwh98/jolt"
-  :sha "b389f1a7fb553f63a3494d71f8fe3251790bf4d3"
-  :committed "2026-10-24T13:55:46+07:00"
+  :sha "dd605630fbc17211c1c7f84a5266bcadddeaffe0"
+  :committed "2026-11-20T00:28:03+07:00"
   ;; owner decision 2026-10-22, pinned ahead of the first qualify:jolt-upgrade
   ;; run (section 6.4 ruling 4 exception); requalified by the manual section 6
   ;; checklist (collab review 1792692000000)
   :tag :none
   :nearest-release-tag {:tag "v0.8.23"
                         :sha "a0ac71c3f638fe55158bd01b4ecbb0dd3d7545e5"}
-  :describe "vnightly-17-gb389f1a7"
+  :describe "gambit-ffi-p1b-dd605630"
   :dir "build/tools/jolt"
   ;; recursive submodule SHAs at :sha (git submodule status --recursive);
   ;; bootstrap refuses a checkout whose submodules differ
@@ -36,6 +36,20 @@
   ;; upstream report text in collab/1792824446211-engineer-canonical-adjudication-fixes...).
   ;; Former patch 0001-sorted-user-types (base 96d7b866) is retired;
   ;; the patch mechanism stays available for future patches.
+  ;; Re-pinned 2026-11-20 (owner-directed) to dd605630 on fork branch
+  ;; gambit-ffi-p1b: the Gambit FFI stage-1 tier (loader/memory/ordinary
+  ;; calls/errno qualified on macOS arm64 + Linux x86_64; blocking,
+  ;; foreign-thread callbacks and dynamic callables keep honest refusals;
+  ;; jolt CI code-green on Linux + Android shards) PLUS the pinned
+  ;; assoc-deftype refusal fix carried as commit dd605630 (cherry-picked from
+  ;; b389f1a7; unit row records-assoc-refusal at test/chez/unit.edn:2596
+  ;; gate-holds the parity: [false "class user.AssocRefusal cannot be cast to
+  ;; class clojure.lang.Associative"]; seeds byte-identical). Submodule pins
+  ;; unchanged from b389f1a7. Evidence: collab/jolt/1795108300000-*
+  ;; (p1b-stage1/P1b-assoc-parity.findings.md in the clone); gate matrix in
+  ;; collab/jolt/1795042000000-* findings. The upgrade-gate advance to the
+  ;; yin.repl-under-Gambit slice (gambit-ffi-p1c) follows when that slice
+  ;; closes.
   :patches []}
 
  ;; Host OS packages (owner 2026-10-20: Linux = the Debian family with apt).
