@@ -179,3 +179,74 @@ their ceilings.
   same runner invocations), redo pass ci/cc4-in/cc4-jupiter-redo.sh for
   the S configurations after the corpus fix; logs fetched to the evidence
   dir as jupiter-*.log.
+
+---
+
+## CORRECTION r2 (review 1795189757000, 2026-11-20 16:00:17 GMT / 2026-11-20 23:00:17 Asia/Ho_Chi_Minh)
+
+Reviewer verdict: findings with dispositions -- all 84 emitted verdicts
+verified against the raw EDN and unchanged; the corrections below come
+from the committed evidence, no re-measurement. The original text above
+stays as delivered; this section supersedes the affected cells and prose.
+
+### F1 -- darkstar pre7 B cells and derived S-B entries corrected
+
+The original table row quoted the pre7 B run's COLD sample for warm-time
+and an earlier B run's heap/retained figures. Corrected from the samples
+in darkstar-cc4-pre7-B.log (warm samples 1,106 / 1,085 / 1,023 ms):
+
+| Cell (darkstar pre7 B) | Original | Corrected |
+|---|---:|---:|
+| warm pipeline max | 1149 ms | 1106 ms |
+| sampled heap max | 468581168 B | 464122968 B |
+| retained max | 1138072 B | 1139560 B |
+
+Derived S-B entries (S maxima 1090 ms, 3162104 B verified by the
+reviewer):
+
+| Entry | Original | Corrected |
+|---|---:|---:|
+| darkstar pre7 pipeline S-B | -59 ms | -16 ms |
+| darkstar pre7 retained S-B | +2024056 B | +2022544 B |
+
+Every affected verdict still passes.
+
+### F2 -- timing interpretation, sample phase and headroom corrected
+
+- The blanket "below run-to-run noise" claim is withdrawn. The observed
+  warm ranges are DISJOINT between B and S on both hosts (darkstar
+  post7: B 1185-1238 ms vs S 1470-1691 ms; jupiter post7: B 1522-1724 ms
+  vs S 1921-1970 ms). At pre7 the sign is mixed (darkstar S faster by
+  16 ms on maxima; jupiter S slower by 129 ms), so three samples do not
+  establish a noise floor; what they do establish is that every S-B
+  pipeline delta is small against the 40,000 ms allowance -- the largest
+  comparable-set delta is the supplementary post8 pair's +3302 ms, and
+  the comparable-set maxima are +453 ms (darkstar post7) and +246 ms
+  (jupiter post7).
+- The largest recorded stage bucket, 15,538 ms, is a WARM
+  compile-expand-publish sample in darkstar post8 S -- not a cold one as
+  the original prose said. The largest COLD bucket is 12,836 ms
+  (darkstar post8 B).
+- Headroom corrected: the 80,000 ms stage ceiling is about 5.1x the
+  largest observed bucket (15,538 ms); the largest S-B retained delta is
+  about 32x below its 96,000,000 B ceiling; the largest S-B aggregate
+  storage delta is about 36x below its 32,000,000 B ceiling. The
+  original "two-plus orders" phrasing applies only to the memory and
+  storage deltas, not to the stage/time margins.
+
+### F3 -- attribution wording corrected
+
+The pre/post shrink (the :argument-vector member's relation 200,858 B to
+178,036 B, its application count 294 to 263; aggregate seven-member
+storage rising 648,359 B to 880,907 B) is CONSISTENT WITH PHASE 2
+(d60038ef, the same stable patch ID as landed 8e1dab6d; 8456c2e9 records
+the kernel-gate stamping wrapper's three-to-two application change). The
+c1-1 to c1-2 ordering re-pin is visible IN the post pin -- exactly
+:argument-vector and :lower-unit change, with application counts fixed
+at 263 and 256 -- but its byte and timing CONTRIBUTIONS within the post
+pin are NOT quantified by these measurements; the two budget pins also
+contain port-era changes to :prelude and :clj outside the ordering-only
+change set. The within-pin S-B results describe downstream
+static-artifact overhead for each compiled corpus, and the emitter's
+per-child content projection and sort run in BOTH B and S (they are
+common compile work; S-B does not measure them).
