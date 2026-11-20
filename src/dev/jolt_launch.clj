@@ -22,6 +22,7 @@
 ;; Babashka-only (bb script), like the rest of src/dev/jolt_*.
 (ns jolt-launch
   (:require [babashka.process :as p]
+            [clojure.java.io :as io]
             [clojure.string :as str]))
 
 
@@ -78,22 +79,31 @@
   (resolve-target (System/getenv "JOLT_TARGET")))
 
 
+(defn toolchain-command
+  "Run a shell command with the bootstrapped Jolt toolchain."
+  [command]
+  (str ". build/tools/jolt-env.sh && " command))
+
+
 (defn launch-command
   "The sh -c command string that runs `script` (a path relative to the
    repo root, or nil for stdin/-e style use) under `target`, with \"$@\"
    carrying extra arguments. `alias` extends the -M: alias for :chez
    (e.g. \"jolt-test\"). The child sees JOLT_TARGET so it can report its
-   own identity."
-  [{:keys [target script alias]}]
+   own identity. With :cd?, the first shell argument is the child's
+   working directory, consumed before passing on the remaining arguments."
+  [{:keys [target script alias cd?]}]
   (let [target (resolve-target target)
         alias (if (seq alias) (str ":" alias) "")
         script (if script (str " " script " "))
         script (or script " ")]
-    (case target
-      :chez (str ". build/tools/jolt-env.sh && export JOLT_TARGET=chez"
-                 " && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt" alias script "\"$@\"")
-      :gambit (str ". build/tools/jolt-env.sh && export JOLT_TARGET=gambit"
-                   " && exec \"$JOLT_GAMBIT\"" script "\"$@\""))))
+    (toolchain-command
+      (str (when cd? "cd \"$1\" && shift && ")
+           (case target
+             :chez (str "export JOLT_TARGET=chez"
+                        " && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt" alias script "\"$@\"")
+             :gambit (str "export JOLT_TARGET=gambit"
+                          " && exec \"$JOLT_GAMBIT\"" script "\"$@\""))))))
 
 
 (defn run-child
@@ -128,6 +138,30 @@
                            " — refusing to trust this child's result")
                       {:wanted target :observed observed})))
     target))
+
+
+(defn run-terminal-child
+  "Run a REPL with terminal stdin and stdout. Relay stderr and validate
+   the child's startup identity there before returning its exit status."
+  [{:keys [extra-env identity-prefix assert-identity!]} & command]
+  (let [child (apply p/process {:in :inherit :out :inherit :err :stream
+                                :extra-env extra-env}
+                     command)]
+    (try
+      (with-open [err (io/reader (:err child))]
+        (let [identity (loop []
+                         (when-let [line (.readLine err)]
+                           (.println System/err line)
+                           (if (str/starts-with? line identity-prefix)
+                             line
+                             (recur))))]
+          (assert-identity! identity))
+        (io/copy err System/err)
+        (.flush System/err))
+      (:exit @child)
+      (finally
+        (when (p/alive? child)
+          (p/destroy child))))))
 
 
 ;; The child-side identity print, for repo scripts that run UNDER jolt (where
