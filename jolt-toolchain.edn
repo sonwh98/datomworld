@@ -6,15 +6,15 @@
 ;; (`qualify:jolt-upgrade`, §6.4), with the explicit exception recorded below.
 {:jolt
  {:origin "https://github.com/sonwh98/jolt"
-  :sha "dd605630fbc17211c1c7f84a5266bcadddeaffe0"
-  :committed "2026-11-20T00:28:03+07:00"
+  :sha "f22df3c70dce4e7f725df580daa8991a41420660"
+  :committed "2026-11-20T05:00:00+07:00"
   ;; owner decision 2026-10-22, pinned ahead of the first qualify:jolt-upgrade
   ;; run (section 6.4 ruling 4 exception); requalified by the manual section 6
   ;; checklist (collab review 1792692000000)
   :tag :none
   :nearest-release-tag {:tag "v0.8.23"
                         :sha "a0ac71c3f638fe55158bd01b4ecbb0dd3d7545e5"}
-  :describe "gambit-ffi-p1b-dd605630"
+  :describe "gambit-ffi-p1c-f22df3c7"
   :dir "build/tools/jolt"
   ;; recursive submodule SHAs at :sha (git submodule status --recursive);
   ;; bootstrap refuses a checkout whose submodules differ
@@ -47,9 +47,14 @@
   ;; class clojure.lang.Associative"]; seeds byte-identical). Submodule pins
   ;; unchanged from b389f1a7. Evidence: collab/jolt/1795108300000-*
   ;; (p1b-stage1/P1b-assoc-parity.findings.md in the clone); gate matrix in
-  ;; collab/jolt/1795042000000-* findings. The upgrade-gate advance to the
-  ;; yin.repl-under-Gambit slice (gambit-ffi-p1c) follows when that slice
-  ;; closes.
+  ;; collab/jolt/1795042000000-* findings. Advanced 2026-11-20 (same owner direction) to f22df3c7 on fork branch
+  ;; gambit-ffi-p1c: yin.repl RUNNING under the Gambit backend — real yin>
+  ;; session (12 replies: evaluation, error handling, frontend refusal,
+  ;; qualified FFI call, blocking-ffi C4 refusal inline, clean quit) via the
+  ;; gambityinrepl gate on BOTH platforms (macOS arm64 + Linux x86_64; the
+  ;; Linux compiled-boot heap issue resolved as a missing DATOMWORLD_ROOT
+  ;; default, now fail-closed preflight). Cross-family review: glm-5.3-flash
+  ;; ACCEPT (gate honesty verified by re-run; collab/jolt/1795135000000-*).
   :patches []}
 
  ;; Host OS packages (owner 2026-10-20: Linux = the Debian family with apt).
