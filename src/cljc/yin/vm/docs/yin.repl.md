@@ -55,6 +55,35 @@ since the J7 slices 1-2 (2026-11-15; the sections 6-7 process/interop gate of
 yin.repl-jolt-implementation.md §10.1 remains open). `--help` works on every
 host.
 
+### Uniform launcher: `bb yin-repl` (P1d, 2026-11-20)
+
+One entry point for all backends — prerequisites are built automatically
+(artifact-gated: warm launches are fast), every child prints a target identity
+line, and `bb yin-repl --help` lists each backend's capability notes:
+
+```bash
+bb yin-repl --backend jvm         # default; the canonical JVM REPL
+bb yin-repl --backend node        # builds target/yin-repl.js on first use
+bb yin-repl --backend dart        # builds build/yin-repl-peer on first use
+bb yin-repl --backend jolt-chez   # bootstraps jolt if needed; identity-gated
+bb yin-repl --backend jolt-gambit # compiled Yin boot cached in build/gambit-yin/
+```
+
+`jolt-gambit` runs a REAL Yin session under the Gambit backend (the compiled
+boot; interactive terminal passthrough verified on a genuine PTY), with honest
+capability degradation per the C4 ruling: no `:yang/python` frontend
+(`unavailable-parser` refusal), blocking FFI refuses inline with the exact
+documented message, and the session survives both. The qualified FFI tier
+(loader/memory/ordinary calls/errno — two-platform: macOS arm64 and Linux
+x86_64) is callable in-session. Evidence: `make gambityinrepl` in the jolt
+clone (both-platform PASS transcripts); the acceptance gate is
+`host/gambit/yin-repl-session.sh` — a 12-step ordered state machine over real
+`yin>` replies. Yin args pass through (`--index-store mem`, etc.). Per-backend
+capability summary: JVM/Node/Dart = full (all frontends, all stores);
+`jolt-chez` = full minus native-parser availability as provisioned;
+`jolt-gambit` = core Yin (Clojure frontend, yin.vm, qualified FFI) with
+subprocess/blocking-capability frontends refusing inline.
+
 ### Local In-Memory REPL
 Start an interactive prompt on the JVM with an in-memory index store:
 
