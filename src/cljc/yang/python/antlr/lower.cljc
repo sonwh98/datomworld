@@ -600,6 +600,11 @@
                 (syntax! n "f-string: conversion must be !r, !s or !a"))
               (recur (+ j 2) depth expr :conv spec cv)))
           (recur (inc j) depth (conj expr "!") phase spec conv))
+        (and (= phase :expr) (or (at j "<") (at j ">"))
+             (= "=" (peek (inc j) 1)))
+        ;; the comparisons <= and >= are one token: both chars at once, so
+        ;; their trailing '=' never reaches the depth-0 debug-suffix check
+        (recur (+ j 2) depth (conj expr (peek j 2)) phase spec conv)
         (and (= phase :expr) (zero? depth) (at j "="))
         (if (= "=" (peek (inc j) 1))
           (recur (+ j 2) depth (conj expr "==") phase spec conv)

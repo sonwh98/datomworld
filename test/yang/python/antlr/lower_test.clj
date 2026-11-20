@@ -686,6 +686,12 @@
             (CPython 3.9.6: f'{42:=6}' is 42 with the '=' align spec)"
     (is (= (u/then (gset "x" (fmt (gget "b") "=6")) none)
            (body "x = f'{b:=6}'\n"))))
+  (testing "the comparisons <= and >= are one token each: the '=' is
+            expression text, never the '=' debug suffix (the slice-3 P1)"
+    (is (= (u/then (gset "x" (fmt (py 'py/le (gget "a") (u/lit 1)) "")) none)
+           (body "x = f'{a <= 1}'\n")))
+    (is (= (u/then (gset "x" (fmt (py 'py/ge (gget "a") (u/lit 1)) "")) none)
+           (body "x = f'{a >= 1}'\n"))))
   (testing "doubled braces are literal braces"
     (is (= (u/then (gset "x" (u/lit {:py/str "a{b}c"})) none)
            (body "x = f'a{{b}}c'\n"))))
