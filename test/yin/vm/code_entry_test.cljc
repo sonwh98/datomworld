@@ -1,5 +1,5 @@
 (ns yin.vm.code-entry-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [yin.vm.effect :as effect]
             [yin.vm.module :as module]))
@@ -34,3 +34,31 @@
                       (update-in registry [:modules 'eval 'unit] dissoc :bindings)]]
       (is (= :refused (get-in (module/code-entry-handler (assoc state :modules modified) effect {})
                               [:value :status]))))))
+
+
+(deftest installed-export-is-verified-with-the-address-algorithm
+  (let [manifest {:yin.module/name 'eval.unit :yin.module/exports #{'entry}}
+        address (jing/segment-key manifest {:algorithm :sha256})
+        malformed :segment/sha256-xyz
+        unknown (keyword "segment" (str "sha512-" (jing/segment-digest address)))
+        lookup (fn [stored-manifest stored-address requested-address]
+                 (let [registry (module/assoc-module (module/default-registry) 'eval.unit
+                                                     {:manifest stored-manifest
+                                                      :address stored-address
+                                                      :bindings {'entry :callable}})]
+                   (:value (module/code-entry-handler
+                             {:modules registry}
+                             {:module 'eval.unit :address requested-address :export 'entry}
+                             {}))))]
+    (testing "an installed SHA-256 manifest serves its export"
+      (is (= :callable (lookup manifest address address))))
+    (doseq [[label stored-manifest stored-address requested-address]
+            [["tampered manifest" (assoc manifest :extra true) address address]
+             ["nil requested address" manifest address nil]
+             ["nil stored and requested addresses" manifest nil nil]
+             ["malformed address" manifest malformed malformed]
+             ["unknown algorithm" manifest unknown unknown]]]
+      (testing label
+        (is (= {:status :refused :reason :manifest-mismatch
+                :module 'eval.unit :export 'entry}
+               (lookup stored-manifest stored-address requested-address)))))))
