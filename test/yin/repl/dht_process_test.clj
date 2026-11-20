@@ -1026,6 +1026,78 @@
   (spawn-command! label (into (vec command) args)))
 
 
+(deftest ^:slow jolt-reader-requires-a-jvm-publication-by-name
+  ;; Run with clj -M:test -n yin.repl.dht-process-test -v
+  ;; yin.repl.dht-process-test/jolt-reader-requires-a-jvm-publication-by-name.
+  ;; JOLT_DHT_STRACE=/tmp/jolt-dht.trace also records the reader's native UDP calls.
+  (let [anchor (start-anchor! {::jing.dht/publish? true
+                               ::jing.dht/max-inbound-bytes (* 64 1024 1024)})
+        dirs (vec (repeatedly 2 temp-dir))
+        key-file (str (temp-dir) ".key")
+        procs (atom [])
+        command ["sh" "-c"
+                 ". build/tools/jolt-env.sh\nexec build/tools/jolt/bin/jolt -Srepro -M:jolt:jolt-yin-repl \"$@\""
+                 "jolt-dht-reader"]
+        command (if-let [trace (System/getenv "JOLT_DHT_STRACE")]
+                  (into ["strace" "-f" "-e" "trace=sendto,recvfrom" "-o" trace]
+                        command)
+                  command)]
+    (is (nil? (:failure anchor)) (:failure anchor))
+    (when-not (:failure anchor)
+      (try
+        (cli/keygen! key-file)
+        (let [publisher (spawn! "jolt-test-publisher-jvm"
+                                ["--index-store" (str "dht:" (dirs 0))
+                                 "--dht-peer" (str "127.0.0.1:" (:port anchor))
+                                 "--dht-publish" "--dht-key" key-file])
+              _ (swap! procs conj publisher)
+              port (bound-port publisher)
+              token (some->> (await-line publisher token-line startup-ms)
+                             (re-find token-line) second)]
+          (is (some? port) (transcript publisher))
+          (is (some? token) (transcript publisher))
+          (when (and port token)
+            (doseq [line publisher-lines] (type! publisher line))
+            (let [published (await-line publisher #":module 'my\.store" exchange-ms)
+                  _ (is (some? published) (transcript publisher))
+                  manifest (when published
+                             (await-head-written publisher (dirs 0) exchange-ms))]
+              (is (some? manifest) (transcript publisher))
+              (when manifest
+                (let [reader (spawn! "reader-jolt" command
+                                     ["--index-store" (str "dht:" (dirs 1))
+                                      "dht" "join" token "--dht-trust"
+                                      (str "ed25519:" (last (str/split token #"/")))])]
+                  (swap! procs conj reader)
+                  (is (some? (bound-port reader)) (transcript reader))
+                  ;; Keep stdin open: pending network work must advance without
+                  ;; further input, and without the EOF shutdown path.
+                  (type! reader "(require (quote my.lib))")
+                  (let [required (await-line reader #"^(yin> )*'my\.lib$" exchange-ms)]
+                    (is (some? required)
+                        (str (transcript reader) "\n" (transcript publisher)))
+                    (when required
+                      (type! reader "(my.lib/f 1)")
+                      (is (some? (await-line reader #"^(yin> )*4201$" exchange-ms))
+                          (transcript reader))
+                      (when-let [trace (System/getenv "JOLT_DHT_STRACE")]
+                        ;; A TCP WebSocket handshake also uses sendto. Only
+                        ;; calls with a destination sockaddr count as UDP.
+                        (let [udp-sends (filter #(re-find #"sendto\(.*sa_family=AF_INET.* = [1-9][0-9]*$" %)
+                                                (str/split-lines (slurp trace)))]
+                          (is (< 1 (count udp-sends))
+                              (str "expected ping and fetch UDP sends:\n"
+                                   (str/join "\n" udp-sends))))))))))))
+        (finally
+          (doseq [p @procs]
+            (stop! p)
+            (.join ^Thread (:reader p) 1000)
+            (spit (str "target/" (:label p) ".log") (transcript p)))
+          ((:stop! anchor))
+          (io/delete-file key-file true)
+          (doseq [dir dirs] (delete-dir! dir)))))))
+
+
 (defn- await-next
   "Type `line` at `p`, then wait for one more output line matching `re`
    than there were before it was typed."

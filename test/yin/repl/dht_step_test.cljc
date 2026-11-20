@@ -3,6 +3,7 @@
    receive thread. No host sockets or durable directories are needed."
   (:require [clojure.test :refer [deftest is]]
             [dao.jing :as jing]
+            [dao.jing.dht :as jing.dht]
             [dao.jing.mem :as mem]
             [dao.space.dht :as dht]
             [dao.stream :as stream]
@@ -37,8 +38,8 @@
                  :close! (fn [] nil)})
         blob (jing/segment-key :not-local)
         node (dht/join {:local (mem/create-content-mem)
-                       :peers [{:host "127.0.0.1" :port 41001}]
-                       :bind! bind!})
+                        :peers [{:host "127.0.0.1" :port 41001}]
+                        :bind! bind!})
         source (shell.dht/link-source {:type :dht :dir "unused"}
                                       {:name-env {'my.lib blob}})
         composition (assoc shell/composition
@@ -64,5 +65,48 @@
         (is (= 3 @turns) "a waiting load still gets one bounded seam turn")
         (is (some? (get-in state [:repl :pending-run])))
         (is (= :loading (:status (dht/load-status
-                                  (get-in state [:session :node]) blob)))))
+                                   (get-in state [:session :node]) blob)))))
+      (finally (dht/close! node)))))
+
+
+(deftest piped-eof-quits-before-a-pending-require-can-fetch
+  ;; The host deposits (quit) on EOF. The old live probe piped require,
+  ;; call, EOF together; quitting is a local command even during a require.
+  (let [sent (atom [])
+        bind! (fn [{:keys [identity deposit]}]
+                (stream/append! deposit (datagram/bound-event
+                                          identity "127.0.0.1" 41002))
+                {:send! (fn [_ _ bytes]
+                          (swap! sent conj (jing.dht/decode-message bytes))
+                          {:dao.stream/outcome :dao.stream/ok})
+                 :close! (fn [] nil)})
+        blob (jing/segment-key :not-local)
+        node (dht/join {:local (mem/create-content-mem)
+                        :peers [{:host "127.0.0.1" :port 41001}]
+                        :bind! bind!})
+        source (shell.dht/link-source {:type :dht :dir "unused"}
+                                      {:name-env {'my.lib blob}})
+        composition (assoc shell/composition
+                           :composition-spec? #{::test}
+                           :open (fn [_ _]
+                                   {:index-store (dht/store node)
+                                    :engine-inputs {:link-source source}
+                                    :session (session/transport-state node)}))
+        state (main/boot {:index-store-spec ::test} composition)]
+    (try
+      (doseq [line ["(println :REQ (require (quote my.lib)))"
+                    "(println :CALL-RESULT (f 1))"
+                    "(quit)"]]
+        (driver/submit-line! (:input state) line))
+      (let [[state _ lines] (main/step-all state nil 0)]
+        (is (false? (:running? state)) "EOF requests shutdown, not another network round")
+        (is (some? (get-in state [:repl :pending-run])))
+        (is (some #(re-find #"Bye" %) lines))
+        (is (empty? @sent) "no UDP ping was sent before the quit")
+        (let [stopping (main/with-session
+                         state (shell.dht/stop! (main/session-of state)))
+              [state _ _ stopped?] (main/shutdown-tick stopping nil 25)]
+          (is (true? stopped?) "shutdown drains endpoints; it does not await the require")
+          (is (some? (get-in state [:repl :pending-run])))
+          (is (<= (count @sent) 1) "at most an initial ping in the final drain tick")))
       (finally (dht/close! node)))))
