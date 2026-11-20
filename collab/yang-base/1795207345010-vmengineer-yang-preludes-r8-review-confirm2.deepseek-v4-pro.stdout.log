@@ -1,0 +1,5 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+The dangling cross-reference is fixed — line 525 now reads "added to the integer host-module exports (listed in §7.2's boxed-path usage)", which points correctly to where the integer `-boxed` exports are actually specified.
+
+VM-ENGINEER VERDICT: SOUND

@@ -1,0 +1,22 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-11-20 20:50:47 GMT
+Completed-Local: 2026-11-21 03:50:47 +07
+
+## Reconciliation confirmation (re-read of the four spots)
+
+1. **Continuation-portability envelope — RESOLVED.** §4.3 now carries a dedicated bullet (line 205): `%capture` continuations are "task-local, non-portable, resumable only within their task", cites `state.md`'s `:yin.k/non-portable` lift refusal, states the `restore!` `:base` rule is sufficient within-task but not across tasks, and explicitly excludes Track-B generator checkpointing to streams. This pins exactly the envelope my finding requested.
+
+2. **Boxed mixed int×float comparison — RESOLVED (substantively), with one cross-reference nit.** §7.2 (line 525) now names `integer/compare-float-boxed [x-boxed y-boxed]` and `integer/from-float-boxed`, states the landed `compare-float`/`from-float` take raw host doubles and are legacy-only, and asserts "mixed int×float comparisons on the boxed path never unwrap." The substantive gap is closed. **Nit:** the text says these are "added to §4.1's integer additions", but §4.1 has no integer-additions subsection — its title scopes to `(data, float, kind)` and lists only those three items; the integer `-boxed` additions (`to-float-boxed`, `true-div-boxed`, `compare-float-boxed`, `from-float-boxed`) are all specified in §7.2, not §4.1. An implementer searching §4.1 will not find them.
+
+3. **`get` → `data/nth` behavioral migration — RESOLVED.** §4.3's generators bullet (line 225) now flags the conversion as "a BEHAVIORAL migration", states the landed py/php frames read slots via bare `get`, and requires the Track-B bundled==linked parity gate to prove the shadowed-`get` case for the migrated preludes, not only `clj`. This matches my requested correction.
+
+4. **Bundled-mode provenance-door enforcement — RESOLVED.** §7.4 (line 559) now states the door effects are honored "ONLY for the emitted `clj` definition addresses — the VM admits a provenance-door call by the calling definition's recorded address, never by name resolution from guest scope, so a forged co-bundled call cannot mint provenance (linked mode already gates by content address/admission)." This closes the trust-boundary gap.
+
+## Residual finding
+
+### P2 concern | §7.2 line 525 → §4.1 | Dangling "§4.1's integer additions" cross-reference
+
+§7.2's reconciliation text directs the reader to "§4.1's integer additions", but §4.1 defines no integer additions — it is scoped to `data`, `float`, and `kind` only, and every integer `-boxed` export (`to-float-boxed`, `true-div-boxed`, `compare-float-boxed`, `from-float-boxed`) is actually specified in §7.2. **Correction:** either reword line 525 to reference §7.2 (or the `yin.vm.integer` additions wherever they home), or add a fourth numbered item to §4.1 listing the four `integer/*-boxed` exports.
+
+VM-ENGINEER VERDICT: SOUND WITH CONCERNS — all four substantive findings are reconciled; the sole residual is a dangling "§4.1's integer additions" cross-reference (the integer `-boxed` exports live in §7.2, not §4.1).
