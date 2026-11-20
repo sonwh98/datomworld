@@ -19,6 +19,8 @@
 
 (ffi/load-library)
 (ffi/defcfn c-pipe "pipe" [:pointer] :int)
+;; The waitset reads both its POSIX pipe and fd 0 directly.
+(ffi/defcfn ^:private c-read "read" [:int :pointer :size_t] :ssize_t)
 
 
 (def ^:private stdin-chunk 4096)
@@ -67,7 +69,7 @@
   (let [b (ffi/alloc 256)]
     (try
       (loop [woken? false]
-        (let [n (poller/c-read (:read wake) b 256) e (ffi/errno)]
+        (let [n (c-read (:read wake) b 256) e (ffi/errno)]
           (cond
             (pos? n) (recur true)
             (poller/eintr? e) (recur woken?)
@@ -147,7 +149,7 @@
   [wake line!]
   (let [buf (ffi/alloc stdin-chunk)]
     (try
-      (let [n (poller/c-read 0 buf stdin-chunk) e (ffi/errno)]
+      (let [n (c-read 0 buf stdin-chunk) e (ffi/errno)]
         (cond
           (pos? n) (do (deposit-lines! wake (ffi/read-array buf n) line!) true)
           (and (neg? n) (or (poller/eintr? e) (poller/eagain? e))) false
