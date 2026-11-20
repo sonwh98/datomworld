@@ -706,7 +706,7 @@
         reason (cond
                  (nil? entry) :module-missing
                  (or (nil? address) (not= address (:address entry))
-                     (not= address (jing/segment-key manifest))
+                     (not (jing/segment-matches? address manifest))
                      (not= module (:yin.module/name manifest))) :manifest-mismatch
                  (not (contains? (:yin.module/exports manifest) export)) :export-undeclared
                  (not (contains? (:bindings entry) export)) :binding-missing)]
