@@ -1,0 +1,70 @@
+diff --git a/src/cljc/yin/vm/module.cljc b/src/cljc/yin/vm/module.cljc
+index 58e8e86b..61de4346 100644
+--- a/src/cljc/yin/vm/module.cljc
++++ b/src/cljc/yin/vm/module.cljc
+@@ -706,7 +706,7 @@
+         reason (cond
+                  (nil? entry) :module-missing
+                  (or (nil? address) (not= address (:address entry))
+-                     (not= address (jing/segment-key manifest))
++                     (not (jing/segment-matches? address manifest))
+                      (not= module (:yin.module/name manifest))) :manifest-mismatch
+                  (not (contains? (:yin.module/exports manifest) export)) :export-undeclared
+                  (not (contains? (:bindings entry) export)) :binding-missing)]
+diff --git a/test/yin/vm/code_entry_test.cljc b/test/yin/vm/code_entry_test.cljc
+index 7ad41076..e4f8eaf9 100644
+--- a/test/yin/vm/code_entry_test.cljc
++++ b/test/yin/vm/code_entry_test.cljc
+@@ -1,5 +1,5 @@
+ (ns yin.vm.code-entry-test
+-  (:require [clojure.test :refer [deftest is]]
++  (:require [clojure.test :refer [deftest is testing]]
+             [dao.jing :as jing]
+             [yin.vm.effect :as effect]
+             [yin.vm.module :as module]))
+@@ -34,3 +34,31 @@
+                       (update-in registry [:modules 'eval 'unit] dissoc :bindings)]]
+       (is (= :refused (get-in (module/code-entry-handler (assoc state :modules modified) effect {})
+                               [:value :status]))))))
++
++
++(deftest installed-export-is-verified-with-the-address-algorithm
++  (let [manifest {:yin.module/name 'eval.unit :yin.module/exports #{'entry}}
++        address (jing/segment-key manifest {:algorithm :sha256})
++        malformed :segment/sha256-xyz
++        unknown (keyword "segment" (str "sha512-" (jing/segment-digest address)))
++        lookup (fn [stored-manifest stored-address requested-address]
++                 (let [registry (module/assoc-module (module/default-registry) 'eval.unit
++                                                     {:manifest stored-manifest
++                                                      :address stored-address
++                                                      :bindings {'entry :callable}})]
++                   (:value (module/code-entry-handler
++                             {:modules registry}
++                             {:module 'eval.unit :address requested-address :export 'entry}
++                             {}))))]
++    (testing "an installed SHA-256 manifest serves its export"
++      (is (= :callable (lookup manifest address address))))
++    (doseq [[label stored-manifest stored-address requested-address]
++            [["tampered manifest" (assoc manifest :extra true) address address]
++             ["nil requested address" manifest address nil]
++             ["nil stored and requested addresses" manifest nil nil]
++             ["malformed address" manifest malformed malformed]
++             ["unknown algorithm" manifest unknown unknown]]]
++      (testing label
++        (is (= {:status :refused :reason :manifest-mismatch
++                :module 'eval.unit :export 'entry}
++               (lookup stored-manifest stored-address requested-address)))))))
+diff --git a/test/yin/vm/store_write_audit_test.clj b/test/yin/vm/store_write_audit_test.clj
+index 94d2a31a..548dcc96 100644
+--- a/test/yin/vm/store_write_audit_test.clj
++++ b/test/yin/vm/store_write_audit_test.clj
+@@ -299,6 +299,9 @@
+    ;; handle in its context; this is not a VM program store write.
+    "src/cljc/yang/php/antlr/siteset.cljc"
+    {["stage" "assoc"] 1}
++   ;; The eval staging context carries the composition's dao.jing byte-store handle.
++   "src/cljc/yang/php/antlr/eval_coordinator.cljc"
++   {["compile-and-publish*!" :map] 1}
+    "src/cljc/yin/vm/engine.cljc"
+    {;; the one program write, and `put-active`, which routes every program
+     ;; write -- definitions, direct store instructions, the :vm/store-put
