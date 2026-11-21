@@ -2,12 +2,17 @@
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [build-cache :as cache]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [gambit-ffi-cache :as ffi]
             [jolt-launch :as jolt]))
 
 
 (def ^:private backends #{"jvm" "node" "dart" "jolt-chez" "jolt-gambit"})
+
+
+(def ^:private dart-capabilities
+  "programmatic Transit peer — input is Transit-encoded lines (machine protocol); for an interactive REPL use --backend jvm, node, jolt-chez, or jolt-gambit")
 
 
 (def ^:private gambit-capabilities
@@ -18,15 +23,21 @@
   "Blocking FFI refuses inline: blocking ffi is unsupported on the gambit target.")
 
 
+(def ^:private gambit-startup
+  ["First launch builds the boot and bridge (~16 min to yin> on macOS). Cache hits reach native Gambit in ~0.6 s."
+   "The pinned loader interprets Yin namespaces from source (~11 min to yin> with caches)."])
+
+
 (def ^:private usage
   (str "Usage: bb yin-repl [--backend jvm|node|dart|jolt-chez|jolt-gambit] [yin args...]
 
   jvm          Default. Shipped JVM shell with Python and PHP frontends.
   node         Shipped Node shell with Python and PHP frontends.
-  dart         Dart cross-host peer with a Transit command protocol.
+  dart         " dart-capabilities "
   jolt-chez    Pinned Jolt shell with the native Python frontend.
   jolt-gambit  " gambit-capabilities "
                " gambit-blocking "
+               " (str/join "\n               " gambit-startup) "
 
 Use -- --help after the backend to pass --help to the selected program."))
 
@@ -62,6 +73,31 @@ Use -- --help after the backend to pass --help to the selected program."))
   [command args]
   (:exit (apply p/shell {:in :inherit :continue true :shutdown nil}
                 (into command args))))
+
+
+(defn- dart-session
+  [args]
+  (let [child (apply p/process {:in :inherit :out :stream :err :inherit :shutdown nil}
+                     "build/yin-repl-peer" args)]
+    (try
+      (with-open [out (java.io.BufferedInputStream. (:out child))]
+        ;; Forward the first frame byte for byte and flush it before the note.
+        (let [line (java.io.ByteArrayOutputStream.)]
+          (loop [b (.read out)]
+            (when-not (neg? b)
+              (.write line b)
+              (when-not (= b 10)
+                (recur (.read out)))))
+          (.writeTo line System/out)
+          (.flush System/out)
+          (when (str/includes? (.toString line "UTF-8") "\"~:ready\"")
+            (.println System/err (str "dart: " dart-capabilities))))
+        (io/copy out System/out)
+        (.flush System/out))
+      (:exit @child)
+      (finally
+        (when (p/alive? child)
+          (p/destroy child))))))
 
 
 (defn- ensure-jolt!
@@ -121,7 +157,8 @@ Use -- --help after the backend to pass --help to the selected program."))
         identity "(begin (display \"jolt-target: gambit\" (current-error-port)) (newline (current-error-port)) (force-output (current-error-port)))"]
     (.println System/err (str "jolt-gambit  " gambit-capabilities))
     (.println System/err gambit-blocking)
-    (.println System/err "jolt-gambit: Loading Yin namespaces (can take several minutes)")
+    (doseq [line gambit-startup]
+      (.println System/err line))
     (jolt-session :gambit {"JOLT_GAMBIT_YIN_BOOT" boot}
                   (jolt/launch-command {:target :gambit :cd? true})
                   (into [runtime "-e" identity driver (str (fs/absolutize "."))] args))))
@@ -137,7 +174,7 @@ Use -- --help after the backend to pass --help to the selected program."))
                (terminal-exit ["node" "target/yin-repl.js"] args))
     "dart" (do (when-not (fs/regular-file? "build/yin-repl-peer")
                  (task! "build:yin-repl-peer"))
-               (terminal-exit ["build/yin-repl-peer"] args))
+               (dart-session args))
     "jolt-chez" (do (ensure-jolt!)
                     (ensure-chez-native!)
                     (jolt/preflight! :chez "yin-repl")
