@@ -1,0 +1,282 @@
+#:blog{:title
+       "A Wolf in Sheep's Clothing: Swappable Preludes and Hybrid Effects in Yin/Yang",
+       :date #inst "2026-11-21T04:10:00.000-00:00",
+       :abstract
+       [:p
+        "Most developers do not reject Clojure because of immutable data structures, functional pipelines, or data-oriented design. They bounce off parentheses. By decoupling Yang syntax frontends from their runtime preludes and splitting the runtime into a pure host value core, unified guest algebraic effects over %capture, and minimal VM stream effects, datom.world lets Python and TypeScript syntax compile directly onto clojure.core while keeping native preludes intact for existing code."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "Most developers who walk away from Clojure do not reject persistent data structures, immutability, or composing small functions over data. They bounce off parentheses. That is a syntax barrier, not a semantic one."]
+
+          [:p
+           "In datom.world, Axiom 2 states that "
+           [:em "Interpretation Creates Semantics"]
+           ". A Concrete Syntax Tree (CST) carries syntax only; its runtime meaning emerges from the lowering profile and runtime prelude paired with it. If syntax and semantics are truly separate, we can do two things at once: run existing Python, TypeScript, PHP, and Clojure programs under their own native preludes, and let developers write new datom.world programs in familiar Python or TypeScript syntax compiled directly onto "
+           [:code "clojure.core"]
+           ", persistent Yin values, and "
+           [:code "dao.stream"]
+           "."]
+
+          [:p
+           "In other words: Clojure as a wolf in sheep's clothing."]
+
+          [:h2 "What Python syntax over clojure.core looks like"]
+
+          [:p
+           "Consider an ordinary Python function compiled under the "
+           [:code ":yang.python/clojure-core-v1"]
+           " semantics descriptor:"]
+
+          [:pre
+           [:code
+            "def sum_even_squares(xs):\n"
+            "    if is_empty(xs):\n"
+            "        return 0\n"
+            "    evens = filter(lambda n: n % 2 == 0, xs)\n"
+            "    squares = map(lambda n: n * n, evens)\n"
+            "    return reduce(lambda a, b: a + b, 0, squares)\n"]]
+
+          [:p
+           "Under the native "
+           [:code "py"]
+           " prelude, this lowers onto CPython-style mutable lists, numeric booleans, and tagged float records. Under "
+           [:code ":yang.python/clojure-core-v1"]
+           ", the exact same CST lowers onto persistent Yin vectors, maps, and sets, with "
+           [:code "is_empty"]
+           ", "
+           [:code "filter"]
+           ", "
+           [:code "map"]
+           ", and "
+           [:code "reduce"]
+           " projected directly from "
+           [:code "clojure.core"]
+           " through authenticated "
+           [:code "yang.call"]
+           " callables. Calling "
+           [:code "sum_even_squares([1, 2, 3, 4])"]
+           " evaluates to the exact persistent integer "
+           [:code "20"]
+           " with zero marshalling and zero mutable-object emulation overhead."]
+
+          [:p
+           "Honesty matters here. This profile does not pretend to be CPython: it explicitly declares Clojure truthiness (only "
+           [:code "nil"]
+           " and "
+           [:code "false"]
+           " are falsy, so "
+           [:code "0"]
+           " and "
+           [:code "[]"]
+           " are truthy), immutable collections, non-numeric booleans, and kind-strict equality ("
+           [:code "1 != 1.0"]
+           "). Existing Python code keeps running under the native "
+           [:code "py"]
+           " prelude; new datom.world scripts and agents can opt into Pythonic syntax directly over Yin's persistent data model."]
+
+          [:h2 "The wall we hit: fighting host leaks in guest UAST"]
+
+          [:p
+           "Getting to this design cleanly was not straightforward. Our first five revisions of "
+           [:code "docs/design/yang.preludes.md"]
+           " went through four adversarial architect reviews and grew to 110 KB. Looking back at those forty findings, almost all of the churn came from one mistake: trying to patch host-language representation leaks inside guest Universal AST."]
+
+          [:p
+           "Yin's runtime values are host values across four hosts: JVM, Node/CLJS, Dart/CLJD, and Jolt (Clojure on Chez Scheme). Pure UAST control flow ("
+           [:code "fn"]
+           ", "
+           [:code "if"]
+           ", "
+           [:code "let"]
+           ", "
+           [:code "%capture"]
+           ") runs identically everywhere. Host differences leak specifically through unwrapped bare primitives:"]
+
+          [:ul
+           [:li
+            [:strong "Bare arithmetic:"]
+            " JVM "
+            [:code "Long"]
+            " overflows at 2^63 - 1, while Node/CLJS boxes floats in "
+            [:code "Float64"]
+            " and uses JS "
+            [:code "BigInt"]
+            " (which throws if mixed with JS "
+            [:code "Number"]
+            ")."]
+           [:li
+            [:strong "Bare equality:"]
+            " On JVM, "
+            [:code "(= ##NaN ##NaN)"]
+            " is "
+            [:code "false"]
+            ", "
+            [:code "(= 0.0 -0.0)"]
+            " is "
+            [:code "true"]
+            ", and "
+            [:code "(= (keyword nil \"a/b\") (keyword \"a\" \"b\"))"]
+            " is "
+            [:code "false"]
+            ". On Node/CLJS, "
+            [:code "Float64.-equiv"]
+            " flips the "
+            [:code "NaN"]
+            " and signed-zero answers, and joined keyword storage collapses those two distinct keywords into one."]
+           [:li
+            [:strong "Host collections and formatting:"]
+            " Different HAMT layouts make "
+            [:code "keys"]
+            ", "
+            [:code "vals"]
+            ", and "
+            [:code "vec"]
+            " iterate in different orders across JVM, Node, and Dart, while host "
+            [:code "str"]
+            " prints "
+            [:code "1.0"]
+            " as "
+            [:code "\"1.0\""]
+            " on JVM and "
+            [:code "\"1\""]
+            " on Node."]
+           [:li
+            [:strong "Raw-double stack frames:"]
+            " Unwrapping a boxed float into a raw host double inside guest UAST forced fragile rules forbidding "
+            [:code "%capture"]
+            ", safepoints, or callbacks while any raw double was live on the stack."]]
+
+          [:p
+           "Patching around those leaks in guest UAST required recursive key validators ("
+           [:code "admit-key!"]
+           "), an O(n log n) guest-UAST "
+           [:code "canonical-compare"]
+           " sort, manual float string formatting, and four separate control-flow subsystems (exceptions, generators, safepoints, and status-keyword limit checks). When every review round adds new defensive guard rails on top of old ones, the problem is not missing guard rails: the abstraction boundary is in the wrong place."]
+
+          [:h2 "The three-tier hybrid boundary"]
+
+          [:p
+           "Real-world algebraic-effect systems converge on a clear boundary. "
+           [:a {:href "https://www.unison-lang.org/docs/language-reference/built-in-types/"} "Unison"]
+           " keeps fixed-width "
+           [:code "Nat"]
+           ", "
+           [:code "Int"]
+           ", "
+           [:code "Float"]
+           ", "
+           [:code "Text"]
+           ", and "
+           [:code "Bytes"]
+           " as pure runtime builtins, handles "
+           [:code "Abort"]
+           ", "
+           [:code "Exception"]
+           ", "
+           [:code "Store"]
+           ", and "
+           [:code "Stream"]
+           " as library-level abilities, and reserves only "
+           [:code "IO"]
+           " for the runtime. "
+           [:a {:href "https://koka-lang.github.io/koka/doc/book.html"} "Koka"]
+           " keeps total math and data primitives completely effect-free ("
+           [:code "total"]
+           ") and starts effects at partiality ("
+           [:code "exn"]
+           "), divergence ("
+           [:code "div"]
+           "), state ("
+           [:code "st"]
+           "), and I/O. "
+           [:a {:href "https://ocaml.org/manual/5.3/effects.html"} "OCaml 5"]
+           " keeps hot synchronous primitives native, uses effect handlers for resumable non-local control flow, and explicitly forbids effects from crossing raw C callback frames."]
+
+          [:p
+           "Revision 6 of "
+           [:code "yang.preludes.md"]
+           " adopts that exact three-tier split for Yin/Yang:"]
+
+          [:table.bench-results
+           [:thead
+            [:tr
+             [:th "Tier"]
+             [:th "Mechanism"]
+             [:th "What lives here"]
+             [:th "Why"]]]
+           [:tbody
+            [:tr
+             [:td [:strong "1. Pure host value core"]]
+             [:td [:code ":pure"] " host modules (" [:code "data"] ", " [:code "integer"] ", " [:code "float"] ", " [:code "kind"] ")"]
+             [:td "Exact big-int math, boxed IEEE-754 float ops and formatting, " [:code "data/float64?"] ", " [:code "data/equiv"] ", " [:code "data/admit-key?"] ", " [:code "data/canonical-compare"] ", " [:code "data/canonical-entries"] ", " [:code "kind/namespace"]]
+             [:td "One mathematical truth across all four hosts; native speed in tight loops; zero raw host doubles ever enter guest frames."]]
+            [:tr
+             [:td [:strong "2. Guest algebraic effects"]]
+             [:td [:code "yrt.effect"] " over " [:code "%capture"] " + task-local handler stack"]
+             [:td "Exceptions (" [:code "raise"] "/" [:code "try"] "/" [:code "finally"] "), escapes (" [:code "call-ec"] "), PHP " [:code "abandon-to"] ", resumable generators (" [:code "yield"] "), cold error/limit policy traps (" [:code ":math/div-zero"] ", " [:code ":math/overflow"] ", " [:code ":int/bit-limit"] "), and safepoint interrupts"]
+             [:td "100% guest UAST (zero Jolt kernel cost); hot math pays zero dispatch overhead; one composable mechanism replaces four runtime subsystems."]]
+            [:tr
+             [:td [:strong "3. Minimal VM effects"]]
+             [:td [:code "make-effect"] " to VM " [:code ":effect-handlers"]]
+             [:td [:code "cell/*"] ", " [:code "stream/*"] " (" [:code "stream/poll!"] "), " [:code ":module/require"] ", and bound external I/O surfaces"]
+             [:td "Preserves ADR 0004: external capabilities stay explicit stream deposits, never language-specific policy."]]]]
+
+          [:p
+           "The distinction between Tier 2 and Tier 3 is load-bearing. Putting language policy into VM host handlers would bloat Jolt's kernel and create a second effect medium beside "
+           [:code "dao.stream"]
+           ". Keeping algebraic effects in guest UAST over "
+           [:code "%capture"]
+           " gives every language swappable, composable handlers (Python "
+           [:code "OverflowError"]
+           " vs. JS "
+           [:code "Infinity"]
+           " vs. PHP int64-to-float demotion vs. deterministic test replay) without touching a single host engine."]
+
+          [:p
+           "And boxing IEEE-754 float operations at the "
+           [:code "yin.vm.float"]
+           " host boundary eliminates the raw-double hazard completely. Pure host kernels return a boxed value on the hot path and a pure status keyword on the cold path; a thin guest wrapper performs a "
+           [:code "yrt.effect"]
+           " trap only on that cold branch, with zero unwrapped host doubles anywhere on the stack."]
+
+          [:h2 "Native plus N-to-1, not unnecessary N-by-M symmetry"]
+
+          [:p
+           "Earlier drafts also tried to enforce full N-by-M cross-frontend symmetry, including compiling "
+           [:code "yang.clojure"]
+           " syntax onto Python's mutable dictionaries via a generic hook table. That symmetry looks tidy on paper but taxes the compiler for combinations nobody needs."]
+
+          [:p
+           "The practical matrix is much cleaner:"]
+
+          [:ul
+           [:li
+            [:strong "Native profiles (" [:code "py"] ", " [:code "js"] ", " [:code "php"] ", " [:code "clj"] "):"]
+            " essential so existing programs written in Python, TypeScript, PHP, and Clojure execute with their real semantics."]
+           [:li
+            [:strong "N-to-1 Yin/Clojure profiles (" [:code ":yang.python/clojure-core-v1"] ", future " [:code ":yang.typescript/clojure-core-v1"] "):"]
+            " the wolf-in-sheep's-clothing path for writing new datom.world code in familiar syntax directly on persistent data and "
+            [:code "clojure.core"]
+            "."]]
+
+          [:p
+           "Every profile, native or Clojure-backed, sits on the exact same Tier-1 pure host core and Tier-2 "
+           [:code "yrt.effect"]
+           " layer, and interoperates across language boundaries through "
+           [:code "yang.call"]
+           " with authenticated task-heap cells and private Layer-2b provenance doors."]
+
+          [:h2 "Why this matters for datom.world"]
+
+          [:p
+           "Composable preludes keep the compiler and runtime small by deleting thousands of lines of duplicated guest machinery. Swappable N-to-1 preludes turn datom.world from a Lisp-only ecosystem into one any Python or TypeScript developer can write in on day one, while still running real persistent data structures, serializable continuations, and stream-native effects underneath."]
+
+          [:p
+           "One truth, many syntaxes, and the right abstraction at the right layer."]
+          ]]]}
