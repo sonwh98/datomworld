@@ -1604,11 +1604,13 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | subprotocol only  |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J7: UDP and DHT                             | Integrate the J0b | §8.4; J0b regressions retained; would-block/ENOBUFS is transport-error plus send-failed; no `full`, |
-| slices 1-2 landed (2026-11-15);            | transport;        | no hidden retries. Landed on jolt: the native UDP datagram seam (dao.stream.udp over                 |
-| sections 6-7 gate OPEN                      | datagram contract | jolt.socket.native, failure pairs verified by injection probes 83/83) and the dht: index-store       |
-|                                             | and DHT/linker    | composition on jolt (the solo smoke boots, evaluates, publishes; JVM parity green). OPEN: the       |
-|                                             | composition       | sections 6-7 process/interop gate (production-seam socket tests, DHT process roles, cross-host      |
-|                                             |                   | interop evidence) -- recorded open, not closed.                                                     |
+| closed through the cross-host               | transport;        | jolt.socket.native, failure pairs verified by injection probes 83/83), the dht: index-store         |
+| interop (2026-11-20); the                   | datagram contract | composition (solo smoke boots, evaluates, publishes; JVM parity green), the shared CLI parser fix   |
+| sections 6-7 process gate                   | and DHT/linker    | (expand-args composed dht subcommands solo after global flags -- any host; regression-tested), and  |
+| REMAINS                                     | composition       | the jolt-inclusive DHT process test: a jolt reader joins a live JVM publisher, requires my.lib by   |
+|                                             |                   | signed name, fetches over UDP, and calls (f 1) => 4201 -- live, 9 assertions, strace mode asserting |
+|                                             |                   | >1 datagram: the four-host interop evidence. REMAINS: the sections 6-7 process-gate remainder       |
+|                                             |                   | (production-seam socket test rows, DHT process roles beyond the reader scenario).                   |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J8: repo lane qualification                 | All-task, changed | Full supported fast/all/slow suites green; reviewed host-only applicability list; every entry path  |
 | not started                                 | and subsystem     | and J1-J7 gate on both platforms; existing three lanes green; same shared kit, no overlays/stubs,   |
