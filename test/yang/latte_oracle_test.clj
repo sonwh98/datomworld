@@ -22,6 +22,7 @@
             [yang.core.call :as call]
             [yang.core.uast :as u]
             [yin.vm :as vm]
+            [yin.vm.engine :as engine]
             [yin.vm.test-utils :as tu]
             [yin.vm.data :as data]
             [yin.vm.module :as module]
@@ -203,10 +204,8 @@
   "Admission for the portable context module: every variable is a lexical
    binder, declared guest function, or explicitly supplied data primitive."
   [ast program]
-  (let [globals (into #{'yin/def
-                        ;; the compiler's own intra-unit dispatcher, bound by
-                        ;; the compiled preamble; the site stamping reuses it
-                        'dsg__intra_call}
+  (let [globals (into '#{yin/def dsg__primitive/get dsg__primitive/assoc
+                              dsg__primitive/+ dsg__primitive/<=}
                       (concat (keys vm/primitive-profiles)
                               ;; the continuation lane's clj/ family, emitted
                               ;; inline by compile-program under :outcomes true
@@ -1388,15 +1387,15 @@
                     '(register-unparser base :captured (fn [term] [(+ offset term) true])))
         forms (conj (context-for [build '(unparse checkpoint 3)]) build)
         builder (yang/compile-program (into (yang/library-for forms) forms) true arg-vector-opts)
-        mint (get-in @#'yang/continuation-uast [:operator :body])
+        mint (u/sexp->uast '(yin/def 'clj.rt/ctx
+                               (cell/new (yrt.effect/ctx nil 0 0 nil))))
         invoke (u/app (u/v 'yang.call/invoke) (u/v 'unparse)
                       (u/app (u/v 'conj) (u/app (u/v 'conj) (u/lit []) (u/v 'checkpoint)) (u/lit 3))
                       (u/lit []) (u/lam '[condition] (u/app (u/v 'clj/raise) (u/v 'condition))))
-        consume (u/let1 'dsg__equal (u/sexp->uast '(fn [a b] (= a b)))
-                        (#'yang/top-boundary invoke))
+        consume (u/app (u/v 'clj/run-unit) (u/lam [] invoke))
         ;; Transport the existing registry only after its construction's
         ;; handler has unwound. Retire and later mint the runtime through
-        ;; guest operations, retaining this compilation's admission token.
+        ;; guest operations, retaining the callable cells.
         ast (yang/annotate-call-sites
               (u/let1 'built builder
                       (u/if-node (u/app (u/v '=) (u/app (u/v 'get) (u/v 'built) (u/lit 0))
@@ -1420,7 +1419,7 @@
             rebuilt (vm/datoms->ast (cbor/decode (cbor/encode datoms)))]
         (doseq [lane [:walker :semantic]]
           (is (= [:yin.k/ok 7] (compiler-test/run-guest-ast rebuilt modules lane 1000000))))))
-    (testing "a live registry with a captured guest closure survives UCF reconstruction"
+    (testing "a live registry holds callable cells owned by its task"
       (let [code (vm/ast->semantic-bytecode ast)
             bytecode (:vector (linearize/project-rows code))
             source-index {(ucf/code-address bytecode) #{(:root code)}}
@@ -1433,20 +1432,19 @@
                            (throw (ex-info "Context checkpoint was not reached" {:steps n}))
                            :else (recur (vm/step m) (inc n))))
             k (get-in checkpoint [:env 'checkpoint])
-            _ (is (values/closure? (get-in k [:unparser-registry :unparsers :captured
-                                              :yang.call/entry])))
-            ;; Sol measured 449,999 real recursive visits on both sides.
-            _ (assert-machine-data-within-budget! k 500000)
-            wire (rows/lift-task checkpoint (rows-support/serve-table) {:source-index source-index})
-            _ (is (vm/plain-data? wire) "serialized context contains code references, not host closures")
-            {:keys [attach!]} (rows-support/attacher)
-            restored (rows/lower-task (rows-support/new-machine {:modules modules})
-                                      (cbor/decode (cbor/encode wire)) attach!)
-            k' (get-in restored [:env 'checkpoint])]
-        (is (values/closure? (get-in k' [:unparser-registry :unparsers :captured
-                                         :yang.call/entry])))
-        (assert-machine-data-within-budget! k' 500000)
-        (is (= [:yin.k/ok 7] (run-bounded restored)))
+            owner (get-in k [:unparser-registry :unparsers :captured])]
+        (is (engine/authentic-ref? checkpoint :cell-ref owner))
+        (is (values/closure? (get-in checkpoint [:heap (:id owner) :value :yang.call/entry])))
+        ;; F1 (argon r1): the cell-backed descriptor no longer lives inside k;
+        ;; traverse the heap-resident callable so machine-data and visit-budget
+        ;; checks still cover the captured closure and its lexical :env.
+        (assert-machine-data-within-budget!
+          [k (get-in checkpoint [:heap (:id owner) :value])] 500000)
+        (is (= {:yin.k/status :yin.k/non-portable :yin.k/kind :cell}
+               (try
+                 (rows/lift-task checkpoint (rows-support/serve-table) {:source-index source-index})
+                 (catch Exception e
+                   (select-keys (ex-data e) [:yin.k/status :yin.k/kind])))))
         (is (= [:yin.k/ok 7] (run-bounded checkpoint))))))
   (testing "host callbacks cannot enter code data through registry literals"
     (is (thrown? Exception
@@ -2141,15 +2139,15 @@
 
 (defn- kernel-stamped-args?
   "The stamping wrapper around one already-stamped argument vector:
-   `(dsg__intra_call gate-site! (conj [] k <args>))`. Returns the wrapped
+   `(clj/invoke-callable gate-site! (conj [] k <args>) [])`. Returns the wrapped
    original arguments node. Under the continuation lane the helper returns
    the argument vector as a plain value, so there is no `data/nth` outcome
    unwrap to strip."
   [node]
   (when (and (map? node) (= :application (:type node))
              (= :variable (:type (:operator node)))
-             (= 'dsg__intra_call (:name (:operator node)))
-             (= 2 (count (:operands node)))
+             (= 'clj/invoke-callable (:name (:operator node)))
+             (= 3 (count (:operands node)))
              (let [helper (first (:operands node))]
                (and (map? helper) (= :variable (:type helper))
                     (= 'gate-site! (:name helper))))
@@ -2201,8 +2199,7 @@
   (letfn [(any?
             [n]
             (or (and (map? n) (= :variable (:type n))
-                     (contains? '#{dsg__admitted? yang.call/invoke
-                                   yang.call/invoke-with}
+                     (contains? '#{clj/invoke-callable dsg__tail_invoke}
                                 (:name n)))
                 (and (coll? n) (some any? n))))]
     (boolean (any? node))))
@@ -2217,13 +2214,13 @@
   [node]
   (when (and (= :application (:type node))
              (= :lambda (:type (:operator node)))
-             (= 1 (count (:params (:operator node))))
+             (= '[dsg__callee] (:params (:operator node)))
              (= 1 (count (:operands node)))
              (map? (:body (:operator node))))
     (let [inner (:body (:operator node))]
       (when (and (= :application (:type inner))
                  (= :lambda (:type (:operator inner)))
-                 (= 1 (count (:params (:operator inner))))
+                 (= '[dsg__arguments] (:params (:operator inner)))
                  (= 1 (count (:operands inner)))
                  (kernel-routing? (:body (:operator inner)))
                  (or (= :literal (:type (first (:operands inner))))
@@ -2282,26 +2279,6 @@
     :else :computed))
 
 
-(defn- kernel-under-dispatcher
-  "Split the compiled program into [outer-wrappers dispatcher-application
-   main-body]: everything before the unit dispatcher binding evaluates
-   before `dsg__intra_call` is bound, so a stamp there would not resolve.
-   Returns the applications above the dispatcher binding, the application
-   whose operator IS the dispatcher lambda, and that lambda's body — or
-   [nil nil ast] when no dispatcher wrapper exists (stamping then covers
-   the whole tree and the admission check reports the stamp)."
-  [ast]
-  (loop [wrappers [] node ast]
-    (if (and (map? node) (= :application (:type node))
-             (map? (:operator node)) (= :lambda (:type (:operator node)))
-             (= '[dsg__admitted? dsg__intra_call] (vec (:params (:operator node)))))
-      [wrappers node (:body (:operator node))]
-      (if (and (map? node) (= :application (:type node))
-               (map? (:operator node)) (= :lambda (:type (:operator node))))
-        (recur (conj wrappers node) (:body (:operator node)))
-        [nil nil ast]))))
-
-
 (defn- kernel-stamp-sites
   "Assign compile-time-unique caller-site ids at the compiled program's
    APPLICATION EXPRESSIONS, post-macroexpansion (R2), and derive the site
@@ -2332,20 +2309,17 @@
                                      :def def-name
                                      :delegation? (and (symbol? callee)
                                                        (= callee def-name))})
-                  ;; the stamp calls the helper the way the compiler calls
-                  ;; any intra-unit definition — through the unit's
-                  ;; dispatcher with [k args]. Under the continuation lane the
-                  ;; helper returns the argument vector as a plain value (no
-                  ;; outcome tuple to unwrap), so the stamped expression's
-                  ;; value IS the argument vector.
+                  ;; The stamped call runs after argument evaluation and
+                  ;; returns the argument vector as a plain value.
                   {:type :application
-                   :operator {:type :variable :name 'dsg__intra_call}
+                   :operator {:type :variable :name 'clj/invoke-callable}
                    :operands [{:type :variable :name 'gate-site!}
                               {:type :application
                                :operator {:type :variable :name 'conj}
                                :operands [{:type :literal :value []}
                                           {:type :literal :value k}
-                                          args-node]}]}))
+                                          args-node]}
+                              {:type :literal :value []}]}))
         walk (fn walk
                [node def-name scope params]
                (cond
@@ -2375,19 +2349,20 @@
                                                      (:name callee)
                                                      def-name scope params)]))
 
-                     ;; the admission-routed guest call: a computed or
-                     ;; out-of-unit callee — an indirect site (R2). The
-                     ;; stamp wraps the routed arguments binding; the walk
-                     ;; then descends through the stamp into the argument
-                     ;; expressions and the routing.
+                     ;; The admission routing binds the evaluated callee and
+                     ;; arguments. The stamp can use the original operator.
                      (and (= :application t) (kernel-routed-call? node))
                      (let [inner (kernel-routed-call? node)
-                           stamped-inner (assoc inner :operands
-                                                [(stamp (first (:operands inner))
-                                                        :dynamic def-name scope params)])
-                           walked-inner (walk stamped-inner def-name scope params)]
+                           callee (first (:operands node))
+                           known-name (when (= :variable (:type callee)) (:name callee))
+                           args (first (:operands inner))
+                           args (walk args def-name scope params)
+                           recorded (if (contains? instrumented known-name)
+                                      known-name
+                                      :dynamic)]
                        (-> node
-                           (assoc-in [:operator :body] walked-inner)
+                           (assoc-in [:operator :body :operands]
+                                     [(stamp args recorded def-name scope params)])
                            (update :operands (fn [ops]
                                                (mapv #(walk % def-name scope params) ops)))))
 
@@ -2420,14 +2395,7 @@
                  (vector? node) (mapv #(walk % def-name scope params) node)
                  (seq? node) (apply list (map #(walk % def-name scope params) node))
                  :else node))
-        [wrappers dispatcher-app main-body] (kernel-under-dispatcher ast)
-        stamped-body (walk main-body nil {} #{})
-        stamped (if dispatcher-app
-                  (reduce (fn [body wrapper]
-                            (assoc-in wrapper [:operator :body] body))
-                          (assoc-in dispatcher-app [:operator :body] stamped-body)
-                          (rseq wrappers))
-                  stamped-body)]
+        stamped (walk ast nil {} #{})]
     {:ast stamped :sites (vec @sites)}))
 
 
@@ -4000,7 +3968,7 @@
       (testing "post-transformation coverage: the stamped tree as executed (item 5)"
         ;; independently derived inserted helpers: each stamped site
         ;; wraps its argument node in two new applications
-        ;; (dsg__intra_call, conj) — applications of the
+        ;; (clj/invoke-callable, conj) — applications of the
         ;; stamped tree that are not C1 occurrences of the compiled
         ;; program, accounted for here as their own set
         (let [wrapper-paths (into #{}

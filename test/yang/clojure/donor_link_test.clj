@@ -5,6 +5,7 @@
             [yang.core.module :as module]
             [yang.core.prelude :as core]
             [yang.core.uast :as u]
+            [yang.rt.effect :as effect]
             [yang.typescript.antlr.linked-harness :as h]
             [yin.vm :as vm]
             [yin.vm.linker.interpreter :as link]))
@@ -13,7 +14,8 @@
 (deftest linked-donor-uses-runtime-context
   (let [{:keys [store call-address]} @h/published
         registry (prelude/admit (h/registry))
-        runtime (h/publish-guest-module! (prelude/module-spec registry call-address))
+        effect-address (:address (h/publish-guest-module! (effect/module-spec registry)))
+        runtime (h/publish-guest-module! (prelude/module-spec registry call-address effect-address))
         unit (clj/lower-unit '[(try (throw 42) (catch Exception e e))])
         ast (u/annotate-call-sites
               (module/module-tree [(module/require-node 'clj) (u/def! 'body unit)]))
@@ -36,13 +38,14 @@
         source (link/composition
                  {:content-store store :derivation :trusted
                   :name-env {'clj (:address runtime) 'yang.call call-address
+                             'yrt.effect effect-address
                              'test.clj-donor (:address donor) 'test.caller (:address caller)}})
         program (u/sexp->uast '(do (require 'test.caller) (test.caller/run)))]
     (is (contains? prelude/module-exports 'rt-ctx))
     (is (some? (:address donor)) (pr-str donor))
     (is (some? (:address caller)) (pr-str caller))
     (is (not (contains? (core/free-names unit) 'clj.rt/ctx)))
-    (is (contains? (core/free-names unit) 'clj/try))
+    (is (contains? (core/free-names unit) 'clj/run-unit))
     (doseq [backend [:semantic :stack :register]]
       (is (= 42 (vm/value (h/run-linked backend program {:modules registry :link-source source})))
           (str backend)))))

@@ -1,81 +1,29 @@
 (ns yang.clojure.prelude
-  "The `clj` runtime module (docs/design/yang.antlr.md section 8.10):
-   the published linker module every linked clojure program requires, as
-   `js`, `php` and `py` are for their frontends. It is written in prelude
-   notation and emitted with the same core machinery those preludes use;
-   it never runs on the host.
-
-   Three surfaces, mirroring the other runtimes:
-
-   - the entry, `clj/run-main`: initialize the runtime state, run the
-     unit — the thunk `yang.clojure/lower-unit` lowered — and answer the
-     program's value with the outcome model's `[:yin.k/ok value]`
-     wrapper removed, since that wrapper is frontend-internal. The
-     entry does not reset the global namespace: the namespace lives for
-     the task, so a projection the composition bound between two
-     entries and a definition an earlier unit published both survive
-     into the next unit's run (as `js/run-main` leaves `globalThis`
-     standing);
-   - the runtime global namespace, `clj/define-global!` and
-     `clj/global-get`: a task-local map in a cell (`clj.rt/globals`,
-     allocated once per task by `clj/init!`), keyed by export name. A
-     program's top-level definitions land here through its unit's own
-     publishing, and the conformance helper's export projection reads
-     and writes it — the one binding a linked unit reads a projected or
-     defined name through. A definition a unit runs publishes after
-     any projection of the same name and shadows it. The JS
-     `globalThis` table, the PHP named-function table and the Python
-     module dictionary are the same seam;
-   - the continuation family, `clj/try`, `clj/try-finally`, `clj/throw`,
-     `clj/raise` and its helpers: the
-     `%capture` handler-stack scheme the py/ts/php preludes carry, over a
-     dynamic-context cell `clj.rt/ctx` (allocated by `clj/init!`). It is
-     the reference implementation yang.clojure's exception lowering
-     converges onto (R3, section 8.10.7); the consumer wiring that calls
-     these entries lands after the family exists;
-   - admission, `admit`: the registry surface a linked clojure composition
-     needs beside the others — the `kind` module and the `portable`
-     adapters of the data exports the guest library's collection
-     predicates read.
-
-   The module pins the shared calling runtime (`yang.call`) at the
-   convention's call-address, as the other runtimes do, and refuses before
-   anything is published when a free name nothing supplies is read."
-  (:require [yang.core.prelude :as core]
+  "The trusted Clojure runtime, emitted inline or as the linked clj module."
+  (:require [yang.core.call :as call]
+            [yang.core.prelude :as core]
             [yang.core.prelude-admission :as prelude-admission]
-            [yang.clojure :as yang]
+            [yang.core.uast :as u]
+            [yang.rt.effect :as effect]
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.module :as module]))
 
 
-(def module-name
-  "The linker module name of the clojure runtime."
-  'clj)
+(def module-name 'clj)
 
-
-(def runtime-keys
-  "Every runtime key, each with an `:clj/uninit` placeholder at module
-   level so every read is discharged before `clj/init!` allocates the
-   real cell. They stay qualified: internal store keys, never guest
-   names."
-  '[clj.rt/state clj.rt/globals clj.rt/ctx])
+(def runtime-keys '[clj.rt/state clj.rt/globals clj.rt/ctx])
 
 
 (def definitions
-  "The module's definition list, in prelude notation (the module's own
-   `clj/` prefix is stripped on emit)."
-  '[;; ------------------------------------------------- state and namespace
-    [clj/init!
+  "The ordered guest definitions shared by bundled and linked clj."
+  '[[clj/init!
      (fn []
        (if (= clj.rt/state :clj/uninit)
          (do (yin/def (quote clj.rt/globals) (cell/new {}))
-             (yin/def (quote clj.rt/ctx) (cell/new (clj/ctx nil)))
+             (yin/def (quote clj.rt/ctx) (cell/new (yrt.effect/ctx nil 0 0 nil)))
              (yin/def (quote clj.rt/state) :clj/ready))
          :clj/ready))]
-    ;; the runtime global namespace: one task-local map in a cell, keyed by
-    ;; export name. `clj/define-global!` answers the value, so a publish
-    ;; sequence can chain through it.
     [clj/define-global!
      (fn [name value]
        (do (cell/set! clj.rt/globals
@@ -86,79 +34,127 @@
        (if (data/contains? (cell/get clj.rt/globals) name)
          (get (cell/get clj.rt/globals) name)
          :clj/unbound))]
-
-    ;; ------------------------------------------------------------- escapes
-    ;; The continuation family, mirroring py/ts/php (their preludes are the
-    ;; reference implementations): the dynamic context is one record in one
-    ;; cell, `clj.rt/ctx`, holding {:handlers} — clojure has no generators,
-    ;; no `with` managers and no recursion-limit hook, so there is no
-    ;; :depth/:base/:frame accounting the way py/php carry it. The handler
-    ;; stack is a chain of frames [tag payload rest n]: a :handler frame
-    ;; holds the continuation `throw` delivers to, a :finally frame a thunk
-    ;; of one argument (the thrown value, or nil) that every exit through
-    ;; it runs; n, the frame count, makes "unwind to here" an integer
-    ;; comparison. A first pass through a capture point is told from a
-    ;; re-entry by a flag cell, never by inspecting the continuation.
-    [clj/ctx (fn [hs] (assoc {} :handlers hs))]
-    [clj/rt-ctx
-     ;; the dynamic-context cell itself: `clj.rt/*` is an internal store key
-     ;; no closure of another module can name, so linked hooks read the cell
-     ;; through this export
-     (fn [] clj.rt/ctx)]
-    [clj/restore! (fn [saved] (cell/set! clj.rt/ctx saved))]
-    [clj/handlers (fn [] (get (cell/get clj.rt/ctx) :handlers))]
-    [clj/set-handlers!
-     (fn [hs] (cell/set! clj.rt/ctx (assoc (cell/get clj.rt/ctx) :handlers hs)))]
-    [clj/frame-depth (fn [hs] (if (nil? hs) 0 (get hs 3)))]
-    [clj/frame
-     (fn [tag payload rest]
-       (conj (conj (conj (conj [] tag) payload) rest)
-             (+ 1 (clj/frame-depth rest))))]
-    [clj/pop-frame
-     (fn [hs]
-       (cell/set! clj.rt/ctx (assoc (cell/get clj.rt/ctx) :handlers (get hs 2))))]
+    [clj/prim-get-default
+     (fn [coll k default]
+       (if (data/vector? coll)
+         (if (data/contains? coll k) (data/nth coll k) default)
+         (get coll k default)))]
+    [clj/prim-get (fn [coll k] (clj/prim-get-default coll k nil))]
+    [clj/prim-assoc (fn [coll k v] (assoc coll k v))]
+    [clj/rt-ctx (fn [] clj.rt/ctx)]
     [clj/raise
-     ;; deliver `e` to the current handler stack; with no handler above it
-     ;; the value escapes the whole stack (unreached in practice: the entry
-     ;; installs a top-level handler). A :finally frame runs its thunk with
-     ;; `e` before the raise continues.
-     (fn [e]
-       (let [hs (clj/handlers)]
-         (if (nil? hs)
-           (:clj/no-handler e)
-           (if (= (get hs 0) :finally)
-             (do (clj/pop-frame hs) ((get hs 1) e) (clj/raise e))
-             ((get hs 1) e)))))]
-    [clj/throw
-     ;; the guest `(throw e)` form: clojure throws arbitrary values with no
-     ;; wrapping, so it is `clj/raise` under the guest name
-     (fn [e] (clj/raise e))]
+     (fn [e] (yrt.effect/raise (clj/rt-ctx) e (fn [v] (:clj/no-handler v))))]
+    [clj/throw (fn [e] (clj/raise e))]
     [clj/try
-     (fn [body handler]
-       (let [saved (cell/get clj.rt/ctx)
-             flag (cell/new :first)]
-         ((fn [r]
-            (if (= (cell/get flag) :first)
-              (do (cell/set! flag :re-entered)
-                  (clj/set-handlers! (clj/frame :handler r (get saved :handlers)))
-                  (let [v (body)] (do (clj/restore! saved) v)))
-              (do (clj/restore! saved) (handler r))))
-          (%capture))))]
+     (fn [body handler] (yrt.effect/try-value (clj/rt-ctx) body handler))]
     [clj/try-finally
-     ;; normal exit runs `fin` here; throw and escapes run it as they unwind
-     ;; through the :finally frame
-     (fn [body fin]
-       (let [saved (cell/get clj.rt/ctx)]
-         (do (clj/set-handlers! (clj/frame :finally fin (get saved :handlers)))
-             (let [v (body)]
-               (do (clj/restore! saved) (fin nil) v)))))]
+     (fn [body fin] (yrt.effect/try-finally (clj/rt-ctx) body fin nil))]
 
-    ;; ------------------------------------------------------------- entry
-    ;; The outcome model's `[:yin.k/ok value]` wrapper is frontend-
-    ;; internal, so the entry removes one wrapper level from the
-    ;; program's value (a program returning that vector as data was
-    ;; wrapped again, so one level is exact). An error outcome passes
-    ;; through as the failure value for the caller to render.
+    [clj/admitted-callable?
+     (fn [x]
+       (if (data/map? x)
+         (if (= (get x :type) :cell-ref)
+           (if (cell/authentic? x)
+             (if (data/callable? (yang.call/entry x))
+               (yang.call/eligible? x)
+               false)
+             false)
+           false)
+         false))]
+    [clj/dsg__invoke
+     (fn [callee positional named raise]
+       (if (clj/admitted-callable? callee)
+         (yang.call/invoke callee positional named raise)
+         (yang.call/transfer
+           raise
+           (yang.call/condition :yang.call/not-callable
+             (assoc {} :yang.call/callee callee)))))]
+    [clj/dsg__run-body
+     (fn [meta body invocation raise]
+       (let [ctx (clj/rt-ctx)
+             run (fn [tail-invoke]
+                   (let [named (get invocation :yang.call/named)]
+                     (if (= (data/count named) 0)
+                       (body (get invocation :yang.call/positional) tail-invoke)
+                       (clj/throw
+                         (assoc {} :yin.k/message
+                                   "Clojure functions do not accept named arguments"
+                                   :yin.k/data (assoc {} :yang.call/named named))))))
+             escape (fn [e]
+                      (let [retained (cell/dsg__provenance e)]
+                        (yang.call/transfer
+                          raise
+                          (if (= retained nil) (yang.call/thrown e) retained))))]
+         (if (get meta :clj/tail-call?)
+           ;; A source tail call escapes the current entry before entering
+           ;; the next one. The thunk carries the caller's actual raise
+           ;; exit, and the value path wraps and removes exactly one thunk.
+           ((yrt.effect/call-ec ctx
+              (fn [exit]
+                (let [value (yrt.effect/try-value ctx
+                              (fn []
+                                (run (fn [callee positional named]
+                                       (exit (fn []
+                                               (clj/dsg__invoke callee positional named raise))))))
+                              escape)]
+                  (fn [] value)))
+              nil))
+           (yrt.effect/try-value ctx (fn [] (run nil)) escape))))]
+    [clj/make-callable
+     (fn [meta body]
+       (let [owner (cell/new meta)
+             entry
+             (fn [invocation]
+               (if (data/map? invocation)
+                 (let [raise (get invocation :yang.call/raise)]
+                   (if (data/callable? raise)
+                     (if (if (yang.call/valid-invocation? invocation)
+                           (= (get invocation :yang.call/callee) owner)
+                           false)
+                       (if (data/contains? invocation :yang.call/binding-profile)
+                         (yang.call/transfer
+                           raise
+                           (yang.call/condition :yang.call/unsupported-binding
+                             (assoc {} :yang.call/callee owner
+                                       :yang.call/binding-profile
+                                       (get invocation :yang.call/binding-profile))))
+                         (clj/dsg__run-body meta body invocation raise))
+                       (yang.call/transfer
+                         raise
+                         (yang.call/condition :yang.call/invalid-invocation
+                           (assoc {} :yang.call/callee (get invocation :yang.call/callee)
+                                     :yang.call/owner owner))))
+                     (:clj/missing-raise-exit invocation)))
+                 (:clj/invalid-invocation invocation)))]
+         (do (cell/set! owner (assoc meta :yang.call/entry entry))
+             owner)))]
+    [clj/invoke-callable
+     (fn [callee positional named]
+       (clj/dsg__invoke callee positional named
+         (fn [condition]
+           (clj/raise
+             (if (= (get condition :yang.call/reason) :yang.call/thrown)
+               (get condition :yang.call/value)
+               (cell/dsg__new-provenance condition condition))))))]
+    ;; A caught carrier stays intact for storing or rethrowing. Source
+    ;; readers observe its value, and the program boundary reports the
+    ;; retained condition even if the carrier's public value changed.
+    [clj/condition-view
+     (fn [x]
+       (if (= (cell/dsg__provenance x) nil)
+         (if (if (data/map? x) (= (get x :type) :cell-ref) false)
+           (if (cell/authentic? x)
+             (let [descriptor (cell/get x)]
+               (if (= (get descriptor :clj/type) :function) descriptor x))
+             x)
+           x)
+         (cell/get x)))]
+    [clj/run-unit
+     (fn [body]
+       (clj/try (fn [] (conj [] :yin.k/ok (body)))
+                (fn [e]
+                  (let [retained (cell/dsg__provenance e)]
+                    (conj [] :yin.k/error (if (= retained nil) e retained))))))]
     [clj/unwrap-outcome
      (fn [value]
        (if (if (data/vector? value) (= (data/count value) 2) false)
@@ -166,55 +162,149 @@
            (data/nth value 1)
            value)
          value))]
-    ;; The global namespace is the task's, not the entry's: no reset
-    ;; here, so projections and earlier units' definitions survive.
     [clj/run-main
      (fn [body]
        (do (clj/init!)
            (clj/unwrap-outcome (body))))]])
 
 
+(def bundled-primitive-forms
+  "Guest closures can capture each other without capturing a host function."
+  '[(fn [coll k default]
+      (if (data/vector? coll)
+        (if (data/contains? coll k) (data/nth coll k) default)
+        (dsg__primitive/get coll k default)))
+    (fn [a b] (data/content= a b))
+    (fn [coll k v k2 v2 k3 v3 k4 v4]
+      (if (data/content= k2 nil)
+        (dsg__primitive/assoc coll k v)
+        (if (data/content= k3 nil)
+          (dsg__primitive/assoc coll k v k2 v2)
+          (if (data/content= k4 nil)
+            (dsg__primitive/assoc coll k v k2 v2 k3 v3)
+            (dsg__primitive/assoc coll k v k2 v2 k3 v3 k4 v4)))))
+    (fn [a b] (dsg__primitive/+ a b))
+    (fn [a b] (dsg__primitive/<= a b))])
+
+
+(def module-exports
+  (disj (core/exports "clj" definitions) 'dsg__invoke 'dsg__run-body))
+
+
+(def uast
+  "Install clj from a closed, content-addressed bundle."
+  (let [placeholders (mapv (fn [key] [key :clj/uninit]) runtime-keys)
+        install (apply u/app
+                       (u/lam '[get = assoc + <=]
+                              (core/definitions->uast (into placeholders definitions)))
+                       (map u/sexp->uast bundled-primitive-forms))]
+    (u/mark-tails
+      (u/app (u/lam [] (u/then (u/lit :clj/bundled-runtime) install))))))
+
+
+(def bundled-uast
+  "Install the shared definitions before initializing bundled clj."
+  (let [shared (u/app (u/lam '[get = assoc + <=] (u/seq-nodes [call/uast effect/uast]))
+                      (u/v 'dsg__get) (u/v 'dsg__equal) (u/v 'dsg__assoc)
+                      (u/v 'dsg__add) (u/v 'dsg__lte))]
+    (apply u/app
+           (u/lam '[dsg__get dsg__equal dsg__assoc dsg__add dsg__lte]
+                  (u/seq-nodes [shared uast (u/app (u/v 'clj/init!))]))
+           (map u/sexp->uast bundled-primitive-forms))))
+
+
+(def bundled-names
+  "Bundled runtime store definitions accepted by admission scans."
+  (into (set runtime-keys) (map first) (concat definitions effect/definitions)))
+
+
 (def module-definitions
-  "The module's definition list: an `:clj/uninit` placeholder for every
-   runtime key, then every definition, stripped."
   (core/module-definitions "clj" :clj/uninit runtime-keys definitions))
 
 
 (def module-uast
-  "The module tree: one wide application over the definitions, so every
-   sibling and runtime key read is discharged at module level. C1
-   finalized, like every production `yang.clojure` tree."
-  (yang/annotate-call-sites (core/module-tree module-definitions [])))
+  (u/annotate-call-sites
+    (core/module-tree module-definitions
+                      (mapv u/sexp->uast '[(require 'yang.call) (require 'yrt.effect)]))))
 
 
-(def module-exports
-  "The module's exports: every `clj/` key of the definition list, stripped."
-  (core/exports "clj" definitions))
-
-
-(def ^:private module-free-names
-  "The names the module tree reads and does not define, sorted: the host
-   exports its manifest must declare."
-  (core/free-name-vec module-uast))
+(def ^:private module-free-names (core/free-name-vec module-uast))
 
 
 (defn module-spec
-  "`yin.vm.linker.publish/publish-module!`'s spec for the module `clj` over
-   the host registry `registry`, pinned to the published `yang.call`
-   module at `call-address` — the convention's call-address, as every
-   runtime's publication carries. A free name nothing supplies is refused
-   before anything is published. This namespace emits; it never publishes."
-  [registry call-address]
-  (prelude-admission/module-spec
-    {:module-name module-name,
-     :ast module-uast,
-     :exports module-exports,
-     :requires {'yang.call call-address},
-     :free-names module-free-names,
-     :skip? #(= "yang.call" (namespace %)),
-     :registry registry,
-     :message "the clj module reads an undeclared name",
-     :refusal-ns "yang.clojure"}))
+  "Emit the clj module pinned to the installed calling and effect runtimes."
+  [registry call-address effect-address]
+  (let [requires {call/module-name call-address, effect/module-name effect-address}]
+    (prelude-admission/module-spec
+      {:module-name module-name
+       :ast module-uast
+       :exports module-exports
+       :requires requires
+       :free-names module-free-names
+       :skip? #(contains? requires (some-> % namespace symbol))
+       :registry registry
+       :message "the clj module reads an undeclared name"
+       :refusal-ns "yang.clojure"})))
+
+
+(defn outcome-adapter
+  "Wrap host function `f`, a primitive declaring domain failures, as an
+   outcome-returning one: success is [:yin.k/ok value], and the module's own
+   refusal (ex-info with message `refusal-message` and :yin.vm.data/op and
+   :yin.vm.data/reason in its data) is [:yin.k/error data] with those keys.
+   Any other host exception propagates: an unexpected VM or compiler failure
+   is never a successful rejection."
+  [refusal-message f]
+  (fn [& args]
+    (try
+      [:yin.k/ok (apply f args)]
+      (catch #?(:clj Throwable, :cljs :default, :cljd Object) e
+        (let [data (ex-data e)]
+          (if (and (= refusal-message (ex-message e))
+                   (contains? data :yin.vm.data/op)
+                   (contains? data :yin.vm.data/reason))
+            [:yin.k/error data]
+            (throw e)))))))
+
+
+(def library-adapters
+  "The retired `:adapters` map a program using `library` once compiled with:
+   the data exports whose refusal the collection predicates read as data.
+   The continuation port rewrote those predicates onto the `data/*` and
+   `kind/*` host predicates, so no `portable/*` adapter is consulted; the
+   map stays for the `library-opts`/`unit-opts` fixtures and the prelude's
+   `admit` registration."
+  {'data/count 'portable/count
+   'data/peek 'portable/peek
+   'data/dissoc 'portable/dissoc
+   'data/disj 'portable/disj
+   'data/str-length 'portable/str-length})
+
+
+(def kind-module
+  "The `kind` host module's exports, symbol to host function: the irreducible
+   kind and name primitives (see the library notes). Every export is pure."
+  (merge
+    {'symbol? symbol?
+     'keyword? keyword?
+     'name name
+     'namespace namespace
+     'symbol symbol
+     'keyword keyword
+     'str str
+     'int? int?
+     'with-meta with-meta
+     'meta meta
+     'coll? coll?
+     'set? set?}
+    #?(:clj {'var? var?} :default {})))
+
+
+(def kind-arities
+  "The published arities of each `kind` export."
+  {'symbol? [1], 'keyword? [1], 'name [1], 'namespace [1], 'symbol [1 2], 'keyword [1 2]
+   'str [0 1 2 3 4 5 6 :variadic], 'int? [1], 'var? [1], 'with-meta [2], 'meta [1]
+   'coll? [1], 'set? [1]})
 
 
 (defn register-library-module
@@ -239,11 +329,11 @@
   (let [portable (into {}
                        (map (fn [[source _]]
                               (let [op (symbol (name source))]
-                                [op (yang/outcome-adapter data/refusal-message
+                                [op (outcome-adapter data/refusal-message
                                                           (get data/data-module op))])))
-                       yang/library-adapters)]
+                       library-adapters)]
     (-> registry
-        (register-library-module 'kind yang/kind-module yang/kind-arities)
+        (register-library-module 'kind kind-module kind-arities)
         (register-library-module
           'portable portable
           (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))

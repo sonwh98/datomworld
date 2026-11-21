@@ -202,7 +202,7 @@
                               effect? (module/effect? result)
                               r (if effect?
                                   (run-effect (engine/check-callee-effect!
-                                                (put-registers machine seg pc W E K) f result)
+                                                (put-registers machine seg pc W E K) f result [:semantic pc])
                                               seg pc W E K result
                                               (if tail? (tail-builders seg pc K)
                                                   (act-builders seg pc E W K rd (:analysis image))))

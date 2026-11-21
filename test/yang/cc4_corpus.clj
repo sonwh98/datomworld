@@ -15,6 +15,7 @@
             [yang.clojure :as yang]
             [yang.clojure.prelude :as clj-prelude]
             [yang.core.call :as call]
+            [yang.rt.effect :as effect]
             [yin.vm :as vm]
             [yin.vm.encoder :as encoder]
             [yin.vm.macro :as macro]
@@ -85,8 +86,10 @@
          store (mem/create-content-mem)
          call-spec (update (call/module-spec publish-registry) :ast prepare)
          call-result (publish/publish-module! store call-spec)
+         effect-result (publish/publish-module! store (effect/module-spec publish-registry))
          clj-spec (update (clj-prelude/module-spec
-                            publish-registry (:address call-result))
+                            publish-registry (:address call-result)
+                            (:address effect-result))
                           :ast prepare)
          clj-result (publish/publish-module! store clj-spec)
          published (fn [id result spec]
