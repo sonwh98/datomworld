@@ -192,9 +192,11 @@
                        (finally (cell/set! log (conj (cell/get log) :cleanup)))))
                 (def log (cell/new []))
                 [(get nil :missing) (+ 1 2) (<= 1 2) (assoc {} :k 1)
-                 (try (f 42) (catch Exception e e)) (cell/get log)]]
+                 (try (f 42) (catch Exception e e)) (cell/get log)
+                 (do (cell/set! f {})
+                     (try (f 43) (catch Exception e :refused)))]]
         opts (dissoc clj/unit-opts :linked-runtime)
-        expected [:shadowed :shadowed-add :shadowed-lte :shadowed-assoc 42 [:cleanup]]
+        expected [:shadowed :shadowed-add :shadowed-lte :shadowed-assoc 42 [:cleanup] :refused]
         bundled (clj/compile-program forms true opts)
         linked (u/then (u/sexp->uast '(require 'clj))
                        (u/app (u/v 'clj/run-main) (clj/lower-unit forms)))]

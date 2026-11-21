@@ -1007,7 +1007,8 @@
 (def replay-expectations
   "Canonical replay expectations shared by all hosts. P1′ refreshed the
    argument-vector, lower-unit, prelude and clj members for the unified
-   callable and effect runtimes. The earlier c1-1 bundle stays archived
+   callable and effect runtimes. The intra-unit dispatch fix regenerates
+   the argument-vector and lower-unit members. The c1-1 bundle is archived
    at test/resources/yang/clojure/cc4-replay-snapshots-prefix-c1-1.edn."
   [{:id :native,
     :root
@@ -1021,24 +1022,24 @@
     "1556afb1db35c20b88bbc254b112fcb09874e95b3c9bcd8d412fbd3e4d01f005"}
    {:id :argument-vector,
     :root
-    :segment/blake3-9f3d34d8cee684088b6e66679daba56feadc7f4937b73cbb926fe3e5af8296d4,
-    :applications 38,
+    :segment/blake3-444a37d3403e5e5e734b71957c2cb60ed22c7aa5afb2fe68d34ebfd7e46cb95d,
+    :applications 64,
     :keys-digest
-    "b0bcfe0e3c5c40d96d91f32fb2cc6e37b7b352e2bd1597509d2964786c5029c9",
+    "026a377fc739a1bc07bc599135bb45e48a55fad40d75bdc3bbb0822e2dc9c50d",
     :c1-digest
-    "8dc51d8fd53f6220d75a4d3abef4278c3278acdcd85d52dff3fc47ef0a1e7201",
+    "0be12a3d908c10cdc6466dfe72345c33d1eb8a955ebca0efa44378eeea1f2408",
     :instruction-provenance-digest
-    "5c34f92e8d0e81a31181ac5451cd64b9795a5379b3790abbe22ddf9b097a57bb"}
+    "85073dfa2c0c227b34f349c2beea6a182da148cff624e89b3286f2045da19396"}
    {:id :lower-unit,
     :root
-    :segment/blake3-caed2fd6d5abb440d4e3ccda2694707839599b12ed64e94cdc5fdea36095e603,
-    :applications 52,
+    :segment/blake3-3609a1311a3e43d1bab8e838c9d542cda369b280a35780f22de25d36e19b4bb0,
+    :applications 74,
     :keys-digest
-    "22cf4e9d4ee9c0d85b5dd04754854b2426d790bf87e97e576438669f6936107b",
+    "09a1cef0dfe5aa807c4bb0d353fb22e72297ebf1d41f3642ac5a448656f3eee9",
     :c1-digest
-    "7b72fc0399d06c77448921a6f7ba161f4c79a810ff684039be3da2a8fca79c11",
+    "9f1167811cd3a748db797b65a391c13f9660cf20d6847a6bef083b38d4baf7ea",
     :instruction-provenance-digest
-    "9527307893fdf513ec65f03afae4ff49fcfc7d6d401d9677f65c5dde5d6ecf2b"}
+    "977f22f5849d25726d03a5f6cb3698476d18cbb957fe5dcc55c0960a19002c36"}
    {:id :prelude,
     :root
     :segment/blake3-bfce6e49877582af6abc2155cb15b55f485b5a9574bab2c0816ba2dd39fcdfd4,

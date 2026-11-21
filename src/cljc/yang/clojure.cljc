@@ -1109,18 +1109,23 @@
 
 
 (defn- compile-call-descriptor
-  "Publish a private argument-vector body through the clj entry boundary."
-  [body-ast tail?]
-  (let [meta (cond-> {:clj/type :function}
-               (= 2 (count (:params body-ast))) (assoc :clj/tail-call? true))]
-    (cond-> (u/app (u/v 'clj/make-callable) (u/lit meta) body-ast)
-      tail? (assoc :tail? true))))
+  "Publish a private argument-vector body through the clj entry boundary.
+   A named definition can also register its body for direct calls in its unit."
+  ([body-ast tail?] (compile-call-descriptor body-ast tail? nil))
+  ([body-ast tail? local-name]
+   (let [meta (cond-> {:clj/type :function}
+                (= 2 (count (:params body-ast))) (assoc :clj/tail-call? true))
+         constructor (if local-name
+                       (u/app (u/v 'dsg__make_local) (u/lit local-name) (u/lit meta) body-ast)
+                       (u/app (u/v 'clj/make-callable) (u/lit meta) body-ast))]
+     (cond-> constructor
+       tail? (assoc :tail? true)))))
 
 
 (defn- compile-av-fn
   "Compile arities [{:params :body}] to one closure over an argument vector.
    `fn-name` names the function in an arity error outcome. Under the outcome
-   model the published value is an immutable common-call descriptor."
+   model the function is published as a cell-backed callable."
   ([arities env tail? macro-env] (compile-av-fn arities env tail? macro-env nil nil))
   ([arities env tail? macro-env fn-name] (compile-av-fn arities env tail? macro-env fn-name nil))
   ([arities env tail? macro-env fn-name source]
@@ -1137,7 +1142,9 @@
          body (cond-> body
                 @tail-call? (update :params conj 'dsg__tail_invoke))]
      (if (outcomes? env)
-       (compile-call-descriptor body tail?)
+       (compile-call-descriptor body tail?
+                                (when (contains? (::local-fns env) fn-name)
+                                  (strip-symbol-meta fn-name)))
        (cond-> body tail? (assoc :tail? true))))))
 
 
@@ -1228,6 +1235,35 @@
                (u/lit false))))
 
 
+(defn- guest-call-dispatch
+  [env tail?]
+  (u/v (if-let [used? (when tail? (::tail-call? env))]
+         (do (vreset! used? true) 'dsg__tail_invoke)
+         'clj/invoke-callable)))
+
+
+(defn- guest-call-routing
+  [callee arguments dispatch env]
+  (let [invoke (u/app dispatch callee arguments (u/lit []))]
+    ;; A descriptor-shaped map must pass callable admission. Ordinary
+    ;; data invocation is the library invoker's responsibility.
+    (if (::invoker env)
+      (u/if-node
+        (u/if-node (u/app (u/v 'data/map?) callee)
+                   (u/if-node (u/app (u/v 'data/contains?) callee
+                                    (u/lit :yang.call/entry))
+                              (u/lit true)
+                              (u/if-node (cell-ref-shaped-node callee)
+                                         (u/app (u/v 'cell/authentic?) callee)
+                                         (u/lit false)))
+                   (u/lit false))
+        invoke
+        (u/app dispatch (u/v 'invoke-value)
+               (u/app (u/v 'conj) (u/lit []) callee arguments)
+               (u/lit [])))
+      invoke)))
+
+
 (defn- compile-guest-call
   "Route source calls through clj's invoking boundary."
   [callee-ast arguments-ast env tail?]
@@ -1236,27 +1272,7 @@
       tail? (assoc :tail? true))
     (let [callee (u/v 'dsg__callee)
           arguments (u/v 'dsg__arguments)
-          dispatch (u/v (if-let [used? (when tail? (::tail-call? env))]
-                          (do (vreset! used? true) 'dsg__tail_invoke)
-                          'clj/invoke-callable))
-          invoke (u/app dispatch callee arguments (u/lit []))
-          ;; A descriptor-shaped map must pass callable admission. Ordinary
-          ;; data invocation is the library invoker's responsibility.
-          routed (if (::invoker env)
-                   (u/if-node
-                     (u/if-node (u/app (u/v 'data/map?) callee)
-                                (u/if-node (u/app (u/v 'data/contains?) callee
-                                                  (u/lit :yang.call/entry))
-                                           (u/lit true)
-                                           (u/if-node (cell-ref-shaped-node callee)
-                                                      (u/app (u/v 'cell/authentic?) callee)
-                                                      (u/lit false)))
-                                (u/lit false))
-                     invoke
-                     (u/app dispatch (u/v 'invoke-value)
-                            (u/app (u/v 'conj) (u/lit []) callee arguments)
-                            (u/lit [])))
-                   invoke)]
+          routed (guest-call-routing callee arguments (guest-call-dispatch env tail?) env)]
       (cond-> (u/mark-tails (u/let1 (:name callee) callee-ast
                                     (u/let1 (:name arguments) arguments-ast routed)))
         tail? (assoc :tail? true)))))
@@ -1334,6 +1350,16 @@
                                                      (u/v (first bindings)))))))
                        (map compile-operand operands)))
         tail? (assoc :tail? true)))
+
+    (and (symbol? operator)
+         (contains? (::local-fns env) operator)
+         (not (contains? (locals env) operator)))
+    (cond-> (u/app (u/v 'dsg__invoke_local)
+                   (compile-form operator false env macro-env)
+                   (compile-form (vec operands) false env macro-env)
+                   (u/lit (strip-symbol-meta operator))
+                   (guest-call-dispatch env tail?))
+      tail? (assoc :tail? true))
 
     ;; A native lookup projects a carrier only for observation. The original
     ;; reference remains available for saving or rethrowing.
@@ -1887,6 +1913,19 @@
        (annotate-call-sites (compile-form-1 form tail? env macro-env))))))
 
 
+(defn- local-fn-names
+  "Names defined by this unit's own defn forms. With expander-side
+   macros the compiler cannot identify the unit's definitions."
+  [forms macros]
+  (when-not (or (seq macros)
+                (some #(and (seq? %) (= 'defmacro (first %))) forms))
+    (into #{}
+          (comp (filter #(and (seq? %) (#{'defn 'defn-} (first %))
+                             (symbol? (second %))))
+                (map (comp strip-symbol-meta second)))
+          forms)))
+
+
 (defn- program-env
   "The compile-time env of one program. Without `opts` it is empty: the
    native path. `{:convention :arg-vector, :native #{symbol}, :macros
@@ -1932,7 +1971,8 @@
                    ::invoker (boolean (some #(and (seq? %) (= 'defn (first %))
                                                   (= 'invoke-value (second %))
                                                   (:yin.k/invoker (meta (second %)))) forms))}
-            (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})}))))))
+            (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})}
+                                    ::local-fns (local-fn-names forms (:macros opts))))))))
 
 
 (defn- check-program-symbols!
@@ -1971,15 +2011,48 @@
     (lower-function-body env macro-env [] [form])))
 
 
+(def ^:private local-call-runtime
+  ;; Both lexical helpers share a task-owned table of this unit's definitions.
+  ;; Reuse the caller's clj context when the callable matches the definition
+  ;; we just installed. A redefinition or cell edit takes the normal route.
+  '[(fn [name meta body]
+      (let [owner (clj/make-callable meta body)
+            descriptor (cell/get owner)
+            local-entry (if (clj/prim-get meta :clj/tail-call?)
+                          (fn [args] (body args clj/invoke-callable))
+                          body)]
+        (do (cell/set! dsg__local_fns
+              (clj/prim-assoc (cell/get dsg__local_fns) name
+                (conj [] owner descriptor local-entry)))
+            owner)))
+    (fn [callee args name dispatch]
+      (let [registered (clj/prim-get (cell/get dsg__local_fns) name)]
+        (if (if registered
+              (if (data/content= (data/nth registered 0) callee)
+                (data/content= (data/nth registered 1) (cell/get callee))
+                false)
+              false)
+          ((data/nth registered 2) args)
+          (dsg__invoke_dynamic callee args dispatch))))])
+
+
 (defn- with-runtime
   "Wrap a unit in its clj entry boundary and install the bundled runtime."
-  [ast linked?]
-  (let [unit (u/app (u/v 'clj/run-unit) (u/lam [] ast))
+  [ast linked? env]
+  (let [ast (if (seq (::local-fns env))
+              (u/let1 'dsg__local_fns (u/sexp->uast '(cell/new {}))
+                (u/let1 'dsg__invoke_dynamic
+                  (u/lam '[callee args dispatch]
+                         (guest-call-routing (u/v 'callee) (u/v 'args) (u/v 'dispatch) env))
+                  (apply u/app (u/lam '[dsg__make_local dsg__invoke_local] ast)
+                         (map u/sexp->uast local-call-runtime))))
+              ast)
+        unit (u/app (u/v 'clj/run-unit) (u/lam [] ast))
         helpers (u/let1 'dsg__ex_message (u/sexp->uast ex-message-form)
                         (u/let1 'dsg__ex_data (u/sexp->uast ex-data-form) unit))]
     (if linked?
       helpers
-      (u/then prelude/bundled-uast helpers))))
+      (prelude/with-bundled-runtime helpers))))
 
 
 (defn compile-program
@@ -2048,7 +2121,7 @@
                        tail? (assoc :tail? true))))))]
        (annotate-call-sites
          (cond->> (go forms initial-macro-env)
-           (outcomes? env) (#(with-runtime % (:linked-runtime opts)))
+           (outcomes? env) (#(with-runtime % (:linked-runtime opts) env))
            (outcomes? env) tails/remark-tails))))))
 
 

@@ -16,7 +16,8 @@
         registry (prelude/admit (h/registry))
         effect-address (:address (h/publish-guest-module! (effect/module-spec registry)))
         runtime (h/publish-guest-module! (prelude/module-spec registry call-address effect-address))
-        unit (clj/lower-unit '[(try (throw 42) (catch Exception e e))])
+        unit (clj/lower-unit '[(defn f [x] (try (throw x) (catch Exception e e)))
+                               (f 42)])
         ast (u/annotate-call-sites
               (module/module-tree [(module/require-node 'clj) (u/def! 'body unit)]))
         spec (module/module-spec :test/refusal :test/undeclared registry

@@ -202,15 +202,21 @@
       (u/app (u/lam [] (u/then (u/lit :clj/bundled-runtime) install))))))
 
 
-(def bundled-uast
-  "Install the shared definitions before initializing bundled clj."
+(defn with-bundled-runtime
+  "Install and initialize bundled clj before running body in the same
+   lexical scope. Bundled UAST callers can use the private lookup closure
+   to read an invocation record without capturing a host function."
+  [& body]
   (let [shared (u/app (u/lam '[get = assoc + <=] (u/seq-nodes [call/uast effect/uast]))
                       (u/v 'dsg__get) (u/v 'dsg__equal) (u/v 'dsg__assoc)
                       (u/v 'dsg__add) (u/v 'dsg__lte))]
     (apply u/app
            (u/lam '[dsg__get dsg__equal dsg__assoc dsg__add dsg__lte]
-                  (u/seq-nodes [shared uast (u/app (u/v 'clj/init!))]))
+                  (u/seq-nodes (into [shared uast (u/app (u/v 'clj/init!))] body)))
            (map u/sexp->uast bundled-primitive-forms))))
+
+
+(def bundled-uast (with-bundled-runtime))
 
 
 (def bundled-names

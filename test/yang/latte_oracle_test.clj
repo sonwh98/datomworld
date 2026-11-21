@@ -2138,16 +2138,15 @@
 
 
 (defn- kernel-stamped-args?
-  "The stamping wrapper around one already-stamped argument vector:
-   `(clj/invoke-callable gate-site! (conj [] k <args>) [])`. Returns the wrapped
-   original arguments node. Under the continuation lane the helper returns
-   the argument vector as a plain value, so there is no `data/nth` outcome
-   unwrap to strip."
+  "Recognize a call to the local gate-site! helper and return the original
+   argument vector inside its `(conj [] k <args>)` operand."
   [node]
   (when (and (map? node) (= :application (:type node))
              (= :variable (:type (:operator node)))
-             (= 'clj/invoke-callable (:name (:operator node)))
-             (= 3 (count (:operands node)))
+             (= 'dsg__invoke_local (:name (:operator node)))
+             (= 4 (count (:operands node)))
+             (= {:type :literal :value 'gate-site!} (get-in node [:operands 2]))
+             (= {:type :variable :name 'clj/invoke-callable} (get-in node [:operands 3]))
              (let [helper (first (:operands node))]
                (and (map? helper) (= :variable (:type helper))
                     (= 'gate-site! (:name helper))))
@@ -2161,7 +2160,7 @@
 (defn- kernel-site-arguments
   "The argument expression nodes of one compiled call site: the operand
    vector the argument-vector convention assembles. `node` is either the
-   intra-unit fast path `(dsg__intra_call f <args>)` or the routed guest
+   intra-unit fast path `(dsg__invoke_local f <args> 'f dispatch)` or the routed guest
    call's arguments binding; the arguments are the elements of the
    constructed vector (a constant :literal, or `(conj [] e1 e2 ...)`),
    with any stamping wrapper already applied to inner expressions
@@ -2181,13 +2180,12 @@
 (defn- kernel-intra-call?
   "The compiled shape of one intra-unit guest call under the
    argument-vector convention: an application of the unit's dispatcher
-   whose first operand names the callee and whose second is the assembled
-   argument vector."
+   with the callee, argument vector, name, and fallback dispatcher."
   [node]
   (and (= :application (:type node))
        (= :variable (:type (:operator node)))
-       (= 'dsg__intra_call (:name (:operator node)))
-       (= 2 (count (:operands node)))))
+       (= 'dsg__invoke_local (:name (:operator node)))
+       (= 4 (count (:operands node)))))
 
 
 (defn- kernel-routing?
@@ -2312,14 +2310,15 @@
                   ;; The stamped call runs after argument evaluation and
                   ;; returns the argument vector as a plain value.
                   {:type :application
-                   :operator {:type :variable :name 'clj/invoke-callable}
+                   :operator {:type :variable :name 'dsg__invoke_local}
                    :operands [{:type :variable :name 'gate-site!}
                               {:type :application
                                :operator {:type :variable :name 'conj}
                                :operands [{:type :literal :value []}
                                           {:type :literal :value k}
                                           args-node]}
-                              {:type :literal :value []}]}))
+                              {:type :literal :value 'gate-site!}
+                              {:type :variable :name 'clj/invoke-callable}]}))
         walk (fn walk
                [node def-name scope params]
                (cond
@@ -2344,10 +2343,8 @@
                      (let [callee (first (:operands node))
                            args-node (second (:operands node))
                            walked-args (walk args-node def-name scope params)]
-                       (assoc node :operands [callee
-                                              (stamp walked-args
-                                                     (:name callee)
-                                                     def-name scope params)]))
+                       (assoc-in node [:operands 1]
+                                 (stamp walked-args (:name callee) def-name scope params)))
 
                      ;; The admission routing binds the evaluated callee and
                      ;; arguments. The stamp can use the original operator.
@@ -2608,6 +2605,18 @@
   (kernel-compile fixture (:scope run) (admission-run-ordinal run)))
 
 
+(defn- kernel-meta-callable-cell
+  "Observe the callable in an error's metadata while its issuing task is live."
+  [machine outcome]
+  (when (and (vector? outcome) (= :yin.k/error (first outcome)))
+    (let [ref (get-in outcome [1 :yin.k/data :meta])]
+      (when (engine/authentic-ref? machine :cell-ref ref)
+        (let [descriptor (get-in machine [:heap (:id ref) :value])]
+          (when (and (= :function (:clj/type descriptor))
+                     (values/closure? (:yang.call/entry descriptor)))
+            ref))))))
+
+
 (defn- kernel-c
   [compiled lane]
   (if (= :compiled (:status compiled))
@@ -2616,11 +2625,13 @@
                               (:ast compiled) (oracle-registry yang/kind-module) lane 4000000)
                     v (vm/value machine)
                     ref (get-in machine [:store 'gate-execution-trace])
-                    handle (get-in machine [:resources (:id ref)])]
+                    handle (get-in machine [:resources (:id ref)])
+                    meta-callable (kernel-meta-callable-cell machine v)]
                 (when-not (and (vm/halted? machine) handle)
                   (throw (ex-info "Execution trace did not complete" {:lane lane})))
-                {:status :completed :outcome (evidence-data v) :shape (result-shape (evidence-data v))
-                 :executed-calls (tu/drain handle)}))
+                (cond-> {:status :completed :outcome (evidence-data v) :shape (result-shape (evidence-data v))
+                         :executed-calls (tu/drain handle)}
+                  meta-callable (assoc :meta-callable-cell meta-callable))))
            :lane lane)
     (assoc compiled :lane lane)))
 
@@ -2891,13 +2902,12 @@
                               (= (result-shape (dissoc (get-in a [:outcome :thrown :data]) :meta))
                                  (result-shape (dissoc (get-in c [:outcome 1 :yin.k/data]) :meta)))
                               (let [meta (get-in c [:outcome 1 :yin.k/data :meta])]
-                                ;; Both representations the pipeline actually
-                                ;; produces: a pre-adoption raw closure, or the
-                                ;; admitted §8.10 descriptor. Anything else -
-                                ;; including an invented `{:type :closure}` map -
-                                ;; fails.
+                                ;; Cell-backed entries need evidence from the
+                                ;; issuing task, tied to this exact reference.
                                 (or (values/closure? meta)
-                                    (kernel-callable-descriptor? meta)))))
+                                    (kernel-callable-descriptor? meta)
+                                    (and (= :cell-ref (:type meta))
+                                         (= meta (:meta-callable-cell c)))))))
                        [walker semantic]))
       {:boundary (:boundary declared)
        :upstream-value (:upstream-value declared)
@@ -3002,6 +3012,12 @@
                                               (c-with (values/closure nil {})) (c-with (values/closure nil {})))))
       (is (some? (kernel-host-value-deviation fixture a a (c-with descriptor) (c-with descriptor)))
           "The admitted §8.10 descriptor classifies as the declared deviation")
+      (let [ref {:type :cell-ref :id :meta :seal "test-seal"}
+            verified (assoc (c-with ref) :meta-callable-cell ref)]
+        (is (some? (kernel-host-value-deviation fixture a a verified verified))
+            "Both lanes observed the callable in the issuing task")
+        (is (nil? (kernel-host-value-deviation fixture a a verified (c-with ref)))
+            "A cell-ref shape alone is insufficient"))
       (is (nil? (kernel-host-value-deviation (assoc fixture :id :other) a a (c-with descriptor) (c-with descriptor))))
       ;; The declared-call pin: a mutated call refuses.
       (is (nil? (kernel-host-value-deviation (assoc fixture :call '(latte-kernel.proof/elab-proof env [] (quote [[:qed :wrong]])))
@@ -3968,7 +3984,7 @@
       (testing "post-transformation coverage: the stamped tree as executed (item 5)"
         ;; independently derived inserted helpers: each stamped site
         ;; wraps its argument node in two new applications
-        ;; (clj/invoke-callable, conj) — applications of the
+        ;; (dsg__invoke_local, conj) — applications of the
         ;; stamped tree that are not C1 occurrences of the compiled
         ;; program, accounted for here as their own set
         (let [wrapper-paths (into #{}
@@ -4084,7 +4100,7 @@
   (let [lit (fn [v] {:type :literal :value v})
         var* (fn [n] {:type :variable :name n})
         app (fn [op ops] {:type :application :operator op :operands ops})
-        intra (fn [f args] (app (var* 'dsg__intra_call) [(var* f) args]))
+        intra (fn [f args] (app (var* 'dsg__invoke_local) [(var* f) args (lit f) (var* 'clj/invoke-callable)]))
         conj-args (fn [& xs] (app (var* 'conj) (into [(lit [])] xs)))
         inner (intra 'f (conj-args (lit 41)))
         outer (intra 'g (conj-args inner (lit 7)))
@@ -4122,7 +4138,7 @@
   (let [lit (fn [v] {:type :literal :value v})
         var* (fn [n] {:type :variable :name n})
         app (fn [op ops] {:type :application :operator op :operands ops})
-        intra (fn [f args] (app (var* 'dsg__intra_call) [(var* f) args]))
+        intra (fn [f args] (app (var* 'dsg__invoke_local) [(var* f) args (lit f) (var* 'clj/invoke-callable)]))
         conj-args (fn [& xs] (app (var* 'conj) (into [(lit [])] xs)))
         inner (intra 'f (conj-args (lit 41)))
         outer (intra 'g (conj-args inner (lit 7)))
