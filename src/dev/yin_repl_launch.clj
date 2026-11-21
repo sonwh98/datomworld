@@ -2,11 +2,18 @@
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [build-cache :as cache]
+            [clojure.java.io :as io]
             [clojure.string :as str]
+            [gambit-ffi-cache :as ffi]
+            [gambit-yin-progress :as progress]
             [jolt-launch :as jolt]))
 
 
 (def ^:private backends #{"jvm" "node" "dart" "jolt-chez" "jolt-gambit"})
+
+
+(def ^:private dart-capabilities
+  "programmatic Transit peer — input is Transit-encoded lines (machine protocol); for an interactive REPL use --backend jvm, node, jolt-chez, or jolt-gambit")
 
 
 (def ^:private gambit-capabilities
@@ -17,15 +24,21 @@
   "Blocking FFI refuses inline: blocking ffi is unsupported on the gambit target.")
 
 
+(def ^:private gambit-startup
+  ["First launch builds the boot and bridge (~16 min to yin> on macOS). Cache hits reach native Gambit in ~0.6 s."
+   "The pinned loader interprets Yin namespaces from source (~11 min to yin> with caches)."])
+
+
 (def ^:private usage
   (str "Usage: bb yin-repl [--backend jvm|node|dart|jolt-chez|jolt-gambit] [yin args...]
 
   jvm          Default. Shipped JVM shell with Python and PHP frontends.
   node         Shipped Node shell with Python and PHP frontends.
-  dart         Dart cross-host peer with a Transit command protocol.
+  dart         " dart-capabilities "
   jolt-chez    Pinned Jolt shell with the native Python frontend.
   jolt-gambit  " gambit-capabilities "
                " gambit-blocking "
+               " (str/join "\n               " gambit-startup) "
 
 Use -- --help after the backend to pass --help to the selected program."))
 
@@ -63,6 +76,31 @@ Use -- --help after the backend to pass --help to the selected program."))
                 (into command args))))
 
 
+(defn- dart-session
+  [args]
+  (let [child (apply p/process {:in :inherit :out :stream :err :inherit :shutdown nil}
+                     "build/yin-repl-peer" args)]
+    (try
+      (with-open [out (java.io.BufferedInputStream. (:out child))]
+        ;; Forward the first frame byte for byte and flush it before the note.
+        (let [line (java.io.ByteArrayOutputStream.)]
+          (loop [b (.read out)]
+            (when-not (neg? b)
+              (.write line b)
+              (when-not (= b 10)
+                (recur (.read out)))))
+          (.writeTo line System/out)
+          (.flush System/out)
+          (when (str/includes? (.toString line "UTF-8") "\"~:ready\"")
+            (.println System/err (str "dart: " dart-capabilities))))
+        (io/copy out System/out)
+        (.flush System/out))
+      (:exit @child)
+      (finally
+        (when (p/alive? child)
+          (p/destroy child))))))
+
+
 (defn- ensure-jolt!
   []
   (when-not (fs/regular-file? "build/tools/jolt-env.sh")
@@ -88,46 +126,12 @@ Use -- --help after the backend to pass --help to the selected program."))
       (task! "build:jolt-native"))))
 
 
-(def ^:private bridge "build/gambit-ffi/joltffi-bridge.o1")
-
-
-(defn- gambit-runtime!
-  "Stage the bridge at the relative path the pinned driver loads. The
-   source checkout stays read-only, including when the bridge needs building."
-  [cache-dir jolt-home prefix chez]
-  (let [ffi "host/gambit/ffi"
-        makefile (str (fs/path jolt-home "Makefile"))
-        inputs ["bin/gsi" "bin/gsc" "bin/gambuild-C" "include/gambit.h"
-                "lib/libgambit.a" "lib/libgambitgsi.a" "lib/libgambitgsc.a"]
-        key (cache/digest (cache/snapshot (into [makefile (str (fs/path jolt-home ffi))]
-                                                (map #(str (fs/path prefix %))) inputs)))
-        runtime (fs/path cache-dir (str "runtime-" key))]
-    (with-open [lock-file (java.io.RandomAccessFile. (fs/file cache-dir ".runtime-lock") "rw")
-                channel (.getChannel lock-file)
-                lock (.lock channel)]
-      (when-not (fs/regular-file? (fs/path runtime bridge))
-        (let [stage (fs/create-temp-dir {:dir cache-dir :prefix "runtime-"})]
-          (try
-            (fs/create-dirs (fs/path stage "host/gambit"))
-            (fs/copy-tree (fs/path jolt-home ffi) (fs/path stage ffi))
-            (fs/copy makefile (fs/path stage "Makefile"))
-            (doseq [path ["host/gambit/yin" "stdlib" "jolt-core"]]
-              (fs/create-sym-link (fs/path stage path) (fs/path jolt-home path)))
-            (checked-shell {:dir stage} "sh" "host/gambit/ffi/record-toolchain.sh" prefix)
-            (checked-shell {:dir stage} "make" (str "CHEZ=" chez)
-                           (str "GAMBIT_PREFIX=" prefix) bridge)
-            (fs/move stage runtime {:atomic-move true})
-            (finally
-              (when (fs/exists? stage)
-                (fs/delete-tree stage)))))))
-    (str runtime)))
-
-
 (defn- jolt-session
   [target extra-env command args]
   (apply jolt/run-terminal-child
          {:extra-env extra-env
           :identity-prefix jolt/identity-prefix
+          :relay-stderr! (partial progress/relay! (some? (System/getenv "JOLT_TRACE_SOURCE")))
           :assert-identity! #(jolt/assert-child-target! {:target target :output %
                                                          :context "yin-repl"})}
          "sh" "-c" command "jolt" args))
@@ -136,25 +140,29 @@ Use -- --help after the backend to pass --help to the selected program."))
 (defn- gambit-session
   [args]
   (ensure-jolt!)
-  (let [[jolt-home gsi chez] (-> (checked-shell {:out :string}
-                                                "sh" "-c" (jolt/toolchain-command
-                                                            "printf '%s\\n' \"$JOLT_HOME\" \"$JOLT_GAMBIT\" \"$JOLT_CHEZ\""))
-                                 :out
-                                 str/split-lines)
+  (let [[jolt-home gsi] (-> (checked-shell {:out :string}
+                                           "sh" "-c" (jolt/toolchain-command
+                                                       "printf '%s\\n' \"$JOLT_HOME\" \"$JOLT_GAMBIT\""))
+                            :out
+                            str/split-lines)
         prefix (str (fs/parent (fs/parent gsi)))
         cache-dir (fs/absolutize "build/gambit-yin")
         _ (cache/local-path! cache-dir)
-        _ (fs/create-dirs cache-dir)
-        runtime (gambit-runtime! cache-dir jolt-home prefix chez)
+        ffi-entry (ffi/ensure! jolt-home prefix)
+        _ (.println System/err "jolt-gambit: Checking compiled Yin boot (a cold build can take several minutes)")
         boot (-> (checked-shell {:dir jolt-home :out :string}
                                 "python3" "host/gambit/build-yin-boot.py"
                                 (str (fs/path prefix "bin/gsc")) (str cache-dir))
                  :out str/trim)
+        runtime (ffi/stage-runtime! cache-dir jolt-home boot ffi-entry)
         driver (str (fs/path jolt-home "host/gambit/yin-repl-native.ss"))
         identity "(begin (display \"jolt-target: gambit\" (current-error-port)) (newline (current-error-port)) (force-output (current-error-port)))"]
     (.println System/err (str "jolt-gambit  " gambit-capabilities))
     (.println System/err gambit-blocking)
-    (jolt-session :gambit {"JOLT_GAMBIT_YIN_BOOT" boot}
+    (doseq [line gambit-startup]
+      (.println System/err line))
+    (jolt-session :gambit {"JOLT_GAMBIT_YIN_BOOT" boot
+                           "JOLT_TRACE_SOURCE" "1"}
                   (jolt/launch-command {:target :gambit :cd? true})
                   (into [runtime "-e" identity driver (str (fs/absolutize "."))] args))))
 
@@ -169,7 +177,7 @@ Use -- --help after the backend to pass --help to the selected program."))
                (terminal-exit ["node" "target/yin-repl.js"] args))
     "dart" (do (when-not (fs/regular-file? "build/yin-repl-peer")
                  (task! "build:yin-repl-peer"))
-               (terminal-exit ["build/yin-repl-peer"] args))
+               (dart-session args))
     "jolt-chez" (do (ensure-jolt!)
                     (ensure-chez-native!)
                     (jolt/preflight! :chez "yin-repl")
