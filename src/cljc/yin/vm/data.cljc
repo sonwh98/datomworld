@@ -31,17 +31,19 @@
      `::reason` (`:arity`, `:wrong-type`, `:out-of-range` or
      `:empty-separator`), and the reason's own keys.
 
-   Key equality in `contains?`, `dissoc`, `disj`, `hash-set` and `into` a
-   set is the host's `=`, which differs for `1` and `1.0` on the JVM. A
-   runtime profile normalizes guest keys before they reach these."
+   Collection key operations normalize exact integer carriers recursively.
+   Other key equality remains the host's `=`, so profiles must admit keys
+   appropriate to their semantics."
   (:require
     [clojure.string :as str]
+    [dao.host.bytes :as bytes]
     [dao.host.float :as float]
     [dao.host.integer :as integer-host]
     [dao.host.text :as text]
     [dao.jing.cbor :as cbor]
     [yin.vm :as vm]
     [yin.vm.module :as module]
+    [yin.vm.key :as key]
     [yin.vm.values :as values])
   #?(:cljd (:import ["dart:core" BigInt])))
 
@@ -186,7 +188,7 @@
 (defn- data-contains?
   [coll k]
   (cond
-    (or (nil? coll) (map? coll) (set? coll)) (contains? coll k)
+    (or (nil? coll) (map? coll) (set? coll)) (contains? coll (key/normalize k))
     (vector? coll) (let [i (integral k)]
                      (boolean (and i (< -1 i (count coll)))))
     :else (wrong-type! 'contains? 0 :map-set-or-vector)))
@@ -195,14 +197,14 @@
 (defn- data-dissoc
   [m & ks]
   (if (or (nil? m) (map? m))
-    (apply dissoc m ks)
+    (apply dissoc m (map key/normalize ks))
     (wrong-type! 'dissoc 0 :map)))
 
 
 (defn- data-disj
   [s & ks]
   (if (or (nil? s) (set? s))
-    (apply disj s ks)
+    (apply disj s (map key/normalize ks))
     (wrong-type! 'disj 0 :set)))
 
 
@@ -244,7 +246,7 @@
 
     (set? to)
     (if (or (nil? from) (sequential? from) (set? from))
-      (into to from)
+      (into to (map key/normalize from))
       (wrong-type! 'into 1 :sequential-or-set))
 
     :else (wrong-type! 'into 0 :vector-or-set)))
@@ -493,6 +495,83 @@
         (cbor/content= a b))))
 
 
+(defn- identifier-equal? [a b]
+  (and (= (namespace a) (namespace b)) (= (name a) (name b))))
+
+(declare data-equiv)
+
+(defn- matching? [xs ys match?]
+  (and (= (count xs) (count ys))
+       (loop [xs (seq xs), ys (vec ys)]
+         (if-not xs
+           true
+           (if-let [i (first (keep-indexed #(when (match? (first xs) %2) %1) ys))]
+             (recur (next xs) (into (subvec ys 0 i) (subvec ys (inc i))))
+             false)))))
+
+(defn- data-equiv [a b]
+  (cond
+    (or (ref? a) (ref? b) (callable? a) (callable? b)) (= a b)
+    (or (cbor/float64? a) (cbor/float64? b))
+    (and (cbor/float64? a) (cbor/float64? b)
+         (let [x (float-value a), y (float-value b)]
+           (and (not (integer-host/nan-float? x))
+                (not (integer-host/nan-float? y)) (== x y))))
+    (or (integer-host/exact-integer? a) (integer-host/exact-integer? b))
+    (and (integer-host/exact-integer? a) (integer-host/exact-integer? b)
+         (zero? (integer-host/compare-big (integer-host/promote a) (integer-host/promote b))))
+    (or (keyword? a) (keyword? b))
+    (and (keyword? a) (keyword? b) (identifier-equal? a b))
+    (or (symbol? a) (symbol? b))
+    (and (symbol? a) (symbol? b) (identifier-equal? a b))
+    (or (sequential? a) (sequential? b))
+    (and (sequential? a) (sequential? b) (= (count a) (count b))
+         (every? true? (map data-equiv a b)))
+    (or (map? a) (map? b))
+    (and (map? a) (map? b)
+         (matching? a b (fn [[ka va] [kb vb]]
+                          (and (data-equiv ka kb) (data-equiv va vb)))))
+    (or (set? a) (set? b))
+    (and (set? a) (set? b) (matching? a b data-equiv))
+    :else (= a b)))
+
+(defn- admit-key? [x]
+  (cond
+    (or (ref? x) (callable? x) (cbor/float64? x)) false
+    (or (nil? x) (boolean? x) (string? x) (integer-host/exact-integer? x)) true
+    (or (keyword? x) (symbol? x))
+    (let [n (name x), ns (namespace x)]
+      (and (not (str/includes? n "/")) (not (str/starts-with? n ":"))
+           (or (nil? ns) (and (not (empty? ns)) (not (str/includes? ns "/"))))))
+    (vector? x) (every? admit-key? x)
+    (map? x) (every? (fn [[k v]] (and (admit-key? k) (admit-key? v))) x)
+    (set? x) (every? admit-key? x)
+    :else false))
+
+(defn- normalize-key
+  "Canonicalize integer carriers throughout an admitted key. Apply at both
+   insertion and lookup; other key equality remains host equality."
+  [x]
+  (when-not (admit-key? x)
+    (wrong-type! 'normalize-key 0 :admitted-key))
+  (key/normalize x))
+
+
+(defn- canonical-compare [a b]
+  (let [a (cbor/encode a), b (cbor/encode b), n (min (bytes/length a) (bytes/length b))]
+    (loop [i 0]
+      (if (= i n)
+        (compare (bytes/length a) (bytes/length b))
+        (let [c (compare (bytes/get a i) (bytes/get b i))]
+          (if (zero? c) (recur (inc i)) c))))))
+
+(defn- canonical-entries [coll]
+  (cond
+    (map? coll) (vec (sort (fn [[a _] [b _]] (canonical-compare a b)) coll))
+    (set? coll) (vec (sort canonical-compare coll))
+    :else (wrong-type! 'canonical-entries 0 :map-or-set)))
+
+
 ;; =============================================================================
 ;; The module
 ;; =============================================================================
@@ -508,7 +587,7 @@
    ['peek [1] data-peek]
    ['pop [1] data-pop]
    ['subvec [2 3] data-subvec]
-   ['hash-set [0 :variadic] hash-set]
+   ['hash-set [0 :variadic] (fn [& xs] (into #{} (map key/normalize) xs))]
    ['into [2] data-into]
    ['str-concat [0 :variadic] str-concat]
    ['str-length [1] str-length]
@@ -529,6 +608,12 @@
    ['float64 [1] float64]
    ['float-value [1] float-value]
    ['content= [2] data-content=]
+   ['float64? [1] cbor/float64?]
+   ['equiv [2] data-equiv]
+   ['admit-key? [1] admit-key?]
+   ['normalize-key [1] normalize-key]
+   ['canonical-compare [2] canonical-compare]
+   ['canonical-entries [1] canonical-entries]
    ['callable? [1] callable?]
    ['map? [1] data-map?]
    ['vector? [1] data-vector?]

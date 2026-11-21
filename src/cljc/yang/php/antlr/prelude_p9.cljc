@@ -1,9 +1,10 @@
-(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.quoted/defquoted clojure.core/def}}}
+(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
  yang.php.antlr.prelude-p9
   "P9 string, array, JSON and math builtins, written as guest code."
+  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
   (:require
     #?(:cljd [clojure.edn :as edn])
-    [yang.php.antlr.quoted :refer [defquoted]]))
+    #?(:clj [yang.core.defquoted :refer [defquoted]])))
 
 
 (defquoted ^:private forms

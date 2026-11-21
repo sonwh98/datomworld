@@ -9,6 +9,7 @@
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
+            [dao.host.integer :as host-integer]
             [yin.vm :as vm]
             [yin.vm.data :as data]
 
@@ -27,6 +28,37 @@
 (defn- call
   [op & args]
   (apply (get data/data-module op) args))
+
+
+(deftest normalized-integer-collection-keys
+  (let [native [1 {:k #{2}}]
+        boxed [(host-integer/from-native 1)
+               {:k #{(host-integer/from-native 2)}}]
+        normalize #(call 'normalize-key %)]
+    (is (= :found (get {(normalize native) :found} (normalize boxed))))
+    (is (= :found (get {(normalize boxed) :found} (normalize native))))
+    (is (= 1 (count (conj #{(normalize native)} (normalize boxed)))))
+    (is (thrown? #?(:cljd Object :clj Exception :cljs js/Error)
+                 (normalize [1 (cbor/float64 2.0)])))))
+
+
+(deftest collection-operations-normalize-integer-keys
+  (let [native [1 {:k #{2}}]
+        boxed [(host-integer/from-native 1) {:k #{(host-integer/from-native 2)}}]
+        prim #(vm/primitive-function (get vm/primitives %))
+        assoc! (prim 'assoc), get! (prim 'get), conj! (prim 'conj)]
+    (doseq [[insert lookup] [[native boxed] [boxed native]]]
+      (let [m (assoc! {} insert :found)
+            s (conj! #{} insert)]
+        (is (= :found (get! m lookup)))
+        (is (call 'contains? m lookup))
+        (is (empty? (call 'dissoc m lookup)))
+        (is (call 'contains? s lookup))
+        (is (= 1 (count (conj! s lookup))))
+        (is (empty? (call 'disj s lookup)))
+        (is (= 1 (count (call 'into s [lookup]))))
+        (is (= 1 (count (call 'hash-set insert lookup))))
+        (is (= :found (get! (conj! {} [insert :found]) lookup)))))))
 
 
 (defn- refusal
@@ -360,7 +392,8 @@
            'str-join 'char-at 'str->code-points 'code-points->str
            'str-compare 'str-unit-length 'str-unit-at 'str-units 'units->str
            'well-formed-utf16? 'number? 'float64 'float-value 'content=
-           'callable? 'map? 'vector? 'string?}
+           'callable? 'map? 'vector? 'string? 'float64? 'equiv 'admit-key?
+           'normalize-key 'canonical-compare 'canonical-entries}
          (set (keys data/data-module))
          (set (keys data/data-profiles))))
   (doseq [[sym profile] data/data-profiles]
@@ -613,3 +646,16 @@
              (refusal 'str-unit-length nil)))
       (is (= (wrong-type 'units->str 0 :code-units)
              (refusal 'units->str [0x10000]))))))
+
+(deftest portable-key-and-equality-test
+  (let [p (data/float64 0.0)
+        n (cbor/float64-from-bits "8000000000000000")
+        nan (cbor/float64-from-bits "7ff8000000000000")]
+    (is (call 'equiv [p] [n]))
+    (is (not (call 'equiv [nan] [nan])))
+    (is (not (call 'equiv (keyword nil "a/b") (keyword "a" "b"))))
+    (is (call 'admit-key? :k))
+    (is (not (call 'admit-key? (keyword nil "a/b"))))
+    (is (not (call 'admit-key? [1 {:k p}])))
+    (is (neg? (call 'canonical-compare 0 nil)))
+    (is (= [[0 :zero] [nil :nil]] (call 'canonical-entries {nil :nil 0 :zero})))))

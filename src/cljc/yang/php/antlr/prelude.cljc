@@ -1,4 +1,4 @@
-(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.quoted/defquoted clojure.core/def}}}
+(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
  yang.php.antlr.prelude
   "The PHP runtime profile, written as Universal AST
    (docs/design/yang.php.md sections 3.5, 7, 9). PHP semantics for operators,
@@ -75,6 +75,7 @@
    namespace `php/`; `php.rt/*` stays qualified.
 
    Host names the prelude depends on and does not define: `host-names`."
+  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
   (:require
     #?(:cljd [clojure.edn :as edn])
     [clojure.string :as str]
@@ -86,7 +87,7 @@
     [yang.php.antlr.builtins :as builtins]
     [yang.php.antlr.prelude-module :as module-defs]
     [yang.php.antlr.prelude-p9 :as p9-defs]
-    [yang.php.antlr.quoted :refer [defquoted]]
+    #?(:clj [yang.core.defquoted :refer [defquoted]])
     [yin.vm.integer :as integer]))
 
 

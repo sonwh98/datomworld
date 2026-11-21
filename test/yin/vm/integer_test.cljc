@@ -622,7 +622,8 @@
   (is (= #{'integer? 'normalize 'add 'sub 'neg 'mul 'compare 'quot-rem
            'floor-div-mod 'pow 'bit-and 'bit-or 'bit-xor 'bit-not 'shift-left
            'shift-right 'bit-length 'parse 'format 'to-float 'compare-float
-           'true-div 'from-float 'float-digits 'decimal->float 'max-digits}
+           'true-div 'from-float 'float-digits 'decimal->float 'max-digits
+           'to-float-boxed 'true-div-boxed 'from-float-boxed 'compare-float-boxed}
          (set (keys module-fns))
          (set (keys integer/integer-profiles))))
   (doseq [[sym profile] integer/integer-profiles]
@@ -782,3 +783,18 @@
     (is (= #{:c1}
            (get-in (engine/pin-refs state [b64 (cell-ref :c1)])
                    [:gc :pinned])))))
+
+(deftest boxed-float-boundary-test
+  (let [x (call 'to-float-boxed 3)
+        y (call 'true-div-boxed 1 2)]
+    (is (call 'integer? (call 'from-float-boxed x)))
+    (is (= 3 (call 'from-float-boxed x)))
+    (is (= 0.5 (data/float-value y)))
+    (is (true? ((get data/data-module 'float64?) y)))))
+
+(deftest boxed-float-comparison-test
+  (is (= 1 (call 'compare-float-boxed (big "9007199254740993") (data/float64 9007199254740992.0))))
+  (is (= -1 (call 'compare-float-boxed 0 (data/float64 0.5))))
+  (is (= 0 (call 'compare-float-boxed 3 (data/float64 3.0))))
+  (is (= (refused 'compare-float-boxed :wrong-type {::integer/arg 1 ::integer/expected :float64})
+         (refusal call 'compare-float-boxed 1 1))))

@@ -2582,6 +2582,7 @@
     {'symbol? symbol?
      'keyword? keyword?
      'name name
+     'namespace namespace
      'symbol symbol
      'keyword keyword
      'str str
@@ -2595,7 +2596,7 @@
 
 (def kind-arities
   "The published arities of each `kind` export."
-  {'symbol? [1], 'keyword? [1], 'name [1], 'symbol [1 2], 'keyword [1 2]
+  {'symbol? [1], 'keyword? [1], 'name [1], 'namespace [1], 'symbol [1 2], 'keyword [1 2]
    'str [0 1 2 3 4 5 6 :variadic], 'int? [1], 'var? [1], 'with-meta [2], 'meta [1]
    'coll? [1], 'set? [1]})
 

@@ -1,4 +1,4 @@
-(ns ^{:clj-kondo/config '{:lint-as {yang.python.antlr.prelude/defquoted clojure.core/def}}}
+(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
  yang.python.antlr.prelude
   "The Python runtime profile, written as Universal AST
    (docs/design/yang.antlr.md §8.1, §8.2, §9.3). Python semantics for
@@ -179,8 +179,9 @@
    Host names the prelude depends on and does not define: `host-names`
    (the cell module from yin.vm.module, the integer module from
    yin.vm.integer, the rest from yin.vm.data)."
-  #?(:cljs (:require-macros [yang.python.antlr.prelude :refer [defquoted]]))
+  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
   (:require
+    #?(:clj [yang.core.defquoted :refer [defquoted]])
     #?(:cljd [clojure.edn :as edn])
     [yang.core.call :as call]
     [yang.core.prelude-admission :as prelude-admission]
@@ -189,16 +190,6 @@
     [yin.vm.integer :as integer]))
 
 
-#?(:clj
-   (defmacro defquoted
-     "`def` of the quoted data `form`.  ClojureDart compiles quoted data to
-      straight-line Dart (this prelude is about 65,000 lines of it), which the
-      Dart AOT compiler cannot take as one initializer, so there the data is
-      one EDN string read back at load."
-     [name doc form]
-     (if (find-ns 'cljd.compiler)
-       (list 'def name doc (list 'edn/read-string (pr-str (second form))))
-       (list 'def name doc form))))
 
 
 (def host-names

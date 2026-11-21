@@ -31,6 +31,7 @@
             [dao.space.query :as query]
             [dao.stream :as stream]
             [yin.vm.effect :as effect]
+            [yin.vm.key :as key]
             [yin.vm.values :as values]))
 
 
@@ -393,6 +394,29 @@
          :yin.k/function function))
 
 
+(defn- collection-assoc [coll k v & kvs]
+  (apply assoc coll (key/normalize k) v
+         (map-indexed (fn [i x] (if (even? i) (key/normalize x) x)) kvs)))
+
+(defn- normalize-map-conj [x]
+  (cond
+    (and (vector? x) (= 2 (count x))) [(key/normalize (nth x 0)) (nth x 1)]
+    (map? x) (into (empty x) (map (fn [[k v]] [(key/normalize k) v])) x)
+    (sequential? x) (map normalize-map-conj x)
+    :else x))
+
+(defn- collection-conj [coll & xs]
+  (apply conj coll
+         (map (fn [x]
+                (cond (set? coll) (key/normalize x)
+                      (map? coll) (normalize-map-conj x)
+                      :else x)) xs)))
+
+(defn- collection-get
+  ([coll k] (get coll (if (or (map? coll) (set? coll)) (key/normalize k) k)))
+  ([coll k default] (get coll (if (or (map? coll) (set? coll)) (key/normalize k) k) default)))
+
+
 (def primitives
   "The standard executable primitive registry, published with UCF §7.5.2
    profiles. `:yin.k/function` is host-local; the five profile keys are the
@@ -417,9 +441,9 @@
            (pure 'empty? empty? [1])
            (pure 'first first [1])
            (pure 'rest (fn [a] (vec (rest a))) [1])
-           (pure 'conj conj [1 2 :variadic])
-           (pure 'assoc assoc [3 :variadic])
-           (pure 'get get [2 3])
+           (pure 'conj collection-conj [1 2 :variadic])
+           (pure 'assoc collection-assoc [3 :variadic])
+           (pure 'get collection-get [2 3])
            (pure 'vec vec [1])
            ;; one arity: strict UTF-8 on every host (dao.host.text, slice
            ;; H2, ratified OQ11: encoding arity 2 removed from portable profile)

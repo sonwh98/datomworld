@@ -1,4 +1,4 @@
-(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.quoted/defquoted clojure.core/def}}}
+(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
  yang.php.antlr.prelude-module
   "The include/require runtime of the PHP profile (docs/design/yang.php.md
    section 11, plan P6 R3/R4): the four kinds, the `_once` check, the two
@@ -11,9 +11,10 @@
      php.rt/unit       a cell, the executing unit's path or :php/null
      php.rt/path-map   a cell, map of normalized path to a delivery thunk
                        (the literal path map of the composition's `:paths`)"
+  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
   (:require
     #?(:cljd [clojure.edn :as edn])
-    [yang.php.antlr.quoted :refer [defquoted]]))
+    #?(:clj [yang.core.defquoted :refer [defquoted]])))
 
 
 (def include-path-text

@@ -103,6 +103,8 @@
     [dao.host.float :as float-kernel]
     [dao.host.integer :as host]
     [yin.vm :as vm]
+    [yin.vm.data :as data]
+    [dao.jing.cbor :as cbor]
     [yin.vm.module :as module]))
 
 
@@ -432,6 +434,22 @@
   (if (host/host-float? v) v (wrong-type! op arg :float)))
 
 
+(defn- boxed-result [x]
+  (if (= ::float-overflow x) x (data/float64 x)))
+
+(defn- int-to-float-boxed [limits a]
+  (boxed-result (int-to-float limits a)))
+
+(defn- int-true-div-boxed [limits a b]
+  (boxed-result (int-true-div limits a b)))
+
+(declare int-from-float)
+
+(defn- int-from-float-boxed [limits f]
+  (when-not (cbor/float64? f) (wrong-type! 'from-float-boxed 0 :float64))
+  (int-from-float limits (data/float-value f)))
+
+
 (defn- int-compare-float
   [_limits a f]
   (let [x (big! 'compare-float 0 a)
@@ -449,6 +467,11 @@
               0
               (pos? v) -1
               :else 1)))))
+
+
+(defn- int-compare-float-boxed [limits a f]
+  (when-not (cbor/float64? f) (wrong-type! 'compare-float-boxed 1 :float64))
+  (int-compare-float limits a (data/float-value f)))
 
 
 (defn- int-from-float
@@ -612,7 +635,11 @@
    ['parse [1 2] int-parse]
    ['format [1 2] int-format]
    ['to-float [1] int-to-float]
+   ['to-float-boxed [1] int-to-float-boxed]
+   ['true-div-boxed [2] int-true-div-boxed]
+   ['from-float-boxed [1] int-from-float-boxed]
    ['compare-float [2] int-compare-float]
+   ['compare-float-boxed [2] int-compare-float-boxed]
    ['true-div [2] int-true-div]
    ['from-float [1] int-from-float]
    ['float-digits [1] int-float-digits]
