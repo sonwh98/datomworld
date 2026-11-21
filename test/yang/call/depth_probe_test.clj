@@ -27,6 +27,7 @@
             [dao.stream :as stream]
             [yang.call.conformance :as kit]
             [yang.clojure :as clj-comp]
+            [yang.clojure.prelude :as clj-prelude]
             [yang.php.antlr.cst :as php-cst]
             [yang.php.antlr.lower :as php-lower]
             [yang.php.antlr.portable-harness :as php-portable]
@@ -80,12 +81,13 @@
 
 
 (defn- clj-registry
-  "The clojure host surface: default registry + stream + cell + data, exactly
-   the `av-modules` composition the clojure fixtures run over."
+  "The Clojure source runtime over the default stream, cell and data hosts."
   []
-  (data/register-data-module
-    (module/register-cell-module
-      (module/register-stream-module (module/default-registry)))))
+  (-> (module/default-registry)
+      module/register-stream-module
+      module/register-cell-module
+      data/register-data-module
+      clj-prelude/admit))
 
 
 (defn- ts-registry
@@ -205,8 +207,7 @@
    self-contained compiled program (the exception machinery — `clj/try`/
    `clj/throw` — is inlined by `compile-program`)."
   [forms]
-  {:ast (clj-comp/compile-program (into (clj-comp/library-for forms) (vec forms))
-                                  true clj-library-opts)})
+  {:ast (clj-comp/compile-program forms true clj-library-opts)})
 
 
 (defn- lower-source

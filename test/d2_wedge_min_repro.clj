@@ -69,7 +69,7 @@
                                (:fixtures (deref #'latte/kernel-gate-corpus))))
         compiled (compile-fixture fixture)]
     (when-not (= :compiled (:status compiled))
-      (throw (ex-info "fixture no longer compiles" {:status (:status compiled)})))
+      (throw (ex-info "fixture no longer compiles" (select-keys compiled [:status :blocked-by]))))
     (:ast compiled)))
 
 (defn- load-rows
@@ -131,7 +131,8 @@
         {:steps @steps
          :halted (vm/halted? m)
          :blocked (vm/blocked? m)
-         :outcome (bounded (vm/value m))}))))
+         :outcome (bounded (vm/value m))
+         :outcome-tags [(get (vm/value m) 0) (get-in (vm/value m) [1 0])]}))))
 
 (defn- arm-c-exhaustion-propagates
   []
@@ -286,6 +287,8 @@
           "arm A's machine reads halted only because create-vm mints :halted? true")
       (is (and (:halted b) (pos? (:steps b)) (< (:steps b) 2000000))
           "arm B: the same session with the fixture queued completes under the budget")
+      (is (= [:yin.k/ok :ok] (:outcome-tags b))
+          "arm B: the proof returns its successful outcome")
       (is (and (:propagated c) (:data-has-consumer c) (:data-has-session c))
           "arm C: the budget throw escapes run-on-stream carrying its recovery data")
       (is (map? d) "arm D reports the post-exhaustion evidence walk's cost shape")

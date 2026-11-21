@@ -46,7 +46,7 @@
     (is (some? (:address donor)) (pr-str donor))
     (is (some? (:address caller)) (pr-str caller))
     (is (not (contains? (core/free-names unit) 'clj.rt/ctx)))
-    (is (contains? (core/free-names unit) 'clj/run-unit))
+    (is (contains? (core/free-names unit) 'clj/run-source-unit))
     (doseq [backend [:semantic :stack :register]]
       (is (= 42 (vm/value (h/run-linked backend program {:modules registry :link-source source})))
           (str backend)))))

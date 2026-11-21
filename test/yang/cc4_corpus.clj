@@ -27,7 +27,8 @@
 (def ^:private publish-registry
   (-> (module/default-registry)
       module/register-cell-module
-      (data/register-data-module {::data/max-items 1048576})))
+      (data/register-data-module {::data/max-items 1048576})
+      clj-prelude/admit))
 
 
 (defn- expand-like-the-repl
