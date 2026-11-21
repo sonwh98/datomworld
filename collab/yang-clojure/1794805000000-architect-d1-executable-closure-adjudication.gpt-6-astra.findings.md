@@ -1,0 +1,114 @@
+Completed-GMT: 2026-11-17 09:58:43 GMT
+Completed-Local: 2026-11-17 16:58:43 Asia/Ho_Chi_Minh
+
+RULING: (other) — D1 requires an addressed, runnable reconstruction package containing exact source/resource and binary dependencies, a retained runtime distribution, and explicit execution instructions; generated classes may be derived, and historical process provenance remains a separate claim.
+
+My earlier “executable dependency closure” requirement was underspecified. It did not define the retained artifacts, the bootstrap boundary, or the distinction between reproducing a compilation and proving which bytes a historical process executed. This amendment supplies those definitions.
+
+The r16 escalation is correct. Its dispatch’s assertion that the retained corpus “holds the closure CONTENT” is contradicted by the inventory. The missing compiler/runtime cannot be extracted from the six retained roles.
+
+None of the three proposed options is sufficient unchanged:
+
+- **(a)** unnecessarily requires preserving all compiled classes. A runtime image also does not, by itself, preserve compilation inputs, environment settings or expansion events.
+- **(b)** provides useful labels and instructions, but coordinates and version strings do not retain exact artifacts or ensure their future availability.
+- **(c)** removes a required relationship. Independently checking declarations and bindings against retained ASTs does not establish that those ASTs came from the retained source/adaptation inputs.
+
+D1 needs the source-to-root derivation checked. For this implementation, that means running the prescribed compilation and comparing its outputs, followed by independent correspondence verification. It does **not** require reconstructing the original JVM heap, JIT output or machine.
+
+The following replaces §4.1’s executable-dependency clause.
+
+> **1. Meaning of reconstruction closure.**  
+> The reconstruction profile shall reference a closed, versioned execution manifest. Its closure consists of every retained artifact and explicit input needed to execute the declared reconstruction pipeline on a supported host, terminating at the declared platform/bootstrap boundary.
+>
+> A closure is complete only when reconstruction can start in a fresh process using the fetched package and declared inputs, without reading the producer’s checkout, dependency caches, previously loaded namespaces or undeclared resources.
+>
+> Git revisions, Maven coordinates, toolchain versions and download URLs are descriptive provenance or retrieval hints. They do not substitute for addressed, available artifact bytes.
+
+The execution manifest must specify these components:
+
+| Component | Required retained content |
+|---|---|
+| Sources and resources | Exact files implementing source adaptation, assembly, compilation, stamping, canonicalization and other claimed transformations; their transitive source dependencies and resources. Include relevant uncommitted/generated files. A commit archive is sufficient only for files actually supplied by that archive. |
+| Binary dependencies | Exact resolved dependency jars, required precompiled classes and non-platform native libraries, with content identities. Preserve classpath order and resource-resolution rules. `deps.edn` alone is insufficient. |
+| Runtime | An addressed JDK/JRE distribution appropriate to the declared platform. Use a JDK where the build plan requires its compiler. Retain the distribution bytes or an addressed file manifest sufficient to restore its layout, modes and links. |
+| Build/load plan | Explicit source-loading or build steps, inputs, tool identities, arguments and expected products. Source-loaded Clojure classes and JIT products need not be persisted. An indispensable opaque precompiled artifact must be retained. |
+| Launch configuration | Entrypoint, ordered classpath/module path, JVM options, working-directory mapping, relevant properties, environment values, locale/encoding and initialization rules. Inputs affecting results must be explicit; undeclared ambient inputs are disallowed. |
+| Pipeline and contracts | Ordered stages, input/output roles, compiler arguments—including the existing `true` argument—grammar/encoding identities, text/fidelity profile, stamping rules, source-hash rule and coverage policy. |
+| Expansion context | The applicable expansion policy and, when expansion occurs, the retained context and event/attempt closure described below. |
+
+> **2. Concrete initial implementation.**  
+> Use a **source-loaded JVM reconstruction package**: retain the exact required repository/dependency source and resource bundles, resolved binary jars, runtime distribution and launch manifest. Load the compiler from those sources in a fresh process.
+>
+> Do not archive transient generated classes merely because the original process generated them. They are derived execution products. If the selected package instead loads AOT classes, those classes must be retained or generated by its declared build plan.
+>
+> Package and retain shared dependencies once; fixture recipes may reference the same addresses. Large artifacts may reside in a separate content-addressed archive, provided their addresses resolve through the declared retention/discovery mechanism. A publisher’s URL without retained availability does not satisfy this requirement.
+
+> **3. Platform and trust boundary.**  
+> The manifest declares supported OS/architecture and required platform facilities. The retained runtime and declared host facilities form an explicit execution trust boundary; this contract does not recursively demand rebuilding the operating system or hardware.
+>
+> Content verification proves artifact identity, not compiler correctness. Reconstruction proves that the selected interpreter reproduces the retained results. Independent checks establish the additional correspondence obligations.
+>
+> A package is portable as addressed data across process and host boundaries. Execution requires a supported target. A different target needs a separately identified runtime/package variant and the same exact-output gates; it may not silently substitute its installed Java.
+>
+> Refuse missing artifacts, unsupported targets, incompatible profiles, undeclared dependencies and output mismatches.
+
+> **4. Expansion applicability and history.**  
+> Distinguish deterministic frontend rewrites from event-producing expansion stages. Compiler routines such as control-form lowering are reproduced by executing the pinned compiler; they do not require invented `yin.vm.macro` events.
+>
+> For a pipeline that invokes the row-native expander, retain its input batch, initial relevant context/store closure, macro implementations, supplied origin/attempt coordinates, events and resulting correspondence. Capture through the event-returning interface. Replay must reproduce the required records and relationships.
+>
+> A pipeline that bypasses that stage shall declare it inapplicable and substantiate that declaration through its pinned composition and checked execution path. Absence of stored events is not evidence of bypass.
+>
+> A missing historical generating event cannot be recovered merely by observing an equal output root.
+
+This distinction is supported by the current code: [Yang’s frontend description](/Users/sto/workspace/datomworld-d1/src/cljc/yang/clojure.cljc:16) explicitly separates frontend compilation from row-native macro lookup. [expand-batch](/Users/sto/workspace/datomworld-d1/src/cljc/yin/vm/macro.cljc:1722) returns its log and updated context; [expand](/Users/sto/workspace/datomworld-d1/src/cljc/yin/vm/macro.cljc:1840) discards those from its return value. The current direct compile/stamp path supports investigating an inapplicable expansion stage; it does not establish every historical process’s behavior.
+
+> **5. Verification obligations.**  
+> Reconstruction shall establish the entire claimed chain:
+>
+> retained fixture/source/adaptation inputs → assembled program/options → compiled root → stamped root and transformation correspondence.
+>
+> Recompute the oracle source hash from its prescribed inputs. Check that those inputs actually generate the program being compiled. Reconstruct claimed metadata and provenance; independently derive site declarations and bindings. Producer snapshots are expected results or diagnostic evidence, not authoritative inputs to classifications that the verifier is required to derive.
+>
+> Existing image-derivation, trace-completeness and attribution requirements remain. A successful dependency fetch or root comparison alone is not D1 acceptance.
+
+> **6. Historical records and later reconstruction.**  
+> A package identifies the interpreter used for reconstruction. It does not, without separate evidence, attest that the original producer process loaded those exact bytes.
+>
+> A package assembled after an admission must be identified as a later reconstruction package. It may support verification of that admission’s retained inputs and outputs if the declared recipe implements the required interpretation, the complete derivation chain passes, and the required admission/expansion facts are available. It must not be described as an admission-time runtime capture.
+>
+> Missing historical environment evidence therefore does not automatically require discarding retained inputs. Missing required source, admission or generating-event information remains a blocker. Where that information cannot be recovered, perform a new admission with fresh coordinates and preserve the old record as incomplete.
+>
+> Never adjust expected roots, invent events or select ad hoc transformations merely to make a candidate package pass.
+
+This last clause explicitly corrects the earlier ambiguity: **reconstruction is reproducibility of the declared interpretation; historical runtime attestation is a different claim.** The two must not be silently substituted for one another.
+
+> **7. Identity and retention.**  
+> Give the execution manifest and reconstruction profile immutable identities and explicit schemas. The recipe’s existing profile address may reference this manifest and the separate text-serialization profile; no D1 envelope or oracle-evidence schema change is required solely for this addition.
+>
+> Name the retention owner, retrieval mechanism and supported targets before acceptance. Verify transitive availability after process exit. Unknown manifests refuse reconstruction.
+
+This follows “derive, don’t persist”: generated classes can be rebuilt; opaque dependency artifacts and explicit inputs must remain available. It does not imply a multi-GB per-fixture image. Actual shared-package size remains unmeasured.
+
+The implementation sequence is:
+
+1. **Correct the r16 inventory premise.** Preserve the existing store and outcomes. Classify its text profile as serialization metadata, not an executable reconstruction profile.
+2. **Build one explicit reconstruction package.** Inventory the resolved classpath and required sources/resources, retain their bytes and the runtime distribution, and specify source loading and launch configuration. Reuse the r15 byte-bundle helper where appropriate.
+3. **Add a standalone reconstruction entrypoint.** Fetch and verify the package, start a fresh process, reconstruct assembly and compilation, and compare all claimed outputs. Do not resolve compiler code from the invoking checkout.
+4. **Resolve expansion applicability.** Record a substantiated bypass for the direct pipeline, or capture the actual expander context and logs. Keep historical uncertainty visible.
+5. **Evaluate the existing corpus under the new package.** Record it as later reconstruction. Reuse retained admission coordinates only where the required admission facts exist; do not infer missing history from replay success.
+6. **Finish independent verification and publication.** Derive classification inputs, publish the required side artifacts, verify image derivations and complete lane evidence, and issue a separate verification result. Existing bounds and execution restrictions remain.
+
+Static review found these defects or acceptance-blocking gaps:
+
+| Location | Finding |
+|---|---|
+| [correspondence_verification.clj:148](/Users/sto/workspace/datomworld-d1/test/yang/correspondence_verification.clj:148), [line 159](/Users/sto/workspace/datomworld-d1/test/yang/correspondence_verification.clj:159) | Equality with the current text profile checks serialization/runtime labels, then replay calls the already-loaded checkout compiler. It neither selects nor verifies an executable closure. Replace this dependency with the manifest-driven reconstruction entrypoint. |
+| [correspondence_verification.clj:156](/Users/sto/workspace/datomworld-d1/test/yang/correspondence_verification.clj:156), [correspondence_verifier.clj:312](/Users/sto/workspace/datomworld-d1/src/cljc/yang/correspondence_verifier.clj:312) | Program compilation and `forms`/`call` hashing are checked separately. The gate does not establish that the hashed adaptation generates the compiled program. Reconstruct and check the assembly implemented at [latte_oracle_test.clj:2524](/Users/sto/workspace/datomworld-d1/test/yang/latte_oracle_test.clj:2524). |
+| [latte_oracle_test.clj:4494](/Users/sto/workspace/datomworld-d1/test/yang/latte_oracle_test.clj:4494), [correspondence_verifier.clj:317](/Users/sto/workspace/datomworld-d1/src/cljc/yang/correspondence_verifier.clj:317) | Constructor names are supplied by the snapshot and used to derive site classifications. They affect ambient classification at [line 78](/Users/sto/workspace/datomworld-d1/src/cljc/yang/correspondence_verifier.clj:78). Derive them from retained, verified context-source inputs and compare with the snapshot instead of trusting that set. |
+| [latte_oracle_test.clj:4497](/Users/sto/workspace/datomworld-d1/test/yang/latte_oracle_test.clj:4497) | The six-role publication contains no execution manifest or expansion-applicability/context record. Its successful storage/reopen cannot establish either. |
+| [correspondence_dependency.clj:18](/Users/sto/workspace/datomworld-d1/src/cljc/yang/correspondence_dependency.clj:18) | This is correctly a byte-bundle primitive. It lacks executable roles, classpath, launch/build semantics and completeness validation. Those belong in the new manifest layer. Its current disclaimer is accurate; it is not a defective closure validator because it does not claim to be one. |
+
+The existing partial gates correctly disclaim complete D1 verification. Preserve those disclaimers until the new reconstruction and independent-verification obligations pass.
+
+Static review only. No suites run and no files edited.
