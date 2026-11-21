@@ -1,0 +1,6 @@
+Created-GMT: 2026-11-21 (dispatch-time)
+Coding-Agent: codex
+Session-ID: pending (provider-generated)
+# Task: J7 slices 3+4 review — the parser fix and the cross-host process test
+Role: reviewer
+Review the diff origin/master..HEAD on branch fix/j7-udp-dht. Scope: (1) the shared CLI parser fix in yin/shell/cli.cljc (expand-args skipping complete global flags; DHT subcommand expansion; valued-flag pair preservation; precedence), (2) the regression tests dht_step_test.cljc (engine-round stepper integration) and dht_args_test.cljc (parsing), (3) the jolt-inclusive DHT process test in dht_process_test.clj (the jolt-reader-requires-a-jvm-publication-by-name scenario, stdin-held-open lifetime, --no-state isolation) and its udp_dht_test.jolt companion. Judge correctness against the datagram contract and portability (no host-specific parser hooks; shared code stays shared; JVM/Node/Dart must be unaffected). Run the acceptance yourself on this host (sockets work here): the focused JVM tests, the jolt focused tests, the process test with the strace acceptance (JOLT_DHT_STRACE), bb probe:jolt-udp and probe:jolt-udp-failures, dao.stream.udp-test. Findings with P0-P3 verdicts to collab/jolt/j7-s34-review.findings.md, committed. Findings only — no fixes.
