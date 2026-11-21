@@ -16,6 +16,7 @@
             [yang.clojure :as yang]
             [yang.clojure.prelude :as clj-prelude]
             [yang.core.call :as call]
+            [yang.rt.effect :as effect]
             [yang.frontend :as frontend]
             [yang.safepoint :as safepoint]
             [yang.tails :as tails]
@@ -924,7 +925,9 @@
          store (mem/create-content-mem)
          call-spec (update (call/module-spec publish-registry) :ast prepare)
          call-result (publish/publish-module! store call-spec)
-         clj-spec (update (clj-prelude/module-spec publish-registry (:address call-result))
+         effect-result (publish/publish-module! store (effect/module-spec publish-registry))
+         clj-spec (update (clj-prelude/module-spec publish-registry (:address call-result)
+                            (:address effect-result))
                           :ast prepare)
          clj-result (publish/publish-module! store clj-spec)
          published (fn [id result spec]
@@ -1002,13 +1005,11 @@
 
 
 (def replay-expectations
-  "The cc4 cohort's fixed expectations, shared by all hosts. Originally
-   recorded on the JVM at dispatch revision 2687ab0c; re-pinned once under
-   manifest c1-2 (constructed-collections-v1, ruling 1795017757000) after
-   the collection emitter began ordering constructor operands by compiled
-   content -- the argument-vector and lower-unit members changed canonical
-   bytes, the other six members are byte-identical. The pre-fix bundle is
-   retained at test/resources/yang/clojure/cc4-replay-snapshots-prefix-c1-1.edn."
+  "Canonical replay expectations shared by all hosts. P1′ refreshed the
+   argument-vector, lower-unit, prelude and clj members for the unified
+   callable and effect runtimes. The intra-unit dispatch fix regenerates
+   the argument-vector and lower-unit members. The c1-1 bundle is archived
+   at test/resources/yang/clojure/cc4-replay-snapshots-prefix-c1-1.edn."
   [{:id :native,
     :root
     :segment/blake3-0aac99defd315ce7623ecefc08106f31653bd138fb5ae3f1f1d466bd93893c70,
@@ -1021,34 +1022,34 @@
     "1556afb1db35c20b88bbc254b112fcb09874e95b3c9bcd8d412fbd3e4d01f005"}
    {:id :argument-vector,
     :root
-    :segment/blake3-4a9a1b91e8a113009af0dc68f8e5a5afbe1910a61e07741894f5922c20499b26,
-    :applications 263,
+    :segment/blake3-444a37d3403e5e5e734b71957c2cb60ed22c7aa5afb2fe68d34ebfd7e46cb95d,
+    :applications 64,
     :keys-digest
-    "aeb62bc089bd7b30f200d9b0645e7933e54286af39b9675c73823c4be8d0175d",
+    "026a377fc739a1bc07bc599135bb45e48a55fad40d75bdc3bbb0822e2dc9c50d",
     :c1-digest
-    "41b8f25ba2592d4f5d77364f97e7c8d058cbe4e2a428587cc2b43a5e4193387d",
+    "0be12a3d908c10cdc6466dfe72345c33d1eb8a955ebca0efa44378eeea1f2408",
     :instruction-provenance-digest
-    "d0f4d14d0cef560ad313574f206a391b1eed7938b38b81f614549bc26cb8b3cb"}
+    "85073dfa2c0c227b34f349c2beea6a182da148cff624e89b3286f2045da19396"}
    {:id :lower-unit,
     :root
-    :segment/blake3-f4603726a6b554bf102dd63f752851e735c068d3804158b2435004161c6655b4,
-    :applications 256,
+    :segment/blake3-3609a1311a3e43d1bab8e838c9d542cda369b280a35780f22de25d36e19b4bb0,
+    :applications 74,
     :keys-digest
-    "18e26285f07ae96609caeea87f96e4b9fe8cea6b5223c87417d63edeac054670",
+    "09a1cef0dfe5aa807c4bb0d353fb22e72297ebf1d41f3642ac5a448656f3eee9",
     :c1-digest
-    "1ab2dbf99e3fa7bbe4d53281c7d961f03b837cef6a6df5eb10f82d1ceff5849d",
+    "9f1167811cd3a748db797b65a391c13f9660cf20d6847a6bef083b38d4baf7ea",
     :instruction-provenance-digest
-    "711d0c50ea119b0f6577868383a5e82462b17a77da52b0b09e049fddc68d4aa5"}
+    "977f22f5849d25726d03a5f6cb3698476d18cbb957fe5dcc55c0960a19002c36"}
    {:id :prelude,
     :root
-    :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c,
-    :applications 114,
+    :segment/blake3-bfce6e49877582af6abc2155cb15b55f485b5a9574bab2c0816ba2dd39fcdfd4,
+    :applications 156,
     :keys-digest
-    "07ec7e0a4ab5c70165680106dc382a9d9cfc53543b6262e0bed3f4c2dd8f7f9f",
+    "bbd572db3ff3476261c815fc82463ec1d77fba9ce39a02f4ab60fc03f8b86225",
     :c1-digest
-    "de8cc7425d8416de0eb8e3f6dc7ff80e5fb459f0fbdab7027d4df1b3c784925d",
+    "ed6ad13d4880c662c226601b9ef244bddeb94d27257d6e1ca96c1e534106564b",
     :instruction-provenance-digest
-    "7392bb208443f93c42b29cd870d697b602a108b9420f443e7ba04583ee356d29"}
+    "443251ec69f5bbc4702397b8e20ae9b15bee664734cd1b690aff457555556ba4"}
    {:id :macro,
     :root
     :segment/blake3-a15528bb9aef22fa7dc4beaa90a7e08f079b4dfb9b6da51f7b16bb079c54134a,
@@ -1097,27 +1098,27 @@
     "8218c68f1c2851edb821c62bfdc7c6c9488751c022016930f0dfac8b48ae76ef"}
    {:id :clj,
     :root
-    :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c,
-    :applications 114,
+    :segment/blake3-bfce6e49877582af6abc2155cb15b55f485b5a9574bab2c0816ba2dd39fcdfd4,
+    :applications 156,
     :keys-digest
-    "ad8a98a4a01addb84ff29055c9030e2eb8eab9509973ad7177aa4ed3ee54f952",
+    "b5a73fea5596a7a6a07eab2ad6d266dbb45117654a24fa1498ffc58dcc10d63f",
     :c1-digest
-    "167c6aeaedace3afd945c6b7c0f1aa31f73df5d4577366fdd2431059633c1050",
+    "c412fbbe6a7eaf75590fb15b5de120b938bcd74c30d91848a5b30c1a59541855",
     :instruction-provenance-digest
-    "57920a53ece61c4ea721a969c4107d32f846ec2628b4f77b62acb912677782c1",
+    "f9b1f5ea155d6357ede5ad5a3576fb0c60182abe097aa50e2e6537dc2949bc5f",
     :addresses
     {:record
-     :segment/blake3-20d2e0c43539dbf3cb66fe04e6cffea673772d06d32f753b131de6f17d3daf35,
+     :segment/blake3-4fefb1f9fd0c34929107da7adaec3601a56e6b8d239ec18c5fc458791970607b,
      :table
-     :segment/blake3-167c6aeaedace3afd945c6b7c0f1aa31f73df5d4577366fdd2431059633c1050,
+     :segment/blake3-c412fbbe6a7eaf75590fb15b5de120b938bcd74c30d91848a5b30c1a59541855,
      :provenance
-     :segment/blake3-3a43087e7ea783baa6e2f6f4041dc60c6f83aee4bc49842c871d2d20c12056c6,
+     :segment/blake3-fe173745ac23dc71230147cf8c0bc3571b7c2b748be1741b2a869f99c7d9d9e5,
      :root
-     :segment/blake3-2c3a3fa3ff94adf2e22582426e616ddbca5acb45eeff283e20bed6543f4b1a8c,
+     :segment/blake3-bfce6e49877582af6abc2155cb15b55f485b5a9574bab2c0816ba2dd39fcdfd4,
      :manifest
-     :segment/blake3-72efd5cba6d2c36bacae7a114fca2db95b5ef5cfe966d004d16e9e39a7179ee0},
+     :segment/blake3-10884a7e673e4178b209486047698cc4dc3309a81bd9d989c40fcc6ae03e44f8},
     :provenance-digest
-    "499f103a2af205e818483bb4ca301668bc8cf13d6e16f71e747ff0255b865287"}])
+    "0310ce3b68fedd7cb3b7cea8b7b77b83aa2ed911f69f3f86fded814e75473681"}])
 
 
 (deftest portable-replay-cohort-test
@@ -1201,9 +1202,11 @@
           call-result (publish/publish-module!
                         store (call/module-spec publish-registry))
           call-address (:address call-result)
+          effect-address (:address (publish/publish-module!
+                                     store (effect/module-spec publish-registry)))
           clj-result (publish/publish-module!
                        store (clj-prelude/module-spec publish-registry
-                                                      call-address))
+                                                      call-address effect-address))
           clj-address (:address clj-result)]
       (is (some? call-address))
       (is (some? clj-address))
@@ -1329,12 +1332,15 @@
       (is (nil? (publish/published-call-site-table store plain)))))
   (testing "the manifest excludes the side table; the record names the manifest"
     (let [store (mem/create-content-mem)
+          effect-address (:address (publish/publish-module!
+                                     store (effect/module-spec publish-registry)))
           result (publish/publish-module!
                    store (clj-prelude/module-spec
                            publish-registry
                            (:address (publish/publish-module!
                                        store
-                                       (call/module-spec publish-registry)))))
+                                       (call/module-spec publish-registry)))
+                           effect-address))
           address (:address result)
           manifest (jing/get store address nil)
           record-address (get-in result [:call-sites :record])

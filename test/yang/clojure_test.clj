@@ -1326,8 +1326,6 @@
                  (let [x {:yang.call/entry 5}] ((if true x x) 1))
                  (let [x {:yang.call/entry (yang.call/entry f)}] (x 1))
                  (let [x (assoc {} :yang.call/entry (get f :yang.call/entry))] (x 1))
-                 (let [x (assoc f :extra :forged)] (x 1))
-                 (let [x (assoc f :yang.call/entry (yang.call/entry g))] (x 1))
                  (let [x (assoc {} :yang.call/entry (yang.call/entry f)
                                 :clj/admission (get f :clj/admission))] (x 1))
                  (let [x {:yang.call/entry (yang.call/entry f)
@@ -1342,7 +1340,15 @@
         (is (= :yin.k/error (first result)) (pr-str form))
         (is (= :yang.call/not-callable (:yang.call/reason (second result)))
             (pr-str form)))))
-  (is (= [:yin.k/ok [false false true 21]]
+  (testing "a modified reference authenticates but its entry checks exact ownership"
+    (doseq [form '[(let [x (assoc f :extra :forged)] (x 1))
+                   (let [x (assoc f :yang.call/entry (yang.call/entry g))] (x 1))]
+            wrap [identity #(list '+ 1 %)]]
+      (let [result (run-outcome ['(defn f [x] x) '(defn g [x] (+ x 1)) (wrap form)])]
+        (is (= :yin.k/error (first result)) (pr-str form))
+        (is (= :yang.call/invalid-invocation (:yang.call/reason (second result)))
+            (pr-str form)))))
+  (is (= [:yin.k/ok [false true true 21]]
          (run-outcome '[(defn f
                           [x]
                           x)
@@ -1352,65 +1358,27 @@
                          (f 21)]]))))
 
 
-(deftest test-common-call-token-packet-forgery-refuses
-  (testing "a forged vector applied to the extracted public entry never
-            enters the private body: the entry authenticates the packet on
-            the compiler-held token and forged shapes refuse. The extraction
-            and application happen INSIDE a compiled program (the packet
-            dispatch lives in its preamble scope), the call spliced in as
-            UAST over a marker call, on both evaluators."
-    ;; forged VECTORS are the packet-dispatch axis (the P1 axis): each must
-    ;; produce an error outcome without the body running. Scalar and empty
-    ;; invocations hit the public entry's pre-existing non-record refusal
-    ;; (a host throw, same before D2) and are covered by the entry's own
-    ;; behavior, not this regression.
-    (doseq [forged '[[] [42] [nil [42]] [a b c d]]]
-      (let [;; the packet dispatch reached at runtime: extract the public
-            ;; entry of the target (a source defn), then apply the forged
-            ;; vector to it directly - bypassing source lowering entirely
-            call-ast (u/let1 'raw
-                             (u/app (u/v 'yang.call/entry) (u/v 'target))
-                             (u/app (u/v 'raw) (u/lit forged)))
+(deftest test-common-call-non-record-refuses
+  (testing "an extracted entry refuses non-record arguments before entering the body"
+    (doseq [forged '[[] [42] [nil [42]] [a b c d]]
+            run [walker-run semantic-run]]
+      (let [call-ast (u/app (u/app (u/v 'yang.call/entry) (u/v 'target))
+                            (u/lit forged))
             ast (walk/postwalk
                   (fn [node]
                     (if (= node (u/v 'marker-call)) call-ast node))
-                  (yang/compile-program
-                    ['(defn target
-                        [x]
-                        :private-body-entered)
-                     '(marker-call)]
-                    true
-                    {:convention :arg-vector
-                     :outcomes true
-                     :native (set (keys vm/primitive-profiles))}))]
-        (doseq [run [walker-run semantic-run]]
-          (let [result (try
-                         (first (run ast))
-                         (catch clojure.lang.ExceptionInfo e
-                           (pr-str {:caught (ex-message e) :data (ex-data e)})))]
-            (is (and (vector? result) (= :yin.k/error (first result)))
-                (str "forged " (pr-str forged) " must produce an error outcome, got "
-                     (pr-str result)))
-            ;; The sentinel must appear NOWHERE in the outcome. The codex
-            ;; mutation gate (2026-11-04) showed the previous top-level
-            ;; (not= sentinel (second result)) check passing vacuously: with
-            ;; the token check disabled the body runs and its return value
-            ;; nests inside a not-callable error payload, so the outer error
-            ;; tag satisfies assertion 1 and (second result) is the error
-            ;; map, not the sentinel. A whole-outcome traversal fails under
-            ;; that mutation and passes only when the body never ran.
-            (is (not (some #{:private-body-entered}
-                           (tree-seq coll? seq result)))
-                (str "forged " (pr-str forged) " reached the body; the sentinel nests in the outcome: "
-                     (pr-str result)))))))))
+                  (outcome-ast '[(defn target [x] :private-body-entered)
+                                 (marker-call)]))]
+        (is (= :not-applicable
+               (try (first (run ast))
+                    (catch clojure.lang.ExceptionInfo e (:reason (ex-data e))))))))))
 
 
 (deftest test-common-call-invalid-continuation-refuses
   ;; The §8.10.7 public-bridge captured a `u/capture` continuation for the
   ;; raise exit; the continuation port replaces it with `clj/raise` over the
-  ;; handler stack, so there is no bridge continuation to tamper and no
-  ;; `missing-raise-exit` surface. A dynamic call and a static intra-unit
-  ;; call both complete normally.
+  ;; handler stack. Both a computed operator and a named operator enter
+  ;; the same public invocation boundary.
   (doseq [run [walker-run semantic-run]]
     (is (= [:yin.k/ok 2]
            (first (run (outcome-ast '[(defn f
@@ -1422,7 +1390,7 @@
                                         []
                                         1)
                                       (+ 1 (f))]))))
-        "statically intra-unit calls do not capture a bridge continuation")))
+        "named calls return through the shared boundary")))
 
 
 (deftest test-common-call-rejects-named-arguments

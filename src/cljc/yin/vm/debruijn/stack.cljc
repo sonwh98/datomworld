@@ -757,7 +757,7 @@
           :host-fn
           (let [result (apply f args)]
             (if (module/effect? result)
-              (run-effect (engine/check-callee-effect! vm f result)
+              (run-effect (engine/check-callee-effect! vm f result [:stack pc])
                           result
                           stack')
               (assoc vm :pc (inc pc) :stack (conj stack' result))))

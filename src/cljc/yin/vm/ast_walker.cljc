@@ -26,6 +26,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
+            [yin.vm.provenance-scope :as provenance]
             [yin.vm.telemetry :as telemetry]
             [yin.vm.values :as values]))
 
@@ -87,10 +88,9 @@
 
 
 (def ^:private custody-keys
-  "The machine-only keys the engine's custody gate keeps on a machine
-   value. Record fields cannot be qualified keywords, so they live in the
-   record's extension map and `cesk-return` carries them by hand."
-  [:yin.k/gate :yin.k/closes :yin.k/issued])
+  "The engine's custody and provenance fields in the record extension map.
+   cesk-return carries them across record reconstruction."
+  [:yin.k/gate :yin.k/closes :yin.k/issued :bundled-provenance?])
 
 
 (defn- carry-custody
@@ -184,7 +184,7 @@
   (if (module/effect? result)
     (let [{:keys [state value blocked?]}
           (engine/handle-effect
-            (engine/check-callee-effect! state f result)
+            (engine/check-callee-effect! state f result [:walker (get-in state [:k :frame])])
             result
             {:restore-fn ast-walker-restore,
              :park-entry-fns {:stream/put (fn [_s _e r]
@@ -864,9 +864,10 @@
    against Rule R. A fresh-code producer supplies the current constant."
   [^ASTWalkerVM vm datoms contract]
   (vm/check-contract! vm/ast-contract contract)
-  (let [ast (vm/datoms->ast datoms)]
+  (let [{:keys [ast bundled?]} (provenance/mark-bundled-calls (vm/datoms->ast datoms))]
     (refuse-reserved-ast! ast)
     (assoc vm
+           :bundled-provenance? (or bundled? (:bundled-provenance? vm))
            :program ast
            :control ast
            :halted? false
@@ -949,8 +950,10 @@
   (vm/check-contract! vm/ast-contract contract)
   (vm/semantic-bytecode->ast bc)
   (let [held (hold-rows vm (:rows bc))
-        ast (get (:row-nodes held) (:root bc))]
+        {:keys [ast bundled?]}
+        (provenance/mark-bundled-calls (get (:row-nodes held) (:root bc)))]
     (assoc held
+           :bundled-provenance? (or bundled? (:bundled-provenance? held))
            :program ast
            :control ast
            :halted? false

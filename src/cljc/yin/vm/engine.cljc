@@ -39,6 +39,7 @@
             [dao.host.integer :as integer-host]
             [yin.vm.linker :as linker]
             [yin.vm.module :as module]
+            [yin.vm.provenance-scope :as provenance]
             [yin.vm.telemetry :as telemetry]
             [yin.vm.values :as values]))
 
@@ -113,33 +114,38 @@
   (first args))
 
 
+(def ^:private compiler-primitives
+  '{dsg__primitive/get get, dsg__primitive/assoc assoc
+    dsg__primitive/+ +, dsg__primitive/<= <=})
+
+
 (defn resolve-var
   "Look up a variable name: env -> store -> primitives -> module registry.
 
-   A reserved name (Rule R: `yin/def` is syntax, never a name) is refused
-   before env or store is consulted, so no binding, store entry, or
-   registry can give it a meaning. Every executing variable lookup of
-   every engine goes through here.
-
-   The registry is a value supplied by the composition, not a global."
+   A reserved name (Rule R: yin/def is syntax, never a name) is refused
+   before env or store is consulted. Compiler-private primitive aliases
+   resolve directly to their primitive entries so a portable guest closure
+   can call one after an ordinary guest definition shadows its bare name."
   [env store primitives registry name]
   (when (vm/reserved-name? name)
     (vm/refuse-reserved! :variable name))
-  (if-let [pair (find env name)]
-    (val pair)
-    (if-let [pair (find store name)]
+  (if-let [primitive (get compiler-primitives name)]
+    (vm/primitive-function (get primitives primitive))
+    (if-let [pair (find env name)]
       (val pair)
-      (if-let [pair (find primitives name)]
-        (vm/primitive-function (val pair))
-        (if-let [resolved (when (namespace name)
-                            (module/resolve-module
-                              registry
-                              (symbol (str (namespace name)
-                                           "."
-                                           (clojure.core/name name)))))]
-          resolved
-          (fail (str "Unable to resolve symbol: " name " in this context")
-                {:symbol name}))))))
+      (if-let [pair (find store name)]
+        (val pair)
+        (if-let [pair (find primitives name)]
+          (vm/primitive-function (val pair))
+          (if-let [resolved (when (namespace name)
+                              (module/resolve-module
+                                registry
+                                (symbol (str (namespace name)
+                                             "."
+                                             (clojure.core/name name)))))]
+            resolved
+            (fail (str "Unable to resolve symbol: " name " in this context")
+                  {:symbol name})))))))
 
 
 (defn check-store-key!
@@ -2414,31 +2420,66 @@
                                          (:primitive-profiles state))))))
 
 
+(defn- provenance-image
+  [state format pc]
+  (if (= format :semantic)
+    (let [{:keys [address vector]} (get (:code state) (get-in state [:control :segment]))]
+      [address 0 vector])
+    (let [[address base size] (some (fn [[_ base size :as image]]
+                                      (when (<= base pc (dec (+ base size))) image))
+                                    (:images state))
+          instructions (if (= format :register)
+                         (get-in state [:segment :instructions])
+                         (:segment state))]
+      (when address
+        ;; The positional engines retain relocated instructions. Normalize
+        ;; their target slots before deriving the image-local call grants.
+        [address base (provenance/image-instructions format instructions base size)]))))
+
+
+(defn- check-bundled-provenance!
+  [state effect [format location]]
+  (let [door (:effect effect)]
+    (if (and (contains? #{:cell/new-provenance :cell/provenance} door)
+             (nil? (store-context state)))
+      (let [bundled? (or (:bundled-provenance? state)
+                         (= :clj/ready (get (:store state) 'clj.rt/state)))
+            [state guarded? allowed?]
+            (if (= format :walker)
+              [state bundled? (provenance/ast-door? location door)]
+              (let [[address base instructions] (provenance-image state format location)
+                    cache (:provenance-grants state)
+                    cached (find cache address)
+                    grants (if cached (val cached) (provenance/code-grants format instructions))]
+                [(cond-> state
+                   (and address (not cached)) (assoc-in [:provenance-grants address] grants)
+                   grants (assoc :bundled-provenance? true))
+                 (or bundled? (some? grants))
+                 (when grants (= door (get grants (- location base))))]))]
+        (when (and guarded? (not allowed?))
+          (fail "Provenance door outside an authorized bundled definition"
+                {:reason :private-provenance, :effect door}))
+        state)
+      state)))
+
+
 (defn check-callee-effect!
-  "Refuse `effect`, the result of applying host callable `f`, when `f`
-   carries a profile whose declared effect set lacks the effect's kind
-   (D4, layered on the host type). `f`'s declared set is the union of
-   its primitive and module declarations, read from identity-keyed
-   indexes: the VM's `:callable-effects`, rebuilt here when `:primitives`
-   changed since it was built, and the registry's, which
-   `module/register-host-module` maintains. The check runs only on an
-   effect result and costs nothing on an ordinary call. A callable with
-   no profile is the composition's trusted value and passes. Returns
-   `state`, carrying the index it checked against, for the caller to
-   dispatch the effect on."
-  [state f effect]
+  "Check a host callable's declared effects and any executable-site grant.
+   Only effect results take this path. A host callable without a profile is
+   trusted by its composition, subject to any private door grant."
+  [state f effect site]
   (let [state (with-primitive-effects state)
         from-primitives (get (:index (:callable-effects state)) f)
         from-modules (get (:callable-effects (:modules state)) f)
         declared (if (and from-primitives from-modules)
                    (into from-primitives from-modules)
                    (or from-primitives from-modules))]
-    (if (and declared (not (contains? declared (:effect effect))))
+    (when (and declared (not (contains? declared (:effect effect))))
       (fail "Effect outside the callee's declared profile"
             {:yin.k/status :yin.k/undeclared-effect,
              :yin.k/effect (:effect effect),
-             :yin.k/effects declared})
-      state)))
+             :yin.k/effects declared}))
+    (check-bundled-provenance! state effect site)))
 
 
 (defn- heap-write

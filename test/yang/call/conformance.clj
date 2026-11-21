@@ -29,6 +29,7 @@
     [clojure.string :as str]
     [yang.clojure :as clj-comp]
     [yang.clojure.prelude :as clj-prelude]
+    [yang.rt.effect :as effect]
     [yang.core.module :as core-module]
     [yang.core.names :as names]
     [yang.core.uast :as u]
@@ -74,12 +75,17 @@
                                    (:call-address @h/published)))))
 
 
+(def ^:private published-effect
+  (delay (publish-guest! (effect/module-spec (h/registry)))))
+
+
 (def ^:private published-clj
   "`clj` published beside `js`, `php` and `py`, over the same host registry
    and `yang.call` revision."
   (delay (publish-guest!
            (clj-prelude/module-spec (h/registry)
-                                    (:call-address @h/published)))))
+                                    (:call-address @h/published)
+                                    (:address @published-effect)))))
 
 
 (defn- parse-ok
@@ -291,6 +297,7 @@
              'php (:address @published-php),
              'py (:address @published-py),
              'clj (:address @published-clj),
+             'yrt.effect (:address @published-effect),
              module address}))
 
 

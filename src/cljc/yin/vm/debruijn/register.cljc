@@ -709,7 +709,7 @@
           :host-fn
           (let [result (apply f args)]
             (if (module/effect? result)
-              (run-call-effect (engine/check-callee-effect! vm f result)
+              (run-call-effect (engine/check-callee-effect! vm f result [:register pc])
                                result
                                inst)
               (if tail?
