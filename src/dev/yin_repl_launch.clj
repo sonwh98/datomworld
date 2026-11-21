@@ -3,6 +3,7 @@
             [babashka.process :as p]
             [build-cache :as cache]
             [clojure.string :as str]
+            [gambit-ffi-cache :as ffi]
             [jolt-launch :as jolt]))
 
 
@@ -88,41 +89,6 @@ Use -- --help after the backend to pass --help to the selected program."))
       (task! "build:jolt-native"))))
 
 
-(def ^:private bridge "build/gambit-ffi/joltffi-bridge.o1")
-
-
-(defn- gambit-runtime!
-  "Stage the bridge at the relative path the pinned driver loads. The
-   source checkout stays read-only, including when the bridge needs building."
-  [cache-dir jolt-home prefix chez]
-  (let [ffi "host/gambit/ffi"
-        makefile (str (fs/path jolt-home "Makefile"))
-        inputs ["bin/gsi" "bin/gsc" "bin/gambuild-C" "include/gambit.h"
-                "lib/libgambit.a" "lib/libgambitgsi.a" "lib/libgambitgsc.a"]
-        key (cache/digest (cache/snapshot (into [makefile (str (fs/path jolt-home ffi))]
-                                                (map #(str (fs/path prefix %))) inputs)))
-        runtime (fs/path cache-dir (str "runtime-" key))]
-    (with-open [lock-file (java.io.RandomAccessFile. (fs/file cache-dir ".runtime-lock") "rw")
-                channel (.getChannel lock-file)
-                lock (.lock channel)]
-      (when-not (fs/regular-file? (fs/path runtime bridge))
-        (let [stage (fs/create-temp-dir {:dir cache-dir :prefix "runtime-"})]
-          (try
-            (fs/create-dirs (fs/path stage "host/gambit"))
-            (fs/copy-tree (fs/path jolt-home ffi) (fs/path stage ffi))
-            (fs/copy makefile (fs/path stage "Makefile"))
-            (doseq [path ["host/gambit/yin" "stdlib" "jolt-core"]]
-              (fs/create-sym-link (fs/path stage path) (fs/path jolt-home path)))
-            (checked-shell {:dir stage} "sh" "host/gambit/ffi/record-toolchain.sh" prefix)
-            (checked-shell {:dir stage} "make" (str "CHEZ=" chez)
-                           (str "GAMBIT_PREFIX=" prefix) bridge)
-            (fs/move stage runtime {:atomic-move true})
-            (finally
-              (when (fs/exists? stage)
-                (fs/delete-tree stage)))))))
-    (str runtime)))
-
-
 (defn- jolt-session
   [target extra-env command args]
   (apply jolt/run-terminal-child
@@ -136,24 +102,26 @@ Use -- --help after the backend to pass --help to the selected program."))
 (defn- gambit-session
   [args]
   (ensure-jolt!)
-  (let [[jolt-home gsi chez] (-> (checked-shell {:out :string}
-                                                "sh" "-c" (jolt/toolchain-command
-                                                            "printf '%s\\n' \"$JOLT_HOME\" \"$JOLT_GAMBIT\" \"$JOLT_CHEZ\""))
-                                 :out
-                                 str/split-lines)
+  (let [[jolt-home gsi] (-> (checked-shell {:out :string}
+                                           "sh" "-c" (jolt/toolchain-command
+                                                       "printf '%s\\n' \"$JOLT_HOME\" \"$JOLT_GAMBIT\""))
+                            :out
+                            str/split-lines)
         prefix (str (fs/parent (fs/parent gsi)))
         cache-dir (fs/absolutize "build/gambit-yin")
         _ (cache/local-path! cache-dir)
-        _ (fs/create-dirs cache-dir)
-        runtime (gambit-runtime! cache-dir jolt-home prefix chez)
+        ffi-entry (ffi/ensure! jolt-home prefix)
+        _ (.println System/err "jolt-gambit: Checking compiled Yin boot (a cold build can take several minutes)")
         boot (-> (checked-shell {:dir jolt-home :out :string}
                                 "python3" "host/gambit/build-yin-boot.py"
                                 (str (fs/path prefix "bin/gsc")) (str cache-dir))
                  :out str/trim)
+        runtime (ffi/stage-runtime! cache-dir jolt-home boot ffi-entry)
         driver (str (fs/path jolt-home "host/gambit/yin-repl-native.ss"))
         identity "(begin (display \"jolt-target: gambit\" (current-error-port)) (newline (current-error-port)) (force-output (current-error-port)))"]
     (.println System/err (str "jolt-gambit  " gambit-capabilities))
     (.println System/err gambit-blocking)
+    (.println System/err "jolt-gambit: Loading Yin namespaces (can take several minutes)")
     (jolt-session :gambit {"JOLT_GAMBIT_YIN_BOOT" boot}
                   (jolt/launch-command {:target :gambit :cd? true})
                   (into [runtime "-e" identity driver (str (fs/absolutize "."))] args))))
