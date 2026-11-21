@@ -1,0 +1,2 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+API Error: 402 Insufficient Balance (request_id: 35997c4e-e04c-44c1-8a9c-077a4eb3f5c5)

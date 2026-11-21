@@ -1,0 +1,27 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done — commit `74ea528b` on `py-fstrings`, one unit (fix + pins, 11 insertions).
+
+## The fix
+
+**`src/cljc/yang/python/antlr/lower.cljc:603-607`** (new clause in `scan-interpolation`, before the `=` debug-suffix check):
+
+```clojure
+(and (= phase :expr) (or (at j "<") (at j ">"))
+     (= "=" (peek (inc j) 1)))
+;; the comparisons <= and >= are one token: both chars at once, so
+;; their trailing '=' never reaches the depth-0 debug-suffix check
+(recur (+ j 2) depth (conj expr (peek j 2)) phase spec conv)
+```
+
+**Approach: option 1** — consume the two-character comparison tokens atomically. It extends the idiom the scanner already uses for `!=` (line 596) and `==` (line 604), and leaves the debug-suffix check itself byte-for-byte untouched. The clause appends the actual two chars (`peek j 2`), so the raw expression text is preserved exactly (`a <<= 1` still re-parses whole and refuses as the parser's own syntax error, matching CPython's statement-not-expression ruling).
+
+## The pins
+
+`test/yang/python/antlr/lower_test.clj:689-694`, in `fstring-golden-test`, following the existing golden shape — `f'{a <= 1}'` lowers to `py/le` over the global read of `a` and the literal `1`, wrapped in `py/format`; `f'{a >= 1}'` likewise with `py/ge` (the names from `comparison-ops`, lower.cljc:1520).
+
+## Gates
+
+- Suite (`clj -M:test -n yang.python.antlr.lower-test`): **"Ran 35 tests containing 153 assertions. 0 failures, 0 errors."** — 151→153 is exactly the two new pins; all 35 existing tests green. One deviation: `/tmp` writes are permission-gated in this session, so the log lives at `target/fsfix-gate.log` instead of `/tmp/fsfix-gate.log` (same nohup + background + tail polling).
+- **Debug-suffix refusal still fires on `f'{x=}'`**: both refusal pins passed inside the green suite — `fstring-refusal-test`'s `x = f'{a=} k'` → "Unsupported Python construct: f-string '=' debug suffix", and `unsupported-constructs-are-qualified-test`'s same shape → qualified `atom` + that message.
+- Kondo on lower.cljc: **0 errors, 0 warnings**.
+- **Scanner goldens unmoved**: this is a lowering-only change with no prelude definitions touched, and the `:c4/:py` golden's scanned input is the prelude program itself (which contains no f-string interpolations) — the same reason tier 1 never moved it while tier 2 (new prelude functions) did. No regeneration owed.

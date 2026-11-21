@@ -1,0 +1,31 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Watchers armed. Ending this turn — the completion notification will bring the gate summary, and I'll proceed straight to the golden regeneration and commits.
+
+The gate JVM is working through the slow-lane walkers. Ending this turn — the watcher will re-invoke me with the summary the moment it lands, and I'll proceed to goldens and commits.
+
+The slow-lane walkers take several minutes. Ending this turn — the watcher will re-invoke me with the counts, and the commits follow immediately after.
+
+The round is complete. Final summary:
+
+## f-string slice 3 — landed on `py-fstrings` in three commits
+
+### Tier split as landed
+- **Tier 1 — the lowering (`a3a29a3e`)**: each `{expr}` re-parses as its own snippet packet, nodes merged into the program's packet at offset ids, the snippet's module scope a lambda bridging to the enclosing scope — so interpolations are full expressions of their scope (calls, subscripts, arithmetic, nested quotes). Conversions `!r`/`!s`/`!a` (`py/str-conv`, `py/ascii-conv`), doubled braces, raw `rf`, implicit concatenation with plain strings.
+- **Tier 2 — the format-spec mini-language (`b7152eac`)**: `py/format` → `py/format-spec` → str/int/bool/float arms; `py/format-spec` answers a raw string every way out, `py/format` wraps it into the py-str map.
+
+### Format-spec coverage boundary
+**Supported**: str fill/align/width/precision/`'s'`; int+bool sign/`#`-with-`d` (CPython-legal no-op)/`0`/width/`,`-and-`_`-grouping/`d b o x X`/`c` (zero-pads via the number path); float fill/align/sign/`0`/width; multi-digit widths; the `0` flag setting fill `'0'` + align `'='` only where the spec gives neither and only before the width starts (`06d`, `<06`, `=6`, `10`, `010`, `05c`, `#05x` all CPython-verified).
+**Still refused**: lowering-time `unsupported!` for nested format specs, `=` debug suffix, nested f-strings, multi-line interpolations, bytes; `syntax!` for malformed braces (expecting `}`, single `}`, empty expr, unmatched bracket, unterminated/backslash/comment/conversion-char shapes); runtime ValueError with CPython's own messages for float type codes/precision/grouping, `'n'`/`'z'`/unknown codes, precision on int, `#`/`,` misuse; **TypeError** (CPython's class) for specs on types without `__format__`.
+
+### Pins' counts (gate logs)
+- `yang.python.antlr.lower-test`: **35 tests / 151 assertions / 0 failures**
+- e2e `fstring-test` + `fstring-spec-test`: **2 tests / 153 assertions / 0 failures**
+- kondo on all four touched files: **0 errors / 0 warnings**
+
+### Goldens evidence
+`:py` scanner pins regenerated with `(def deferred #{:py})` — **three runs byte-identical** (`git hash-object 6dd3a84e…` each time), abort gate green every run (exit 0, "wrote" printed); movement `py 4051→4398 applications, 393→414 free names (+21, −0)`, all other groups (`:pysp :k :m :t :w :e :n`, `:b0`, `:register`) unmoved.
+
+### Bugs fixed beyond the interrupted state (each CPython-verified and pinned)
+`py/format-spec`'s map-vs-string return (the "data primitive refused" root cause); `py/fmt-group` duplicating the last digit (`1,2344`); the zero-flag arm eating width-internal zeros (`:10` unpadded); missing 0-flag→`=`-align normalization; `#d` wrong-refused; ValueError→TypeError on `__format__`-less types; `:`-before-`=` wrongly treated as walrus (CPython 3.9.6: the spec always opens); two-branch `if` DSL crashes; multi-arg `py/str`; two hand-typo'd pins (`f'{42!r}'`, `f'{2.5:08}.'`, `"E F E E"` joined vs four lines).
+
+`yang.call.exception-contract-test` was never run locally, per standing rule. Branch is committed but not pushed; no review dispatched — that's the orchestrator's call per the parallel-lane rule.
