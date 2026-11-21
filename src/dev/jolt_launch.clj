@@ -142,8 +142,9 @@
 
 (defn run-terminal-child
   "Run a REPL with terminal stdin and stdout. Relay stderr and validate
-   the child's startup identity there before returning its exit status."
-  [{:keys [extra-env identity-prefix assert-identity!]} & command]
+   the child's startup identity there before returning its exit status.
+   An optional relay-stderr! consumes the reader after the identity check."
+  [{:keys [extra-env identity-prefix assert-identity! relay-stderr!]} & command]
   (let [child (apply p/process {:in :inherit :out :inherit :err :stream
                                 :extra-env extra-env}
                      command)]
@@ -156,7 +157,9 @@
                              line
                              (recur))))]
           (assert-identity! identity))
-        (io/copy err System/err)
+        (if relay-stderr!
+          (relay-stderr! err)
+          (io/copy err System/err))
         (.flush System/err))
       (:exit @child)
       (finally

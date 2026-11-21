@@ -5,6 +5,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [gambit-ffi-cache :as ffi]
+            [gambit-yin-progress :as progress]
             [jolt-launch :as jolt]))
 
 
@@ -130,6 +131,7 @@ Use -- --help after the backend to pass --help to the selected program."))
   (apply jolt/run-terminal-child
          {:extra-env extra-env
           :identity-prefix jolt/identity-prefix
+          :relay-stderr! (partial progress/relay! (some? (System/getenv "JOLT_TRACE_SOURCE")))
           :assert-identity! #(jolt/assert-child-target! {:target target :output %
                                                          :context "yin-repl"})}
          "sh" "-c" command "jolt" args))
@@ -159,7 +161,8 @@ Use -- --help after the backend to pass --help to the selected program."))
     (.println System/err gambit-blocking)
     (doseq [line gambit-startup]
       (.println System/err line))
-    (jolt-session :gambit {"JOLT_GAMBIT_YIN_BOOT" boot}
+    (jolt-session :gambit {"JOLT_GAMBIT_YIN_BOOT" boot
+                           "JOLT_TRACE_SOURCE" "1"}
                   (jolt/launch-command {:target :gambit :cd? true})
                   (into [runtime "-e" identity driver (str (fs/absolutize "."))] args))))
 
