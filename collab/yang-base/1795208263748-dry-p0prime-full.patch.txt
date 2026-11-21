@@ -1,0 +1,950 @@
+diff --git a/src/cljc/yang/clojure.cljc b/src/cljc/yang/clojure.cljc
+index 47af7fee..e8c379ff 100644
+--- a/src/cljc/yang/clojure.cljc
++++ b/src/cljc/yang/clojure.cljc
+@@ -2582,6 +2582,7 @@
+     {'symbol? symbol?
+      'keyword? keyword?
+      'name name
++     'namespace namespace
+      'symbol symbol
+      'keyword keyword
+      'str str
+@@ -2595,7 +2596,7 @@
+ 
+ (def kind-arities
+   "The published arities of each `kind` export."
+-  {'symbol? [1], 'keyword? [1], 'name [1], 'symbol [1 2], 'keyword [1 2]
++  {'symbol? [1], 'keyword? [1], 'name [1], 'namespace [1], 'symbol [1 2], 'keyword [1 2]
+    'str [0 1 2 3 4 5 6 :variadic], 'int? [1], 'var? [1], 'with-meta [2], 'meta [1]
+    'coll? [1], 'set? [1]})
+ 
+diff --git a/src/cljc/yang/core/defquoted.cljc b/src/cljc/yang/core/defquoted.cljc
+new file mode 100644
+index 00000000..f96f886d
+--- /dev/null
++++ b/src/cljc/yang/core/defquoted.cljc
+@@ -0,0 +1,9 @@
++(ns yang.core.defquoted
++  "AOT-safe definition of quoted prelude data.")
++
++#?(:clj
++   (defmacro defquoted
++  [name doc form]
++  (if (find-ns 'cljd.compiler)
++    (list 'def name doc (list 'edn/read-string (pr-str (second form))))
++    (list 'def name doc form))))
+diff --git a/src/cljc/yang/core/prelude_admission.cljc b/src/cljc/yang/core/prelude_admission.cljc
+index 463ffb22..cc3c9ca2 100644
+--- a/src/cljc/yang/core/prelude_admission.cljc
++++ b/src/cljc/yang/core/prelude_admission.cljc
+@@ -1,6 +1,8 @@
+ (ns yang.core.prelude-admission
+   "Constructs declarations/specifications and checks registries; does not publish, link, or execute."
+-  (:require [yin.vm :as vm]
++  (:require [clojure.set :as set]
++            [clojure.string :as string]
++            [yin.vm :as vm]
+             [yin.vm.module :as module]))
+ 
+ 
+@@ -66,3 +68,146 @@
+     registry))
+ 
+ 
++
++
++(defn- reject-profile [kind data]
++  (throw (ex-info "Prelude profile refused" (assoc data :yang.prelude/refusal kind))))
++
++
++(defn- portable-data? [x]
++  (cond
++    (or (nil? x) (boolean? x) (string? x) (keyword? x) (symbol? x)
++        (number? x) (char? x)) true
++    (record? x) false
++    (map? x) (every? (fn [[k v]] (and (portable-data? k) (portable-data? v))) x)
++    (or (vector? x) (set? x)) (every? portable-data? x)
++    :else false))
++
++
++(defn- profile-closure [profile store registry]
++  (let [required #{:yang.prelude/schema :yang.prelude/id :yang.prelude/revision
++                   :yang.prelude/module :yang.prelude/root-address
++                   :yang.prelude/components :yang.prelude/host-modules
++                   :yang.prelude/max-effects}
++        components (:yang.prelude/components profile)]
++    (when-not (and (map? profile) (portable-data? profile) (= required (set (keys profile)))
++                   (= 1 (:yang.prelude/schema profile))
++                   (keyword? (:yang.prelude/id profile))
++                   (string? (:yang.prelude/revision profile))
++                   (symbol? (:yang.prelude/module profile))
++                   (some? (:yang.prelude/root-address profile))
++                   (vector? components)
++                   (every? #(and (vector? %) (= 2 (count %))
++                                 (symbol? (first %)) (some? (second %))) components)
++                   (map? (:yang.prelude/host-modules profile))
++                   (every? (fn [[host spec]]
++                             (and (keyword? host) (map? spec)
++                                  (boolean? (:required spec))
++                                  (set/subset? (set (keys spec))
++                                               #{:required :min-bits :min-digits :min-max-items})
++                                  (every? (fn [[k v]]
++                                            (or (= k :required)
++                                                (and (integer? v) (not (neg? v))))) spec)))
++                           (:yang.prelude/host-modules profile))
++                   (or (nil? (:yang.prelude/max-effects profile))
++                       (set? (:yang.prelude/max-effects profile)))
++                   (map? store))
++      (reject-profile :schema {}))
++    (when-not (= (count components) (count (set (map first components))))
++      (reject-profile :duplicate-binding {}))
++    (loop [todo [[:enter (:yang.prelude/module profile) (:yang.prelude/root-address profile)]]
++           active #{} bindings {} manifests []]
++      (if-let [[op name addr] (peek todo)]
++        (let [todo (pop todo)]
++          (if (= op :leave)
++            (recur todo (disj active addr) bindings manifests)
++            (do
++              (when (contains? active addr)
++                (reject-profile :cycle {:address addr}))
++              (when (and (contains? bindings name) (not= (get bindings name) addr))
++                (reject-profile :duplicate-binding {:module name}))
++              (if (contains? bindings name)
++                (recur todo active bindings manifests)
++                (let [m (get store addr) tree (get store (:yin.module/tree m))]
++                  (when-not (map? m) (reject-profile :missing-manifest {:address addr}))
++                  (when-not (and (= name (:yin.module/name m))
++                                 (map? (:yin.module/requires m))
++                                 (set? (:yin.module/exports m))
++                                 (every? symbol? (:yin.module/exports m))
++                                 (every? symbol? (keys (:yin.module/requires m)))
++                                 (every? symbol? (keys (:yin.module/primitives m)))
++                                 (map? (:yin.module/primitives m))
++                                 (set? (get-in m [:yin.module/footprint :effects]))
++                                 (map? tree)
++                                 (or (not (contains? tree :root))
++                                     (= (:yin.module/tree m) (:root tree))))
++                    (reject-profile :artifact {:module name}))
++                  (when (and (= addr (:yang.prelude/root-address profile))
++                             (not= (into {} components) (:yin.module/requires m)))
++                    (reject-profile :root-pins {:module name}))
++                  ;; Ambient projection aliases require a descriptor, absent here;
++                  ;; validate-descriptor checks those collisions in P3-prime.
++                  (let [ast (if (and (:root tree) (:rows tree))
++                              (vm/semantic-bytecode->ast tree) tree)
++                        defs (keep (fn [node]
++                                     (when (and (map? node) (= :application (:type node))
++                                                (= 'yin/def (get-in node [:operator :name])))
++                                       (get-in node [:operands 0 :value])))
++                                   (:operands ast))]
++                    (when-not (and (= :application (:type ast))
++                                   (= (count defs) (count (set defs))))
++                      (reject-profile :export-collision {:module name})))
++                  (when (some #(string/starts-with? (clojure.core/name %) "dsg__")
++                              (:yin.module/exports m))
++                    (reject-profile :provenance-export {:module name}))
++                  (when (and (not= addr (get-in registry [:trusted-prelude-modules name]))
++                             (some #(contains? (:yin.module/primitives m) %)
++                                   ['cell/dsg__new-provenance 'cell/dsg__provenance]))
++                    (reject-profile :provenance-primitive {:module name}))
++                  (recur (into (conj todo [:leave name addr])
++                               (map (fn [[n a]] [:enter n a]) (:yin.module/requires m)))
++                         (conj active addr) (assoc bindings name addr) (conj manifests m)))))))
++        manifests))))
++
++
++(defn validate-profile
++  "Validate a profile against an immutable map of verified manifests and trees.
++   Ambient projections belong to a semantics descriptor, which this API does
++   not receive; their aliases must also be checked at descriptor admission.
++   Trusted runtime identities are pinned by `:trusted-prelude-modules` in
++   the registry, as module symbol to manifest address. Returns the profile,
++   or throws a refusal before any linking or execution."
++  [profile artifact-store registry]
++  (let [manifests (profile-closure profile artifact-store registry)
++        effects (reduce set/union #{} (map #(get-in % [:yin.module/footprint :effects]) manifests))
++        ceiling (:yang.prelude/max-effects profile)]
++    (when (and ceiling (not (set/subset? effects ceiling)))
++      (reject-profile :effects {:effects effects :max-effects ceiling}))
++    profile))
++
++
++(defn admit-profile
++  "Validate the closure, required host exports, and declared numeric floors."
++  [profile artifact-store registry host-limits]
++  (validate-profile profile artifact-store registry)
++  (let [manifests (profile-closure profile artifact-store registry)
++        hosts (:yang.prelude/host-modules profile)
++        names (into #{} (comp (mapcat #(keys (:yin.module/primitives %)))
++                              (filter #(and (namespace %) (not (vm/profile-of vm/primitives %)))))
++                    manifests)]
++    (doseq [n names]
++      (when-not (true? (get-in hosts [(keyword (namespace n)) :required]))
++        (reject-profile :host-module {:name n})))
++    (doseq [[host spec] hosts]
++      (when-not (and (map? spec) (boolean? (:required spec)))
++        (reject-profile :schema {:host host}))
++      (when (:required spec)
++        (when-not (module/module-entry (:modules registry) (symbol (name host)))
++          (reject-profile :host-module {:host host})))
++      (doseq [floor [:min-bits :min-digits :min-max-items]
++              :when (contains? spec floor)]
++        (let [minimum (get spec floor) actual (get-in host-limits [host (keyword (subs (name floor) 4))])]
++          (when-not (and (integer? minimum) (not (neg? minimum)) (number? actual) (<= minimum actual))
++            (reject-profile :host-limits {:host host :floor floor})))))
++    (admit registry names "Prelude host export missing" "yang.prelude")
++    registry))
+diff --git a/src/cljc/yang/core/prelude_recipes.cljc b/src/cljc/yang/core/prelude_recipes.cljc
+new file mode 100644
+index 00000000..732908ad
+--- /dev/null
++++ b/src/cljc/yang/core/prelude_recipes.cljc
+@@ -0,0 +1,29 @@
++(ns yang.core.prelude-recipes
++  "Records the landed base emitters; these records do not drive emission.")
++
++(defn base-recipes
++  "Build migration records from the published yang.call pin and each
++   prelude's declared host-module requirements. The caller supplies both:
++   neither publication addresses nor host limits are global constants."
++  [call-address host-modules]
++  (when-not (and (some? call-address) (map? host-modules)
++                 (every? #(map? (get host-modules %)) ['py 'js 'php 'clj 'yang.call]))
++    (throw (ex-info "Base recipes require a call pin and host declarations" {})))
++  (let [recipe (fn [id module mode uninit rt unshadow trailing c1 refusal]
++                 {:yang.prelude/schema 1
++                  :yang.prelude/id id
++                  :yang.prelude/revision "landed"
++                  :yang.prelude/module module
++                  :yang.prelude/components (if (= module 'yang.call) [] [['yang.call call-address]])
++                  :yang.prelude/host-modules (get host-modules module)
++                  :yang.prelude/emitter {:mode mode :uninit uninit :rt-namespaces rt
++                                         :unshadow-locals? unshadow
++                                         :trailing-requires trailing :finalize-c1? c1
++                                         :capture-safe-primitives nil}
++                  :yang.prelude/max-effects nil
++                  :yang.prelude/refusal-ns refusal})]
++    {'py (recipe :yang.python/py-prelude 'py :linear :py/uninit #{"py.rt" "py.b"} false ['yang.call] false "yang.python.antlr")
++     'js (recipe :yang.typescript/js-prelude 'js :balanced :js/uninit #{"js.rt"} false [] true "yang.typescript.antlr")
++     'php (recipe :yang.php/php-prelude 'php :balanced :php/uninit #{"php.rt"} true [] false "yang.php.antlr")
++     'clj (recipe :yang.clojure/clj-prelude 'clj :left-fold :clj/uninit #{"clj.rt"} false [] true "yang.clojure")
++     'yang.call (recipe :yang.core/call-prelude 'yang.call :linear nil #{} false [] true "yang.call")}))
+diff --git a/src/cljc/yang/php/antlr/prelude.cljc b/src/cljc/yang/php/antlr/prelude.cljc
+index 80e46340..934048ec 100644
+--- a/src/cljc/yang/php/antlr/prelude.cljc
++++ b/src/cljc/yang/php/antlr/prelude.cljc
+@@ -1,4 +1,4 @@
+-(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.quoted/defquoted clojure.core/def}}}
++(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
+  yang.php.antlr.prelude
+   "The PHP runtime profile, written as Universal AST
+    (docs/design/yang.php.md sections 3.5, 7, 9). PHP semantics for operators,
+@@ -75,6 +75,7 @@
+    namespace `php/`; `php.rt/*` stays qualified.
+ 
+    Host names the prelude depends on and does not define: `host-names`."
++  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
+   (:require
+     #?(:cljd [clojure.edn :as edn])
+     [clojure.string :as str]
+@@ -86,7 +87,7 @@
+     [yang.php.antlr.builtins :as builtins]
+     [yang.php.antlr.prelude-module :as module-defs]
+     [yang.php.antlr.prelude-p9 :as p9-defs]
+-    [yang.php.antlr.quoted :refer [defquoted]]
++    #?(:clj [yang.core.defquoted :refer [defquoted]])
+     [yin.vm.integer :as integer]))
+ 
+ 
+diff --git a/src/cljc/yang/php/antlr/prelude_module.cljc b/src/cljc/yang/php/antlr/prelude_module.cljc
+index 58904f39..8a7e5e6a 100644
+--- a/src/cljc/yang/php/antlr/prelude_module.cljc
++++ b/src/cljc/yang/php/antlr/prelude_module.cljc
+@@ -1,4 +1,4 @@
+-(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.quoted/defquoted clojure.core/def}}}
++(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
+  yang.php.antlr.prelude-module
+   "The include/require runtime of the PHP profile (docs/design/yang.php.md
+    section 11, plan P6 R3/R4): the four kinds, the `_once` check, the two
+@@ -11,9 +11,10 @@
+      php.rt/unit       a cell, the executing unit's path or :php/null
+      php.rt/path-map   a cell, map of normalized path to a delivery thunk
+                        (the literal path map of the composition's `:paths`)"
++  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
+   (:require
+     #?(:cljd [clojure.edn :as edn])
+-    [yang.php.antlr.quoted :refer [defquoted]]))
++    #?(:clj [yang.core.defquoted :refer [defquoted]])))
+ 
+ 
+ (def include-path-text
+diff --git a/src/cljc/yang/php/antlr/prelude_p9.cljc b/src/cljc/yang/php/antlr/prelude_p9.cljc
+index 8a30e68e..6ea26772 100644
+--- a/src/cljc/yang/php/antlr/prelude_p9.cljc
++++ b/src/cljc/yang/php/antlr/prelude_p9.cljc
+@@ -1,9 +1,10 @@
+-(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.quoted/defquoted clojure.core/def}}}
++(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
+  yang.php.antlr.prelude-p9
+   "P9 string, array, JSON and math builtins, written as guest code."
++  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
+   (:require
+     #?(:cljd [clojure.edn :as edn])
+-    [yang.php.antlr.quoted :refer [defquoted]]))
++    #?(:clj [yang.core.defquoted :refer [defquoted]])))
+ 
+ 
+ (defquoted ^:private forms
+diff --git a/src/cljc/yang/php/antlr/quoted.cljc b/src/cljc/yang/php/antlr/quoted.cljc
+deleted file mode 100644
+index 1c7da5c2..00000000
+--- a/src/cljc/yang/php/antlr/quoted.cljc
++++ /dev/null
+@@ -1,15 +0,0 @@
+-(ns ^{:clj-kondo/config '{:lint-as {yang.php.antlr.quoted/defquoted clojure.core/def}}}
+- yang.php.antlr.quoted
+-  "The `defquoted` macro the prelude's definition vectors share."
+-  #?(:cljs (:require-macros [yang.php.antlr.quoted :refer [defquoted]]))
+-  #?(:cljd (:require [clojure.edn :as edn])))
+-
+-
+-#?(:clj
+-   (defmacro defquoted
+-     "`def` of the quoted data `form`; ClojureDart reads it back from one EDN
+-      string (its quoted data compiles to straight-line Dart)."
+-     [name doc form]
+-     (if (find-ns 'cljd.compiler)
+-       (list 'def name doc (list 'edn/read-string (pr-str (second form))))
+-       (list 'def name doc form))))
+diff --git a/src/cljc/yang/python/antlr/prelude.cljc b/src/cljc/yang/python/antlr/prelude.cljc
+index b3278114..6d500e20 100644
+--- a/src/cljc/yang/python/antlr/prelude.cljc
++++ b/src/cljc/yang/python/antlr/prelude.cljc
+@@ -1,4 +1,4 @@
+-(ns ^{:clj-kondo/config '{:lint-as {yang.python.antlr.prelude/defquoted clojure.core/def}}}
++(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
+  yang.python.antlr.prelude
+   "The Python runtime profile, written as Universal AST
+    (docs/design/yang.antlr.md §8.1, §8.2, §9.3). Python semantics for
+@@ -179,8 +179,9 @@
+    Host names the prelude depends on and does not define: `host-names`
+    (the cell module from yin.vm.module, the integer module from
+    yin.vm.integer, the rest from yin.vm.data)."
+-  #?(:cljs (:require-macros [yang.python.antlr.prelude :refer [defquoted]]))
++  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
+   (:require
++    #?(:clj [yang.core.defquoted :refer [defquoted]])
+     #?(:cljd [clojure.edn :as edn])
+     [yang.core.call :as call]
+     [yang.core.prelude-admission :as prelude-admission]
+@@ -189,16 +190,6 @@
+     [yin.vm.integer :as integer]))
+ 
+ 
+-#?(:clj
+-   (defmacro defquoted
+-     "`def` of the quoted data `form`.  ClojureDart compiles quoted data to
+-      straight-line Dart (this prelude is about 65,000 lines of it), which the
+-      Dart AOT compiler cannot take as one initializer, so there the data is
+-      one EDN string read back at load."
+-     [name doc form]
+-     (if (find-ns 'cljd.compiler)
+-       (list 'def name doc (list 'edn/read-string (pr-str (second form))))
+-       (list 'def name doc form))))
+ 
+ 
+ (def host-names
+diff --git a/src/cljc/yang/typescript/antlr/prelude.cljc b/src/cljc/yang/typescript/antlr/prelude.cljc
+index 663b57ce..5da32622 100644
+--- a/src/cljc/yang/typescript/antlr/prelude.cljc
++++ b/src/cljc/yang/typescript/antlr/prelude.cljc
+@@ -1,4 +1,4 @@
+-(ns ^{:clj-kondo/config '{:lint-as {yang.typescript.antlr.prelude/defquoted clojure.core/def}}}
++(ns ^{:clj-kondo/config '{:lint-as {yang.core.defquoted/defquoted clojure.core/def}}}
+  yang.typescript.antlr.prelude
+   "The `js` runtime profile, written as Universal AST
+    (docs/design/yang.typescript.md sections 3, 9, 10; the T1 plan's
+@@ -61,8 +61,9 @@
+    Host names the prelude depends on and does not define: `host-names`
+    (the cell module from yin.vm.module, the integer module from
+    yin.vm.integer, the rest from yin.vm.data)."
+-  #?(:cljs (:require-macros [yang.typescript.antlr.prelude :refer [defquoted]]))
++  #?(:cljs (:require-macros [yang.core.defquoted :refer [defquoted]]))
+   (:require
++    #?(:clj [yang.core.defquoted :refer [defquoted]])
+     #?(:cljd [clojure.edn :as edn])
+     [yang.core.prelude-admission :as prelude-admission]
+     [yang.core.prelude :as core]
+@@ -71,15 +72,6 @@
+     [yin.vm.integer :as integer]))
+ 
+ 
+-#?(:clj
+-   (defmacro defquoted
+-     "`def` of the quoted data `form`. ClojureDart compiles quoted data to
+-      straight-line Dart, which the Dart AOT compiler cannot take as one
+-      initializer, so there the data is one EDN string read back at load."
+-     [name doc form]
+-     (if (find-ns 'cljd.compiler)
+-       (list 'def name doc (list 'edn/read-string (pr-str (second form))))
+-       (list 'def name doc form))))
+ 
+ 
+ (def host-names
+diff --git a/src/cljc/yin/vm.cljc b/src/cljc/yin/vm.cljc
+index 775197d8..3c088763 100644
+--- a/src/cljc/yin/vm.cljc
++++ b/src/cljc/yin/vm.cljc
+@@ -31,6 +31,7 @@
+             [dao.space.query :as query]
+             [dao.stream :as stream]
+             [yin.vm.effect :as effect]
++            [yin.vm.key :as key]
+             [yin.vm.values :as values]))
+ 
+ 
+@@ -393,6 +394,29 @@
+          :yin.k/function function))
+ 
+ 
++(defn- collection-assoc [coll k v & kvs]
++  (apply assoc coll (key/normalize k) v
++         (map-indexed (fn [i x] (if (even? i) (key/normalize x) x)) kvs)))
++
++(defn- normalize-map-conj [x]
++  (cond
++    (and (vector? x) (= 2 (count x))) [(key/normalize (nth x 0)) (nth x 1)]
++    (map? x) (into (empty x) (map (fn [[k v]] [(key/normalize k) v])) x)
++    (sequential? x) (map normalize-map-conj x)
++    :else x))
++
++(defn- collection-conj [coll & xs]
++  (apply conj coll
++         (map (fn [x]
++                (cond (set? coll) (key/normalize x)
++                      (map? coll) (normalize-map-conj x)
++                      :else x)) xs)))
++
++(defn- collection-get
++  ([coll k] (get coll (if (or (map? coll) (set? coll)) (key/normalize k) k)))
++  ([coll k default] (get coll (if (or (map? coll) (set? coll)) (key/normalize k) k) default)))
++
++
+ (def primitives
+   "The standard executable primitive registry, published with UCF §7.5.2
+    profiles. `:yin.k/function` is host-local; the five profile keys are the
+@@ -417,9 +441,9 @@
+            (pure 'empty? empty? [1])
+            (pure 'first first [1])
+            (pure 'rest (fn [a] (vec (rest a))) [1])
+-           (pure 'conj conj [1 2 :variadic])
+-           (pure 'assoc assoc [3 :variadic])
+-           (pure 'get get [2 3])
++           (pure 'conj collection-conj [1 2 :variadic])
++           (pure 'assoc collection-assoc [3 :variadic])
++           (pure 'get collection-get [2 3])
+            (pure 'vec vec [1])
+            ;; one arity: strict UTF-8 on every host (dao.host.text, slice
+            ;; H2, ratified OQ11: encoding arity 2 removed from portable profile)
+diff --git a/src/cljc/yin/vm/data.cljc b/src/cljc/yin/vm/data.cljc
+index c16dcf6f..7b340eb0 100644
+--- a/src/cljc/yin/vm/data.cljc
++++ b/src/cljc/yin/vm/data.cljc
+@@ -31,17 +31,19 @@
+      `::reason` (`:arity`, `:wrong-type`, `:out-of-range` or
+      `:empty-separator`), and the reason's own keys.
+ 
+-   Key equality in `contains?`, `dissoc`, `disj`, `hash-set` and `into` a
+-   set is the host's `=`, which differs for `1` and `1.0` on the JVM. A
+-   runtime profile normalizes guest keys before they reach these."
++   Collection key operations normalize exact integer carriers recursively.
++   Other key equality remains the host's `=`, so profiles must admit keys
++   appropriate to their semantics."
+   (:require
+     [clojure.string :as str]
++    [dao.host.bytes :as bytes]
+     [dao.host.float :as float]
+     [dao.host.integer :as integer-host]
+     [dao.host.text :as text]
+     [dao.jing.cbor :as cbor]
+     [yin.vm :as vm]
+     [yin.vm.module :as module]
++    [yin.vm.key :as key]
+     [yin.vm.values :as values])
+   #?(:cljd (:import ["dart:core" BigInt])))
+ 
+@@ -186,7 +188,7 @@
+ (defn- data-contains?
+   [coll k]
+   (cond
+-    (or (nil? coll) (map? coll) (set? coll)) (contains? coll k)
++    (or (nil? coll) (map? coll) (set? coll)) (contains? coll (key/normalize k))
+     (vector? coll) (let [i (integral k)]
+                      (boolean (and i (< -1 i (count coll)))))
+     :else (wrong-type! 'contains? 0 :map-set-or-vector)))
+@@ -195,14 +197,14 @@
+ (defn- data-dissoc
+   [m & ks]
+   (if (or (nil? m) (map? m))
+-    (apply dissoc m ks)
++    (apply dissoc m (map key/normalize ks))
+     (wrong-type! 'dissoc 0 :map)))
+ 
+ 
+ (defn- data-disj
+   [s & ks]
+   (if (or (nil? s) (set? s))
+-    (apply disj s ks)
++    (apply disj s (map key/normalize ks))
+     (wrong-type! 'disj 0 :set)))
+ 
+ 
+@@ -244,7 +246,7 @@
+ 
+     (set? to)
+     (if (or (nil? from) (sequential? from) (set? from))
+-      (into to from)
++      (into to (map key/normalize from))
+       (wrong-type! 'into 1 :sequential-or-set))
+ 
+     :else (wrong-type! 'into 0 :vector-or-set)))
+@@ -493,6 +495,83 @@
+         (cbor/content= a b))))
+ 
+ 
++(defn- identifier-equal? [a b]
++  (and (= (namespace a) (namespace b)) (= (name a) (name b))))
++
++(declare data-equiv)
++
++(defn- matching? [xs ys match?]
++  (and (= (count xs) (count ys))
++       (loop [xs (seq xs), ys (vec ys)]
++         (if-not xs
++           true
++           (if-let [i (first (keep-indexed #(when (match? (first xs) %2) %1) ys))]
++             (recur (next xs) (into (subvec ys 0 i) (subvec ys (inc i))))
++             false)))))
++
++(defn- data-equiv [a b]
++  (cond
++    (or (ref? a) (ref? b) (callable? a) (callable? b)) (= a b)
++    (or (cbor/float64? a) (cbor/float64? b))
++    (and (cbor/float64? a) (cbor/float64? b)
++         (let [x (float-value a), y (float-value b)]
++           (and (not (integer-host/nan-float? x))
++                (not (integer-host/nan-float? y)) (== x y))))
++    (or (integer-host/exact-integer? a) (integer-host/exact-integer? b))
++    (and (integer-host/exact-integer? a) (integer-host/exact-integer? b)
++         (zero? (integer-host/compare-big (integer-host/promote a) (integer-host/promote b))))
++    (or (keyword? a) (keyword? b))
++    (and (keyword? a) (keyword? b) (identifier-equal? a b))
++    (or (symbol? a) (symbol? b))
++    (and (symbol? a) (symbol? b) (identifier-equal? a b))
++    (or (sequential? a) (sequential? b))
++    (and (sequential? a) (sequential? b) (= (count a) (count b))
++         (every? true? (map data-equiv a b)))
++    (or (map? a) (map? b))
++    (and (map? a) (map? b)
++         (matching? a b (fn [[ka va] [kb vb]]
++                          (and (data-equiv ka kb) (data-equiv va vb)))))
++    (or (set? a) (set? b))
++    (and (set? a) (set? b) (matching? a b data-equiv))
++    :else (= a b)))
++
++(defn- admit-key? [x]
++  (cond
++    (or (ref? x) (callable? x) (cbor/float64? x)) false
++    (or (nil? x) (boolean? x) (string? x) (integer-host/exact-integer? x)) true
++    (or (keyword? x) (symbol? x))
++    (let [n (name x), ns (namespace x)]
++      (and (not (str/includes? n "/")) (not (str/starts-with? n ":"))
++           (or (nil? ns) (and (not (empty? ns)) (not (str/includes? ns "/"))))))
++    (vector? x) (every? admit-key? x)
++    (map? x) (every? (fn [[k v]] (and (admit-key? k) (admit-key? v))) x)
++    (set? x) (every? admit-key? x)
++    :else false))
++
++(defn- normalize-key
++  "Canonicalize integer carriers throughout an admitted key. Apply at both
++   insertion and lookup; other key equality remains host equality."
++  [x]
++  (when-not (admit-key? x)
++    (wrong-type! 'normalize-key 0 :admitted-key))
++  (key/normalize x))
++
++
++(defn- canonical-compare [a b]
++  (let [a (cbor/encode a), b (cbor/encode b), n (min (bytes/length a) (bytes/length b))]
++    (loop [i 0]
++      (if (= i n)
++        (compare (bytes/length a) (bytes/length b))
++        (let [c (compare (bytes/get a i) (bytes/get b i))]
++          (if (zero? c) (recur (inc i)) c))))))
++
++(defn- canonical-entries [coll]
++  (cond
++    (map? coll) (vec (sort (fn [[a _] [b _]] (canonical-compare a b)) coll))
++    (set? coll) (vec (sort canonical-compare coll))
++    :else (wrong-type! 'canonical-entries 0 :map-or-set)))
++
++
+ ;; =============================================================================
+ ;; The module
+ ;; =============================================================================
+@@ -508,7 +587,7 @@
+    ['peek [1] data-peek]
+    ['pop [1] data-pop]
+    ['subvec [2 3] data-subvec]
+-   ['hash-set [0 :variadic] hash-set]
++   ['hash-set [0 :variadic] (fn [& xs] (into #{} (map key/normalize) xs))]
+    ['into [2] data-into]
+    ['str-concat [0 :variadic] str-concat]
+    ['str-length [1] str-length]
+@@ -529,6 +608,12 @@
+    ['float64 [1] float64]
+    ['float-value [1] float-value]
+    ['content= [2] data-content=]
++   ['float64? [1] cbor/float64?]
++   ['equiv [2] data-equiv]
++   ['admit-key? [1] admit-key?]
++   ['normalize-key [1] normalize-key]
++   ['canonical-compare [2] canonical-compare]
++   ['canonical-entries [1] canonical-entries]
+    ['callable? [1] callable?]
+    ['map? [1] data-map?]
+    ['vector? [1] data-vector?]
+diff --git a/src/cljc/yin/vm/float.cljc b/src/cljc/yin/vm/float.cljc
+new file mode 100644
+index 00000000..95e8b1b2
+--- /dev/null
++++ b/src/cljc/yin/vm/float.cljc
+@@ -0,0 +1,158 @@
++(ns yin.vm.float
++  "Boxed binary64 kernels. Installed explicitly as the pure `float` host module."
++  (:require [dao.host.float :as host-float]
++            [dao.host.integer :as host-int]
++            [dao.jing.cbor :as cbor]
++            [yin.vm :as vm]
++            [yin.vm.data :as data]
++            [yin.vm.module :as module]))
++
++(def module-name 'float)
++(def module-version 1)
++(def refusal-message "float primitive refused")
++
++(defn- refuse! [op reason detail]
++  (throw (ex-info refusal-message (merge {::op op ::reason reason} detail))))
++
++(defn- value! [op i x]
++  (when-not (cbor/float64? x)
++    (refuse! op :wrong-type {::arg i ::expected :float64}))
++  (data/float-value x))
++
++(defn- exponent! [op n]
++  (when-not (host-int/exact-integer? n)
++    (refuse! op :wrong-type {::arg 1 ::expected :integer}))
++  (let [n (host-int/promote n)]
++    (when (neg? (host-int/compare-big n (host-int/from-native 0)))
++      (refuse! op :negative-exponent {}))
++    n))
++
++(defn- negative-sign? [x] (first (host-float/fields x)))
++(defn- neg-raw [x] (* -1.0 x))
++(defn- abs-raw [x] (if (negative-sign? x) (neg-raw x) x))
++(defn- zero-like-raw [x] (host-float/signed (negative-sign? x) 0.0))
++(defn- nan-raw? [x] (host-int/nan-float? x))
++(defn- floor-raw [x]
++  (if (or (not (host-float/finite? x)) (zero? x)) x
++      #?(:cljd (.floorToDouble ^double x)
++         :clj (Math/floor (double x))
++         :cljs (js/Math.floor x))))
++(defn- div-raw [x y]
++  ;; Clojure's division checks zero even for doubles.
++  (if (zero? y)
++    (if (or (zero? x) (nan-raw? x)) ##NaN
++        (host-float/signed (not= (negative-sign? x) (negative-sign? y)) ##Inf))
++    (/ x y)))
++
++(defn- fmod-raw [x y]
++  ;; Double the divisor then subtract in descending order; each subtraction
++  ;; is exact by Sterbenz. The loop also handles an infinite divisor.
++  (loop [d y, ds []]
++    (if (<= d x)
++      (recur (+ d d) (conj ds d))
++      (reduce (fn [r v] (if (>= r v) (- r v) r)) x (rseq ds)))))
++
++(defn- divmod-raw [x y]
++  (if (and (host-float/finite? x) (not (nan-raw? y)))
++    (let [m0 (fmod-raw (abs-raw x) (abs-raw y))
++          m (if (neg? x) (neg-raw m0) m0)
++          adjust (and (not (zero? m)) (not= (neg? y) (neg? m)))
++          r (if (zero? m) (zero-like-raw y) (if adjust (+ m y) m))
++          d (- (div-raw (- x m) y) (if adjust 1.0 0.0))
++          q (if (zero? d) (zero-like-raw (div-raw x y))
++                (let [f (floor-raw d)]
++                  (if (> (- d f) 0.5) (+ f 1.0) f)))]
++      [(data/float64 q) (data/float64 r)])
++    [(data/float64 ##NaN) (data/float64 ##NaN)]))
++
++(defn- pow-half-raw [x n]
++  (let [zero (host-int/from-native 0), one (host-int/from-native 1)]
++    (loop [n n, factors []]
++      (if (zero? (host-int/compare-big n zero))
++        (reduce (fn [v odd-bit] (let [s (* v v)] (if odd-bit (* s x) s)))
++                1.0 (rseq factors))
++        (recur (host-int/shift-right-big n 1)
++               (conj factors (not (zero? (host-int/compare-big
++                                           (host-int/bit-and-big n one) zero)))))))))
++
++(defn- parts-raw [x]
++  (when-not (host-float/finite? x)
++    (refuse! 'parts :out-of-range {}))
++  (if (zero? x) [0 0]
++      (let [[negative? e fraction] (host-float/fields x)
++            m (if (zero? e) fraction
++                  (host-int/add fraction (host-int/shift-left-big (host-int/from-native 1) 52)))
++            m (if negative? (host-int/sub (host-int/from-native 0) m) m)]
++        [(host-int/demote m) (if (zero? e) -1074 (- e 1075))])))
++
++(defn- format-raw [x]
++  (cond (nan-raw? x) "NaN"
++        (not (host-float/finite? x)) (if (negative-sign? x) "-Infinity" "Infinity")
++        (zero? x) (if (negative-sign? x) "-0.0" "0.0")
++        :else
++        (let [[digits e] (host-float/float-digits x)
++              n (count digits)
++              zeros #(apply str (repeat % "0"))
++              body (cond
++                     (<= 0 e 15) (if (<= n (inc e))
++                                    (str digits (zeros (- (inc e) n)) ".0")
++                                    (str (subs digits 0 (inc e)) "." (subs digits (inc e))))
++                     (<= -4 e -1) (str "0." (zeros (dec (- e))) digits)
++                     :else (let [es (str (if (neg? e) (- e) e))]
++                             (str (subs digits 0 1)
++                                  (when (> n 1) (str "." (subs digits 1)))
++                                  (if (neg? e) "e-" "e+")
++                                  (when (< (count es) 2) "0") es)))]
++          (str (when (negative-sign? x) "-") body))))
++
++(defn- unary [op f] (fn [a] (f (value! op 0 a))))
++(defn- binary [op f] (fn [a b] (f (value! op 0 a) (value! op 1 b))))
++(defn- boxed1 [op f] (unary op #(data/float64 (f %))))
++(defn- boxed2 [op f] (binary op #(data/float64 (f %1 %2))))
++
++(def ^:private exports
++  [['inf [0] #(data/float64 ##Inf)]
++   ['neg-inf [0] #(data/float64 ##-Inf)]
++   ['nan [0] #(data/float64 ##NaN)]
++   ['zero [0] #(data/float64 0.0)]
++   ['neg-zero [0] #(data/float64 (neg-raw 0.0))]
++   ['nan? [1] (unary 'nan? nan-raw?)]
++   ['finite? [1] (unary 'finite? host-float/finite?)]
++   ['zero? [1] (unary 'zero? zero?)]
++   ['neg-zero? [1] (unary 'neg-zero? #(and (zero? %) (negative-sign? %)))]
++   ['zero-like [1] (boxed1 'zero-like zero-like-raw)]
++   ['add [2] (boxed2 'add +)] ['sub [2] (boxed2 'sub -)]
++   ['mul [2] (boxed2 'mul *)] ['div [2] (boxed2 'div div-raw)]
++   ['div-checked [2] (binary 'div-checked #(if (zero? %2) ::div-zero (data/float64 (div-raw %1 %2))))]
++   ['neg [1] (boxed1 'neg neg-raw)] ['abs [1] (boxed1 'abs abs-raw)]
++   ['compare [2] (binary 'compare #(cond (or (nan-raw? %1) (nan-raw? %2)) ::nan (< %1 %2) -1 (> %1 %2) 1 :else 0))]
++   ['floor [1] (boxed1 'floor floor-raw)]
++   ['floor-int [1] (unary 'floor-int #(if (and (host-float/finite? %) (< (abs-raw %) 9007199254740992.0)) (host-int/demote (host-float/trunc-big (floor-raw %))) ::out-of-range))]
++   ['fmod-pos [2] (binary 'fmod-pos (fn [x y] (when-not (and (host-float/finite? x) (>= x 0) (> y 0)) (refuse! 'fmod-pos :out-of-range {})) (data/float64 (fmod-raw x y))))]
++   ['floordiv-mod [2] (binary 'floordiv-mod #(if (zero? %2) ::div-zero (divmod-raw %1 %2)))]
++   ['fpow-half [2] (fn [x n] (data/float64 (pow-half-raw (value! 'fpow-half 0 x) (exponent! 'fpow-half n))))]
++   ['neg-pow [3] (fn [x n order]
++                   (let [x (value! 'neg-pow 0 x), n (exponent! 'neg-pow n)]
++                     (when-not (= order :half) (refuse! 'neg-pow :out-of-range {::arg 2}))
++                     (let [p (pow-half-raw x n)]
++                       (if (zero? p) ::underflow
++                           (data/float64
++                             (if (host-float/finite? p) (div-raw 1.0 p)
++                                 (let [h (host-int/shift-right-big n 1)]
++                                   (* (div-raw 1.0 (pow-half-raw x h))
++                                      (div-raw 1.0 (pow-half-raw x (host-int/sub n h)))))))))))]
++   ['parts [1] (unary 'parts parts-raw)]
++   ['format [1] (unary 'format format-raw)]])
++
++(defn- arity-checked [op arities f]
++  (fn [& args]
++    (when-not (contains? (set arities) (count args))
++      (refuse! op :arity {::argc (count args)}))
++    (apply f args)))
++
++(def float-module
++  (into {} (map (fn [[op arities f]] [op (arity-checked op arities f)])) exports))
++(def float-profiles
++  (into {} (map (fn [[op arities _]] [op (vm/primitive-profile op :pure arities #{} :none)])) exports))
++(defn register-float-module [registry]
++  (module/register-host-module registry module-name float-module float-profiles))
+diff --git a/src/cljc/yin/vm/integer.cljc b/src/cljc/yin/vm/integer.cljc
+index d07376d6..97a5ae90 100644
+--- a/src/cljc/yin/vm/integer.cljc
++++ b/src/cljc/yin/vm/integer.cljc
+@@ -103,6 +103,8 @@
+     [dao.host.float :as float-kernel]
+     [dao.host.integer :as host]
+     [yin.vm :as vm]
++    [yin.vm.data :as data]
++    [dao.jing.cbor :as cbor]
+     [yin.vm.module :as module]))
+ 
+ 
+@@ -432,6 +434,22 @@
+   (if (host/host-float? v) v (wrong-type! op arg :float)))
+ 
+ 
++(defn- boxed-result [x]
++  (if (= ::float-overflow x) x (data/float64 x)))
++
++(defn- int-to-float-boxed [limits a]
++  (boxed-result (int-to-float limits a)))
++
++(defn- int-true-div-boxed [limits a b]
++  (boxed-result (int-true-div limits a b)))
++
++(declare int-from-float)
++
++(defn- int-from-float-boxed [limits f]
++  (when-not (cbor/float64? f) (wrong-type! 'from-float-boxed 0 :float64))
++  (int-from-float limits (data/float-value f)))
++
++
+ (defn- int-compare-float
+   [_limits a f]
+   (let [x (big! 'compare-float 0 a)
+@@ -612,6 +630,9 @@
+    ['parse [1 2] int-parse]
+    ['format [1 2] int-format]
+    ['to-float [1] int-to-float]
++   ['to-float-boxed [1] int-to-float-boxed]
++   ['true-div-boxed [2] int-true-div-boxed]
++   ['from-float-boxed [1] int-from-float-boxed]
+    ['compare-float [2] int-compare-float]
+    ['true-div [2] int-true-div]
+    ['from-float [1] int-from-float]
+diff --git a/src/cljc/yin/vm/key.cljc b/src/cljc/yin/vm/key.cljc
+new file mode 100644
+index 00000000..8a742484
+--- /dev/null
++++ b/src/cljc/yin/vm/key.cljc
+@@ -0,0 +1,14 @@
++(ns yin.vm.key
++  "Normalize exact integer carriers in collection keys."
++  (:require [dao.host.integer :as integer]
++            [dao.jing.cbor :as cbor]))
++
++(defn normalize [x]
++  (cond
++    (integer/exact-integer? x) (integer/demote (integer/promote x))
++    (or (cbor/float64? x)
++        (and (map? x) (contains? #{:stream-ref :cursor-ref :cell-ref} (:type x)))) x
++    (vector? x) (mapv normalize x)
++    (map? x) (into (empty x) (map (fn [[k v]] [(normalize k) (normalize v)])) x)
++    (set? x) (into (empty x) (map normalize) x)
++    :else x))
+diff --git a/test/yin/vm/data_test.cljc b/test/yin/vm/data_test.cljc
+index 849bd891..8e86e3f2 100644
+--- a/test/yin/vm/data_test.cljc
++++ b/test/yin/vm/data_test.cljc
+@@ -9,6 +9,7 @@
+             [clojure.test :refer [deftest is testing]]
+             [dao.jing :as jing]
+             [dao.jing.cbor :as cbor]
++            [dao.host.integer :as host-integer]
+             [yin.vm :as vm]
+             [yin.vm.data :as data]
+ 
+@@ -29,6 +30,37 @@
+   (apply (get data/data-module op) args))
+ 
+ 
++(deftest normalized-integer-collection-keys
++  (let [native [1 {:k #{2}}]
++        boxed [(host-integer/from-native 1)
++               {:k #{(host-integer/from-native 2)}}]
++        normalize #(call 'normalize-key %)]
++    (is (= :found (get {(normalize native) :found} (normalize boxed))))
++    (is (= :found (get {(normalize boxed) :found} (normalize native))))
++    (is (= 1 (count (conj #{(normalize native)} (normalize boxed)))))
++    (is (thrown? #?(:cljd Object :clj Exception :cljs js/Error)
++                 (normalize [1 (cbor/float64 2.0)])))))
++
++
++(deftest collection-operations-normalize-integer-keys
++  (let [native [1 {:k #{2}}]
++        boxed [(host-integer/from-native 1) {:k #{(host-integer/from-native 2)}}]
++        prim #(vm/primitive-function (get vm/primitives %))
++        assoc! (prim 'assoc), get! (prim 'get), conj! (prim 'conj)]
++    (doseq [[insert lookup] [[native boxed] [boxed native]]]
++      (let [m (assoc! {} insert :found)
++            s (conj! #{} insert)]
++        (is (= :found (get! m lookup)))
++        (is (call 'contains? m lookup))
++        (is (empty? (call 'dissoc m lookup)))
++        (is (call 'contains? s lookup))
++        (is (= 1 (count (conj! s lookup))))
++        (is (empty? (call 'disj s lookup)))
++        (is (= 1 (count (call 'into s [lookup]))))
++        (is (= 1 (count (call 'hash-set insert lookup))))
++        (is (= :found (get! (conj! {} [insert :found]) lookup)))))))
++
++
+ (defn- refusal
+   "`[message ex-data]` of the refusal `(apply call op args)` throws, or
+    `[:returned value]`."
+@@ -360,7 +392,8 @@
+            'str-join 'char-at 'str->code-points 'code-points->str
+            'str-compare 'str-unit-length 'str-unit-at 'str-units 'units->str
+            'well-formed-utf16? 'number? 'float64 'float-value 'content=
+-           'callable? 'map? 'vector? 'string?}
++           'callable? 'map? 'vector? 'string? 'float64? 'equiv 'admit-key?
++           'normalize-key 'canonical-compare 'canonical-entries}
+          (set (keys data/data-module))
+          (set (keys data/data-profiles))))
+   (doseq [[sym profile] data/data-profiles]
+@@ -613,3 +646,16 @@
+              (refusal 'str-unit-length nil)))
+       (is (= (wrong-type 'units->str 0 :code-units)
+              (refusal 'units->str [0x10000]))))))
++
++(deftest portable-key-and-equality-test
++  (let [p (data/float64 0.0)
++        n (cbor/float64-from-bits "8000000000000000")
++        nan (cbor/float64-from-bits "7ff8000000000000")]
++    (is (call 'equiv [p] [n]))
++    (is (not (call 'equiv [nan] [nan])))
++    (is (not (call 'equiv (keyword nil "a/b") (keyword "a" "b"))))
++    (is (call 'admit-key? :k))
++    (is (not (call 'admit-key? (keyword nil "a/b"))))
++    (is (not (call 'admit-key? [1 {:k p}])))
++    (is (neg? (call 'canonical-compare 0 nil)))
++    (is (= [[0 :zero] [nil :nil]] (call 'canonical-entries {nil :nil 0 :zero})))))
+diff --git a/test/yin/vm/integer_test.cljc b/test/yin/vm/integer_test.cljc
+index e8c04903..9f4505e7 100644
+--- a/test/yin/vm/integer_test.cljc
++++ b/test/yin/vm/integer_test.cljc
+@@ -622,7 +622,8 @@
+   (is (= #{'integer? 'normalize 'add 'sub 'neg 'mul 'compare 'quot-rem
+            'floor-div-mod 'pow 'bit-and 'bit-or 'bit-xor 'bit-not 'shift-left
+            'shift-right 'bit-length 'parse 'format 'to-float 'compare-float
+-           'true-div 'from-float 'float-digits 'decimal->float 'max-digits}
++           'true-div 'from-float 'float-digits 'decimal->float 'max-digits
++           'to-float-boxed 'true-div-boxed 'from-float-boxed}
+          (set (keys module-fns))
+          (set (keys integer/integer-profiles))))
+   (doseq [[sym profile] integer/integer-profiles]
+@@ -782,3 +783,11 @@
+     (is (= #{:c1}
+            (get-in (engine/pin-refs state [b64 (cell-ref :c1)])
+                    [:gc :pinned])))))
++
++(deftest boxed-float-boundary-test
++  (let [x (call 'to-float-boxed 3)
++        y (call 'true-div-boxed 1 2)]
++    (is (call 'integer? (call 'from-float-boxed x)))
++    (is (= 3 (call 'from-float-boxed x)))
++    (is (= 0.5 (data/float-value y)))
++    (is (true? ((get data/data-module 'float64?) y)))))
