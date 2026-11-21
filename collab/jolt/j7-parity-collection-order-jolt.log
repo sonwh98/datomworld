@@ -1,0 +1,45 @@
+
+ERROR in (set-effect-order-and-collision-trace-test) (clojure_collection_order_test.cljc:1106)
+the trace discriminates a swapped colliding pair
+:ast-walker the swapped trace is exactly the label exchange
+expected: (= expected (into [] (replace {:right :left, :left :right}) log))
+  actual: clojure.lang.ArityException: Wrong number of args (1) passed to: clojure.core/replace
+
+ERROR in (set-effect-order-and-collision-trace-test) (clojure_collection_order_test.cljc:1106)
+the trace discriminates a swapped colliding pair
+:semantic the swapped trace is exactly the label exchange
+expected: (= expected (into [] (replace {:right :left, :left :right}) log))
+  actual: clojure.lang.ArityException: Wrong number of args (1) passed to: clojure.core/replace
+
+ERROR in (set-effect-order-and-collision-trace-test) (clojure_collection_order_test.cljc:1106)
+the trace discriminates a swapped colliding pair
+:stack the swapped trace is exactly the label exchange
+expected: (= expected (into [] (replace {:right :left, :left :right}) log))
+  actual: clojure.lang.ArityException: Wrong number of args (1) passed to: clojure.core/replace
+
+ERROR in (set-effect-order-and-collision-trace-test) (clojure_collection_order_test.cljc:1106)
+the trace discriminates a swapped colliding pair
+:register the swapped trace is exactly the label exchange
+expected: (= expected (into [] (replace {:right :left, :left :right}) log))
+  actual: clojure.lang.ArityException: Wrong number of args (1) passed to: clojure.core/replace
+ok    yang.clojure-collection-order-test/corpus-generator-pins-test {:pass 24, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/map-permutation-invariance-test {:pass 80929, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/set-permutation-invariance-test {:pass 10325, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/order-pairing-multiplicity-oracle-test {:pass 38, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/arity-map-canonical-order-test {:pass 33, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/executable-order-and-trace-test {:pass 45, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/continuation-transfer-stops-later-operands-test {:pass 13, :fail 0, :error 0}
+ERROR yang.clojure-collection-order-test/set-effect-order-and-collision-trace-test {:pass 29, :fail 0, :error 4}
+ok    yang.clojure-collection-order-test/colliding-keys-canonical-winner-test {:pass 10, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/entry-points-order-test {:pass 8, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/expansion-origins-unfabricated-test {:pass 5, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/legacy-fixture-custody-test {:pass 6, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/legacy-artifact-loads-and-runs-test {:pass 9, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/token-admission-distinct-origins-test {:pass 3, :fail 0, :error 0}
+ok    yang.clojure-collection-order-test/corpus-cross-host-reference-test {:pass 19, :fail 0, :error 0}
+NS yang.clojure-collection-order-test tests 15 assertions 91500 pass 91496 fail 0 error 4
+DETAIL the trace discriminates a swapped colliding pair ERROR: :ast-walker the swapped trace is exactly the label exchange (= expected (into [] (replace {:right :left, :left :right}) log)) expected: (= expected (into [] (replace {:right :left, :left :right}) log)) actual: clojure.lang.ArityException: Wrong number of args (1) passed to: clojure.core/replace
+DETAIL the trace discriminates a swapped colliding pair ERROR: :semantic the swapped trace is exactly the label exchange (= expected (into [] (replace {:right :left, :left :right}) log)) expected: (= expected (into [] (replace {:right :left, :left :right}) log)) actual: clojure.lang.ArityException: Wrong number of args (1) passed to: clojure.core/replace
+DETAIL the trace discriminates a swapped colliding pair ERROR: :stack the swapped trace is exactly the label exchange (= expected (into [] (replace {:right :left, :left :right}) log)) expected: (= expected (into [] (replace {:right :left, :left :right}) log)) actual: clojure.lang.ArityException: Wrong number of args (1) passed to: clojure.core/replace
+DETAIL the trace discriminates a swapped colliding pair ERROR: :register the swapped trace is exactly the label exchange (= expected (into [] (replace {:right :left, :left :right}) log)) expected: (= expected (into [] (replace {:right :left, :left :right}) log)) actual: clojure.lang.ArityException: Wrong number of args (1) passed to: clojure.core/replace
+SUMMARY {:namespaces 1, :load-failures 0, :tests 15, :assertions 91500, :pass 91496, :fail 0, :error 4}

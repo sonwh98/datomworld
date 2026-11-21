@@ -1,0 +1,111 @@
+(ns dao.stream.udp-dht-test
+  "Jolt's production native receive seam into the DHT raw traffic cursor.
+   Only kernel socket operations are substituted: buffers, sockaddr parsing,
+   Base64, CBOR, cookie state and bounded stepping are the shipped code."
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.host.bytes :as bytes]
+            [dao.jing :as jing]
+            [dao.jing.dht :as dht]
+            [dao.jing.dht.mesh :as mesh]
+            [dao.stream :as stream]
+            [dao.stream.datagram :as datagram]
+            [dao.stream.udp :as udp]
+            [jolt.ffi :as ffi]
+            [jolt.io-poller :as poller]
+            [jolt.socket.native :as native]))
+
+
+(deftest native-receive-cursor-completes-cookie-handshake-and-fetch
+  (doseq [payload [[:cookie-reply] (vec (repeat 4000 "chunked"))]]
+    (testing (str "payload size " (count payload))
+      (let [net (mesh/mesh)
+            server (mesh/join! net 41001 {::dht/publish? true})
+            incoming (atom [])
+            traffic (mesh/ring)
+            sent (atom [])
+            received (atom [])
+            address (jing/materialize! (:local server) payload)
+            server (assoc server :datagrams
+                          (reify stream/IDaoStreamWriter
+                            (append!
+                              [_ v]
+                              (swap! incoming conj
+                                     (jing/base64->bytes
+                                       (:dao.stream.datagram/bytes v)))
+                              {:dao.stream/outcome :dao.stream/ok})))]
+        (with-redefs [native/c-socket (fn [& _] [123 0])
+                      native/close-on-exec! (fn [_] true)
+                      native/set-blocking! (fn [& _] [0 0])
+                      native/c-bind (fn [& _] [0 0])
+                      native/local-address (fn [_] {:ip "127.0.0.1" :port 41002})
+                      native/c-close (fn [_] [0 0])
+                      poller/cancel! (fn [_] nil)
+                      poller/forget! (fn [_] nil)]
+          (binding [udp/*sendto*
+                    (fn [_ buf len _ _ _]
+                      (let [bs (ffi/read-array buf len)]
+                        (swap! sent conj (dht/decode-message bs))
+                        (stream/append! (:traffic server)
+                                        (datagram/datagram-event
+                                          "server" "127.0.0.1" 41002 bs)))
+                      [len 0])
+                    udp/*recvfrom*
+                    (fn [_ buf cap _ sa lenp]
+                      (if-let [bs (first @incoming)]
+                        (do
+                          (swap! incoming #(vec (rest %)))
+                          (swap! received conj (dht/decode-message bs))
+                          (ffi/write-array buf bs 0 (min cap (bytes/length bs)))
+                          (let [[src len] (native/make-sockaddr
+                                            native/af-inet "127.0.0.1" 41001)]
+                            (try (ffi/copy src sa len)
+                                 (finally (ffi/free src)))
+                            (ffi/write lenp :int len 0))
+                          [(min cap (bytes/length bs)) 0])
+                        [-1 udp/EAGAIN]))]
+            (let [seam (udp/bind! {:identity "client" :deposit traffic})
+                  c (assoc (mesh/solo)
+                           :traffic traffic
+                           ::dht/secret mesh/secret
+                           ::dht/max-inbound-bytes 0
+                           ::dht/bootstrap [(mesh/contact 41001)]
+                           :datagrams
+                           (datagram/writer
+                             seam
+                             {:dao.stream/type datagram/transport-type
+                              :dao.stream/identity "client"
+                              :dao.stream.datagram/bind-host "127.0.0.1"
+                              :dao.stream.datagram/bind-port 41002}))]
+              (try
+                (stream/append! (:requests c)
+                                {:jing/request :fetch :jing/get address})
+                (let [client
+                      (loop [client (dht/state c)
+                             peer (dht/state server)
+                             round 0]
+                        (if (or (= round 64) (seq (mesh/answers c)))
+                          client
+                          (do
+                            (mesh/tick! c (* 10 round))
+                            (mesh/tick! server (* 10 round))
+                            ;; One receive turn per owner round, before
+                            ;; the DHT reads its independent raw cursor.
+                            ((:step! seam))
+                            (recur (dht/step client 64)
+                                   (dht/step peer 64)
+                                   (inc round)))))
+                      answer (first (mesh/answers c))]
+                  (is (= [:ping :ping :fetch] (mapv :op @sent)))
+                  (is (nil? (:cookie (first @sent))))
+                  (is (bytes/equal? (:cookie (second @sent))
+                                    (:cookie (first @received)))
+                      "the challenge traversed recvfrom, the deposit and the raw cursor")
+                  (is (= #{["127.0.0.1" 41001]} (set (keys (:cookies client))))
+                      "a full reply proved the observed source")
+                  (is (empty? (:queries client)))
+                  (is (true? (:jing/found? answer)))
+                  (is (= payload (jing/get (:local c) address nil))
+                      "the verified response was cached, including chunk reassembly")
+                  (when (> (count payload) 1)
+                    (is (some #(= :chunk (:op %)) @received))))
+                (finally ((:close! seam)))))))))))

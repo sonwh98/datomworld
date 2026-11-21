@@ -368,6 +368,17 @@
       ["--dht-keygen" (or file (state-path (or name "publisher") ".key"))])))
 
 
+(declare flag-table)
+
+
+(defn- global-flag-kind
+  [arg]
+  (or (get (:kinds flag-table) arg)
+      (when (contains? (:one-shot-flags flag-table) arg) :value)
+      (get {"--name" :value "--dir" :value
+            "--reset" :switch "--no-state" :switch} arg)))
+
+
 (defn- dht-args
   "The legacy flags of `dht init|serve|join`.  `init` publishes (its key is
    made on first use); `serve` stores for others; `join <token>` reads,
@@ -389,10 +400,16 @@
           "--key" (recur (nnext args) (assoc o :key v))
           "--peer" (recur (nnext args) (update o :peers conj (peer-text v)))
           "--listen" (recur (nnext args) (assoc o :listen v))
-          (if (and (= "join" verb) (not (:token o))
+          (let [kind (global-flag-kind arg)]
+            (cond
+              (and kind (not= :switch kind))
+              (recur (nnext args) (update o :rest into [arg v]))
+
+              (and (= "join" verb) (not (:token o))
                    (not (str/starts-with? arg "-")))
-            (recur (next args) (assoc o :token arg))
-            (recur (next args) (update o :rest conj arg)))))
+              (recur (next args) (assoc o :token arg))
+
+              :else (recur (next args) (update o :rest conj arg))))))
       (let [{:keys [name dir key peers listen token rest]} o
             [tpeer principal] (when (= "join" verb)
                                 (parse-token token))
@@ -426,15 +443,28 @@
   "Turn the subcommand surface into the flags `parse-args` reads:
    `keygen [--name n | file]` and `dht init|serve|join`.  Anything else
    passes to the engine's own plain form (`--name n` and `--dir d`, which
-   name the node directory its state file lives in).  Answers
+   name the node directory its state file lives in). DHT subcommands may
+   follow global flags; their values are skipped as values, never treated
+   as commands. Explicit flags override the subcommand's defaults. Answers
    `[args extra]`, `extra` carrying what the arguments say beyond flags:
    `:new-key` (a key file `init` makes), `:name` and `:dir` (the node
    directory), and `:unset` (saved flags the subcommand clears)."
   [args]
-  (case (first args)
-    "keygen" [(keygen-args (rest args)) nil]
-    "dht" (dht-args (rest args))
-    (repl.main/plain-args args)))
+  (loop [more (seq args) prefix []]
+    (let [arg (first more)
+          kind (global-flag-kind arg)]
+      (cond
+        (= "dht" arg)
+        (dht-args (cons (second more) (concat prefix (nnext more))))
+
+        (and (empty? prefix) (= "keygen" arg))
+        [(keygen-args (rest more)) nil]
+
+        kind
+        (let [n (if (= :switch kind) 1 2)]
+          (recur (drop n more) (into prefix (take n more))))
+
+        :else (repl.main/plain-args args)))))
 
 
 (defn parse-flag
