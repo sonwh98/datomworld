@@ -3,8 +3,8 @@
 {:lane :cljd,
  :root yin.repl.main,
  :features #{:cljd :clj},
- :total 147,
- :shared 141,
+ :total 156,
+ :shared 150,
  :lane-specific 6,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
@@ -249,20 +249,40 @@
    :ns yang.clojure,
    :shared true,
    :classes #{:deferred-gensym :dialect-arm}}
+  {:file "src/cljc/yang/clojure/core_impl.cljc",
+   :ns yang.clojure.core-impl,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/clojure/core_module.cljc",
+   :ns yang.clojure.core-module,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/clojure/prelude.cljc",
+   :ns yang.clojure.prelude,
+   :shared true,
+   :classes #{:runtime-prereq}}
   {:file "src/cljc/yang/core/call.cljc",
    :ns yang.core.call,
    :shared true,
    :classes #{:profile-internal-pure}}
+  {:file "src/cljc/yang/core/defquoted.cljc",
+   :ns yang.core.defquoted,
+   :shared true,
+   :classes #{:deferred-stage}}
   {:file "src/cljc/yang/core/lower.cljc",
    :ns yang.core.lower,
    :shared true,
-   :classes #{:none}}
+   :classes #{:deferred-stage}}
   {:file "src/cljc/yang/core/module.cljc",
    :ns yang.core.module,
    :shared true,
    :classes #{:none}}
   {:file "src/cljc/yang/core/prelude.cljc",
    :ns yang.core.prelude,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/core/prelude_admission.cljc",
+   :ns yang.core.prelude-admission,
    :shared true,
    :classes #{:none}}
   {:file "src/cljc/yang/core/stage.cljc",
@@ -291,10 +311,6 @@
    :classes #{:deferred-stage}}
   {:file "src/cljc/yang/php/antlr/prelude_p9.cljc",
    :ns yang.php.antlr.prelude-p9,
-   :shared true,
-   :classes #{:deferred-stage}}
-  {:file "src/cljc/yang/php/antlr/quoted.cljc",
-   :ns yang.php.antlr.quoted,
    :shared true,
    :classes #{:deferred-stage}}
   {:file "src/cljc/yang/python/antlr/lower.cljc",
@@ -329,6 +345,14 @@
    :ns yang.python.antlr.uast,
    :shared true,
    :classes #{:deferred-stage}}
+  {:file "src/cljc/yang/rt/effect.cljc",
+   :ns yang.rt.effect,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/rt/int.cljc",
+   :ns yang.rt.int,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/yang/stage.cljc",
    :ns yang.stage,
    :shared true,
@@ -445,10 +469,18 @@
    :ns yin.vm.ffi,
    :shared true,
    :classes #{:none}}
+  {:file "src/cljc/yin/vm/float.cljc",
+   :ns yin.vm.float,
+   :shared true,
+   :classes #{:profile-consumer}}
   {:file "src/cljc/yin/vm/integer.cljc",
    :ns yin.vm.integer,
    :shared true,
    :classes #{:consumer}}
+  {:file "src/cljc/yin/vm/key.cljc",
+   :ns yin.vm.key,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/yin/vm/ledger.cljc",
    :ns yin.vm.ledger,
    :shared true,
@@ -475,6 +507,10 @@
    :classes #{:none}}
   {:file "src/cljc/yin/vm/module.cljc",
    :ns yin.vm.module,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yin/vm/provenance_scope.cljc",
+   :ns yin.vm.provenance-scope,
    :shared true,
    :classes #{:none}}
   {:file "src/cljc/yin/vm/semantic.cljc",
