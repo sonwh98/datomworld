@@ -350,7 +350,10 @@
 
       :else
       (try
-        (let [[repl' text] (repl/eval-input repl (first (rpc/request-args request)))]
+        (let [[repl' text] (repl/eval-input
+                             repl (first (rpc/request-args request))
+                             (str "Error: (use-store ...) is a local host command"
+                                  " and cannot be run over a remote endpoint"))]
           (if (:pending-input repl')
             ;; Line continuation is a terminal concern.  One shared shell means
             ;; an unbalanced request would otherwise prefix the *next*

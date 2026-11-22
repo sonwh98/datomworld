@@ -9,12 +9,15 @@
 (def principal (apply str (repeat 64 "a")))
 (def token (str "yin:127.0.0.1:4001/" principal))
 
+(def ^:private join-paths
+  ["--dir" "target/dht-args-default-reader" "--key" "target/dht-args-reader.key"])
+
 
 (deftest join-after-global-flags-keeps-the-explicit-store
   (doseq [argv [["--index-store" "dht:reader" "--headless" "dht" "join" token]
                 ["dht" "join" "--index-store" "dht:reader" "--headless" token]
                 ["dht" "join" token "--index-store" "dht:reader" "--headless"]]]
-    (let [[args extra] (cli/expand-args argv)
+    (let [[args extra] (cli/expand-args (into argv join-paths))
           opts (shell/parse-args args)
           spec (:index-store-spec opts)]
       (is (= "reader" (:dir spec)))
@@ -44,11 +47,13 @@
 (deftest startup-expands-the-supplied-reader-command-before-parsing
   (let [seen (atom nil)
         composition (assoc shell/composition
+                           :load-key (constantly nil)
                            :open (fn [spec _]
                                    (reset! seen spec)
                                    {:index-store nil}))
         started (main/startup
-                  ["--reset" "--index-store" "dht:reader" "dht" "join" token]
+                  (into ["--reset" "--index-store" "dht:reader" "dht" "join" token]
+                        join-paths)
                   {:persist? false :composition composition})]
     (is (nil? (:refusal started)))
     (is (= [{:host "127.0.0.1" :port 4001}] (:peers @seen)))

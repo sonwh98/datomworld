@@ -20,7 +20,7 @@
   "Commands which retain the legacy REPL's local meaning when a remote RPC
    client is present.  The adapter emits their original input; it does not
    interpret or execute them."
-  #{'connect 'disconnect 'help 'quit 'repl-state})
+  #{'connect 'disconnect 'help 'quit 'repl-state 'use-store})
 
 
 (def rejected-command-heads

@@ -1,9 +1,9 @@
 (ns yin.repl.store
-  "Startup selection of the code index's store
+  "Selection of the code index's store
    (docs/design/yin.repl.dao.space-index.md; the durable-store startup
    contract, slices 1-3).
 
-   The store is chosen once, before the shell composes: `mem` — a fresh
+   The store is chosen at startup or at a quiesced prompt: `mem` — a fresh
    in-memory `dao.jing` store, today's behaviour — or `file:<dir>`, the
    durable directory store (dao.space.store).  This namespace parses the
    `--index-store` value, validates the `:index-store-spec` an embedder
@@ -40,6 +40,16 @@
 (def file-scheme
   "The `--index-store` scheme prefix naming a durable file store."
   "file:")
+
+
+(defn describe-spec
+  "Display an engine store spec, or nil for an absent or unknown spec."
+  [spec]
+  (cond
+    (= :mem spec) "mem"
+    (and (map? spec) (= :file (:type spec))
+         (string? (:dir spec)) (not (str/blank? (:dir spec))))
+    (str file-scheme (:dir spec))))
 
 
 (defn- supported-text
@@ -183,8 +193,8 @@
   "Release the store's lifecycle resources (dao.space.store/close!): the
    content log and, in durable mode, the directory lock.  Idempotent.
 
-   Invocation is the composition's, not the engine's: for an injected
-   store the composition that opened it owns closing it, and closes it
+   The owner closes the handle when retiring it. The composition that
+   injected a store owns closing it, and closes it
    once (docs/design/yin.repl.dht-composition.md sections 3 and 6)."
   [store]
   (durable/close! store))

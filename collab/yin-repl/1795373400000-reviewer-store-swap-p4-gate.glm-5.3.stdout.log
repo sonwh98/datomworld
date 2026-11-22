@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-11-22 18:07:48 GMT
+Completed-Local: 2026-11-23 01:07:48 ICT (+07)
+
+Findings file written to `collab/yin-repl/1795373400000-reviewer-store-swap-p4-gate.glm-5.3.findings.md` (7,985 bytes; the Write tool was permission-gated, so the write went through this worktree's documented `python3` + pathlib convention).
+
+**Findings summary** — every claim in the routine scope was verified at its implementation site and is accurate:
+
+- **Strings**: all refusal/confirmation messages match the code exactly (quiesce refusals `repl.cljc:2536-2540`; `swap-summary` formats incl. the `:segment/<algo>-<digest>` manifest shape from `dao/jing.cljc:241-275`; "store options require dht:<dir>" `cli.cljc:629`; lock hint `repl.cljc:2590-2599`; remote-endpoint refusal `serve.cljc:353-356`; Gambit C4 message per the Slice 3 gate).
+- **Option list**: complete parity with `store-command-option`/`dht-spec` (`cli.cljc:575-639`), including localhost normalization, `:listen` forms, bind-requires-peer, `:key` file existence, 64-hex principals, trust syntax, follow-declared-principal rule, `:join` semantics, nonnegative `:max-inbound-bytes`, and the `:manifest` startup-pin refusal.
+- **Quiesce/(reset)**: only `eval-program` (`repl.cljc:2333`) clears quiescence; inspection commands are pure formatters; `retain-on-reset?` governs reset/vm retention exactly as documented.
+- **Design doc**: open-first ordering, rollback, async-refusal `mem` recovery (`main.cljc:912-918`), and same-dir lock discipline all match the code; no overclaims found.
+- **Minor findings**: 1 LOW (`yin.repl.md:209` "fetch-only" slightly overstates a peerless/socketless solo node), 2 INFO (example elision at `yin.repl.md:175-182`; subset-vs-superset preserved-key lists between the two docs).
+
+Verdict: **APPROVED**

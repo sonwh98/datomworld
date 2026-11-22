@@ -1,0 +1,16 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-11-22 20:22:57 GMT
+Completed-Local: 2026-11-23 03:22:57 ICT (+07)
+
+Findings written to `collab/yin-repl/1795381000000-reviewer-dart-args-fix-gate.glm-5.3.findings.md` (5,277 bytes, via the worktree's python3+pathlib write convention).
+
+**Summary** — all four checks pass:
+
+1. **Assertions' intent unchanged**: every assertion in both touched tests is byte-identical; the diff only appends explicit `--dir`/`--key` (`dht_args_test.cljc:12-13`) and adds a test-local `:load-key (constantly nil)` seam (`:50`).
+2. **No weakening — actually strengthened**: the scratch dir `target/dht-args-default-reader` ≠ `reader` keeps `(= "reader" (:dir spec))` discriminating, because `dht-args` emits its own `--index-store dht:<dir>` from `--dir` (`cli.cljc:421`) — a same-named scratch would have made the assertion vacuous (the engineer's stated rationale verifies as correct and material). The appended value flags exercise the same expansion property harder; `:unset` is unconditional for join (`cli.cljc:439`); `parse-args` never reads key files (only `startup` does, `main.cljc:719-721`, hooked at `cli.cljc:795`), so the nonexistent scratch key is never read in test 1, and the `(constantly nil)` stub returns the reader-role-correct nil key (only `init` defaults a key, `cli.cljc:420`).
+3. **No src/ changes**: git status confirms the test file is the only tracked modification.
+4. **JVM/Node unchanged**: test-namespace-only diff; recorded verification covers JVM (4/26 green, plus home-discovery-disabled green), Node with HOME unset, and Dart compile rc=0 + 4 tests green.
+
+Findings: none at LOW or above; 2 INFO notes (naming nit on `join-paths`; the key-stub's blind spot is outside the test's intent).
+
+Verdict: **APPROVED**
