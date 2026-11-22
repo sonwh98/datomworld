@@ -888,7 +888,8 @@
    trees read."
   (-> (module/default-registry)
       module/register-cell-module
-      (data/register-data-module {::data/max-items 1048576})))
+      (data/register-data-module {::data/max-items 1048576})
+      clj-prelude/admit))
 
 
 (defn replay-artifacts
@@ -1005,10 +1006,9 @@
 
 
 (def replay-expectations
-  "Canonical replay expectations shared by all hosts. P1′ refreshed the
-   argument-vector, lower-unit, prelude and clj members for the unified
-   callable and effect runtimes. The intra-unit dispatch fix regenerates
-   the argument-vector and lower-unit members. The c1-1 bundle is archived
+  "Canonical replay expectations shared by all hosts. P2′ refreshes the
+   argument-vector, lower-unit, prelude and clj members for the published
+   standard library and the shared source entry. The c1-1 bundle is archived
    at test/resources/yang/clojure/cc4-replay-snapshots-prefix-c1-1.edn."
   [{:id :native,
     :root
@@ -1022,34 +1022,34 @@
     "1556afb1db35c20b88bbc254b112fcb09874e95b3c9bcd8d412fbd3e4d01f005"}
    {:id :argument-vector,
     :root
-    :segment/blake3-444a37d3403e5e5e734b71957c2cb60ed22c7aa5afb2fe68d34ebfd7e46cb95d,
-    :applications 64,
+    :segment/blake3-45ed346178a10db32806a6fe40be79017a7dd60dc3daa49e55e963e2360f3f03,
+    :applications 38,
     :keys-digest
-    "026a377fc739a1bc07bc599135bb45e48a55fad40d75bdc3bbb0822e2dc9c50d",
+    "a60dd0f7a0c26ffdb13c4ea818525f106ceb6f28ae3913fc2a59fb82ba521008",
     :c1-digest
-    "0be12a3d908c10cdc6466dfe72345c33d1eb8a955ebca0efa44378eeea1f2408",
+    "421e92bcfff09b403f404f39ca26d5d2ac03aafdc66a408fd43cd59e5c0bf4ea",
     :instruction-provenance-digest
-    "85073dfa2c0c227b34f349c2beea6a182da148cff624e89b3286f2045da19396"}
+    "0d5e115b5ea569b69dbd4bf4a1528af43b299e4bec6b702b03d42c0d44595145"}
    {:id :lower-unit,
     :root
-    :segment/blake3-3609a1311a3e43d1bab8e838c9d542cda369b280a35780f22de25d36e19b4bb0,
-    :applications 74,
+    :segment/blake3-9cfa049d0884d555da7b25085c863672ae76056daf39a54b8d595a669abeb40f,
+    :applications 39,
     :keys-digest
-    "09a1cef0dfe5aa807c4bb0d353fb22e72297ebf1d41f3642ac5a448656f3eee9",
+    "5c5a905f0e3a9220bc0bdc74e6c5971439605ef0e66854b5059d0a4fd06f9795",
     :c1-digest
-    "9f1167811cd3a748db797b65a391c13f9660cf20d6847a6bef083b38d4baf7ea",
+    "9e577f55ac5741a3352ce056a7d09ed95432865ec5c21fe72aab14cc18f1b36f",
     :instruction-provenance-digest
-    "977f22f5849d25726d03a5f6cb3698476d18cbb957fe5dcc55c0960a19002c36"}
+    "af3ebdb881aa72acb9015cf5ecc0d1dbf647f7bab334e221147d1ecfb1a588be"}
    {:id :prelude,
     :root
-    :segment/blake3-bfce6e49877582af6abc2155cb15b55f485b5a9574bab2c0816ba2dd39fcdfd4,
-    :applications 156,
+    :segment/blake3-78ccd75335a889da4b2015f8775cf62b831989ef5174ada775425a8999f7cd73,
+    :applications 289,
     :keys-digest
-    "bbd572db3ff3476261c815fc82463ec1d77fba9ce39a02f4ab60fc03f8b86225",
+    "1b0ee474a4fdb826edbd578e4862ac8f35c9e0f38ec85c7eedead884105957c4",
     :c1-digest
-    "ed6ad13d4880c662c226601b9ef244bddeb94d27257d6e1ca96c1e534106564b",
+    "3ad35de97256f836a9cc57eeb358d1d93f067ebfbf7e301e0d11d7d3527a8e9b",
     :instruction-provenance-digest
-    "443251ec69f5bbc4702397b8e20ae9b15bee664734cd1b690aff457555556ba4"}
+    "a8b69f31a14fc001dcccdb0a16f7fac518a3e785f8b251db1e612fea813befb7"}
    {:id :macro,
     :root
     :segment/blake3-a15528bb9aef22fa7dc4beaa90a7e08f079b4dfb9b6da51f7b16bb079c54134a,
@@ -1098,27 +1098,27 @@
     "8218c68f1c2851edb821c62bfdc7c6c9488751c022016930f0dfac8b48ae76ef"}
    {:id :clj,
     :root
-    :segment/blake3-bfce6e49877582af6abc2155cb15b55f485b5a9574bab2c0816ba2dd39fcdfd4,
-    :applications 156,
+    :segment/blake3-78ccd75335a889da4b2015f8775cf62b831989ef5174ada775425a8999f7cd73,
+    :applications 289,
     :keys-digest
-    "b5a73fea5596a7a6a07eab2ad6d266dbb45117654a24fa1498ffc58dcc10d63f",
+    "ca908be560bbd17f7b9df347ce06140a8966772596296e258e14ffbfa17afda6",
     :c1-digest
-    "c412fbbe6a7eaf75590fb15b5de120b938bcd74c30d91848a5b30c1a59541855",
+    "aae1cb30ca1f01aa89e4533d3f6d209bbdf1821636f4c3cb8d524b9ab8b43cf0",
     :instruction-provenance-digest
-    "f9b1f5ea155d6357ede5ad5a3576fb0c60182abe097aa50e2e6537dc2949bc5f",
+    "643a664e217fa65178ae176011d17fbd0f56931cb29ec686568a9b6bcddab1de",
     :addresses
     {:record
-     :segment/blake3-4fefb1f9fd0c34929107da7adaec3601a56e6b8d239ec18c5fc458791970607b,
+     :segment/blake3-7684c73dc4bc113f6a3167ef3f09548ceea7f24a212b42c79c5eb940cf0f3b0e,
      :table
-     :segment/blake3-c412fbbe6a7eaf75590fb15b5de120b938bcd74c30d91848a5b30c1a59541855,
+     :segment/blake3-aae1cb30ca1f01aa89e4533d3f6d209bbdf1821636f4c3cb8d524b9ab8b43cf0,
      :provenance
-     :segment/blake3-fe173745ac23dc71230147cf8c0bc3571b7c2b748be1741b2a869f99c7d9d9e5,
+     :segment/blake3-d868474ffd51a4f7d65fd1ed7d4315960d60abf47e54a7c54259b10cf735189e,
      :root
-     :segment/blake3-bfce6e49877582af6abc2155cb15b55f485b5a9574bab2c0816ba2dd39fcdfd4,
+     :segment/blake3-78ccd75335a889da4b2015f8775cf62b831989ef5174ada775425a8999f7cd73,
      :manifest
-     :segment/blake3-10884a7e673e4178b209486047698cc4dc3309a81bd9d989c40fcc6ae03e44f8},
+     :segment/blake3-78903e4442bfc6ae5e1ad430e11d6f43d416b6836369c8ba6db056898ccf9df7},
     :provenance-digest
-    "0310ce3b68fedd7cb3b7cea8b7b77b83aa2ed911f69f3f86fded814e75473681"}])
+    "afedebef6ef1049c6cd2ca75806a05921a9a658996a1179e8648462b2601b30c"}])
 
 
 (deftest portable-replay-cohort-test

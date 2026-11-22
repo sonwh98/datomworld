@@ -114,11 +114,6 @@
   (first args))
 
 
-(def ^:private compiler-primitives
-  '{dsg__primitive/get get, dsg__primitive/assoc assoc
-    dsg__primitive/+ +, dsg__primitive/<= <=})
-
-
 (defn resolve-var
   "Look up a variable name: env -> store -> primitives -> module registry.
 
@@ -129,7 +124,7 @@
   [env store primitives registry name]
   (when (vm/reserved-name? name)
     (vm/refuse-reserved! :variable name))
-  (if-let [primitive (get compiler-primitives name)]
+  (if-let [primitive (get vm/compiler-primitive-aliases name)]
     (vm/primitive-function (get primitives primitive))
     (if-let [pair (find env name)]
       (val pair)

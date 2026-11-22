@@ -2,6 +2,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing.mem :as mem]
             [yang.clojure :as clj]
+            [yang.clojure.core-impl :as core-impl]
+            [yang.clojure.core-module :as core-module]
             [yang.clojure.prelude :as prelude]
             [yang.core.call :as call]
             [yang.core.uast :as u]
@@ -26,12 +28,15 @@
           call-address (install (call/module-spec registry))
           effect-address (install (effect/module-spec registry))
           int-address (install (int-rt/module-spec registry effect-address))
-          clj-address (install (prelude/module-spec registry call-address effect-address))]
+          clj-address (install (prelude/module-spec registry call-address effect-address))
+          impl-address (install (core-impl/module-spec registry call-address clj-address int-address))
+          core-address (install (core-module/module-spec registry clj-address impl-address))]
       (link/composition
         {:content-store store
          :derivation :trusted
          :name-env {'yang.call call-address 'yrt.effect effect-address
-                    'yrt.int int-address 'clj clj-address}}))))
+                    'yrt.int int-address 'clj clj-address
+                    'clojure.core.impl impl-address 'clojure.core core-address}}))))
 
 
 (defn- run-runtime [backend bundled? form]
@@ -193,10 +198,13 @@
                 (def log (cell/new []))
                 [(get nil :missing) (+ 1 2) (<= 1 2) (assoc {} :k 1)
                  (try (f 42) (catch Exception e e)) (cell/get log)
+                 (let [value 9 m {:k value}] (m :k))
+                 (clojure.core/get (clojure.core/assoc {} :k 12) :k)
+                 (map inc [1 2])
                  (do (cell/set! f {})
                      (try (f 43) (catch Exception e :refused)))]]
         opts (dissoc clj/unit-opts :linked-runtime)
-        expected [:shadowed :shadowed-add :shadowed-lte :shadowed-assoc 42 [:cleanup] :refused]
+        expected [:shadowed :shadowed-add :shadowed-lte :shadowed-assoc 42 [:cleanup] 9 12 '(2 3) :refused]
         bundled (clj/compile-program forms true opts)
         linked (u/then (u/sexp->uast '(require 'clj))
                        (u/app (u/v 'clj/run-main) (clj/lower-unit forms)))]
@@ -204,6 +212,47 @@
       (let [run #(vm/value (h/run-linked backend % {:modules registry :link-source @published}))]
         (is (= [:yin.k/ok expected] (run bundled)) (str backend))
         (is (= expected (run linked)) (str backend))))))
+
+
+(deftest clojure-core-facade-and-cold-policy
+  (let [forms '[[(try (get {} (fn [] 1))
+                       (catch Exception e (:clj/policy e)))
+                 (try (let [m {}] (m (fn [] 1)))
+                      (catch Exception e (:clj/policy e)))
+                 (try (let [k (keyword nil "a/b")] (k {}))
+                      (catch Exception e (:clj/policy e)))
+                 (try (rem 9 0)
+                      (catch Exception e (:clj/policy e)))
+                 (try (inc 9007199254740991)
+                      (catch Exception e (:clj/policy e)))
+                 (inc 1.5)
+                 (str {:z 1 :a ["😀"]})
+                 (let [f (fn [] 1)]
+                   [(fn? f) (map? f) (coll? f) (set? f) (vector? f)
+                    (seq? f) (sequential? f) (list? f) (reduced? f) (str f)])]]
+        expected [:coll/unsupported-key :coll/unsupported-key :coll/unsupported-key
+                  :math/div-zero :int/bit-limit
+                  2.5 "{:a [\"😀\"], :z 1}" [true false false false false false false false false "#<fn>"]]
+        modules (integer/register-integer-module registry {::integer/max-bits 53
+                                                            ::integer/max-digits 4300})
+        bundled (clj/compile-program forms true (dissoc clj/unit-opts :linked-runtime))
+        linked (u/then (u/sexp->uast '(require 'clj))
+                       (u/app (u/v 'clj/run-main) (clj/lower-unit forms)))
+        facade (u/sexp->uast
+                 '(do (require 'clojure.core)
+                      (clj/init!)
+                      (let [before (clojure.core/identity)
+                            _ (clojure.core/init!)
+                            f (clojure.core/identity)
+                            _ (clojure.core/init!)]
+                        (conj [] before
+                              (data/content= f (clojure.core/export 'identity))
+                              (clj/invoke-callable f [42] [])))))]
+    (doseq [backend (keys h/backends)]
+      (let [run #(vm/value (h/run-linked backend % {:modules modules :link-source @published}))]
+        (is (= [:yin.k/ok expected] (run bundled)) (str backend))
+        (is (= expected (run linked)) (str backend))
+        (is (= [nil true 42] (run facade)) (str backend))))))
 
 
 (def ^:private depth-fixture

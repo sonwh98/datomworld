@@ -1,12 +1,15 @@
 (ns yang.clojure.prelude
   "The trusted Clojure runtime, emitted inline or as the linked clj module."
-  (:require [yang.core.call :as call]
+  (:require [clojure.string :as str]
+            [yang.core.call :as call]
             [yang.core.prelude :as core]
             [yang.core.prelude-admission :as prelude-admission]
             [yang.core.uast :as u]
             [yang.rt.effect :as effect]
             [yin.vm :as vm]
             [yin.vm.data :as data]
+            [yin.vm.float :as float]
+            [yin.vm.integer :as integer]
             [yin.vm.module :as module]))
 
 
@@ -168,6 +171,127 @@
            (clj/unwrap-outcome (body))))]])
 
 
+(def ^:private source-definitions
+  ;; Extend the trusted bridge without changing the executable grant for
+  ;; its bundled provenance doors. Named calls reuse the original body
+  ;; only while the owner and its descriptor still match the saved pair.
+  '[[clj.rt/dsg__source-entries :clj/uninit]
+    [clj/dsg__init-source-entries!
+     (fn []
+       (if (= clj.rt/dsg__source-entries :clj/uninit)
+         (yin/def (quote clj.rt/dsg__source-entries) (cell/new {}))
+         nil))]
+    [clj/make-source-callable
+     (fn [name meta body]
+       (let [owner (clj/make-callable meta body)
+             entry (if (clj/prim-get meta :clj/tail-call?)
+                     (fn [args] (body args clj/invoke-callable))
+                     body)]
+         (do (clj/dsg__init-source-entries!)
+             (cell/set! clj.rt/dsg__source-entries
+               (clj/prim-assoc (cell/get clj.rt/dsg__source-entries) name
+                               (conj [] owner (cell/get owner) entry)))
+             owner)))]
+    [clj/invoke-known
+     (fn [callee args name dispatch]
+       (let [registered (get (cell/get clj.rt/dsg__source-entries) name)]
+         (if (if registered
+               (if (data/content= (data/nth registered 0) callee)
+                 (data/content= (data/nth registered 1) (cell/get callee))
+                 false)
+               false)
+           ((data/nth registered 2) args)
+           (clj/invoke-source callee args dispatch))))]
+    [clj/dsg__assoc-pairs
+     (fn [m args i n]
+       (if (< i n)
+         (clj/dsg__assoc-pairs
+           (clj/prim-assoc m (data/nth args i) (data/nth args (+ i 1)))
+           args (+ i 2) n)
+         m))]
+    [clj/construct-map (fn [args] (clj/dsg__assoc-pairs {} args 0 (data/count args)))]
+    [clj/cursor-first (fn [xs] (first xs))]
+    [clj/cursor-rest (fn [xs] (rest xs))]
+    [clj/dsg__missing-policy
+     (fn [tag payload]
+       (let [handler (get (cell/get (clj/rt-ctx)) :on-unhandled-policy)]
+         (if (nil? handler) (:clj/unhandled-policy tag payload)
+           (handler tag payload))))]
+    [clj/perform-policy
+     (fn [tag payload]
+       (yrt.effect/perform (clj/rt-ctx) tag payload clj/dsg__missing-policy))]
+    ;; Each consuming VM primitive normalizes integer carriers on insertion
+    ;; or lookup after the source policy has admitted the key.
+    [clj/collection-key
+     (fn [k]
+       (if (data/admit-key? k)
+         k
+         (clj/perform-policy :coll/unsupported-key k)))]
+    [clj/dsg__lookup-call
+     (fn [coll args n keyword-call?]
+       (if (if (<= 1 n) (<= n 2) false)
+         (let [x (data/nth args 0)
+               default (if (= n 2) (data/nth args 1) nil)]
+           (if keyword-call?
+             (clj/prim-get-default (clj/condition-view x) (clj/collection-key coll) default)
+             (clj/prim-get-default coll (clj/collection-key x) default)))
+         (clj/raise (assoc {} :yin.k/message "Lookup invocation requires one key and optional default"
+                              :yin.k/data (assoc {} :argc n)))))]
+    [clj/invoke-source
+     (fn [f args dispatch]
+       (if (data/map? f)
+         (if (if (data/contains? f :yang.call/entry)
+               true
+               (if (= :cell-ref (get f :type)) (cell/authentic? f) false))
+           (dispatch f args [])
+           (clj/dsg__lookup-call f args (data/count args) false))
+         (if (data/vector? f)
+           (let [n (data/count args)]
+             (if (= n 1)
+               (let [i (data/nth args 0)]
+                 (if (data/contains? f i)
+                   (data/nth f i)
+                   (clj/raise (assoc {} :yin.k/message "Invalid vector invocation index"
+                                        :yin.k/data (assoc {} :index i)))))
+               (clj/raise (assoc {} :yin.k/message "Vector invocation requires one index"
+                                    :yin.k/data (assoc {} :argc n)))))
+           (if (kind/keyword? f)
+             (clj/dsg__lookup-call f args (data/count args) true)
+             (if (kind/set? f)
+               (let [n (data/count args)]
+                 (if (= n 1)
+                   (let [x (data/nth args 0)]
+                     (if (data/contains? f (clj/collection-key x)) x nil))
+                   (clj/raise (assoc {} :yin.k/message "Set invocation requires one key"
+                                        :yin.k/data (assoc {} :argc n)))))
+               (clj/raise (yang.call/condition :yang.call/not-callable
+                            (assoc {} :yang.call/callee f))))))))]
+    [clj/dsg__source-policy
+     (fn [tag payload]
+       (clj/raise
+         (assoc {} :yin.k/message
+                   (get {:coll/unsupported-key "Unsupported collection key"
+                         :math/div-zero "Divide by zero"
+                         :math/rem-type "rem requires integer operands"
+                         :int/bit-limit "Integer bit limit exceeded"
+                         :int/digit-limit "Integer digit limit exceeded"
+                         :math/overflow "Integer conversion overflow"}
+                        tag "Unhandled Clojure policy")
+                   :yin.k/data (if (= tag :coll/unsupported-key)
+                                 (assoc {} :key payload)
+                                 payload)
+                   :clj/policy tag)))]
+    ;; The owning Clojure entry supplies a cold default for this task's
+    ;; context. An explicitly installed tagged handler takes precedence.
+    [clj/run-source-unit
+     (fn [body]
+       (let [ctx (clj/rt-ctx)
+             current (cell/get ctx)]
+         (do (clj/dsg__init-source-entries!)
+             (cell/set! ctx (assoc current :on-unhandled-policy clj/dsg__source-policy))
+             (clj/run-unit body))))]])
+
+
 (def bundled-primitive-forms
   "Guest closures can capture each other without capturing a host function."
   '[(fn [coll k default]
@@ -188,7 +312,9 @@
 
 
 (def module-exports
-  (disj (core/exports "clj" definitions) 'dsg__invoke 'dsg__run-body))
+  (into #{}
+        (remove #(str/starts-with? (name %) "dsg__"))
+        (core/exports "clj" (into definitions source-definitions))))
 
 
 (def uast
@@ -207,12 +333,13 @@
    lexical scope. Bundled UAST callers can use the private lookup closure
    to read an invocation record without capturing a host function."
   [& body]
-  (let [shared (u/app (u/lam '[get = assoc + <=] (u/seq-nodes [call/uast effect/uast]))
+  (let [source (core/protect-primitives (core/definitions->uast source-definitions))
+        shared (u/app (u/lam '[get = assoc + <=] (u/seq-nodes [call/uast effect/uast]))
                       (u/v 'dsg__get) (u/v 'dsg__equal) (u/v 'dsg__assoc)
                       (u/v 'dsg__add) (u/v 'dsg__lte))]
     (apply u/app
            (u/lam '[dsg__get dsg__equal dsg__assoc dsg__add dsg__lte]
-                  (u/seq-nodes (into [shared uast (u/app (u/v 'clj/init!))] body)))
+                  (u/seq-nodes (into [shared uast source (u/app (u/v 'clj/init!))] body)))
            (map u/sexp->uast bundled-primitive-forms))))
 
 
@@ -221,11 +348,11 @@
 
 (def bundled-names
   "Bundled runtime store definitions accepted by admission scans."
-  (into (set runtime-keys) (map first) (concat definitions effect/definitions)))
+  (into (set runtime-keys) (map first) (concat definitions source-definitions effect/definitions)))
 
 
 (def module-definitions
-  (core/module-definitions "clj" :clj/uninit runtime-keys definitions))
+  (core/module-definitions "clj" :clj/uninit runtime-keys (into definitions source-definitions)))
 
 
 (def module-uast
@@ -332,7 +459,13 @@
    registry surfaces; a composition without a clojure program reads none
    of them."
   [registry]
-  (let [portable (into {}
+  (let [registry (cond-> registry
+                   (not (module/resolve-module registry 'integer))
+                   (integer/register-integer-module {::integer/max-bits 100000
+                                                     ::integer/max-digits 4300})
+                   (not (module/resolve-module registry 'float))
+                   (float/register-float-module))
+        portable (into {}
                        (map (fn [[source _]]
                               (let [op (symbol (name source))]
                                 [op (outcome-adapter data/refusal-message

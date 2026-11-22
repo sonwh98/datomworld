@@ -470,6 +470,15 @@
    :yin.k/host-state])
 
 
+(def compiler-primitive-aliases
+  "Private primitive names used by bundled runtimes sharing a source store."
+  '{dsg__primitive/get get, dsg__primitive/assoc assoc
+    dsg__primitive/+ +, dsg__primitive/- -, dsg__primitive/< <, dsg__primitive/<= <=
+    dsg__primitive/= =, dsg__primitive/not not, dsg__primitive/nil? nil?
+    dsg__primitive/empty? empty?, dsg__primitive/first first, dsg__primitive/rest rest
+    dsg__primitive/conj conj, dsg__primitive/vec vec})
+
+
 (def primitive-profiles
   "Portable projection of the standard registry, retained as a convenience."
   (into {} (map (fn [[name entry]]

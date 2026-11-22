@@ -18,6 +18,8 @@
             [clojure.tools.reader :as r]
             [clojure.tools.reader.reader-types :as rt]
             [yang.clojure :as yang]
+            [yang.clojure.prelude :as clj-prelude]
+            [yang.core.prelude :as core]
             [yang.clojure-test :as compiler-test]
             [yang.core.call :as call]
             [yang.core.uast :as u]
@@ -25,6 +27,8 @@
             [yin.vm.engine :as engine]
             [yin.vm.test-utils :as tu]
             [yin.vm.data :as data]
+            [yin.vm.float :as float]
+            [yin.vm.integer :as integer]
             [yin.vm.module :as module]
             [yin.vm.encoder :as encoder]
             [yin.vm.ucf.rows :as rows]
@@ -175,6 +179,7 @@
          module/register-stream-module
          module/register-cell-module
          data/register-data-module
+         clj-prelude/admit
          (host-module 'kind kinds yang/kind-arities)
          (host-module 'portable portable
                       (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))
@@ -204,9 +209,9 @@
   "Admission for the portable context module: every variable is a lexical
    binder, declared guest function, or explicitly supplied data primitive."
   [ast program]
-  (let [globals (into '#{yin/def dsg__primitive/get dsg__primitive/assoc
-                              dsg__primitive/+ dsg__primitive/<=}
+  (let [globals (into (conj (core/defined-keys ast) 'yin/def)
                       (concat (keys vm/primitive-profiles)
+                              (keys vm/compiler-primitive-aliases)
                               ;; the continuation lane's clj/ family, emitted
                               ;; inline by compile-program under :outcomes true
                               yang/continuation-family-names
@@ -216,6 +221,8 @@
                               (for [[module exports] {'kind yang/kind-module
                                                       'cell module/cell-module
                                                       'data data/data-module
+                                                      'float float/float-module
+                                                      'integer integer/integer-profiles
                                                       'stream module/stream-module
                                                       'portable (into {} (map (fn [[_ v]] [(symbol (name v)) nil]))
                                                                       yang/library-adapters)}
@@ -251,7 +258,6 @@
   ([forms call-form modules] (run-outcome forms call-form modules false))
   ([forms call-form modules closed?]
    (let [program (into [] (concat forms [call-form]))
-         program (into (yang/library-for program) program)
          ast (yang/compile-program program true arg-vector-opts)
          _ (when closed?
              (let [unbound (unbound-ast-symbols ast program)]
@@ -534,6 +540,8 @@
           (if finite-zip? (second f)
               (throw (ex-info "Only finite utils/zip admits eager lazy-seq adaptation" {})))
           (= f 'fn*) 'fn
+          (= f 'var?) 'kind/var?
+          (= f 'resolve) 'kind/resolve
           (and (symbol? f) (#{"stx" "defenv" "nbe" "norm" "utils" "set"} (namespace f)))
           (symbol (name f))
           :else f))
@@ -635,7 +643,7 @@
         opts (update arg-vector-opts :native into
                      (map (fn [[op profile]] [(symbol "stream" (name op)) profile])
                           module/stream-profiles))]
-    (yang/compile-program (into (yang/library-for program) program) true opts)))
+    (yang/compile-program program true opts)))
 
 
 (defn- finally-oracle-c
@@ -1050,6 +1058,8 @@
                 (list 'vector (list 'symbol (list 'str "G__" prefix '(:counter supply)))
                       '(assoc supply :counter (inc (:counter supply))))))
         (= x 'data/dissoc) 'clojure.core/dissoc
+        (= x 'kind/var?) 'clojure.core/var?
+        (= x 'kind/resolve) 'clojure.core/resolve
         :else x))
     form))
 
@@ -1386,7 +1396,7 @@
   (let [build (list 'let ['base initial-context 'offset 4]
                     '(register-unparser base :captured (fn [term] [(+ offset term) true])))
         forms (conj (context-for [build '(unparse checkpoint 3)]) build)
-        builder (yang/compile-program (into (yang/library-for forms) forms) true arg-vector-opts)
+        builder (yang/compile-program forms true arg-vector-opts)
         mint (u/sexp->uast '(yin/def 'clj.rt/ctx
                                (cell/new (yrt.effect/ctx nil 0 0 nil))))
         invoke (u/app (u/v 'yang.call/invoke) (u/v 'unparse)
@@ -1591,6 +1601,7 @@
             (cond
               (symbol? x) (cond
                             (contains? bound x) x
+                            (= x 'var?) 'kind/var?
                             (#{"set" "clojure.set"} (namespace x)) (symbol (name x))
                             (= "pp" (namespace x)) (symbol "clojure.pprint" (name x))
                             (contains? '{get-in lookup-in not-empty context-not-empty
@@ -1710,6 +1721,12 @@
                   (list (mapv #(clojure.core/symbol (str "p" %)) (range n))
                         (list 'throw (list 'ex-info "Excluded nonportable kernel binding"
                                            {:refusal :nonportable-binding :binding (list 'quote symbol) :reason admission-reason})))) arities))
+    ;; These are classifiers of arbitrary terms. A list is outside the
+    ;; portable key domain even when looking it up in a set of sorts.
+    (and (= ns 'latte_kernel.presyntax) (#{'kind? 'type?} name))
+    (let [[tag sym] (if (= name 'kind?) [:kind '□] [:type '✳])]
+      (list 'defn (kernel-guest-name symbol) '[term]
+            (list 'or (list '= 'term tag) (list '= 'term (list 'quote sym)))))
     (and (= ns 'latte_kernel.defenv) (contains? kernel-context-adapters name))
     (list* 'defn (kernel-guest-name symbol)
            (map (fn [n] (kernel-adapter-clause ns name symbol n)) arities))
@@ -1755,6 +1772,7 @@
             [x]
             (cond
               (and (seq? x) (= 'quote (first x))) x
+              (= x 'var?) 'kind/var?
               (symbol? x) (if (and (namespace x) (str/starts-with? (namespace x) "latte-kernel."))
                             (if (str/starts-with? (name x) "->") (symbol (name x)) (kernel-guest-name x)) x)
               (seq? x) (apply list (map rewrite x))
@@ -2143,7 +2161,7 @@
   [node]
   (when (and (map? node) (= :application (:type node))
              (= :variable (:type (:operator node)))
-             (= 'dsg__invoke_local (:name (:operator node)))
+             (= 'clj/invoke-known (:name (:operator node)))
              (= 4 (count (:operands node)))
              (= {:type :literal :value 'gate-site!} (get-in node [:operands 2]))
              (= {:type :variable :name 'clj/invoke-callable} (get-in node [:operands 3]))
@@ -2160,7 +2178,7 @@
 (defn- kernel-site-arguments
   "The argument expression nodes of one compiled call site: the operand
    vector the argument-vector convention assembles. `node` is either the
-   intra-unit fast path `(dsg__invoke_local f <args> 'f dispatch)` or the routed guest
+   intra-unit fast path `(clj/invoke-known f <args> 'f dispatch)` or the routed guest
    call's arguments binding; the arguments are the elements of the
    constructed vector (a constant :literal, or `(conj [] e1 e2 ...)`),
    with any stamping wrapper already applied to inner expressions
@@ -2178,53 +2196,20 @@
 
 
 (defn- kernel-intra-call?
-  "The compiled shape of one intra-unit guest call under the
-   argument-vector convention: an application of the unit's dispatcher
-   with the callee, argument vector, name, and fallback dispatcher."
+  "The shared clj dispatcher applied to a named guest call."
   [node]
   (and (= :application (:type node))
        (= :variable (:type (:operator node)))
-       (= 'dsg__invoke_local (:name (:operator node)))
+       (= 'clj/invoke-known (:name (:operator node)))
        (= 4 (count (:operands node)))))
 
 
-(defn- kernel-routing?
-  "True when `node` mentions the admission routing's own vocabulary —
-   the dispatcher predicate or the invocation transfer — distinguishing
-   a compiled guest call's routing from an ordinary nested let (the two
-   share the let-lowering shape)."
-  [node]
-  (letfn [(any?
-            [n]
-            (or (and (map? n) (= :variable (:type n))
-                     (contains? '#{clj/invoke-callable dsg__tail_invoke}
-                                (:name n)))
-                (and (coll? n) (some any? n))))]
-    (boolean (any? node))))
-
-
 (defn- kernel-routed-call?
-  "The compiled shape of one non-intra guest call: the admission routing
-   binds the evaluated callee, then the evaluated argument vector, then
-   routes. Returns the routing's arguments binding node, or nil for any
-   other let-shaped chain: the arguments binding must carry a real
-   argument-vector construction (a constant or a conj application)."
+  "An argument-vector invocation with a value determined at runtime."
   [node]
-  (when (and (= :application (:type node))
-             (= :lambda (:type (:operator node)))
-             (= '[dsg__callee] (:params (:operator node)))
-             (= 1 (count (:operands node)))
-             (map? (:body (:operator node))))
-    (let [inner (:body (:operator node))]
-      (when (and (= :application (:type inner))
-                 (= :lambda (:type (:operator inner)))
-                 (= '[dsg__arguments] (:params (:operator inner)))
-                 (= 1 (count (:operands inner)))
-                 (kernel-routing? (:body (:operator inner)))
-                 (or (= :literal (:type (first (:operands inner))))
-                     (and (map? (first (:operands inner)))
-                          (kernel-site-arguments (first (:operands inner))))))
-        inner))))
+  (and (= :application (:type node))
+       (= {:type :variable :name 'clj/invoke-source} (:operator node))
+       (= 3 (count (:operands node)))))
 
 
 (defn- kernel-resolve-site-arg
@@ -2310,7 +2295,7 @@
                   ;; The stamped call runs after argument evaluation and
                   ;; returns the argument vector as a plain value.
                   {:type :application
-                   :operator {:type :variable :name 'dsg__invoke_local}
+                   :operator {:type :variable :name 'clj/invoke-known}
                    :operands [{:type :variable :name 'gate-site!}
                               {:type :application
                                :operator {:type :variable :name 'conj}
@@ -2346,22 +2331,17 @@
                        (assoc-in node [:operands 1]
                                  (stamp walked-args (:name callee) def-name scope params)))
 
-                     ;; The admission routing binds the evaluated callee and
-                     ;; arguments. The stamp can use the original operator.
-                     (and (= :application t) (kernel-routed-call? node))
-                     (let [inner (kernel-routed-call? node)
-                           callee (first (:operands node))
-                           known-name (when (= :variable (:type callee)) (:name callee))
-                           args (first (:operands inner))
-                           args (walk args def-name scope params)
-                           recorded (if (contains? instrumented known-name)
-                                      known-name
-                                      :dynamic)]
-                       (-> node
-                           (assoc-in [:operator :body :operands]
-                                     [(stamp args recorded def-name scope params)])
-                           (update :operands (fn [ops]
-                                               (mapv #(walk % def-name scope params) ops)))))
+                     ;; Preserve callee and argument evaluation order. The
+                     ;; stamp runs just before the runtime routes the call.
+                     (kernel-routed-call? node)
+                     (let [[callee args dispatch] (:operands node)
+                           walked-callee (walk callee def-name scope params)
+                           walked-args (walk args def-name scope params)
+                           name (when (= :variable (:type callee)) (:name callee))
+                           recorded (if (contains? instrumented name) name :dynamic)]
+                       (assoc node :operands [walked-callee
+                                             (stamp walked-args recorded def-name scope params)
+                                             dispatch]))
 
                      ;; let-lowering: a one-param lambda applied to one
                      ;; operand binds that parameter to the operand's
@@ -2573,7 +2553,6 @@
          program (into (into ['(def gate-execution-trace (stream/make 1000000))]
                              kernel-site-prelude)
                        (concat (map kernel-trace-form forms) [call]))
-         program (into (yang/library-for program) program)
          opts (update arg-vector-opts :native into
                       (map (fn [[op profile]] [(clojure.core/symbol "stream" (name op)) profile])
                            module/stream-profiles))
@@ -3886,13 +3865,7 @@
                              (comp (filter (fn [[_ node]]
                                              (= :application (:type node))))
                                    (keep (fn [[path node]]
-                                           (let [direct (cc3-stamp-site-id
-                                                          (second (:operands node)))
-                                                 inner (kernel-routed-call? node)
-                                                 routed (when inner
-                                                          (cc3-stamp-site-id
-                                                            (first (:operands inner))))]
-                                             (when-let [k (or direct routed)]
+                                           (when-let [k (cc3-stamp-site-id (second (:operands node)))]
                                                (let [pre-path (get correspondence
                                                                    path
                                                                    ::unmapped)]
@@ -3909,7 +3882,7 @@
                                                               {:rule :cc3-stamp-correspondence
                                                                :site k
                                                                :key key})))
-                                                   [k path key])))))))
+                                               [k path key]))))))
                              (cc3-walk (:ast compiled) [] []))
           _ (when (not= (count site-entries)
                         (count (into #{} (map first site-entries))))
@@ -3984,7 +3957,7 @@
       (testing "post-transformation coverage: the stamped tree as executed (item 5)"
         ;; independently derived inserted helpers: each stamped site
         ;; wraps its argument node in two new applications
-        ;; (dsg__invoke_local, conj) — applications of the
+        ;; (clj/invoke-known, conj) — applications of the
         ;; stamped tree that are not C1 occurrences of the compiled
         ;; program, accounted for here as their own set
         (let [wrapper-paths (into #{}
@@ -4100,7 +4073,7 @@
   (let [lit (fn [v] {:type :literal :value v})
         var* (fn [n] {:type :variable :name n})
         app (fn [op ops] {:type :application :operator op :operands ops})
-        intra (fn [f args] (app (var* 'dsg__invoke_local) [(var* f) args (lit f) (var* 'clj/invoke-callable)]))
+        intra (fn [f args] (app (var* 'clj/invoke-known) [(var* f) args (lit f) (var* 'clj/invoke-callable)]))
         conj-args (fn [& xs] (app (var* 'conj) (into [(lit [])] xs)))
         inner (intra 'f (conj-args (lit 41)))
         outer (intra 'g (conj-args inner (lit 7)))
@@ -4138,7 +4111,7 @@
   (let [lit (fn [v] {:type :literal :value v})
         var* (fn [n] {:type :variable :name n})
         app (fn [op ops] {:type :application :operator op :operands ops})
-        intra (fn [f args] (app (var* 'dsg__invoke_local) [(var* f) args (lit f) (var* 'clj/invoke-callable)]))
+        intra (fn [f args] (app (var* 'clj/invoke-known) [(var* f) args (lit f) (var* 'clj/invoke-callable)]))
         conj-args (fn [& xs] (app (var* 'conj) (into [(lit [])] xs)))
         inner (intra 'f (conj-args (lit 41)))
         outer (intra 'g (conj-args inner (lit 7)))

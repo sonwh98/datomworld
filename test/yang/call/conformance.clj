@@ -28,8 +28,11 @@
   (:require
     [clojure.string :as str]
     [yang.clojure :as clj-comp]
+    [yang.clojure.core-impl :as clj-impl]
+    [yang.clojure.core-module :as clj-core]
     [yang.clojure.prelude :as clj-prelude]
     [yang.rt.effect :as effect]
+    [yang.rt.int :as int-rt]
     [yang.core.module :as core-module]
     [yang.core.names :as names]
     [yang.core.uast :as u]
@@ -83,9 +86,21 @@
   "`clj` published beside `js`, `php` and `py`, over the same host registry
    and `yang.call` revision."
   (delay (publish-guest!
-           (clj-prelude/module-spec (h/registry)
+           (clj-prelude/module-spec (clj-prelude/admit (h/registry))
                                     (:call-address @h/published)
                                     (:address @published-effect)))))
+
+
+(def ^:private published-clj-core
+  (delay
+    (let [registry (clj-prelude/admit (h/registry))
+          int-address (:address (publish-guest! (int-rt/module-spec registry (:address @published-effect))))
+          clj-address (:address @published-clj)
+          impl-address (:address (publish-guest!
+                                   (clj-impl/module-spec registry (:call-address @h/published)
+                                                         clj-address int-address)))
+          core-address (:address (publish-guest! (clj-core/module-spec registry clj-address impl-address)))]
+      {'yrt.int int-address 'clojure.core.impl impl-address 'clojure.core core-address})))
 
 
 (defn- parse-ok
@@ -172,7 +187,8 @@
    {:runtime 'clj,
     :address #(:address @published-clj),
     :refusal [:yang.clojure/refusal :yang.clojure/undeclared-free],
-    :deps (fn [] {'yang.call (:call-address @h/published)}),
+    :deps (fn [] {'yang.call (:call-address @h/published)
+                  'clojure.core (get @published-clj-core 'clojure.core)}),
     :parse clj-comp/read-forms,
     :unit (fn [packet exports] (clj-comp/lower-unit packet exports)),
     :run-main 'clj/run-main,
@@ -292,13 +308,14 @@
 (defn link-source
   "The serving composition naming the runtimes and the donor module."
   [{:keys [module address]}]
-  (h/source {'yang.call (:call-address @h/published),
-             'js (:address @h/published),
-             'php (:address @published-php),
-             'py (:address @published-py),
-             'clj (:address @published-clj),
-             'yrt.effect (:address @published-effect),
-             module address}))
+  (h/source (into @published-clj-core
+                  {'yang.call (:call-address @h/published),
+                   'js (:address @h/published),
+                   'php (:address @published-php),
+                   'py (:address @published-py),
+                   'clj (:address @published-clj),
+                   'yrt.effect (:address @published-effect),
+                   module address})))
 
 
 (defn run-program

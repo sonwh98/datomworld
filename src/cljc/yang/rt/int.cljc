@@ -20,16 +20,22 @@
            (if (= res :yin.vm.integer/float-overflow)
              (on-float res)
              res))))]
-    [yrt.int/_unhandled
-     (fn [tag payload] (:yrt.int/unhandled-policy tag payload))]
+    [yrt.int/_perform
+     (fn [ctx-cell tag res]
+       (yrt.effect/perform ctx-cell tag res
+         (fn [tag payload]
+           (let [handler (get (cell/get ctx-cell) :on-unhandled-policy)]
+             (if (= handler nil)
+               (:yrt.int/unhandled-policy tag payload)
+               (handler tag payload))))))]
     [yrt.int/check-limit
      (fn [ctx-cell res]
        (if (= res :yin.vm.integer/bit-limit)
-         (yrt.effect/perform ctx-cell :int/bit-limit res yrt.int/_unhandled)
+         (yrt.int/_perform ctx-cell :int/bit-limit res)
          (if (= res :yin.vm.integer/digit-limit)
-           (yrt.effect/perform ctx-cell :int/digit-limit res yrt.int/_unhandled)
+           (yrt.int/_perform ctx-cell :int/digit-limit res)
            (if (= res :yin.vm.integer/float-overflow)
-             (yrt.effect/perform ctx-cell :math/overflow res yrt.int/_unhandled)
+             (yrt.int/_perform ctx-cell :math/overflow res)
              res))))]
     [yrt.int/wrap-unsigned
      (fn [x width-pow2 mask]

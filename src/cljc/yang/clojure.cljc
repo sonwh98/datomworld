@@ -35,7 +35,9 @@
                 :cljs [[cljs.tools.reader :as treader]
                        [cljs.tools.reader.reader-types :as rt]])
             [dao.jing :as jing]
+            [yang.clojure.core-module :as core-module]
             [yang.clojure.prelude :as prelude]
+            [yang.core.prelude :as core]
             [yang.core.uast :as u]
             [yang.tails :as tails]
             [yin.vm :as vm]))
@@ -362,9 +364,15 @@
                    (into [] (mapcat :children)
                          (sort-by :sort-key jing/canonical-compare
                                   (:records sorted-children))))
-        call {:type :application,
-              :operator {:type :variable, :name op},
-              :operands (into [{:type :literal, :value seed}] operands)}]
+        ;; A source assoc can shadow normal calls without capturing the
+        ;; compiler's map constructors (including exception payloads).
+        shadowed-map? (and (::outcomes env) (= op 'assoc)
+                           (or (contains? (::defined env) op)
+                               (contains? (::locals env) op)))
+        call (if shadowed-map?
+               (u/app (u/v 'clj/construct-map)
+                      (apply u/app (u/v 'conj) (u/lit []) operands))
+               (apply u/app (u/v op) (u/lit seed) operands))]
     (cond-> call tail? (assoc :tail? true))))
 
 
@@ -448,8 +456,6 @@
   (when-let [hit (and (::convention env) (some #{'conj 'vec} names))]
     (throw (ex-info (str "Binding " hit " would capture the argument-vector constructor")
                     {:names names})))
-  (when (and (::invoker env) (some #{'invoke-value} names))
-    (throw (ex-info "Binding invoke-value would capture the guest collection invoker" {:names names})))
   (assoc env ::locals (into (locals env) (remove #(= '& %)) names)))
 
 
@@ -526,8 +532,8 @@
 
 
 (defn- first-form
-  [cursor meta-map]
-  (cond-> (list 'first cursor)
+  [cursor meta-map env]
+  (cond-> (list (if (::outcomes env) 'clj/cursor-first 'first) cursor)
     meta-map (with-meta meta-map)))
 
 
@@ -536,9 +542,7 @@
   ;; Parameter and loop destructuring can be emitted after outcome lowering.
   ;; Keep their cursors raw vectors even when the guest library defines rest
   ;; with the argument-vector/outcome convention.
-  (cond-> (if (contains? (::defined env) 'rest)
-            (list 'data/subvec (list 'vec cursor) (list 'if (list 'empty? cursor) 0 1))
-            (list 'rest cursor))
+  (cond-> (list (if (::outcomes env) 'clj/cursor-rest 'rest) cursor)
     meta-map (with-meta meta-map)))
 
 
@@ -570,7 +574,7 @@
                    (-> out (conj sub form) (into (destructure-sequential b sub sub-path env))))
                  (conj out b form)))
         out (reduce (fn [out [i b]]
-                      (cond-> (bind out b (first-form (cursor i) m) (str path "_" i))
+                      (cond-> (bind out b (first-form (cursor i) m env) (str path "_" i))
                         (or (< (inc i) n) (not= ::none rest))
                         (conj (cursor (inc i)) (rest-form (cursor i) m env))))
                     []
@@ -861,6 +865,19 @@
   8)
 
 
+(defn- core-source-name [env sym]
+  (when (and (::outcomes env)
+             (symbol? sym)
+             (not (contains? (locals env) sym))
+             (not (contains? (::defined env) sym)))
+    (let [name (case (namespace sym)
+                 nil sym
+                 "clojure.core" (symbol (name sym))
+                 nil)]
+      (when (contains? core-module/source-names name)
+        name))))
+
+
 (defn- native-name?
   "True when `sym` statically names a primitive or host-module export."
   [env sym]
@@ -868,6 +885,7 @@
     (and (symbol? sym)
          (not (contains? (locals env) sym))
          (not (contains? (::defined env) sym))
+         (not (core-source-name env sym))
          (or (some? (namespace sym))
              (contains? (:native conv) sym)))))
 
@@ -1109,16 +1127,14 @@
 
 
 (defn- compile-call-descriptor
-  "Publish a private argument-vector body through the clj entry boundary.
-   A named definition can also register its body for direct calls in its unit."
+  "Publish a private argument-vector body through the clj entry boundary."
   ([body-ast tail?] (compile-call-descriptor body-ast tail? nil))
-  ([body-ast tail? local-name]
-   (let [meta (cond-> {:clj/type :function}
-                (= 2 (count (:params body-ast))) (assoc :clj/tail-call? true))
-         constructor (if local-name
-                       (u/app (u/v 'dsg__make_local) (u/lit local-name) (u/lit meta) body-ast)
-                       (u/app (u/v 'clj/make-callable) (u/lit meta) body-ast))]
-     (cond-> constructor
+  ([body-ast tail? known-name]
+   (let [meta (u/lit (cond-> {:clj/type :function}
+                       (= 2 (count (:params body-ast))) (assoc :clj/tail-call? true)))]
+     (cond-> (if known-name
+               (u/app (u/v 'clj/make-source-callable) (u/lit known-name) meta body-ast)
+               (u/app (u/v 'clj/make-callable) meta body-ast))
        tail? (assoc :tail? true)))))
 
 
@@ -1142,9 +1158,7 @@
          body (cond-> body
                 @tail-call? (update :params conj 'dsg__tail_invoke))]
      (if (outcomes? env)
-       (compile-call-descriptor body tail?
-                                (when (contains? (::local-fns env) fn-name)
-                                  (strip-symbol-meta fn-name)))
+       (compile-call-descriptor body tail? (get (::defns env) fn-name))
        (cond-> body tail? (assoc :tail? true))))))
 
 
@@ -1199,42 +1213,6 @@
        (not (contains? (::defined env) operator))))
 
 
-(defn- cell-ref-shaped-node
-  "The UAST pre-filter for WHEN to ask the heap about a callee: the
-   callee could be a cell reference the VM issued — `:type :cell-ref`
-   with the `:id` and `:seal` every issued reference carries, no other
-   entries, a seal of the issued form (a 64-character string). The
-   shape never decides meaning (ruling of record, rule 2): a map
-   passing it is only worth asking about, and the `cell/authentic?`
-   query emitted beside it answers. Any `:id` spelling may name a
-   cell, so the r4 heap-id-language discriminator is retired — the
-   minted `:cell-N` restriction was itself a value-shape guess the
-   issuer never certified. A map that fails this pre-filter is never
-   asked and never dereferenced: it routes to ordinary map
-   invocation, which grants no cell capability."
-  [callee]
-  (let [seal (u/app (u/v 'clj/prim-get) callee (u/lit :seal))]
-    (u/if-node (u/app (u/v 'data/content=)
-                      (u/app (u/v 'clj/prim-get) callee (u/lit :type))
-                      (u/lit :cell-ref))
-               (u/if-node (u/app (u/v 'data/contains?) callee (u/lit :id))
-                          (u/if-node (u/app (u/v 'data/contains?) callee (u/lit :seal))
-                                     (u/if-node (u/app (u/v 'data/content=)
-                                                       (u/app (u/v 'data/count) callee)
-                                                       (u/lit 3))
-                                                (u/if-node (u/app (u/v 'data/string?) seal)
-                                                           (u/if-node (u/app (u/v 'data/content=)
-                                                                             (u/app (u/v 'data/str-length) seal)
-                                                                             (u/lit 64))
-                                                                      (u/lit true)
-                                                                      (u/lit false))
-                                                           (u/lit false))
-                                                (u/lit false))
-                                     (u/lit false))
-                          (u/lit false))
-               (u/lit false))))
-
-
 (defn- guest-call-dispatch
   [env tail?]
   (u/v (if-let [used? (when tail? (::tail-call? env))]
@@ -1242,40 +1220,24 @@
          'clj/invoke-callable)))
 
 
-(defn- guest-call-routing
-  [callee arguments dispatch env]
-  (let [invoke (u/app dispatch callee arguments (u/lit []))]
-    ;; A descriptor-shaped map must pass callable admission. Ordinary
-    ;; data invocation is the library invoker's responsibility.
-    (if (::invoker env)
-      (u/if-node
-        (u/if-node (u/app (u/v 'data/map?) callee)
-                   (u/if-node (u/app (u/v 'data/contains?) callee
-                                    (u/lit :yang.call/entry))
-                              (u/lit true)
-                              (u/if-node (cell-ref-shaped-node callee)
-                                         (u/app (u/v 'cell/authentic?) callee)
-                                         (u/lit false)))
-                   (u/lit false))
-        invoke
-        (u/app dispatch (u/v 'invoke-value)
-               (u/app (u/v 'conj) (u/lit []) callee arguments)
-               (u/lit [])))
-      invoke)))
-
-
 (defn- compile-guest-call
-  "Route source calls through clj's invoking boundary."
-  [callee-ast arguments-ast env tail?]
-  (if-not (outcomes? env)
-    (cond-> (u/app callee-ast arguments-ast)
-      tail? (assoc :tail? true))
-    (let [callee (u/v 'dsg__callee)
-          arguments (u/v 'dsg__arguments)
-          routed (guest-call-routing callee arguments (guest-call-dispatch env tail?) env)]
-      (cond-> (u/mark-tails (u/let1 (:name callee) callee-ast
-                                    (u/let1 (:name arguments) arguments-ast routed)))
-        tail? (assoc :tail? true)))))
+  "Route argument-vector calls through the clj invocation boundary."
+  [operator arguments-ast env tail? macro-env]
+  (let [callee (compile-form operator false env macro-env)]
+    (if-not (outcomes? env)
+      (cond-> (u/app callee arguments-ast)
+        tail? (assoc :tail? true))
+      (let [dispatch (guest-call-dispatch env tail?)
+            known (if-let [source-name (core-source-name env operator)]
+                    (core-module/entry-key source-name)
+                    (when (and (contains? (::defns env) operator)
+                               (not (contains? (locals env) operator)))
+                      (strip-symbol-meta operator)))]
+        (cond-> (cond
+                  known (u/app (u/v 'clj/invoke-known) callee arguments-ast (u/lit known) dispatch)
+                  (native-name? env operator) (u/app dispatch callee arguments-ast (u/lit []))
+                  :else (u/app (u/v 'clj/invoke-source) callee arguments-ast dispatch))
+          tail? (assoc :tail? true))))))
 
 
 (defn- compile-apply
@@ -1289,12 +1251,12 @@
   (let [[f & more] operands
         lead (vec (butlast more))
         coll-form (list 'vec (last more))]
-    (compile-guest-call (compile-form f false env macro-env)
+    (compile-guest-call f
                         (compile-form (if (seq lead)
                                         (list 'data/into lead coll-form)
                                         coll-form)
                                       false env macro-env)
-                        env tail?)))
+                        env tail? macro-env)))
 
 
 (defn- compile-av-application
@@ -1351,16 +1313,6 @@
                        (map compile-operand operands)))
         tail? (assoc :tail? true)))
 
-    (and (symbol? operator)
-         (contains? (::local-fns env) operator)
-         (not (contains? (locals env) operator)))
-    (cond-> (u/app (u/v 'dsg__invoke_local)
-                   (compile-form operator false env macro-env)
-                   (compile-form (vec operands) false env macro-env)
-                   (u/lit (strip-symbol-meta operator))
-                   (guest-call-dispatch env tail?))
-      tail? (assoc :tail? true))
-
     ;; A native lookup projects a carrier only for observation. The original
     ;; reference remains available for saving or rethrowing.
     (native-name? env operator)
@@ -1385,9 +1337,8 @@
 
     ;; anything else: one guest invocation, in tail position when the call is
     :else
-    (compile-guest-call (compile-form operator false env macro-env)
-                        (compile-form (vec operands) false env macro-env)
-                        env tail?)))
+    (compile-guest-call operator (compile-form (vec operands) false env macro-env)
+                        env tail? macro-env)))
 
 
 (defn compile-application
@@ -1797,11 +1748,15 @@
     ;; The empty list is self-evaluating data, not an application
     (and (seq? form) (empty? form)) (compile-literal form tail?)
     ;; Variables (symbols)
-    (symbol? form) (if (native-name? env form)
-                     (if (outcomes? env)
-                       (compile-call-descriptor (compile-adapter form env false macro-env) tail?)
-                       (compile-adapter form env tail? macro-env))
-                     (compile-variable form tail?))
+    (symbol? form) (if-let [source-name (core-source-name env form)]
+                     (cond-> (u/app (u/v (core-module/accessor-name source-name)))
+                       (seq (meta form)) (with-meta (meta form))
+                       tail? (assoc :tail? true))
+                     (if (native-name? env form)
+                       (if (outcomes? env)
+                         (compile-call-descriptor (compile-adapter form env false macro-env) tail?)
+                         (compile-adapter form env tail? macro-env))
+                       (compile-variable form tail?)))
     ;; Special forms and function application
     (seq? form)
     (let [[operator & operands] form]
@@ -1913,17 +1868,22 @@
        (annotate-call-sites (compile-form-1 form tail? env macro-env))))))
 
 
-(defn- local-fn-names
-  "Names defined by this unit's own defn forms. With expander-side
-   macros the compiler cannot identify the unit's definitions."
+(defn- program-defns
+  "Names whose source definitions always create functions. Macros may
+   introduce or redefine bindings after lowering."
   [forms macros]
   (when-not (or (seq macros)
                 (some #(and (seq? %) (= 'defmacro (first %))) forms))
-    (into #{}
-          (comp (filter #(and (seq? %) (#{'defn 'defn-} (first %))
-                             (symbol? (second %))))
-                (map (comp strip-symbol-meta second)))
-          forms)))
+    (let [values (into #{} (keep (fn [form]
+                                  (when (and (seq? form) (= 'def (first form)))
+                                    (second form))))
+                       forms)]
+      (into #{}
+            (comp (filter #(and (seq? %) (#{'defn 'defn-} (first %))
+                               (symbol? (second %))))
+                  (map (comp strip-symbol-meta second))
+                  (remove values))
+            forms))))
 
 
 (defn- program-env
@@ -1950,7 +1910,8 @@
                                                (contains? #{'def 'defn 'defn- 'defmacro} (first f))
                                                (symbol? (second f)))
                                       (strip-symbol-meta (second f)))))
-                            forms)]
+                            forms)
+              defined (into defined (:projected-names opts))]
           ;; the compiler emits bare conj and vec (collection literals, apply),
           ;; so a program definition of either would capture them
           (when-let [hit (first (filter #{'conj 'vec} defined))]
@@ -1967,12 +1928,9 @@
                                                           [sym a])))
                                                 (when (map? (:native opts)) (:native opts)))
                                  :macros (set (:macros opts))}
-                   ::defined defined
-                   ::invoker (boolean (some #(and (seq? %) (= 'defn (first %))
-                                                  (= 'invoke-value (second %))
-                                                  (:yin.k/invoker (meta (second %)))) forms))}
+                   ::defined defined}
             (:outcomes opts) (assoc ::outcomes {:adapters (or (:adapters opts) {})}
-                                    ::local-fns (local-fn-names forms (:macros opts))))))))
+                                    ::defns (program-defns forms (:macros opts))))))))
 
 
 (defn- check-program-symbols!
@@ -2011,48 +1969,25 @@
     (lower-function-body env macro-env [] [form])))
 
 
-(def ^:private local-call-runtime
-  ;; Both lexical helpers share a task-owned table of this unit's definitions.
-  ;; Reuse the caller's clj context when the callable matches the definition
-  ;; we just installed. A redefinition or cell edit takes the normal route.
-  '[(fn [name meta body]
-      (let [owner (clj/make-callable meta body)
-            descriptor (cell/get owner)
-            local-entry (if (clj/prim-get meta :clj/tail-call?)
-                          (fn [args] (body args clj/invoke-callable))
-                          body)]
-        (do (cell/set! dsg__local_fns
-              (clj/prim-assoc (cell/get dsg__local_fns) name
-                (conj [] owner descriptor local-entry)))
-            owner)))
-    (fn [callee args name dispatch]
-      (let [registered (clj/prim-get (cell/get dsg__local_fns) name)]
-        (if (if registered
-              (if (data/content= (data/nth registered 0) callee)
-                (data/content= (data/nth registered 1) (cell/get callee))
-                false)
-              false)
-          ((data/nth registered 2) args)
-          (dsg__invoke_dynamic callee args dispatch))))])
-
-
 (defn- with-runtime
-  "Wrap a unit in its clj entry boundary and install the bundled runtime."
-  [ast linked? env]
-  (let [ast (if (seq (::local-fns env))
-              (u/let1 'dsg__local_fns (u/sexp->uast '(cell/new {}))
-                (u/let1 'dsg__invoke_dynamic
-                  (u/lam '[callee args dispatch]
-                         (guest-call-routing (u/v 'callee) (u/v 'args) (u/v 'dispatch) env))
-                  (apply u/app (u/lam '[dsg__make_local dsg__invoke_local] ast)
-                         (map u/sexp->uast local-call-runtime))))
-              ast)
-        unit (u/app (u/v 'clj/run-unit) (u/lam [] ast))
-        helpers (u/let1 'dsg__ex_message (u/sexp->uast ex-message-form)
-                        (u/let1 'dsg__ex_data (u/sexp->uast ex-data-form) unit))]
-    (if linked?
-      helpers
-      (prelude/with-bundled-runtime helpers))))
+  "Wrap a unit in its clj entry boundary and initialize the needed core exports."
+  [ast linked?]
+  (let [core-names (core-module/referenced-exports (core/free-names ast))
+        body (u/let1 'dsg__ex_message (u/sexp->uast ex-message-form)
+               (u/let1 'dsg__ex_data (u/sexp->uast ex-data-form) ast))
+        unit (u/app (u/v 'clj/run-source-unit) (u/lam [] body))]
+    (cond
+      (and linked? (seq core-names))
+      (u/seq-nodes [(u/sexp->uast '(require 'clojure.core))
+                    (u/app (u/v 'clojure.core/init!))
+                    unit])
+
+      linked? unit
+
+      (seq core-names)
+      (prelude/with-bundled-runtime (core-module/bundled-uast core-names) unit)
+
+      :else (prelude/with-bundled-runtime unit))))
 
 
 (defn compile-program
@@ -2121,421 +2056,15 @@
                        tail? (assoc :tail? true))))))]
        (annotate-call-sites
          (cond->> (go forms initial-macro-env)
-           (outcomes? env) (#(with-runtime % (:linked-runtime opts) env))
+           (outcomes? env) (#(with-runtime % (:linked-runtime opts)))
            (outcomes? env) tails/remark-tails))))))
 
-
-;; =============================================================================
-;; The guest collection and higher-order library (slice 7)
-;; =============================================================================
-;;
-;; Guest-side source, compiled through this compiler like any program: the
-;; functions that invoke guest closures (map, filter, reduce, comp, partial)
-;; must run on the VM, never on the host, because a closure is a VM value. It
-;; is written for the argument-vector convention with the outcome model, so a
-;; closure it calls is unwrapped by the compiler's own early-return pattern
-;; and a closure's failure ends the library function with the same outcome.
-;;
-;; What is derived, from the VM primitives and the `data` module only:
-;; identity, inc/dec, second, the collection predicates (coll?/vector?/map?/
-;; set?/seq?/list?/sequential?, from the `data/*` and `kind/*` host
-;; predicates), boolean?,
-;; fn? (data/callable?), seq, rem, reverse, list, cons, vector, count,
-;; contains?, rest, map/mapv/filter/remove/reduce (with reduced)/into/concat/merge,
-;; keys/vals/disj and set union/difference,
-;; comp, partial, gensym (explicit supply), not=, and `apply`, which is a
-;; compiler intrinsic over the convention's argument vector.
-;;
-;; What stays a host primitive, named by the `kind` module: a symbol, a
-;; keyword and a host string are distinguished or built only by the host
-;; (symbol?, keyword?, name, symbol, keyword, str, int?), as is metadata access
-;; (meta and with-meta). The current data ABI has no metadata-write export,
-;; so with-meta is an explicit pure representation seam, not an ambient store.
-;; No VM primitive tells a symbol from a keyword. Clojure Var identity is an
-;; explicitly admitted kind/var? seam on the JVM; namespace lookup (resolve)
-;; still requires a separately installed host capability.
-;;
-;; Known compromises: `reduced` is an untyped tagged map, so reduced? matches
-;; any map holding :yin.k/reduced true; seq refuses a non-collection (a string
-;; is the data module's str-* ops, not a seq); eager sequences are lists;
-;; rem rejects non-integers and a zero divisor before arithmetic; the compiler
-;; emits bare conj and vec, so a program may not define or bind either.
-;; When collection calls are needed, invoke-value is a library helper whose
-;; local capture is refused explicitly.
-;;
-;; Variadic Clojure functions are fixed-arity here (the convention has no
-;; variadic parameter): str, list and vector admit 0 to 6 arguments, concat and
-;; merge 0 to 4, union 0 to 6, difference 2, comp 0 to 3, partial binds 1 to 3.
-;; A larger count is the
-;; function's own arity error.
 
 (def library-adapters prelude/library-adapters)
 
 (def kind-module prelude/kind-module)
 
 (def kind-arities prelude/kind-arities)
-
-
-(def library
-  "The library's definitions, in order, as quoted source."
-  '[(defn identity
-      [x]
-      x)
-    (defn inc
-      [x]
-      (+ x 1))
-    (defn dec
-      [x]
-      (- x 1))
-    (defn second
-      [x]
-      (first (rest x)))
-    (defn not=
-      [a b]
-      (not (= a b)))
-    (defn boolean?
-      [x]
-      (or (= x true) (= x false)))
-    (defn fn?
-      [x]
-      (if (data/callable? x) true (yang.call/eligible? x)))
-    (defn ^:yin.k/invoker invoke-value
-      [f args]
-      (cond
-        (vector? f) (if (= 1 (count args)) (nth f (first args))
-                        (throw (ex-info "Vector invocation requires one index" {:argc (count args)})))
-        (or (map? f) (keyword? f))
-        (if (<= 1 (count args) 2)
-          (if (keyword? f) (get (first args) f (second args))
-              (get f (first args) (second args)))
-          (throw (ex-info "Lookup invocation requires one key and optional default" {:argc (count args)})))
-        (set? f) (if (= 1 (count args))
-                   (if (contains? f (first args)) (first args) nil)
-                   (throw (ex-info "Set invocation requires one key" {:argc (count args)})))
-        ;; Everything unsupported - a scalar, a raw closure the convention
-        ;; never published, a forged shape that slipped past the call-site
-        ;; routing - refuses as the admission path would. No apply here: a
-        ;; guest apply would re-enter the call-site dispatcher and recurse.
-        ;; This is a SOURCE-LEVEL throw of an UNMARKED condition-shaped map
-        ;; (codex ruling 1794332020000): the value path has no raise exit, so
-        ;; the crossing boundary wraps it per §8.10.7 into a NEW
-        ;; :yang.call/thrown condition and authenticates THAT outer condition
-        ;; with the compiler-held token. The library neither stamps nor can
-        ;; stamp the inner map (codex: "the library does not cause the inner
-        ;; map to be stamped").
-        :else (throw (yang.call/condition :yang.call/not-callable {:yang.call/callee f}))))
-    (defn update
-      ([m k f] (assoc m k (f (get m k))))
-      ([m k f a] (assoc m k (f (get m k) a)))
-      ([m k f a b] (assoc m k (f (get m k) a b)))
-      ([m k f a b c] (assoc m k (f (get m k) a b c))))
-    (defn count
-      [x]
-      (data/count x))
-    (defn contains?
-      [coll k]
-      (data/contains? coll k))
-    (defn symbol?
-      [x]
-      (kind/symbol? x))
-    (defn keyword?
-      [x]
-      (kind/keyword? x))
-    (defn int?
-      [x]
-      (kind/int? x))
-    (defn meta
-      [x]
-      (kind/meta x))
-    (defn name
-      [x]
-      (kind/name x))
-    (defn var?
-      [x]
-      (kind/var? x))
-    (defn resolve
-      [x]
-      (kind/resolve x))
-    (defn symbol
-      ([n] (kind/symbol n))
-      ([ns n] (kind/symbol ns n)))
-    (defn keyword
-      ([n] (kind/keyword n))
-      ([ns n] (kind/keyword ns n)))
-    (defn str
-      ([] "")
-      ([a] (kind/str a))
-      ([a b] (kind/str a b))
-      ([a b c] (kind/str a b c))
-      ([a b c d] (kind/str a b c d))
-      ([a b c d e] (kind/str a b c d e))
-      ([a b c d e f] (kind/str a b c d e f)))
-    ;; A supply is immutable data. The caller must retain the returned supply;
-    ;; there is deliberately no ambient one-argument prefix allocator.
-    (defn fresh-symbol
-      [supply prefix]
-      [(kind/symbol (kind/str "G__" prefix (:counter supply)))
-       (assoc supply :counter (+ (:counter supply) 1))])
-    (defn gensym
-      ([n] (if (int? n)
-             (kind/symbol (kind/str "G__" n))
-             (throw (ex-info "gensym requires an explicit fresh-name supply"
-                             {:prefix n :required 'fresh-symbol}))))
-      ([prefix n] (if (map? prefix) (fresh-symbol prefix n)
-                      (kind/symbol (kind/str prefix n)))))
-    (defn last
-      [coll]
-      (if (empty? coll) nil
-          (loop [s coll]
-            (if (empty? (rest s)) (first s) (recur (rest s))))))
-    (defn butlast
-      [coll]
-      (loop [s coll acc []]
-        (if (empty? s) (seq acc)
-            (if (empty? (rest s)) (seq acc)
-                (recur (rest s) (conj acc (first s)))))))
-    (defn nth
-      ([coll n] (if (nil? coll) nil (data/nth (vec coll) n)))
-      ([coll n missing] (if (and (int? n) (<= 0 n) (< n (count coll)))
-                          (data/nth (vec coll) n) missing)))
-    (defn string?
-      [x]
-      (data/string? x))
-    (defn with-meta
-      [x m]
-      (kind/with-meta x m))
-    (defn coll?
-      [x]
-      (kind/coll? x))
-    (defn vector?
-      [x]
-      (data/vector? x))
-    (defn map?
-      [x]
-      (data/map? x))
-    (defn set?
-      [x]
-      (kind/set? x))
-    (defn sequential?
-      [x]
-      (if (coll? x) (if (map? x) false (not (set? x))) false))
-    (defn seq?
-      [x]
-      (if (sequential? x) (not (vector? x)) false))
-    (defn list?
-      [x]
-      (seq? x))
-    ;; The VM's rest returns a vector. Supply the source language's sequence
-    ;; shape here without changing that VM primitive.
-    (defn rest
-      [coll]
-      (let [v (vec coll)]
-        (loop [i (- (count v) 1), acc '()]
-          (if (< i 1) acc (recur (- i 1) (conj acc (data/nth v i)))))))
-    (defn seq
-      [x]
-      (cond
-        (nil? x) nil
-        (if (coll? x) (empty? x) false) nil
-        (seq? x) x
-        (coll? x) (reverse (reverse x))
-        :else (throw (ex-info "seq of a non-collection is not supported"
-                              {:value x}))))
-    (defn rem
-      [a b]
-      (cond
-        (not (if (int? a) (int? b) false))
-        (throw (ex-info "rem requires integer operands" {:a a :b b}))
-        (= b 0) (throw (ex-info "Divide by zero" {:a a}))
-        (< a 0) (- 0 (rem (- 0 a) b))
-        (< b 0) (rem a (- 0 b))
-        :else (loop [r a]
-                (if (< r b) r (recur (- r b))))))
-    (defn reverse
-      [coll]
-      (loop [s coll
-             acc '()]
-        (if (empty? s) acc (recur (rest s) (conj acc (first s))))))
-    (defn cons
-      [x coll]
-      (conj (reverse (reverse coll)) x))
-    (defn list
-      ([] '())
-      ([a] (conj '() a))
-      ([a b] (conj '() b a))
-      ([a b c] (conj '() c b a))
-      ([a b c d] (conj '() d c b a))
-      ([a b c d e] (conj '() e d c b a))
-      ([a b c d e f] (conj '() f e d c b a)))
-    (defn vector
-      ([] [])
-      ([a] [a])
-      ([a b] [a b])
-      ([a b c] [a b c])
-      ([a b c d] [a b c d])
-      ([a b c d e] [a b c d e])
-      ([a b c d e f] [a b c d e f]))
-    (defn reduced
-      [x]
-      {:yin.k/reduced true, :yin.k/value x})
-    (defn reduced?
-      [x]
-      (if (nil? x) false (= true (get x :yin.k/reduced))))
-    (defn unreduced
-      [x]
-      (if (reduced? x) (get x :yin.k/value) x))
-    (defn reduce
-      ([f coll]
-       (if (empty? coll) (f) (reduce f (first coll) (rest coll))))
-      ([f init coll]
-       (loop [acc init
-              s coll]
-         (if (empty? s)
-           acc
-           (let [r (f acc (first s))]
-             (if (reduced? r) (get r :yin.k/value) (recur r (rest s))))))))
-    (defn map
-      ([f coll]
-       (loop [s coll
-              acc '()]
-         (if (empty? s) (reverse acc) (recur (rest s) (conj acc (f (first s)))))))
-      ([f a b]
-       (loop [x a
-              y b
-              acc '()]
-         (if (if (empty? x) true (empty? y))
-           (reverse acc)
-           (recur (rest x) (rest y) (conj acc (f (first x) (first y))))))))
-    (defn mapv
-      ([f coll] (vec (map f coll)))
-      ([f a b] (vec (map f a b))))
-    (defn filter
-      [pred coll]
-      (loop [s coll
-             acc '()]
-        (if (empty? s)
-          (reverse acc)
-          (recur (rest s) (if (pred (first s)) (conj acc (first s)) acc)))))
-    (defn remove
-      [pred coll]
-      (loop [s coll
-             acc '()]
-        (if (empty? s)
-          (reverse acc)
-          (recur (rest s) (if (pred (first s)) acc (conj acc (first s)))))))
-    (defn into
-      [to from]
-      (loop [acc to
-             s from]
-        (if (empty? s) acc (recur (conj acc (first s)) (rest s)))))
-    (defn concat
-      ([] '())
-      ([a] (reverse (reverse a)))
-      ([a b] (reverse (into (reverse a) b)))
-      ([a b c] (reverse (into (into (reverse a) b) c)))
-      ([a b c d] (reverse (into (into (into (reverse a) b) c) d))))
-    (defn keys
-      [m]
-      (map first (vec m)))
-    (defn vals
-      [m]
-      (map second (vec m)))
-    (defn disj
-      [s x]
-      (data/disj s x))
-    (defn union
-      ([] #{})
-      ([a] a)
-      ([a b] (into a b))
-      ([a b c] (into (into a b) c))
-      ([a b c d] (into (into (into a b) c) d))
-      ([a b c d e] (into (into (into (into a b) c) d) e))
-      ([a b c d e f] (into (into (into (into (into a b) c) d) e) f)))
-    (defn difference
-      [a b]
-      (reduce (fn [s x] (disj s x)) a b))
-    (defn merge
-      ([] nil)
-      ([a] a)
-      ([a b] (if (nil? b) a (if (nil? a) b (conj a b))))
-      ([a b c] (merge (merge a b) c))
-      ([a b c d] (merge (merge (merge a b) c) d)))
-    (defn comp
-      ([] identity)
-      ([f] f)
-      ([f g]
-       (fn
-         ([x] (f (g x)))
-         ([x y] (f (g x y)))
-         ([x y z] (f (g x y z)))))
-      ([f g h] (comp f (comp g h))))
-    (defn partial
-      ([f a]
-       (fn
-         ([] (f a))
-         ([x] (f a x))
-         ([x y] (f a x y))
-         ([x y z] (f a x y z))))
-      ([f a b]
-       (fn
-         ([] (f a b))
-         ([x] (f a b x))
-         ([x y] (f a b x y))
-         ([x y z] (f a b x y z))))
-      ([f a b c]
-       (fn
-         ([] (f a b c))
-         ([x] (f a b c x))
-         ([x y] (f a b c x y))
-         ([x y z] (f a b c x y z)))))])
-
-
-(defn library-for
-  "The definitions of `library` that `forms` need: those whose names `forms`
-   mention (outside quoted data), and the ones those mention in turn, in
-   library order. Compiling only these keeps a program small."
-  [forms]
-  (let [by-name (into {} (map (fn [f] [(second f) f])) library)
-        mentions (fn mentions
-                   [form]
-                   (cond
-                     (symbol? form) #{form}
-                     (seq? form) (if (= 'quote (first form))
-                                   #{}
-                                   (into #{} (mapcat mentions) form))
-                     (coll? form) (into #{} (mapcat mentions) form)
-                     :else #{}))
-        defined (into #{} (comp (filter seq?) (filter #(= 'defn (first %))) (map second)) forms)
-        needed (loop [todo (remove defined (mentions forms)), seen #{}]
-                 (if (empty? todo)
-                   seen
-                   (let [n (first todo)]
-                     (if (or (contains? seen n) (not (contains? by-name n)))
-                       (recur (rest todo) seen)
-                       (recur (into (rest todo)
-                                    (remove (conj defined n) (mentions (by-name n))))
-                              (conj seen n))))))]
-    (letfn [(nodes
-              [form]
-              (cons form (when (and (coll? form) (not (and (seq? form) (= 'quote (first form)))))
-                           (mapcat nodes form))))
-            (dynamic-call?
-              [source]
-              (let [tree (nodes source)
-                    possible-locals (into #{} (comp (filter vector?) (mapcat identity) (filter symbol?)) tree)]
-                (some (fn [x]
-                        (and (seq? x) (seq x) (not= 'quote (first x))
-                             (or (contains? possible-locals (first x))
-                                 (and (not (symbol? (first x))) (not (keyword? (first x))))))) tree)))
-            (close
-              [todo seen]
-              (if-let [n (first todo)]
-                (if (or (contains? seen n) (contains? defined n) (not (contains? by-name n)))
-                  (recur (rest todo) seen)
-                  (recur (concat (rest todo) (mentions (by-name n))) (conj seen n))) seen))]
-      (let [source (concat forms (map by-name needed))
-            needed (if (some dynamic-call? source) (close ['invoke-value] needed) needed)]
-        (filterv #(contains? needed (second %)) library)))))
 
 
 (defn compile
@@ -2590,9 +2119,7 @@
 
 (def unit-opts
   "The `compile-program` opts a linked unit compiles with: the
-   argument-vector convention with the outcome model over the guest
-   library's adapters. The required clj module supplies the continuation
-   family; VM primitives are callable directly by bare name."
+   argument-vector convention with the outcome model and linked runtimes."
   {:convention :arg-vector,
    :outcomes true,
    :linked-runtime true,
@@ -2703,36 +2230,19 @@
 
 
 (defn lower-unit
-  "The `clj/run-main` entry's unit for the top-level source `forms`: one
-   thunk whose call runs the program — `forms` plus the definitions of
-   the guest library they need, compiled unmodified under `unit-opts`
-   and published to the runtime global namespace by
-   `publish-to-globals` — so the helper's export projection can read
-   each top-level definition. The two-argument form also takes the
-   projected `exports` (names the composition already bound in the
-   runtime global namespace): their free reads publish the same way, so
-   the projection is the caller's binding for them. The program's own
-   `yang.call` call sites need no free-name declaration: the convention
-   preamble `compile-program` emits defines those names locally, and
-   the donor publication pins the `yang.call` module for the qualified
-   reads that remain."
+  "Emit the linked clj entry's unit thunk. Source definitions and projected
+   names use clj's task-local globals. Free standard-library names use the
+   published clojure.core accessors."
   ([forms] (lower-unit forms []))
   ([forms exports]
    (let [source (vec forms)
-         library (library-for source)
-         program (compile-program (concat source library) true unit-opts)
+         projected (set (map symbol exports))
+         program (compile-program source true (assoc unit-opts :projected-names projected))
          macros (into #{}
                       (comp (filter #(and (seq? %) (= 'defmacro (first %))))
                             (map (comp strip-symbol-meta second)))
-                      (concat source library))
-         names (reduce disj
-                       (into (set (top-level-names source))
-                             (concat (map (comp strip-symbol-meta second) library)
-                                     (map symbol exports)))
-                       macros)]
-     ;; `publish-to-globals` rewrites nodes after `compile-program`
-     ;; finalized them, so the unit is finalized again over its
-     ;; finished tree: the rewrite's own applications are occurrences.
+                      source)
+         names (reduce disj (into projected (top-level-names source)) macros)]
      (annotate-call-sites (u/lam [] (publish-to-globals program names #{}))))))
 
 

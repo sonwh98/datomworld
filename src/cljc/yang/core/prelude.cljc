@@ -5,7 +5,8 @@
    and its refusal namespace; everything here is a pure function of those."
   (:require
     [clojure.walk :as walk]
-    [yang.core.uast :as u]))
+    [yang.core.uast :as u]
+    [yin.vm :as vm]))
 
 
 (defn define
@@ -132,3 +133,20 @@
 (defn definitions->uast
   [defs]
   (u/seq-nodes (map (fn [[k form]] (u/def! k (u/sexp->uast form))) defs)))
+
+
+(defn protect-primitives
+  "Pin primitive reads in bundled runtime code sharing the source store."
+  [node]
+  (if (= :variable (:type node))
+    (let [alias (when-not (namespace (:name node))
+                  (symbol "dsg__primitive" (name (:name node))))]
+      (cond-> node
+        (contains? vm/compiler-primitive-aliases alias) (assoc :name alias)))
+    (reduce (fn [n [field kind]]
+              (case kind
+                :node (update n field protect-primitives)
+                :nodes (update n field #(mapv protect-primitives %))
+                n))
+            node
+            (get vm/semantic-bytecode-grammar (:type node)))))

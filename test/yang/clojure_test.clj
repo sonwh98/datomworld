@@ -4,6 +4,9 @@
             [dao.stream :as stream]
             [dao.stream.observer :as observer]
             [yang.clojure :as yang]
+            [yang.clojure.prelude :as prelude]
+            [yang.clojure.core-module :as core-module]
+            [yang.core.prelude :as core]
             [yang.core.uast :as u]
             [yang.io :as yang-io]
             [yin.vm :as vm]
@@ -1115,6 +1118,7 @@
                    (into {} (map (fn [[op f _]] [op f])) entries)
                    (into {} (map (fn [[op _ p]] [op p])) entries))))]
     (-> av-modules
+        prelude/admit
         ((host 'portable
                [['nth
                  (yang/outcome-adapter data/refusal-message (get data/data-module 'nth))
@@ -1319,10 +1323,12 @@
 
 
 (deftest test-common-call-source-admission
+  (is (= [:yin.k/ok [:map :legacy]]
+         (run-outcome '[(let [plain {:ordinary :map}
+                              legacy {:py/type :function :code :legacy}]
+                          [(plain :ordinary) (legacy :code)])])))
   (doseq [form '[(let [x 5] (x 1))
-                 (let [x {:ordinary :map}] (x 1))
                  (let [x {:yang.call/entry 5}] (x 1))
-                 (let [x {:py/type :function :code :legacy}] (x 1))
                  (let [x {:yang.call/entry 5}] ((if true x x) 1))
                  (let [x {:yang.call/entry (yang.call/entry f)}] (x 1))
                  (let [x (assoc {} :yang.call/entry (get f :yang.call/entry))] (x 1))
@@ -2421,32 +2427,7 @@
 ;; Slice 7: the guest collection and higher-order library
 ;; =============================================================================
 
-(def ^:private library-modules
-  "The library's whole host surface: the `kind` module, the `portable`
-   adapters of the data exports the collection predicates read, and the
-   `cell` module. Every outcome-model program's emitted call routing reads
-   `cell/authentic?` once a callee passes the cell-ref shape pre-filter,
-   and a spliced `cell/new` mints genuine references (the engine seals
-   them under the test composition's capability secret), so the lane's
-   registry supplies the cell host as the linked compositions' do."
-  (let [host (fn [registry module-name fns arities]
-               (module/register-host-module
-                 registry module-name fns
-                 (into {} (map (fn [[op _]]
-                                 [op (vm/primitive-profile op :pure (get arities op [1]) #{} :none)]))
-                       fns)))
-        portable (into {}
-                       (map (fn [[source _]]
-                              (let [op (symbol (name source))]
-                                [op (yang/outcome-adapter data/refusal-message
-                                                          (get data/data-module op))])))
-                       yang/library-adapters)]
-    (-> av-modules
-        (module/register-cell-module)
-        (host 'kind yang/kind-module yang/kind-arities)
-        (host 'portable portable
-              (into {} (map (fn [op] [op (:yin.k/arities (get data/data-profiles op))]))
-                    (keys portable))))))
+(def ^:private library-modules (prelude/admit av-modules))
 
 
 (def ^:private library-opts
@@ -2526,8 +2507,7 @@
 
 
 (defn- run-library
-  "The raw outcome of the last of `forms`, compiled with the library
-   definitions the program needs."
+  "The raw outcome of the last of `forms` in the bundled runtime."
   ([forms] (run-library forms library-opts))
   ([forms opts]
    (let [walker (run-library forms opts :walker 1000000)
@@ -2535,7 +2515,7 @@
      (is (= walker semantic) (str "library lanes agree: " (pr-str forms)))
      walker))
   ([forms opts lane step-limit]
-   (run-guest-ast (yang/compile-program (into (yang/library-for forms) forms) true opts)
+   (run-guest-ast (yang/compile-program forms true opts)
                   library-modules lane step-limit)))
 
 
@@ -2576,7 +2556,7 @@
   (let [ast (walk/postwalk
               (fn [n] (if (= n (u/v 'marker-operand)) node n))
               (yang/compile-program
-                (into (yang/library-for program) program)
+                program
                 true
                 library-opts))]
     (try
@@ -2691,24 +2671,20 @@
                    [m]
                    (cell/get m))
                  (probe marker-operand)]
-               (u/lit {:type :cell-ref :id :cell-7
+               (u/lit {:type :cell-ref :id :absent-cell
                        :seal "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
                lane))
           (str lane " explicit deref refuses")))))
 
 
-(deftest test-library-closes-over-its-own-names
-  (testing "library-for returns the definitions a program mentions, transitively"
-    (let [names (set (map second (yang/library-for '[(seq? x)])))]
-      (is (every? names '[seq? sequential? vector? map? set? coll?])
-          "seq? pulls sequential?, vector?, map?, set? and coll?")
-      (is (not (contains? names 'map))))
-    (is (= [] (yang/library-for '[(+ 1 2)])))
-    (is (= [] (yang/library-for '[(quote (map f xs))])) "quoted data mentions nothing")
-    (is (= [] (yang/library-for '[(defn map
-                                    [f c]
-                                    c) (map 1 2)]))
-        "a program definition shadows the library's")))
+(deftest test-library-accessors-respect-source-bindings
+  (let [exports #(core-module/referenced-exports
+                   (core/free-names (yang/compile-program % true yang/unit-opts)))]
+    (is (= '#{seq?} (exports '[(seq? x)])))
+    (is (= #{} (exports '[(+ 1 2)])))
+    (is (= #{} (exports '[(quote (map f xs))])))
+    (is (= #{} (exports '[(defn map [f c] c) (map 1 2)])))
+    (is (= #{} (exports '[(let [map (fn [x] x)] (map 2))])))))
 
 
 (deftest test-library-kind-predicates
@@ -2941,7 +2917,7 @@
     (is (= [:yin.k/ok [nil 2 nil '(1 2) 'b :missing true false false {:name 'source}]]
            (run-library '[[(last nil) (last [1 2]) (butlast [1]) (butlast [1 2 3])
                            (nth '(a b) 1) (nth [1] 3 :missing)
-                           (string? "") (string? 'x) (var? 'x)
+                           (string? "") (string? 'x) (kind/var? 'x)
                            (meta (with-meta 'x {:name 'source}))]]
                         library-opts lane 1000000))))
   (testing "fresh supply crosses function calls and repeated loop iterations"
@@ -2998,16 +2974,14 @@
 
 
 (deftest test-value-invocation-refusals-are-terminating
-  (testing "entry-absent callees refuse through the library invoker instead of
-            re-entering the dispatcher; the vector binder only forces the
-            invoker into the library so the routing is actually exercised"
+  (testing "entry-absent scalar callees refuse without re-entering the dispatcher"
     (doseq [lane [:walker :semantic]]
       ;; (A): the invoker's source-thrown refusal map is an ordinary
       ;; payload at this harness boundary (a public entry rebuilds the
       ;; `:yang.call/thrown` wire condition from it).
       (is (= [:yin.k/error {:yang.call/reason :yang.call/not-callable
                             :yang.call/data {:yang.call/callee 5}}]
-             (run-library '[(let [five 5 v [five]] (five 1))]
+             (run-library '[(let [five 5] (five 1))]
                           library-opts lane 1000000))
           "a scalar callee terminates as not-callable")
       (let [[tag _] (run-library
@@ -3040,7 +3014,7 @@
       (let [[tag payload] (run-library
                             '[(defn tail-refusal
                                 []
-                                (let [five 5 v [five]] (five 1)))
+                                (let [five 5] (five 1)))
                               (tail-refusal)]
                             library-opts lane 1000000)]
         (is (= :yin.k/error tag))
@@ -3166,9 +3140,9 @@
              (run-library '[(defn f
                               [x]
                               (+ x 100))
-                            (let [f {:k 9} v [f]] (f :k))]
+                            (let [f {:k 9}] (f :k))]
                           library-opts lane 200000))
-          "entry-absent local map routes to invoke-value")
+          "the locally bound map uses native lookup")
       (let [[tag payload] (run-library
                             '[(defn f
                                 [x]
