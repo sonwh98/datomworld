@@ -405,7 +405,8 @@ agree, recorded in the slice report. Until that lands, the totals here are
 R. (r11 note: post-H2, with `yin.vm.integer.host` deleted and the five profile
 files added to the closure, the totals are 146/144/145, 137 shared, 159 union;
 post-PHP ANTLR census re-record: 163/161/159, 152 shared, 175 union; post
-`yin.repl` DHT decoupling: 151/149/147, 141 shared, 161 union, matching
+`yin.repl` DHT decoupling: 151/149/147, 141 shared, 161 union; after the
+prelude landings: 160/158/156, 150 shared, 170 union, matching
 `docs/design/host-boundary/closure-{clj,cljs,cljd}.edn` and `gate_test.clj`).
 
 Classification of every file in the closure that has any host contact (the

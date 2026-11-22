@@ -10,8 +10,9 @@
      ns-form arms, catch-type arms, arms equal but for hints, protocol
      blocks directly inside deftype/defrecord/reify/extend bodies,
      print-method defmethods, exists? tests, (Object.)/(js-obj)
-     sentinels); a lane-specific file (.clj .cljs .cljd) is a host arm as
-     a whole;
+     sentinels). The PHP parser's lexer mode switch has a bounded
+     §8.1 deferred-stage exemption. A lane-specific file (.clj .cljs
+     .cljd) is a host arm as a whole;
    - a file holds more resolved effect calls of a kind than list 2
      permits (the §3.2 kinds, and calls of the §2.4 M entries).
    Effect calls are resolved lexically: a symbol bound by let, fn, loop,
@@ -180,6 +181,28 @@
 ;; The committed closure (traversal A, src/dev/host_boundary/closure.clj)
 ;; ---------------------------------------------------------------------------
 
+;; The generator predates these placements. 05130e07 recorded the
+;; yin.vm runtime-prereq class directly in the lane reports.
+(def ^:private closure-class-amendments
+  {:deferred-stage '[yang.core.defquoted yang.core.lower]
+   :profile-consumer '[yin.vm.float]
+   :runtime-prereq '[yin.vm yang.clojure.prelude]})
+
+
+(defn regenerate-closure
+  "Run the §3.1 generator with the class amendments recorded by this gate.
+   Use the generator's :hb alias with \"test\" added to :extra-paths and
+   -M:hb -e '(require (quote dao.host.gate-test)) (dao.host.gate-test/regenerate-closure)'.
+   Pass \"--check\" to regenerate-closure to check the recorded EDNs."
+  [& args]
+  (let [class-rows (requiring-resolve 'host-boundary.closure/class-rows)
+        generate (requiring-resolve 'host-boundary.closure/-main)
+        rows (mapv (fn [[class note namespaces]]
+                     [class note (into namespaces (closure-class-amendments class))])
+                   @class-rows)]
+    (with-redefs-fn {class-rows rows} #(apply generate args))))
+
+
 (defn committed-closure
   [lane]
   (edn/read-string (slurp (str "docs/design/host-boundary/closure-" (name lane) ".edn"))))
@@ -223,28 +246,44 @@
       :else nil)))
 
 
+(def ^:private php-cst-file "src/cljc/yang/php/antlr/cst.cljc")
+
+
+(defn- deferred-parser-arm?
+  "§8.1 exempts the PHP lexer mode switch at the deferred parser stage."
+  [file rc ancestors]
+  (and (= php-cst-file file)
+       (= '(defn make-eval-worker) (take 2 (first ancestors)))
+       (not (splicing? rc))
+       (= '[[:clj (.pushMode lexer PhpLexer/PHP)]
+            [:cljs (.pushMode lexer (.-PHP PhpLexer))]]
+          (rc-arms rc))))
+
+
 (defn non-exempt-arms
   "[line ...] of the non-exempt reader conditionals in forms."
-  [forms]
-  (let [acc (atom [])
-        walk (fn walk
-               [form ancestors]
-               (let [down (conj ancestors form)]
-                 (cond
-                   (rc? form)
-                   (do (when-not (exemption form ancestors)
-                         (swap! acc conj (or (some (comp line-of second) (rc-arms form))
-                                             (some line-of (rseq ancestors)))))
-                       (doseq [[_ arm] (rc-arms form)]
-                         (if (splicing? form)
-                           (doseq [x arm] (walk x down))
-                           (walk arm down))))
-                   (and (seq? form) (= 'comment (first form))) nil
-                   (map? form) (doseq [[k v] form] (walk k down) (walk v down))
-                   (coll? form) (doseq [x form] (walk x down))
-                   :else nil)))]
-    (doseq [f forms] (walk f []))
-    @acc))
+  ([forms] (non-exempt-arms nil forms))
+  ([file forms]
+   (let [acc (atom [])
+         walk (fn walk
+                [form ancestors]
+                (let [down (conj ancestors form)]
+                  (cond
+                    (rc? form)
+                    (do (when-not (or (exemption form ancestors)
+                                      (deferred-parser-arm? file form ancestors))
+                          (swap! acc conj (or (some (comp line-of second) (rc-arms form))
+                                              (some line-of (rseq ancestors)))))
+                        (doseq [[_ arm] (rc-arms form)]
+                          (if (splicing? form)
+                            (doseq [x arm] (walk x down))
+                            (walk arm down))))
+                    (and (seq? form) (= 'comment (first form))) nil
+                    (map? form) (doseq [[k v] form] (walk k down) (walk v down))
+                    (coll? form) (doseq [x form] (walk x down))
+                    :else nil)))]
+     (doseq [f forms] (walk f []))
+     @acc)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -652,6 +691,7 @@
    "src/cljc/yin/vm/debruijn.cljc" (entry :migration-source :stays "retained host number-model arms (Architect H2 review, §8.1 r11 row)")
    "src/cljc/yin/vm/debruijn_code.cljc" (entry :migration-source :stays "retained host number-model arms (Architect H2 review, §8.1 r11 row); :213 int64 hex ported in H2b")
    "src/cljc/yin/vm/data.cljc" (entry :migration-source :pending "H2b: :388 float-value over the profile")
+   "src/cljc/yin/vm/float.cljc" (entry :migration-source :stays "Boxed binary64 profile consumer uses native floor for its pure divmod kernel")
    "src/cljc/yin/vm/values.cljc" (entry :migration-source :pending "H2b: category move to :runtime-prereq (table C print laws at :116,122)")
    "src/cljc/dao/stream/base64.cljc" (entry :migration-source "H3" "base64 made portable")
    ;; Profile
@@ -667,6 +707,7 @@
    "src/cljc/dao/data/btree.cljc" (entry :runtime-prereq :stays "atomic flag, weak/soft references")
    "src/cljc/dao/data/btree/storage.cljc" (entry :runtime-prereq :stays "promise facade, deferred §9.1")
    "src/cljc/dao/pretty.cljc" (entry :runtime-prereq :stays "display only")
+   "src/cljc/yang/clojure/prelude.cljc" (entry :runtime-prereq :stays "JVM-only var? predicate in the pure kind host module")
    "src/cljc/yin/vm.cljc" (entry :runtime-prereq :stays "Invocation-local identity cache for machine-data? validation; eval-bridge amendment (astra s81-arms ruling)")
    ;; Codec-track files
    "src/cljc/dao/stream/ws.cljc" (entry :codec-track :stays)
@@ -708,11 +749,11 @@
    "src/cljc/dao/jing/coordinate.cljc" (entry :deferred-scope :stays)
    "src/cljc/dao/stream/rpc.cljc" (entry :deferred-scope :stays ":114 rand, deferred entropy (§9.1); H0 finding")
    "src/cljc/yin/repl.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yang/core/defquoted.cljc" (entry :deferred-scope :stays "JVM macro for quoted prelude data, consolidated from the PHP parser stage")
+   "src/cljc/yang/core/lower.cljc" (entry :deferred-scope :stays "Host code-point conversion for compiler literal lowering, extracted from the Python and TypeScript frontends")
    "src/cljc/yang/php/antlr/lower.cljc" (entry :deferred-scope :stays)
-   "src/cljc/yang/php/antlr/quoted.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/parser.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/lower.cljc" (entry :deferred-scope :stays)
-   "src/cljc/yang/python/antlr/prelude.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/render.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/repl_probe.cljc" (entry :deferred-scope :stays)
    "src/cljc/yin/repl/frontends.cljc" (entry :deferred-scope :stays)
@@ -786,7 +827,7 @@
                                      :else (throw (ex-info "cannot read file" {:file file})))]
                          {:arms (if (lane-specific? file)
                                   [:whole-file]
-                                  (non-exempt-arms forms))
+                                  (non-exempt-arms file forms))
                           :effects (reduce (fn [m [k line]] (update m k (fnil conj []) line))
                                            {}
                                            (effect-calls (file-lanes file) forms))})
@@ -976,12 +1017,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after the yin.repl DHT decoupling: 151 / 149 / 147 files, 141 shared"
+  (testing "§3.1 after the prelude landings (160 / 158 / 156 files, 150 shared)"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 151 (count (files :clj))))
-      (is (= 149 (count (files :cljs))))
-      (is (= 147 (count (files :cljd))))
-      (is (= 141 (count (apply set/intersection (vals files)))))
+      (is (= 160 (count (files :clj))))
+      (is (= 158 (count (files :cljs))))
+      (is (= 156 (count (files :cljd))))
+      (is (= 150 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
@@ -998,8 +1039,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 161 (count (closure-files))) "the union of the three lanes")
-    (is (= 161 (count (gate-files))) "no profile addition outside the closure after H3")
+    (is (= 170 (count (closure-files))) "the union of the three lanes")
+    (is (= 170 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))
@@ -1091,14 +1132,23 @@
 
 
 (deftest an-injected-host-arm-outside-list-1-fails-the-gate
-  (let [target (outside list-1)
-        sources (update (read-sources (closure-files)) target str
-                        "\n(def injected #?(:clj (java.lang.Math/abs -1) :cljs 1))\n")
-        r (gate sources list-1 list-2)]
-    (is (some? target))
-    (is (= :fail (:verdict r)))
-    (is (= [target] (map :file (:arm-violations r))))
-    (is (= [] (:effect-violations r)))))
+  (testing "The JVM and Node closures carry the PHP parser's deferred-stage class"
+    (let [classes (lane-classes)]
+      (doseq [lane [:clj :cljs]]
+        (is (contains? (get-in classes [lane php-cst-file]) :deferred-stage)
+            (name lane)))))
+  (let [sources (read-sources (closure-files))]
+    (doseq [target [(outside list-1) php-cst-file]]
+      (testing (str "An unrelated host arm in " target)
+        (let [injected (update sources target str
+                               "\n(def injected #?(:clj (java.lang.Math/abs -1) :cljs 1))\n")
+              r (gate injected list-1 list-2)]
+          (is (some? target))
+          (is (= [] (:errors r)))
+          (is (= :fail (:verdict r)))
+          (is (= [target] (map :file (:arm-violations r))))
+          (is (= [1] (map (comp count :lines) (:arm-violations r))))
+          (is (= [] (:effect-violations r))))))))
 
 
 (deftest an-injected-random-uuid-outside-list-2-fails-the-gate
