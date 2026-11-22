@@ -154,6 +154,14 @@
   (walk-path (:modules registry) (symbol->path sym)))
 
 
+(defn export-binding
+  "The entry for a qualified export, including one whose value is nil or false."
+  [registry sym]
+  (when-let [ns-name (namespace sym)]
+    (when-let [entry (module-entry (:modules registry) (symbol ns-name))]
+      (find (get entry :bindings (:slice entry)) (symbol (name sym))))))
+
+
 (defn register-effect-handler
   "Return registry with handler-fn installed for effect keyword kw.
    Handler: (fn [state effect opts] -> {:state s :value v :blocked? bool})"
@@ -634,7 +642,8 @@
         resources (:resources state)
         response (get resources link-response-resource)]
     (cond
-      (some? (resolve-module (:modules state) module-name))
+      ;; A namespace path may already exist because a child linked first.
+      (some? (module-entry (:modules (:modules state)) module-name))
       {:value (if try? {:status :ok, :module module-name} module-name),
        :state state, :blocked? false}
 

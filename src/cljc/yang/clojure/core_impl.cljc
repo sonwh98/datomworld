@@ -39,6 +39,25 @@
     [impl-assoc-one
      (fn [coll k v]
        (assoc coll (if (data/vector? coll) k (clj/collection-key k)) v))]
+    [impl-get-path
+     (fn [coll path i n default]
+       (if (< i n)
+         (let [k (data/nth path i)
+               indexed? (data/vector? coll)
+               map? (impl-map? coll)
+               key (if map? (clj/collection-key k) k)]
+           (if (if indexed? (data/contains? coll key)
+                 (if map? (data/contains? coll key) false))
+             (impl-get-path (clj/prim-get coll key) path (+ i 1) n default)
+             default))
+         coll))]
+    [impl-assoc-path
+     (fn [coll path i n value]
+       (let [k (if (< i n) (data/nth path i) nil)]
+         (impl-assoc-one coll k
+           (if (< (+ i 1) n)
+             (impl-assoc-path (impl-get-default coll k nil) path (+ i 1) n value)
+             value))))]
     [impl-assoc-more
      (fn [coll args i n]
        (if (< i n)
@@ -258,6 +277,13 @@
             ([m k f a] (impl-assoc-one m k (clj/invoke-callable f (conj [] (impl-get-default m k nil) a) [])))
             ([m k f a b] (impl-assoc-one m k (clj/invoke-callable f (conj [] (impl-get-default m k nil) a b) [])))
             ([m k f a b c] (impl-assoc-one m k (clj/invoke-callable f (conj [] (impl-get-default m k nil) a b c) [])))]
+    [get-in ([xs ks] (let [path (impl-vec ks)] (impl-get-path xs path 0 (data/count path) nil)))
+            ([xs ks default]
+             (let [path (impl-vec ks)] (impl-get-path xs path 0 (data/count path) default)))]
+    [assoc-in ([xs ks value]
+               (let [path (impl-vec ks)] (impl-assoc-path xs path 0 (data/count path) value)))]
+    [nil? ([x] (nil? x))]
+    [empty? ([x] (if (impl-cell-ref? x) false (empty? x)))]
     [symbol? ([x] (kind/symbol? x))]
     [keyword? ([x] (kind/keyword? x))]
     [meta ([x] (kind/meta x))]
@@ -375,6 +401,19 @@
                   ([f] f)
                   ([f g] (impl-comp-two f g))
                   ([f g h] (impl-comp-two f (impl-comp-two g h)))])
+         ['update-in '(fn [args]
+                        (let [n (data/count args)]
+                          (if (<= 3 n)
+                            (let [xs (data/nth args 0)
+                                  path (impl-vec (data/nth args 1))
+                                  path (if (empty? path) [nil] path)
+                                  depth (data/count path)
+                                  f (data/nth args 2)
+                                  value (impl-get-path xs path 0 depth nil)
+                                  call-args (data/into (conj [] value) (data/subvec args 3 n))]
+                              (impl-assoc-path xs path 0 depth (clj/invoke-callable f call-args [])))
+                            (clj/raise (assoc {:yin.vm.data/reason :arity} :yin.k/fn (quote update-in)
+                                             :yin.k/argc n)))))]
          ['assoc '(fn [args]
                     (let [n (data/count args)]
                       (if (if (<= 3 n) (= 1 (data/nth (integer/quot-rem n 2) 1)) false)

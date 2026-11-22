@@ -87,6 +87,25 @@
                                       (vals requires))))})))
 
 
+(defn module-manifest
+  "Assemble the canonical manifest of an emitted module. The tree, derived
+   artifacts and footprint are identified by the publisher."
+  [{:keys [name exports requires primitives]} tree derivations index footprint]
+  {:yin.module/name name
+   :yin.module/schema linker/manifest-schema
+   :yin.module/contracts {:yin.ast/code vm/ast-contract
+                          :yin.semantic/code vm/semantic-contract
+                          :yin.debruijn.code vm/stack-contract
+                          :yin.debruijn.register vm/register-contract}
+   :yin.module/tree tree
+   :yin.module/derivations derivations
+   :yin.module/index index
+   :yin.module/exports (set exports)
+   :yin.module/requires (or requires {})
+   :yin.module/primitives (into {} (map (fn [[n p]] [n (:yin.k/profile p)])) primitives)
+   :yin.module/footprint footprint})
+
+
 (def code-formats
   "The four code format records a module manifest links through."
   [linker/ast-format linker/semantic-format
@@ -356,28 +375,13 @@
             ;; schema-1 key set only: the C1 side table never enters
             ;; the hashed manifest, so identical specifications under
             ;; distinct admissions share one manifest address
-            manifest {:yin.module/name name
-                      :yin.module/schema linker/manifest-schema
-                      :yin.module/contracts
-                      {:yin.ast/code vm/ast-contract
-                       :yin.semantic/code vm/semantic-contract
-                       :yin.debruijn.code vm/stack-contract
-                       :yin.debruijn.register vm/register-contract}
-                      :yin.module/tree tree-address
-                      :yin.module/derivations
-                      {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
-                       :yin.debruijn.code
-                       (mint sem h linker/stack-lowering-profile)
-                       :yin.debruijn.register
-                       (mint sem r linker/register-lowering-profile)}
-                      :yin.module/index {:yin.debruijn.code h-address
-                                         :yin.debruijn.register r-address}
-                      :yin.module/exports (set exports)
-                      :yin.module/requires (or requires {})
-                      :yin.module/primitives
-                      (into {} (map (fn [[n p]] [n (:yin.k/profile p)])
-                                    primitives))
-                      :yin.module/footprint fp}
+            manifest (module-manifest
+                       spec tree-address
+                       {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
+                        :yin.debruijn.code (mint sem h linker/stack-lowering-profile)
+                        :yin.debruijn.register (mint sem r linker/register-lowering-profile)}
+                       {:yin.debruijn.code h-address :yin.debruijn.register r-address}
+                       fp)
             address (jing/materialize! handle manifest)
             ;; the C1 side table and its publication record, beside
             ;; the manifest: the record names the manifest (a record

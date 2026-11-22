@@ -19,7 +19,8 @@
   [diagnostic-ns unit data message]
   (merge {:yang.cst/unit unit, :message message}
          (select-keys data [(keyword diagnostic-ns "diagnostic") :rule
-                            :construct :span :name])))
+                            :construct :span :name :status :reason :capability
+                            :semantics-id :node])))
 
 
 (defn lower-transform

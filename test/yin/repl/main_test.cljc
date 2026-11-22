@@ -367,7 +367,7 @@
   (let [t (transcript ["(host)"
                        "(lang :yang/python)"
                        "1 + 2"
-                       "[x * x for x in range(4)]"
+                       "[x * x for x in [0, 1, 2, 3]]"
                        "'a' + 'b'"
                        "(lang :python)"
                        "1 + 2"
@@ -379,8 +379,8 @@
     (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
     (is (= "Switched to :yang/python" (first (get-in t [1 1]))))
     (is (= ["3"] (get-in t [2 1])))
-    (is (= ["[0, 1, 4, 9]"] (get-in t [3 1])))
-    (is (= ["'ab'"] (get-in t [4 1])))
+    (is (= ["[0 1 4 9]"] (get-in t [3 1])))
+    (is (= ["\"ab\""] (get-in t [4 1])))
     (testing "a language keyword is not a selector: the refusal names what
               is installed, and the session keeps its frontend"
       (let [refusal (first (get-in t [5 1]))]

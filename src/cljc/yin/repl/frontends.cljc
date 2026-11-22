@@ -15,12 +15,12 @@
         :jolt []
         :default [[yang.php.antlr.cst :as php.antlr.cst]
                   [yang.php.antlr.lower :as php.antlr.lower]])
-    #?@(:cljd [[yang.python.antlr.repl :as python.antlr.repl]
-               [yang.python.antlr.parser :as python.antlr.parser]
-               [yang.python.antlr.repl-probe :as python.antlr.probe]]
-        :default [[yang.python.antlr.repl :as python.antlr.repl]
-                  [yang.python.antlr.parser :as python.antlr.parser]
-                  [yang.python.antlr.repl-probe :as python.antlr.probe]])
+    [yang.clojure.prelude :as clj-runtime]
+    [yang.python.antlr.contract :as python.contract]
+    [yang.python.antlr.profiles :as python.profiles]
+    [yang.python.antlr.repl :as python.repl]
+    [yang.python.antlr.parser :as python.parser]
+    [yang.python.antlr.repl-probe :as python.probe]
     [yin.repl :as repl]))
 
 
@@ -68,9 +68,12 @@
 
 
 (defn- antlr-manifest
-  []
+  [id {:keys [descriptor-address runtime-address]}]
   (assoc (manifest :yang/python :python)
-         :yang.frontend/revision "f4"
+         :yang.frontend/revision (name id)
+         :yang.frontend/lowering-profile descriptor-address
+         :yang.frontend/runtime-profile runtime-address
+         :yang.frontend/support-profile descriptor-address
          :yang.frontend/grammar
          {:yang.grammar/package "python3",
           :yang.grammar/entries {:module "file_input"},
@@ -92,65 +95,58 @@
          :yang.frontend/support-profile :yang.php/antlr))
 
 
-(defn standard
-  "The standard catalog. The Clojure frontend consumes the forms the
-   shell's own reader read, so its parse stage is the identity. The ANTLR
-   frontends show what a submission printed and the value their `:render`
-   returns."
-  []
-  (cond-> frontend/empty-catalog
-    true (frontend/install (clojure-manifest)
-                           {:input :forms,
-                            :parse identity,
-                            :lower clojure-lower})
-    #?@(:cljd []
-        :jolt []
-        :default [true (frontend/install
-                         (php-manifest)
-                         {:parse php.antlr.cst/parse-source,
-                          :lower php.antlr.lower/lower-packet,
-                          :render :php/out})])
-    #?@(:cljd [true (frontend/install
-                      (antlr-manifest)
-                      {:parse (fn [source]
-                                (python.antlr.parser/parse-source (str source "\n"))),
-                       :lower python.antlr.repl/lower,
-                       :primitives python.antlr.repl/primitives,
-                       :lower-session python.antlr.repl/lower-session,
-                       :render python.antlr.repl/display-value,
-                       :probe python.antlr.probe/probe})]
-        ;; jolt (J5): installed over the C++ parser when native/jolt-parser
-        ;; is available; otherwise left out, so (lang :yang/python) answers
-        ;; unavailable-parser, never another parser
-        :jolt [(python.antlr.parser/available?)
-               (frontend/install
-                 (antlr-manifest)
-                 {;; a :parser-budget or :unavailable-parser refusal names
-                  ;; the language it refused
-                  :parse (fn [source]
-                           (try (python.antlr.parser/parse-source (str source "\n"))
-                                (catch Exception e
-                                  (if (#{:parser-budget :unavailable-parser}
-                                       (:diagnostic (ex-data e)))
-                                    (throw (ex-info (ex-message e)
-                                                    (assoc (ex-data e) :lang :yang/python)
-                                                    e))
-                                    (throw e))))),
-                  :lower python.antlr.repl/lower,
-                  :primitives python.antlr.repl/primitives,
-                  :lower-session python.antlr.repl/lower-session,
-                  :render python.antlr.repl/display-value,
-                  :probe python.antlr.probe/probe})]
-        :default [true (frontend/install
-                         (antlr-manifest)
-                         {:parse (fn [source]
-                                   (python.antlr.parser/parse-source (str source "\n"))),
-                          :lower python.antlr.repl/lower,
-                          :primitives python.antlr.repl/primitives,
-                          :lower-session python.antlr.repl/lower-session,
-                          :render python.antlr.repl/display-value,
-                          :probe python.antlr.probe/probe})])))
+(defn- parse-python [source]
+  #?(:jolt
+     (try (python.parser/parse-source (str source "\n"))
+          (catch Exception e
+            (if (#{:parser-budget :unavailable-parser} (:diagnostic (ex-data e)))
+              (throw (ex-info (ex-message e) (assoc (ex-data e) :lang :yang/python) e))
+              (throw e))))
+     :default (python.parser/parse-source (str source "\n"))))
 
+
+(defn- install-python [catalog id]
+  (let [profile (python.profiles/builtin id)
+        manifest (antlr-manifest id profile)
+        legacy? (= id python.contract/legacy-id)
+        lower (if legacy? python.repl/lower-session python.repl/lower-clojure-session)
+        lower-session (fn [packet session]
+                        (python.profiles/verify-builtin! id)
+                        (lower packet session (:descriptor profile)))]
+    (frontend/install catalog manifest
+      (cond-> {:parse (fn [source]
+                         (python.profiles/verify-builtin! id)
+                         (parse-python source))
+               :lower (fn [packet] (first (lower-session packet nil)))
+               :lower-session lower-session
+               :derive (fn [packet ast] (python.profiles/derivation manifest profile packet ast))
+               :probe (fn [source]
+                        (python.profiles/verify-builtin! id)
+                        (python.probe/probe source))
+               :render (if legacy? python.repl/display-value python.repl/display-clojure-value)}
+        legacy? (assoc :primitives python.repl/primitives)
+        (not legacy?) (assoc :admit clj-runtime/admit)))))
+
+
+(defn standard
+  "The standard immutable frontend catalog and the preferred Python revision."
+  []
+  (let [catalog (cond-> frontend/empty-catalog
+                  true (frontend/install (clojure-manifest)
+                                         {:input :forms :parse identity :lower clojure-lower})
+                  #?@(:cljd []
+                      :jolt []
+                      :default [true (frontend/install
+                                       (php-manifest)
+                                       {:parse php.antlr.cst/parse-source
+                                        :lower php.antlr.lower/lower-packet
+                                        :render :php/out})]))]
+    (if #?(:jolt (python.parser/available?) :default true)
+      (-> catalog
+          (install-python python.contract/legacy-id)
+          (install-python python.contract/clojure-id)
+          (assoc :yang.frontend/preferred [:yang/python "clojure-core-v1"]))
+      catalog)))
 
 (defn create-state
   "`yin.repl/create-state` composed with the standard catalog unless the

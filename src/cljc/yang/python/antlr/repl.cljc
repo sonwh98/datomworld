@@ -27,6 +27,7 @@
     [clojure.string :as str]
     [yang.antlr.packet :as p]
     [yang.python.antlr.lower :as lower]
+    [yang.python.antlr.contract :as contract]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.render :as render]
     [yang.python.antlr.uast :as u]))
@@ -86,23 +87,37 @@
 (defn lower-session
   "`[ast session']` for one ok CST `packet` under `session` (nil on a fresh
    session, `:primed` once the prelude has run)."
-  [packet session]
-  (let [packet (ok-packet! packet)
-        packet (cond-> packet
-                 (not (contains? packet :yang.python.antlr/max-digits))
-                 (assoc :yang.python.antlr/max-digits 4300))
-        _ (p/validate! packet {:diagnostic-ns "yang.python.antlr"})
-        body (lower/lower-module-body packet nil true)
-        main (u/let1 '%repl-body
-                     (u/lam [lower/globals-sym lower/globals-fn-sym] body)
-                     (u/sexp->uast run-form))
-        ast (u/mark-tails (if (= :primed session)
-                            main
-                            (u/then prelude/uast main)))]
-    [ast :primed]))
+  ([packet session]
+   (lower-session packet session (contract/descriptor contract/legacy-id [])))
+  ([packet session descriptor]
+   (let [packet (ok-packet! packet)
+         packet (cond-> packet
+                  (not (contains? packet :yang.python.antlr/max-digits))
+                  (assoc :yang.python.antlr/max-digits 4300))
+         _ (p/validate! packet {:diagnostic-ns "yang.python.antlr"})
+         body (lower/lower-module-body packet nil true descriptor)
+         main (u/let1 '%repl-body
+                      (u/lam [lower/globals-sym lower/globals-fn-sym] body)
+                      (u/sexp->uast run-form))
+         ast (u/mark-tails (if (= :primed session)
+                             main
+                             (u/then prelude/uast main)))]
+     [ast :primed])))
 
 
 (defn lower
   "The stateless lowering: a program that carries the prelude."
   [packet]
   (first (lower-session packet nil)))
+
+
+(defn lower-clojure-session [packet session descriptor]
+  [(lower/lower-packet (ok-packet! packet) {:descriptor descriptor
+                                          :session? true
+                                          :primed? (= :primed session)})
+   :primed])
+
+
+(defn display-clojure-value [value]
+  (if (nil? value) ""
+    (if (string? value) (pr-str value) (str value))))

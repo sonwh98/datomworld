@@ -1290,12 +1290,12 @@
                   (spawn! "prompt-hang-control"
                           ["--name" "prompt-hang-control"
                            "--dir" "target/prompt-hang-control"])
-                  ["(lang :yang/python)" "print(1+2)"] 90000)
+                  ["(lang [:yang/python \"py-v1\"])" "print(1+2)"] 90000)
         bug     (run-submissions
                   (spawn! "prompt-hang-bug"
                           ["--name" "prompt-hang-bug"
                            "--dir" "target/prompt-hang-bug"])
-                  ["(lang :yang/python)"
+                  ["(lang [:yang/python \"py-v1\"])"
                    "even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]"
                    "print(even_squares)"]
                   90000)]

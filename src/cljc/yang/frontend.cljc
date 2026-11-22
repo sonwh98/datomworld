@@ -57,7 +57,7 @@
 ;; Manifest validation (sections 3.1, 3.7)
 ;; =============================================================================
 
-(defn- non-portable-path
+(defn non-portable-path
   "The path to the first value in `x` that is not portable data, or nil.
    A set member has no stable position, so its path ends at the set, and a
    map key's path ends at its map. With several defects the first reported
@@ -199,7 +199,8 @@
    revision) is installed, `:yang.frontend/incompatible` when installed
    candidates exist but none matches the pins, and
    `:yang.frontend/ambiguous` with the matching `:revisions` when more
-   than one matches: the catalog never silently chooses (section 3.3)."
+   than one matches. An id-only request can use the composition’s
+   :yang.frontend/preferred [id revision] when it matches."
   [catalog request]
   (let [id (:yang.frontend/id request)
         revision (:yang.frontend/revision request)
@@ -211,14 +212,18 @@
                                            [:yang.frontend/entries [id r]
                                             :manifest])]
                              (= pins (select-keys m (keys pins)))))
-                         candidates)]
+                         candidates)
+        [preferred-id preferred-revision] (:yang.frontend/preferred catalog)
+        preferred (when (and (nil? revision) (empty? pins) (= id preferred-id)
+                             (some #{preferred-revision} matching))
+                    preferred-revision)]
     (cond (empty? candidates)
           (refused :yang.frontend/unknown {:id id, :revision revision})
           (empty? matching)
           (refused :yang.frontend/incompatible
                    {:id id, :revisions (vec candidates), :pins pins})
-          (next matching)
+          (and (nil? preferred) (next matching))
           (refused :yang.frontend/ambiguous {:id id, :revisions (vec matching)})
-          :else (let [k [id (first matching)]]
+          :else (let [k [id (or preferred (first matching))]]
                   (merge {:status :ok}
                          (get-in catalog [:yang.frontend/entries k]))))))

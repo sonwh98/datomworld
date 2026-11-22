@@ -35,8 +35,8 @@
   :out ["Switched to :yang/python"]
   :exit 0 :quit :typed}
  {:id :python-eval
-  :in ["(lang :yang/python)" "1 + 2" "x = 40" "x + 2" "print(\"h\u00e9llo\")"]
-  :out ["Switched to :yang/python" "3" "" "42" "h\u00e9llo"]
+  :in ["(lang [:yang/python \"py-v1\"])" "1 + 2" "x = 40" "x + 2" "print(\"h\u00e9llo\")"]
+  :out ["Switched to [:yang/python \"py-v1\"]" "3" "" "42" "h\u00e9llo"]
   :exit 0 :quit :typed}
  {:id :bigint-reader :in ["(quote 5N)"]
   :out [{:jvm "5N" :jolt "5"}]
