@@ -2676,6 +2676,20 @@
                 operands))))
 
 
+(defn- report-session-errors
+  "Catch guest exceptions at the REPL boundary and report them before the
+   next submission. `clj/run-unit` encloses even successful values, so a
+   user's vector cannot be mistaken for a raised condition."
+  [body]
+  (let [outcome (u/v '%session-outcome)
+        tag (app* 'data/nth outcome (u/lit 0))
+        value (app* 'data/nth outcome (u/lit 1))]
+    (u/let1 '%session-outcome (app* 'clj/run-unit (u/lam [] body))
+            (u/if-node (app* '= tag (u/lit :yin.k/ok))
+                       value
+                       (u/then (app* 'println (u/lit "Error:") value) (u/lit nil))))))
+
+
 (defn lower-packet
   "Lower one ok packet using the selected, admitted `:descriptor`. Bare
    compiler callers keep the `py-v1` revision. The entry uses that revision's
@@ -2683,7 +2697,8 @@
 
    `:prelude` selects `:bundled` (inline runtime definitions) or `:linked`
    (dependency-first requires supplied by the composition). The persistent
-   profile returns the last display expression as a guest value.
+   profile returns the last display expression as a guest value. The REPL
+   (`:session?`) reports an uncaught guest exception through its output stream.
 
    Legacy imports deliver through try-require thunks at the executed
    statement, after checking sys.modules. Only py is eagerly required;
@@ -2698,11 +2713,12 @@
   ([packet {:keys [prelude descriptor session? primed?]
             :or {prelude :bundled descriptor (contract/descriptor contract/legacy-id [])}}]
    (let [legacy? (= contract/legacy-id (:yang.semantics/id descriptor))
+         repl-session? (and session? (not legacy?))
          pk (p/validate! packet {:diagnostic-ns diagnostic-ns})
          body (lower-module-body packet nil (not legacy?) descriptor)
          resolver (when-not legacy? (u/mark-tails (ambient-resolver descriptor)))
-         main (entry-program descriptor body resolver
-                             (when (and session? (not legacy?)) 'clj.py/run-session))]
+         main (entry-program descriptor (cond-> body repl-session? report-session-errors)
+                             resolver (when repl-session? 'clj.py/run-session))]
      (if legacy?
        (u/mark-tails
          (case prelude

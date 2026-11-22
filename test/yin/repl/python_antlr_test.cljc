@@ -10,8 +10,8 @@
    The session scenarios run on every host through a binding whose parse
    stage answers the parser's packets, precompiled below (each def's
    docstring is the source the REPL hands the parser), and through the
-   installed frontend, whose generated parser each host runs; the packets
-   are checked against the parser on every host so the two cannot drift.
+   installed native revision, whose generated parser each host runs. The
+   packets are checked against the parser on every host so the two cannot drift.
    The slow probe scenarios stay JVM-only."
   (:require
     [clojure.string :as str]
@@ -138,13 +138,16 @@
   ([lang opts]
    (first (repl/eval-input
             (frontends/create-state (merge {:frontends (cst-catalog)} opts))
-            (str "(lang " lang ")")))))
+            (str "(lang " (pr-str lang) ")")))))
+
+
+(def ^:private native-python [:yang/python "py-v1"])
 
 
 (def ^:private langs
-  "The ids every session scenario runs under: the precompiled packets and
+  "The selectors every session scenario runs under: the precompiled packets and
    the installed parser, on every host."
-  [:yang.python/cst :yang/python])
+  [:yang.python/cst native-python])
 
 
 (defn- feed
@@ -428,7 +431,7 @@
    :clj
    (deftest ^:slow probe-buffers-an-open-block-test
      (let [[[s1 t1] [s2 t2] [s3 t3] [_ t4]]
-           (feed (session :yang/python)
+           (feed (session native-python)
                  ["def f(n):" "    return n + 1" "" "print(f(2))"])]
        (testing "the header and body are buffered"
          (is (= "" t1))
@@ -447,21 +450,21 @@
    (deftest ^:slow probe-buffers-across-lines-test
      (testing "an open bracket"
        (is (= ["" "(1, 2)\n"]
-              (texts (session :yang/python) ["print((1," "2))"]))))
+              (texts (session native-python) ["print((1," "2))"]))))
      (testing "a blank line inside brackets does not submit"
        (let [[[s1 t1] [s2 t2] [s3 t3]]
-             (feed (session :yang/python) ["print(" "" "1)"])]
+             (feed (session native-python) ["print(" "" "1)"])]
          (is (= ["" "" "1\n"] [t1 t2 t3]))
          (is (= "print(\n" (:pending-input s2)))
          (is (nil? (:pending-input s3)))
          (is (some? (:pending-input s1)))))
      (testing "an open triple string, brackets inside it"
        (is (= ["" "" "hello\n(\n\n"]
-              (texts (session :yang/python)
+              (texts (session native-python)
                      ["s = \"\"\"hello" "(" "\"\"\"; print(s)"]))))
      (testing "explicit backslash continuation"
        (is (= ["" "" "3\n"]
-              (texts (session :yang/python)
+              (texts (session native-python)
                      ["x = 1 \\" "+ 2" "print(x)"]))))))
 
 
@@ -470,11 +473,11 @@
    (deftest ^:slow probed-lines-keep-their-whitespace-test
      (testing "trailing spaces and tabs inside a triple string are kept"
        (is (= ["" "" "" "a  \t\n  \n\tb \n"]
-              (texts (session :yang/python)
+              (texts (session native-python)
                      ["s = \"\"\"a  \t" "  " "\tb \"\"\"" "print(s)"]))))
      (testing "a short string ending in a backslash and spaces is broken"
        (is (= :complete (probe/probe "s = 'a\\  ")))
-       (let [[[s t] [_ t']] (feed (session :yang/python)
+       (let [[[s t] [_ t']] (feed (session native-python)
                                   ["s = 'a\\  " "print(2)"])]
          (is (nil? (:pending-input s)))
          (is (str/includes? t "SyntaxError"))
@@ -491,7 +494,7 @@
                   "x = (1 + * 2 'a\\"]]
        (testing bad
          (is (= :complete (probe/probe bad)))
-         (let [[[s t] [_ t']] (feed (session :yang/python)
+         (let [[[s t] [_ t']] (feed (session native-python)
                                     [bad "print(2)"])]
            (is (nil? (:pending-input s)))
            (is (str/includes? t "SyntaxError"))
@@ -538,7 +541,7 @@
 (deftest installed-parser-evaluates-the-filtered-comprehension-test
   (testing "the owner's comprehension line, through the installed parser"
     (is (= ["" "" "[4, 16, 36, 64, 100]\n"]
-           (texts (session :yang/python)
+           (texts (session native-python)
                   ["even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]"
                    "x = 1"
                    "print(even_squares)"])))))

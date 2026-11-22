@@ -1,5 +1,6 @@
 (ns yang.python.antlr.descriptor-profile-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [dao.host.integer :as host-int]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
@@ -374,6 +375,24 @@
                                  :yang.frontend/ambient-resolver])))
     (is (= (get-in @composition [:profiles contract/clojure-id :closure])
            (:yang.frontend/runtime-closure derivation)))))
+
+(deftest default-repl-reports-guest-errors-and-keeps-the-session-test
+  (let [state (frontends/create-state {:lang :yang/python})
+        [primed missing] (repl/eval-input state
+                           "even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]")
+        [assigned quiet] (repl/eval-input primed
+                           "even_squares = [x**2 for x in [1,2,3,4,5,6,7,8,9,10] if x % 2 == 0]")
+        [failed zero] (repl/eval-input assigned "1/0")
+        [done displayed] (repl/eval-input failed "even_squares")]
+    (is (str/starts-with? missing "Error: "))
+    (is (str/includes? missing ":name-error"))
+    (is (str/includes? missing "\"range\""))
+    (is (= :primed (:frontend-session primed)))
+    (is (= "" quiet))
+    (is (str/starts-with? zero "Error: "))
+    (is (str/includes? zero ":zero-division"))
+    (is (= "[4 16 36 64 100]" displayed))
+    (is (= [4 16 36 64 100] (:last-value done)))))
 
 (deftest profile-program-root-goldens-test
   (doseq [[revision source roots]
