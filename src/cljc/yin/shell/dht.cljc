@@ -659,6 +659,15 @@
              (throw e)))]
      ;; from here the node owns the store and holds a socket
      (try
+       (when (seq peers)
+         ;; Peek at the immediate lifecycle result. The tick owner still
+         ;; reads successful binds and asynchronous results with this cursor.
+         (let [traffic (get-in node [:composition :traffic])
+               event (:dao.stream/value (stream/next traffic (:traffic-cursor node)))]
+           (when (= :dao.stream.datagram/bind-failed (:dao.stream.datagram/event event))
+             (let [reason (str (:dao.stream.datagram/reason event))]
+               (throw (ex-info (str "dht: refused: the socket could not bind: " reason)
+                               {:dir dir :reason reason}))))))
        (let [[index-store node]
              (compose node base checked follow records
                       {:key key :ws ws :write-heads! write-heads!})]

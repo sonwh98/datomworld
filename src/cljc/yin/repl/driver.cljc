@@ -442,6 +442,12 @@
 
       (= 'disconnect command) (disconnect state)
 
+      (= 'use-store command)
+      (if-some [swap-store (:swap-store state)]
+        (let [[state' text] (swap-store state (rest (adapter/command-form line)))]
+          (publish state' :yin.repl.driver/result text))
+        (evaluate-locally state line))
+
       (= 'repl-state command)
       (cond-> (evaluate-locally state line)
         (:connection state)

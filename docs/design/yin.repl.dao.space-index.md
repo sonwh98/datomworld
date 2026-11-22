@@ -101,17 +101,76 @@ wire shape. It composes beside that epic's middleware, remote channel,
 content service, REPL service, UDP, pair, and UCF slices; their transport
 and content-service file sets need no change for this local observer.
 
-## Durable store: startup, HEAD, and the directory lock
+## Durable store: startup, in-session switching, HEAD, and the directory lock
 
-The store is picked once, at startup: `--index-store mem | file:<dir>`
-through the one shared argument parser every host's `-main` uses, or
-`:index-store-spec` (`:mem`, `{:type :file :dir dir}`) to
-`yin.repl/create-state`. Omission means `mem`, today's behaviour. A
-missing value, an unknown scheme, an empty directory, a directory that
-cannot be opened, a host build without file support, a handle and a spec
-together — each refuses before any shell or server composes, with its
-reason; nothing falls back to memory silently. There is no runtime
-switching.
+The store is chosen at startup or at a quiesced prompt. At startup, it is
+selected via `--index-store mem | file:<dir>` through the one shared
+argument parser every host's `-main` uses, or `:index-store-spec`
+(`:mem`, `{:type :file :dir dir}`) to `yin.repl/create-state`. Omission
+means `mem`, today's behaviour. A missing value, an unknown scheme, an
+empty directory, a directory that cannot be opened, a host build without
+file support, a handle and a spec together — each refuses before any
+shell or server composes, with its reason; nothing falls back to memory
+silently.
+
+In-session, `(use-store <target> & <opts>)` at the local `yin>` prompt
+switches the active store under a quiesced, strict **`open-first`**
+contract:
+
+- **Quiesce requirement (`yin.repl/quiesced?`):** Switching requires that
+  no program has entered evaluation since startup, `(reset)`, `(vm ...)`,
+  or the previous `(use-store ...)`, that no `(require ...)` is parked
+  (`:pending-run` is nil), that no unwritten AST rows remain in the
+  indexer, and that no local publication or composition hydration/request
+  is pending. Read-only inspection commands (`(help)`, `(repl-state)`,
+  `(host)`, `(trusted)`, `(compile ...)`, `(lang ...)`) do not evaluate
+  programs and leave quiescence intact. A dirty session refuses with
+  `cannot switch index store while the session holds evaluated state; run
+  (reset) first`; a parked require refuses with `cannot switch index
+  store while a require is pending; wait for it to complete or run
+  (abandon) and (reset) first`. Independent stores own disjoint `t` and
+  entity `e` timelines, so no index facts are copied or migrated across
+  stores.
+- **`open-first` replacement (`yin.repl/swap-store`,
+  `yin.repl.main/replace-store`):** The target spec (and any composition
+  keyword options on `dht:<dir>`, validated by `:parse-store-command`) is
+  parsed, validated, locked, opened, and recovered, and the rebuilt
+  session is installed into `:repl` (`yin.repl/install-store`,
+  rehydrating the new indexer from the target store's own `:recovery` and
+  preserving `:shell-token`, `:output-stream`, `:output-cursor`, `:lang`,
+  `:frontends`, `:vm-type`, `:extra-primitives`, `:link-policy`, and
+  `:custody` while advancing `:round`) **before** the old composition
+  transport session and old store handle are closed (`release-store!`).
+  If any step of parsing, key loading, directory locking, HEAD/index
+  recovery, synchronous UDP socket binding (`yin.shell.dht/open`), or
+  engine installation fails, only the partial replacement is released and
+  the prior store, lock, and transport session continue uninterrupted. On
+  hosts where a composition transport refusal arrives asynchronously on a
+  later tick after an in-session swap (`:swapped-in-session?`),
+  `yin.repl.main/step-all` releases the failed composition store and
+  recovers the interactive session onto a fresh `:mem` store instead of
+  terminating the process.
+- **Same-directory lock discipline:** Because `open-first` locks the
+  replacement directory before closing the active handle, switching
+  directly between `file:<dir>` and `dht:<dir>` on the same `<dir>`
+  contends with this process's own held lock (`dao.space.store.fs/lock!`)
+  and refuses with the hint `(currently held by this session; switch to
+  mem first to release the directory lock)`. Bouncing through
+  `(use-store "mem")` releases `<dir>/lock` so a subsequent
+  `(use-store "dht:<dir>" ...)` (or `"file:<dir>"`) can lock and
+  rehydrate `<dir>/HEAD`.
+- **Local routing & `state.edn` non-interaction:** `'use-store` is a
+  local driver command (`yin.repl.adapter/local-command-heads`), never
+  forwarded over `(connect ...)` and explicitly refused on remote
+  `--port` `:op/eval` requests (`yin.repl.serve`). In-session store
+  switches never read or write `<node-dir>/state.edn`.
+- **Gambit C4 boundary (`jolt-gambit`):** On Gambit
+  (`host/gambit/yin/jolt/gambit/yin.jolt`), `(use-store "mem")` swaps in
+  a fresh memory store preserving the Gambit host modules (`jolt.ffi`,
+  `dao.jing.mem`), whereas `(use-store "file:<dir>")` and
+  `(use-store "dht:<dir>" ...)` invoke `dao.posix.file/realpath` during
+  `open-first` and raise the C4 blocking-FFI refusal inline while the
+  active `:mem` session survives.
 
 The durable directory store is `dao.space.store` (its host file
 operations, the lock among them, are `dao.space.store.fs`): the shell is
