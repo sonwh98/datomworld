@@ -658,4 +658,4 @@
     (is (not (call 'admit-key? (keyword nil "a/b"))))
     (is (not (call 'admit-key? [1 {:k p}])))
     (is (neg? (call 'canonical-compare 0 nil)))
-    (is (= [[0 :zero] [nil :nil]] (call 'canonical-entries {nil :nil 0 :zero})))))
+    (is (= [[0 :zero] [nil :nil]] (call 'canonical-entries (zipmap [nil 0] [:nil :zero]))))))
