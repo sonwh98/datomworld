@@ -644,17 +644,28 @@
                   "assert 1, boom()\n"
                   "assert True, 1 / 0\n"
                   "print('ok')\n"))
-  ;; a falsey test still evaluates the message, even a failing one
-  (every-vm= {:py/out [], :py/exception {:type "ZeroDivisionError", :args []}}
+  ;; a falsey test still evaluates the message, even a failing one (the
+  ;; args are the guest's own `1 / 0` answer, as CPython's are)
+  (every-vm= {:py/out [], :py/exception {:type "ZeroDivisionError", :args ["division by zero"]}}
              "assert 0, 1 / 0\n")
   ;; a literal None message keeps CPython's (None,) args — only the bare
-  ;; form raises with empty args (the slice-1 note's divergence, resolved
-  ;; by lowering the message inline instead of through py/assert)
+  ;; form raises with empty args (py/assert's :py/None message)
   (every-vm= (prints "None caught")
              (str "try:\n"
                   "    assert 0, None\n"
                   "except AssertionError as e:\n"
-                  "    print(e.args[0], 'caught')\n")))
+                  "    print(e.args[0], 'caught')\n"))
+  ;; the message of a passing assert never runs: the counter bump sits in
+  ;; the thunk py/assert forces only on failure, so n stays 0
+  (every-vm= (prints "0")
+             (str "n = 0\n"
+                  "def bump():\n"
+                  "    global n\n"
+                  "    n = n + 1\n"
+                  "    return 'x'\n"
+                  "assert 1, bump()\n"
+                  "assert True, bump()\n"
+                  "print(n)\n")))
 
 
 (deftest ^:slow ^:quickwins annotated-assignment-test
