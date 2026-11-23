@@ -752,16 +752,18 @@
     [py/raise-new (fn [cls msg] (py/raise (py/make-exc cls msg)))]
     [py/type-error (fn [msg] (py/raise-new py.b/TypeError msg))]
     [py/assert
-     ;; the bare `assert test`: a falsey test raises AssertionError with no
-     ;; args. Only the bare form reaches here — the message form lowers
-     ;; inline into an if's failure arm (lower-assert), so the message
-     ;; evaluates only when the test is falsey and a literal `assert x,
-     ;; None` keeps CPython's (None,) args through py/make-exc
+     ;; `assert test` and `assert test, msg`: a falsey test raises
+     ;; AssertionError; the bare form passes :py/None as the message and
+     ;; raises with no args, the message form passes a zero-arg thunk (a
+     ;; closure lowering the message, lower-assert) that is forced only
+     ;; on failure, so the message evaluates lazily as CPython's does —
+     ;; `assert x, f()` never calls f() while x is truthy; a forced None
+     ;; keeps CPython's (None,) args through py/make-exc
      (fn [test msg]
        (if (py/truthy test)
          :py/None
          (py/raise (py/make-exc py.b/AssertionError
-                                (if (= msg :py/None) nil msg)))))]
+                                (if (= msg :py/None) nil (msg))))))]
     [py/as-exception
      ;; `raise X`: a BaseException subclass is instantiated, an instance of
      ;; one is raised as is, anything else is a TypeError
