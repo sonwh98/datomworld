@@ -36,14 +36,19 @@
    `%<n>` by `yang.core.names/canonicalize` before tail marking."
   (:require
     [clojure.string :as str]
-    [dao.jing.cbor :as cbor]
+    [dao.jing :as jing]
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
     [yang.core.names :as names]
+    [yang.core.semantics :as semantics]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
+    [yang.typescript.antlr.clj-runtime :as runtime]
+    [yang.typescript.antlr.contract :as contract]
     [yang.typescript.antlr.prelude :as prelude]
-    [yang.typescript.antlr.scope :as scope]))
+    [yang.typescript.antlr.profiles :as profiles]
+    [yang.typescript.antlr.scope :as scope]
+    [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -68,6 +73,38 @@
 (defn- syntax!
   [n message]
   (core/syntax! diagnostic-ns n message))
+
+
+(defn- legacy? [ctx]
+  (= contract/legacy-id (get-in ctx [:descriptor :yang.semantics/id])))
+
+
+(defn- capability-refusal! [ctx cap node construct]
+  (throw (ex-info (str "Unsupported TypeScript capability: " construct)
+                  {:status :refused :reason :yang.semantics/unsupported-capability
+                   :yang.ts/diagnostic :yang.ts/unsupported
+                   :capability cap :semantics-id (get-in ctx [:descriptor :yang.semantics/id])
+                   :construct construct :node (:id node)})))
+
+
+(defn- require-capability! [ctx cap node construct]
+  (when-not (#{:supported :cell :single-assignment} (semantics/capability (:descriptor ctx) cap))
+    (if (legacy? ctx)
+      (refuse! node construct :T4)
+      (capability-refusal! ctx cap node construct))))
+
+
+(def ^:private rule-capabilities
+  {"classDeclaration" :oo/classes
+   "enumDeclaration" :typescript/enums
+   "generatorBlock" :control/generators
+   "generatorFunctionDeclaration" :control/generators
+   "iteratorBlock" :control/generators
+   "withStatement" :control/with
+   "yieldStatement" :control/generators
+   "importStatement" :modules/import
+   "exportStatement" :modules/export
+   "importAliasDeclaration" :modules/import})
 
 
 (def unsupported-rules
@@ -120,9 +157,12 @@
 (defn- default-arm
   "The arm of a rule with no lowering: a typed refusal for the tables,
    `:yang.ts/unhandled-rule` otherwise."
-  [n]
+  [ctx n]
   (if-let [{:keys [construct slice]} (get unsupported-rules (:rule n))]
-    (refuse! n construct slice)
+    (do (when-not (legacy? ctx)
+          (when-let [cap (rule-capabilities (:rule n))]
+            (capability-refusal! ctx cap n construct)))
+        (refuse! n construct slice))
     (if (contains? consumed-rules (:rule n))
       (refuse! n "type syntax" :T8)
       (core/default-arm diagnostic-ns "TypeScript" {} n))))
@@ -158,12 +198,25 @@
 (def ^:private app* core/app*)
 
 
-(def ^:private undefined (u/lit :js/undefined))
+(defn- hook [ctx role]
+  (or (get-in ctx [:descriptor :yang.semantics/hooks role])
+      (throw (ex-info "TypeScript profile lacks a lowering hook"
+                      {:status :refused :reason :yang.semantics/invalid-descriptor
+                       :defect :missing-hook :role role}))))
+
+
+(defn- emit [ctx role & operands]
+  (apply app* (hook ctx role) operands))
+
+
+(defn- literal
+  ([ctx key] (literal ctx key nil))
+  ([ctx key value] (semantics/literal (:descriptor ctx) key value)))
 
 
 (defn- jstr
-  [s]
-  {:js/str s})
+  [ctx s]
+  (:value (literal ctx :str s)))
 
 
 (defn- text-of
@@ -172,19 +225,19 @@
 
 
 (defn- truthy
-  [x]
-  (app* 'js/to-boolean x))
+  [ctx x]
+  (emit ctx :op/truthy x))
 
 
 (defn- build-vector
-  [elems]
-  (core/build-vector 'js/vconj elems))
+  [ctx elems]
+  (core/build-vector (hook ctx :coll/vconj) elems))
 
 
 (defn- seq-of
-  "The nodes in order, ending in `:js/undefined`."
-  [nodes]
-  (u/seq-nodes (conj (vec nodes) undefined)))
+  "The nodes in order, ending in the profile's undefined value."
+  [ctx nodes]
+  (u/seq-nodes (conj (vec nodes) (literal ctx :undefined))))
 
 
 (defn- token-kid
@@ -234,8 +287,8 @@
 
 (defn- wrap-escape
   "`node` run under a `js/call-ec` that binds escape `sym`, when `bound?`."
-  [bound? sym node]
-  (if bound? (app* 'js/call-ec (u/lam [sym] node)) node))
+  [ctx bound? sym node]
+  (if bound? (emit ctx :ctrl/call-ec (u/lam [sym] node)) node))
 
 
 ;; =============================================================================
@@ -291,10 +344,12 @@
 (defn- string-value
   "The normalized string value of code units `us`: the lowering's own
    `js/mk-str`."
-  [us]
+  [ctx n us]
   (if (well-formed? us)
-    {:js/str (units->text us)}
-    {:js/units (vec us)}))
+    (jstr ctx (units->text us))
+    (if (get-in ctx [:descriptor :yang.semantics/literals :str-units])
+      (:value (literal ctx :str-units (vec us)))
+      (capability-refusal! ctx :literals/utf16-units n "lone surrogate"))))
 
 
 (defn- hex-value
@@ -370,11 +425,11 @@
 
 (defn- string-literal
   "The value of one StringLiteral token text."
-  [n text]
+  [ctx n text]
   (let [body (subs text 1 (dec (count text)))]
     (if (str/includes? body "\\")
-      (string-value (unescape n body))
-      {:js/str body})))
+      (string-value ctx n (unescape n body))
+      (jstr ctx body))))
 
 
 (defn- host-double
@@ -427,7 +482,7 @@
 
 (defn- number-literal
   "The node of one numeric literal token: float64 content."
-  [n text]
+  [ctx n text]
   (let [t (str/replace text "_" "")
         lower (str/lower-case t)
         v (cond
@@ -437,7 +492,7 @@
             (re-find #"^0[0-9]" lower)
             (syntax! n "Legacy octal literals are not allowed in strict mode")
             :else (host-double (decimal-text t)))]
-    (u/lit (cbor/float64 v))))
+    (literal ctx :float v)))
 
 
 (def ^:private max-native-digits
@@ -448,7 +503,7 @@
 (defn- bigint-literal
   "The node of one BigInt literal token: native when it fits 2^53 - 1,
    else `(js/string->bigint text)`."
-  [n text]
+  [ctx n text]
   (let [t (str/replace (subs text 0 (dec (count text))) "_" "")
         lower (str/lower-case t)
         [radix digits] (cond
@@ -463,9 +518,14 @@
                             10 #"(0|[1-9][0-9]*)")
                           digits)
       (syntax! n "Invalid BigInt literal"))
-    (if (<= (count digits) (get max-native-digits radix))
-      (u/lit (radix-int n digits radix))
-      (app* 'js/string->bigint (u/lit (jstr lower))))))
+    ;; Preserve the native cutoff and its overflow operand even where a
+    ;; longer run of digits happens to have a small magnitude.
+    (let [v (when (<= (count digits) (get max-native-digits radix))
+              (radix-int n digits radix))
+          bits (if (nil? v) 54
+                 (loop [n v bits 0]
+                   (if (zero? n) bits (recur (quot n 2) (inc bits)))))]
+      (semantics/literal (:descriptor ctx) :int v bits (jstr ctx lower)))))
 
 
 (defn- template-parts
@@ -498,12 +558,12 @@
   [ctx n]
   (let [nodes (mapv (fn [[kind v]]
                       (case kind
-                        :text (u/lit (string-value v))
-                        :expr (app* 'js/to-string (lower-expr ctx v))))
+                        :text (u/lit (string-value ctx n v))
+                        :expr (emit ctx :op/to-string (lower-expr ctx v))))
                     (template-parts ctx n))]
     (if (empty? nodes)
-      (u/lit (jstr ""))
-      (reduce (fn [acc x] (app* 'js/str-concat acc x)) nodes))))
+      (u/lit (jstr ctx ""))
+      (reduce (fn [acc x] (emit ctx :op/str-concat acc x)) nodes))))
 
 
 (defn- lower-literal
@@ -512,15 +572,15 @@
     (cond
       (p/token? k)
       (case (:type k)
-        "NullLiteral" (u/lit :js/null)
-        "BooleanLiteral" (u/lit (= "true" (:text k)))
-        "StringLiteral" (u/lit (string-literal n (:text k)))
+        "NullLiteral" (literal ctx :nil)
+        "BooleanLiteral" (literal ctx :bool (= "true" (:text k)))
+        "StringLiteral" (u/lit (string-literal ctx n (:text k)))
         "RegularExpressionLiteral" (refuse! n "regular expression literal" :never)
-        (default-arm n))
-      (p/rule? k "numericLiteral") (number-literal k (text-of ctx k))
-      (p/rule? k "bigintLiteral") (bigint-literal k (text-of ctx k))
+        (default-arm ctx n))
+      (p/rule? k "numericLiteral") (number-literal ctx k (text-of ctx k))
+      (p/rule? k "bigintLiteral") (bigint-literal ctx k (text-of ctx k))
       (p/rule? k "templateStringLiteral") (lower-template ctx k)
-      :else (default-arm k))))
+      :else (default-arm ctx k))))
 
 
 ;; =============================================================================
@@ -538,11 +598,13 @@
     (cond
       (= :cell (:kind r))
       (if (:tdz? r)
-        (app* 'js/lexical-get (u/v (symbol nm)) (u/lit (jstr nm)))
+        (emit ctx :env/local-get (u/v (symbol nm)) (u/lit (jstr ctx nm)))
         (app* 'cell/get (u/v (symbol nm))))
       (and (= nm "arguments") (:arguments ctx))
-      (u/v (:arguments ctx))
-      :else (app* 'js/global-get (u/lit (jstr nm))))))
+      (do (require-capability! ctx :calls/arguments (:node ctx) "arguments")
+          (u/v (:arguments ctx)))
+      (legacy? ctx) (emit ctx :legacy/global-get (u/lit (jstr ctx nm)))
+      :else (emit ctx :env/global-get (u/v (:globals ctx)) (u/lit nm)))))
 
 
 (defn- init-name
@@ -556,6 +618,8 @@
   [ctx nm value-sym]
   (let [r (resolve-name ctx nm)
         v (u/v value-sym)]
+    (require-capability! ctx (if (= :cell (:kind r)) :mutation/locals :scope/global)
+                         (:node ctx) "identifier assignment")
     (cond
       (not= :cell (:kind r))
       ;; No lexical binding reaches this name, so the write lands on the
@@ -569,10 +633,10 @@
       ;; resolves the reference without getting its value, so a global
       ;; accessor's getter must stay silent while its setter runs. Declaring
       ;; such a global (a script-goal `var`) is design §3.7's deferred slice.
-      (app* 'js/global-set (u/lit (jstr nm)) v)
-      (:const? r) (u/then (app* 'js/lexical-get (u/v (symbol nm)) (u/lit (jstr nm)))
-                          (app* 'js/const-assign!))
-      (:tdz? r) (u/then (app* 'js/lexical-get (u/v (symbol nm)) (u/lit (jstr nm)))
+      (emit ctx :legacy/global-set (u/lit (jstr ctx nm)) v)
+      (:const? r) (u/then (emit ctx :env/local-get (u/v (symbol nm)) (u/lit (jstr ctx nm)))
+                          (emit ctx :env/const-assign))
+      (:tdz? r) (u/then (emit ctx :env/local-get (u/v (symbol nm)) (u/lit (jstr ctx nm)))
                         (u/then (app* 'cell/set! (u/v (symbol nm)) v) v))
       :else (u/then (app* 'cell/set! (u/v (symbol nm)) v) v))))
 
@@ -601,14 +665,11 @@
            (mapv (fn [[_ init]] (app* 'cell/new init)) pairs))))
 
 
-(def ^:private tdz (u/lit :js/tdz))
-
-
 (defn- block-pairs
-  [s]
+  [ctx s]
   (let [{:keys [params vars tdz-names]} (binding-names s)]
-    (vec (concat (map (fn [nm] [nm undefined]) (concat params vars))
-                 (map (fn [nm] [nm tdz]) tdz-names)))))
+    (vec (concat (map (fn [nm] [nm (literal ctx :undefined)]) (concat params vars))
+                 (map (fn [nm] [nm (literal ctx :unbound)]) tdz-names)))))
 
 
 (defn- scope-of
@@ -632,7 +693,8 @@
                   ("requiredParameter" "formalParameterArg")
                   (do (check-consumed! ctx m)
                       (when (p/has-token? (:pk ctx) m "=")
-                        (refuse! m "default parameter" :T4))
+                        (do (require-capability! ctx :calls/defaults m "default parameter")
+                        (refuse! m "default parameter" :T4)))
                       (when (p/has-token? (:pk ctx) m "?")
                         (refuse! m "type syntax" :T8))
                       (doseq [k (rule-kids ctx m)]
@@ -642,16 +704,20 @@
                             (when-not (and inner
                                            (contains? #{"identifierName" "identifier"}
                                                       (:rule inner)))
-                              (refuse! k "destructuring" :T4)))
+                              (do (require-capability! ctx :destructuring/unpack k "destructuring")
+                        (refuse! k "destructuring" :T4))))
                           nil)))
                   ("restParameter" "lastFormalParameterArg")
-                  (refuse! m "rest parameter" :T4)
+                  (do (require-capability! ctx :calls/varargs m "rest parameter")
+                        (refuse! m "rest parameter" :T4))
                   "optionalParameter"
                   (if (p/has-token? (:pk ctx) m "?")
                     (refuse! m "type syntax" :T8)
-                    (refuse! m "default parameter" :T4))
+                    (do (require-capability! ctx :calls/defaults m "default parameter")
+                        (refuse! m "default parameter" :T4)))
                   ("arrayLiteral" "objectLiteral")
-                  (refuse! m "destructuring" :T4)
+                  (do (require-capability! ctx :destructuring/unpack m "destructuring")
+                        (refuse! m "destructuring" :T4))
                   (run! go (rule-kids ctx m)))))]
       (go plist))))
 
@@ -757,31 +823,32 @@
                          (core/contains-rule? fctx body "returnStatement" function-rules))
         inner (if expr-body
                 (lower-expr fctx expr-body)
-                (let [b (seq-of (lower-stmts fctx stmts))]
+                (let [b (seq-of ctx (lower-stmts fctx stmts))]
                   (if has-return?
-                    (app* 'js/call-ec (u/lam [ret] b))
+                    (emit ctx :ctrl/call-ec (u/lam [ret] b))
                     b)))
         {:keys [params vars tdz-names]} (binding-names s)
         param-pairs (map-indexed (fn [i nm]
-                                   [nm (app* 'js/arg
+                                   [nm (emit ctx :fn/arg
                                              (u/v args-sym)
                                              (u/lit i))])
                                  params)
         pairs (vec (concat param-pairs
-                           (map (fn [nm] [nm undefined]) vars)
-                           (map (fn [nm] [nm tdz]) tdz-names)))
+                           (map (fn [nm] [nm (literal ctx :undefined)]) vars)
+                           (map (fn [nm] [nm (literal ctx :unbound)]) tdz-names)))
         body-core (if thisc
-                    (app* 'js/derived-result (u/v thisc) inner)
+                    (emit ctx :legacy/derived-result (u/v thisc) inner)
                     inner)
         body-node (bind-cells pairs
                               body-core)
-        body-node (if args-object
+        body-node (if (and args-object
+                           (= :supported (semantics/capability (:descriptor ctx) :calls/arguments)))
                     (u/let1 args-object
-                            (app* 'js/args-object (u/v args-sym))
+                            (emit ctx :legacy/args-object (u/v args-sym))
                             body-node)
                     body-node)
         body-node (if thisc
-                    (u/let1 thisc (app* 'cell/new tdz) body-node)
+                    (u/let1 thisc (app* 'cell/new (literal ctx :unbound)) body-node)
                     body-node)]
     {:code (site [:call fname (first (:span n))]
                  (u/lam (cond-> [(if arrow? (gen "athis" n) this-sym) args-sym]
@@ -797,10 +864,11 @@
    as for `function-code`, with `:kind` overriding the function kind."
   ([ctx n scope-n fname] (function-value ctx n scope-n fname {}))
   ([ctx n scope-n fname opts]
+   (require-capability! ctx :calls/positional n "function")
    (let [arrow? (= "arrowFunctionDeclaration" (:rule n))
          s (scope-of ctx scope-n)
          {:keys [code arity nt?]} (function-code ctx n scope-n fname opts)
-         args [(u/lit (jstr fname))
+         args [(u/lit (jstr ctx fname))
                (u/lit arity)
                (u/lit (if arrow? :lexical :strict))
                (u/lit (or (:kind opts)
@@ -812,14 +880,14 @@
                             :else :normal)))
                code]
          value (if nt?
-                 (apply app* 'js/make-function-nt (conj args (u/lit true)))
-                 (apply app* 'js/make-function args))]
+                 (apply emit ctx :legacy/make-function-nt (conj args (u/lit true)))
+                 (apply emit ctx :fn/make args))]
      (if-let [self (:self s)]
        (let [cell-sym (symbol self)]
          (u/app (u/lam [cell-sym]
                        (u/then (app* 'cell/set! (u/v cell-sym) value)
                                (app* 'cell/get (u/v cell-sym))))
-                (app* 'cell/new undefined)))
+                (app* 'cell/new (literal ctx :undefined))))
        value))))
 
 
@@ -841,10 +909,10 @@
 ;; =============================================================================
 
 (def ^:private binary-ops
-  {"+" 'js/add, "-" 'js/sub, "*" 'js/mul, "/" 'js/div, "%" 'js/mod,
-   "**" 'js/pow, "&" 'js/bit-and, "|" 'js/bit-or, "^" 'js/bit-xor,
-   "<<" 'js/shl, ">>" 'js/sar, ">>>" 'js/shr, "<" 'js/lt, ">" 'js/gt,
-   "<=" 'js/le, ">=" 'js/ge, "==" 'js/loose-eq, "===" 'js/strict-eq})
+  {"+" :op/add, "-" :op/sub, "*" :op/mul, "/" :op/div, "%" :op/mod,
+   "**" :op/pow, "&" :legacy/bit-and, "|" :legacy/bit-or, "^" :legacy/bit-xor,
+   "<<" :legacy/shl, ">>" :legacy/sar, ">>>" :legacy/shr, "<" :op/lt, ">" :op/gt,
+   "<=" :op/le, ">=" :op/ge, "==" :op/loose-eq, "===" :op/strict-eq})
 
 
 (def ^:private compound-ops
@@ -881,10 +949,10 @@
 
 (defn- one-for
   "The unit of `++`/`--` for numeric value node `old`."
-  [old]
-  (u/if-node (app* '= (app* 'js/kind-of old) (u/lit :bigint))
+  [ctx old]
+  (u/if-node (app* '= (emit ctx :op/kind old) (u/lit :bigint))
              (u/lit 1)
-             (u/lit (cbor/float64 1.0))))
+             (literal ctx :float 1.0)))
 
 
 (defn- lower-this-expr
@@ -892,16 +960,18 @@
    constructor (and the arrows inside it), checked for its TDZ, else the
    value-backed parameter."
   [ctx]
+  (require-capability! ctx :calls/receiver (:node ctx) "this")
   (if-let [thisc (:this-cell ctx)]
-    (app* 'js/lexical-get (u/v thisc) (u/lit (jstr "this")))
+    (emit ctx :env/local-get (u/v thisc) (u/lit (jstr ctx "this")))
     (u/v (:this ctx))))
 
 
 (defn- nt-node
   "The node reading `new.target`."
   [ctx]
+  (require-capability! ctx :oo/classes (:node ctx) "new.target")
   (let [nt (:nt ctx)]
-    (if (or (nil? nt) (= :undefined nt)) undefined (u/v nt))))
+    (if (or (nil? nt) (= :undefined nt)) (literal ctx :undefined) (u/v nt))))
 
 
 (defn- home-node
@@ -945,9 +1015,9 @@
           (when (some #(p/token? % "!") ks) (refuse! n "type syntax" :T8))
           {:kind :super,
            :key (if (and dot? (p/rule? (peek ks) "identifierName"))
-                  (u/lit (jstr (text-of ctx (peek ks))))
+                  (u/lit (jstr ctx (text-of ctx (peek ks))))
                   (let [k (lower-seq ctx (nth ks (- (count ks) 2)))]
-                    (if raw? k (app* 'js/to-property-key k))))})
+                    (if raw? k (emit ctx :coll/property-key k))))})
       :else (let [[o k] (member-parts ctx n raw?)]
               {:kind :value, :obj o, :key k}))))
 
@@ -956,9 +1026,9 @@
   [ctx n]
   (let [ref (member-ref ctx n false)]
     (case (:kind ref)
-      :value (app* 'js/get-value (lower-expr ctx (:obj ref)) (:key ref))
-      :private (app* 'js/priv-get (lower-expr ctx (:obj ref)) (:pn ref))
-      :super (app* 'js/super-get (home-node ctx) (:key ref) (lower-this-expr ctx)))))
+      :value (emit ctx :coll/get (lower-expr ctx (:obj ref)) (:key ref))
+      :private (emit ctx :legacy/priv-get (lower-expr ctx (:obj ref)) (:pn ref))
+      :super (emit ctx :legacy/super-get (home-node ctx) (:key ref) (lower-this-expr ctx)))))
 
 
 (defn- lower-member-update
@@ -970,34 +1040,40 @@
         kk (gen "mk" n)
         old (gen "o" n)
         nv (gen "n" n)
-        f (if (= "++" op) 'js/add 'js/sub)
+        f (if (= "++" op) :op/add :op/sub)
         [read write]
         (case (:kind ref)
-          :value [(app* 'js/get-value (u/v o) (u/v kk))
-                  (fn [v] (app* 'js/put-value (u/v o) (u/v kk) v))]
-          :private [(app* 'js/priv-get (u/v o) (:pn ref))
-                    (fn [v] (u/then (app* 'js/priv-set (u/v o) (:pn ref) v) v))]
-          :super [(app* 'js/super-get (home-node ctx) (u/v kk) (u/v o))
-                  (fn [v] (app* 'js/super-set (home-node ctx) (u/v kk) v (u/v o)))])]
+          :value [(emit ctx :coll/get (u/v o) (u/v kk))
+                  (fn [v] (emit ctx :legacy/put-value (u/v o) (u/v kk) v))]
+          :private [(emit ctx :legacy/priv-get (u/v o) (:pn ref))
+                    (fn [v] (u/then (emit ctx :legacy/priv-set (u/v o) (:pn ref) v) v))]
+          :super [(emit ctx :legacy/super-get (home-node ctx) (u/v kk) (u/v o))
+                  (fn [v] (emit ctx :legacy/super-set (home-node ctx) (u/v kk) v (u/v o)))])]
     (u/let1 o
             (if (= :super (:kind ref))
               (lower-this-expr ctx)
               (lower-expr ctx (:obj ref)))
             (u/let1 kk
-                    (or (:key ref) undefined)
+                    (or (:key ref) (literal ctx :undefined))
                     (u/let1 old
-                            (app* 'js/to-numeric read)
+                            (emit ctx :op/to-numeric read)
                             (u/let1 nv
-                                    (app* f (u/v old) (one-for (u/v old)))
+                                    (emit ctx f (u/v old) (one-for ctx (u/v old)))
                                     (u/then (write (u/v nv))
                                             (u/v (if prefix? nv old)))))))))
+
+
+(defn- check-member-write! [ctx target]
+  (let [cap (if (token-kid ctx target "[") :mutation/subscript :mutation/attribute)]
+    (require-capability! ctx cap target "member assignment")))
 
 
 (defn- lower-update
   "`++x`, `--x`, `x++`, `x--` on an identifier or a member."
   [ctx n target op prefix?]
   (if (member-expression? ctx target)
-    (lower-member-update ctx n target op prefix?)
+    (do (check-member-write! ctx target)
+        (lower-member-update ctx n target op prefix?))
     (lower-name-update ctx n target op prefix?)))
 
 
@@ -1006,11 +1082,11 @@
   (let [nm (target-name! ctx target)
         old (gen "o" n)
         nv (gen "n" n)
-        f (if (= "++" op) 'js/add 'js/sub)]
+        f (if (= "++" op) :op/add :op/sub)]
     (u/let1 old
-            (app* 'js/to-numeric (read-name ctx nm))
+            (emit ctx :op/to-numeric (read-name ctx nm))
             (u/let1 nv
-                    (app* f (u/v old) (one-for (u/v old)))
+                    (emit ctx f (u/v old) (one-for ctx (u/v old)))
                     (u/then (assign-name ctx nm nv)
                             (u/v (if prefix? nv old)))))))
 
@@ -1035,25 +1111,25 @@
                       (if (= op "=")
                         (u/let1 v
                                 (lower-expr ctx rhs)
-                                (app* 'js/put-value
+                                (emit ctx :legacy/put-value
                                       (u/v o)
-                                      (app* 'js/to-property-key (u/v kk))
+                                      (emit ctx :coll/property-key (u/v kk))
                                       (u/v v)))
                         (u/let1 v
-                                (app* (get binary-ops bin)
-                                      (app* 'js/get-value (u/v o) (u/v kk))
+                                (emit ctx (get binary-ops bin)
+                                      (emit ctx :coll/get (u/v o) (u/v kk))
                                       (lower-expr ctx rhs))
-                                (app* 'js/put-value (u/v o) (u/v kk) (u/v v))))))
+                                (emit ctx :legacy/put-value (u/v o) (u/v kk) (u/v v))))))
       :private
       (u/let1 o
               (lower-expr ctx (:obj ref))
               (u/let1 v
                       (if (= op "=")
                         (lower-expr ctx rhs)
-                        (app* (get binary-ops bin)
-                              (app* 'js/priv-get (u/v o) (:pn ref))
+                        (emit ctx (get binary-ops bin)
+                              (emit ctx :legacy/priv-get (u/v o) (:pn ref))
                               (lower-expr ctx rhs)))
-                      (u/then (app* 'js/priv-set (u/v o) (:pn ref) (u/v v))
+                      (u/then (emit ctx :legacy/priv-set (u/v o) (:pn ref) (u/v v))
                               (u/v v))))
       :super
       (u/let1 o
@@ -1063,14 +1139,14 @@
                       (u/let1 v
                               (if (= op "=")
                                 (lower-expr ctx rhs)
-                                (app* (get binary-ops bin)
-                                      (app* 'js/super-get (home-node ctx)
+                                (emit ctx (get binary-ops bin)
+                                      (emit ctx :legacy/super-get (home-node ctx)
                                             (u/v kk) (u/v o))
                                       (lower-expr ctx rhs)))
-                              (app* 'js/super-set
+                              (emit ctx :legacy/super-set
                                     (home-node ctx)
                                     (if (= op "=")
-                                      (app* 'js/to-property-key (u/v kk))
+                                      (emit ctx :coll/property-key (u/v kk))
                                       (u/v kk))
                                     (u/v v)
                                     (u/v o))))))))
@@ -1079,7 +1155,8 @@
 (defn- lower-assign
   [ctx n lhs op rhs]
   (if (member-expression? ctx lhs)
-    (lower-member-assign ctx n lhs op rhs)
+    (do (check-member-write! ctx lhs)
+        (lower-member-assign ctx n lhs op rhs))
     (lower-name-assign ctx n lhs op rhs)))
 
 
@@ -1095,8 +1172,10 @@
       (let [bin (get compound-ops op)]
         (when-not bin
           (refuse! n (str "assignment operator " op) :T4))
+        (when (= "legacy" (namespace (get binary-ops bin)))
+          (require-capability! ctx :op/bitwise n op))
         (u/let1 v
-                (app* (get binary-ops bin) (read-name ctx nm) (lower-expr ctx rhs))
+                (emit ctx (get binary-ops bin) (read-name ctx nm) (lower-expr ctx rhs))
                 (assign-name ctx nm v))))))
 
 
@@ -1107,8 +1186,9 @@
     (reduce (fn [out a]
               (let [e (first (rules ctx a "singleExpression"))]
                 (if (p/has-token? (:pk ctx) a "...")
-                  (app* 'js/args-spread out (lower-expr ctx e))
-                  (app* 'js/vconj out (if e (lower-expr ctx e)
+                  (do (require-capability! ctx :calls/spread a "spread argument")
+                      (emit ctx :coll/spread out (lower-expr ctx e)))
+                  (emit ctx :coll/vconj out (if e (lower-expr ctx e)
                                           (read-name ctx (text-of ctx a)))))))
             (u/lit []) args)))
 
@@ -1128,12 +1208,12 @@
        (do (when (some #(p/token? % "?") ks) (refuse! n "optional chaining" :T4))
            (when (some #(p/token? % "!") ks) (refuse! n "type syntax" :T8))
            (when (some #(p/token? % "#") ks) (refuse! n "private name" :T3))
-           [obj (u/lit (jstr (text-of ctx (peek ks))))])
+           [obj (u/lit (jstr ctx (text-of ctx (peek ks))))])
        (and (some #(p/token? % ".") ks) (p/rule? (peek ks) "typeGeneric"))
        (refuse! n "type syntax" :T8)
        :else
        (let [k (lower-seq ctx (nth ks (- (count ks) 2)))]
-         [obj (if raw? k (app* 'js/to-property-key k))])))))
+         [obj (if raw? k (emit ctx :coll/property-key k))])))))
 
 
 (defn- member-expression?
@@ -1161,7 +1241,7 @@
 (defn- lower-super-call
   "`super(args)` in a derived constructor, or an arrow inside it."
   [ctx args]
-  (app* 'js/super-call
+  (emit ctx :legacy/super-call
         (app* 'cell/get (u/v (:class-cell ctx)))
         (nt-node ctx)
         (u/v (:this-cell ctx))
@@ -1170,6 +1250,7 @@
 
 (defn- lower-call
   [ctx n]
+  (require-capability! ctx :calls/positional n "call")
   (let [ks (kids ctx n)
         callee (first ks)
         args (lower-args ctx (second ks))]
@@ -1183,56 +1264,59 @@
             (case (:kind ref)
               :value (u/let1 o
                              (lower-expr ctx (:obj ref))
-                             (app* 'js/call
-                                   (app* 'js/get-value (u/v o) (:key ref))
+                             (emit ctx :fn/call
+                                   (emit ctx :coll/get (u/v o) (:key ref))
                                    (u/v o)
                                    args))
               :private (u/let1 o
                                (lower-expr ctx (:obj ref))
-                               (app* 'js/call
-                                     (app* 'js/priv-get (u/v o) (:pn ref))
+                               (emit ctx :fn/call
+                                     (emit ctx :legacy/priv-get (u/v o) (:pn ref))
                                      (u/v o)
                                      args))
               :super (u/let1 o
                              (lower-this-expr ctx)
-                             (app* 'js/call
-                                   (app* 'js/super-get (home-node ctx)
+                             (emit ctx :fn/call
+                                   (emit ctx :legacy/super-get (home-node ctx)
                                          (:key ref) (u/v o))
                                    (u/v o)
                                    args))))
-          (app* 'js/call (lower-expr ctx callee) undefined args))))))
+          (emit ctx :fn/call (lower-expr ctx callee) (literal ctx :undefined) args))))))
 
 
 (defn- lower-new
   [ctx n]
+  (require-capability! ctx :oo/classes n "new")
   (let [ks (kids ctx n)
         callee (second ks)
         args (first (rules ctx n "arguments"))]
     (when (first (rules ctx n "typeArguments")) (refuse! n "type syntax" :T8))
     (refuse-global! ctx callee "Function")
-    (app* 'js/construct (lower-expr ctx callee) (lower-args ctx args))))
+    (emit ctx :legacy/construct (lower-expr ctx callee) (lower-args ctx args))))
 
 
 (defn- lower-typeof
   [ctx operand]
+  (require-capability! ctx :op/typeof (:node ctx) "typeof")
   (if-let [nm (simple-name ctx operand)]
     (let [r (resolve-name ctx nm)]
       (if (= :cell (:kind r))
-        (app* 'js/typeof (read-name ctx nm))
-        (app* 'js/global-typeof (u/lit (jstr nm)))))
-    (app* 'js/typeof (lower-expr ctx operand))))
+        (emit ctx :legacy/typeof (read-name ctx nm))
+        (emit ctx :legacy/global-typeof (u/lit (jstr ctx nm)))))
+    (emit ctx :legacy/typeof (lower-expr ctx operand))))
 
 
 (defn- lower-delete
   [ctx n operand]
+  (require-capability! ctx :mutation/delete n "delete")
   (cond
     (and (member-expression? ctx operand)
          (super-expr? ctx (first (kids ctx operand))))
-    (app* 'js/throw-reference-error
-          (u/lit (jstr "Unsupported reference to 'super'")))
+    (emit ctx :legacy/throw-reference-error
+          (u/lit (jstr ctx "Unsupported reference to 'super'")))
     (member-expression? ctx operand)
     (let [[obj key] (member-parts ctx operand)]
-      (app* 'js/delete-value (lower-expr ctx obj) key))
+      (emit ctx :legacy/delete-value (lower-expr ctx obj) key))
     (simple-name ctx operand)
     (syntax! n "Delete of an unqualified identifier in strict mode.")
     :else (u/then (lower-expr ctx operand) (u/lit true))))
@@ -1241,17 +1325,18 @@
 (defn- lower-prefix
   [ctx n op operand]
   (case op
-    "+" (app* 'js/pos (lower-expr ctx operand))
-    "-" (app* 'js/neg (lower-expr ctx operand))
-    "~" (app* 'js/bit-not (lower-expr ctx operand))
-    "!" (negate (truthy (lower-expr ctx operand)))
+    "+" (emit ctx :op/pos (lower-expr ctx operand))
+    "-" (emit ctx :op/neg (lower-expr ctx operand))
+    "~" (do (require-capability! ctx :op/bitwise n "~")
+            (emit ctx :legacy/bit-not (lower-expr ctx operand)))
+    "!" (negate (truthy ctx (lower-expr ctx operand)))
     "typeof" (lower-typeof ctx operand)
-    "void" (u/then (lower-expr ctx operand) undefined)
+    "void" (u/then (lower-expr ctx operand) (literal ctx :undefined))
     "++" (lower-update ctx n operand op true)
     "--" (lower-update ctx n operand op true)
     "delete" (lower-delete ctx n operand)
     "await" (refuse! n "await" :T6)
-    (default-arm n)))
+    (default-arm ctx n)))
 
 
 (defn- operator-text
@@ -1267,34 +1352,38 @@
     (case op
       "&&" (let [t (gen "a" n)]
              (u/let1 t (lower-expr ctx a)
-                     (u/if-node (truthy (u/v t)) (lower-expr ctx b) (u/v t))))
+                     (u/if-node (truthy ctx (u/v t)) (lower-expr ctx b) (u/v t))))
       "||" (let [t (gen "a" n)]
              (u/let1 t (lower-expr ctx a)
-                     (u/if-node (truthy (u/v t)) (u/v t) (lower-expr ctx b))))
-      "!=" (negate (app* 'js/loose-eq (lower-expr ctx a) (lower-expr ctx b)))
-      "!==" (negate (app* 'js/strict-eq (lower-expr ctx a) (lower-expr ctx b)))
+                     (u/if-node (truthy ctx (u/v t)) (u/v t) (lower-expr ctx b))))
+      "!=" (negate (emit ctx :op/loose-eq (lower-expr ctx a) (lower-expr ctx b)))
+      "!==" (negate (emit ctx :op/strict-eq (lower-expr ctx a) (lower-expr ctx b)))
       "??" (let [t (gen "nullish" n)]
              (u/let1 t (lower-expr ctx a)
-                     (u/if-node (app* 'js/strict-eq (u/v t) undefined)
+                     (u/if-node (emit ctx :op/strict-eq (u/v t) (literal ctx :undefined))
                                 (lower-expr ctx b)
-                                (u/if-node (app* 'js/strict-eq (u/v t) (u/lit :js/null))
+                                (u/if-node (emit ctx :op/strict-eq (u/v t) (literal ctx :nil))
                                            (lower-expr ctx b)
                                            (u/v t)))))
       "?." (let [t (gen "optional" n)
                  key (if-let [nm (simple-name ctx b)]
-                       (u/lit (jstr nm))
-                       (app* 'js/to-property-key (lower-expr ctx b)))]
+                       (u/lit (jstr ctx nm))
+                       (emit ctx :coll/property-key (lower-expr ctx b)))]
              (u/let1 t (lower-expr ctx a)
-                     (u/if-node (app* 'js/strict-eq (u/v t) undefined)
-                                undefined
-                                (u/if-node (app* 'js/strict-eq (u/v t) (u/lit :js/null))
-                                           undefined
-                                           (app* 'js/get-value (u/v t) key)))))
-      "instanceof" (app* 'js/instanceof (lower-expr ctx a) (lower-expr ctx b))
-      "in" (app* 'js/in-op (lower-expr ctx a) (lower-expr ctx b))
+                     (u/if-node (emit ctx :op/strict-eq (u/v t) (literal ctx :undefined))
+                                (literal ctx :undefined)
+                                (u/if-node (emit ctx :op/strict-eq (u/v t) (literal ctx :nil))
+                                           (literal ctx :undefined)
+                                           (emit ctx :coll/get (u/v t) key)))))
+      "instanceof" (do (require-capability! ctx :oo/classes n op)
+                       (emit ctx :legacy/instanceof (lower-expr ctx a) (lower-expr ctx b)))
+      "in" (do (require-capability! ctx :op/in n op)
+               (emit ctx :legacy/in-op (lower-expr ctx a) (lower-expr ctx b)))
       (if-let [f (get binary-ops op)]
-        (app* f (lower-expr ctx a) (lower-expr ctx b))
-        (default-arm n)))))
+        (do (when (= "legacy" (namespace f))
+              (require-capability! ctx :op/bitwise n op))
+            (emit ctx f (lower-expr ctx a) (lower-expr ctx b)))
+        (default-arm ctx n)))))
 
 
 (defn- lower-array
@@ -1315,12 +1404,14 @@
                              (not (some #(p/token? % ",") (kids ctx c)))))
                     :else (recur (rest cs) out prev?))
                   out))]
-    (app* 'js/new-array
+    (emit ctx :coll/vector
           (reduce (fn [out [kind value]]
                     (case kind
-                      :hole (app* 'js/vconj out (u/lit :js/hole))
-                      :spread (app* 'js/args-spread out value)
-                      (app* 'js/vconj out value)))
+                      :hole (do (require-capability! ctx :expr/array-holes k "array hole")
+                                (emit ctx :coll/vconj out (literal ctx :hole)))
+                      :spread (do (require-capability! ctx :calls/spread k "array spread")
+                                  (emit ctx :coll/spread out value))
+                      (emit ctx :coll/vconj out value)))
                   (u/lit []) items))))
 
 
@@ -1330,18 +1421,17 @@
   (let [c (first (kids ctx pn))]
     (cond
       (p/token? c "[")
-      {:key (app* 'js/to-property-key
+      {:key (emit ctx :coll/property-key
                   (lower-expr ctx (first (rules ctx pn "singleExpression"))))}
       (p/rule? c "identifierName")
       (let [t (text-of ctx c)]
-        {:key (u/lit (jstr t)), :hint t, :proto? (= t "__proto__")})
+        {:key (u/lit (jstr ctx t)), :hint t, :proto? (= t "__proto__")})
       (p/token? c)
-      (let [lit (string-literal pn (:text c))]
-        {:key (u/lit lit),
-         :hint (:js/str lit),
-         :proto? (= (:js/str lit) "__proto__")})
-      :else {:key (app* 'js/to-property-key
-                        (number-literal c (text-of ctx c)))})))
+      (let [lit (string-literal ctx pn (:text c))
+            hint (if (legacy? ctx) (:js/str lit) lit)]
+        {:key (u/lit lit), :hint hint, :proto? (= hint "__proto__")})
+      :else {:key (emit ctx :coll/property-key
+                        (number-literal ctx c (text-of ctx c)))})))
 
 
 (defn- lower-object-member
@@ -1354,24 +1444,24 @@
             v (nth (kids ctx pa) 2)]
         (when (p/token? sep "=") (refuse! pa "destructuring" :T4))
         (if proto?
-          (app* 'js/literal-proto! (u/v o) (lower-expr ctx v))
-          (app* 'js/create-data-prop!
+          (emit ctx :legacy/literal-proto! (u/v o) (lower-expr ctx v))
+          (emit ctx :legacy/create-data-prop!
                 (u/v o)
                 key
                 (if hint (lower-named ctx v hint) (lower-expr ctx v)))))
       (p/token? c "[")
-      (app* 'js/create-data-prop!
+      (emit ctx :legacy/create-data-prop!
             (u/v o)
-            (app* 'js/to-property-key
+            (emit ctx :coll/property-key
                   (lower-expr ctx (first (rules ctx pa "singleExpression"))))
             (lower-expr ctx (nth (kids ctx pa) 4)))
       (p/rule? c "identifierOrKeyWord")
       (let [t (text-of ctx c)]
-        (app* 'js/create-data-prop! (u/v o) (u/lit (jstr t)) (read-name ctx t)))
+        (emit ctx :legacy/create-data-prop! (u/v o) (u/lit (jstr ctx t)) (read-name ctx t)))
       (p/rule? c "restParameter") (refuse! pa "destructuring" :T4)
       (p/rule? c "generatorMethod")
       (let [{:keys [key hint]} (property-key ctx (first (rules ctx c "propertyName")))]
-        (app* 'js/create-data-prop!
+        (emit ctx :legacy/create-data-prop!
               (u/v o)
               key
               (function-value ctx c c (or hint "") {:home o})))
@@ -1382,7 +1472,7 @@
         (when-not (first (rules ctx cen "propertyName"))
           (refuse! cen "private name" :T3))
         (let [{:keys [key hint]} (property-key ctx (first (rules ctx cen "propertyName")))]
-          (app* 'js/define-accessor-half!
+          (emit ctx :legacy/define-accessor-half!
                 (u/v o)
                 key
                 (u/lit (if get? :get :set))
@@ -1395,13 +1485,31 @@
 
 (defn- lower-object
   [ctx k]
-  (let [o (gen "obj" k)]
-    (u/let1 o
-            (app* 'js/new-object)
-            (u/seq-nodes
-              (conj (mapv #(lower-object-member ctx o %)
-                          (rules ctx k "propertyAssignment"))
-                    (u/v o))))))
+  (let [members (rules ctx k "propertyAssignment")]
+    (if (legacy? ctx)
+      (let [o (gen "obj" k)]
+        (u/let1 o (emit ctx :legacy/new-object)
+                (u/seq-nodes (conj (mapv #(lower-object-member ctx o %) members) (u/v o)))))
+      (reduce (fn [out member]
+                (let [[head sep expr _ computed-value] (kids ctx member)]
+                  (cond
+                    (p/rule? head "propertyName")
+                    (let [{:keys [key hint]} (property-key ctx head)]
+                      (when (p/token? sep "=")
+                        (require-capability! ctx :destructuring/unpack member "destructuring"))
+                      (emit ctx :coll/map-put out key
+                            (if hint (lower-named ctx expr hint) (lower-expr ctx expr))))
+                    (p/token? head "[")
+                    (emit ctx :coll/map-put out (lower-expr ctx sep) (lower-expr ctx computed-value))
+                    (p/rule? head "identifierOrKeyWord")
+                    (let [name (text-of ctx head)]
+                      (emit ctx :coll/map-put out (literal ctx :str name) (read-name ctx name)))
+                    (or (p/rule? head "getAccessor") (p/rule? head "setAccessor")
+                        (p/rule? head "generatorMethod"))
+                    (capability-refusal! ctx :expr/object-accessors member "object method or accessor")
+                    :else
+                    (capability-refusal! ctx :expr/object-spread member "object spread"))))
+              (u/lit {}) members))))
 
 
 ;; =============================================================================
@@ -1458,14 +1566,14 @@
         {:steps (if computed? [[:let ksym (:key kinfo)]] []),
          :statics [(site-of
                      (u/lam [(or this-sym (gen "this" m))]
-                            (app* 'js/define-field!
+                            (emit ctx :legacy/define-field!
                                   (u/v (or this-sym (gen "this" m)))
                                   key
-                                  (or value undefined))))]})
-      {:steps [[:do (app* 'js/add-field!
+                                  (or value (literal ctx :undefined)))))]})
+      {:steps [[:do (emit ctx :legacy/add-field!
                           (u/v (:F cx))
                           (:key kinfo)
-                          (if init (site-of (u/lam [this-sym] value)) undefined))]],
+                          (if init (site-of (u/lam [this-sym] value)) (literal ctx :undefined)))]],
        :statics []})))
 
 
@@ -1491,13 +1599,13 @@
         (fn [kind fnode]
           (cond
             (and (:private? kinfo) static?)
-            (app* 'js/def-static-private! F (:key kinfo) (u/lit kind) fnode)
+            (emit ctx :legacy/def-static-private! F (:key kinfo) (u/lit kind) fnode)
             (:private? kinfo)
-            (app* 'js/add-priv-method! F (:key kinfo) (u/lit kind) fnode)
+            (emit ctx :legacy/add-priv-method! F (:key kinfo) (u/lit kind) fnode)
             (= kind :method)
-            (app* 'js/def-class-method! target (:key kinfo) fnode)
+            (emit ctx :legacy/def-class-method! target (:key kinfo) fnode)
             :else
-            (app* 'js/def-class-accessor! target (:key kinfo) (u/lit kind) fnode)))]
+            (emit ctx :legacy/def-class-accessor! target (:key kinfo) (u/lit kind) fnode)))]
     (cond
       acc
       (let [kind (if (p/rule? acc "getAccessor") :get :set)]
@@ -1524,8 +1632,8 @@
     {:steps [],
      :statics [(site [:call "static" (first (:span sb))]
                      (u/lam [this-sym]
-                            (bind-cells (block-pairs s)
-                                        (seq-of (lower-stmts sctx stmts)))))]}))
+                            (bind-cells (block-pairs ctx s)
+                                        (seq-of ctx (lower-stmts sctx stmts)))))]}))
 
 
 (defn- lower-class-element
@@ -1540,11 +1648,11 @@
             (refuse! c "type syntax" :T8))
           (lower-class-member ctx cx c))
       "indexMemberDeclaration" (refuse! c "type syntax" :T8)
-      (default-arm c))))
+      (default-arm ctx c))))
 
 
 (defn- default-constructor-code
-  [n name-str derived? Fc]
+  [ctx n name-str derived? Fc]
   (let [this-sym (gen "this" n)
         args-sym (gen "args" n)
         nt-sym (gen "nt" n)
@@ -1553,13 +1661,13 @@
           (u/lam [this-sym args-sym nt-sym]
                  (if derived?
                    (u/let1 thisc
-                           (app* 'cell/new tdz)
-                           (u/then (app* 'js/super-call
+                           (app* 'cell/new (literal ctx :unbound))
+                           (u/then (emit ctx :legacy/super-call
                                          (app* 'cell/get (u/v Fc))
                                          (u/v nt-sym)
                                          (u/v thisc)
                                          (u/v args-sym))
-                                   (app* 'js/this-after-super (u/v thisc))))
+                                   (emit ctx :legacy/this-after-super (u/v thisc))))
                    (u/v this-sym))))))
 
 
@@ -1568,6 +1676,7 @@
    elements installed in source order, then the static initializers, with
    the class's inner name in TDZ through the heritage and the elements."
   [ctx n hint]
+  (require-capability! ctx :oo/classes n "class")
   (when (token-kid ctx n "export") (refuse! n "module syntax" :T7))
   (when (token-kid ctx n "abstract") (refuse! n "type syntax" :T8))
   (when (first (rules ctx n "decoratorList")) (refuse! n "decorator" :never))
@@ -1604,7 +1713,7 @@
                          {:ctor (if derived? :derived :base),
                           :home proto,
                           :class-cell Fc})
-          {:code (default-constructor-code n name-str derived? Fc),
+          {:code (default-constructor-code ctx n name-str derived? Fc),
            :arity 0})
         results (mapv #(lower-class-element cctx cx %)
                       (remove #(= % ctor-ce) elements))
@@ -1613,7 +1722,7 @@
                            (mapcat :steps results)
                            (when cname
                              [[:do (app* 'cell/set! (u/v (symbol cname)) (u/v F))]])
-                           [[:do (app* 'js/static-init! (u/v F) (build-vector statics))]]))
+                           [[:do (emit ctx :legacy/static-init! (u/v F) (build-vector ctx statics))]]))
         body (reduce (fn [acc [kind a b]]
                        (case kind
                          :do (u/then a acc)
@@ -1622,17 +1731,17 @@
                      (reverse steps))
         bindings (vec (concat
                         (map (fn [[nm sym]]
-                               [sym (app* 'js/private-name (u/lit (jstr nm)))])
+                               [sym (emit ctx :legacy/private-name (u/lit (jstr ctx nm)))])
                              pn-syms)
-                        [[Fc (app* 'cell/new undefined)]
-                         [h (app* 'js/class-heritage
+                        [[Fc (app* 'cell/new (literal ctx :undefined))]
+                         [h (emit ctx :legacy/class-heritage
                                   (if ext
                                     (lower-expr cctx (first (rules ctx ext "singleExpression")))
-                                    (u/lit :js/none)))]
-                         [proto (app* 'js/make-object
+                                    (literal ctx :none)))]
+                         [proto (emit ctx :legacy/make-object
                                       (app* 'get (u/v h) (u/lit :proto-parent)))]
-                         [F (app* 'js/make-class
-                                  (u/lit (jstr name-str))
+                         [F (emit ctx :legacy/make-class
+                                  (u/lit (jstr ctx name-str))
                                   (u/lit carity)
                                   (u/lit derived?)
                                   (app* 'get (u/v h) (u/lit :ctor-parent))
@@ -1642,7 +1751,7 @@
                       body
                       (reverse bindings))]
     (if cname
-      (bind-cells [[cname tdz]] inner)
+      (bind-cells [[cname (literal ctx :unbound)]] inner)
       inner)))
 
 
@@ -1656,18 +1765,19 @@
     (p/rule? k "identifierName")
     (let [t (text-of ctx k)]
       (case t
-        "null" (u/lit :js/null)
-        "true" (u/lit true)
-        "false" (u/lit false)
+        "null" (literal ctx :nil)
+        "true" (literal ctx :bool true)
+        "false" (literal ctx :bool false)
         (read-name ctx t)))
     (p/rule? k "anonymousFunction") (function-node ctx k nil)
-    :else (default-arm k)))
+    :else (default-arm ctx k)))
 
 
 (defn- lower-expr
   "The node of `singleExpression` `n`."
   [ctx n]
-  (let [ks (kids ctx n)
+  (let [ctx (assoc ctx :node n)
+        ks (kids ctx n)
         c (count ks)
         k0 (first ks)
         k1 (when (< 1 c) (second ks))]
@@ -1679,7 +1789,7 @@
       (and (p/token? k0 "new") (= c 3) (p/token? k1 "."))
       (nt-node ctx)
       (and (= c 3) (p/rule? k0 "privateIdentifier") (p/token? k1 "in"))
-      (app* 'js/priv-has
+      (emit ctx :legacy/priv-has
             (lower-expr ctx (nth ks 2))
             (u/v (private-sym ctx k0 (str "#" (text-of ctx (second (kids ctx k0)))))))
       (p/token? k0 "new") (lower-new ctx n)
@@ -1698,7 +1808,7 @@
       (lower-assign ctx n k0 (text-of ctx k1) (nth ks 2))
       (member-expression? ctx n) (lower-member-read ctx n)
       (and (= c 5) (p/token? k1 "?") (p/token? (nth ks 3) ":"))
-      (u/if-node (truthy (lower-expr ctx k0))
+      (u/if-node (truthy ctx (lower-expr ctx k0))
                  (lower-expr ctx (nth ks 2))
                  (lower-expr ctx (nth ks 4)))
       (and (<= 3 c)
@@ -1706,7 +1816,7 @@
            (p/rule? (peek ks) "singleExpression")
            (every? p/token? (butlast (rest ks))))
       (lower-binary ctx n ks)
-      :else (default-arm n))))
+      :else (default-arm ctx n))))
 
 
 (defn- lower-named
@@ -1780,26 +1890,30 @@
   (let [s (scope-of ctx n)
         bctx (assoc ctx :scope (:id n))
         stmts (statements-of bctx n)]
-    (bind-cells (block-pairs s) (seq-of (lower-stmts bctx stmts)))))
+    (bind-cells (block-pairs ctx s) (seq-of ctx (lower-stmts bctx stmts)))))
 
 
 (defn- lower-var
   [ctx n]
+  (require-capability! ctx :mutation/locals n "local declaration")
   (when (or (token-kid ctx n "declare") (first (rules ctx n "bindingPattern")))
+    (require-capability! ctx :destructuring/unpack n "destructuring")
     (refuse! n "destructuring" :T4))
   (check-consumed! ctx n)
   (let [[kind decls] (scope/declarations (:pk ctx) n)]
-    (when-not decls (default-arm n))
-    (seq-of
+    (when-not decls (default-arm ctx n))
+    (seq-of ctx
       (mapv (fn [d]
               (check-consumed! ctx d)
               (let [nm (scope/declaration-name (:pk ctx) d)]
-                (when-not nm (refuse! d "destructuring" :T4))
+                (when-not nm
+                  (require-capability! ctx :destructuring/unpack d "destructuring")
+                  (refuse! d "destructuring" :T4))
                 (if-let [init (scope/declaration-initializer (:pk ctx) d)]
                   (init-name nm (lower-named ctx init nm))
                   (if (= :var kind)
-                    undefined
-                    (init-name nm undefined)))))
+                    (literal ctx :undefined)
+                    (init-name nm (literal ctx :undefined))))))
             decls))))
 
 
@@ -1808,16 +1922,17 @@
    mappings. `const enum` intentionally follows the same object path under
    the pinned preserveConstEnums/isolatedModules profile."
   [ctx n]
+  (require-capability! ctx :typescript/enums n "enum")
   (let [id (first (rules ctx n "identifier"))
         nm (text-of ctx id)
         body (first (rules ctx n "enumBody"))
         members (when body (rules ctx body "enumMemberList"))
         members (if-let [lst (first members)] (rules ctx lst "enumMember") [])
-        init (init-name nm (app* 'js/make-object))]
+        init (init-name nm (emit ctx :legacy/make-object))]
     (letfn [(emit-member
               [i previous]
               (if (= i (count members))
-                undefined
+                (literal ctx :undefined)
                 (let [member (nth members i)
                       pn (first (rules ctx member "propertyName"))
                       {:keys [key hint]} (property-key ctx pn)
@@ -1827,23 +1942,23 @@
                                    (if hint (lower-named ctx val-node hint)
                                        (lower-expr ctx val-node))
                                    (if previous
-                                     (app* 'js/add (u/v previous)
-                                           (u/lit (cbor/float64 1.0)))
-                                     (u/lit (cbor/float64 0.0))))
-                      forward (app* 'js/create-data-prop!
+                                     (emit ctx :op/add (u/v previous)
+                                           (literal ctx :float 1.0))
+                                     (literal ctx :float 0.0)))
+                      forward (emit ctx :legacy/create-data-prop!
                                     (read-name ctx nm) key (u/v value))
-                      reverse (app* 'js/create-data-prop!
+                      reverse (emit ctx :legacy/create-data-prop!
                                     (read-name ctx nm)
-                                    (app* 'js/to-string (u/v value))
-                                    (app* 'js/to-string key))]
+                                    (emit ctx :op/to-string (u/v value))
+                                    (emit ctx :op/to-string key))]
                   (u/let1 value value-expr
                           (u/then forward
                                   (u/then
                                     (u/if-node
-                                      (app* '= (app* 'js/typeof (u/v value))
-                                            (u/lit (jstr "number")))
+                                      (app* '= (emit ctx :legacy/typeof (u/v value))
+                                            (u/lit (jstr ctx "number")))
                                       reverse
-                                      undefined)
+                                      (literal ctx :undefined))
                                     (emit-member (inc i) value)))))))]
       (u/then init (emit-member 0 nil)))))
 
@@ -1852,9 +1967,9 @@
   [ctx n]
   (let [test (first (rules ctx n "expressionSequence"))
         [then else] (rules ctx n "statement")]
-    (u/if-node (truthy (lower-seq ctx test))
+    (u/if-node (truthy ctx (lower-seq ctx test))
                (lower-stmt ctx then)
-               (if else (lower-stmt ctx else) undefined))))
+               (if else (lower-stmt ctx else) (literal ctx :undefined)))))
 
 
 (defn- loop-parts
@@ -1874,7 +1989,7 @@
         b (lower-stmt lctx body)]
     {:brk? brk?,
      :brk brk,
-     :body (wrap-escape cont? cont b)}))
+     :body (wrap-escape ctx cont? cont b)}))
 
 
 (defn- spin
@@ -1893,12 +2008,12 @@
         body (first (rules ctx n "statement"))
         {:keys [brk? brk] b :body} (loop-parts ctx n labels ctx body)
         w (gen "w" n)]
-    (wrap-escape brk? brk
+    (wrap-escape ctx brk? brk
                  (spin w
                        []
-                       (u/if-node (truthy (lower-seq ctx test))
+                       (u/if-node (truthy ctx (lower-seq ctx test))
                                   (u/then b (u/app (u/v w) (u/v w)))
-                                  undefined)
+                                  (literal ctx :undefined))
                        []))))
 
 
@@ -1908,13 +2023,13 @@
         body (first (rules ctx n "statement"))
         {:keys [brk? brk] b :body} (loop-parts ctx n labels ctx body)
         w (gen "w" n)]
-    (wrap-escape brk? brk
+    (wrap-escape ctx brk? brk
                  (spin w
                        []
                        (u/then b
-                               (u/if-node (truthy (lower-seq ctx test))
+                               (u/if-node (truthy ctx (lower-seq ctx test))
                                           (u/app (u/v w) (u/v w))
-                                          undefined))
+                                          (literal ctx :undefined)))
                        []))))
 
 
@@ -1952,12 +2067,12 @@
         sctx (if lexical? (assoc ctx :scope (:id n)) ctx)
         w (gen "w" n)
         init-node (cond
-                    (not decl-list) (if init (lower-seq sctx init) undefined)
+                    (not decl-list) (if init (lower-seq sctx init) (literal ctx :undefined))
                     :else (lower-var sctx n))
-        test-node (if test (truthy (lower-seq sctx test)) (u/lit true))
+        test-node (if test (truthy ctx (lower-seq sctx test)) (u/lit true))
         {:keys [brk? brk] b :body} (loop-parts ctx n labels sctx body)
-        update-node (if update (lower-seq sctx update) undefined)]
-    (wrap-escape
+        update-node (if update (lower-seq sctx update) (literal ctx :undefined))]
+    (wrap-escape ctx
       brk?
       brk
       (if lexical?
@@ -1969,13 +2084,13 @@
                                     (map (fn [nm]
                                            (app* 'cell/new (app* 'cell/get (u/v nm))))
                                          names))]
-          (bind-cells (block-pairs (scope-of ctx n))
+          (bind-cells (block-pairs ctx (scope-of ctx n))
                       (u/then init-node
                               (spin w
                                     names
                                     (u/if-node test-node
                                                (u/then b next-iteration)
-                                               undefined)
+                                               (literal ctx :undefined))
                                     (map (fn [nm]
                                            (app* 'cell/new (app* 'cell/get (u/v nm))))
                                          names)))))
@@ -1984,7 +2099,7 @@
                       []
                       (u/if-node test-node
                                  (u/then b (u/then update-node (u/app (u/v w) (u/v w))))
-                                 undefined)
+                                 (literal ctx :undefined))
                       []))))))
 
 
@@ -1992,6 +2107,7 @@
   "`for (head in subject) body`: each turn pulls the next key from the
    `js/for-in-*` walk; `let`/`const` heads get fresh cells per turn."
   [ctx n labels]
+  (require-capability! ctx :control/for-in n "for-in")
   (let [pk (:pk ctx)
         body (last (rules ctx n "statement"))
         subject (first (rules ctx n "expressionSequence"))
@@ -2011,17 +2127,18 @@
                    (assign-name ctx nm k)))
                (let [target (first (rules ctx n "singleExpression"))]
                  (if (member-expression? ctx target)
-                   (let [ref (member-ref ctx target false)]
+                   (let [_ (check-member-write! ctx target)
+                         ref (member-ref ctx target false)]
                      (case (:kind ref)
-                       :value (app* 'js/put-value
+                       :value (emit ctx :legacy/put-value
                                     (lower-expr ctx (:obj ref))
                                     (:key ref)
                                     (u/v k))
-                       :private (app* 'js/priv-set
+                       :private (emit ctx :legacy/priv-set
                                       (lower-expr ctx (:obj ref))
                                       (:pn ref)
                                       (u/v k))
-                       :super (app* 'js/super-set
+                       :super (emit ctx :legacy/super-set
                                     (home-node ctx)
                                     (:key ref)
                                     (u/v k)
@@ -2029,19 +2146,19 @@
                    (assign-name ctx (target-name! ctx target) k))))
         turn (u/then head b)
         turn (if lexical?
-               (bind-cells (block-pairs (scope-of ctx n)) turn)
+               (bind-cells (block-pairs ctx (scope-of ctx n)) turn)
                turn)]
-    (wrap-escape
+    (wrap-escape ctx
       brk?
       brk
       (u/let1 it
-              (app* 'js/for-in-start (lower-seq ctx subject))
+              (emit ctx :ctrl/for-in-start (lower-seq ctx subject))
               (spin w
                     []
                     (u/let1 k
-                            (app* 'js/for-in-next (u/v it))
-                            (u/if-node (app* '= (u/v k) (u/lit :js/done))
-                                       undefined
+                            (emit ctx :ctrl/for-in-next (u/v it))
+                            (u/if-node (app* '= (u/v k) (literal ctx :done))
+                                       (literal ctx :undefined)
                                        (u/then turn (u/app (u/v w) (u/v w)))))
                     [])))))
 
@@ -2055,7 +2172,8 @@
       (p/token? k0 "while") (lower-while ctx n labels)
       (token-kid ctx n "in") (lower-for-in ctx n labels)
       (= 2 (count (filter #(p/token? % ";") ks))) (lower-for ctx n labels)
-      :else (refuse! n "for-of" :T5))))
+      :else (do (when-not (legacy? ctx) (require-capability! ctx :control/for-of n "for-of"))
+                (refuse! n "for-of" :T5)))))
 
 
 (defn- lower-jump
@@ -2068,13 +2186,13 @@
         sym (if break? (:brk target) (:cont target))]
     (when-not sym
       (syntax! n "Illegal jump statement"))
-    (u/app (u/v sym) undefined)))
+    (u/app (u/v sym) (literal ctx :undefined))))
 
 
 (defn- lower-return
   [ctx n]
   (let [e (first (rules ctx n "expressionSequence"))]
-    (u/app (u/v (:ret ctx)) (if e (lower-seq ctx e) undefined))))
+    (u/app (u/v (:ret ctx)) (if e (lower-seq ctx e) (literal ctx :undefined)))))
 
 
 (defn- lower-labelled
@@ -2092,7 +2210,7 @@
       (let [brk (gen "lbrk" n)
             lctx (reduce (fn [c l] (assoc-in c [:labels l] {:brk brk})) ctx labels)
             b (lower-stmt lctx body)]
-        (wrap-escape (targets? ctx body "breakStatement" (set labels) false false)
+        (wrap-escape ctx (targets? ctx body "breakStatement" (set labels) false false)
                      brk
                      b)))))
 
@@ -2130,12 +2248,12 @@
         bodies (mapv (fn [c]
                        (u/seq-nodes
                          (conj (vec (map #(lower-stmt sctx %) (:stmts c)))
-                               undefined)))
+                               (literal ctx :undefined))))
                      clauses)
         dispatch (reduce (fn [acc i]
                            (let [c (nth clauses i)]
                              (if (:test c)
-                               (u/if-node (app* 'js/strict-eq
+                               (u/if-node (emit ctx :op/strict-eq
                                                 (u/v d)
                                                 (lower-seq sctx (:test c)))
                                           (u/app (u/v (nth fns i)))
@@ -2145,7 +2263,7 @@
                                               (fn [i c] (when-not (:test c) i))
                                               clauses))]
                            (u/app (u/v (nth fns di)))
-                           undefined)
+                           (literal ctx :undefined))
                          (reverse (range (count clauses))))
         chain (reduce (fn [acc i]
                         (u/let1 (nth fns i)
@@ -2154,13 +2272,13 @@
                                 acc))
                       dispatch
                       (range (count clauses)))
-        run (u/let1 (peek fns) (u/lam [] undefined) chain)]
+        run (u/let1 (peek fns) (u/lam [] (literal ctx :undefined)) chain)]
     (u/let1 d
             (lower-seq ctx disc)
-            (bind-cells (block-pairs (scope-of ctx cb))
+            (bind-cells (block-pairs ctx (scope-of ctx cb))
                         (u/seq-nodes
                           (concat hoisted
-                                  [(wrap-escape
+                                  [(wrap-escape ctx
                                      (targets? ctx cb "breakStatement" #{} true true)
                                      brk
                                      run)]))))))
@@ -2168,9 +2286,12 @@
 
 (defn- lower-try
   [ctx n]
+  (require-capability! ctx :control/exceptions n "try")
   (let [block (first (rules ctx n "block"))
         catch-node (first (rules ctx n "catchProduction"))
         fin (first (rules ctx n "finallyProduction"))
+        _ (when (and (not (legacy? ctx)) (first (rules ctx catch-node "typeAnnotation")))
+            (require-capability! ctx :control/except-typed catch-node "typed catch"))
         body (lower-block ctx block)
         guarded (if catch-node
                   (let [_ (check-consumed! ctx catch-node)
@@ -2178,7 +2299,7 @@
                         blk (first (rules ctx catch-node "block"))
                         e (gen "e" catch-node)
                         cctx (assoc ctx :scope (:id catch-node))]
-                    (app* 'js/try
+                    (emit ctx :ctrl/try
                           (u/lam [] body)
                           (u/lam [e]
                                  (if ident
@@ -2188,7 +2309,7 @@
                                    (lower-block cctx blk)))))
                   body)]
     (if fin
-      (app* 'js/try-finally
+      (emit ctx :ctrl/try-finally
             (u/lam [] guarded)
             (u/lam [(gen "fx" n)]
                    (lower-block ctx (first (rules ctx fin "block")))))
@@ -2199,14 +2320,16 @@
   "The node of `statement` `st`."
   [ctx st]
   (let [labels (:pending-labels ctx)
-        ctx (dissoc ctx :pending-labels)
-        n (first (rule-kids ctx st))]
-    (when (token-kid ctx st "export") (refuse! st "module syntax" :T7))
+        n (first (rule-kids ctx st))
+        ctx (assoc (dissoc ctx :pending-labels) :node n)]
+    (when (token-kid ctx st "export")
+      (when-not (legacy? ctx) (capability-refusal! ctx :modules/export st "module export"))
+      (refuse! st "module syntax" :T7))
     (case (:rule n)
       "block" (lower-block ctx n)
       "variableStatement" (lower-var ctx n)
       "enumDeclaration" (lower-enum ctx n)
-      "emptyStatement_" undefined
+      "emptyStatement_" (literal ctx :undefined)
       "expressionStatement" (lower-seq ctx (first (rules ctx n "expressionSequence")))
       "ifStatement" (lower-if ctx n)
       "iterationStatement" (lower-iteration ctx n labels)
@@ -2215,52 +2338,116 @@
       "returnStatement" (lower-return ctx n)
       "labelledStatement" (lower-labelled ctx n)
       "switchStatement" (lower-switch ctx n)
-      "throwStatement" (app* 'js/throw (lower-seq ctx (first (rules ctx n "expressionSequence"))))
+      "throwStatement" (do (require-capability! ctx :control/exceptions n "throw")
+                           (emit ctx :ctrl/raise (lower-seq ctx (first (rules ctx n "expressionSequence")))))
       "tryStatement" (lower-try ctx n)
-      "debuggerStatement" undefined
+      "debuggerStatement" (literal ctx :undefined)
       ;; hoisted to its scope's entry
-      "functionDeclaration" undefined
+      "functionDeclaration" (literal ctx :undefined)
       "classDeclaration" (let [nm (text-of ctx (first (rules ctx n "identifier")))]
                            (init-name nm (lower-class ctx n nm)))
+      "importStatement" (default-arm ctx n)
       "arrowFunctionDeclaration" (function-value ctx n n "")
-      (default-arm n))))
+      (default-arm ctx n))))
 
 
 ;; =============================================================================
 ;; Packets
 ;; =============================================================================
 
+(defn- ambient-imports [ctx statements]
+  (let [projections (get-in ctx [:descriptor :yang.semantics/ambient-projections])
+        module-scope (scope-of ctx (p/root (:pk ctx)))]
+    (reduce
+      (fn [imports statement]
+        (if-let [n (first (rules ctx statement "importStatement"))]
+          (let [block (first (rules ctx n "importFromBlock"))
+                items (first (rules ctx block "importModuleItems"))
+                from (first (rules ctx block "importFrom"))
+                source (some #(when (= "StringLiteral" (:type %)) %) (kids ctx from))]
+            (when-not (and (= :ambient-only (semantics/capability (:descriptor ctx) :modules/import))
+                           items source (not (token-kid ctx n "type"))
+                           (empty? (rules ctx block "importDefault")))
+              (capability-refusal! ctx :modules/import n "non-ambient import"))
+            (let [module-name (string-literal ctx n (:text source))]
+              (when-not (some #(= module-name (str (:module %))) (vals projections))
+                (capability-refusal! ctx :modules/import n "non-ambient module"))
+              (reduce (fn [imports item]
+                        (let [source (first (rules ctx item "moduleExportName"))
+                              alias (text-of ctx source)
+                              binding (first (rules ctx item "importedBinding"))
+                              local (if binding (text-of ctx binding) alias)
+                              projection (get projections alias)]
+                          (when-not (and (not (token-kid ctx item "type")) projection
+                                         (= module-name (str (:module projection))))
+                            (capability-refusal! ctx :modules/import item "non-ambient export"))
+                          (when (or (contains? imports local)
+                                    (contains? (:lexical module-scope) local)
+                                    (some #{local} (:vars module-scope))
+                                    (some #{local} (:functions module-scope)))
+                            (scope/early-error! (str "Duplicate import binding " local) item {:name local}))
+                          (assoc imports local alias)))
+                      imports (rules ctx items "importAliasName"))))
+          imports))
+      {} statements)))
+
+
 (defn- context
-  [packet]
+  [packet descriptor]
   (let [pk (p/validate! packet {:diagnostic-ns diagnostic-ns})
-        analysis (scope/analyze pk)]
-    {:pk pk,
-     :analysis analysis,
-     :scope (:module analysis),
-     :this (gen "this" (p/root pk)),
-     :ret nil,
-     :loop nil,
-     :labels {},
-     :pending-labels nil,
-     :gen nil,
-     :async nil,
-     :class nil,
-     :this-cell nil,
-     :nt :undefined,
-     :home nil,
-     :class-cell nil,
-     :privates {}}))
+        root (p/root pk)
+        ctx {:pk pk :descriptor descriptor}]
+    (when-not (legacy? ctx)
+      (doseq [n (tree-seq p/rule? #(kids ctx %) root)]
+        (when-let [cap (or (when-not (= "importStatement" (:rule n))
+                             (rule-capabilities (:rule n)))
+                           (when (and (#{"functionDeclaration" "anonymousFunction" "generatorMethod"}
+                                         (:rule n))
+                                      (token-kid ctx n "*"))
+                             :control/generators))]
+          (require-capability! ctx cap n (:rule n)))))
+    (let [analysis (scope/analyze pk)
+          ctx (assoc ctx :analysis analysis :scope (:module analysis))
+          imports (when-not (legacy? ctx) (ambient-imports ctx (statements-of ctx root)))]
+      (assoc ctx
+             :imports imports
+             :globals (gen "globals" root)
+             :analysis (if (seq imports)
+                         (update-in analysis [:scopes (:module analysis) :lexical]
+                                    into (map (fn [[local]] [local :const]) imports))
+                         analysis)
+             :this (gen "this" root)
+             :ret nil
+             :loop nil
+             :labels {}
+             :pending-labels nil
+             :gen nil
+             :async nil
+             :class nil
+             :this-cell nil
+             :nt :undefined
+             :home nil
+             :class-cell nil
+             :privates {}))))
 
 
 (defn- module-body
   [ctx]
   (let [root (p/root (:pk ctx))
         s (scope-of ctx root)
-        stmts (statements-of ctx root)]
+        stmts (statements-of ctx root)
+        imports (:imports ctx)
+        stmts (if (legacy? ctx) stmts
+                (remove #(seq (rules ctx % "importStatement")) stmts))
+        body (lower-stmts ctx stmts)]
     (bind-cells (let [{:keys [vars tdz-names]} (binding-names s)]
-                  (vec (concat (map (fn [nm] [nm undefined]) vars)
-                               (map (fn [nm] [nm tdz]) tdz-names))))
-                (seq-of (lower-stmts ctx stmts)))))
+                  (vec (concat (map (fn [nm] [nm (literal ctx :undefined)]) vars)
+                               (map (fn [nm]
+                                      [nm (if-let [alias (get imports nm)]
+                                            (emit ctx :env/global-get (u/v (:globals ctx)) (u/lit alias))
+                                            (literal ctx :unbound))])
+                                    tdz-names))))
+                (if (legacy? ctx) (seq-of ctx body) (or (u/seq-nodes body) (literal ctx :undefined))))))
 
 
 ;; =============================================================================
@@ -2292,75 +2479,107 @@
 ;; (`js/run-main`, the two `require`s, `js/init!`, the sequencing lambdas)
 ;; unclaimed beside a marked unit.
 
+(def ^:private legacy-descriptor (:descriptor (profiles/builtin contract/legacy-id)))
+
+
+(defn- selected-descriptor [descriptor]
+  (if (some? descriptor) (profiles/verify-descriptor! descriptor) legacy-descriptor))
+
+
 (defn lower-module-body
-  "The module's statements as one node, before the runtime wrapper: what
-   lowering goldens compare. C1 finalized, like every tree this namespace
-   answers."
+  "The frozen native module's statements before the runtime wrapper."
   [packet]
-  (u/annotate-call-sites (module-body (context packet))))
+  (u/annotate-call-sites (module-body (context packet legacy-descriptor))))
 
 
 (defn- lower-unit*
-  "`lower-unit` before C1 finalization: the seam `lower-units` and
-   `lower-packet` compose, so each of them finalizes once over its own
-   complete tree."
-  [packet]
-  (let [ctx (context packet)]
-    (u/lam [(:this ctx)] (module-body ctx))))
+  [packet descriptor]
+  (let [ctx (context packet descriptor)]
+    (u/lam [(if (legacy? ctx) (:this ctx) (:globals ctx))] (module-body ctx))))
 
 
 (defn lower-unit
-  "One separately scoped module body as a function of its shared global
-   receiver. Keeping this seam lets a host compose independently parsed
-   units without concatenating source or reinitializing the runtime.
-   C1 finalized."
+  "One frozen native module body as a function of its shared receiver."
   [packet]
-  (u/annotate-call-sites (lower-unit* packet)))
+  (u/annotate-call-sites (lower-unit* packet legacy-descriptor)))
 
 
-(defn- with-runtime
-  "Both source entry points install the shared convention before JS."
-  [prelude main]
-  (u/mark-tails
-    (case prelude
-      :bundled (u/then prelude/uast main)
-      :linked (u/seq-nodes [(app* 'require (u/lit 'yang.call))
-                            (app* 'require (u/lit prelude/module-name))
-                            (app* 'js/init!)
-                            main]))))
+(defn- ambient-resolver [ctx]
+  (let [name (u/v '$ambient-name)
+        binding (fn [value] (app* 'assoc (u/lit {}) (u/lit :value) value))
+        projection-node (fn [{:keys [module export kind] :or {kind :cell-accessor}}]
+                          (let [target (symbol (str module) (str export))]
+                            (if (= kind :value) (u/v target) (app* target))))]
+    (u/lam ['$ambient-name]
+           (reduce (fn [fallback [alias projection]]
+                     (u/if-node (app* '= name (u/lit alias))
+                                (binding (projection-node projection))
+                                fallback))
+                   (u/if-node (app* '= name (u/lit "undefined"))
+                              (binding (literal ctx :undefined))
+                              (u/lit {}))
+                   (reverse (sort-by key jing/canonical-compare
+                                     (get-in ctx [:descriptor :yang.semantics/ambient-projections])))))))
+
+
+(defn- entry-program [ctx body resolver]
+  (let [id (get-in ctx [:descriptor :yang.semantics/id])
+        {:keys [hook operands]} (contract/entry-lowering id)]
+    (apply emit ctx hook (map {:body-fn body :ambient-resolver resolver} operands))))
+
+
+(defn- with-runtime [ctx mode main]
+  (let [{:yang.semantics/keys [prelude-module ambient-modules]} (:descriptor ctx)]
+    (u/mark-tails
+      (case mode
+        :bundled (if (legacy? ctx) (u/then prelude/uast main) (runtime/bundled main))
+        :linked (u/seq-nodes
+                  (into (if (legacy? ctx)
+                          [(app* 'require (u/lit 'yang.call))
+                           (app* 'require (u/lit prelude-module))
+                           (emit ctx :unit/init)]
+                          (mapv (fn [{:keys [module]}] (app* 'require (u/lit module)))
+                                ambient-modules))
+                        [main]))))))
 
 
 (defn lower-units
-  "A complete program for multiple separately parsed units. The runtime is
-   installed and initialized once; each unit receives its own lexical body
-   while sharing the same global object and output stream. C1 finalized
-   once, over the composed tree."
+  "Compile separately parsed units under one runtime entry. Native units
+   share their global receiver. Clojure-profile units share an ambient
+   resolver and retain separate module scopes."
   ([packets] (lower-units packets {}))
-  ([packets {:keys [prelude], :or {prelude :bundled}}]
-   (let [units (mapv lower-unit* packets)
-         main (names/canonicalize
-                (app* 'js/run-main
-                      (u/lam ['this]
-                             (if (seq units)
-                               (u/seq-nodes
-                                 (mapv (fn [unit] (u/app unit (u/v 'this))) units))
-                               (u/lit :js/undefined)))))]
-     (u/annotate-call-sites (with-runtime prelude main)))))
+  ([packets {:keys [prelude descriptor] :or {prelude :bundled}}]
+   (let [descriptor (selected-descriptor descriptor)
+         ctx {:descriptor descriptor}
+         units (mapv #(lower-unit* % descriptor) packets)
+         arg (if (legacy? ctx) 'this '%globals)
+         body (u/lam [arg]
+                     (if (seq units)
+                       (u/seq-nodes (mapv (fn [unit] (u/app unit (u/v arg))) units))
+                       (literal ctx :undefined)))
+         resolver (when-not (legacy? ctx) (u/mark-tails (ambient-resolver ctx)))
+         main (names/canonicalize (entry-program ctx body resolver))
+         ast (u/annotate-call-sites (with-runtime ctx prelude main))]
+     (cond-> ast resolver (vary-meta assoc :yang.frontend/ambient-resolver
+                                     (:root (vm/ast->semantic-bytecode resolver)))))))
 
 
 (defn lower-packet
-  "The complete program for one ok packet: the module body run by
-   `js/run-main`, generated names canonicalized, tail calls marked, C1
-   finalized. Its value is `{:js/out [...] :js/uncaught nil-or-snapshot}`.
+  "Compile an ok packet with the selected, admitted :descriptor. Bare
+   compiler callers keep the frozen ts-v1 ABI. The frontend catalog
+   supplies a descriptor for the selected revision.
 
-   `:prelude` selects how the runtime profile arrives: `:bundled` (the
-   default) carries the prelude tree ahead of the body; `:linked` requires
-   the modules `yang.call` and `js` from the task's link pair, then allocates
-   the task's runtime state with `(js/init!)`."
+   :prelude selects bundled definitions or dependency-first linked loading.
+   The Clojure profile returns the unit's final value."
   ([packet] (lower-packet packet {}))
-  ([packet {:keys [prelude], :or {prelude :bundled}}]
-   (let [main (names/canonicalize (app* 'js/run-main (lower-unit* packet)))]
-     (u/annotate-call-sites (with-runtime prelude main)))))
+  ([packet {:keys [prelude descriptor] :or {prelude :bundled}}]
+   (let [descriptor (selected-descriptor descriptor)
+         ctx {:descriptor descriptor}
+         resolver (when-not (legacy? ctx) (u/mark-tails (ambient-resolver ctx)))
+         main (names/canonicalize (entry-program ctx (lower-unit* packet descriptor) resolver))
+         ast (u/annotate-call-sites (with-runtime ctx prelude main))]
+     (cond-> ast resolver (vary-meta assoc :yang.frontend/ambient-resolver
+                                     (:root (vm/ast->semantic-bytecode resolver)))))))
 
 
 (def program-medium
@@ -2373,8 +2592,8 @@
    :program-medium program-medium,
    :ok? #(= :yang.cst/ok (:yang.cst/outcome %)),
    :lower (fn [state packet]
-            (lower-packet packet {:prelude (get state :prelude :bundled)})),
-   :option-keys [:prelude :dialect]})
+            (lower-packet packet (select-keys state [:prelude :descriptor]))),
+   :option-keys [:prelude :dialect :descriptor]})
 
 
 (defn lower-transform
@@ -2387,7 +2606,7 @@
   "A lowering stage reading CST packets from `cst-stream`, writing program
    batches to `program-stream`, whose logical identity is `medium`, and
    diagnostics to `diagnostics-stream`. The fourth argument may instead be
-   an options map `{:medium :prelude :dialect}`."
+   an options map `{:medium :prelude :dialect :descriptor}`."
   ([cst-stream program-stream diagnostics-stream]
    (core-stage/open-stage stage-config
                           cst-stream
