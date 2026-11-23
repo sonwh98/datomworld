@@ -22,12 +22,13 @@
             [dao.stream.ringbuffer :as ring]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
-            [dao.stream.ws.jvm :as jvm])
+            [dao.stream.ws.jvm :as jvm]
+            [org.httpkit.server :as http])
   (:import [java.io ByteArrayOutputStream]
            [java.net URI]
            [java.net.http HttpClient WebSocket WebSocket$Listener]
            [java.nio ByteBuffer]
-           [java.util.concurrent CompletableFuture]))
+           [java.util.concurrent CompletableFuture TimeUnit TimeoutException]))
 
 
 (defn- scripted
@@ -456,11 +457,7 @@
 (defn- accept-and-ack-slot!
   "Synchronously drive one handoff: take the pending slot's offer, ack it
    with a fresh traffic medium, and step the endpoint so the slot
-   installs it.  Returns the traffic handle.
-
-   The client's handshake completes when it reads the 101, but the listener
-   accepts in its on-open callback, after the 101 is sent: the pending slot
-   and its offer are awaited (bounded), and a timeout fails loudly."
+   installs it. Returns the traffic handle."
   [endpoint slots]
   (let [statuses #(map :status (:slots (ws/endpoint-state endpoint)))
         pending (fn []
@@ -484,6 +481,50 @@
     traffic))
 
 
+(deftest first-frame-can-arrive-before-endpoint-acknowledgement
+  (let [[endpoint slots] (dual-composition)
+        accepting (promise)
+        release (promise)
+        value [:first :frame]
+        frame (transit/encode {:ws/frame :ws/value :ws/value value})
+        listener (jvm/listen!
+                   {:bind-host "127.0.0.1" :bind-port 0
+                    :codecs [transit/profile]
+                    :accept! (fn [path socket now]
+                               (deliver accepting true)
+                               (deref release 10000 nil)
+                               (ws/accept-connection! endpoint path socket now))
+                    :deposit! (fn [_ _])})
+        port (http/server-port (:ws.jvm/server listener))]
+    (try
+      (let [sent (promise)
+            connecting (-> (HttpClient/newHttpClient)
+                           (.newWebSocketBuilder)
+                           (.subprotocols "dao.stream.transit-json" (make-array String 0))
+                           (.buildAsync
+                             (URI/create (str "ws://127.0.0.1:" port "/yin/repl"))
+                             (reify WebSocket$Listener
+                               (onOpen [_ socket]
+                                 (.request ^WebSocket socket 1)
+                                 (deliver sent (.sendText ^WebSocket socket frame true))
+                                 nil))))]
+        (is (true? (deref accepting 5000 nil)))
+        (is (thrown? TimeoutException (.get connecting 1 TimeUnit/SECONDS))
+            "the handshake waits for the receive adapter to be installed")
+        (deliver release true)
+        (let [socket (.get connecting 5 TimeUnit/SECONDS)
+              ^CompletableFuture first-send (deref sent 5000 nil)]
+          (try
+            (.get first-send 5 TimeUnit/SECONDS)
+            (let [traffic (accept-and-ack-slot! endpoint slots)]
+              (is (= [value]
+                     (mapv :ws/value (eventually #(seq (dual-values traffic)) 5000)))))
+            (finally (.abort ^WebSocket socket)))))
+      (finally
+        (deliver release true)
+        (jvm/stop-listening! listener (fn []))))))
+
+
 (deftest transit-and-cbor-sessions-share-one-live-jvm-listener
   ;; Dual-client compatibility on the JVM host edge: one http-kit listener
   ;; negotiates both subprotocols, both sessions complete their handoff over
@@ -498,7 +539,7 @@
                     :deposit! (fn [kind detail] (swap! deposits conj [kind detail]))
                     :codecs [transit/profile cbor/profile]})
         port (try
-               (let [bound (eventually #(org.httpkit.server/server-port
+               (let [bound (eventually #(http/server-port
                                           (:ws.jvm/server listener)) 5000)]
                  (is (some? bound) "listener never bound")
                  bound)
@@ -546,7 +587,7 @@
                     :accept! (fn [path socket now]
                                (ws/accept-connection! endpoint path socket now))
                     :deposit! (fn [kind detail] (swap! deposits conj [kind detail]))})
-        port (eventually #(org.httpkit.server/server-port
+        port (eventually #(http/server-port
                             (:ws.jvm/server listener)) 5000)]
     (is (some? port) "listener never bound")
     (try

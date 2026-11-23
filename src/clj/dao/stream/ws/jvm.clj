@@ -24,13 +24,13 @@
   (:require [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]
             [dao.stream.ws.upgrade :as upgrade]
-            [org.httpkit.server :as http]
-            [ring.websocket.protocols :as wsp])
+            [org.httpkit.server :as http])
   (:import [java.io ByteArrayOutputStream]
            [java.net URI]
            [java.net.http HttpClient WebSocket WebSocket$Listener]
            [java.nio ByteBuffer]
-           [java.util.concurrent CompletableFuture]))
+           [java.util.concurrent CompletableFuture]
+           [org.httpkit.server AsyncChannel]))
 
 
 (def ^:private http-kit-default-max-ws
@@ -278,66 +278,70 @@
 
 
 (defn- server-socket
-  "The raw-socket seam over one upgraded server connection.  `:send!` takes
-   the attachment codec's payload — a String or bytes — and routes each to
-   its typed frame; the negotiated subprotocol name travels with the seam so
-   `ws/accept-connection!` resolves this connection's codec profile."
-  ([socket] (server-socket socket nil))
-  ([socket subprotocol]
-   {:send! (fn [payload]
-             (wsp/-send socket (if (string? payload)
-                                 payload
-                                 (ByteBuffer/wrap ^bytes payload))))
-    :close! (fn [code reason] (wsp/-close socket code reason))
-    :ws/subprotocol subprotocol}))
+  "The http-kit socket seam. The endpoint can reject or adopt an offer while
+   the handshake is being prepared. Refuse writes until the 101 is sent and
+   hold any early close so its frame follows the handshake."
+  [^AsyncChannel channel lifecycle subprotocol]
+  {:send! (fn [payload]
+            (let [{:keys [open? close]} @lifecycle]
+              (cond
+                close {:dao.stream/outcome :dao.stream/closed}
+                open? (.send channel payload false)
+                :else false)))
+   :close! (fn [code reason]
+             (let [[before _] (swap-vals! lifecycle
+                                          #(if (:close %) % (assoc % :close [code reason])))]
+               (when (and (:open? before) (nil? (:close before)))
+                 (.serverClose channel (int code) reason))))
+   :ws/subprotocol subprotocol})
 
 
-(defn- byte-buffer->bytes
-  [^ByteBuffer buffer]
-  (let [b (byte-array (.remaining buffer))]
-    (.get buffer b)
-    b))
-
-
-(defn- listener
+(defn- upgrade!
+  "Install the adapter before sending the 101. http-kit's Ring WebSocket
+   wrapper calls on-open after sending it, and a receive worker can run
+   before on-open finishes. The transport already queues frames that arrive
+   before the endpoint acknowledges its offer."
   [request accept! clock deposit! codec]
-  (let [adapter (atom nil)]
-    (reify wsp/Listener
-      (on-open
-        [_ socket]
-        (try
-          (let [target (or (canonical-path (:uri request)) (:uri request))
-                result (accept! target (server-socket socket (codec/codec-name codec))
-                                (clock))]
-            (when-let [handle (:ws/handle result)]
-              (reset! adapter (ws/adapter handle))))
-          (catch Throwable _
-            (deposit! :upgrade-failed
-                      {:code :yin.repl.endpoint/upgrade-threw
-                       :message "the host failed while accepting an upgrade"})
-            (wsp/-close socket 1011 "dao.stream/upgrade-failed"))))
-
-      (on-message
-        [_ _socket message]
-        (when-let [a @adapter]
-          (if (string? message)
-            ((:message! a) message)
-            ((:binary! a) (byte-buffer->bytes ^ByteBuffer message)))))
-
-      (on-pong [_ _socket _data] nil)
-
-      (on-error
-        [_ _socket _error]
-        (if-let [a @adapter]
-          ((:error! a))
-          (deposit! :upgrade-failed
-                    {:code :yin.repl.endpoint/socket-error
-                     :message "the upgraded socket failed before acceptance"})))
-
-      (on-close
-        [_ _socket code reason]
-        (when-let [a @adapter]
-          ((:closed! a) code reason))))))
+  (if-let [key (http/websocket-handshake-check request)]
+    (let [^AsyncChannel channel (:async-channel request)
+          subprotocol (codec/codec-name codec)
+          lifecycle (atom {})
+          socket (server-socket channel lifecycle subprotocol)
+          adapter (try
+                    (let [target (or (canonical-path (:uri request)) (:uri request))]
+                      (some-> (accept! target socket (clock)) :ws/handle ws/adapter))
+                    (catch Throwable _
+                      (deposit! :upgrade-failed
+                                {:code :yin.repl.endpoint/upgrade-threw
+                                 :message "the host failed while accepting an upgrade"})
+                      ((:close! socket) 1011 "dao.stream/upgrade-failed")
+                      nil))]
+      (when adapter
+        (let [{:keys [message! binary! closed!]} adapter
+              report-close! (fn [code reason]
+                              (let [[before _] (swap-vals! lifecycle assoc :reported? true)]
+                                (when-not (:reported? before)
+                                  (closed! code reason))))]
+          (.setReceiveHandler channel
+                              (fn [message]
+                                (if (string? message)
+                                  (message! message)
+                                  (binary! message))))
+          (.setCloseRingHandler channel report-close!)
+          ;; http-kit does not replay a close that preceded registration.
+          (when (.isClosed channel)
+            (report-close! 1006 ""))))
+      (.sendHandshake channel {"Upgrade" "websocket"
+                               "Connection" "Upgrade"
+                               "Sec-WebSocket-Accept" key
+                               "Sec-WebSocket-Protocol" subprotocol})
+      ;; An earlier close is ours to send. A later close sees :open? itself.
+      (let [[before _] (swap-vals! lifecycle assoc :open? true)]
+        (when-let [[code reason] (:close before)]
+          (.serverClose channel (int code) reason)))
+      {:body channel})
+    {:status 400 :headers {"content-type" "text/plain"}
+     :body "Bad Sec-Websocket-Key header"}))
 
 
 (defn listen!
@@ -360,9 +364,7 @@
                   (let [negotiated (negotiate codecs (offered-subprotocols request))]
                     (cond
                       (and (:websocket? request) negotiated)
-                      {:ring.websocket/listener
-                       (listener request accept! clock deposit! negotiated)
-                       :ring.websocket/protocol (codec/codec-name negotiated)}
+                      (upgrade! request accept! clock deposit! negotiated)
 
                       (:websocket? request)
                       (do
