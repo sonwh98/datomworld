@@ -74,8 +74,8 @@
     (testing "a language keyword is not a selector"
       (let [[_ refused] (run state "(lang :python)")]
         (is (str/includes? refused "unavailable-parser")))
-      (testing "the frontend renders the ANTLR Python repr"
-        (is (= "'ab'" (second (run python "'a' + 'b'"))))))))
+      (testing "the preferred frontend returns persistent-profile strings"
+        (is (= "\"ab\"" (second (run python "'a' + 'b'"))))))))
 
 
 (deftest a-newer-revision-leaves-a-live-session-unchanged-test

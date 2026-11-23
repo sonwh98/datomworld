@@ -746,7 +746,7 @@
 
 (deftest a-python-submission-cannot-see-a-clojure-defined-name
   (let [[state _] (evaluate (repl.frontends/create-state) ["(def clj_only 41)"])
-        [_ texts] (results state ["(lang :yang/python)" "print(clj_only)"])]
+        [_ texts] (results state ["(lang [:yang/python \"py-v1\"])" "print(clj_only)"])]
     (is (= "NameError: name 'clj_only' is not defined\n" (nth texts 1)))))
 
 

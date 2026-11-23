@@ -173,8 +173,8 @@
   (fn [state effect opts]
     (let [activate (registration-activate (get modules (:module effect)))]
       (if (and activate
-               (nil? (module/resolve-module (:modules state)
-                                            (:module effect))))
+               (nil? (module/module-entry (:modules (:modules state))
+                                          (:module effect))))
         {:value (:module effect),
          :state (update state :modules activate),
          :blocked? false}

@@ -132,15 +132,17 @@
         (val pair)
         (if-let [pair (find primitives name)]
           (vm/primitive-function (val pair))
-          (if-let [resolved (when (namespace name)
-                              (module/resolve-module
-                                registry
-                                (symbol (str (namespace name)
-                                             "."
-                                             (clojure.core/name name)))))]
-            resolved
-            (fail (str "Unable to resolve symbol: " name " in this context")
-                  {:symbol name})))))))
+          (if-let [binding (module/export-binding registry name)]
+            (val binding)
+            (if-let [resolved (when (namespace name)
+                                (module/resolve-module
+                                  registry
+                                  (symbol (str (namespace name)
+                                               "."
+                                               (clojure.core/name name)))))]
+              resolved
+              (fail (str "Unable to resolve symbol: " name " in this context")
+                    {:symbol name}))))))))
 
 
 (defn check-store-key!
@@ -1533,7 +1535,7 @@
       (not= :ok (:status response))
       [state nil (refused-entry entry response)]
 
-      (some? (module/resolve-module (:modules state) module-name))
+      (some? (module/module-entry (:modules (:modules state)) module-name))
       [state nil (linked-entry entry module-name)]
 
       (contains? (:installs state) module-name) [state waiter nil]

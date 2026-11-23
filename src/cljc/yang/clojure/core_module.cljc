@@ -21,7 +21,10 @@
   (symbol "clojure.core.rt" (str name)))
 
 
-(def source-names (set impl/public-names))
+(def source-names
+  ;; The Clojure lowerer already emits these predicates as VM primitives.
+  ;; The facade also offers cell accessors for descriptor projections.
+  (disj (set impl/public-names) 'empty? 'nil?))
 
 
 (defn referenced-exports [free-names]

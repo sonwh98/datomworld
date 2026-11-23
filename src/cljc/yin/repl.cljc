@@ -1037,7 +1037,7 @@
          :supported [:manual :fn]}))))
 
 
-(declare selected-primitives)
+(declare selected-primitives admit-frontend)
 
 
 (defn- store-session
@@ -1074,6 +1074,7 @@
                                      extra-primitives)
                               shell-token handle source publication host-modules)]
     (-> session
+        (update :vm admit-frontend frontends lang)
         (update :indexer index/rehydrate recovery)
         (assoc :index-store handle
                :index-store-spec index-store-spec
@@ -2351,9 +2352,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 (defn- select-frontend
   "Select the frontend `lang` names in `catalog`: a qualified id selects
-   by id (ambiguous when several revisions are installed), `[id revision]`
-   pins one revision; anything else is refused — the selector is the
-   frontend id, never a language keyword."
+   by id and uses the catalog's preferred revision to resolve ambiguity.
+   `[id revision]` pins one revision. The selector uses a qualified id."
   [catalog lang]
   (cond
     (vector? lang) (frontend/select catalog
@@ -2372,6 +2372,12 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   (or (:primitives (:binding (select-frontend catalog lang))) {}))
 
 
+(defn- admit-frontend [vm catalog lang]
+  (if-let [admit (:admit (:binding (select-frontend catalog lang)))]
+    (update vm :modules admit)
+    vm))
+
+
 (defn- switch-lang
   "Select `lang`: its binding's primitives replace the previous binding's
    in the live VM (host `:extra-primitives` stay over them), and the
@@ -2380,6 +2386,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   (let [new (selected-primitives (:frontends state) lang)]
     (-> state
         (assoc :lang lang :frontend-session nil)
+        (update :vm admit-frontend (:frontends state) lang)
         (assoc-in [:vm :primitives]
                   (merge (make-repl-primitives (:output-stream state))
                          new
@@ -2415,13 +2422,16 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    answers, with the binding's `:render`, in the program's
    `::frontend` metadata, for `eval-compiled` to stage."
   [state binding parsed]
-  (let [staged (cond-> {}
-                 (:render binding) (assoc :render (:render binding)))]
-    (if-let [lower-session (:lower-session binding)]
-      (let [[ast session] (lower-session parsed (:frontend-session state))]
-        (vary-meta ast assoc ::frontend (assoc staged :session session)))
-      (cond-> ((:lower binding) parsed)
-        (seq staged) (vary-meta assoc ::frontend staged)))))
+  (let [lower-session (:lower-session binding)
+        [ast session] (if lower-session
+                        (lower-session parsed (:frontend-session state))
+                        [((:lower binding) parsed) nil])
+        staged (cond-> {}
+                 (:render binding) (assoc :render (:render binding))
+                 lower-session (assoc :session session)
+                 (:derive binding) (assoc :derivation ((:derive binding) parsed ast)))]
+    (cond-> ast
+      (seq staged) (vary-meta assoc ::frontend staged))))
 
 
 (defn- compile-input
@@ -2488,25 +2498,26 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    on the old VM is dropped with it: its link pair is the session's, and
    the new session answers from its own.
 
-   Over a durable store the code index is not the session's to drop: the
-   new indexer continues the old one's log, entity allocation, and
-   published manifest (`yin.repl.index/carry-over`), so a rebuild never
-   resets `t`.  Over the memory store it starts empty, as it always has."
+   A store with `retain-on-reset?` keeps its code index. The new indexer
+   continues the old one's log, entity allocation, and published manifest
+   (`yin.repl.index/carry-over`), preserving `t`. Otherwise the index starts
+   empty."
   [state vm-type]
   (merge state
-         (cond-> (make-session vm-type (:output-stream state)
-                               (merge (selected-primitives (:frontends state)
-                                                           (:lang state))
-                                      (:extra-primitives state))
-                               (:shell-token state)
-                               (:index-store state)
-                               (:link-source state)
-                               (cond-> (:publication state)
-                                 (get-in state [:indexer :publication-media])
-                                 (assoc :media
-                                        (get-in state
-                                                [:indexer :publication-media])))
-                               (:host-modules state))
+         (cond-> (-> (make-session vm-type (:output-stream state)
+                                   (merge (selected-primitives (:frontends state)
+                                                               (:lang state))
+                                          (:extra-primitives state))
+                                   (:shell-token state)
+                                   (:index-store state)
+                                   (:link-source state)
+                                   (cond-> (:publication state)
+                                     (get-in state [:indexer :publication-media])
+                                     (assoc :media
+                                            (get-in state
+                                                    [:indexer :publication-media])))
+                                   (:host-modules state))
+                     (update :vm admit-frontend (:frontends state) (:lang state)))
            (store/retain-on-reset? (:index-store state))
            (update :indexer index/carry-over (:indexer state)))
          {:vm-type vm-type
@@ -2716,8 +2727,11 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   (let [staged (::frontend (meta ast))
         [state' text] (eval-program (cond-> state
                                       staged (assoc ::frontend staged))
-                                    ast)]
-    [(dissoc state' ::frontend) text]))
+                                    ast)
+        admitted? (and (:derivation staged) (not= (:round state) (:round state')))]
+    [(cond-> (dissoc state' ::frontend)
+       admitted? (assoc-in [:frontend-derivations (round-id state')] (:derivation staged)))
+     text]))
 
 
 (defn- eval-parsed*
