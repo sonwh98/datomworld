@@ -183,12 +183,14 @@
                   prelude/module-exports)))
     (testing "the runtime keys are what the generated py/init! defines,
               the ready flag aside; 04e58031 added py.b/type through the
-              builtin-functions table, raising the count from 70 to 71"
+              builtin-functions table, raising the count from 70 to 71,
+              and the py/assert thunk series added the next runtime key,
+              raising the count from 71 to 72"
       (is (= (set prelude/runtime-keys)
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
                    'py.rt/state)))
-      (is (= 71 (count prelude/runtime-keys))))))
+      (is (= 72 (count prelude/runtime-keys))))))
 
 
 ;; =============================================================================
@@ -248,9 +250,11 @@
    the JVM with dht-import-v1.generate.clj (two byte-identical runs).
    The Python exception-track and provenance series (merged 8018005d)
    moved it again; re-minted with the same generator in two byte-identical
-   runs."
+   runs. The py/assert thunk series (d4a3fdef → 7692d347 → 3051a5cb)
+   changed the prelude content and moved the address once more; re-minted
+   from the JVM publication in two fresh JVMs."
   (keyword (str "segment/blake3-"
-                "59efa8b3793d9737d09b74c7304c086405084d486c76b8dc986c88870357b744")))
+                "6e60da0c73eb89861bcdc4c5c53f59bdf5e8ae6ba88b5b09c65eab543497259e")))
 
 
 (def ^:private vector-formats
