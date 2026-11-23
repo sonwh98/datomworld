@@ -95,44 +95,6 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | deepseek     | `~/.claude-deepseek`        | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
-**Host availability matrix (verified live 2026-11-11):** claude, codex,
-muse, agy, deepseek, glm, qwen on ALL THREE hosts (laptop darkstar, shiva,
-jupiter). kimi: laptop only, DECOMMISSIONED until further notice (owner relay
-2026-11-11). jupiter caveats: `codex`, `qwen`, and `agy` resolve under the nvm
-tree (`~/.nvm/versions/node/v24.13.0/bin/`) or `~/.local/bin` — headless shells
-may need `export PATH=$HOME/.nvm/versions/node/v24.13.0/bin:$PATH` (symptom:
-`node: No such file or directory`).
-
-**Quota pools — ONLY codex has a separate pool on jupiter.** Every other
-provider (claude, muse, agy/gemini-argon, deepseek, glm, qwen) draws ONE shared
-meter across all three hosts: a laptop session, a shiva session, and a jupiter
-session of the same provider are the same quota, drawn three ways. Only codex
-is special: laptop + shiva share POOL 1 (the original account), and jupiter is
-POOL 2 (the second ChatGPT account, installed 2026-11-10) — so codex is the
-only provider whose failover/concurrency rules differ per host (see the pool
-map in the codex recipe section). Practical consequence: parking a muse or
-qwen round by switching hosts does NOT escape its quota — only waiting for the
-reset (or switching PROVIDER) does.
-
-**A second, INDEPENDENT reason to switch hosts: co-locating the agent with the
-failing tests.** Long-running tests live on shiva and jupiter (suite-scale runs
-never execute on the laptop). When a test fails there, running the coding agent
-ON THAT HOST makes debugging faster and easier: the agent can iterate the
-fix-verify loop directly against the failing test (edit → run the one failing
-test → edit) without an ssh round-trip per cycle, can read the full failure
-logs in place, and can reproduce exactly the environment (toolchain, cache
-state, ANTLR outputs) the failure occurred in. This holds regardless of quota:
-even a provider whose meter is shared across hosts benefits, because the
-BENEFIT is local iteration speed, not quota escape. Prefer the host where the
-test fails; fall back to the laptop only when the agent cannot reach that host
-(sandboxed delegates) or the fix needs no test runs.
-
-**Host availability (deepseek wrapper `~/.local/bin/deepseek`):** laptop
-(darkstar), shiva, and jupiter — all three hosts. Jupiter was added 2026-11-11
-(wrapper copied from shiva via scp; `~/.claude-deepseek/` rsynced with it; live
-smoke test passed with `MODEL=deepseek-flash`, the benign
-`claude-code:unrecognized_model` warning expected as everywhere else).
-Shiva remains the canonical reference install; update the other hosts from it.
 | glm          | `~/.claude-glm`             | caller UUID via `--session-id`   | `--resume <uuid>`                        |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
 | kimi         | `~/.kimi-code`              | `session_index.jsonl`            | `--session <id>`                         |
@@ -148,6 +110,42 @@ Shiva remains the canonical reference install; update the other hosts from it.
 | qwen         | `~/.qwen/projects/<slug>/ch | caller UUID via `--session-id`   | `qwen --resume <uuid>`                   |
 |              | ats/`                       |                                  |                                          |
 +--------------+-----------------------------+----------------------------------+------------------------------------------+
+
+### Host availability and quota distribution
+
+**Host availability matrix (verified live 2026-11-11):** claude, codex,
+muse, agy, deepseek, glm, qwen on ALL THREE hosts (laptop darkstar, shiva,
+jupiter). kimi: laptop only, DECOMMISSIONED until further notice (owner relay
+2026-11-11). jupiter caveats: `codex`, `qwen`, and `agy` resolve under the nvm
+tree (`~/.nvm/versions/node/v24.13.0/bin/`) or `~/.local/bin` — headless shells
+may need `export PATH=$HOME/.nvm/versions/node/v24.13.0/bin:$PATH` (symptom:
+`node: No such file or directory`).
+
+**Quota pools — codex and agy have separate pools on jupiter:**
+- **shiva** and **jupiter** have separate quota pools for both **codex** and **agy**.
+- **darkstar (local MacBook)**: may share either pool (shiva's or jupiter's), depending on which account/credentials darkstar is logged into or configured to use at any given time. This applies to both codex and agy.
+Every other provider (claude, muse, deepseek, glm, qwen) draws ONE shared
+meter across all three hosts: a laptop session, a shiva session, and a jupiter
+session of the same provider are the same quota, drawn three ways. Practical consequence:
+parking a muse or qwen round by switching hosts does NOT escape its quota — only waiting for the
+reset (or switching PROVIDER) does. For codex and agy, switching between shiva and jupiter
+guarantees accessing a different quota pool (while darkstar may be bound to either).
+
+**Co-locating agents with tests (host switching rationale):**
+Long-running tests live on shiva and jupiter (suite-scale runs
+never execute on the laptop). When a test fails there, running the coding agent
+ON THAT HOST makes debugging faster and easier: the agent can iterate the
+fix-verify loop directly against the failing test (edit → run the one failing
+test → edit) without an ssh round-trip per cycle, can read the full failure
+logs in place, and can reproduce exactly the environment (toolchain, cache
+state, ANTLR outputs) the failure occurred in. This holds regardless of quota:
+even a provider whose meter is shared across hosts benefits, because the
+BENEFIT is local iteration speed, not quota escape. Prefer the host where the
+test fails; fall back to the laptop only when the agent cannot reach that host
+(sandboxed delegates) or the fix needs no test runs.
+
+**Host availability notes:**
+- **DeepSeek wrapper (`~/.local/bin/deepseek`)**: laptop (darkstar), shiva, and jupiter — all three hosts. Jupiter was added 2026-11-11 (wrapper copied from shiva via scp; `~/.claude-deepseek/` rsynced with it; live smoke test passed with `MODEL=deepseek-flash`, benign `claude-code:unrecognized_model` warning expected). Shiva remains canonical reference install; update other hosts from it.
 
 > [!IMPORTANT]
 > **Don't probe before delegating.** Never run throwaway commands (`echo ok`, `--version`, `--help`) to
@@ -523,8 +521,9 @@ codex exec -m <model> <review-or-implementation-flag> --json - < <prompt> \
 # headless-safe, self-updating via the `current` symlink.
 #
 # POOL MAP (the one that matters for dispatch):
-#   POOL 1 = laptop (darkstar) + shiva   — shared meter
-#   POOL 2 = jupiter                     — independent meter
+#   shiva    = POOL 1
+#   jupiter  = POOL 2 (independent meter)
+#   darkstar (laptop) = may share POOL 1 or POOL 2 depending on current login/config
 #
 # WHY TWO POOLS: (1) when POOL 1 exhausts (observed: astra cut mid-review,
 # and a full 429 with ~5h reset), dispatch on JUPITER instead — the work
