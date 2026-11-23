@@ -150,6 +150,14 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | reconciliation, protocol discipline. **Best for:** Scoped          | budget is tight.                                                    |
 |                             | subagents, bounded searches, QA spot-checks, verification seats.   |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `glm-5.4`                   | Loop Transformer flagship (released 2026-11-23): 28 layers of the     | Vendor-acknowledged "marathon thinking" loops; slow/quota-heavy      |
+|                             |  GLM-5 base looped for two iterations; ~2T-3T-class reasoning at     | when stuck — budget it. API and open weights not yet available      |
+|                             |  750B; 1M context; new vision input (code-driven video, games, 3D,   | (Coding Plan only; on this seat only the Individual Coding         |
+|                             | CAD); 10-14% shorter thinking than 5.3. **Best for:** Hardest        | Plan serves it; idle/highspeed pools still 5.3). No benchmark       |
+|                             | long-horizon engineering, multi-file Clojure, compiler/VM,           | figures published; unmeasured in this repo. **Avoid for:**          |
+|                             | invariant/security work, vision-based frontend & graphics QA.        | latency-sensitive loops; same-family GLM reviewer for GLM           |
+|                             |                                                                    | authors.                                                            |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gpt-5.4-mini`              | Fast, lower-cost model for bounded, repetitive work with explicit  | Do not use as the sole judge of subtle invariants or broad design.  |
 |                             | acceptance criteria. **Best for:** TDD loops, simple linting,      | Escalate multi-step refactors and disputed findings to Terra, Sol,  |
 |                             | extraction, and scoped text edits.                                 | or Astra.                                                           |
