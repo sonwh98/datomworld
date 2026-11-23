@@ -583,29 +583,22 @@
   (testing "`assert x`: a falsey test raises AssertionError with no args"
     (is (= (u/then (py 'py/assert (gget "x") none) none)
            (body "assert x\n"))))
-  (testing "`assert x, 'nope'`: the message lowers inside the failure arm
-            of an if, so it is evaluated only when the test is falsey, as
-            CPython evaluates the message only on failure"
-    (is (= (u/then (u/if-node (py 'py/truthy (gget "x"))
-                              none
-                              (py 'py/raise
-                                  (py 'py/make-exc (u/lit {:py/str "nope"}))))
+  (testing "`assert x, 'nope'`: the message lowers as a zero-arg thunk in
+            py/assert's message slot, so it is evaluated only when the
+            test is falsey, as CPython evaluates the message only on
+            failure"
+    (is (= (u/then (py 'py/assert (gget "x") (u/lam [] (u/lit {:py/str "nope"})))
                    none)
            (body "assert x, 'nope'\n"))))
-  (testing "`assert x, f()`: the message's call sits in the failure arm —
+  (testing "`assert x, f()`: the message's call sits in the thunk —
             it lowers where CPython evaluates it, not beside the test"
-    (is (= (u/then (u/if-node (py 'py/truthy (gget "x"))
-                              none
-                              (py 'py/raise
-                                  (py 'py/make-exc (call (gget "f")))))
+    (is (= (u/then (py 'py/assert (gget "x") (u/lam [] (call (gget "f"))))
                    none)
            (body "assert x, f()\n"))))
-  (testing "`assert x, None`: a literal None message passes through
-            py/make-exc, so the args hold None as CPython's do; only the
-            bare form raises with empty args (py/assert's nil message)"
-    (is (= (u/then (u/if-node (py 'py/truthy (gget "x"))
-                              none
-                              (py 'py/raise (py 'py/make-exc none)))
+  (testing "`assert x, None`: a literal None message keeps CPython's
+            (None,) args; only the bare form raises with empty args
+            (py/assert's :py/None message)"
+    (is (= (u/then (py 'py/assert (gget "x") (u/lam [] none))
                    none)
            (body "assert x, None\n"))))
   (testing "the test lowers like any expression"
