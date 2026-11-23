@@ -423,7 +423,7 @@
    driver, which owns the RPC client; `telemetry` is answered only to say that
    this REPL slice does not have it."
   #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry 'abandon
-    'trust 'untrust 'trusted 'host})
+    'trust 'untrust 'trusted 'host 'use-store})
 
 
 (def help-text
@@ -432,6 +432,8 @@
        "  (lang :yang/clojure | :yang/python | :yang/php)\n"
        "  (compile expr)\n"
        "  (reset)\n"
+       "  (use-store \"mem\" | \"file:<dir>\")  - switch after startup or (reset);"
+       " a composition may supply more stores\n"
        "  (trust \"ed25519:<64 hex>\") / (untrust \"ed25519:<64 hex>\")\n"
        "  (trusted)  - own principal and trusted set\n"
        "  (connect \"daostream:ws://host:port\")\n"
@@ -1010,7 +1012,8 @@
                                    :publication-media (:media publication)})
      :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
      :linker linker
-     :query-pair (dissoc query-pair :out-cursor)}))
+     :query-pair (dissoc query-pair :out-cursor)
+     :quiesced? true}))
 
 
 (defn- checked-link-policy
@@ -1035,6 +1038,53 @@
 
 
 (declare selected-primitives admit-frontend)
+
+
+(defn- store-session
+  "Build the session and recover the index with the store's own inputs."
+  [{:keys [vm-type output-stream frontends lang extra-primitives shell-token]}
+   {:keys [index-store index-store-spec link-source recovery principals follow
+           admission publication-policy publication-media host-modules
+           publisher-key name-env content-store content-client]
+    :or {admission {}}}]
+  (let [source (or link-source
+                   (link/composition {:name-env name-env
+                                      :content-store content-store
+                                      :content-client content-client
+                                      :principals principals
+                                      :key publisher-key
+                                      :follow follow
+                                      :admission (when-not (= :external admission)
+                                                   admission)}))
+        ;; Compose the source before opening a store so a refused source
+        ;; never acquires a directory lock.
+        handle (or index-store (store/open index-store-spec))
+        recovery (or recovery (:recovery handle))
+        media (or publication-media
+                  (when-let [head-fn (:head-fn handle)]
+                    (publication/local-media {:head-fn head-fn
+                                              :durability :persistent})))
+        ;; The indexer receives only the request and result media. The
+        ;; local round boundary services a HEAD writer, when present.
+        publication {:publication-policy publication-policy
+                     :media (some-> media publication/engine-media)
+                     :local-service (when (:local media) media)}
+        session (make-session vm-type output-stream
+                              (merge (selected-primitives frontends lang)
+                                     extra-primitives)
+                              shell-token handle source publication host-modules)]
+    (-> session
+        (update :vm admit-frontend frontends lang)
+        (update :indexer index/rehydrate recovery)
+        (assoc :index-store handle
+               :index-store-spec index-store-spec
+               :publication publication
+               :host-modules (or host-modules {})
+               :registered-ops (query/registered-ops host-modules)
+               :index-recovery (or recovery {:manifest nil :datoms nil})
+               :link-source source
+               :admission admission
+               :initial-admission admission))))
 
 
 (defn create-state
@@ -1080,9 +1130,8 @@
    `<dir>/content.jing`, opened under an exclusive directory lock with
    its HEAD read and the snapshot it names validated — a corrupt HEAD
    or snapshot refuses construction, and a second owner of the directory
-   is refused naming it.  The spec is resolved and the store opened once
-   here, never switched at runtime, and supplying it together with
-   `index-store` (a handle injected directly) is refused.
+   is refused naming it. Supply either a spec or `index-store` (a handle
+   injected directly). A quiesced session can later switch with `(use-store ...)`.
 
    `:index-recovery` carries what the durable open recovered —
    `{:manifest <address or nil> :datoms <the validated snapshot or nil>}`
@@ -1143,11 +1192,9 @@
    never a fallback to another frontend."
   ([] (create-state {}))
   ([{:keys [lang output-cursor output-stream vm-type primitives
-            content-store content-client name-env link-policy index-store
-            index-store-spec link-source recovery principals follow custody
-            frontends admission publication-policy publication-media
-            host-modules publisher-key]
-     :or {lang :yang/clojure vm-type :semantic admission {}}}]
+            link-policy index-store index-store-spec custody frontends]
+     :or {lang :yang/clojure vm-type :semantic}
+     :as opts}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
          shell-token (str (random-uuid))
@@ -1164,80 +1211,25 @@
                             index-store nil
 
                             :else (store/checked-spec index-store-spec))
-         ;; A composition that owns a storage implementation prepares the
-         ;; link source beside the handle and injects both; the engine
-         ;; composes one only from the generic content inputs it was given
-         ;; (docs/design/yin.repl.dht-composition.md section 3).  Composed
-         ;; before the store opens: a refused composition never holds a
-         ;; directory lock.
-         link-source (or link-source
-                         (link/composition
-                           {:name-env name-env
-                            :content-store content-store
-                            :content-client content-client
-                            :principals principals
-                            :key publisher-key
-                            :follow follow
-                            :admission (when-not (= :external admission)
-                                         admission)}))
-         index-store (or index-store (store/open index-store-spec))
-         recovery (or recovery (:recovery index-store))
-         ;; the composition's durable-publication medium: the engine
-         ;; emits a correlated request and promotes only the matching
-         ;; result, and its indexer holds no writer to call
-         ;; (yin.repl.publication).  A store that declares no durable HEAD
-         ;; has no medium, and its round settles locally exactly as an
-         ;; ephemeral composition always has; a composition that wants to
-         ;; observe an ephemeral round injects the media itself.
-         media (or publication-media
-                   (when-let [head-fn (:head-fn index-store)]
-                     (publication/local-media
-                       {:head-fn head-fn
-                        :durability :persistent})))
-         ;; `:media` is the engine's view of the pair -- the request side
-         ;; it appends to, the result side it reads and its cursor -- with
-         ;; the composition's durable HEAD writer stripped off it, so no
-         ;; callback hook sits inside the indexer.  `:local-service` is
-         ;; that stripped half, the medium with its writer, which the
-         ;; round boundary services (`serve-publication`); a composition
-         ;; with transport of its own injects a medium with no `:local`,
-         ;; has no service here, and services the request side itself.
-         publication {:publication-policy publication-policy
-                      :media (some-> media publication/engine-media)
-                      :local-service (when (:local media) media)}]
-     (merge
-       (-> (make-session vm-type output-stream
-                         (merge (selected-primitives frontends lang) primitives)
-                         shell-token index-store link-source publication host-modules)
-           (update :vm admit-frontend frontends lang)
-           (update :indexer index/rehydrate recovery))
-       {:lang lang
-        :frontends (or frontends frontend/empty-catalog)
-        :vm-type vm-type
-        :extra-primitives primitives
-        :output-stream output-stream
-        :output-cursor output-cursor
-        :ledger {:output :untried}
-        :shell-token shell-token
-        :index-store index-store
-        :index-store-spec index-store-spec
-        :publication publication
-        :host-modules (or host-modules {})
-        :registered-ops (query/registered-ops host-modules)
-        :index-recovery (or recovery {:manifest nil :datoms nil})
-        :round 0
-        :ingress-loss? false
-        :last-value nil
-        :last-value-2 nil
-        :last-value-3 nil
-        :pending-input nil
-        :link-source link-source
-        :admission admission
-        :initial-admission admission
-        :link-policy (checked-link-policy link-policy)
-        :pending-run nil
-        :custody custody
-        :running? true}))))
+         state {:lang lang
+                :frontends (or frontends frontend/empty-catalog)
+                :vm-type vm-type
+                :extra-primitives primitives
+                :output-stream output-stream
+                :output-cursor output-cursor
+                :ledger {:output :untried}
+                :shell-token shell-token
+                :round 0
+                :ingress-loss? false
+                :last-value nil
+                :last-value-2 nil
+                :last-value-3 nil
+                :pending-input nil
+                :link-policy (checked-link-policy link-policy)
+                :pending-run nil
+                :custody custody
+                :running? true}]
+     (merge state (store-session state (assoc opts :index-store-spec index-store-spec))))))
 
 
 ;; =============================================================================
@@ -2239,7 +2231,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                               error))))))
 
 
-(defn- eval-program
+(defn- eval-program-round
   "Evaluate one frontend program — the map AST the compilers emit or a
    datom-literal program — through the §10.1 composition.  The encoder
    projects it to an input batch of canonical rows with its harvest and
@@ -2335,6 +2327,16 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                 (when (pos? forwarded)
                   [(index/notice (:indexer expanded) (:indexer indexed))
                    (ast-index/notice (:ast-indexer indexed))])))))))))
+
+
+(defn- eval-program
+  [state program]
+  (let [state (assoc state :quiesced? false)]
+    (try
+      (eval-program-round state program)
+      (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+        (let [[state' output-text] (drain-output state)]
+          [state' (str output-text (format-error error))])))))
 
 
 (defn- installed-text
@@ -2496,27 +2498,27 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    on the old VM is dropped with it: its link pair is the session's, and
    the new session answers from its own.
 
-   Over a durable store the code index is not the session's to drop: the
-   new indexer continues the old one's log, entity allocation, and
-   published manifest (`yin.repl.index/carry-over`), so a rebuild never
-   resets `t`.  Over the memory store it starts empty, as it always has."
+   A store with `retain-on-reset?` keeps its code index. The new indexer
+   continues the old one's log, entity allocation, and published manifest
+   (`yin.repl.index/carry-over`), preserving `t`. Otherwise the index starts
+   empty."
   [state vm-type]
   (merge state
          (cond-> (-> (make-session vm-type (:output-stream state)
-                               (merge (selected-primitives (:frontends state)
-                                                           (:lang state))
-                                      (:extra-primitives state))
-                               (:shell-token state)
-                               (:index-store state)
-                               (:link-source state)
-                               (cond-> (:publication state)
-                                 (get-in state [:indexer :publication-media])
-                                 (assoc :media
-                                        (get-in state
-                                                [:indexer :publication-media])))
-                               (:host-modules state))
+                                   (merge (selected-primitives (:frontends state)
+                                                               (:lang state))
+                                          (:extra-primitives state))
+                                   (:shell-token state)
+                                   (:index-store state)
+                                   (:link-source state)
+                                   (cond-> (:publication state)
+                                     (get-in state [:indexer :publication-media])
+                                     (assoc :media
+                                            (get-in state
+                                                    [:indexer :publication-media])))
+                                   (:host-modules state))
                      (update :vm admit-frontend (:frontends state) (:lang state)))
-           (store/durable? (:index-store state))
+           (store/retain-on-reset? (:index-store state))
            (update :indexer index/carry-over (:indexer state)))
          {:vm-type vm-type
           :ingress-loss? false
@@ -2525,6 +2527,111 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
           :last-value-3 nil
           :frontend-session nil
           :pending-run nil}))
+
+
+(defn quiesced?
+  "Whether evaluation and publication are settled and no program has
+   entered evaluation since startup, a session rebuild, or a store swap."
+  [state]
+  (and (boolean (:quiesced? state))
+       (nil? (:pending-run state))
+       (empty? (get-in state [:indexer :unwritten]))
+       (empty? (index/pending-publications (:indexer state)))))
+
+
+(defn swap-refusal
+  "The reason the engine cannot swap stores, or nil when it is quiesced."
+  [state]
+  (cond
+    (some? (:pending-run state))
+    (str "cannot switch index store while a require is pending;"
+         " wait for it to complete or run (abandon) and (reset) first")
+
+    (not (quiesced? state))
+    "cannot switch index store while the session holds evaluated state; run (reset) first"))
+
+
+(defn parse-store-command
+  "Parse the single store argument, with an optional host parser."
+  ([args] (parse-store-command args store/parse-arg))
+  ([args parse-arg]
+   (let [target (first args)]
+     (cond
+       (empty? args)
+       (throw (ex-info "(use-store <store> ...) needs a store: mem, file:<dir>" {}))
+
+       (next args)
+       (throw (ex-info "(use-store ...) takes one store argument: mem, file:<dir>" {}))
+
+       (or (= :mem target) (string? target))
+       {:spec (parse-arg (if (= :mem target) "mem" target))}
+
+       :else
+       (throw (ex-info "(use-store ...) expects a store: mem, file:<dir>" {}))))))
+
+
+(defn install-store
+  "Rebuild over an opened store and its recovery, preserving shell identity
+   and configuration. The caller owns opening and retiring the handles."
+  [state opened-inputs]
+  (when-not (:index-store opened-inputs)
+    (throw (ex-info "Store installation needs an opened index store" {})))
+  (-> state
+      (dissoc :call-provenance-handles :call-provenance-failures
+              :call-provenance-round-failures :call-site-commit-evidence
+              :call-site-round-claims)
+      (merge (store-session state opened-inputs))
+      (update :round inc)
+      (assoc :ingress-loss? false
+             :last-value nil :last-value-2 nil :last-value-3 nil
+             :frontend-session nil :pending-input nil :pending-run nil)))
+
+
+(defn swap-summary
+  "Confirmation for an installed store, using its recovered transaction history."
+  [spec {:keys [manifest datoms]} label]
+  (str "Switched index store to " (or label (store/describe-spec spec))
+       (cond
+         (= :mem spec) " (code index cleared)"
+         manifest (str " (recovered HEAD " manifest ", "
+                       (count (into #{} (map #(nth % 3)) datoms)) " transactions)")
+         :else " (empty code index)")))
+
+
+(defn format-swap-error
+  "Format a swap failure and explain a lock conflict with the active store."
+  [state error]
+  (let [text (format-error error)
+        dir (:dir (ex-data error))]
+    (if (and dir (str/includes? text " is locked by another process")
+             (= dir (or (:durable-dir (:index-store state))
+                        (:dir (:index-store-spec state)))))
+      (str text " (currently held by this session; switch to mem first to release the directory lock)")
+      text)))
+
+
+(defn swap-store
+  "Switch a standalone, quiesced shell to a fresh memory or file handle."
+  [state args]
+  (if-some [reason (swap-refusal state)]
+    [state (str "Error: " reason)]
+    (try
+      (let [{:keys [spec]} (parse-store-command args)
+            opened (store/open spec)
+            result (try
+                     [(install-store state {:index-store opened
+                                            :index-store-spec spec
+                                            :publication-policy (:publication-policy opened)})
+                      (swap-summary spec (:recovery opened) nil)]
+                     (catch #?(:cljd Object :clj Throwable :cljs :default) error
+                       (try (store/close! opened)
+                            (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))
+                       (throw error)))]
+        (try (store/close! (:index-store state))
+             (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))
+        result)
+      (catch #?(:cljd Object :clj Throwable :cljs :default) error
+        [state (format-swap-error state error)]))))
 
 
 (defn- configure-admission
@@ -2574,7 +2681,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
            (if (contains? vm-constructors vm-type)
              [(rebuild-session state vm-type)
               (str "Switched to " (get vm-labels vm-type)
-                   (if (store/durable? (:index-store state))
+                   (if (store/retain-on-reset? (:index-store state))
                      " (VM store cleared; durable code index kept)"
                      " (store cleared)"))]
              [state (str "Error: Unknown Yin REPL VM type " (pr-str vm-type)
@@ -2599,6 +2706,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                (configure-admission state (:initial-admission state))
                (:vm-type state))
              (str (get vm-labels (:vm-type state)) " reset")]
+      use-store (swap-store state args)
       abandon (abandon-pending state)
       help [state help-text]
       repl-state [state (format-value (repl-state state))]
@@ -2833,32 +2941,35 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    Input that is not yet a whole submission is retained as `:pending-input`
    and produces no text: for a frontend with a `:probe` the probe decides
    and the line is kept verbatim (whitespace can be inside a string);
-   otherwise the brackets must balance.  Nothing here is asynchronous: the
-   driver, not this namespace, decides when the next step happens."
-  [state line]
-  (let [probe (input-probe state)
-        pending (or (:pending-input state) "")
-        line (if probe line (str/trim line))
-        combined (if (str/blank? pending)
-                   line
-                   (str pending "\n" line))]
-    (cond
-      (and probe (str/blank? combined))
-      [(assoc state :pending-input nil) ""]
+   otherwise the brackets must balance. The endpoint passes a refusal for
+   store changes so the same reader and command dispatch enforce isolation."
+  ([state line] (eval-input state line nil))
+  ([state line store-command-refusal]
+   (let [probe (input-probe state)
+         pending (or (:pending-input state) "")
+         line (if probe line (str/trim line))
+         combined (if (str/blank? pending)
+                    line
+                    (str pending "\n" line))]
+     (cond
+       (and probe (str/blank? combined))
+       [(assoc state :pending-input nil) ""]
 
-      (if probe
-        (= :incomplete (probe combined))
-        (pos? (bracket-balance combined)))
-      [(assoc state :pending-input combined) ""]
+       (if probe
+         (= :incomplete (probe combined))
+         (pos? (bracket-balance combined)))
+       [(assoc state :pending-input combined) ""]
 
-      :else
-      (let [state' (assoc state :pending-input nil)
-            parsed (try {:forms (read-forms combined)}
-                        (catch #?(:cljd Object
-                                  :clj Exception
-                                  :cljs js/Error) error
-                          {:error error}))]
-        (eval-parsed state' combined parsed)))))
+       :else
+       (let [parsed (try {:forms (read-forms combined)}
+                         (catch #?(:cljd Object
+                                   :clj Exception
+                                   :cljs js/Error) error
+                           {:error error}))]
+         (if (and store-command-refusal (command-line? parsed)
+                  (= 'use-store (ffirst (:forms parsed))))
+           [(assoc state :pending-input nil) store-command-refusal]
+           (eval-parsed (assoc state :pending-input nil) combined parsed)))))))
 
 
 (defn repl-state

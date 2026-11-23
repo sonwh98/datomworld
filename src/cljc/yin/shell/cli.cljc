@@ -480,7 +480,7 @@
    own map, both neutral and both read back by it: `:publisher-key-file`,
    the key file `--dht-key` named, and `:keygen`, the file `--dht-keygen`
    named, which composes nothing and ends the run."
-  [arg value args opts extra]
+  [arg value _args opts extra]
   (let [extra (cond-> extra (dht-flags arg) (update :flags conj arg))]
     (case arg
       "--dht-peer" {:extra (update extra :peers conj (parse-peer value))
@@ -539,6 +539,104 @@
    this composition's `dht:` (yin.shell.store/parse-arg)."
   [value]
   (shell.store/parse-arg value))
+
+
+(defn- store-option-text
+  [option value]
+  (when-not (and (string? value) (not (str/blank? value)))
+    (throw (ex-info (str option " needs a non-empty string") {:option option})))
+  value)
+
+
+(defn- store-option-values
+  [option value]
+  (when-not (sequential? value)
+    (throw (ex-info (str option " needs a sequence of values") {:option option})))
+  value)
+
+
+(defn- store-option-number
+  [option value]
+  (when-not (integer? value)
+    (throw (ex-info (str option " needs an integer") {:option option})))
+  (dht-number option (str value)))
+
+
+(defn- listen-options
+  [options value]
+  (let [[_ host port] (re-matches #"(?:(.+):)?(\d+)" (store-option-text :listen value))]
+    (when-not port
+      (throw (ex-info ":listen needs [host:]port" {:value value})))
+    (cond-> (assoc options :bind-port (dht-number :listen port))
+      host (assoc :bind-host (or (second (re-matches #"\[([^\]]+)\]" host))
+                                 host)))))
+
+
+(defn- store-command-option
+  [options [option value]]
+  (case option
+    :peer (update options :peers conj (parse-peer (peer-text (store-option-text option value))))
+    :peers (update options :peers into
+                   (map #(parse-peer (peer-text (store-option-text :peer %))))
+                   (store-option-values option value))
+    :publish (if (boolean? value)
+               (assoc options :publish? value)
+               (throw (ex-info ":publish needs a boolean" {:value value})))
+    :bind (assoc options :bind-host (store-option-text option value))
+    :port (assoc options :bind-port (store-option-number option value))
+    :listen (listen-options options value)
+    :max-inbound-bytes (assoc options :max-inbound-bytes (store-option-number option value))
+    :key (assoc options :publisher-key-file (store-option-text option value))
+    :principal (update options :principals conj (parse-principal value))
+    :principals (update options :principals into (map parse-principal)
+                        (store-option-values option value))
+    :trust (update-in options [:admission :trusted] (fnil into #{}) (map parse-trust)
+                      (store-option-values option value))
+    :follow (update options :follow into (map #(parse-follow (store-option-text option %)))
+                    (store-option-values option value))
+    :join (let [[contact principal] (parse-token (store-option-text option value))
+                contact (peer-text contact)
+                principal (parse-principal principal)]
+            (-> options
+                (update :peers conj (parse-peer contact))
+                (update :principals conj principal)
+                (update :follow conj (parse-follow (str principal "@" contact)))))
+    (throw (ex-info (str "Unknown (use-store ...) option " (pr-str option))
+                    {:option option}))))
+
+
+(defn parse-store-command
+  "Check a prompt store target and its keyword options using startup's
+   DHT spec and key validation. A join token declares and follows its
+   publisher. In-session admission still uses the explicit trust options."
+  [[target & options :as args]]
+  (let [supported "mem, file:<dir>, dht:<dir>"
+        target (cond
+                 (empty? args)
+                 (throw (ex-info (str "(use-store <store> ...) needs a store: " supported) {}))
+
+                 (= :mem target) "mem"
+                 (string? target) target
+                 :else (throw (ex-info (str "(use-store ...) expects a store: " supported) {})))
+        spec (parse-store-arg target)
+        pairs (partition 2 options)]
+    (when-not (and (even? (count options)) (every? (comp keyword? first) pairs))
+      (throw (ex-info "(use-store ...) options must be keyword-value pairs" {})))
+    (when (some #(= :manifest (first %)) pairs)
+      (throw (ex-info (str ":manifest (--dht-manifest) is a startup pin; switch to dht:<dir>"
+                           " first, then call (dao.space.dht/load-index <manifest>)") {})))
+    (when (and (seq pairs) (not (shell.store/composition-spec? spec)))
+      (throw (ex-info "store options require dht:<dir>" {})))
+    (let [normalized (reduce store-command-option
+                             {:peers [] :principals [] :follow [] :admission {}}
+                             pairs)
+          spec (dht-spec spec normalized)
+          path (:publisher-key-file normalized)]
+      {:spec spec
+       :label target
+       :opts (cond-> (assoc (select-keys normalized [:principals :admission])
+                            :index-store-spec spec)
+               path (assoc :publisher-key-file path :publisher-key (load-key path)))})))
 
 
 (def state-table
@@ -688,6 +786,7 @@
    :expand-args expand-args
    :flag-parser parse-flag
    :parse-store-arg parse-store-arg
+   :parse-store-command parse-store-command
    :initial-extra {:flags #{} :peers []}
    :finalize finalize-opts
    :keygen-flag keygen-flag

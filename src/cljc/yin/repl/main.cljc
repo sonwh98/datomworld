@@ -236,11 +236,10 @@
 
 
 (defn- release-store!
-  "Release what a failed construction had already acquired: the
+  "Release a failed replacement or a retired store: the
    composition's transport state first (its boards, dials and socket), then
-   the store handle (a durable directory's exclusive lock), each exactly
-   once.  A cleanup never throws over the refusal that caused it, and never
-   replaces it."
+   the store handle (a durable directory's exclusive lock). Cleanup errors
+   leave the outcome of the swap intact."
   [composition opened]
   (let [close (:close! composition)
         session (:session opened)]
@@ -250,6 +249,9 @@
     (try ((or (:close-store! composition) store/close!)
           (:index-store opened))
          (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))))
+
+
+(declare swap-store)
 
 
 (defn boot
@@ -306,7 +308,7 @@
                  (catch #?(:cljd Object :clj Throwable :cljs :default) e
                    (when comp-store (release-store! composition comp-store))
                    (throw e)))]
-     (cond-> (assoc state :composition composition)
+     (cond-> (assoc state :composition composition :swap-store swap-store)
        (:session comp-store) (assoc :session (:session comp-store))))))
 
 
@@ -442,6 +444,67 @@
   (if-some [lines (:startup-lines (:composition state))]
     (vec (lines (session-of state)))
     []))
+
+
+(defn- replace-store
+  "Prepare the full replacement before retiring the active store."
+  [state {:keys [spec opts label]}]
+  (let [composition (:composition state)
+        claims? (:composition-spec? composition)
+        composed? (and claims? (claims? spec))
+        opts (assoc opts :index-store-spec spec :ws-host (:host state))
+        opened (if composed?
+                 ((:open composition) spec opts)
+                 {:index-store (store/open spec)})
+        result (try
+                 (let [inputs (merge (select-keys opts [:publisher-key :principals
+                                                        :follow :admission])
+                                     (select-keys opened [:index-store :recovery
+                                                          :publication-policy])
+                                     (:engine-inputs opened)
+                                     {:index-store-spec spec})
+                       repl (shell/install-store (:repl state) inputs)
+                       next-state (cond-> (assoc state :repl repl :swapped-in-session? true)
+                                    (:session opened) (assoc :session (:session opened))
+                                    (nil? (:session opened)) (dissoc :session))
+                       summary (shell/swap-summary spec (:index-recovery repl) label)
+                       banner-lines (:banner-lines composition)]
+                   [next-state
+                    (if composed?
+                      (str/join "\n" (concat [summary]
+                                             (when banner-lines (banner-lines opts))
+                                             (composition-startup-lines next-state)))
+                      summary)])
+                 (catch #?(:cljd Object :clj Throwable :cljs :default) error
+                   (release-store! composition opened)
+                   (throw error)))]
+    (release-store! composition {:session (:session state)
+                                 :index-store (get-in state [:repl :index-store])})
+    result))
+
+
+(defn swap-store
+  "Handle a local prompt's store command and replace its engine and transport."
+  [state args]
+  (let [composition (:composition state)
+        repl (:repl state)]
+    (try
+      (if-some [reason (or (shell/swap-refusal repl)
+                          (when (or (not (composition-admitting? state))
+                                    (seq (get-in state [:session :awaiting])))
+                            "cannot switch index store while the storage composition is pending"))]
+        [state (str "Error: " reason)]
+        (let [parse (:parse-store-command composition)
+              command (if parse
+                        (parse args)
+                        (shell/parse-store-command args (or (:parse-store-arg composition)
+                                                            store/parse-arg)))]
+          ;; A startup parser alone cannot enable composition-only targets.
+          (when-not (or parse (store/describe-spec (:spec command)))
+            (throw (ex-info "(use-store ...) expects a store: mem, file:<dir>" {})))
+          (replace-store state command)))
+      (catch #?(:cljd Object :clj Throwable :cljs :default) error
+        [state (shell/format-swap-error repl error)]))))
 
 
 (def bind-all-host
@@ -825,7 +888,8 @@
    endpoint, against the same shell value.  A storage composition's
    transport state is stepped first (`composition-step`): its lines print
    before the shell's, a hydration still outstanding leaves every typed
-   line waiting in the input medium, and a refused one stops the shell.
+   line waiting in the input medium. A startup refusal stops the shell,
+   while a refusal after a swap restores a fresh memory store.
    The custody control plane is stepped next, before the refusal and
    admission branches, so renewals, pending releases and request retries
    continue during hydration and past a refusal.  A `--port` process
@@ -846,9 +910,17 @@
    `[state server lines]`; the caller only prints."
   [state server now]
   (let [[state comp-lines events] (composition-step state now)
-        state (custody-control-step state)]
+        state (custody-control-step state)
+        refusal (composition-refusal state)]
     (cond
-      (composition-refusal state)
+      (and refusal (:swapped-in-session? state))
+      (let [[recovered _] (replace-store state {:spec :mem})]
+        [(dissoc recovered :swapped-in-session?)
+         (when server (assoc server :repl (:repl recovered)))
+         (conj comp-lines (str "Recovered with a fresh mem index store after a store switch failed: "
+                               refusal))])
+
+      refusal
       [(custody-stop (assoc state :running? false)) server comp-lines]
 
       (not (composition-admitting? state))

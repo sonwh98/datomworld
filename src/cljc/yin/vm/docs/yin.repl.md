@@ -163,6 +163,72 @@ hello
 
 Switching rebuilds the session and clears value history.
 
+### Switching Index Stores: `(use-store ...)`
+At a quiesced local `yin>` prompt, `(use-store <target> & <opts>)` switches the session's active `dao.jing` code-index store without restarting the REPL process:
+
+```clojure
+;; Engine-native targets:
+yin> (use-store "mem")                     ; or (use-store :mem)
+Switched index store to mem (code index cleared)
+
+yin> (use-store "file:/tmp/my-repl-store")
+Switched index store to file:/tmp/my-repl-store (empty code index)
+
+;; ...evaluate and publish rounds on the store; each published round advances HEAD.
+;; Reopening an existing durable store recovers its HEAD and transactions:
+yin> (reset)
+SemanticVM reset
+yin> (use-store "file:/tmp/my-repl-store")
+Switched index store to file:/tmp/my-repl-store (recovered HEAD :segment/..., 3 transactions)
+```
+
+- **Quiesce requirement (`(reset)` before switching):**
+  - A store switch requires a quiesced session: no program evaluated since startup, `(reset)`, `(vm ...)`, or the last `(use-store ...)`, no parked `(require ...)`, no unwritten AST rows, and no pending publication or hydration. Read-only inspection commands (`(help)`, `(repl-state)`, `(host)`, `(trusted)`, `(compile ...)`, `(lang ...)`) leave the session quiesced.
+  - If the session holds evaluated state (including after an evaluation error), `(use-store ...)` refuses immediately and leaves all bindings untouched:
+    `Error: cannot switch index store while the session holds evaluated state; run (reset) first`
+  - If a `(require ...)` is parked, it refuses with:
+    `Error: cannot switch index store while a require is pending; wait for it to complete or run (abandon) and (reset) first`
+  - Independent stores own disjoint transaction (`t`) and entity (`e`) histories. Switching rebuilds the session over the target store's own `:recovery` snapshot without copying index state across stores, while preserving `:lang`, `:frontends`, `:vm-type`, `:extra-primitives`, `:link-policy`, `:custody`, and `:shell-token`.
+  - Once on a durable store (`file:<dir>` or `dht:<dir>`), subsequent `(reset)` and `(vm :type)` commands retain the store's published code index (`yin.repl.store/retain-on-reset?`); on `mem`, `(reset)` and `(vm :type)` start an empty code index.
+
+- **Strict `open-first` ordering & `mem` ↔ `file:<dir>` ↔ `dht:<dir>` workflows:**
+  - The replacement store and transport session are parsed, validated, locked, recovered, and installed into the engine **before** the previous transport session and store handle are closed. If any step fails (unknown scheme, bad option, missing key file, locked or unwritable directory, corrupt `HEAD` or `heads.edn`, or synchronous UDP bind failure), the partial replacement is released and the current store, lock, and session remain active.
+  - Because `open-first` acquires the new lock before releasing the old one, switching directly between `file:<dir>` and `dht:<dir>` on the **exact same `<dir>`** hits the in-process directory lock and reports `(currently held by this session; switch to mem first to release the directory lock)`. To transition the same directory between `file:<dir>` and `dht:<dir>`, bounce through `mem` first:
+    ```clojure
+    yin> (reset)
+    yin> (use-store "mem")                     ; releases <dir>/lock
+    yin> (use-store "dht:/tmp/my-repl-store"
+                    :peers ["127.0.0.1:4002" "127.0.0.1:4003"]
+                    :listen "127.0.0.1:4001"
+                    :publish true
+                    :key "/path/to/publisher.key")
+    ```
+    Opening `dht:<dir>` re-locks `<dir>`, validates and rehydrates `<dir>/HEAD`, prints the DHT disclosure banner, installs the DHT host modules (`dao.space.dht`, `yin.link`, `yin.head`), and attaches the transport session.
+  - Swapping out of `dht:<dir>` (e.g. `(reset)` then `(use-store "mem")`) stops and closes follower WebSocket dials, the publisher head board listener, the UDP socket, and `<dir>/lock`, clears `:session`, and removes the DHT host modules.
+
+- **DHT options on `(use-store "dht:<dir>" & opts)`:**
+  - Trailing keyword-value options apply only to `dht:<dir>` (passing options with `"mem"` or `"file:<dir>"` refuses with `Error: store options require dht:<dir>`). Without options, `(use-store "dht:<dir>")` opens in solo mode (no peers, no socket, no key — local-only until peers are given).
+  - `:peers ["127.0.0.1:4002" ...]` or repeatable `:peer "127.0.0.1:4002"` — bootstrap peer contact(s) (`localhost:` normalizes to `127.0.0.1:`).
+  - `:listen "127.0.0.1:4001"` (or `"[::1]:4001"` or `"4001"`), or `:bind "127.0.0.1"` and `:port 4001` — local UDP bind address and port (requires at least one peer).
+  - `:publish true` — boolean (`false` by default); share local store content with peers.
+  - `:key "/path/to/publisher.key"` — existing Ed25519 private key file for signing published names.
+  - `:principals ["<64-lowercase-hex>" ...]` or repeatable `:principal "<64-lowercase-hex>"` — declared publisher principal(s) whose signed name assertions to honor.
+  - `:trust ["ed25519:<64-lowercase-hex>" ...]` — vector/sequence of trusted principal IDs for module admission (restored on subsequent `(reset)` while on this store).
+  - `:follow ["<64-lowercase-hex>@127.0.0.1:4001" ...]` — vector/sequence of loopback publisher head boards to follow (each principal must also be declared via `:principal`/`:principals` or `:join`).
+  - `:join "yin:127.0.0.1:4001/<64-lowercase-hex>"` — reader shorthand (equivalent to `yin-repl dht join <token>`): adds the peer contact, declares the publisher principal, and follows its loopback head board. Pair with `:trust ["ed25519:<64-lowercase-hex>"]` to admit modules signed by that publisher.
+  - `:max-inbound-bytes 67108864` — nonnegative integer inbound `:store` payload ceiling.
+  - `:manifest` (`--dht-manifest`) is a startup-only pin and is refused in-session: switch to `dht:<dir>` first, then require `dao.space.dht` and call `(dao.space.dht/load-index <manifest>)`.
+
+- **Local-only command & non-interaction with `state.edn`:**
+  - `(use-store ...)` always executes on the local driver (even while attached to a remote server via `(connect ...)`) and is refused over remote `--port` evaluation requests (`Error: (use-store ...) is a local host command and cannot be run over a remote endpoint`).
+  - Like `(vm :type)` and `(trust ...)` / `(untrust ...)`, `(use-store ...)` never reads or writes `<node-dir>/state.edn`, so saved startup profiles are never clobbered by exploratory in-session store switches.
+
+- **Gambit boundary (`jolt-gambit`, owner ruling C4):**
+  - On `jolt-gambit`, `(use-store "mem")` (or `:mem`) on a quiesced session opens a fresh in-memory store and preserves the Gambit host modules (`jolt.ffi` and `dao.jing.mem`; re-require them in the rebuilt session before calling their exports).
+  - Durable targets `(use-store "file:<dir>")` and `(use-store "dht:<dir>" ...)` hit the C4 blocking-FFI refusal inline during `open-first`:
+    `Error: blocking ffi is unsupported on the gambit target — GC-safe blocking is unqualified on Gambit 4.9.8 (no verified release/claim transition)`
+  - The active `:mem` store and REPL session survive the refusal intact.
+
 ---
 
 ## 3. Distributed Swarm Quick Start (DHT)

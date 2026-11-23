@@ -1215,6 +1215,142 @@
         datoms))
 
 
+(deftest a-quiesced-session-can-switch-to-file-and-recover-it-after-memory
+  (let [dir (temp-dir)
+        spec {:type :file :dir dir}
+        to-file (pr-str (list 'use-store (str "file:" dir)))
+        active (volatile! nil)]
+    (try
+      (let [initial (repl.frontends/create-state)
+            [dirty [_ refused a]] (evaluate initial ["(def a 1)" to-file "a"])
+            [ready _] (repl/eval-input dirty "(reset)")
+            [file-state opened] (repl/eval-input ready to-file)
+            _ (vreset! active (:index-store file-state))
+            empty-index? (empty? (transactions file-state))
+            [indexed [_ _ found]] (evaluate file-state
+                                             ["(def persisted 42)" require-line
+                                              (provenance-line 42)])
+            [reset-file _] (repl/eval-input indexed "(reset)")
+            saved-head (head-record-of dir)
+            saved (set (local-datoms reset-file))
+            [memory cleared] (repl/eval-input reset-file "(use-store :mem)")]
+        (is (= "Error: cannot switch index store while the session holds evaluated state; run (reset) first"
+               refused))
+        (is (= "1" a))
+        (is (= (str "Switched index store to file:" dir " (empty code index)") opened))
+        (is (= spec (:index-store-spec file-state)))
+        (is empty-index?)
+        (is (> (:round file-state) (:round ready)))
+        (is (= (select-keys ready [:lang :frontends :vm-type :extra-primitives
+                                    :output-stream :output-cursor :link-policy
+                                    :custody :shell-token])
+               (select-keys file-state [:lang :frontends :vm-type :extra-primitives
+                                       :output-stream :output-cursor :link-policy
+                                       :custody :shell-token])))
+        (is (= #{(:shell-token initial)} (set (map first (provenance found)))))
+        (is (= (get-in indexed [:indexer :manifest-address]) (:manifest saved-head)))
+        (is (some? (:manifest saved-head)))
+        (is (= (set (local-datoms indexed)) saved))
+        (is (= "Switched index store to mem (code index cleared)" cleared))
+        (is (= :mem (:index-store-spec memory)))
+        (is (empty? (transactions memory)))
+        (let [second-handle (store/open spec)]
+          (try
+            (is (= saved (set (get-in second-handle [:recovery :datoms]))))
+            (finally (store/close! second-handle))))
+        (let [[memory [_ missing]] (evaluate memory [require-line (provenance-line 42)])
+              [ready _] (repl/eval-input memory "(reset)")
+              [reopened recovered] (repl/eval-input ready to-file)
+              _ (vreset! active (:index-store reopened))
+              restored (set (local-datoms reopened))
+              [after [_ found-again second-value]]
+              (evaluate reopened [require-line (provenance-line 42)
+                                  "(def second-tx 99)"])
+              new-datoms (remove saved (local-datoms after))]
+          (is (empty? (provenance missing)))
+          (is (= (str "Switched index store to file:" dir
+                      " (recovered HEAD " (:manifest saved-head) ", "
+                      (count (transactions reset-file)) " transactions)")
+                 recovered))
+          (is (= saved restored))
+          (is (= (provenance found) (provenance found-again)))
+          (is (= "99" second-value))
+          (is (seq new-datoms))
+          (is (and (seq restored) (seq new-datoms)
+                   (< (apply max (map #(nth % 3) saved))
+                      (apply min (map #(nth % 3) new-datoms)))))
+          (is (and (seq (ids-of saved)) (seq (ids-of new-datoms))
+                   (< (apply max (ids-of saved)) (apply min (ids-of new-datoms)))))))
+      (finally
+        (store/close! @active)
+        (cleanup-dir! dir)))))
+
+
+(deftest inspection-and-rebuilds-leave-the-session-ready-to-switch
+  (let [initial (repl.frontends/create-state)
+        [inspected _] (evaluate initial ["(help)" "(repl-state)" "(host)"
+                                        "(trusted)" "(compile (+ 1 2))"
+                                        "(lang :yang/clojure)"])
+        [failed text] (repl/eval-input inspected "missing-var")
+        [switched _] (repl/eval-input failed "(vm :semantic)")]
+    (is (true? (:quiesced? initial)))
+    (is (true? (:quiesced? inspected)))
+    (is (str/starts-with? text "Error: "))
+    (is (false? (:quiesced? failed)))
+    (is (= "Switched index store to mem (code index cleared)"
+           (second (repl/eval-input switched "(use-store :mem)"))))
+    (let [parked (assoc initial :pending-run {:vm (:vm initial)})
+          [same refusal] (repl/eval-input parked "(use-store)")]
+      (is (identical? (:pending-run parked) (:pending-run same)))
+      (is (= (str "Error: cannot switch index store while a require is pending;"
+                  " wait for it to complete or run (abandon) and (reset) first")
+             refusal)))))
+
+
+(deftest failed-store-switches-leave-the-active-store-locked-and-writable
+  (let [dir (temp-dir)
+        locked (temp-dir)
+        corrupt (temp-dir)
+        blocker (temp-file)
+        spec {:type :file :dir dir}
+        state (repl.frontends/create-state {:index-store-spec spec})
+        lock-owner (store/open {:type :file :dir locked})]
+    (try
+      (write-file! blocker)
+      (write-text! (head-path corrupt) "{}")
+      (let [[ready _] (evaluate state ["(def persisted 42)" "(reset)"])
+            before (head-record-of dir)]
+        (doseq [[args reason] [[[] "needs a store"]
+                               [["mem" :extra] "takes one store argument"]
+                               [[42] "mem, file:<dir>"]
+                               [["s3:bucket"] "Unknown --index-store"]
+                               [[(str "file:" blocker)] blocker]
+                               [[(str "file:" locked)] "locked by another process"]
+                               [[(str "file:" dir)] "switch to mem first"]
+                               [[(str "file:" corrupt)] "HEAD"]]]
+          (let [[same text] (repl/eval-input ready (pr-str (cons 'use-store args)))]
+            (is (str/starts-with? text "Error: ") text)
+            (is (str/includes? text reason) text)
+            (is (true? (= ready same)))
+            (is (= before (head-record-of dir)))
+            (is (some? (refusal-of #(store/open spec)))
+                "the active directory remains locked")))
+        (cleanup-file! (head-path corrupt))
+        (store/close! (store/open {:type :file :dir corrupt}))
+        (let [[after [_ found value]] (evaluate ready [require-line (provenance-line 42)
+                                                       "(def still-active 99)"])]
+          (is (seq (provenance found)))
+          (is (= "99" value))
+          (is (not= before (head-record-of dir)))
+          (is (= (get-in after [:indexer :manifest-address])
+                 (:manifest (head-record-of dir))))))
+      (finally
+        (store/close! lock-owner)
+        (store/close! (:index-store state))
+        (cleanup-file! blocker)
+        (run! cleanup-dir! [dir locked corrupt])))))
+
+
 (deftest a-restarted-durable-shell-answers-q-with-the-previous-runs-facts
   (let [dir (temp-dir)
         spec {:type :file :dir dir}]

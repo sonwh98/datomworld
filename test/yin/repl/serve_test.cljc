@@ -19,8 +19,11 @@
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.connect :as connect]
+            [yin.repl.driver :as driver]
+            [yin.repl.main :as main]
             [yin.repl.net-fixture :as fixture]
             [yin.repl.serve :as serve]
+            [yin.repl.store :as store]
             [yin.vm.linker :as linker]
             [yin.vm.linker.interpreter :as link]))
 
@@ -310,6 +313,82 @@
     (let [endpoint (serve/step endpoint 2)
           [answers _cursor] (answers-since endpoint answers-cursor)]
       (is (= [(rpc/success-answer 7 "3")] answers)))))
+
+
+(deftest store-switching-stays-on-the-local-driver
+  (let [{:keys [endpoint host]} (endpoint!)
+        endpoint (tick host endpoint 1)
+        command "(use-store \"mem\")"
+        server-store (get-in endpoint [:repl :index-store])
+        client (main/boot {:adapter (:adapter host)})
+        client-store (get-in client [:repl :index-store])
+        _ (driver/submit-line! (:input client)
+                               (pr-str (list 'connect (serve/url endpoint))))
+        client (driver/repl-step client 2)
+        endpoint (tick host endpoint 2)
+        [_ client] (driver/take-outbox (driver/repl-step client 3))
+        _ (driver/submit-line! (:input client) command)
+        [entries client] (driver/take-outbox (driver/repl-step client 4))
+        answers-cursor (:dao.stream/cursor (stream/cursor (:answers endpoint)
+                                                          stream/anchor-oldest))
+        endpoint (tick host endpoint 4)]
+    (testing "a connected client's typed command executes locally"
+      (is (some? (:adapter client)))
+      (is (some #(= "Switched index store to mem (code index cleared)"
+                    (driver/text-key %)) entries))
+      (is (not (identical? client-store (get-in client [:repl :index-store]))))
+      (is (empty? (:queued client)))
+      (is (nil? (:outstanding client)))
+      (is (empty? (first (answers-since endpoint answers-cursor)))))
+    (testing "a raw eval request cannot switch the server's store"
+      (eval! endpoint 7 command)
+      (let [endpoint (tick host endpoint 5)
+            [answers _] (answers-since endpoint answers-cursor)]
+        (is (= [(rpc/success-answer
+                  7 "Error: (use-store ...) is a local host command and cannot be run over a remote endpoint")]
+               answers))
+        (is (identical? server-store (get-in endpoint [:repl :index-store])))))))
+
+
+(deftest failed-driver-installation-releases-the-replacement-only
+  (let [events (volatile! [])
+        composition {:composition-spec? #(= :mem %)
+                     :open (fn [spec _]
+                             (vswap! events conj :opened)
+                             {:index-store (assoc (store/open spec) :close-fn
+                                                  #(vswap! events conj :replacement-store))
+                              :session {:identity :replacement-session}
+                              :recovery {:manifest :invalid :datoms true}})
+                     :close! #(vswap! events conj (:identity %))}
+        state (-> (main/boot {:adapter (:adapter (fixture/host))} composition)
+                  (assoc :session {:identity :original-session})
+                  (assoc-in [:repl :index-store :close-fn]
+                            #(vswap! events conj :original-store)))
+        [same text] (main/swap-store state ["mem"])]
+    (is (str/starts-with? text "Error: "))
+    (is (identical? state same))
+    (is (= [:opened :replacement-session :replacement-store] @events))))
+
+
+(deftest a-late-store-refusal-restores-memory-for-the-driver-and-endpoint
+  (let [events (volatile! [])
+        composition {:composition-spec? map?
+                     :open (fn [_ _]
+                             {:index-store (assoc (store/open :mem) :close-fn
+                                                  #(vswap! events conj :store))
+                              :session {:refusal "replacement refused"}})
+                     :refusal :refusal
+                     :close! (fn [_] (vswap! events conj :session))}
+        state (main/boot {:adapter (:adapter (fixture/host))} composition)
+        [switched _] (main/swap-store state ["file:fixture"])
+        [recovered server lines] (main/step-all switched {:repl (:repl switched)} 1)]
+    (is (= [:session :store] @events))
+    (is (:running? recovered))
+    (is (nil? (:session recovered)))
+    (is (= :mem (get-in recovered [:repl :index-store-spec])))
+    (is (identical? (:repl recovered) (:repl server)))
+    (is (some #(str/includes? % "replacement refused") lines))
+    (is (= "3" (second (repl/eval-input (:repl recovered) "(+ 1 2)"))))))
 
 
 (deftest the-shared-shell-is-threaded-serially-across-requests

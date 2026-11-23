@@ -23,10 +23,13 @@
             [dao.jing.mem :as mem]
             [dao.space.dht :as space.dht]
             [dao.space.index :as space.index]
+            [dao.space.store.fs :as fs]
             [dao.stream :as stream]
             [dao.stream.datagram :as datagram]
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
+            [yin.repl.net-fixture :as net-fixture]
+            [yin.shell.cli :as cli]
             [yin.shell.dht :as repl.dht]
             [yin.shell.main :as shell.main]
             [yin.shell.store :as shell.store]
@@ -314,6 +317,63 @@
     (is (nil? (:state started)))))
 
 
+(deftest the-store-command-parses-and-checks-the-composition-options
+  (let [parse (:parse-store-command (cli/hooks))
+        hex (apply str (repeat 64 "a"))
+        other (apply str (repeat 64 "b"))
+        token (str "yin:localhost:7003/ed25519:" hex)]
+    (is (fn? parse))
+    (when parse
+      (is (= :mem (:spec (parse [:mem])) (:spec (parse ["mem"]))))
+      (is (= {:type :file :dir "idx"} (:spec (parse ["file:idx"]))))
+      (is (= (dht-spec "idx" {}) (:spec (parse ["dht:idx"]))))
+      (let [{:keys [spec opts label]}
+            (parse ["dht:idx" :peer "localhost:7001" :peers ["[::1]:7002"]
+                    :publish true :listen "[::1]:0" :max-inbound-bytes 1024
+                    :principal other :principals [hex]
+                    :trust [(str "ed25519:" hex)] :follow [(str other "@localhost:7001")]
+                    :join token])]
+        (is (= "dht:idx" label))
+        (is (= spec (:index-store-spec opts)))
+        (is (= [{:host "127.0.0.1" :port 7001} {:host "::1" :port 7002}
+                {:host "127.0.0.1" :port 7003}] (:peers spec)))
+        (is (= [other hex] (vec (distinct (:principals opts)))))
+        (is (= {:trusted #{(sign/principal hex)}} (:admission opts)))
+        (is (= [{:principal other :host "127.0.0.1" :port 7001}
+                {:principal hex :host "127.0.0.1" :port 7003}]
+               (:follow spec)))
+        (is (= {:publish? true :bind-host "::1" :bind-port 0
+                :max-inbound-bytes 1024}
+               (select-keys spec [:publish? :bind-host :bind-port :max-inbound-bytes]))))
+      (is (= {:publish? false :bind-host "0.0.0.0" :bind-port 7004}
+             (select-keys (:spec (parse ["dht:idx" :peer "127.0.0.1:7001"
+                                         :bind "0.0.0.0" :port 7004 :publish false]))
+                          [:publish? :bind-host :bind-port])))
+      (is (= (str ":manifest (--dht-manifest) is a startup pin; switch to dht:<dir>"
+                  " first, then call (dao.space.dht/load-index <manifest>)")
+             (ex-message (refusal-of #(parse ["dht:idx" :manifest :x])))))
+      (doseq [[args text] [[[] "needs a store"]
+                           [[42] "mem, file:<dir>, dht:<dir>"]
+                           [["mem" :peer "127.0.0.1:1"] "store options require dht:<dir>"]
+                           [["file:idx" :publish false] "store options require dht:<dir>"]
+                           [["dht:idx" :peer] "keyword-value pairs"]
+                           [["dht:idx" 'peer "127.0.0.1:1"] "keyword-value pairs"]
+                           [["dht:idx" :extra true] ":extra"]
+                           [["dht:idx" :peers "127.0.0.1:1"] ":peers"]
+                           [["dht:idx" :peer "invalid:1"] "IP literal"]
+                           [["dht:idx" :publish "false"] "boolean"]
+                           [["dht:idx" :listen "bad"] ":listen"]
+                           [["dht:idx" :listen "0"] "solo"]
+                           [["dht:idx" :port "1"] ":port"]
+                           [["dht:idx" :max-inbound-bytes -1] "nonnegative integer"]
+                           [["dht:idx" :principal "ABC"] "lowercase"]
+                           [["dht:idx" :trust ["bad"]] "64 lowercase"]
+                           [["dht:idx" :join "bad"] "join token"]
+                           [["dht:idx" :key 42] ":key"]]]
+        (let [error (refusal-of #(parse args))]
+          (is (str/includes? (str (ex-message error)) text) (pr-str args)))))))
+
+
 ;; =============================================================================
 ;; Bullet 1: solo opens no socket; the secret is minted, in memory only
 ;; =============================================================================
@@ -405,7 +465,8 @@
     (testing "solo says no socket is opened"
       (is (str/includes? (banner []) "solo")))
     (testing "the memory store prints no DHT banner"
-      (is (empty? (shell-banner (shell.main/parse-args [])))))))
+      (is (not-any? #(str/starts-with? % "dht:")
+                    (shell-banner (shell.main/parse-args [])))))))
 
 
 ;; =============================================================================
@@ -827,13 +888,17 @@
 
 
 (deftest a-socket-that-cannot-bind-refuses-and-stops-the-shell
-  (let [dir (temp-dir)]
+  (let [dir (temp-dir)
+        deposit (volatile! nil)]
     (try
       (let [state (main/boot {:index-store-spec
-                              (dht-spec dir {:bind! failing-bind
+                              (dht-spec dir {:bind! (fn [opts]
+                                                     (vreset! deposit opts)
+                                                     {:close! (fn [] nil)})
                                              :peers [{:host "127.0.0.1" :port
                                                       1}]})}
                              shell.main/composition)
+            _ (failing-bind @deposit)
             _ (driver/submit-line! (:input state) "(+ 1 2)")
             [state _ lines] (main/step-all state nil 0)]
         (is (line-with lines "could not bind"))
@@ -1055,6 +1120,178 @@
   (or (get-in state [:session :node])
       (:dht state)
       (get-in state [:session :node])))
+
+
+(defn- prompt-step!
+  [driver now line]
+  (when line (driver/submit-line! (:input @driver) line))
+  (let [[state _ lines] (main/step-all @driver nil now)]
+    (vreset! driver state)
+    lines))
+
+
+(defn- use-store-line
+  [target & opts]
+  (pr-str (list* 'use-store target opts)))
+
+
+(deftest a-solo-store-swaps-in-and-releases-its-lock-on-departure
+  (let [dir (temp-dir)
+        target (str "dht:" dir)
+        shell (volatile! (main/boot {} shell.main/composition))]
+    (try
+      (let [lines (prompt-step! shell 0 (use-store-line target))]
+        (is (line-with lines (str "Switched index store to " target " (empty code index)")))
+        (is (line-with lines "solo, no --dht-peer"))
+        (is (some? (node-of @shell)))
+        (is (nil? (:seam (node-of @shell)))))
+      (is (line-with (prompt-step! shell 10 "(require (quote dao.space.dht))")
+                     "'dao.space.dht"))
+      (prompt-step! shell 20 "(reset)")
+      (is (line-with (prompt-step! shell 30 (use-store-line :mem))
+                     "Switched index store to mem (code index cleared)"))
+      (is (nil? (:session @shell)))
+      (is (empty? (get-in @shell [:repl :host-modules])))
+      (is (empty? (get-in @shell [:repl :registered-ops])))
+      (is (some? (:close-fn (let [opened (store/open {:type :file :dir dir})]
+                             (store/close! opened)
+                             opened))))
+      (prompt-step! shell 40 "(require (quote dao.space.dht))")
+      (is (not= 'dao.space.dht (get-in @shell [:repl :last-value])))
+      (finally
+        (main/close-index-store! @shell)
+        (cleanup-dir! dir)))))
+
+
+(deftest swapping-into-the-ring-shares-a-module-and-releases-its-transports
+  (let [dir-a (temp-dir)
+        dir-b (temp-dir)
+        key-dir (temp-dir)
+        key-path (str key-dir "/publisher.key")
+        ws (net-fixture/host)
+        udp (mesh/mesh)
+        composition (assoc shell.main/composition :open
+                           (fn [spec opts]
+                             (shell.store/open
+                               (assoc spec :bind! (mesh-bind udp (:bind-port spec) (atom 0)))
+                               opts)))
+        pub (volatile! (main/boot {:adapter (:adapter ws)} composition))
+        reader (volatile! (main/boot {:adapter (:adapter ws)} composition))]
+    (try
+      (cli/keygen! key-path)
+      (let [public (:public (cli/load-key key-path))
+            principal (sign/principal public)
+            target (str "dht:" dir-a)
+            lines (prompt-step! pub 0 (use-store-line target :peers ["127.0.0.1:7002"]
+                                                    :listen "127.0.0.1:7001"
+                                                    :publish true :key key-path))
+            token (str "yin:127.0.0.1:7001/" public)]
+        (is (line-with lines (str "Switched index store to " target)))
+        (is (line-with lines "publishing is ON"))
+        (is (line-with lines (str "signed by principal " principal " (key from " key-path ")")))
+        (when (node-of @pub)
+          (doseq [[now module] [[10 'yin.link] [20 'dao.space.dht] [30 'yin.head]]]
+            (net-fixture/pump! ws)
+            (prompt-step! pub now (pr-str (list 'require (list 'quote module))))
+            (is (= module (get-in @pub [:repl :last-value]))))
+          (prompt-step! pub 40 "(def f (fn [] 42))")
+          (prompt-step! pub 50 "(yin.link/publish (quote swap.lib) (quote [f]))")
+          (let [joined (prompt-step! reader 60
+                                     (use-store-line (str "dht:" dir-b)
+                                                     :join token :listen "7002"
+                                                     :trust [principal]))]
+            (is (line-with joined (str "following " principal " at 127.0.0.1:7001")))
+            (is (line-with joined "fetch-only")))
+          (when (node-of @reader)
+            (prompt-step! reader 70 "(require (quote swap.lib))")
+            (let [now (loop [now 80]
+                        (if (or (> now 24000)
+                                (= 'swap.lib (get-in @reader [:repl :last-value])))
+                          now
+                          (do (net-fixture/pump! ws)
+                              (prompt-step! pub now nil)
+                              (net-fixture/pump! ws)
+                              (prompt-step! reader now nil)
+                              (recur (+ now 10)))))]
+              (is (= 'swap.lib (get-in @reader [:repl :last-value])))
+              (is (line-with (prompt-step! reader now "(swap.lib/f)") "42"))
+              (is (contains? (:traffic @udp) ["127.0.0.1" 7001]))
+              (is (contains? (:traffic @udp) ["127.0.0.1" 7002]))
+              (is (= 1 (count @(:bound ws))))
+              (let [closed (net-fixture/closed-conns ws)]
+                (prompt-step! reader (+ now 10) "(reset)")
+                (is (line-with (prompt-step! reader (+ now 20) (use-store-line "mem"))
+                               "Switched index store to mem"))
+                (net-fixture/pump! ws)
+                (is (< closed (net-fixture/closed-conns ws)) "the follower dial closes"))
+              (prompt-step! pub (+ now 30) "(reset)")
+              (is (line-with (prompt-step! pub (+ now 40) (use-store-line "mem"))
+                             "Switched index store to mem"))
+              (net-fixture/pump! ws)
+              (is (= 1 (count @(:released ws))) "the head board listener is unbound")
+              (is (empty? (:traffic @udp)) "both datagram sockets are released")
+              (is (nil? (:session @pub)))
+              (is (nil? (:session @reader)))
+              (doseq [dir [dir-a dir-b]]
+                (let [opened (store/open {:type :file :dir dir})]
+                  (is (fn? (:head-fn opened)) "the directory can be opened again")
+                  (store/close! opened)))))))
+      (finally
+        (main/close-index-store! @reader)
+        (main/close-index-store! @pub)
+        (run! cleanup-dir! [dir-a dir-b key-dir])))))
+
+
+(deftest a-failed-composition-swap-leaves-the-old-store-locked-and-writable
+  (let [old (temp-dir)
+        bad-heads (temp-dir)
+        refused-bind (temp-dir)
+        close-count (atom 0)
+        composition (assoc shell.main/composition :open
+                           (fn [spec opts]
+                             (shell.store/open
+                               (assoc spec :bind! (fn [bind-opts]
+                                                    (assoc (failing-bind bind-opts) :close!
+                                                           #(swap! close-count inc))))
+                               opts)))
+        old-spec {:type :file :dir old}
+        shell (volatile! (main/boot {:index-store-spec old-spec} composition))]
+    (try
+      (store/close! (store/open {:type :file :dir bad-heads}))
+      (fs/atomic-replace! bad-heads "heads.edn" "{}")
+      (prompt-step! shell 0 "(def persisted 4199)")
+      (prompt-step! shell 10 "(reset)")
+      (let [active (get-in @shell [:repl :index-store])
+            head (head-manifest old)
+            principal (apply str (repeat 64 "a"))]
+        (doseq [[now line expected]
+                [[20 (use-store-line (str "dht:" old)) "switch to mem first"]
+                 [30 (use-store-line (str "dht:" refused-bind) :key (str old "/missing.key"))
+                  "the key file does not exist"]
+                 [40 (use-store-line (str "dht:" refused-bind) :manifest :some-pin)
+                  "(dao.space.dht/load-index <manifest>)"]
+                 [50 (use-store-line (str "dht:" bad-heads) :join (str "yin:127.0.0.1:7001/" principal))
+                  "heads.edn"]
+                 [60 (use-store-line (str "dht:" refused-bind) :peer "127.0.0.1:7001")
+                  "Error: dht: refused: the socket could not bind: address in use"]]]
+          (let [lines (prompt-step! shell now line)]
+            (is (line-with lines "Error: ") (pr-str lines))
+            (is (line-with lines expected) (pr-str lines)))
+          (is (identical? active (get-in @shell [:repl :index-store])))
+          (is (nil? (:session @shell)))
+          (is (= head (head-manifest old)))
+          (is (some? (refusal-of #(store/open old-spec))) "the old lock remains held"))
+        (is (= 1 @close-count) "the synchronous bind refusal closes the replacement socket")
+        (doseq [dir [bad-heads refused-bind]]
+          (store/close! (store/open {:type :file :dir dir})))
+        (prompt-step! shell 70 "(require (quote dao.space.query))")
+        (prompt-step! shell 80 "(dao.space.query/q (quote [:find ?v :where [?e :yin/value ?v] [(= ?v 4199)]]))")
+        (is (= #{[4199]} (get-in @shell [:repl :last-value])))
+        (is (line-with (prompt-step! shell 90 "(def still-active 99)") "99"))
+        (is (not= head (head-manifest old))))
+      (finally
+        (main/close-index-store! @shell)
+        (run! cleanup-dir! [old bad-heads refused-bind])))))
 
 
 (defn- parked
