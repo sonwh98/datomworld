@@ -25,6 +25,10 @@
    (clojure -P -M:test: ~/.m2 + ~/.gitlibs) runs in the primary before
    fan-out so the lanes never fetch into the shared caches concurrently.
    Per-lane summaries are appended serially after the futures join.
+     --list-slow [clone-dir]  discover and print slow commands without running them
+     NIGHTLY_SLOW_VAR_SHARDS=1 opts in to the measured namespace set; a
+                     comma-separated namespace list selects a custom set.
+                     Unset or blank keeps whole-namespace scheduling.
      --now       ignore the 04:00 Vietnam window (cron fires hourly)
      --pin-publish   resolve origin/master, publish {run-id, sha, ts} for the
                      other host (the pin authority; shiva)
@@ -42,6 +46,7 @@
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.java.io :as io]
+            [clojure.edn :as edn]
             [clojure.string :as str]))
 
 
@@ -88,22 +93,65 @@
   (str/trim (:out (apply psh {:dir dir :out :string :err :string :continue true} "git" args))))
 
 
-(defn- slow-namespaces
-  "The ^:slow test namespaces, derived from the tree (never a static list)."
-  [clone]
-  (->> (apply psh {:dir clone :out :string :continue true}
-              ["grep" "-rl" "\\^:slow" "test" "--include=*.clj" "--include=*.cljc"])
-       :out
-       str/split-lines
-       (remove str/blank?)
-       (map (fn [path]
-              (-> path
-                  (str/replace #"^test/" "")
-                  (str/replace #"\.clj[cd]?$" "")
-                  (str/replace "/" ".")
-                  (str/replace "_" "-"))))
-       sort))
+(defn- slow-manifest
+  "Load JVM test vars and record slow counts; fail the lane if inventory fails."
+  [clone out]
+  (let [manifest (str out "/jvm-slow-manifest.edn")
+        rc (run-cmd! clone (str out "/jvm-slow-discovery.log")
+                     ["clojure" "-Sdeps"
+                      "{:aliases {:slow-inventory {:extra-paths [\"src/dev\"] :main-opts [\"-m\" \"slow-inventory\"]}}}"
+                      "-M:test:slow-inventory" manifest])]
+    (when-not (zero? rc)
+      (throw (ex-info "JVM slow discovery failed" {:rc rc})))
+    (edn/read-string (slurp manifest))))
 
+(def ^:private default-var-shards
+  '#{yang.php.antlr.e2e-test yang.typescript.antlr.corpus-test
+     yang.php.antlr.include-test yang.python.antlr.e2e-test
+     yin.vm.semantic.safepoint-harness-test})
+
+(defn- var-shard-namespaces []
+  (let [setting (System/getenv "NIGHTLY_SLOW_VAR_SHARDS")]
+    (cond
+      (or (nil? setting) (str/blank? setting)) #{}
+      (= "1" setting) default-var-shards
+      :else (set (map (comp symbol str/trim) (str/split setting #","))))))
+
+(defn- slow-schedule [clone out manifest]
+  (let [configured (disj (var-shard-namespaces) 'yang.call.exception-contract-test)
+        eligible (into (sorted-map) (filter (fn [[n c]] (and (configured n) (> c 1)))) manifest)
+        inventory (str out "/jvm-slow-vars.edn")
+        expression (str "(let [nses '" (pr-str (vec (keys eligible))) "] "
+                        "(doseq [n nses] (require n)) "
+                        "(spit " (pr-str inventory) " (pr-str (into {} (for [n nses] "
+                        "[n (sort (for [[s v] (ns-publics n) "
+                        ":when (and (:test (meta v)) (:slow (meta v)))] "
+                        "(symbol (str n) (str s))))])))))")
+        alias (pr-str {:aliases {:nightly-var-inventory {:main-opts ["-e" expression]}}})
+        rc (if (seq eligible)
+             (run-cmd! clone (str out "/jvm-slow-vars.log")
+                       ["clojure" "-Sdeps" alias "-M:test:nightly-var-inventory"])
+             0)
+        vars (if (seq eligible)
+               (do (when-not (zero? rc)
+                     (throw (ex-info "JVM slow var discovery failed" {:rc rc})))
+                   (edn/read-string (slurp inventory)))
+               {})]
+    (doseq [[n expected-count] eligible]
+      (when-not (= expected-count (count (get vars n)))
+        (throw (ex-info "JVM slow var inventory differs from manifest" {:namespace n}))))
+    (vec (mapcat (fn [[n _]]
+                   (if-let [vs (seq (get vars n))]
+                     (let [k (min 4 (count vs))]
+                       (mapv (fn [i] {:ns (str n) :shard (inc i)
+                                      :vars (mapv str (take-nth k (drop i vs)))})
+                             (range k)))
+                     [{:ns (str n)}]))
+                 manifest))))
+
+(defn- slow-command [{:keys [ns vars]}]
+  (into ["clojure" "-M:test" "-i" :slow "-n" ns]
+        (mapcat (fn [v] ["-v" v]) vars)))
 
 (defn- run-pool
   "Run f over items with at most n in flight; return {item exit}."
@@ -202,19 +250,29 @@
   [clone par out summary]
   (let [subset (assigned-subsystems)
         ;; prerequisites the bare-metal hosts got from prior rounds: the
-        ;; antlr-generated parser classes and the Node REPL. A fresh
-        ;; container has neither, and yang.*.antlr tests fail with
-        ;; ClassNotFoundException without the first. gen:antlr is cheap
-        ;; when its cache is warm.
+        ;; antlr-generated parser classes, the Node REPL, and the Jolt
+        ;; toolchain and native libraries for the DHT process tests. A fresh
+        ;; checkout has none.
+        ;; Fail here with the prerequisite's log rather than letting a child
+        ;; REPL exit before the test can communicate with it.
         _ (doseq [[nm cmd] [["gen:antlr" ["bb" "gen:antlr"]]
-                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]]
+                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]
+                            ["bootstrap:jolt" ["bb" "bootstrap:jolt"]]
+                            ["build:jolt-native" ["bb" "build:jolt-native"]]]
                   :let [t0 (System/currentTimeMillis)
                         exit (run-cmd! clone (str out "/" nm ".log") cmd)]]
             (log-lane summary (str nm " rc=" exit
                                    " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
             (when-not (zero? exit) (throw (ex-info (str nm " failed") {}))))
-        slow-nss (cond->> (slow-namespaces clone)
-                   subset (filter #(in-subset? % subset)))
+        manifest (slow-manifest clone out)
+        selected (into (sorted-map)
+                       (filter (fn [[n _]] (or (nil? subset)
+                                               (in-subset? (str n) subset))))
+                       manifest)
+        _ (log-lane summary (str "jvm-slow manifest " (pr-str selected)))
+        slow-nss (map str (keys selected))
+        schedule (slow-schedule clone out selected)
+        _ (log-lane summary (str "jvm-slow schedule " (pr-str schedule)))
         ;; quick tier: subsystem-sharded on the full set; per-subsystem
         ;; test:sub:clj runs pooled when a disjoint subset is assigned
         quick-log (str out "/jvm-quick.log")
@@ -229,10 +287,11 @@
                 (run-cmd! clone quick-log
                           ["bb" "test:quick-sharded" "--workers" (str par)]))
         slow (run-pool par
-                       (fn [nss]
-                         (run-cmd! clone (str out "/slow-" nss ".log")
-                                   ["clojure" "-M:test" "-i" :slow "-n" nss]))
-                       slow-nss)
+                       (fn [{:keys [ns shard] :as item}]
+                         (run-cmd! clone (str out "/slow-" ns
+                                              (when shard (str "-shard-" shard)) ".log")
+                                   (slow-command item)))
+                       schedule)
         slow-red (count (remove zero? (vals slow)))]
     (spit summary (str "jvm-quick rc=" quick
                        (when subset (str " (subset: " (str/join "," (sort subset)) ")"))
@@ -401,7 +460,7 @@
                       (mapv run-lane ordered-lanes))]
         ;; summary appends are serialized HERE, after the join — concurrent
         ;; spit :append from lane futures is not one atomic syscall
-        (doseq [{:keys [lane lane-rc secs fail]} results]
+        (doseq [{:keys [lane secs fail]} results]
           (let [ls (lane-summary lane)]
             (when (fs/exists? ls)
               (spit summary (slurp ls) :append true)))
@@ -414,4 +473,10 @@
 
 
 (when (= *file* (System/getProperty "babashka.file"))
-  (apply -main *command-line-args*))
+  (if (= "--list-slow" (first *command-line-args*))
+    (let [clone (or (second *command-line-args*) ".")
+          out (str (fs/create-temp-dir {:prefix "nightly-slow-list-"}))
+          manifest (slow-manifest clone out)]
+      (doseq [item (slow-schedule clone out manifest)]
+        (prn (slow-command item))))
+    (apply -main *command-line-args*)))
