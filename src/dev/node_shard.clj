@@ -30,7 +30,7 @@
    "dao.postgraphics" "yang.base" "dao.base"])
 
 
-(def subs
+(def subsystems
   "The subsystems THIS host runs. Override with NIGHTLY_SUBSYSTEMS (comma
    list) for a disjoint two-host split; the uncovered residual shard still
    enumerates against the FULL registry, so no namespace can silently drop
@@ -89,10 +89,42 @@
     (vec section)))
 
 
+;; 2026-11-23 shiva nightly, target-ci/node-shards-20261123-0015/runs.txt.
+;; Group seconds are measured process walls, not per-namespace timings. Refresh
+;; from runs.txt after a nightly: uncovered/<namespace> jobs then have their
+;; own timings. Until then 47599 / 22 is only an equal-share estimate.
+(def measured-group-secs
+  {"yin.vm" 31790 "yang.python" 24651 "yin.repl" 6049
+   "yang.base" 2839 "dao.space" 1175 "yin.vm.ucf" 1012
+   "dao.stream" 148 "dao.jing" 53 "dao.data" 47 "demo" 42
+   "dao.gui" 38 "dao.base" 37 "dao.postgraphics" 36})
+
+(def residual-estimate-secs (quot 47599 22))
+
+(defn schedule
+  "Assign every runnable namespace once. The former residual is one job per
+   namespace; the other groups retain their process boundaries."
+  [sel]
+  (->> sel
+       (mapcat (fn [[group nss]]
+                 (if (= "uncovered" group)
+                   (map (fn [n] {:id (str "uncovered." n) :nss [n]
+                                 :weight residual-estimate-secs}) nss)
+                   (when (seq nss)
+                     [{:id group :nss nss
+                       :weight (get measured-group-secs group 1)}]))))
+       ;; The corpus was still running after 42,101 s of residual output;
+       ;; break equal estimates in its favor, without claiming its own wall.
+       (sort-by (juxt (comp - :weight)
+                      #(if (= "uncovered.yang.typescript.antlr.corpus-test" (:id %)) 0 1)
+                      :id))
+       vec))
+
 (defn -main
   [& args]
   (let [clone (or (first args) (System/getProperty "user.dir"))
-        par   (or (some->> (second args) parse-long) 8)
+        requested-par (or (some->> (second args) parse-long) 8)
+        par   (max 1 (min requested-par 8 (max 1 (quot (.availableProcessors (Runtime/getRuntime)) 3))))
         stamp (.format (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmm")
                        (java.time.LocalDateTime/now))
         out   (str clone "/target-ci/node-shards-" stamp)
@@ -115,7 +147,7 @@
     (fs/delete-if-exists (str clone "/target-ci/node-shards-latest"))
     (fs/create-sym-link (str clone "/target-ci/node-shards-latest")
                         (str "node-shards-" stamp))
-    (log (str "start " stamp " par=" par))
+    (log (str "start " stamp " requested-par=" requested-par " par=" par))
     ;; prerequisites — fatal on failure
     ;; npm always through mise exec: mise's npm wrapper execs `node` by bare
     ;; name, which fails under any caller PATH that lacks the mise node bin
@@ -133,7 +165,7 @@
         (log (str nm " rc=" exit))
         (when-not (zero? exit) (fail! (str nm " failed")))))
     ;; per-subsystem cljs namespaces; the per-run files are the evidence
-    (let [lists (into {} (map (fn [s] [s (cljs-namespaces clone s)]) subs))
+    (let [lists (into {} (map (fn [s] [s (cljs-namespaces clone s)]) subsystems))
           test-root (str (fs/canonicalize (str clone "/test")))
           all (->> (file-seq (fs/file test-root))
                    (filter #(re-find #"_test\.clj[cs]$" (str %)))
@@ -172,7 +204,7 @@
                                          str/split-lines
                                          (remove str/blank?)
                                          vec)])
-                           subs))
+                           subsystems))
           lists (cond-> lists
                   (.exists (fs/file (str out "/ns-uncovered.txt")))
                   (assoc "uncovered"
@@ -197,9 +229,17 @@
         (log (str "lane-excluded " s ": " (str/join "," (sort ex)))))
       ;; run up to PAR shards at a time (waves)
       (let [t0 (System/currentTimeMillis)
-            shards (vec (filter (comp seq sel) (keys sel)))
+            shards (schedule sel)
+            frequencies (frequencies (mapcat :nss shards))
+            _ (when (some #(> % 1) (vals frequencies))
+                (fail! (str "duplicate namespace assignments: "
+                            (pr-str (filter (fn [[_ n]] (> n 1)) frequencies))))
+                (System/exit @rc))
+            _ (spit (str out "/schedule.txt")
+                    (str/join "\n" (map #(str (:id %) " weight=" (:weight %)
+                                                " namespaces=" (str/join "," (:nss %))) shards)))
             runs (atom {})
-            run-one (fn [s]
+            run-one (fn [{s :id nss :nss}]
                       (let [t0 (System/currentTimeMillis)
                             {:keys [exit]}
                             (psh {:dir clone
@@ -212,7 +252,7 @@
                                  ;; only --test=<list>; a separate "--test" arg
                                  ;; is ignored ("Unknown arg") and the worker
                                  ;; silently runs the FULL suite (2026-11-01).
-                                 (str "--test=" (str/join "," (sel s))))
+                                 (str "--test=" (str/join "," nss)))
                             secs (quot (- (System/currentTimeMillis) t0) 1000)]
                         (let [logtxt (try (slurp (str out "/" s ".log"))
                                           (catch Exception _ ""))
