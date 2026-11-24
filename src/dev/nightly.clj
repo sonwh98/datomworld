@@ -42,6 +42,7 @@
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.java.io :as io]
+            [clojure.edn :as edn]
             [clojure.string :as str]))
 
 
@@ -88,22 +89,17 @@
   (str/trim (:out (apply psh {:dir dir :out :string :err :string :continue true} "git" args))))
 
 
-(defn- slow-namespaces
-  "The ^:slow test namespaces, derived from the tree (never a static list)."
-  [clone]
-  (->> (apply psh {:dir clone :out :string :continue true}
-              ["grep" "-rl" "\\^:slow" "test" "--include=*.clj" "--include=*.cljc"])
-       :out
-       str/split-lines
-       (remove str/blank?)
-       (map (fn [path]
-              (-> path
-                  (str/replace #"^test/" "")
-                  (str/replace #"\.clj[cd]?$" "")
-                  (str/replace "/" ".")
-                  (str/replace "_" "-"))))
-       sort))
-
+(defn- slow-manifest
+  "Load JVM test vars and record slow counts; fail the lane if inventory fails."
+  [clone out]
+  (let [manifest (str out "/jvm-slow-manifest.edn")
+        rc (run-cmd! clone (str out "/jvm-slow-discovery.log")
+                     ["clojure" "-Sdeps"
+                      "{:aliases {:slow-inventory {:extra-paths [\"src/dev\"] :main-opts [\"-m\" \"slow-inventory\"]}}}"
+                      "-M:test:slow-inventory" manifest])]
+    (when-not (zero? rc)
+      (throw (ex-info "JVM slow discovery failed" {:rc rc})))
+    (edn/read-string (slurp manifest))))
 
 (defn- run-pool
   "Run f over items with at most n in flight; return {item exit}."
@@ -213,8 +209,13 @@
             (log-lane summary (str nm " rc=" exit
                                    " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
             (when-not (zero? exit) (throw (ex-info (str nm " failed") {}))))
-        slow-nss (cond->> (slow-namespaces clone)
-                   subset (filter #(in-subset? % subset)))
+        manifest (slow-manifest clone out)
+        selected (into (sorted-map)
+                       (filter (fn [[n _]] (or (nil? subset)
+                                               (in-subset? (str n) subset))))
+                       manifest)
+        _ (log-lane summary (str "jvm-slow manifest " (pr-str selected)))
+        slow-nss (map str (keys selected))
         ;; quick tier: subsystem-sharded on the full set; per-subsystem
         ;; test:sub:clj runs pooled when a disjoint subset is assigned
         quick-log (str out "/jvm-quick.log")
@@ -401,7 +402,7 @@
                       (mapv run-lane ordered-lanes))]
         ;; summary appends are serialized HERE, after the join — concurrent
         ;; spit :append from lane futures is not one atomic syscall
-        (doseq [{:keys [lane lane-rc secs fail]} results]
+        (doseq [{:keys [lane secs fail]} results]
           (let [ls (lane-summary lane)]
             (when (fs/exists? ls)
               (spit summary (slurp ls) :append true)))
