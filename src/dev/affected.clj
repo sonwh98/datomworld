@@ -6,7 +6,7 @@
    .clj .cljc .cljs .cljd file under src/ and test/ (not test/cljd-out) is
    read for its first ns form, once per host feature (:clj :cljs :cljd),
    so every reader-conditional branch counts. The affected tests are the
-   test namespaces (under test/, named *-test or holding a deftest) in the
+   test namespaces (under test/, named *-test) in the
    reverse transitive closure of the changed namespaces, plus:
    - a changed src file's conventional test (src/cljc/a/b.cljc selects
      test/a/b_test.*), required or not;
@@ -265,8 +265,7 @@
      :test? (boolean
               (and ns
                    (str/starts-with? path "test/")
-                   (or (str/ends-with? (name ns) "-test")
-                       (re-find #"\((?:[\w.-]+/)?deftest\s" text))))}))
+                   (str/ends-with? (name ns) "-test")))}))
 
 
 ;; ---------------------------------------------------------------------------

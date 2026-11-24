@@ -85,6 +85,30 @@
             (map parse-long [tests assertions failures errors]))))
 
 
+(defn reconcile-counts
+  "Compare completed shard summaries with the selected metadata inventory."
+  [expected rows]
+  (let [missing (mapv :shard (filter #(nil? (:tests %)) rows))
+        actual (reduce + (keep :tests rows))
+        deficit (max 0 (- expected actual))]
+    {:expected expected :actual actual :deficit deficit :missing missing
+     :pass? (and (empty? missing) (zero? deficit))}))
+
+
+(defn quick-inventory!
+  [out]
+  (let [manifest (str out "/slow-inventory.edn")
+        quick (str out "/quick-vars.txt")
+        log (str out "/inventory.log")
+        alias "{:aliases {:slow-inventory {:extra-paths [\"src/dev\"] :main-opts [\"-m\" \"slow-inventory\"]}}}"
+        exit (:exit @(p/process ["clojure" "-Sdeps" alias "-M:test:slow-inventory"
+                                 manifest quick (str out "/selected.txt")]
+                                {:out (fs/file log) :err :out}))]
+    (when-not (zero? exit)
+      (throw (ex-info (str "JVM quick inventory failed; see " log) {:exit exit})))
+    (count (str/split-lines (slurp quick)))))
+
+
 (defn run-shard!
   [out [shard nses]]
   (let [start (System/nanoTime)
@@ -201,12 +225,18 @@
           (let [exit (:exit @(p/process ["bb" task] {:inherit true}))]
             (when-not (zero? exit)
               (throw (ex-info (str "prerequisite failed: " task) {:exit exit})))))
-        (let [lane-start (System/nanoTime)
+        (let [expected (quick-inventory! out)
+              lane-start (System/nanoTime)
               rows (run-shards! out shards workers)
+              reconciliation (reconcile-counts expected rows)
+              _ (when-not (:pass? reconciliation)
+                  (println "FAIL: test count reconciliation deficit=" (:deficit reconciliation)
+                           "expected=" expected "executed=" (:actual reconciliation)
+                           "missing summaries=" (pr-str (:missing reconciliation))))
               summary (merge (into {} (for [k [:tests :assertions :failures :errors]]
                                         [k (reduce + (keep k rows))]))
-                             {:coverage cov :shards rows
-                              :pass? (and (seq rows) (every? :pass? rows))
+                             {:coverage cov :shards rows :reconciliation reconciliation
+                              :pass? (and (seq rows) (every? :pass? rows) (:pass? reconciliation))
                               :jvm-seconds (/ (- (System/nanoTime) lane-start) 1e9)
                               :total-seconds (/ (- (System/nanoTime) start) 1e9)})
               scope (verification-scope :quick-sharded :jvm-feedback

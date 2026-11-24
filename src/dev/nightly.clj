@@ -246,6 +246,20 @@
           lanes)))
 
 
+(defn slow-reconciliation
+  "Check each slow child has a summary and the pool ran its manifest count."
+  [manifest rows]
+  (let [expected (reduce + (vals manifest))
+        missing (mapv :item (filter #(nil? (:tests %)) rows))
+        actual (reduce + (keep :tests rows))
+        deficit (max 0 (- expected actual))]
+    {:expected expected :actual actual :deficit deficit :missing missing
+     :pass? (and (empty? missing) (zero? deficit))}))
+
+(defn- slow-summary [text]
+  (when-let [[_ tests] (last (re-seq #"(?m)^Ran (\d+) tests containing \d+ assertions\.\r?\n\d+ failures, \d+ errors\." text))]
+    (parse-long tests)))
+
 (defn- lane-jvm
   [clone par out summary]
   (let [subset (assigned-subsystems)
@@ -288,18 +302,26 @@
                           ["bb" "test:quick-sharded" "--workers" (str par)]))
         slow (run-pool par
                        (fn [{:keys [ns shard] :as item}]
-                         (run-cmd! clone (str out "/slow-" ns
-                                              (when shard (str "-shard-" shard)) ".log")
-                                   (slow-command item)))
+                         (let [log (str out "/slow-" ns
+                                        (when shard (str "-shard-" shard)) ".log")
+                               exit (run-cmd! clone log (slow-command item))]
+                           {:item item :exit exit :tests (slow-summary (slurp log))}))
                        schedule)
-        slow-red (count (remove zero? (vals slow)))]
+        slow-red (count (remove #(zero? (:exit %)) (vals slow)))
+        reconciliation (slow-reconciliation selected (vals slow))
+        _ (when-not (:pass? reconciliation)
+            (log-lane summary (str "FAIL: jvm-slow test count reconciliation deficit="
+                                   (:deficit reconciliation) " expected=" (:expected reconciliation)
+                                   " executed=" (:actual reconciliation)
+                                   " missing summaries=" (pr-str (:missing reconciliation)))))]
     (spit summary (str "jvm-quick rc=" quick
                        (when subset (str " (subset: " (str/join "," (sort subset)) ")"))
                        "\njvm-slow namespaces=" (count slow-nss)
                        " red=" slow-red "\n")
           :append true)
     (when-not (zero? quick) (throw (ex-info "jvm quick tier red" {:rc quick})))
-    (when (pos? slow-red) (throw (ex-info "jvm slow tier red" {:red slow-red})))))
+    (when (or (pos? slow-red) (not (:pass? reconciliation)))
+      (throw (ex-info "jvm slow tier red" {:red slow-red :reconciliation reconciliation})))))
 
 
 (defn- lane-node
