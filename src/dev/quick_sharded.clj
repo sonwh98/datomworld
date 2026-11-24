@@ -4,6 +4,7 @@
     [affected :as a]
     [babashka.fs :as fs]
     [babashka.process :as p]
+    [clojure.edn :as edn]
     [clojure.set :as set]
     [clojure.string :as str]))
 
@@ -75,6 +76,69 @@
     result))
 
 
+(def php-e2e 'yang.php.antlr.e2e-test)
+(def heavy-quick-vars
+  '[yang.php.antlr.e2e-test/permutation-corpus-quick-test
+    yang.php.antlr.e2e-test/phpt-selection-runs-test])
+
+
+(defn var-shards-enabled?
+  "The sole authorized namespace is enabled by default; 0 disables it."
+  []
+  (let [setting (System/getenv "QUICK_VAR_SHARDS")]
+    (cond
+      (or (nil? setting) (= setting "1") (= setting (str php-e2e))) true
+      (or (= setting "0") (= setting "")) false
+      :else (throw (ex-info "QUICK_VAR_SHARDS permits only yang.php.antlr.e2e-test or 0"
+                            {:value setting})))))
+
+
+(defn quick-var-inventory!
+  [out]
+  (let [file (str out "/quick-php-vars.edn")
+        log (str out "/quick-php-vars.log")
+        expression (str "(require '" php-e2e ") "
+                        "(spit " (pr-str file) " (pr-str (sort (for [[s v] (ns-publics '"
+                        php-e2e ") :when (and (:test (meta v)) (not (:slow (meta v))))] "
+                        "(symbol (str '" php-e2e ") (str s))))))")
+        alias (pr-str {:aliases {:quick-var-inventory {:main-opts ["-e" expression]}}})
+        rc (:exit @(p/process ["clojure" "-Sdeps" alias "-M:test:quick-var-inventory"]
+                              {:out (fs/file log) :err :out}))]
+    (when-not (zero? rc)
+      (throw (ex-info "Quick var discovery failed; see log" {:exit rc :log log})))
+    (edn/read-string (slurp file))))
+
+
+(defn execution-plan
+  "Replace only PHP e2e with three disjoint var groups; other commands stay intact."
+  [shards inventory]
+  (if (nil? inventory)
+    shards
+    (let [all (set inventory)
+          heavy (set heavy-quick-vars)
+          remaining (vec (remove heavy inventory))
+          groups (concat (map vector heavy-quick-vars) [remaining])
+          assigned (mapcat identity groups)]
+      (when-not (and (contains? (set (get shards "yang.php")) php-e2e)
+                     (= (count inventory) (count all))
+                     (set/subset? heavy all) (seq remaining)
+                     (= all (set assigned)) (= (count assigned) (count all)))
+        (throw (ex-info "Quick PHP var coverage mismatch" {:inventory inventory})))
+      (-> shards
+          (update "yang.php" #(vec (remove #{php-e2e} %)))
+          (assoc "yang.php-e2e-aggregate" {:nses [php-e2e] :vars (first groups)})
+          (assoc "yang.php-e2e-phpt" {:nses [php-e2e] :vars (second groups)})
+          (assoc "yang.php-e2e-rest" {:nses [php-e2e] :vars remaining})))))
+
+
+(defn shard-command
+  [entry]
+  (let [{:keys [nses vars]} (if (map? entry) entry {:nses entry})]
+    (into (into ["clojure" "-M:test" "-e" ":slow"]
+                (mapcat #(vector "-n" (str %)) nses))
+          (mapcat #(vector "-v" (str %)) vars))))
+
+
 (defn jvm-summary
   "Only a complete final runner summary counts; exit 0 alone is insufficient."
   [text]
@@ -86,11 +150,11 @@
 
 
 (defn run-shard!
-  [out [shard nses]]
-  (let [start (System/nanoTime)
+  [out [shard entry]]
+  (let [nses (if (map? entry) (:nses entry) entry)
+        start (System/nanoTime)
         log (str out "/" shard ".log")
-        cmd (into ["clojure" "-M:test" "-e" ":slow"]
-                  (mapcat #(vector "-n" (str %)) nses))
+        cmd (shard-command entry)
         exit (:exit @(p/process cmd {:out (fs/file log) :err :out}))
         summary (jvm-summary (slurp log))
         row (merge {:shard shard :namespaces (count nses) :exit exit
@@ -107,7 +171,8 @@
 (defn run-shards!
   [out shards workers]
   ;; Each worker owns a disjoint sequence; no more than N child JVMs.
-  (let [ordered (sort-by (comp - count val) shards)
+  (let [ordered (sort-by (fn [[_ entry]]
+                           (if (map? entry) -1000 (- (count entry)))) shards)
         jobs (mapv (fn [worker]
                      (future
                        (mapv #(run-shard! out %)
@@ -169,12 +234,29 @@
         out (str "target/profile/quick-sharded-" (System/currentTimeMillis)
                  "-" (subs (str (random-uuid)) 0 8))
         cov (check-coverage! nses shards out)
-        prereqs (a/prerequisites index {:clj nses})]
+        prereqs (a/prerequisites index {:clj nses})
+        _ (when (and (seq nses) (not list?))
+            (doseq [task (concat (when (prereqs :build:yin-repl-node) ["deps:npm"])
+                                 (keep #(when (prereqs %) (name %))
+                                       [:build:yin-repl-peer :build:yin-repl-node :gen:antlr]))]
+              (println "Prerequisite" task)
+              (let [exit (:exit @(p/process ["bb" task] {:inherit true}))]
+                (when-not (zero? exit)
+                  (throw (ex-info (str "prerequisite failed: " task) {:exit exit}))))))
+        inventory (when (and (contains? (set nses) php-e2e) (var-shards-enabled?))
+                    (quick-var-inventory! out))
+        schedule (execution-plan shards inventory)]
     (println "Quick JVM only; workers=" workers "; logs:" out)
     (when (seq (:wide selection))
       (println "Wide selection: this runs the full JVM quick lane; G3 still requires bb test."))
-    (doseq [[shard tests] shards]
-      (println "Shard" shard ":" (count tests) "namespaces"))
+    (doseq [[shard entry] schedule]
+      (let [nses (if (map? entry) (:nses entry) entry)]
+        (println (str "Shard " shard " : " (count nses) " namespaces"
+                      (when (map? entry) (str " " (count (:vars entry)) " vars")))))
+      (println "Command" shard (pr-str (shard-command entry))))
+    (when inventory
+      (println "PHP quick var coverage:" (count inventory) "selected,"
+               (count (set (mapcat :vars (filter map? (vals schedule))))) "covered"))
     (when (contains? shards "unmapped")
       (println "Registry has unowned namespaces; running them explicitly in shard unmapped:"
                (str/join ", " (get shards "unmapped"))))
@@ -191,34 +273,24 @@
                                         {:selected (count nses)}))
 
       :else
-      (do
-        ;; All writers finish before any test JVM starts. No mutable output
-        ;; directory is shared with another worktree.
-        (doseq [task (concat (when (prereqs :build:yin-repl-node) ["deps:npm"])
-                             (keep #(when (prereqs %) (name %))
-                                   [:build:yin-repl-peer :build:yin-repl-node :gen:antlr]))]
-          (println "Prerequisite" task)
-          (let [exit (:exit @(p/process ["bb" task] {:inherit true}))]
-            (when-not (zero? exit)
-              (throw (ex-info (str "prerequisite failed: " task) {:exit exit})))))
-        (let [lane-start (System/nanoTime)
-              rows (run-shards! out shards workers)
-              summary (merge (into {} (for [k [:tests :assertions :failures :errors]]
-                                        [k (reduce + (keep k rows))]))
-                             {:coverage cov :shards rows
-                              :pass? (and (seq rows) (every? :pass? rows))
-                              :jvm-seconds (/ (- (System/nanoTime) lane-start) 1e9)
-                              :total-seconds (/ (- (System/nanoTime) start) 1e9)})
-              scope (verification-scope :quick-sharded :jvm-feedback
-                                        (if (:pass? summary) 0 1) false
-                                        {:selected (count nses)})
-              summary (assoc summary :verification-scope scope)]
-          (spit (str out "/summary.edn") (pr-str summary))
-          (println (format "TOTAL: tests=%d assertions=%d failures=%d errors=%d JVM=%.3fs total=%.3fs %s"
-                           (:tests summary) (:assertions summary) (:failures summary)
-                           (:errors summary) (:jvm-seconds summary) (:total-seconds summary)
-                           (if (:pass? summary) "pass" "FAIL (see shard logs; missing summaries also fail)")))
-          (print-scope! scope))))))
+      (let [lane-start (System/nanoTime)
+            rows (run-shards! out schedule workers)
+            summary (merge (into {} (for [k [:tests :assertions :failures :errors]]
+                                      [k (reduce + (keep k rows))]))
+                           {:coverage cov :shards rows
+                            :pass? (and (seq rows) (every? :pass? rows))
+                            :jvm-seconds (/ (- (System/nanoTime) lane-start) 1e9)
+                            :total-seconds (/ (- (System/nanoTime) start) 1e9)})
+            scope (verification-scope :quick-sharded :jvm-feedback
+                                      (if (:pass? summary) 0 1) false
+                                      {:selected (count nses)})
+            summary (assoc summary :verification-scope scope)]
+        (spit (str out "/summary.edn") (pr-str summary))
+        (println (format "TOTAL: tests=%d assertions=%d failures=%d errors=%d JVM=%.3fs total=%.3fs %s"
+                         (:tests summary) (:assertions summary) (:failures summary)
+                         (:errors summary) (:jvm-seconds summary) (:total-seconds summary)
+                         (if (:pass? summary) "pass" "FAIL (see shard logs; missing summaries also fail)")))
+        (print-scope! scope)))))
 
 
 (defn run-quick!

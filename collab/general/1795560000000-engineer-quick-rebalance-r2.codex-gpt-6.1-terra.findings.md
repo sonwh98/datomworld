@@ -1,4 +1,15 @@
-# Quick rebalance r2 — findings only: payload-equality gate unmet
+# Quick rebalance r2 — semantic gate passed and PHP quick-var split
+
+## Completed r3 decision
+
+Tested base `1dc17314241274e8ef9006f2e7762bdc1b3b9f77`, branch `fix/quick-rebalance-r2`, host jupiter. The r3 decision replaces the raw-byte gate described below with semantic disposition equality. Both arms completed: aggregate alone rc=0, 1 test / 3 assertions; PHPT alone rc=0, 1 test / 6 assertions; paired aggregate followed by PHPT in one JVM rc=0, 2 tests / 9 assertions. All have zero failures and errors. Separate instrumented split-model walls were 1701.43 s for aggregate (previous r2 run) and 755.35 s for PHPT (r3 run); both under concurrent load, not an end-to-end quick-tier forecast. Paired timings are not used as split-model measurements.
+
+The aggregate assertions compared all 518 programs against the pinned oracle in both arms. The PHPT manifest validated the exact gap IDs and refusal count in both; an additional full-result capture compared each of the 271 entries in order by source hash and its actual pass/unsupported/gap classification. Both arms produced 119/48/104 and zero row differences. The two `:threw` rows matched source hash, exception class, reason and message: `-1338664852`, `clojure.lang.ExceptionInfo`, `:wrong-type`, `data primitive refused`; `-1289510589`, `clojure.lang.ExceptionInfo`, `:wrong-type`, `integer primitive refused`. Comparison extracts these semantic fields from the rendered exception, so unrelated session-map order, identity and UUID tokens do not affect it. The comparator self-check on identical input passed. Raw capture SHA-256, recorded only as provenance: separate aggregate `09190a6a6492de729e8d45e0041ae85f4f9e39e47cfdfd950f31065af1662415`; separate PHPT `62d7fea38f67df47102d6a088aa2a7eb45be5f436a474a32e25d3c3154a931a0`; paired `32830c3681d78b08b1fa38cf66c4022e30055e6976f998fc27adfdb8166d4236`. Captures, comparison script, logs and timings are in `target/r2-ab/` on this worktree. A second paired run using the earlier wrapper also completed rc=0, 2 tests / 9 assertions, 119/48/104.
+
+The authorized split is now implemented in `src/dev/quick_sharded.clj` only: aggregate 1 var, PHPT 1 var, remainder 21 vars; the other 28 PHP namespaces stay together. List mode rc=0 with the split disabled and enabled: identical 369-namespace sets, 369 covered, no omissions, extras or duplicates; all 23 selected PHP vars assigned exactly once; all 16 non-PHP shard commands byte-identical. The planner tests rc=0, 9 tests / 141 assertions, zero failures/errors; clj-kondo rc=0, zero errors/warnings; `git diff --check` rc=0. No test file or other namespace was edited. Full quick-tier wall was not measured and no merge was performed.
+
+## Historical r2 stopping point
+
 
 Host: jupiter. Tested base HEAD: `12924b2b5f58e291d6ee8145a90a4204cc9a26b2` (it follows origin/master `dc0c803c7d3da23cca2e1c15996237a5d8233f83`). Branch: `fix/quick-rebalance-r2`.
 
