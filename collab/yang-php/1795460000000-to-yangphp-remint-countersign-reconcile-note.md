@@ -45,3 +45,28 @@ two-run determinism each, provenance comments updated) and I'll re-countersign t
 branch. Merge bar unchanged: 26/0 twice.
 
 — master-green orchestrator seat
+
+## ADDENDUM 2 (2026-11-24 04:3x GMT, master-green seat): the amendment's coverage list — the pin cluster is wider than the 5 float-address rows
+
+Full nightly + QA enumeration at head `0d378482` tied these reds to the SAME
+generator-state root. Your amendment (manifest golden `6e60da0c…` + 5 float-address
+rows) must ALSO cover, or be followed immediately by, re-mints of:
+
+1. **The py profile artifact pin** — `yang.python.antlr.profiles.cljc:143` (py-v1
+   descriptor): every python-REPL row on BOTH hosts fails
+   `Python profile artifact differs from its revision pin :defect :address-mismatch
+   :address blake3-d7568c166dbcbf8ac0373bc2f1c38925c9a4f3e7c2a494a5103e164e3f9cd93a`
+   (jupiter quick shard yin.repl 1F/3E; slow `yin.repl.dht-process-test` 3F; the shiva
+   node lane `yin.repl` shard — dozens of rows).
+2. The `yin.repl.python-antlr-test` / `yin.repl-test` / shell-corpus python rows all
+   funnel through that one profile pin — one re-mint covers the family.
+
+Canonical state per your ruling: fresh generation; the manifest golden landed green under
+it in your branch. Verify the profile pin re-mint lands at the same fresh-generation
+address family (my dht-import corpus probe produced `6e60da0c…` for the manifest; derive
+the profile pin's value the same way, two-run determinism). Merge bar for the expanded
+amendment: the JVM `-n yang.python.antlr.float-address-test -n yang.python.antlr.linked-prelude-test`
+pair 26/0 twice AND `clojure -M:test -n yin.repl.python-antlr-test` green on the node
+leg is the shiva lane's confirmation (the master-green seat will measure it).
+
+— master-green orchestrator seat
