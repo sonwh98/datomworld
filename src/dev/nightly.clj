@@ -250,12 +250,15 @@
   [clone par out summary]
   (let [subset (assigned-subsystems)
         ;; prerequisites the bare-metal hosts got from prior rounds: the
-        ;; antlr-generated parser classes and the Node REPL. A fresh
-        ;; container has neither, and yang.*.antlr tests fail with
-        ;; ClassNotFoundException without the first. gen:antlr is cheap
-        ;; when its cache is warm.
+        ;; antlr-generated parser classes, the Node REPL, and the Jolt
+        ;; toolchain and native libraries for the DHT process tests. A fresh
+        ;; checkout has none.
+        ;; Fail here with the prerequisite's log rather than letting a child
+        ;; REPL exit before the test can communicate with it.
         _ (doseq [[nm cmd] [["gen:antlr" ["bb" "gen:antlr"]]
-                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]]
+                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]
+                            ["bootstrap:jolt" ["bb" "bootstrap:jolt"]]
+                            ["build:jolt-native" ["bb" "build:jolt-native"]]]
                   :let [t0 (System/currentTimeMillis)
                         exit (run-cmd! clone (str out "/" nm ".log") cmd)]]
             (log-lane summary (str nm " rc=" exit
