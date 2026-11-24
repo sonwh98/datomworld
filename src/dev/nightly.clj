@@ -105,19 +105,24 @@
       (throw (ex-info "JVM slow discovery failed" {:rc rc})))
     (edn/read-string (slurp manifest))))
 
+
 (def ^:private default-var-shards
   '#{yang.php.antlr.e2e-test yang.typescript.antlr.corpus-test
      yang.php.antlr.include-test yang.python.antlr.e2e-test
      yin.vm.semantic.safepoint-harness-test})
 
-(defn- var-shard-namespaces []
+
+(defn- var-shard-namespaces
+  []
   (let [setting (System/getenv "NIGHTLY_SLOW_VAR_SHARDS")]
     (cond
       (or (nil? setting) (str/blank? setting)) #{}
       (= "1" setting) default-var-shards
       :else (set (map (comp symbol str/trim) (str/split setting #","))))))
 
-(defn- slow-schedule [clone out manifest]
+
+(defn- slow-schedule
+  [clone out manifest]
   (let [configured (disj (var-shard-namespaces) 'yang.call.exception-contract-test)
         eligible (into (sorted-map) (filter (fn [[n c]] (and (configured n) (> c 1)))) manifest)
         inventory (str out "/jvm-slow-vars.edn")
@@ -143,15 +148,19 @@
     (vec (mapcat (fn [[n _]]
                    (if-let [vs (seq (get vars n))]
                      (let [k (min 4 (count vs))]
-                       (mapv (fn [i] {:ns (str n) :shard (inc i)
-                                      :vars (mapv str (take-nth k (drop i vs)))})
+                       (mapv (fn [i]
+                               {:ns (str n) :shard (inc i)
+                                :vars (mapv str (take-nth k (drop i vs)))})
                              (range k)))
                      [{:ns (str n)}]))
                  manifest))))
 
-(defn- slow-command [{:keys [ns vars]}]
+
+(defn- slow-command
+  [{:keys [ns vars]}]
   (into ["clojure" "-M:test" "-i" :slow "-n" ns]
         (mapcat (fn [v] ["-v" v]) vars)))
+
 
 (defn- run-pool
   "Run f over items with at most n in flight; return {item exit}."
@@ -246,6 +255,23 @@
           lanes)))
 
 
+(defn slow-reconciliation
+  "Check each slow child has a summary and the pool ran its manifest count."
+  [manifest rows]
+  (let [expected (reduce + (vals manifest))
+        missing (mapv :item (filter #(nil? (:tests %)) rows))
+        actual (reduce + (keep :tests rows))
+        deficit (max 0 (- expected actual))]
+    {:expected expected :actual actual :deficit deficit :missing missing
+     :pass? (and (empty? missing) (zero? deficit))}))
+
+
+(defn- slow-summary
+  [text]
+  (when-let [[_ tests] (last (re-seq #"(?m)^Ran (\d+) tests containing \d+ assertions\.\r?\n\d+ failures, \d+ errors\." text))]
+    (parse-long tests)))
+
+
 (defn- lane-jvm
   [clone par out summary]
   (let [subset (assigned-subsystems)
@@ -266,8 +292,9 @@
             (when-not (zero? exit) (throw (ex-info (str nm " failed") {}))))
         manifest (slow-manifest clone out)
         selected (into (sorted-map)
-                       (filter (fn [[n _]] (or (nil? subset)
-                                               (in-subset? (str n) subset))))
+                       (filter (fn [[n _]]
+                                 (or (nil? subset)
+                                     (in-subset? (str n) subset))))
                        manifest)
         _ (log-lane summary (str "jvm-slow manifest " (pr-str selected)))
         slow-nss (map str (keys selected))
@@ -288,18 +315,26 @@
                           ["bb" "test:quick-sharded" "--workers" (str par)]))
         slow (run-pool par
                        (fn [{:keys [ns shard] :as item}]
-                         (run-cmd! clone (str out "/slow-" ns
-                                              (when shard (str "-shard-" shard)) ".log")
-                                   (slow-command item)))
+                         (let [log (str out "/slow-" ns
+                                        (when shard (str "-shard-" shard)) ".log")
+                               exit (run-cmd! clone log (slow-command item))]
+                           {:item item :exit exit :tests (slow-summary (slurp log))}))
                        schedule)
-        slow-red (count (remove zero? (vals slow)))]
+        slow-red (count (remove #(zero? (:exit %)) (vals slow)))
+        reconciliation (slow-reconciliation selected (vals slow))
+        _ (when-not (:pass? reconciliation)
+            (log-lane summary (str "FAIL: jvm-slow test count reconciliation deficit="
+                                   (:deficit reconciliation) " expected=" (:expected reconciliation)
+                                   " executed=" (:actual reconciliation)
+                                   " missing summaries=" (pr-str (:missing reconciliation)))))]
     (spit summary (str "jvm-quick rc=" quick
                        (when subset (str " (subset: " (str/join "," (sort subset)) ")"))
                        "\njvm-slow namespaces=" (count slow-nss)
                        " red=" slow-red "\n")
           :append true)
     (when-not (zero? quick) (throw (ex-info "jvm quick tier red" {:rc quick})))
-    (when (pos? slow-red) (throw (ex-info "jvm slow tier red" {:red slow-red})))))
+    (when (or (pos? slow-red) (not (:pass? reconciliation)))
+      (throw (ex-info "jvm slow tier red" {:red slow-red :reconciliation reconciliation})))))
 
 
 (defn- lane-node
