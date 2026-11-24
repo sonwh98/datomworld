@@ -74,14 +74,16 @@
      :index
      {:yin.debruijn.code :segment/blake3-7ac80cac0e6580202d2d2e4315fdde76d7199c08caeadb01d458daf037751175
       :yin.debruijn.register :segment/blake3-2de114e4481e3f440a534251ce6b006500690645d2a724c0732cca466ecffb6a}}
-    py {:address :segment/blake3-d7568c166dbcbf8ac0373bc2f1c38925c9a4f3e7c2a494a5103e164e3f9cd93a
+    ;; py/assert thunk series: re-minted from JVM publication after fresh
+    ;; ANTLR generation, in two independent JVMs.
+    py {:address :segment/blake3-6e60da0c73eb89861bcdc4c5c53f59bdf5e8ae6ba88b5b09c65eab543497259e
      :derivations
-     {:yin.semantic/code :segment/blake3-5256943e20b328ad84bc908d263408e44afd3435ce62bf9801926622b45304d7
-      :yin.debruijn.code :segment/blake3-f883df02f6ff6cc05b20b0c47546a5230b465df717cf1038902b7ee1f7abbdae
-      :yin.debruijn.register :segment/blake3-1f507d8313433c2e0a5ba5f7a21bf317b915e82aeda25dbe9dd02636c1a3e68e}
+     {:yin.semantic/code :segment/blake3-c5df845fd75078961e1577fc2557306061f9ee6afe6c00f434e20a3f4300c024
+      :yin.debruijn.code :segment/blake3-e4632655af9cbea5a7a86421309c863e4920e9be88a39b3a3428f88ab4870b98
+      :yin.debruijn.register :segment/blake3-d94f7c2a7a8e1a058df8ce0fabf9109a34d862d10327b4cea07cbaa46b99ce20}
      :index
-     {:yin.debruijn.code :segment/blake3-e4c7343714f2a534c3f3f990abc10e648c971754148707fa5804554c4597c5e1
-      :yin.debruijn.register :segment/blake3-c41f179c40fce29559ae6bf5db985025e6510f56459877d07443a1f36b88e4a0}}
+     {:yin.debruijn.code :segment/blake3-ad5ec299c18d91764e8789d92d5f7ba6088d853049dfad76d55e5b8b6c4ed6d8
+      :yin.debruijn.register :segment/blake3-5868b119651803b51e2aa8ae68dbe143e5f98cbf18be1e608f955d3b87ef9f68}}
     yang.call {:address :segment/blake3-ef21320944b651140c11dedebd8b443fb91d32f99678f9c274568fbe4d07eea4
      :derivations
      {:yin.semantic/code :segment/blake3-59a19ffd0e95d51e34664cf1c7f9b9c24ad606f9881ab38cfdf0d1614c8a6b09
@@ -109,9 +111,11 @@
     })
 
 
+;; py-v1 descriptor and runtime re-minted from the updated module closure
+;; after fresh ANTLR generation, in two independent JVMs.
 (def ^:private revision-locks
-  {:yang.python/py-v1 {:descriptor-address :segment/blake3-b5a8e78e8a3ce1adcabe96f08481cd936cf5911b6d4de22176f3a98f690aad49
-     :runtime-address :segment/blake3-9f64a4ea1eac5d48a9ba97d5e6a20b5b4458909ce5cfb57b3d515e3bd635f990}
+  {:yang.python/py-v1 {:descriptor-address :segment/blake3-168762efff394feab7a9859dcb9f4aaa4fd339424057a656a40b503fb149b45e
+     :runtime-address :segment/blake3-d91f4a0bb4032671e1acf8e31410368b741e18193e8227e69c3275238c4b9531}
     :yang.python/clojure-core-v1 {:descriptor-address :segment/blake3-40e7c28f50d14baafc3dd73269d92023f3c664b743d5b7eb510859c98ecbdea4
      :runtime-address :segment/blake3-a2cb190a9c0f659dcf8a7c48023cfb49d3c87a5d883948fd815bfc0e55205b50}})
 
