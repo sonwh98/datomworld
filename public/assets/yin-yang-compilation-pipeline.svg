@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1390" viewBox="0 0 1100 1390" role="img" aria-labelledby="title description">
+  <title id="title">Yin and Yang compilation pipeline</title>
+  <desc id="description">Source languages enter Yang frontends, which produce canonical Universal AST maps. Lossless encoding emits syntax rows onto a DaoStream. An upstream macro expander emits an expanded program stream. Four independent execution paths reconstruct maps for the AST walker or lower code for semantic, stack, and register VMs. Independent DaoSpace and DaoJing observers index and persist the same program rows. A dashed design path shows a pipeline interpreter communicating changes to the compilation topology. The branches have no mandatory join.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#91a4bd"/>
+    </marker>
+    <marker id="purple-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c2a3ff"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+      .heading { font-size: 35px; font-weight: 700; fill: #f3f6ff; }
+      .label { font-size: 24px; font-weight: 650; fill: #f3f6ff; }
+      .body { font-size: 21px; fill: #c5d2e5; }
+      .small { font-size: 19px; fill: #a9bad2; }
+      .eyebrow { font-size: 17px; font-weight: 700; letter-spacing: 2px; }
+      .flow { fill: none; stroke: #91a4bd; stroke-width: 2.5; marker-end: url(#arrow); }
+      .design { fill: none; stroke: #c2a3ff; stroke-width: 2.5; stroke-dasharray: 7 7; marker-end: url(#purple-arrow); }
+      .box { fill: #18263a; stroke: #425775; stroke-width: 1.5; }
+      .yang { fill: #292236; stroke: #a281cc; stroke-width: 1.5; }
+      .stream { fill: #10323b; stroke: #55c9cb; stroke-width: 1.8; }
+      .yin { fill: #182c3b; stroke: #70b8e1; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect width="1100" height="1390" rx="24" fill="#0d1727"/>
+  <text x="550" y="58" text-anchor="middle" class="heading">Yin / Yang</text>
+  <text x="550" y="94" text-anchor="middle" class="body">One program, many interpretations</text>
+
+  <rect x="330" y="130" width="440" height="80" rx="16" class="box"/>
+  <text x="550" y="163" text-anchor="middle" class="label">Source languages</text>
+  <text x="550" y="192" text-anchor="middle" class="body">Clojure · Python · other frontends</text>
+  <path d="M550 210 V250" class="flow"/>
+
+  <rect x="330" y="250" width="440" height="100" rx="16" class="yang"/>
+  <text x="550" y="280" text-anchor="middle" class="eyebrow" fill="#d8b9fa">YANG</text>
+  <text x="550" y="312" text-anchor="middle" class="label">Language frontends</text>
+  <text x="550" y="338" text-anchor="middle" class="small">Parse and preserve source semantics</text>
+  <path d="M550 350 V390" class="flow"/>
+
+  <rect x="330" y="390" width="440" height="80" rx="16" class="box"/>
+  <text x="550" y="424" text-anchor="middle" class="label">Universal AST</text>
+  <text x="550" y="453" text-anchor="middle" class="body">Canonical nested maps</text>
+  <path d="M550 470 V520" class="flow"/>
+  <text x="570" y="501" class="small">Lossless row encoding</text>
+
+  <rect x="330" y="520" width="440" height="70" rx="16" class="stream"/>
+  <text x="550" y="550" text-anchor="middle" class="label">Syntax stream</text>
+  <text x="550" y="577" text-anchor="middle" class="small">Content-addressed AST rows</text>
+  <path d="M550 590 V630" class="flow"/>
+
+  <rect x="330" y="630" width="440" height="90" rx="16" class="yang"/>
+  <text x="550" y="667" text-anchor="middle" class="label">Macro-expansion interpreter</text>
+  <text x="550" y="698" text-anchor="middle" class="body">Observe syntax → emit expanded rows</text>
+  <path d="M550 720 V770" class="flow"/>
+
+  <text x="80" y="422" class="eyebrow" fill="#a9bad2">REPRESENTATION</text>
+  <text x="80" y="455" class="body">AST stays retrievable.</text>
+  <text x="80" y="485" class="body">Lowerings derive from it.</text>
+  <text x="80" y="550" class="eyebrow" fill="#67d8d5">DAOSTREAM</text>
+  <text x="80" y="583" class="body">Values + boundaries.</text>
+  <text x="80" y="613" class="body">Observers own meaning.</text>
+
+  <rect x="820" y="390" width="230" height="205" rx="16" fill="#211c33" stroke="#c2a3ff" stroke-width="1.5" stroke-dasharray="7 7"/>
+  <text x="935" y="422" text-anchor="middle" class="eyebrow" fill="#d8b9fa">DESIGN INTENT</text>
+  <text x="935" y="460" text-anchor="middle" class="label">Pipeline</text>
+  <text x="935" y="490" text-anchor="middle" class="label">interpreter</text>
+  <text x="935" y="528" text-anchor="middle" class="small">Topology and passes</text>
+  <text x="935" y="555" text-anchor="middle" class="small">are interpretable data.</text>
+  <text x="935" y="582" text-anchor="middle" class="small">Changes travel as data.</text>
+  <path d="M820 440 H795 V300 H770" class="design"/>
+  <path d="M935 595 V675 H770" class="design"/>
+
+  <rect x="80" y="770" width="940" height="80" rx="16" class="stream"/>
+  <text x="550" y="803" text-anchor="middle" class="label">Expanded program stream</text>
+  <text x="550" y="833" text-anchor="middle" class="body">Shared rows · independent cursors · no required join</text>
+
+  <path d="M185 850 V920" class="flow"/>
+  <path d="M430 850 V920" class="flow"/>
+  <path d="M675 850 V920" class="flow"/>
+  <path d="M920 850 V920" class="flow"/>
+  <rect x="230" y="872" width="640" height="33" rx="8" fill="#0d1727"/>
+  <text x="550" y="894" text-anchor="middle" class="eyebrow" fill="#8acaf0">YIN.VM · INDEPENDENT EXECUTION PATHS</text>
+
+  <rect x="80" y="920" width="210" height="150" rx="16" class="yin"/>
+  <text x="185" y="954" text-anchor="middle" class="body">Reconstruct maps</text>
+  <path d="M185 970 V996" class="flow"/>
+  <text x="185" y="1031" text-anchor="middle" class="label">AST walker</text>
+
+  <rect x="325" y="920" width="210" height="150" rx="16" class="yin"/>
+  <text x="430" y="954" text-anchor="middle" class="body">Semantic lowering</text>
+  <path d="M430 970 V996" class="flow"/>
+  <text x="430" y="1031" text-anchor="middle" class="label">Semantic VM</text>
+  <text x="430" y="1057" text-anchor="middle" class="small">Register-shaped</text>
+
+  <rect x="570" y="920" width="210" height="150" rx="16" class="yin"/>
+  <text x="675" y="954" text-anchor="middle" class="body">Stack lowering</text>
+  <path d="M675 970 V996" class="flow"/>
+  <text x="675" y="1031" text-anchor="middle" class="label">Stack VM</text>
+  <text x="675" y="1057" text-anchor="middle" class="small">de Bruijn</text>
+
+  <rect x="815" y="920" width="210" height="150" rx="16" class="yin"/>
+  <text x="920" y="954" text-anchor="middle" class="body">Register lowering</text>
+  <path d="M920 970 V996" class="flow"/>
+  <text x="920" y="1031" text-anchor="middle" class="label">Register VM</text>
+  <text x="920" y="1057" text-anchor="middle" class="small">de Bruijn</text>
+
+  <text x="550" y="1125" text-anchor="middle" class="eyebrow" fill="#a9bad2">OPTIONAL PEER OBSERVERS OF THE SAME PROGRAM STREAM</text>
+  <path d="M80 810 H40 V1210 H80" class="flow"/>
+  <path d="M1020 810 H1060 V1210 H1020" class="flow"/>
+  <rect x="80" y="1155" width="440" height="110" rx="16" class="box"/>
+  <text x="300" y="1191" text-anchor="middle" class="label">DaoSpace index interpreter</text>
+  <text x="300" y="1223" text-anchor="middle" class="body">Program facts → Datalog queries</text>
+  <text x="300" y="1250" text-anchor="middle" class="small">Indexes code without executing it</text>
+  <rect x="580" y="1155" width="440" height="110" rx="16" class="box"/>
+  <text x="800" y="1191" text-anchor="middle" class="label">DaoJing storage observer</text>
+  <text x="800" y="1223" text-anchor="middle" class="body">Content addresses → storage / DHT</text>
+  <text x="800" y="1250" text-anchor="middle" class="small">Persists values without domain meaning</text>
+
+  <path d="M80 1310 H135" class="flow"/>
+  <text x="152" y="1317" class="small">Data flow in this composition</text>
+  <path d="M600 1310 H655" class="design"/>
+  <text x="672" y="1317" class="small">Pipeline transformation (design)</text>
+  <text x="550" y="1361" text-anchor="middle" class="small">A possible composition, not a mandatory linear pipeline or a scheduling plan.</text>
+</svg>
