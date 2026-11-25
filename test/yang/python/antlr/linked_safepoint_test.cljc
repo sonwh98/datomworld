@@ -259,9 +259,10 @@
    once more. S3's shared-call prelude revision moves it with `py`.
    The Python exception-track and provenance series (merged 8018005d)
    moves the pinned `py` requirement again; re-minted on JVM and Node
-   at the same address."
+   at the same address. The assert series moved the pinned py manifest;
+   re-minted after verified ANTLR generation in two independent JVMs."
   (keyword (str "segment/blake3-"
-                "5f1ba8b4a18fb4ebfd072521936bef31a8cad0fe99bf24d1e888925ab9f9b7d8")))
+                "d33e3a2cb77640a13f043d116d8faa16595b2419ab5d1fbe7b0f3c72e42d16f5")))
 
 
 (defn- pysp-manifest-address

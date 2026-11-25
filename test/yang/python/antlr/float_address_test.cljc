@@ -226,7 +226,8 @@
             py/result!, py.rt/value), and with the s3 tracing slice,
             which moved only the hook prelude, and with the Python exception-track
             and provenance series (merged 8018005d); re-minted from source.
-            The py/assert thunk series moved it again; re-minted after fresh
+            The assert series (60cda9b6, 392746bd, 906586c5, 7692d347)
+            moved it again; re-minted after fresh
             ANTLR generation in two JVMs)"
     (is (= (keyword
              (str "segment/blake3-"
@@ -256,9 +257,9 @@
               I5, and with value-display (06065e42; re-minted from the
               source packet); the s3 slice did not move them. The Python
               exception-track and provenance series (merged 8018005d)
-              moved them again; re-minted from source. The py/assert thunk series
-              moved them again; re-minted after fresh ANTLR generation in
-              two JVMs)"
+              moved them again; re-minted from source. The assert series
+              (60cda9b6, 392746bd, 906586c5, 7692d347) moved them again;
+              re-minted after fresh ANTLR generation in two JVMs)"
       (is (= (keyword
                (str "segment/blake3-"
                     "918a28a60730e7fddd8b23f18b1c01c3"
