@@ -17,7 +17,7 @@
 
 (defn report [path]
   (let [rows (mapv #(json/parse-string % true) (remove str/blank? (str/split-lines (slurp path))))
-        ordered (sort-by (juxt :start-wall :job-id) rows)
+        ordered (sort-by (juxt #(java.time.Instant/parse (:start-wall %)) :job-id) rows)
         origin (when (seq rows) (apply min (map #(inst-ms (java.util.Date/from (java.time.Instant/parse (:start-wall %)))) rows)))]
     (println "Gantt (seconds from first start; overlapping intervals retain their positions)")
     (doseq [r ordered]
