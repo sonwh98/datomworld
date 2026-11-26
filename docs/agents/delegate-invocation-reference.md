@@ -157,6 +157,13 @@ test fails; fall back to the laptop only when the agent cannot reach that host
 (sandboxed delegates) or the fix needs no test runs.
 
 **Host availability notes:**
+**deepseek cost accounting (2026-11-27, measured):** the wrapper's result-record
+`costUSD` is a LIST-PRICE estimate — it ignores DeepSeek's cache-hit pricing
+(~50x cheaper; a resumed session re-reading its context shows e.g. 11.4M
+cache-read tokens) and the off-peak 50% discount. The wrapper reported $8.64
+for a review whose platform-dashboard truth was **$0.21**. Always reconcile
+against platform.deepseek.com/usage (per API key) before quoting deepseek
+costs; expect resumed-session reviews to cost cents, not dollars.
 - **DeepSeek wrapper (`~/.local/bin/deepseek`)**: laptop (darkstar), shiva, and jupiter — all three hosts. Jupiter was added 2026-11-11 (wrapper copied from shiva via scp; `~/.claude-deepseek/` rsynced with it; live smoke test passed with `MODEL=deepseek-flash`, benign `claude-code:unrecognized_model` warning expected). Shiva remains canonical reference install; update other hosts from it.
 
 > [!IMPORTANT]
