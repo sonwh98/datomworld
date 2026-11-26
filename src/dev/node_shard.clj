@@ -24,6 +24,9 @@
             [clojure.string :as str]))
 
 
+(load-file (str (fs/parent (fs/absolutize *file*)) "/lane_timing.clj"))
+(require '[lane-timing :as timing])
+
 (def all-subs
   ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
    "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
@@ -119,6 +122,34 @@
                       #(if (= "uncovered.yang.typescript.antlr.corpus-test" (:id %)) 0 1)
                       :id))
        vec))
+
+(defn run-job!
+  [clone out record-lock runs fail! worker {s :id nss :nss}]
+  (let [start (timing/now)
+        t0 (System/currentTimeMillis)
+        {:keys [exit]} (psh {:dir clone
+                             :out (io/file (str out "/" s ".log"))
+                             :err (io/file (str out "/" s ".err.log"))
+                             :extra-env {"DATOM_SLOW_TESTS" "1"}
+                             :continue true}
+                            "node" "target/node-tests.js"
+                            ;; Shadow requires a single --test=<list> argument.
+                            (str "--test=" (str/join "," nss)))
+        end (timing/now)
+        secs (quot (- (System/currentTimeMillis) t0) 1000)]
+    (timing/append! record-lock (str out "/runs-ndjson.txt")
+                    (timing/record {:job-id s :namespaces nss :vars []
+                                    :worker-id (str "node-" worker) :timing-scope "job"}
+                                   start end exit))
+    (let [logtxt (try (slurp (str out "/" s ".log"))
+                      (catch Exception _ ""))
+          suspicious (or (str/includes? logtxt "Unknown arg")
+                         (str/includes? logtxt "Ran 0 tests"))]
+      (when suspicious
+        (fail! (str "shard " s " ran nothing (selection not applied)")))
+      (swap! runs assoc s {:rc exit :secs secs}))
+    (spit (str out "/runs.txt") (str s " rc=" exit " secs=" secs "\n") :append true)))
+
 
 (defn -main
   [& args]
@@ -239,31 +270,8 @@
                     (str/join "\n" (map #(str (:id %) " weight=" (:weight %)
                                                 " namespaces=" (str/join "," (:nss %))) shards)))
             runs (atom {})
-            run-one (fn [{s :id nss :nss}]
-                      (let [t0 (System/currentTimeMillis)
-                            {:keys [exit]}
-                            (psh {:dir clone
-                                  :out (io/file (str out "/" s ".log"))
-                                  :err (io/file (str out "/" s ".err.log"))
-                                  :extra-env {"DATOM_SLOW_TESTS" "1"}
-                                  :continue true}
-                                 "node" "target/node-tests.js"
-                                 ;; ONE argument: shadow 3.3.5's runner accepts
-                                 ;; only --test=<list>; a separate "--test" arg
-                                 ;; is ignored ("Unknown arg") and the worker
-                                 ;; silently runs the FULL suite (2026-11-01).
-                                 (str "--test=" (str/join "," nss)))
-                            secs (quot (- (System/currentTimeMillis) t0) 1000)]
-                        (let [logtxt (try (slurp (str out "/" s ".log"))
-                                          (catch Exception _ ""))
-                              suspicious (or (str/includes? logtxt "Unknown arg")
-                                             (str/includes? logtxt "Ran 0 tests"))]
-                          (when suspicious
-                            (fail! (str "shard " s " ran nothing (selection not applied)")))
-                          (swap! runs assoc s {:rc exit :secs secs}))
-                        (spit (str out "/runs.txt")
-                              (str s " rc=" exit " secs=" secs "\n")
-                              :append true)))]
+            record-lock (Object.)
+            run-one (fn [worker job] (run-job! clone out record-lock runs fail! worker job))]
         ;; WORK-STEALING pool, not waves: a wave scheduler parks the next
         ;; shard until every shard in the current batch finishes, so four
         ;; 20-second shards leave four slots idle while one heavy shard runs
@@ -282,7 +290,7 @@
                        (future
                          (loop []
                            (if-let [s (take-one)]
-                             (do (run-one s) (recur))
+                             (do (run-one i s) (recur))
                              i)))))
                (mapv deref)))
         (let [expected (count shards)
