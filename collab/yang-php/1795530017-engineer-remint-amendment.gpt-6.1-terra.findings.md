@@ -1,6 +1,6 @@
 Created-GMT: 2026-11-24
 Coding-Agent: codex
-Re: Assignment B remint amendment, b825db65 (uncommitted)
+Re: Assignment B remint amendment, b825db65 baseline
 
 # Findings
 
@@ -20,6 +20,8 @@ The first REPL run exposed the dependent `py-v1` descriptor revision lock, which
 
 Two independent JVM derivations of all five float pins, the linked manifest, the profile publication and its derivation/index pins are byte-identical: both logs SHA-256 `9fc2e6763851042a3efff04414d80f678ff0841aa2e2758a5faf38099aae953b` (target/remint-amend/derive-{1,2}.log; script alongside). Two independent descriptor/runtime derivations are byte-identical: both logs SHA-256 `fc7055a4d747c43d8244172bd102844b935152a86c8ca9d9be85223f77798c07` (revision-{1,2}.log).
 
-The two fresh JVM pin gates each passed 26 tests, 230 assertions, 0 failures, 0 errors (pins-gate-{1,2}.log). The initial REPL gate was interrupted after descriptor-address mismatch errors; after correcting the dependent locks, the focused `probe-buffers-across-lines-test` passed 1 test, 7 assertions, 0 failures, 0 errors. Full corrected REPL gate: INCOMPLETE. It was interrupted after more than 15 minutes without a test-runner summary or any failure output; see repl-gate-corrected.log. A green result is not claimed and this gate still needs completion.
+The two fresh JVM pin gates each passed 26 tests, 230 assertions, 0 failures, 0 errors (pins-gate-{1,2}.log). The initial REPL gate was interrupted after descriptor-address mismatch errors; after correcting the dependent locks, the focused `probe-buffers-across-lines-test` passed 1 test, 7 assertions, 0 failures, 0 errors. Full corrected REPL gate: INCOMPLETE. It was interrupted after more than 15 minutes without a test-runner summary or any failure output; see repl-gate-corrected.log. That r1 run did not establish a green result; the later r2 runs supersede it (see 1795539635-engineer-remint-r2.gpt-6.1-terra.findings.md).
 
 The zipmap form in `test/yin/vm/data_test.cljc` remains intact. No commit made.
+
+Custody correction (r3): commit d32c8179 mentions a REPL pass and dao.stream gate, but this r1 custody contains neither a completed full REPL pass nor a dao.stream run. The later r2 REPL logs document two passes; no dao.stream result is claimed here.
