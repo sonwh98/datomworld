@@ -1,0 +1,35 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+[:test] Build completed. (680 files, 70 compiled, 2 warnings, 13.21s)
+
+[1m------ WARNING #1 - :invalid-arithmetic ----------------------------------------[0m
+ File: /home/sto/ci/datomworld-floatkind/test/dao/host/conformance_test.cljc:442:43
+--------------------------------------------------------------------------------
+[2m 439 |        (is (= (hash (number/float64-of ##NaN)) (hash (number/float64-of (float/bits->float64 "7ff8000000000001")))))[0m
+[2m 440 |        (is (not= (number/float64-of 0.0) (number/float64-of -0.0)))[0m
+[2m 441 |        (is (= (number/float64-of 1) (number/float64-of 1.0)))[0m
+[1m 442 |        (is (= :carrier-coercion (refusal #(+ 1 (number/float64-of 1)))))[0m
+-------------------------------------------------^------------------------------
+ [33;1mcljs.core/+, all arguments must be numbers, got [number dao.host.number/Float64] instead[0m
+--------------------------------------------------------------------------------
+[2m 443 |        (is (= "#dao.jing/float64 1.5" (pr-str (number/float64-of 1.5))))[0m
+[2m 444 |        (is (= "#dao.jing/ratio [1 2]" (pr-str (number/ratio-of 1 2))))[0m
+[2m 445 |        (is (= "#dao.jing/decimal [-1 15]" (pr-str (number/decimal-of -1 15))))))[0m
+[2m 446 |   #?(:cljd nil[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #2 - :redef -----------------------------------------------------[0m
+ File: /home/sto/ci/datomworld-floatkind/test/yang/typescript_callsite_test.cljc:962:1
+--------------------------------------------------------------------------------
+[2m 959 |   :yang.ts/derived)[0m
+[2m 960 | [0m
+[2m 961 | [0m
+[1m 962 | (defn- derive[0m
+-------^------------------------------------------------------------------------
+ [33;1mderive already refers to: cljs.core/derive being replaced by: yang.typescript-callsite-test/derive[0m
+--------------------------------------------------------------------------------
+[2m 963 |   "The safepoint-derived envelope of `ast` under `profile`, admitted on this[0m
+[2m 964 |    test's medium and derived onto `derived-medium` — `derive-envelope` at its[0m
+[2m 965 |    3-arity, exactly as every ts caller invokes it: `safepoint/transform`[0m
+[2m 966 |    (`yang/safepoint.cljc:455`), `e2e-test`'s `derive-program` (`:71-86`),[0m
+--------------------------------------------------------------------------------

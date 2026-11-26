@@ -1,0 +1,545 @@
+
+Testing yang.clojure-float-kind-test
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:726:17)
+sets retain false and nil at first, middle, and last positions #{false 1.0 2}
+#{false 1.0 2} read as #{}
+expected: (= 3 (count s))
+  actual: (not (= 3 0))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:727:17)
+sets retain false and nil at first, middle, and last positions #{false 1.0 2}
+expected: (= expected-false? (contains? s false))
+  actual: (not (= true false))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:729:17)
+sets retain false and nil at first, middle, and last positions #{false 1.0 2}
+expected: (contains? s 2)
+  actual: (not (contains? #{} 2))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:730:17)
+sets retain false and nil at first, middle, and last positions #{false 1.0 2}
+expected: (= 1 (count floats))
+  actual: (not (= 1 0))
+
+ERROR in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:731:17)
+sets retain false and nil at first, middle, and last positions #{false 1.0 2}
+expected: (= 1 (data/float-value (first floats)))
+  actual: #error {:message "data primitive refused", :data {:yin.vm.data/op float-value, :yin.vm.data/reason :wrong-type, :yin.vm.data/arg 0, :yin.vm.data/expected :number}}
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:726:17)
+sets retain false and nil at first, middle, and last positions #{1.0 false 2}
+#{1.0 false 2} read as #{#dao.jing/float64 1}
+expected: (= 3 (count s))
+  actual: (not (= 3 1))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:727:17)
+sets retain false and nil at first, middle, and last positions #{1.0 false 2}
+expected: (= expected-false? (contains? s false))
+  actual: (not (= true false))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:729:17)
+sets retain false and nil at first, middle, and last positions #{1.0 false 2}
+expected: (contains? s 2)
+  actual: (not (contains? #{#dao.jing/float64 1} 2))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:726:17)
+sets retain false and nil at first, middle, and last positions #{1.0 2 false}
+#{1.0 2 false} read as #{#dao.jing/float64 1 2}
+expected: (= 3 (count s))
+  actual: (not (= 3 2))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:727:17)
+sets retain false and nil at first, middle, and last positions #{1.0 2 false}
+expected: (= expected-false? (contains? s false))
+  actual: (not (= true false))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:726:17)
+sets retain false and nil at first, middle, and last positions #{nil 1.0 2}
+#{nil 1.0 2} read as #{}
+expected: (= 3 (count s))
+  actual: (not (= 3 0))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:728:17)
+sets retain false and nil at first, middle, and last positions #{nil 1.0 2}
+expected: (= expected-nil? (contains? s nil))
+  actual: (not (= true false))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:729:17)
+sets retain false and nil at first, middle, and last positions #{nil 1.0 2}
+expected: (contains? s 2)
+  actual: (not (contains? #{} 2))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:730:17)
+sets retain false and nil at first, middle, and last positions #{nil 1.0 2}
+expected: (= 1 (count floats))
+  actual: (not (= 1 0))
+
+ERROR in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:731:17)
+sets retain false and nil at first, middle, and last positions #{nil 1.0 2}
+expected: (= 1 (data/float-value (first floats)))
+  actual: #error {:message "data primitive refused", :data {:yin.vm.data/op float-value, :yin.vm.data/reason :wrong-type, :yin.vm.data/arg 0, :yin.vm.data/expected :number}}
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:726:17)
+sets retain false and nil at first, middle, and last positions #{1.0 nil 2}
+#{1.0 nil 2} read as #{#dao.jing/float64 1}
+expected: (= 3 (count s))
+  actual: (not (= 3 1))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:728:17)
+sets retain false and nil at first, middle, and last positions #{1.0 nil 2}
+expected: (= expected-nil? (contains? s nil))
+  actual: (not (= true false))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:729:17)
+sets retain false and nil at first, middle, and last positions #{1.0 nil 2}
+expected: (contains? s 2)
+  actual: (not (contains? #{#dao.jing/float64 1} 2))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:726:17)
+sets retain false and nil at first, middle, and last positions #{1.0 2 nil}
+#{1.0 2 nil} read as #{#dao.jing/float64 1 2}
+expected: (= 3 (count s))
+  actual: (not (= 3 2))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:728:17)
+sets retain false and nil at first, middle, and last positions #{1.0 2 nil}
+expected: (= expected-nil? (contains? s nil))
+  actual: (not (= true false))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:733:13)
+sets retain false and nil at first, middle, and last positions
+expected: (= 4 (count s))
+  actual: (not (= 4 0))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:734:13)
+sets retain false and nil at first, middle, and last positions
+expected: (contains? s false)
+  actual: (not (contains? #{} false))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:735:13)
+sets retain false and nil at first, middle, and last positions
+expected: (contains? s nil)
+  actual: (not (contains? #{} nil))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:736:13)
+sets retain false and nil at first, middle, and last positions
+expected: (contains? s 2)
+  actual: (not (contains? #{} 2))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:737:13)
+sets retain false and nil at first, middle, and last positions
+expected: (= 1 (count (filter cbor/float64? s)))
+  actual: (not (= 1 0))
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:747:13)
+duplicate set elements after false/nil are still refused
+#{false 1 1} must refuse duplicate element
+expected: (thrown? js/Error (yang/read-forms src))
+  actual: nil
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:747:13)
+duplicate set elements after false/nil are still refused
+#{nil 1 1} must refuse duplicate element
+expected: (thrown? js/Error (yang/read-forms src))
+  actual: nil
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:747:13)
+duplicate set elements after false/nil are still refused
+#{false 1.0 1.0} must refuse duplicate element
+expected: (thrown? js/Error (yang/read-forms src))
+  actual: nil
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:747:13)
+duplicate set elements after false/nil are still refused
+#{nil 1.0 1.0} must refuse duplicate element
+expected: (thrown? js/Error (yang/read-forms src))
+  actual: nil
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:747:13)
+duplicate set elements after false/nil are still refused
+#{false false} must refuse duplicate element
+expected: (thrown? js/Error (yang/read-forms src))
+  actual: nil
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:747:13)
+duplicate set elements after false/nil are still refused
+#{nil nil} must refuse duplicate element
+expected: (thrown? js/Error (yang/read-forms src))
+  actual: nil
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:747:13)
+duplicate set elements after false/nil are still refused
+#{false nil false} must refuse duplicate element
+expected: (thrown? js/Error (yang/read-forms src))
+  actual: nil
+
+FAIL in (b2-set-and-map-false-nil-elements-and-duplicates) (yang/clojure_float_kind_test.cljc:747:13)
+duplicate set elements after false/nil are still refused
+#{nil false nil} must refuse duplicate element
+expected: (thrown? js/Error (yang/read-forms src))
+  actual: nil
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:770:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= 1 1 false))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:771:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= 1 1 nil))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:772:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= 1 1 false 1))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:773:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= 1 1 nil 1))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:774:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= (data/float64 1) (data/float64 1) false))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:775:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= (data/float64 1) (data/float64 1) nil))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:778:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= false false nil))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:779:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= false false false 1))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:781:9)
+direct variadic clj-= and clj-!= calls
+expected: (false? (clj-numeric/clj-= nil nil false))
+  actual: (not (false? true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:783:9)
+direct variadic clj-= and clj-!= calls
+expected: (true? (clj-numeric/clj-!= 1 1 false))
+  actual: (not (true? false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:784:9)
+direct variadic clj-= and clj-!= calls
+expected: (true? (clj-numeric/clj-!= 1 1 nil))
+  actual: (not (true? false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:785:9)
+direct variadic clj-= and clj-!= calls
+expected: (true? (clj-numeric/clj-!= 1 1 false 1))
+  actual: (not (true? false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:787:9)
+direct variadic clj-= and clj-!= calls
+expected: (true? (clj-numeric/clj-!= false false nil))
+  actual: (not (true? false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:789:9)
+direct variadic clj-= and clj-!= calls
+expected: (true? (clj-numeric/clj-!= nil nil false))
+  actual: (not (true? false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= 1 1 false)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= 1 1 nil)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= 1 1 false 1)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= 1 1 nil 1)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= 1.0 1.0 false)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= 1.0 1.0 nil)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= 1.0 1.0 false 1.0)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= false false nil)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= false false false 1)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(= nil nil false)
+expected: (= expected (repl-session-result line))
+  actual: (not (= false true))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(!= 1 1 false)
+expected: (= expected (repl-session-result line))
+  actual: (not (= true false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(!= 1 1 nil)
+expected: (= expected (repl-session-result line))
+  actual: (not (= true false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(!= 1 1 false 1)
+expected: (= expected (repl-session-result line))
+  actual: (not (= true false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(!= 1.0 1.0 false)
+expected: (= expected (repl-session-result line))
+  actual: (not (= true false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(!= false false nil)
+expected: (= expected (repl-session-result line))
+  actual: (not (= true false))
+
+FAIL in (b3-variadic-equality-and-inequality-truthiness) (yang/clojure_float_kind_test.cljc:818:13)
+variadic = and != through the REPL/catalog source path
+(!= nil nil false)
+expected: (= expected (repl-session-result line))
+  actual: (not (= true false))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:827:11)
+top-level positions
+expected: (= [:yang.clojure.reader/discard] (yang/read-forms ":yang.clojure.reader/discard"))
+  actual: (not (= [:yang.clojure.reader/discard] []))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:829:11)
+top-level positions
+expected: (= [:yang.clojure.reader/discard 1] (yang/read-forms ":yang.clojure.reader/discard 1"))
+  actual: (not (= [:yang.clojure.reader/discard 1] [1]))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:833:11)
+top-level positions
+expected: (= :yang.clojure.reader/discard (repl-session-result ":yang.clojure.reader/discard"))
+  actual: (not (= :yang.clojure.reader/discard nil))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:840:13)
+collection positions
+expected: (= 2 (count v))
+  actual: (not (= 2 1))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:841:13)
+collection positions
+expected: (= :yang.clojure.reader/discard (first v))
+  actual: (not (= :yang.clojure.reader/discard #dao.jing/float64 1))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:842:13)
+collection positions
+expected: (cbor/float64? (second v))
+  actual: (not (cbor/float64? nil))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:843:13)
+collection positions
+expected: (= 2 (count l))
+  actual: (not (= 2 1))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:844:13)
+collection positions
+expected: (= :yang.clojure.reader/discard (first l))
+  actual: (not (= :yang.clojure.reader/discard #dao.jing/float64 1))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:845:13)
+collection positions
+expected: (cbor/float64? (second l))
+  actual: (not (cbor/float64? nil))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:846:13)
+collection positions
+expected: (= 2 (count m))
+  actual: (not (= 2 1))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:847:13)
+collection positions
+expected: (cbor/float64? (get m :yang.clojure.reader/discard))
+  actual: (not (cbor/float64? nil))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:848:13)
+collection positions
+expected: (= :yang.clojure.reader/discard (get m :k))
+  actual: (not (= :yang.clojure.reader/discard nil))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:849:13)
+collection positions
+expected: (= 4 (count s))
+  actual: (not (= 4 0))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:850:13)
+collection positions
+expected: (contains? s :yang.clojure.reader/discard)
+  actual: (not (contains? #{} :yang.clojure.reader/discard))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:851:13)
+collection positions
+expected: (contains? s false)
+  actual: (not (contains? #{} false))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:852:13)
+collection positions
+expected: (contains? s nil)
+  actual: (not (contains? #{} nil))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:853:13)
+collection positions
+expected: (= 1 (count (filter cbor/float64? s)))
+  actual: (not (= 1 0))
+
+ERROR in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:855:11)
+required-form positions
+expected: (= (quote (quote :yang.clojure.reader/discard)) (read-one "':yang.clojure.reader/discard"))
+  actual: #error {:message "EOF while reading quote", :data {:type :reader-exception, :ex-kind :reader-error, :index 1}}
+
+ERROR in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:857:11)
+required-form positions
+expected: (= {:yang.clojure.reader/discard true} (meta (read-one "^:yang.clojure.reader/discard [1.0]")))
+  actual: #error {:message "Metadata must be Symbol, Keyword, String or Map", :data {:type :reader-exception, :ex-kind :reader-error, :meta [#dao.jing/float64 1], :index 0}}
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:860:13)
+required-form positions
+expected: (= 1 (count after-discard))
+  actual: (not (= 1 0))
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:861:13)
+required-form positions
+expected: (cbor/float64? (first after-discard))
+  actual: (not (cbor/float64? nil))
+
+ERROR in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:862:11)
+required-form positions
+expected: (= (quote (clojure.core/unquote :yang.clojure.reader/discard)) (read-one "~:yang.clojure.reader/discard"))
+  actual: #error {:message "EOF while reading unquote", :data {:type :reader-exception, :ex-kind :reader-error, :index 1}}
+
+ERROR in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:864:11)
+required-form positions
+expected: (= (quote (clojure.core/deref :yang.clojure.reader/discard)) (read-one "@:yang.clojure.reader/discard"))
+  actual: #error {:message "EOF while reading deref", :data {:type :reader-exception, :ex-kind :reader-error, :index 1}}
+
+ERROR in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:866:11)
+required-form positions
+expected: (= (quote (var :yang.clojure.reader/discard)) (read-one "#':yang.clojure.reader/discard"))
+  actual: #error {:message "EOF while reading var", :data {:type :reader-exception, :ex-kind :reader-error, :index 2}}
+
+FAIL in (b4-discard-sentinel-cannot-collide-with-guest-values) (yang/clojure_float_kind_test.cljc:870:13)
+required-form positions
+expected: (= :yang.clojure.reader/discard (first (nth fn-form 2)))
+  actual: (not (= :yang.clojure.reader/discard p__1))
+
+FAIL in (b5-anon-fn-capture-avoiding-and-deterministic) (yang/clojure_float_kind_test.cljc:879:11)
+the 4-vs-12 counterexample and float variant
+expected: (= 12 (repl-session-result "(let [p__1 10] (#(+ p__1 %) 2))"))
+  actual: (not (= 12 4))
+
+FAIL in (b5-anon-fn-capture-avoiding-and-deterministic) (yang/clojure_float_kind_test.cljc:882:13)
+the 4-vs-12 counterexample and float variant
+expected: (= 12 (data/float-value fv))
+  actual: (not (= 12 4))
+
+FAIL in (b5-anon-fn-capture-avoiding-and-deterministic) (yang/clojure_float_kind_test.cljc:884:11)
+positional and rest bindings against colliding user names
+expected: (= 66 (repl-session-result "(let [p__1 10 p__2 20 p__rest 30]\n                     (#(+ p__1 p__2 p__rest %1 %2 (first %&)) 1 2 3))"))
+  actual: (not (= 66 :yang.clojure-float-kind-test/none))
+
+FAIL in (b5-anon-fn-capture-avoiding-and-deterministic) (yang/clojure_float_kind_test.cljc:889:11)
+positional and rest bindings against colliding user names
+expected: (= 22 (repl-session-result "(let [p__1 10] (#(let [p__1 20] (+ p__1 %)) 2))"))
+  actual: (not (= 22 40))
+
+FAIL in (b5-anon-fn-capture-avoiding-and-deterministic) (yang/clojure_float_kind_test.cljc:891:11)
+positional and rest bindings against colliding user names
+expected: (= 305 (repl-session-result "(let [rest__1# 100 p__rest 200] (#(+ rest__1# p__rest (first %&)) 5 6))"))
+  actual: (not (= 305 :yang.clojure-float-kind-test/none))
+
+ERROR in (b6-lexical-compatibility-and-syntax-quote) (yang/clojure_float_kind_test.cljc:913:14)
+apostrophe-in-symbol reads and executes
+expected: (= (quote x') (read-one "x'"))
+  actual: #error {:message "EOF while reading quote", :data {:type :reader-exception, :ex-kind :reader-error, :index 2}}
+
+FAIL in (b6-lexical-compatibility-and-syntax-quote) (yang/clojure_float_kind_test.cljc:914:14)
+apostrophe-in-symbol reads and executes
+expected: (= (quote foo'bar) (read-one "foo'bar"))
+  actual: (not (= foo'bar foo))
+
+ERROR in (b6-lexical-compatibility-and-syntax-quote) (yang/clojure_float_kind_test.cljc:915:14)
+apostrophe-in-symbol reads and executes
+expected: (= (quote a'') (read-one "a''"))
+  actual: #error {:message "EOF while reading quote", :data {:type :reader-exception, :ex-kind :reader-error, :index 3}}
+
+ERROR in (b6-lexical-compatibility-and-syntax-quote) (yang/clojure_float_kind_test.cljc:916:14)
+apostrophe-in-symbol reads and executes
+expected: (= (quote ns/x') (read-one "ns/x'"))
+  actual: #error {:message "EOF while reading quote", :data {:type :reader-exception, :ex-kind :reader-error, :index 5}}
+
+ERROR in (b6-lexical-compatibility-and-syntax-quote) (yang/clojure_float_kind_test.cljc:917:14)
+apostrophe-in-symbol reads and executes
+expected: (= (quote (quote x')) (read-one "'x'"))
+  actual: #error {:message "EOF while reading quote", :data {:type :reader-exception, :ex-kind :reader-error, :index 3}}
+
+ERROR in (b6-lexical-compatibility-and-syntax-quote) (yang/clojure_float_kind_test.cljc:918:14)
+apostrophe-in-symbol reads and executes
+expected: (= :k' (read-one ":k'"))
+  actual: #error {:message "EOF while reading quote", :data {:type :reader-exception, :ex-kind :reader-error, :index 3}}
+
+ERROR in (b6-lexical-compatibility-and-syntax-quote) (yang/clojure_float_kind_test.cljc:923:14)
+scalar syntax-quote reads and executes as before, preserving float kind
+expected: (= 1 (read-one "`1"))
+  actual: #error {:message "Syntax-quote (`) is not supported in portable source reading", :data {:type :reader-exception, :ex-kind :reader-error, :index 0}}
+
+FAIL in (b6-lexical-compatibility-and-syntax-quote) (yang/clojure_float_kind_test.cljc:924:14)
+scalar syntax-quote reads and executes as before, preserving float kind
+expected: (= 1 (repl-session-result "`1"))
+  actual: (not (= 1 :yang.clojure-float-kind-test/none))
+
+ERROR in (b6-lexical-compatibility-and-syntax-quote) (Error:NaN:NaN)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Syntax-quote (`) is not supported in portable source reading", :data {:type :reader-exception, :ex-kind :reader-error, :index 0}}
+
+Ran 27 tests containing 443 assertions.
+88 failures, 14 errors.

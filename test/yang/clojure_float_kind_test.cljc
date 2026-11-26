@@ -21,6 +21,7 @@
             [dao.stream :as stream]
             [dao.stream.base64 :as base64]
             [yang.clojure :as yang]
+            [yang.clojure.numeric :as clj-numeric]
             [yang.clojure.prelude]
             [yang.frontend :as frontend]
             [yin.repl :as repl]
@@ -33,9 +34,23 @@
             #?@(:jolt []
                 :cljd [["dart:io" :as dart-io]]
                 :clj [[clojure.java.io :as io]
+                      [clojure.tools.reader :as tools-reader]
+                      [clojure.tools.reader.reader-types :as tools-rt]
                       [clojure.walk :as walk]
+                      [dao.stream.ringbuffer :as ringbuffer]
                       [yang.clojure.core-impl]
-                      [yang.python.antlr.clj-runtime]])))
+                      [yang.python.antlr.clj-runtime]
+                      [yin.vm.semantic :as sr]
+                      [yin.vm.semantic.code :as semantic-code]
+                      [yin.vm.semantic.linearize :as semantic-linearize]
+                      [yin.vm.ucf.rows :as ucf-rows]]
+                :cljs [[cljs.tools.reader :as tools-reader]
+                       [cljs.tools.reader.reader-types :as tools-rt]
+                       [dao.stream.ringbuffer :as ringbuffer]
+                       [yin.vm.semantic :as sr]
+                       [yin.vm.semantic.code :as semantic-code]
+                       [yin.vm.semantic.linearize :as semantic-linearize]
+                       [yin.vm.ucf.rows :as ucf-rows]])))
 
 
 ;; =============================================================================
@@ -580,6 +595,431 @@
         (is (= 2.0 (data/float-value resumed)))
         (is (cbor/float64? decoded))
         (is (= 2.0 (data/float-value decoded)))))))
+
+
+(deftest gate5-pre-pause-integral-float-across-continuation-and-snapshot
+  "B-7 (Gate 5): integral floats computed BEFORE the continuation pause
+   (in both the VM store and the lexical continuation environment) retain
+   float64 kind, value, IEEE-754 bits, and canonical identity across both
+   direct pause/resume and full UCF row-snapshot CBOR serialization/deserialization."
+  #?(:jolt nil
+     :cljd nil
+     :default
+     (let [catalog (frontends/standard)
+           selected (frontend/select catalog {:yang.frontend/id :yang/clojure})
+           prims (merge vm/primitives (or (:primitives (:binding selected)) {}))
+           src "(def s (stream/make 4))
+                (def stored-f (+ 1.5 0.5))
+                (let [local-f (* 2.5 2.0)
+                      neg-zero (* -1.0 0.0)]
+                  (let [sig (stream/next! (stream/cursor s))]
+                    [stored-f local-f neg-zero sig]))"
+           ast (yang/compile-program (yang/read-forms src))
+           proj (:vector (semantic-linearize/project ast))
+           src-idx {(jing/segment-key proj) #{(jing/segment-key [:yin/tree ast])}}
+           make-ring (fn [cap]
+                       (:dao.stream/handle
+                         (ringbuffer/create!
+                           {:dao.stream/type ringbuffer/transport-type
+                            ringbuffer/capacity-key cap})))
+           verify-result
+           (fn [label v]
+             (testing label
+               (is (= 4 (count v)))
+               (let [[sf lf nz sig] v]
+                 (is (= :go sig))
+                 (doseq [[tag fv expected-val expected-bits]
+                         [["stored 2.0" sf 2.0 "4000000000000000"]
+                          ["local 5.0" lf 5.0 "4014000000000000"]
+                          ["local -0.0" nz -0.0 "8000000000000000"]]]
+                   (testing tag
+                     (is (cbor/float64? fv) (str tag " must keep float64 kind, got " (pr-str fv)))
+                     (is (not (integer-host/exact-integer? fv)) (str tag " must not collapse to integer"))
+                     (is (= expected-val (data/float-value fv)))
+                     (is (= expected-bits (host-bits-of fv)))
+                     (is (cbor/bytes= (jing/canonical-bytes (data/float64 expected-val))
+                                      (jing/canonical-bytes fv))))))))
+           ;; (a) Direct pause / resume
+           direct-stream (atom nil)
+           m-direct (-> (sr/create-vm {:primitives prims
+                                       :modules (-> (module/default-registry)
+                                                    module/register-stream-module)
+                                       :make-stream (fn [cap]
+                                                      (let [h (make-ring cap)]
+                                                        (reset! direct-stream h)
+                                                        {:dao.stream/outcome :dao.stream/ok
+                                                         :dao.stream/handle h}))
+                                       :capability-secret tu/secret
+                                       :secret-source (fn [o] (str tu/secret "/" (name o)))})
+                        (sr/load-vector proj semantic-code/contract))
+           parked-direct (vm/run m-direct)
+           _ (is (vm/blocked? parked-direct) "VM pauses after computing stored-f, local-f, neg-zero")
+           _ (stream/append! @direct-stream :go)
+           resumed-direct (vm/run parked-direct)
+           _ (is (vm/halted? resumed-direct))
+           _ (verify-result "direct pause/resume" (vm/value resumed-direct))
+           ;; (b) UCF snapshot CBOR serialization -> deserialization -> receiver resume
+           m-snap (-> (sr/create-vm {:primitives prims
+                                     :modules (-> (module/default-registry)
+                                                  module/register-stream-module)
+                                     :make-stream (fn [cap]
+                                                    {:dao.stream/outcome :dao.stream/ok
+                                                     :dao.stream/handle (make-ring cap)})
+                                     :capability-secret tu/secret
+                                     :secret-source (fn [o] (str tu/secret "/" (name o)))})
+                      (sr/load-vector proj semantic-code/contract))
+           parked-snap (vm/run m-snap)
+           _ (is (vm/blocked? parked-snap) "snapshot VM pauses with pre-computed integral floats live")
+           served-streams (atom {})
+           serve! (let [table (atom {})]
+                    (fn [h]
+                      (or (get @table h)
+                          (let [id (str "s" (count @table))
+                                desc {:dao.stream/identity id
+                                      :dao.stream/channel {:dao.stream/type :test/channel}}]
+                            (swap! table assoc h desc)
+                            (swap! served-streams assoc id h)
+                            desc))))
+           pack (ucf-rows/lift-task parked-snap serve! {:source-index src-idx})
+           pack-bytes (cbor/encode pack)
+           pack-decoded (cbor/decode pack-bytes)
+           attach! (fn [d]
+                     {:dao.stream/outcome :dao.stream/ok
+                      :dao.stream/handle (get @served-streams (:dao.stream/identity d))})
+           receiver (sr/create-vm {:primitives prims
+                                   :modules (-> (module/default-registry)
+                                                module/register-stream-module)
+                                   :make-stream (fn [cap]
+                                                  {:dao.stream/outcome :dao.stream/ok
+                                                   :dao.stream/handle (make-ring cap)})
+                                   :capability-secret tu/secret
+                                   :secret-source (fn [o] (str tu/secret "/" (name o)))})
+           restored (ucf-rows/lower-task receiver pack-decoded attach! {})]
+       (is (vm/blocked? restored) "deserialized snapshot restores in blocked state")
+       (stream/append! (get @served-streams "s0") :go)
+       (let [resumed-snap (vm/run restored)]
+         (is (vm/halted? resumed-snap))
+         (verify-result "UCF CBOR snapshot round-trip" (vm/value resumed-snap))))))
+
+
+;; =============================================================================
+;; R2 SIGN-OFF REGRESSIONS (B-2 .. B-6)
+;; =============================================================================
+
+
+(deftest b2-set-and-map-false-nil-elements-and-duplicates
+  "B-2: false/nil elements in sets (at any position) and maps must never
+   truncate reading or bypass duplicate checks after them."
+  (when repl-route?
+    (testing "sets retain false and nil at first, middle, and last positions"
+      (doseq [[src expected-false? expected-nil?]
+              [["#{false 1.0 2}" true false]
+               ["#{1.0 false 2}" true false]
+               ["#{1.0 2 false}" true false]
+               ["#{nil 1.0 2}" false true]
+               ["#{1.0 nil 2}" false true]
+               ["#{1.0 2 nil}" false true]]]
+        (testing src
+          (let [s (read-one src)
+                floats (filter cbor/float64? s)]
+            (is (set? s))
+            (is (= 3 (count s)) (str src " read as " (pr-str s)))
+            (is (= expected-false? (contains? s false)))
+            (is (= expected-nil? (contains? s nil)))
+            (is (contains? s 2))
+            (is (= 1 (count floats)))
+            (is (= 1.0 (data/float-value (first floats)))))))
+      (let [s (read-one "#{false nil 1.0 2}")]
+        (is (= 4 (count s)))
+        (is (contains? s false))
+        (is (contains? s nil))
+        (is (contains? s 2))
+        (is (= 1 (count (filter cbor/float64? s))))))
+    (testing "duplicate set elements after false/nil are still refused"
+      (doseq [src ["#{false 1 1}"
+                   "#{nil 1 1}"
+                   "#{false 1.0 1.0}"
+                   "#{nil 1.0 1.0}"
+                   "#{false false}"
+                   "#{nil nil}"
+                   "#{false nil false}"
+                   "#{nil false nil}"]]
+        (is (thrown? #?(:clj Exception :cljs js/Error :default Exception)
+                     (yang/read-forms src))
+            (str src " must refuse duplicate element"))))
+    (testing "maps retain false/nil keys and refuse duplicates after them"
+      (let [m (read-one "{false 1.0 nil 2 1 :a}")]
+        (is (= 3 (count m)))
+        (is (cbor/float64? (get m false)))
+        (is (= 1.0 (data/float-value (get m false))))
+        (is (= 2 (get m nil)))
+        (is (= :a (get m 1))))
+      (doseq [src ["{false 1 false 2}"
+                   "{nil 1 nil 2}"
+                   "{false 1 2 :a 2 :b}"
+                   "{nil 1 1.0 :a 1.0 :b}"]]
+        (is (thrown? #?(:clj Exception :cljs js/Error :default Exception)
+                     (yang/read-forms src))
+            (str src " must refuse duplicate key"))))))
+
+
+(deftest b3-variadic-equality-and-inequality-truthiness
+  "B-3: variadic clj-= and clj-!= must test sequence presence, never
+   operand truthiness, including operands after false/nil."
+  (testing "direct variadic clj-= and clj-!= calls"
+    (is (false? (clj-numeric/clj-= 1 1 false)))
+    (is (false? (clj-numeric/clj-= 1 1 nil)))
+    (is (false? (clj-numeric/clj-= 1 1 false 1)))
+    (is (false? (clj-numeric/clj-= 1 1 nil 1)))
+    (is (false? (clj-numeric/clj-= (data/float64 1.0) (data/float64 1.0) false)))
+    (is (false? (clj-numeric/clj-= (data/float64 1.0) (data/float64 1.0) nil)))
+    (is (true? (clj-numeric/clj-= false false false)))
+    (is (false? (clj-numeric/clj-= false false true)))
+    (is (false? (clj-numeric/clj-= false false nil)))
+    (is (false? (clj-numeric/clj-= false false false 1)))
+    (is (true? (clj-numeric/clj-= nil nil nil)))
+    (is (false? (clj-numeric/clj-= nil nil false)))
+    (is (false? (clj-numeric/clj-= nil nil 1)))
+    (is (true? (clj-numeric/clj-!= 1 1 false)))
+    (is (true? (clj-numeric/clj-!= 1 1 nil)))
+    (is (true? (clj-numeric/clj-!= 1 1 false 1)))
+    (is (false? (clj-numeric/clj-!= false false false)))
+    (is (true? (clj-numeric/clj-!= false false nil)))
+    (is (false? (clj-numeric/clj-!= nil nil nil)))
+    (is (true? (clj-numeric/clj-!= nil nil false))))
+  (when repl-route?
+    (testing "variadic = and != through the REPL/catalog source path"
+      (doseq [[line expected]
+              [["(= 1 1 false)" false]
+               ["(= 1 1 nil)" false]
+               ["(= 1 1 false 1)" false]
+               ["(= 1 1 nil 1)" false]
+               ["(= 1.0 1.0 false)" false]
+               ["(= 1.0 1.0 nil)" false]
+               ["(= 1.0 1.0 false 1.0)" false]
+               ["(= false false false)" true]
+               ["(= false false true)" false]
+               ["(= false false nil)" false]
+               ["(= false false false 1)" false]
+               ["(= nil nil nil)" true]
+               ["(= nil nil false)" false]
+               ["(= nil nil 1.0)" false]
+               ["(= 1.0 1.0 1.0)" true]
+               ["(= 1.0 1.0 1)" false]
+               ["(!= 1 1 false)" true]
+               ["(!= 1 1 nil)" true]
+               ["(!= 1 1 false 1)" true]
+               ["(!= 1.0 1.0 false)" true]
+               ["(!= false false false)" false]
+               ["(!= false false nil)" true]
+               ["(!= nil nil nil)" false]
+               ["(!= nil nil false)" true]
+               ["(!= 1.0 1.0 1.0)" false]]]
+        (is (= expected (repl-session-result line)) line)))))
+
+
+(deftest b4-discard-sentinel-cannot-collide-with-guest-values
+  "B-4: valid guest literals (especially :yang.clojure.reader/discard,
+   false, nil, :discard, and vector shapes) must remain representable in
+   top-level, collection, and required-form positions."
+  (when repl-route?
+    (testing "top-level positions"
+      (is (= [:yang.clojure.reader/discard]
+             (yang/read-forms ":yang.clojure.reader/discard")))
+      (is (= [:yang.clojure.reader/discard 1]
+             (yang/read-forms ":yang.clojure.reader/discard 1")))
+      (is (= [false nil :discard [:discard nil 0]]
+             (yang/read-forms "false nil :discard [:discard nil 0]")))
+      (is (= :yang.clojure.reader/discard
+             (repl-session-result ":yang.clojure.reader/discard"))))
+    (testing "collection positions"
+      (let [v (read-one "[:yang.clojure.reader/discard 1.0]")
+            l (read-one "(:yang.clojure.reader/discard 1.0)")
+            m (read-one "{:yang.clojure.reader/discard 1.0 :k :yang.clojure.reader/discard}")
+            s (read-one "#{:yang.clojure.reader/discard false nil 1.0}")]
+        (is (= 2 (count v)))
+        (is (= :yang.clojure.reader/discard (first v)))
+        (is (cbor/float64? (second v)))
+        (is (= 2 (count l)))
+        (is (= :yang.clojure.reader/discard (first l)))
+        (is (cbor/float64? (second l)))
+        (is (= 2 (count m)))
+        (is (cbor/float64? (get m :yang.clojure.reader/discard)))
+        (is (= :yang.clojure.reader/discard (get m :k)))
+        (is (= 4 (count s)))
+        (is (contains? s :yang.clojure.reader/discard))
+        (is (contains? s false))
+        (is (contains? s nil))
+        (is (= 1 (count (filter cbor/float64? s))))))
+    (testing "required-form positions"
+      (is (= '(quote :yang.clojure.reader/discard)
+             (read-one "':yang.clojure.reader/discard")))
+      (is (= {:yang.clojure.reader/discard true}
+             (meta (read-one "^:yang.clojure.reader/discard [1.0]"))))
+      (let [after-discard (yang/read-forms "#_:yang.clojure.reader/discard 1.0")]
+        (is (= 1 (count after-discard)))
+        (is (cbor/float64? (first after-discard))))
+      (is (= '(clojure.core/unquote :yang.clojure.reader/discard)
+             (read-one "~:yang.clojure.reader/discard")))
+      (is (= '(clojure.core/deref :yang.clojure.reader/discard)
+             (read-one "@:yang.clojure.reader/discard")))
+      (is (= '(var :yang.clojure.reader/discard)
+             (read-one "#':yang.clojure.reader/discard")))
+      (let [fn-form (read-one "#(:yang.clojure.reader/discard %)")]
+        (is (= 'fn (first fn-form)))
+        (is (= :yang.clojure.reader/discard (first (nth fn-form 2))))))))
+
+
+(deftest b5-anon-fn-capture-avoiding-and-deterministic
+  "B-5: #(...) expansion must be capture-avoiding (never capturing user
+   bindings like p__1/p__2/p__rest or generated-pattern names), parse-scoped,
+   and deterministic in canonical output."
+  (when repl-route?
+    (testing "the 4-vs-12 counterexample and float variant"
+      (is (= 12 (repl-session-result "(let [p__1 10] (#(+ p__1 %) 2))")))
+      (let [fv (repl-session-result "(let [p__1 10.0] (#(+ p__1 %) 2.0))")]
+        (is (cbor/float64? fv))
+        (is (= 12.0 (data/float-value fv)))))
+    (testing "positional and rest bindings against colliding user names"
+      (let [form (read-one "#(+ p__1 p__2 p__rest %1 %2 (first %&))")
+            params (second form)
+            body (nth form 2)
+            [p1 p2 amp r] params]
+        (is (= 'fn (first form)))
+        (is (= 4 (count params)))
+        (is (= '& amp))
+        (is (not-any? #{'p__1 'p__2 'p__rest} [p1 p2 r]))
+        (is (= (list '+ 'p__1 'p__2 'p__rest p1 p2 (list 'first r)) body)))
+      (let [form (read-one "#(+ p1__1# p2__1# rest__1# %1 %2 (first %&))")
+            params (second form)
+            body (nth form 2)
+            [p1 p2 amp r] params]
+        (is (= 4 (count params)))
+        (is (= '& amp))
+        (is (not-any? #{'p1__1# 'p2__1# 'rest__1#} [p1 p2 r]))
+        (is (= (list '+ 'p1__1# 'p2__1# 'rest__1# p1 p2 (list 'first r)) body)))
+      (let [form (read-one "#(+ rest__1# p__rest (first %&))")
+            params (second form)
+            body (nth form 2)
+            [amp r] params]
+        (is (= 2 (count params)))
+        (is (= '& amp))
+        (is (not (contains? #{'rest__1# 'p__rest} r)))
+        (is (= (list '+ 'rest__1# 'p__rest (list 'first r)) body)))
+      #?(:clj
+         (do
+           (is (= 66 (eval (read-one "(let [p__1 10 p__2 20 p__rest 30] (#(+ p__1 p__2 p__rest %1 %2 (first %&)) 1 2 3))"))))
+           (is (= 305 (eval (read-one "(let [rest__1# 100 p__rest 200] (#(+ rest__1# p__rest (first %&)) 5 6))"))))))
+      (is (= 33 (repl-session-result "(let [p__1 10 p__2 20] (#(+ p__1 p__2 %1 %2) 1 2))")))
+      (is (= 12 (repl-session-result "(let [p1__1# 10] (#(+ p1__1# %) 2))")))
+      (is (= 33 (repl-session-result "(let [p1__1# 10 p1__2# 20] (#(+ p1__1# p1__2# %) 3))")))
+      (is (= 22 (repl-session-result "(let [p__1 10] (#(let [p__1 20] (+ p__1 %)) 2))")))
+      (is (= 12 (repl-session-result "(let [p1__1# 10] (#(+ p1__1# %2) 99 2))"))))
+    (testing "deterministic canonical output across reads and sibling forms"
+      (is (= (read-one "#(+ % 1.0)") (read-one "#(+ % 1.0)")))
+      (is (= (semantic-root "#(+ % 1.0)") (semantic-root "#(+ % 1.0)")))
+      (is (= (semantic-root "#(+ p__1 % 1.0)") (semantic-root "#(+ p__1 % 1.0)")))
+      (let [[f1 f2] (read-one "[#(+ % 1.0) #(+ % 1.0)]")]
+        (is (= f1 f2))))
+    (testing "duplicate argument in set inside #() is still caught"
+      (is (thrown? #?(:clj Exception :cljs js/Error :default Exception)
+                   (yang/read-forms "#(#{% %1})"))))))
+
+
+(deftest b6-lexical-compatibility-and-syntax-quote
+  "B-6: restore previously supported grammar (apostrophe-in-symbol, scalar
+   syntax-quote, deprecated #^ meta, @x -> clojure.core/deref) and check
+   differential lexical parity against tools.reader."
+  #?(:jolt nil
+     :cljd nil
+     :default
+     (do
+       (testing "apostrophe-in-symbol reads and executes"
+         (is (= 'x' (read-one "x'")))
+         (is (= 'foo'bar (read-one "foo'bar")))
+         (is (= 'a'' (read-one "a''")))
+         (is (= 'ns/x' (read-one "ns/x'")))
+         (is (= '(quote x') (read-one "'x'")))
+         (is (= :k' (read-one ":k'")))
+         (let [fv (repl-session-result "(let [x' 1.0] (+ x' 2.0))")]
+           (is (cbor/float64? fv))
+           (is (= 3.0 (data/float-value fv)))))
+       (testing "scalar syntax-quote reads and executes as before, preserving float kind"
+         (is (= 1 (read-one "`1")))
+         (is (= 1 (repl-session-result "`1")))
+         (let [f-read (read-one "`1.0")
+               f-eval (repl-session-result "`1.0")
+               nz-eval (repl-session-result "`-0.0")]
+           (is (cbor/float64? f-read))
+           (is (= 1.0 (data/float-value f-read)))
+           (is (cbor/float64? f-eval))
+           (is (= 1.0 (data/float-value f-eval)))
+           (is (cbor/float64? nz-eval))
+           (is (= "8000000000000000" (host-bits-of nz-eval))))
+         (is (= true (repl-session-result "`true")))
+         (is (= false (repl-session-result "`false")))
+         (is (= nil (repl-session-result "`nil")))
+         (is (= "hi" (repl-session-result "`\"hi\"")))
+         (is (= :k (repl-session-result "`:k")))
+         (is (cbor/ratio? (read-one "`1/2")))
+         (is (cbor/decimal? (read-one "`1M")))
+         (let [unquoted (repl-session-result "(let [x 1.0] `~x)")]
+           (is (cbor/float64? unquoted))
+           (is (= 1.0 (data/float-value unquoted))))
+         (is (thrown? #?(:clj Exception :cljs js/Error :default Exception)
+                      (yang/read-forms "`~@x")))
+         (let [sq-vec (read-one "`[1.0 ~x]")]
+           (is (seq? sq-vec)))
+         (let [sq-gs (read-one "`[x# x# y#]")]
+           (is (= sq-gs (read-one "`[x# x# y#]")) "auto-gensym in syntax-quote is deterministic")))
+       (testing "differential lexical parity against tools.reader on non-float grammar"
+         (let [old-read-all (fn [src]
+                              (let [rd (tools-rt/string-push-back-reader src)]
+                                (loop [acc []]
+                                  (let [f (tools-reader/read rd false ::eof)]
+                                    (if (= f ::eof)
+                                      acc
+                                      (recur (conj acc f)))))))
+               corpus ["x'"
+                       "foo'bar"
+                       "a''"
+                       "ns/x'"
+                       "'x'"
+                       ":k'"
+                       "x#"
+                       "foo:bar"
+                       "foo%bar"
+                       "\\'"
+                       "\\newline"
+                       "\\u0041"
+                       "\\o101"
+                       "\"a\\nb\\t\\\"\\\\\\u0041\\101\""
+                       "; comment\n42"
+                       "#! shebang\n42"
+                       "#_#_1 2 3"
+                       "#^:m [1]"
+                       "^:a ^{:b 2} [1]"
+                       "@x"
+                       "#'x"
+                       "~x"
+                       "~@x"
+                       "#{false nil 1 2}"
+                       "{false 1 nil 2}"
+                       "#:a{:b 1 _/c 2}"
+                       "`1"
+                       "`true"
+                       "`false"
+                       "`nil"
+                       "`\"hi\""
+                       "`:k"
+                       "`~x"]]
+           (doseq [src corpus]
+             (testing src
+               (let [expected (old-read-all src)
+                     actual (yang/read-forms src)]
+                 (is (= expected actual) (str "differential mismatch for " (pr-str src)))
+                 (is (= (mapv meta expected) (mapv meta actual))
+                     (str "metadata mismatch for " (pr-str src)))))))))))
 
 
 #?(:jolt nil

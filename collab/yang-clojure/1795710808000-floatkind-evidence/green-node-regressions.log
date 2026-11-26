@@ -1,0 +1,30 @@
+
+Testing dao.jing.cbor-test
+SKIP node coll/map-both-slash-keywords: ClojureScript keyword equality compares the joined name, so (keyword nil "a/b") and (keyword "a" "b") are one map key: the host cannot hold this value (reported as a J1 finding)
+SKIP node coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node coll/set-nan-payload-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node coll/map-nan-payload-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP node host/character: ClojureScript has no character type: a char literal is a string
+SKIP node host/nested-in-vector: its unsupported member is a character; ClojureScript has none
+
+Testing yang.clojure-callsite-test
+
+Testing yang.python.antlr.float-address-test
+SKIP slow test runs-on-every-vm-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test dict-keys-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test nan-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yang.typescript.antlr.float-address-test
+
+Testing yin.repl-test
+
+Testing yin.repl.adapter-test
+
+Testing yin.repl.frontend-catalog-test
+
+Testing yin.vm.data-test
+
+Testing yin.vm.float-test
+
+Ran 178 tests containing 2137 assertions.
+0 failures, 0 errors.

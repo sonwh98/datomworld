@@ -181,11 +181,12 @@
   ([a b] (boolean (data-equiv a b)))
   ([a b & more]
    (if (data-equiv a b)
-     (loop [prev b xs more]
-       (if-let [nxt (first xs)]
-         (if (data-equiv prev nxt)
-           (recur nxt (next xs))
-           false)
+     (loop [prev b xs (seq more)]
+       (if xs
+         (let [nxt (first xs)]
+           (if (data-equiv prev nxt)
+             (recur nxt (next xs))
+             false))
          true))
      false)))
 

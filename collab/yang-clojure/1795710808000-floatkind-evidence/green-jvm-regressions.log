@@ -1,0 +1,37 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing dao.jing.cbor-test
+SKIP jvm coll/set-signed-zero-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-decimal-scale-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/set-vector-list-collapse: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm coll/map-integer-width-duplicate: host constructor merged the members (N/A; cbor-v1.errata.md E1)
+SKIP jvm num/js-unsafe-integer: README Obligations: applies to Node only; N/A on JVM and Dart
+
+Testing yang.clojure.stream-eval-test
+
+Testing yang.clojure-callsite-test
+
+Testing yang.clojure-test
+FFI hello world
+
+Testing yang.python.antlr.descriptor-profile-test
+
+Testing yang.python.antlr.float-address-test
+
+Testing yang.typescript.antlr.float-address-test
+
+Testing yin.repl.adapter-test
+
+Testing yin.repl.frontend-catalog-test
+
+Testing yin.repl-test
+
+Testing yin.vm.data-test
+
+Testing yin.vm.float-test
+
+Ran 306 tests containing 3500 assertions.
+0 failures, 0 errors.

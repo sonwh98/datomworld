@@ -1,0 +1,8 @@
+[0.005s][warning][perf,memops] Cannot use file /tmp/hsperfdata_sto/44 because it is locked by another process (errno = 11)
+Loading initial Timbre config from: :default
+src/cljc/yang/clojure.cljc:1134:8: warning: Unused private var yang.clojure/admit-call-descriptor
+src/cljc/yang/python/antlr/lower.cljc:344:7: warning: Redundant let expression.
+src/cljc/yang/python/antlr/lower.cljc:838:8: warning: unused binding n
+src/cljs/datomworld/demo/equation_plotter.cljs:398:24: warning: unused binding asm
+test/yin/repl_test.cljc:207:8: warning: redundant do
+linting took 5279ms, errors: 0, warnings: 5

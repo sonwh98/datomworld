@@ -1,0 +1,85 @@
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+ERROR in (utf16-code-unit-exports-test) (data_test.cljc:636)
+an unpaired surrogate is a refusal datum, not a string
+expected: (= #:yin.vm.data{:refusal :ill-formed-utf16} (call (quote units->str) [55296]))
+  actual: clojure.lang.ExceptionInfo: jolt: units->string cannot build a string holding the unpaired surrogate 55296 at unit 0: a Chez string holds only Unicode scalar values {:jolt/unimplemented dao.host.text/units->string, :unit 55296, :index 0}
+
+ERROR in (utf16-code-unit-exports-test) (data_test.cljc:637)
+an unpaired surrogate is a refusal datum, not a string
+expected: (= #:yin.vm.data{:refusal :ill-formed-utf16} (call (quote units->str) [56832 55357]))
+  actual: clojure.lang.ExceptionInfo: jolt: units->string cannot build a string holding the unpaired surrogate 56832 at unit 0: a Chez string holds only Unicode scalar values {:jolt/unimplemented dao.host.text/units->string, :unit 56832, :index 0}
+
+ERROR in (utf16-code-unit-exports-test) (data_test.cljc:642)
+well-formed-utf16?
+expected: (false? (call (quote well-formed-utf16?) (call (quote code-points->str) [55296])))
+  actual: clojure.lang.ExceptionInfo: jolt: units->string cannot build a string holding the unpaired surrogate 55296 at unit 0: a Chez string holds only Unicode scalar values {:jolt/unimplemented dao.host.text/units->string, :unit 55296, :index 0}
+ok    yang.clojure-float-kind-test/gate1-float-tokens-are-float64-content {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate1-integer-tokens-stay-exact-integers {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate1-unsupported-categories-not-relabeled {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate1-cross-host-canonical-identity {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-floats-preserve-through-structure {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-lexical-contexts-are-not-floats {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-equal-valued-occurrences-not-coalesced {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-float-key-policy-parity {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-macro-generated-numeric-data {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-data-oracle {:pass 10, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior {:pass 10, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-repl-arithmetic-reboxed {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-repl-literal-kind-through-the-catalog {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-unboxed-control-distinguishes {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-explicit-carrier-forms-compile-and-run {:pass 9, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-carrier-forms-one-root-everywhere {:pass 3, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-parked-float-result-crosses-the-round {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-pre-pause-integral-float-across-continuation-and-snapshot {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b2-set-and-map-false-nil-elements-and-duplicates {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b3-variadic-equality-and-inequality-truthiness {:pass 20, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b4-discard-sentinel-cannot-collide-with-guest-values {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b5-anon-fn-capture-avoiding-and-deterministic {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b6-lexical-compatibility-and-syntax-quote {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-quoted-prelude-audit-no-integral-doubles {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-linked-library-arithmetic-reboxed {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate6-legacy-custody-and-cross-host-artifacts {:pass 12, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate7-repaired-manifest-revisions-and-capabilities {:pass 11, :fail 0, :error 0}
+NS yang.clojure-float-kind-test tests 27 assertions 75 pass 75 fail 0 error 0
+ok    yang.php.antlr.float-address-test/php-real-tokens-lower-to-canonical-float64-test {:pass 45, :fail 0, :error 0}
+NS yang.php.antlr.float-address-test tests 1 assertions 45 pass 45 fail 0 error 0
+ok    yin.vm.float-test/boxed-arithmetic {:pass 9, :fail 0, :error 0}
+ok    yin.vm.float-test/division-and-powers {:pass 8, :fail 0, :error 0}
+ok    yin.vm.float-test/float-format-and-profile {:pass 9, :fail 0, :error 0}
+ok    yin.vm.float-test/composition-registration {:pass 82, :fail 0, :error 0}
+NS yin.vm.float-test tests 4 assertions 108 pass 108 fail 0 error 0
+ok    yin.vm.data-test/normalized-integer-collection-keys {:pass 4, :fail 0, :error 0}
+ok    yin.vm.data-test/collection-operations-normalize-integer-keys {:pass 18, :fail 0, :error 0}
+ok    yin.vm.data-test/count-test {:pass 7, :fail 0, :error 0}
+ok    yin.vm.data-test/nth-test {:pass 15, :fail 0, :error 0}
+ok    yin.vm.data-test/contains?-test {:pass 10, :fail 0, :error 0}
+ok    yin.vm.data-test/dissoc-disj-test {:pass 9, :fail 0, :error 0}
+ok    yin.vm.data-test/peek-pop-test {:pass 9, :fail 0, :error 0}
+ok    yin.vm.data-test/subvec-test {:pass 9, :fail 0, :error 0}
+ok    yin.vm.data-test/hash-set-into-test {:pass 11, :fail 0, :error 0}
+ok    yin.vm.data-test/non-bmp-code-points-test {:pass 12, :fail 0, :error 0}
+ok    yin.vm.data-test/str-concat-length-test {:pass 6, :fail 0, :error 0}
+ok    yin.vm.data-test/substring-char-at-test {:pass 12, :fail 0, :error 0}
+ok    yin.vm.data-test/str-index-of-test {:pass 8, :fail 0, :error 0}
+ok    yin.vm.data-test/str-split-join-test {:pass 11, :fail 0, :error 0}
+ok    yin.vm.data-test/code-points-str-compare-test {:pass 13, :fail 0, :error 0}
+ok    yin.vm.data-test/number?-callable?-test {:pass 23, :fail 0, :error 0}
+ok    yin.vm.data-test/float-seam-test {:pass 7, :fail 0, :error 0}
+ok    yin.vm.data-test/content=-test {:pass 11, :fail 0, :error 0}
+ok    yin.vm.data-test/arity-refusal-test {:pass 4, :fail 0, :error 0}
+ok    yin.vm.data-test/every-export-is-pure-test {:pass 118, :fail 0, :error 0}
+ok    yin.vm.data-test/host-shape-predicates-test {:pass 15, :fail 0, :error 0}
+ok    yin.vm.data-test/installed-only-by-composition-test {:pass 6, :fail 0, :error 0}
+ok    yin.vm.data-test/max-items-is-a-composition-datum-test {:pass 13, :fail 0, :error 0}
+ok    yin.vm.data-test/program-runs-on-every-vm-test {:pass 136, :fail 0, :error 0}
+ok    yin.vm.data-test/max-items-on-every-vm-test {:pass 4, :fail 0, :error 0}
+ok    yin.vm.data-test/absent-without-registration-on-every-vm-test {:pass 8, :fail 0, :error 0}
+ok    yin.vm.data-test/effect-shaped-map-is-data-test {:pass 8, :fail 0, :error 0}
+ERROR yin.vm.data-test/utf16-code-unit-exports-test {:pass 12, :fail 0, :error 3}
+ok    yin.vm.data-test/portable-key-and-equality-test {:pass 8, :fail 0, :error 0}
+NS yin.vm.data-test tests 29 assertions 530 pass 527 fail 0 error 3
+DETAIL an unpaired surrogate is a refusal datum, not a string ERROR: (= #:yin.vm.data{:refusal :ill-formed-utf16} (call (quote units->str) [55296])) expected: (= #:yin.vm.data{:refusal :ill-formed-utf16} (call (quote units->str) [55296])) actual: clojure.lang.ExceptionInfo: jolt: units->string cannot build a string holding the unpaired surrogate 55296 at unit 0: a Chez string holds only Unicode scalar values {:jolt/unimplemented dao.host.text/units->string, :unit 55296, :index 0}
+DETAIL an unpaired surrogate is a refusal datum, not a string ERROR: (= #:yin.vm.data{:refusal :ill-formed-utf16} (call (quote units->str) [56832 55357])) expected: (= #:yin.vm.data{:refusal :ill-formed-utf16} (call (quote units->str) [56832 55357])) actual: clojure.lang.ExceptionInfo: jolt: units->string cannot build a string holding the unpaired surrogate 56832 at unit 0: a Chez string holds only Unicode scalar values {:jolt/unimplemented dao.host.text/units->string, :unit 56832, :index 0}
+DETAIL well-formed-utf16? ERROR: (false? (call (quote well-formed-utf16?) (call (quote code-points->str) [55296]))) expected: (false? (call (quote well-formed-utf16?) (call (quote code-points->str) [55296]))) actual: clojure.lang.ExceptionInfo: jolt: units->string cannot build a string holding the unpaired surrogate 55296 at unit 0: a Chez string holds only Unicode scalar values {:jolt/unimplemented dao.host.text/units->string, :unit 55296, :index 0}
+SUMMARY {:namespaces 4, :load-failures 0, :tests 61, :assertions 758, :pass 755, :fail 0, :error 3}

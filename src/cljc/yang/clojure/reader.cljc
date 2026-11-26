@@ -21,17 +21,21 @@
    - Collections: lists `(...)`, vectors `[...]`, maps `{...}` (even count
      and duplicate-key checks), sets `#{...}` (duplicate-element check),
      namespaced maps `#:ns{...}`
-   - Reader macros: quote `'`, deref `@`, var `#'`, metadata `^:k` / `^Sym` /
-     `^\"s\"` / `^{...}`, unquote `~`, unquote-splicing `~@`
+   - Reader macros: quote `'`, syntax-quote `` ` ``, deref `@`, var `#'`,
+     metadata `^:k` / `^Sym` / `^\"s\"` / `^{...}` / `#^...`, unquote `~`,
+     unquote-splicing `~@`
    - Dispatch forms: `#{...}`, `#_` (with syntax validation of discarded
-     forms), `#'`, `##`, `#\"...\"`, `#(...)`, `#:ns{...}`
+     forms), `#'`, `##`, `#\"...\"`, `#(...)` (capture-avoiding, parse-scoped,
+     deterministic), `#:ns{...}`, `#^...`
    - Explicit refusals: reader conditionals (`#?`, `#?@`), eval (`#=`),
-     unknown tagged literals (`#tag`), invalid numeric tokens, malformed
-     maps/sets/strings/chars, unmatched or unclosed delimiters.
+     unreadable (`#<`), unknown tagged literals (`#tag`), invalid numeric
+     tokens, malformed maps/sets/strings/chars, unmatched or unclosed delimiters.
 
    Zero ambient mutable state: no `*data-readers*`, no `*read-eval*`, no
    evaluation during reading, no global reader monkeypatching."
   (:require [clojure.string :as str]
+            [dao.host.integer :as host-int]
+            [dao.jing.cbor :as cbor]
             [yang.core.numeric-token :as numeric-token]))
 
 
@@ -105,7 +109,9 @@
 
 
 (defn- macro-terminating?
-  "Characters that terminate a symbol, keyword, or numeric token in Clojure."
+  "Characters that terminate a symbol, keyword, or numeric token in Clojure.
+   Matches `clojure.tools.reader`: apostrophe (`'`) is valid inside symbols
+   and keywords and does not terminate a token."
   [ch]
   (or (whitespace? ch)
       (let [c (char-code ch)]
@@ -117,7 +123,6 @@
             (= c 125)  ;; }
             (= c 34)   ;; "
             (= c 59)   ;; ;
-            (= c 39)   ;; '
             (= c 96)   ;; `
             (= c 126)  ;; ~
             (= c 64)   ;; @
@@ -347,8 +352,8 @@
       (let [c (char-code (char-at s j))]
         (if (= c close-code)
           [items (inc j)]
-          (let [[val next-j] (read-form* s n j ctx)]
-            (if (= val ::discard)
+          (let [[status val next-j] (read-form* s n j ctx)]
+            (if (= :discard status)
               (recur next-j items)
               (recur next-j (conj items val)))))))))
 
@@ -360,28 +365,24 @@
       (str "The map literal starting with " (pr-str (first items))
            " contains " (count items) " form(s). Map literals must contain an even number of forms.")
       {:index i}))
-  (loop [pairs (partition 2 items)
-         m {}]
-    (if-let [[k v] (first pairs)]
-      (do
-        (when (contains? m k)
-          (reader-error! (str "Map literal contains duplicate key: " (pr-str k))
-                         {:key k :index i}))
-        (recur (rest pairs) (assoc m k v)))
-      m)))
+  (reduce (fn [m [k v]]
+            (when (contains? m k)
+              (reader-error! (str "Map literal contains duplicate key: " (pr-str k))
+                             {:key k :index i}))
+            (assoc m k v))
+          {}
+          (partition 2 items)))
 
 
 (defn- build-checked-set
   [items i]
-  (loop [xs items
-         acc #{}]
-    (if-let [x (first xs)]
-      (do
-        (when (contains? acc x)
-          (reader-error! (str "Set literal contains duplicate key: " (pr-str x))
-                         {:key x :index i}))
-        (recur (rest xs) (conj acc x)))
-      acc)))
+  (reduce (fn [acc x]
+            (when (contains? acc x)
+              (reader-error! (str "Set literal contains duplicate key: " (pr-str x))
+                             {:key x :index i}))
+            (conj acc x))
+          #{}
+          items))
 
 
 (defn- apply-map-namespace
@@ -425,8 +426,8 @@
     (let [j (skip-ws-and-comments s n j)]
       (when (>= j n)
         (reader-error! (str "EOF while reading " what) {:index i}))
-      (let [[val next-j] (read-form* s n j ctx)]
-        (if (= val ::discard)
+      (let [[status val next-j] (read-form* s n j ctx)]
+        (if (= :discard status)
           (recur next-j)
           [val next-j])))))
 
@@ -442,14 +443,50 @@
                    :else (reader-error! "Metadata must be Symbol, Keyword, String or Map"
                                         {:meta raw-meta :index i}))
         [target end-i] (read-next-required s n next-i ctx "metadata target")]
-    (when-not #?(:cljs (satisfies? IMeta target)
+    (when-not #?(:cljs (and (some? target) (satisfies? IWithMeta target))
                  :default (instance? clojure.lang.IObj target))
       (reader-error! "Metadata can only be applied to IObjs" {:target target :index i}))
     [(with-meta target (merge (meta target) meta-map)) end-i]))
 
 
+#?(:cljs
+   (deftype FnArgRef [id arg-key meta-map]
+     IEquiv
+     (-equiv [_ other]
+       (if (instance? FnArgRef other)
+         (let [^FnArgRef o other]
+           (and (identical? id (.-id o))
+                (= arg-key (.-arg-key o))))
+         false))
+     IHash
+     (-hash [_]
+       (hash arg-key))
+     IMeta
+     (-meta [_] meta-map)
+     IWithMeta
+     (-with-meta [_ m] (FnArgRef. id arg-key m)))
+   :default
+   (deftype FnArgRef [id arg-key meta-map]
+     Object
+     (equals [_ other]
+       (and (instance? FnArgRef other)
+            (identical? id (.-id ^FnArgRef other))
+            (= arg-key (.-arg-key ^FnArgRef other))))
+     (hashCode [_]
+       (int (hash arg-key)))
+     clojure.lang.IObj
+     (meta [_] meta-map)
+     (withMeta [_ m] (FnArgRef. id arg-key m))))
+
+
+(defn- supports-meta?
+  [v]
+  #?(:cljs (and (some? v) (satisfies? IWithMeta v))
+     :default (instance? clojure.lang.IObj v)))
+
+
 (defn- register-fn-arg!
-  [args-atom tok]
+  [fn-id args-atom tok]
   (let [arg-idx (cond
                   (= tok "%") 1
                   (= tok "%&") :rest
@@ -458,11 +495,67 @@
                      :default (Integer/parseInt (subs tok 1)))
                   :else nil)]
     (when arg-idx
-      (let [sym (if (= arg-idx :rest)
-                  'p__rest
-                  (symbol (str "p__" arg-idx)))]
-        (swap! args-atom assoc arg-idx sym)
-        sym))))
+      (swap! args-atom conj arg-idx)
+      (FnArgRef. fn-id arg-idx nil))))
+
+
+(defn- collect-used-syms
+  [form acc]
+  (let [acc (if (and (supports-meta? form) (seq (meta form)))
+              (collect-used-syms (meta form) acc)
+              acc)]
+    (cond
+      (instance? FnArgRef form) acc
+      (symbol? form)
+      (cond-> (conj acc form)
+        (some? (namespace form)) (conj (symbol (name form))))
+      (map? form)
+      (reduce (fn [a [k v]]
+                (collect-used-syms v (collect-used-syms k a)))
+              acc
+              form)
+      (coll? form)
+      (reduce (fn [a x] (collect-used-syms x a)) acc form)
+      :else acc)))
+
+
+(defn- fresh-param-sym
+  [prefix used]
+  (loop [k 1]
+    (let [cand (symbol (str prefix "__" k "#"))]
+      (if (contains? used cand)
+        (recur (inc k))
+        cand))))
+
+
+(defn- resolve-fn-args
+  [form fn-id mapping]
+  (let [m (when (supports-meta? form) (meta form))
+        resolved
+        (cond
+          (and (instance? FnArgRef form) (identical? fn-id (.-id ^FnArgRef form)))
+          (get mapping (.-arg-key ^FnArgRef form))
+
+          (vector? form)
+          (mapv #(resolve-fn-args % fn-id mapping) form)
+
+          (map? form)
+          (into (empty form)
+                (map (fn [[k v]]
+                       [(resolve-fn-args k fn-id mapping)
+                        (resolve-fn-args v fn-id mapping)]))
+                form)
+
+          (set? form)
+          (into #{} (map #(resolve-fn-args % fn-id mapping)) form)
+
+          (seq? form)
+          (apply list (map #(resolve-fn-args % fn-id mapping) form))
+
+          :else form)]
+    (if (and (seq m) (supports-meta? resolved))
+      (with-meta resolved (resolve-fn-args m fn-id mapping))
+      resolved)))
 
 
 (defn- read-anon-fn
@@ -470,17 +563,164 @@
   ;; s[i] is "(" right after "#"
   (when (:in-fn? ctx)
     (reader-error! "Nested #()s are not allowed" {:index i}))
-  (let [args-atom (atom {})
-        [items end-i] (read-delimited s n (inc i) 41 (assoc ctx :in-fn? true :fn-args args-atom))
-        arg-map @args-atom
-        pos-nums (filter number? (keys arg-map))
+  (let [fn-id #?(:cljs (js-obj) :default (Object.))
+        args-atom (atom #{})
+        [items end-i] (read-delimited s n (inc i) 41
+                                      (assoc ctx :in-fn? true :fn-id fn-id :fn-args args-atom))
+        arg-set @args-atom
+        pos-nums (filter number? arg-set)
         max-pos (if (seq pos-nums) (apply max pos-nums) 0)
-        params (into [] (map #(get arg-map % (symbol (str "p__" %))))
-                     (range 1 (inc max-pos)))
-        params (if-let [rest-sym (:rest arg-map)]
-                 (conj params '& rest-sym)
-                 params)]
-    [(list 'fn params (apply list items)) end-i]))
+        used0 (collect-used-syms items #{})
+        {:keys [params mapping used]}
+        (reduce (fn [{:keys [params mapping used]} k]
+                  (let [sym (fresh-param-sym (str "p" k) used)]
+                    {:params (conj params sym)
+                     :mapping (assoc mapping k sym)
+                     :used (conj used sym)}))
+                {:params [] :mapping {} :used used0}
+                (range 1 (inc max-pos)))
+        [params mapping]
+        (if (contains? arg-set :rest)
+          (let [rest-sym (fresh-param-sym "rest" used)]
+            [(conj params '& rest-sym) (assoc mapping :rest rest-sym)])
+          [params mapping])
+        resolved-items (mapv #(resolve-fn-args % fn-id mapping) items)]
+    [(list 'fn params (apply list resolved-items)) end-i]))
+
+
+(defn- numeric-carrier?
+  [x]
+  (or (cbor/float64? x)
+      (cbor/decimal? x)
+      (cbor/ratio? x)
+      (host-int/big-carrier? x)))
+
+
+(defn- self-evaluating-scalar?
+  [x]
+  (or (keyword? x)
+      (number? x)
+      (numeric-carrier? x)
+      (string? x)
+      (nil? x)
+      (boolean? x)
+      #?(:cljs (instance? js/RegExp x)
+         :default (or (char? x) (instance? java.util.regex.Pattern x)))))
+
+
+(defn- unquote-form?
+  [x]
+  (and (seq? x) (= 'clojure.core/unquote (first x))))
+
+
+(defn- unquote-splicing-form?
+  [x]
+  (and (seq? x) (= 'clojure.core/unquote-splicing (first x))))
+
+
+(defn- register-syntax-gensym!
+  [gensym-env sym]
+  (let [existing (get (:map @gensym-env) sym)]
+    (or existing
+        (let [s (name sym)
+              base (subs s 0 (dec (count s)))
+              n (:next @gensym-env)
+              gs (symbol (str base "__" n "__auto__"))]
+          (swap! gensym-env (fn [st]
+                              (-> st
+                                  (update :next inc)
+                                  (assoc-in [:map sym] gs))))
+          gs))))
+
+
+(declare syntax-quote*)
+
+
+(defn- expand-syntax-list
+  [coll gensym-env i]
+  (map (fn [item]
+         (cond
+           (unquote-form? item)
+           (list 'clojure.core/list (second item))
+
+           (unquote-splicing-form? item)
+           (second item)
+
+           :else
+           (list 'clojure.core/list (syntax-quote* item gensym-env i))))
+       coll))
+
+
+(defn- syntax-quote-coll
+  [ctor coll gensym-env i]
+  (let [res (list 'clojure.core/sequence
+                  (list 'clojure.core/seq
+                        (cons 'clojure.core/concat
+                              (expand-syntax-list coll gensym-env i))))]
+    (if ctor
+      (list 'clojure.core/apply ctor res)
+      res)))
+
+
+(defn- add-syntax-meta
+  [form ret gensym-env i]
+  (let [user-meta (when (supports-meta? form)
+                    (dissoc (meta form) :line :column :end-line :end-column :file :source))]
+    (if (seq user-meta)
+      (list 'clojure.core/with-meta ret (syntax-quote* user-meta gensym-env i))
+      ret)))
+
+
+(defn- syntax-quote*
+  [form gensym-env i]
+  (add-syntax-meta
+    form
+    (cond
+      (unquote-form? form)
+      (second form)
+
+      (unquote-splicing-form? form)
+      (reader-error! "unquote-splice not in list" {:index i})
+
+      (symbol? form)
+      (list 'quote
+            (if (and (nil? (namespace form))
+                     (str/ends-with? (name form) "#"))
+              (register-syntax-gensym! gensym-env form)
+              form))
+
+      (self-evaluating-scalar? form)
+      form
+
+      (map? form)
+      (syntax-quote-coll (if (>= (count form) 8)
+                           'clojure.core/hash-map
+                           'clojure.core/array-map)
+                         (apply concat form)
+                         gensym-env i)
+
+      (vector? form)
+      (list 'clojure.core/vec (syntax-quote-coll nil form gensym-env i))
+
+      (set? form)
+      (syntax-quote-coll 'clojure.core/hash-set form gensym-env i)
+
+      (seq? form)
+      (if (seq form)
+        (syntax-quote-coll nil form gensym-env i)
+        '(clojure.core/list))
+
+      :else
+      (list 'quote form))
+    gensym-env i))
+
+
+(defn- read-syntax-quote
+  [s n i ctx]
+  ;; s[i] is `
+  (let [[form end-i] (read-next-required s n (inc i) ctx "syntax-quote")
+        gensym-env (atom {:next 1 :map {}})]
+    [(syntax-quote* form gensym-env i) end-i]))
 
 
 (defn- read-dispatch
@@ -494,34 +734,46 @@
       ;; #{...} set
       (= c 123)
       (let [[items end-i] (read-delimited s n (+ i 2) 125 ctx)]
-        [(build-checked-set items i) end-i])
+        [:value (build-checked-set items i) end-i])
 
       ;; #_ discard (still validates syntax of the discarded form)
       (= c 95)
       (let [[_ end-i] (read-next-required s n (+ i 2) ctx "discarded form")]
-        [::discard end-i])
+        [:discard nil end-i])
 
       ;; #' var quote
       (= c 39)
       (let [[form end-i] (read-next-required s n (+ i 2) ctx "var")]
-        [(list 'var form) end-i])
+        [:value (list 'var form) end-i])
+
+      ;; #^ deprecated metadata dispatch macro
+      (= c 94)
+      (let [[val end-i] (read-meta s n (inc i) ctx)]
+        [:value val end-i])
 
       ;; #"..." regex
       (= c 34)
-      (read-regex-lit s n (inc i))
+      (let [[val end-i] (read-regex-lit s n (inc i))]
+        [:value val end-i])
 
       ;; #(...) anonymous fn
       (= c 40)
-      (read-anon-fn s n (inc i) ctx)
+      (let [[val end-i] (read-anon-fn s n (inc i) ctx)]
+        [:value val end-i])
 
       ;; ## symbolic values (##Inf, ##-Inf, ##NaN)
       (= c 35)
       (let [[sym-tok end-i] (read-token s n (+ i 2))]
-        [(numeric-token/materialize :clojure (str "##" sym-tok)) end-i])
+        [:value (numeric-token/materialize :clojure (str "##" sym-tok)) end-i])
 
       ;; #:ns{...} namespaced map
       (= c 58)
-      (read-namespaced-map s n (inc i) ctx)
+      (let [[val end-i] (read-namespaced-map s n (inc i) ctx)]
+        [:value val end-i])
+
+      ;; #< unreadable form — explicit refusal
+      (= c 60)
+      (reader-error! "Unreadable form" {:index i})
 
       ;; #? / #?@ reader conditionals — explicit refusal
       (= c 63)
@@ -535,12 +787,6 @@
       (let [[tag _] (read-token s n (inc i))]
         (reader-error! (str "No reader function for tag " tag)
                        {:tag tag :index i})))))
-
-
-(defn- supports-meta?
-  [v]
-  #?(:cljs (and (some? v) (satisfies? IWithMeta v))
-     :default (instance? clojure.lang.IObj v)))
 
 
 (defn- compute-line-starts
@@ -568,8 +814,7 @@
 
 (defn- attach-source-pos
   [val start-i end-i ctx]
-  (if (and (not= val ::discard)
-           (:line-starts ctx)
+  (if (and (:line-starts ctx)
            (supports-meta? val))
     (let [line-starts (:line-starts ctx)
           [sl sc] (offset->pos line-starts start-i)
@@ -595,51 +840,55 @@
       ;; List (...)
       (= c 40)
       (let [[items end-i] (read-delimited s n (inc i) 41 ctx)]
-        [(apply list items) end-i])
+        [:value (apply list items) end-i])
 
       ;; Vector [...]
       (= c 91)
       (let [[items end-i] (read-delimited s n (inc i) 93 ctx)]
-        [items end-i])
+        [:value items end-i])
 
       ;; Map {...}
       (= c 123)
       (let [[items end-i] (read-delimited s n (inc i) 125 ctx)]
-        [(build-checked-map items i) end-i])
+        [:value (build-checked-map items i) end-i])
 
       ;; String "..."
       (= c 34)
-      (read-string-lit s n i)
+      (let [[val end-i] (read-string-lit s n i)]
+        [:value val end-i])
 
       ;; Character literal \...
       (= c 92)
-      (read-char-lit s n i)
+      (let [[val end-i] (read-char-lit s n i)]
+        [:value val end-i])
 
       ;; Quote '
       (= c 39)
       (let [[form end-i] (read-next-required s n (inc i) ctx "quote")]
-        [(list 'quote form) end-i])
+        [:value (list 'quote form) end-i])
 
       ;; Deref @
       (= c 64)
       (let [[form end-i] (read-next-required s n (inc i) ctx "deref")]
-        [(list 'deref form) end-i])
+        [:value (list 'clojure.core/deref form) end-i])
 
       ;; Metadata ^
       (= c 94)
-      (read-meta s n i ctx)
+      (let [[val end-i] (read-meta s n i ctx)]
+        [:value val end-i])
 
       ;; Unquote ~ / unquote-splicing ~@
       (= c 126)
       (if (and (< (inc i) n) (= 64 (char-code (char-at s (inc i)))))
         (let [[form end-i] (read-next-required s n (+ i 2) ctx "unquote-splicing")]
-          [(list 'clojure.core/unquote-splicing form) end-i])
+          [:value (list 'clojure.core/unquote-splicing form) end-i])
         (let [[form end-i] (read-next-required s n (inc i) ctx "unquote")]
-          [(list 'clojure.core/unquote form) end-i]))
+          [:value (list 'clojure.core/unquote form) end-i]))
 
-      ;; Syntax-quote ` (explicit refusal in portable Clojure source reader)
+      ;; Syntax-quote `
       (= c 96)
-      (reader-error! "Syntax-quote (`) is not supported in portable source reading" {:index i})
+      (let [[val end-i] (read-syntax-quote s n i ctx)]
+        [:value val end-i])
 
       ;; Dispatch #...
       (= c 35)
@@ -651,26 +900,28 @@
                (< (inc i) n)
                (digit? (char-at s (inc i)))))
       (let [[tok end-i] (read-token s n i)]
-        [(numeric-token/materialize :clojure tok) end-i])
+        [:value (numeric-token/materialize :clojure tok) end-i])
 
       ;; Keyword :...
       (= c 58)
       (let [[tok end-i] (read-token s n i)]
-        [(parse-keyword-token tok i) end-i])
+        [:value (parse-keyword-token tok i) end-i])
 
       ;; Symbol / boolean / nil
       :else
       (let [[tok end-i] (read-token s n i)]
         (if-let [fn-arg (when (:in-fn? ctx)
-                          (register-fn-arg! (:fn-args ctx) tok))]
-          [fn-arg end-i]
-          [(parse-symbol-token tok i) end-i])))))
+                          (register-fn-arg! (:fn-id ctx) (:fn-args ctx) tok))]
+          [:value fn-arg end-i]
+          [:value (parse-symbol-token tok i) end-i])))))
 
 
 (defn- read-form*
   [s n i ctx]
-  (let [[val end-i] (read-form-1 s n i ctx)]
-    [(attach-source-pos val i end-i ctx) end-i]))
+  (let [[status val end-i] (read-form-1 s n i ctx)]
+    (if (= :discard status)
+      [:discard nil end-i]
+      [:value (attach-source-pos val i end-i ctx) end-i])))
 
 
 (defn read-forms
@@ -694,7 +945,7 @@
        (let [i (skip-ws-and-comments source n i)]
          (if (>= i n)
            forms
-           (let [[val next-i] (read-form* source n i ctx)]
-             (if (= val ::discard)
+           (let [[status val next-i] (read-form* source n i ctx)]
+             (if (= :discard status)
                (recur next-i forms)
                (recur next-i (conj forms val))))))))))
