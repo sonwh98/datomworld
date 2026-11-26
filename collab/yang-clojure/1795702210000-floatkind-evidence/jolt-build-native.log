@@ -1,0 +1,654 @@
+fetching https://www.antlr.org/download/antlr4-cpp-runtime-4.13.2-source.zip
+verified build/native/src/antlr4-cpp-runtime-4.13.2-source.zip sha256 0ed13668906e86dbc0dcddf30fdee68c10203dea4e83852b4edb810821bee3c4
+-- Building without demo. To enable demo build use: -DWITH_DEMO=True
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (0.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime-build
+[  0%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ANTLRErrorListener.cpp.o
+[  1%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ANTLRErrorStrategy.cpp.o
+[  2%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ANTLRFileStream.cpp.o
+[  3%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/BailErrorStrategy.cpp.o
+[  4%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/BaseErrorListener.cpp.o
+[  4%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/CharStream.cpp.o
+[  5%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/BufferedTokenStream.cpp.o
+[  5%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ANTLRInputStream.cpp.o
+[  6%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/CommonToken.cpp.o
+[  7%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/CommonTokenStream.cpp.o
+[  7%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ConsoleErrorListener.cpp.o
+[  8%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/CommonTokenFactory.cpp.o
+[  9%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/DefaultErrorStrategy.cpp.o
+[ 10%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/DiagnosticErrorListener.cpp.o
+[ 10%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/Exceptions.cpp.o
+[ 11%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/FailedPredicateException.cpp.o
+[ 13%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/InputMismatchException.cpp.o
+[ 13%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/IntStream.cpp.o
+[ 13%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/InterpreterRuleContext.cpp.o
+[ 14%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/Lexer.cpp.o
+[ 15%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/LexerInterpreter.cpp.o
+[ 16%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/LexerNoViableAltException.cpp.o
+[ 16%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ListTokenSource.cpp.o
+[ 17%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/NoViableAltException.cpp.o
+[ 18%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/Parser.cpp.o
+[ 18%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ParserInterpreter.cpp.o
+[ 19%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ProxyErrorListener.cpp.o
+[ 21%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/ParserRuleContext.cpp.o
+[ 22%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/RecognitionException.cpp.o
+[ 22%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/RuleContext.cpp.o
+[ 22%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/Recognizer.cpp.o
+[ 23%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/RuleContextWithAltNum.cpp.o
+[ 24%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/RuntimeMetaData.cpp.o
+[ 25%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/Token.cpp.o
+[ 25%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/TokenSource.cpp.o
+[ 26%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/TokenStream.cpp.o
+[ 26%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/UnbufferedCharStream.cpp.o
+[ 27%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/TokenStreamRewriter.cpp.o
+[ 28%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/Vocabulary.cpp.o
+[ 29%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/UnbufferedTokenStream.cpp.o
+[ 29%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/WritableToken.cpp.o
+[ 31%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ATN.cpp.o
+[ 31%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ATNConfig.cpp.o
+[ 32%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ATNConfigSet.cpp.o
+[ 32%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ATNDeserializationOptions.cpp.o
+[ 33%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ATNDeserializer.cpp.o
+[ 34%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ATNSimulator.cpp.o
+[ 35%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ATNState.cpp.o
+[ 36%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ActionTransition.cpp.o
+[ 36%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ATNStateType.cpp.o
+[ 36%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ArrayPredictionContext.cpp.o
+[ 37%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/AmbiguityInfo.cpp.o
+[ 38%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/AtomTransition.cpp.o
+[ 39%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ContextSensitivityInfo.cpp.o
+[ 40%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/DecisionEventInfo.cpp.o
+[ 40%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/DecisionInfo.cpp.o
+[ 41%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/DecisionState.cpp.o
+[ 42%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ErrorInfo.cpp.o
+[ 42%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LL1Analyzer.cpp.o
+[ 44%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/EpsilonTransition.cpp.o
+[ 45%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerActionExecutor.cpp.o
+[ 45%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerATNConfig.cpp.o
+[ 44%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerAction.cpp.o
+[ 46%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerATNSimulator.cpp.o
+[ 47%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerChannelAction.cpp.o
+[ 47%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerIndexedCustomAction.cpp.o
+[ 48%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerModeAction.cpp.o
+[ 49%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerCustomAction.cpp.o
+[ 50%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerMoreAction.cpp.o
+[ 51%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerPopModeAction.cpp.o
+[ 51%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerPushModeAction.cpp.o
+[ 53%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerSkipAction.cpp.o
+[ 53%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LookaheadEventInfo.cpp.o
+[ 54%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/LexerTypeAction.cpp.o
+[ 54%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/NotSetTransition.cpp.o
+[ 55%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/OrderedATNConfigSet.cpp.o
+[ 56%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ParseInfo.cpp.o
+[ 56%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ParserATNSimulator.cpp.o
+[ 57%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/PrecedencePredicateTransition.cpp.o
+[ 58%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/PredicateEvalInfo.cpp.o
+[ 58%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/PredictionContext.cpp.o
+[ 59%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/PredicateTransition.cpp.o
+[ 60%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/PredictionContextCache.cpp.o
+[ 61%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/PredictionContextMergeCache.cpp.o
+[ 62%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/PredictionMode.cpp.o
+[ 63%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/RangeTransition.cpp.o
+[ 64%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/RuleTransition.cpp.o
+[ 64%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/ProfilingATNSimulator.cpp.o
+[ 64%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/SemanticContext.cpp.o
+[ 65%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/SetTransition.cpp.o
+[ 66%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/SingletonPredictionContext.cpp.o
+[ 67%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/StarLoopbackState.cpp.o
+[ 67%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/Transition.cpp.o
+[ 68%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/TransitionType.cpp.o
+[ 70%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/atn/WildcardTransition.cpp.o
+[ 70%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/dfa/DFASerializer.cpp.o
+[ 69%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/dfa/DFA.cpp.o
+[ 71%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/dfa/DFAState.cpp.o
+[ 72%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/internal/Synchronization.cpp.o
+[ 73%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/dfa/LexerDFASerializer.cpp.o
+[ 72%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/misc/Interval.cpp.o
+[ 74%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/misc/InterpreterDataReader.cpp.o
+[ 75%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/misc/IntervalSet.cpp.o
+[ 77%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/support/Any.cpp.o
+[ 77%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/support/Arrays.cpp.o
+[ 78%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/misc/Predicate.cpp.o
+[ 78%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/misc/MurmurHash.cpp.o
+[ 78%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/support/CPPUtils.cpp.o
+[ 79%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/support/StringUtils.cpp.o
+[ 80%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/support/Utf8.cpp.o
+[ 80%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/IterativeParseTreeWalker.cpp.o
+[ 81%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/ParseTree.cpp.o
+[ 82%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/ErrorNodeImpl.cpp.o
+[ 83%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/ParseTreeListener.cpp.o
+[ 83%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/ParseTreeVisitor.cpp.o
+[ 84%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/ParseTreeWalker.cpp.o
+[ 85%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/TerminalNodeImpl.cpp.o
+[ 86%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/Trees.cpp.o
+[ 87%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/pattern/ParseTreeMatch.cpp.o
+[ 88%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/pattern/ParseTreePatternMatcher.cpp.o
+[ 88%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/pattern/Chunk.cpp.o
+[ 89%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/pattern/ParseTreePattern.cpp.o
+[ 89%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/pattern/RuleTagToken.cpp.o
+[ 90%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/pattern/TextChunk.cpp.o
+[ 91%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/pattern/TagChunk.cpp.o
+[ 91%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/pattern/TokenTagToken.cpp.o
+[ 93%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathLexer.cpp.o
+[ 93%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPath.cpp.o
+[ 94%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathElement.cpp.o
+[ 94%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathLexerErrorListener.cpp.o
+[ 95%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathRuleAnywhereElement.cpp.o
+[ 96%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathRuleElement.cpp.o
+[ 97%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathTokenAnywhereElement.cpp.o
+[ 98%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathWildcardAnywhereElement.cpp.o
+[ 98%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathTokenElement.cpp.o
+[ 99%] Building CXX object runtime/CMakeFiles/antlr4_static.dir/src/tree/xpath/XPathWildcardElement.cpp.o
+[100%] Linking CXX static library libantlr4-runtime.a
+[100%] Built target antlr4_static
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/lib/libantlr4-runtime.a
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/LexerNoViableAltException.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/BufferedTokenStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/internal
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/internal/Synchronization.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/DefaultErrorStrategy.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/Parser.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/CommonTokenFactory.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/Recognizer.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/Unicode.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/Casts.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/Arrays.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/StringUtils.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/Any.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/BitSet.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/Declarations.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/CPPUtils.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/support/Utf8.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/CommonTokenStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/Exceptions.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ANTLRInputStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/BaseErrorListener.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/TokenStreamRewriter.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/IterativeParseTreeWalker.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/ParseTreeVisitor.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/ErrorNodeImpl.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/ParseTreeType.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/AbstractParseTreeVisitor.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern/Chunk.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern/ParseTreePattern.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern/ParseTreePatternMatcher.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern/ParseTreeMatch.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern/TextChunk.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern/TokenTagToken.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern/RuleTagToken.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/pattern/TagChunk.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathWildcardElement.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathLexerErrorListener.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPath.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathTokenElement.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathTokenAnywhereElement.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathWildcardAnywhereElement.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathRuleElement.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathElement.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathRuleAnywhereElement.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/xpath/XPathLexer.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/TerminalNode.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/ErrorNode.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/TerminalNodeImpl.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/ParseTreeListener.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/Trees.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/ParseTreeProperty.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/ParseTree.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/tree/ParseTreeWalker.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/RecognitionException.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ANTLRErrorStrategy.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/TokenSource.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/CharStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/TokenFactory.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ANTLRErrorListener.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/Version.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/RuntimeMetaData.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ConsoleErrorListener.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/FailedPredicateException.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/dfa
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/dfa/DFA.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/dfa/DFASerializer.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/dfa/LexerDFASerializer.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/dfa/DFAState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ListTokenSource.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/InterpreterRuleContext.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/CommonToken.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/RuleContextWithAltNum.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/antlr4-runtime.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ProxyErrorListener.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/NoViableAltException.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/WritableToken.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/UnbufferedTokenStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/.idea
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ParserInterpreter.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/RuleContext.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/misc
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/misc/Interval.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/misc/MurmurHash.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/misc/InterpreterDataReader.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/misc/Predicate.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/misc/IntervalSet.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/Vocabulary.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/TokenStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/antlr4-common.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/FlatHashSet.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/UnbufferedCharStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/IntStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/BailErrorStrategy.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/SemanticContextType.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/TokensStartState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATNSimulator.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ErrorInfo.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PlusLoopbackState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LL1Analyzer.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ParserATNSimulator.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/RuleStopState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/BasicBlockStartState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATNDeserializer.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/NotSetTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerSkipAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ParserATNSimulatorOptions.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PredictionContextMergeCacheOptions.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerTypeAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/DecisionInfo.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerIndexedCustomAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/StarLoopbackState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/StarLoopEntryState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LookaheadEventInfo.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerMoreAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PredicateTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATNState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/WildcardTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ArrayPredictionContext.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/RangeTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PlusBlockStartState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATNStateType.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/BlockStartState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerActionType.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATNConfigSet.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PredictionMode.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PredicateEvalInfo.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/EpsilonTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerPushModeAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/SemanticContext.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/SingletonPredictionContext.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ProfilingATNSimulator.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/OrderedATNConfigSet.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/TransitionType.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/DecisionState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PredictionContextCache.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATNDeserializationOptions.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/AtomTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerChannelAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerATNConfig.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/StarBlockStartState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/BasicState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerActionExecutor.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/RuleTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ContextSensitivityInfo.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATNConfig.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATN.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/BlockEndState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/AmbiguityInfo.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerPopModeAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/SetTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LoopEndState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerATNSimulator.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PredictionContextMergeCache.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ATNType.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/HashUtils.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerCustomAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/Transition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PrecedencePredicateTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ActionTransition.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PredictionContext.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/LexerModeAction.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/DecisionEventInfo.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/RuleStartState.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/ParseInfo.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/SerializedATNView.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/atn/PredictionContextType.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ANTLRFileStream.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/FlatHashMap.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/Token.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/DiagnosticErrorListener.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/Lexer.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/LexerInterpreter.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/InputMismatchException.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime/ParserRuleContext.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/share/doc/libantlr4/README.md
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/share/doc/libantlr4/VERSION
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser-build
+[ 16%] Building CXX object CMakeFiles/jolt_parser.dir/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp/Python3Lexer.cpp.o
+[ 33%] Building CXX object CMakeFiles/jolt_parser.dir/jolt_parser.cpp.o
+[ 66%] Building CXX object CMakeFiles/jolt_parser.dir/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp/Python3LexerBase.cpp.o
+[ 66%] Building CXX object CMakeFiles/jolt_parser.dir/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp/Python3Parser.cpp.o
+[ 83%] Building CXX object CMakeFiles/jolt_parser.dir/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp/Python3ParserBase.cpp.o
+[100%] Linking CXX shared library libjolt_parser.so
+[100%] Built target jolt_parser
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser/lib/libjolt_parser.so
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (0.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser-release-build
+[ 16%] Building CXX object CMakeFiles/jolt_parser.dir/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp/Python3Lexer.cpp.o
+[ 50%] Building CXX object CMakeFiles/jolt_parser.dir/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp/Python3LexerBase.cpp.o
+[ 50%] Building CXX object CMakeFiles/jolt_parser.dir/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp/Python3Parser.cpp.o
+[ 66%] Building CXX object CMakeFiles/jolt_parser.dir/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp/Python3ParserBase.cpp.o
+[ 83%] Building CXX object CMakeFiles/jolt_parser.dir/jolt_parser.cpp.o
+[100%] Linking CXX shared library libjolt_parser.so
+[100%] Built target jolt_parser
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser-release/lib/libjolt_parser.so
+fetching https://github.com/BLAKE3-team/BLAKE3/archive/refs/tags/1.8.7.tar.gz
+verified build/native/src/BLAKE3-1.8.7.tar.gz sha256 c6782a28842b1c0478524ac06a4f2ede784038ee298d6e2162c0b089c4306a3c
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- The ASM compiler identification is GNU
+-- Found assembler: /usr/bin/cc
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- BLAKE3 SIMD configuration: x86_64
+-- 
+
+-- Configuring done (0.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3-build
+[ 25%] Building C object CMakeFiles/blake3.dir/blake3.c.o
+[ 50%] Building C object CMakeFiles/blake3.dir/blake3_dispatch.c.o
+[ 75%] Building C object CMakeFiles/blake3.dir/blake3_portable.c.o
+[100%] Linking C static library libblake3.a
+[100%] Built target blake3
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3/include/blake3.h
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3/lib/libblake3.a
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3/lib/cmake/blake3/blake3-targets.cmake
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3/lib/cmake/blake3/blake3-targets-release.cmake
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3/lib/cmake/blake3/blake3-config.cmake
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3/lib/cmake/blake3/blake3-config-version.cmake
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3/lib/pkgconfig/libblake3.pc
+-- The C compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done (0.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-crypto-build
+[ 50%] Building C object CMakeFiles/jolt_crypto.dir/jolt_crypto.c.o
+[100%] Linking C shared library libjolt_crypto.so
+[100%] Built target jolt_crypto
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-crypto/lib/libjolt_crypto.so
+-- The C compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done (0.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-file-build
+[ 50%] Building C object CMakeFiles/jolt_file.dir/jolt_file.c.o
+[100%] Linking C shared library libjolt_file.so
+[100%] Built target jolt_file
+-- Installing: /home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-file/lib/libjolt_file.so
+{:blake3
+ {:version "1.8.7",
+  :url
+  "https://github.com/BLAKE3-team/BLAKE3/archive/refs/tags/1.8.7.tar.gz",
+  :sha256
+  "c6782a28842b1c0478524ac06a4f2ede784038ee298d6e2162c0b089c4306a3c",
+  :cmake-flags
+  ["-DCMAKE_BUILD_TYPE=Release"
+   "-DBUILD_SHARED_LIBS=OFF"
+   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+   "-DCMAKE_INSTALL_LIBDIR=lib"
+   "-DBLAKE3_SIMD_TYPE=none"
+   "-DBLAKE3_USE_TBB=OFF"
+   "-DBLAKE3_FETCH_TBB=OFF"
+   "-DBUILD_TESTING=OFF"],
+  :upstream
+  {:repo "https://github.com/BLAKE3-team/BLAKE3",
+   :tag "1.8.7",
+   :commit "f3149ec5bb5449af877ba20377a11008ff499fa2",
+   :released "2026-08-20T09:06:20Z",
+   :path "c"},
+  :prefix
+  "/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3",
+  :outputs
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/blake3/lib/libblake3.a"
+   "72f0530f5fb3ea00bd910d3c0b6f7125073c4d5e4e6946609b00e656afd155a9"}},
+ :cxx "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+ :jolt-parser-release
+ {:prefix
+  "/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser-release",
+  :variant :release,
+  :test-seams false,
+  :generated
+  "/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp",
+  :outputs
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser-release/lib/libjolt_parser.so"
+   "90d2682ca86a93b6f4527b8af8bf3c3f6d3d27ba35492230a1d458cd27406fd8"},
+  :exported
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser-release/lib/libjolt_parser.so"
+   ["jolt_parser_budget"
+    "jolt_parser_export"
+    "jolt_parser_export_layout_version"
+    "jolt_parser_free"
+    "jolt_parser_layout_version"
+    "jolt_parser_parse"
+    "jolt_parser_worker_free"
+    "jolt_parser_worker_new"]}},
+ :jolt-file
+ {:prefix
+  "/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-file",
+  :allowlist
+  ["jolt_file_classify"
+   "jolt_file_close"
+   "jolt_file_eexist"
+   "jolt_file_eintr"
+   "jolt_file_fclassify"
+   "jolt_file_fidentity"
+   "jolt_file_layout_version"
+   "jolt_file_length"
+   "jolt_file_lock"
+   "jolt_file_make_parents"
+   "jolt_file_open"
+   "jolt_file_open_excl"
+   "jolt_file_open_private"
+   "jolt_file_open_read"
+   "jolt_file_pread"
+   "jolt_file_pwrite"
+   "jolt_file_realpath"
+   "jolt_file_rename"
+   "jolt_file_s32be_get"
+   "jolt_file_s32be_put"
+   "jolt_file_strerror"
+   "jolt_file_sync"
+   "jolt_file_sync_dir"
+   "jolt_file_truncate"],
+  :outputs
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-file/lib/libjolt_file.so"
+   "4d4beabdb833a5f914dd6709fde7fc116fa372f63107a518979fd1a4ae08aa86"},
+  :exported
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-file/lib/libjolt_file.so"
+   ["jolt_file_classify"
+    "jolt_file_close"
+    "jolt_file_eexist"
+    "jolt_file_eintr"
+    "jolt_file_fclassify"
+    "jolt_file_fidentity"
+    "jolt_file_layout_version"
+    "jolt_file_length"
+    "jolt_file_lock"
+    "jolt_file_make_parents"
+    "jolt_file_open"
+    "jolt_file_open_excl"
+    "jolt_file_open_private"
+    "jolt_file_open_read"
+    "jolt_file_pread"
+    "jolt_file_pwrite"
+    "jolt_file_realpath"
+    "jolt_file_rename"
+    "jolt_file_s32be_get"
+    "jolt_file_s32be_put"
+    "jolt_file_strerror"
+    "jolt_file_sync"
+    "jolt_file_sync_dir"
+    "jolt_file_truncate"]},
+  :linked
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-file/lib/libjolt_file.so"
+   ["0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]"]}},
+ :cc "cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+ :antlr4-cpp-runtime
+ {:version "4.13.2",
+  :url
+  "https://www.antlr.org/download/antlr4-cpp-runtime-4.13.2-source.zip",
+  :sha256
+  "0ed13668906e86dbc0dcddf30fdee68c10203dea4e83852b4edb810821bee3c4",
+  :cmake-flags
+  ["-DCMAKE_BUILD_TYPE=Release"
+   "-DANTLR_BUILD_CPP_TESTS=OFF"
+   "-DANTLR_BUILD_SHARED=OFF"
+   "-DANTLR_BUILD_STATIC=ON"
+   "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+   "-DCMAKE_CXX_STANDARD=17"],
+  :prefix
+  "/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime",
+  :include
+  "/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/include/antlr4-runtime",
+  :outputs
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/antlr4-runtime/lib/libantlr4-runtime.a"
+   "c6591a76722fe573dee84971997b31f89de939d8dc3d9e38811eaf6d9b523d27"}},
+ :libcrypto
+ {:path "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+  :real-path "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+  :sha256
+  "6866ed711dab8927e1bf82bf1cd30e828bdfc34f3cc1e83b1c9eb01ce6c37d9a",
+  :qualified
+  {:canonical-path "/usr/lib/x86_64-linux-gnu/libcrypto.so.3",
+   :version-num 805306576,
+   :version "OpenSSL 3.0.13 30 Jan 2024",
+   :sha256
+   "6866ed711dab8927e1bf82bf1cd30e828bdfc34f3cc1e83b1c9eb01ce6c37d9a"},
+  :include "/usr/include",
+  :min-version "3.0.0",
+  :soname "libcrypto.so.3",
+  :debian-runtime-installed ["libssl3t64"]},
+ :cmake
+ {:path
+  "/home/sto/.local/share/mise/installs/cmake/4.4.4/cmake-4.4.4-linux-x86_64/bin/cmake",
+  :version "cmake version 4.4.4"},
+ :jolt-parser
+ {:prefix
+  "/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser",
+  :variant :test,
+  :test-seams true,
+  :generated
+  "/home/sto/ci/datomworld-floatkind/build/antlr/python3/cpp",
+  :outputs
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser/lib/libjolt_parser.so"
+   "48f9d27ec86dc7fe1ab4cf028625983e88c8571145cc6af088379e894f990776"},
+  :exported
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-parser/lib/libjolt_parser.so"
+   ["jolt_parser_budget"
+    "jolt_parser_export"
+    "jolt_parser_export_layout_version"
+    "jolt_parser_free"
+    "jolt_parser_heap_in_use"
+    "jolt_parser_inject_fault"
+    "jolt_parser_last_stats"
+    "jolt_parser_layout_version"
+    "jolt_parser_live_workers"
+    "jolt_parser_parse"
+    "jolt_parser_stack_probe"
+    "jolt_parser_static_cache_stats"
+    "jolt_parser_thread_info"
+    "jolt_parser_worker_cache_stats"
+    "jolt_parser_worker_free"
+    "jolt_parser_worker_new"]}},
+ :jolt-crypto
+ {:prefix
+  "/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-crypto",
+  :allowlist
+  ["jolt_crypto_blake3"
+   "jolt_crypto_cleanse"
+   "jolt_crypto_ed25519_public"
+   "jolt_crypto_ed25519_sign"
+   "jolt_crypto_ed25519_verify"
+   "jolt_crypto_layout_version"
+   "jolt_crypto_provenance"
+   "jolt_crypto_random"
+   "jolt_crypto_sha1"
+   "jolt_crypto_sha256"],
+  :outputs
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-crypto/lib/libjolt_crypto.so"
+   "3e0f573414849517bb58355665525d75193207980091b46f73e6e728320bc321"},
+  :exported
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-crypto/lib/libjolt_crypto.so"
+   ["jolt_crypto_blake3"
+    "jolt_crypto_cleanse"
+    "jolt_crypto_ed25519_public"
+    "jolt_crypto_ed25519_sign"
+    "jolt_crypto_ed25519_verify"
+    "jolt_crypto_layout_version"
+    "jolt_crypto_provenance"
+    "jolt_crypto_random"
+    "jolt_crypto_sha1"
+    "jolt_crypto_sha256"]},
+  :linked
+  {"/home/sto/ci/datomworld-floatkind/build/native/linux-x86_64/jolt-crypto/lib/libjolt_crypto.so"
+   ["0x0000000000000001 (NEEDED)             Shared library: [libcrypto.so.3]"
+    "0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]"
+    "0x000000000000001d (RUNPATH)            Library runpath: [/usr/lib/x86_64-linux-gnu]"]}},
+ :platform "linux-x86_64"}
+wrote build/native/linux-x86_64/build-record.edn

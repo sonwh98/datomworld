@@ -1,0 +1,207 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.clojure-float-kind-test
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:241)
+identical source mints identical canonical bytes on every host 0.0
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:242)
+identical source mints identical canonical bytes on every host 0.0
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "4f3fd1e3c562a4c8690929fb1fd3b8e607d7d604bffdd4d5a406c737b735e578"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:241)
+identical source mints identical canonical bytes on every host 1.0
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:242)
+identical source mints identical canonical bytes on every host 1.0
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "1962a94c09507f12a3de739a3f584ce18ffbca152f16ebfb82ea15f3a650e90b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:241)
+identical source mints identical canonical bytes on every host 1
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:242)
+identical source mints identical canonical bytes on every host 1
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "48fc721fbbc172e0925fa27af1671de225ba927134802998b10a1568a188652b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:241)
+identical source mints identical canonical bytes on every host 1/2
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:242)
+identical source mints identical canonical bytes on every host 1/2
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "598aa35607a7350acc43a2ea659e1c94e8a8738705131d7670170d9a6a8b0b83"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:241)
+identical source mints identical canonical bytes on every host 1M
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:242)
+identical source mints identical canonical bytes on every host 1M
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "28d6a5ec777e7e798d4be8e68242b049bc8794be9c3f6577f0af4451b0e0d05f"))
+
+FAIL in (gate5-parked-float-result-crosses-the-round) (clojure_float_kind_test.cljc:521)
+expected: (= "2.0" (last texts))
+  actual: (not (= "2.0" "1.5"))
+
+FAIL in (gate5-parked-float-result-crosses-the-round) (clojure_float_kind_test.cljc:524)
+expected: (= 2.0 (data/float-value resumed))
+  actual: (not (= 2.0 1.5))
+
+FAIL in (gate1-float-tokens-are-float64-content) (clojure_float_kind_test.cljc:185)
+every binary-floating token reads and compiles as float64 content 1.5e-5
+1.5e-5 must carry exactly these IEEE bits
+expected: (= bits (host-bits-of value))
+  actual: (not (= "3eeb48116539a35a" "3eef75104d551d69"))
+
+FAIL in (gate1-float-tokens-are-float64-content) (clojure_float_kind_test.cljc:185)
+every binary-floating token reads and compiles as float64 content 1E5
+1E5 must carry exactly these IEEE bits
+expected: (= bits (host-bits-of value))
+  actual: (not (= "412e848000000000" "40f86a0000000000"))
+
+FAIL in (gate5-carrier-forms-one-root-everywhere) (clojure_float_kind_test.cljc:496)
+expected: (not= "unrecorded" carrier-root-reference)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate5-carrier-forms-one-root-everywhere) (clojure_float_kind_test.cljc:497)
+expected: (= carrier-root-reference (str root))
+  actual: (not (= "unrecorded" ":segment/blake3-3eaa6d2a6a66538adbe59324cbe5b9e9b5f05da946f7793187a559e7b4971bca"))
+
+FAIL in (gate4-repl-arithmetic-reboxed) (clojure_float_kind_test.cljc:417)
+the repaired default/catalog route computes in float kind
+source == is Clojure's cross-kind numeric equality
+expected: (true? (repl-session-result "(== 1.0 1)"))
+  actual: (not (true? false))
+
+FAIL in (gate2-float-key-policy-parity) (clojure_float_kind_test.cljc:320)
+constant float data is quoted data; dynamic float keys refuse alike
+a dynamic float key hits the collection-key refusal on this host
+expected: (repl-error? "(assoc {} 1.0 :a)")
+  actual: (not (repl-error? "(assoc {} 1.0 :a)"))
+
+FAIL in (gate2-macro-generated-numeric-data) (clojure_float_kind_test.cljc:327)
+a macro returning a source float keeps its kind through expansion
+expected: (cbor/float64? (repl-session-result "(do (defmacro fm [] 1.0) (fm))"))
+  actual: (not (cbor/float64? :yang.clojure-float-kind-test/none))
+
+FAIL in (gate5-explicit-carrier-forms-compile-and-run) (clojure_float_kind_test.cljc:481)
+they execute and serialize as float64 content
+the compiled literal serializes to the carrier's canonical bytes
+expected: (= (jing/canonical-bytes (data/float64 1)) (jing/canonical-bytes (:value (yang/compile (data/float64 1)))))
+  actual: (not (= #object["[B" 0x10615dc8 "[B@10615dc8"] #object["[B" 0xe2bfcfb "[B@e2bfcfb"]))
+
+ERROR in (gate2-lexical-contexts-are-not-floats) (errors.clj:34)
+numeric-looking text in non-numeric lexical contexts stays itself
+nested discard skipped
+expected: (= 8 (read-one "#_[1.0 #_{2.0} 3.0] 8"))
+  actual: clojure.lang.ExceptionInfo: The map literal starting with 2.0 contains 1 form(s). Map literals must contain an even number of forms.
+{:type :reader-exception, :ex-kind :reader-error}
+ at clojure.tools.reader.impl.errors$throw_ex.invokeStatic (errors.clj:34)
+    clojure.tools.reader.impl.errors$throw_ex.doInvoke (errors.clj:24)
+    clojure.lang.RestFn.invoke (RestFn.java:445)
+    clojure.tools.reader.impl.errors$reader_error.invokeStatic (errors.clj:40)
+    clojure.tools.reader.impl.errors$reader_error.doInvoke (errors.clj:36)
+    clojure.lang.RestFn.invoke (RestFn.java:562)
+    clojure.tools.reader.impl.errors$throw_odd_map.invokeStatic (errors.clj:68)
+    clojure.tools.reader.impl.errors$throw_odd_map.invoke (errors.clj:67)
+    clojure.tools.reader$read_map.invokeStatic (reader.clj:249)
+    clojure.tools.reader$read_map.invoke (reader.clj:241)
+    clojure.tools.reader$read_STAR_.invokeStatic (reader.clj:937)
+    clojure.tools.reader$read_STAR_.invoke (reader.clj:919)
+    clojure.tools.reader$read_STAR_.invokeStatic (reader.clj:921)
+    clojure.tools.reader$read_STAR_.invoke (reader.clj:919)
+    clojure.tools.reader$read_discard.invokeStatic (reader.clj:412)
+    clojure.tools.reader$read_discard.invoke (reader.clj:408)
+    clojure.tools.reader$read_dispatch.invokeStatic (reader.clj:74)
+    clojure.tools.reader$read_dispatch.invoke (reader.clj:70)
+    clojure.tools.reader$read_STAR_.invokeStatic (reader.clj:937)
+    clojure.tools.reader$read_STAR_.invoke (reader.clj:919)
+    clojure.tools.reader$read_delimited.invokeStatic (reader.clj:200)
+    clojure.tools.reader$read_delimited.invoke (reader.clj:193)
+    clojure.tools.reader$read_vector.invokeStatic (reader.clj:229)
+    clojure.tools.reader$read_vector.invoke (reader.clj:225)
+    clojure.tools.reader$read_STAR_.invokeStatic (reader.clj:937)
+    clojure.tools.reader$read_STAR_.invoke (reader.clj:919)
+    clojure.tools.reader$read_STAR_.invokeStatic (reader.clj:921)
+    clojure.tools.reader$read_STAR_.invoke (reader.clj:919)
+    clojure.tools.reader$read_discard.invokeStatic (reader.clj:412)
+    clojure.tools.reader$read_discard.invoke (reader.clj:408)
+    clojure.tools.reader$read_dispatch.invokeStatic (reader.clj:74)
+    clojure.tools.reader$read_dispatch.invoke (reader.clj:70)
+    clojure.tools.reader$read_STAR_.invokeStatic (reader.clj:937)
+    clojure.tools.reader$read_STAR_.invoke (reader.clj:919)
+    clojure.tools.reader$read.invokeStatic (reader.clj:995)
+    clojure.tools.reader$read.invoke (reader.clj:963)
+    yang.clojure$read_forms.invokeStatic (clojure.cljc:2152)
+    yang.clojure$read_forms.invoke (clojure.cljc:2135)
+    yang.clojure_float_kind_test$read_one.invokeStatic (clojure_float_kind_test.cljc:52)
+    yang.clojure_float_kind_test$read_one.invoke (clojure_float_kind_test.cljc:49)
+    yang.clojure_float_kind_test$fn__25352$fn__25353$fn__25366.invoke (clojure_float_kind_test.cljc:285)
+    yang.clojure_float_kind_test$fn__25352$fn__25353.invoke (clojure_float_kind_test.cljc:285)
+    yang.clojure_float_kind_test$fn__25352.invokeStatic (clojure_float_kind_test.cljc:281)
+    yang.clojure_float_kind_test/fn (clojure_float_kind_test.cljc:280)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+Ran 18 tests containing 180 assertions.
+20 failures, 1 errors.
+JVM_RC=1

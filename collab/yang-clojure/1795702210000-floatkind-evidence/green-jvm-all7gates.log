@@ -1,0 +1,18 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yang.clojure-float-kind-test
+
+Testing yang.php.antlr.float-address-test
+
+Ran 22 tests containing 290 assertions.
+0 failures, 0 errors.
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yang.clojure-collection-order-test
+
+Ran 2 tests containing 22 assertions.
+0 failures, 0 errors.

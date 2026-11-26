@@ -1,0 +1,180 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.clojure-float-kind-test
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:246)
+identical source mints identical canonical bytes on every host 0.0
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:247)
+identical source mints identical canonical bytes on every host 0.0
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "4f3fd1e3c562a4c8690929fb1fd3b8e607d7d604bffdd4d5a406c737b735e578"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:246)
+identical source mints identical canonical bytes on every host 1.0
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:247)
+identical source mints identical canonical bytes on every host 1.0
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "1962a94c09507f12a3de739a3f584ce18ffbca152f16ebfb82ea15f3a650e90b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:246)
+identical source mints identical canonical bytes on every host 1
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:247)
+identical source mints identical canonical bytes on every host 1
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "48fc721fbbc172e0925fa27af1671de225ba927134802998b10a1568a188652b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:246)
+identical source mints identical canonical bytes on every host 1/2
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:247)
+identical source mints identical canonical bytes on every host 1/2
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "598aa35607a7350acc43a2ea659e1c94e8a8738705131d7670170d9a6a8b0b83"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:246)
+identical source mints identical canonical bytes on every host 1M
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (clojure_float_kind_test.cljc:247)
+identical source mints identical canonical bytes on every host 1M
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "28d6a5ec777e7e798d4be8e68242b049bc8794be9c3f6577f0af4451b0e0d05f"))
+
+ERROR in (gate5-parked-float-result-crosses-the-round) (core_deftype.clj:585)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: java.lang.IllegalArgumentException: No implementation of method: :cursor of protocol: #'dao.stream/IDaoStreamReader found for class: clojure.lang.PersistentArrayMap
+ at clojure.core$_cache_protocol_fn.invokeStatic (core_deftype.clj:585)
+    clojure.core$_cache_protocol_fn.invoke (core_deftype.clj:577)
+    dao.stream$eval5618$fn__5632$G__5607__5639.invoke (stream.cljc:159)
+    yang.clojure_float_kind_test$fn__25718.invokeStatic (clojure_float_kind_test.cljc:533)
+    yang.clojure_float_kind_test/fn (clojure_float_kind_test.cljc:522)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+FAIL in (gate5-carrier-forms-one-root-everywhere) (clojure_float_kind_test.cljc:516)
+expected: (not= "unrecorded" carrier-root-reference)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate5-carrier-forms-one-root-everywhere) (clojure_float_kind_test.cljc:517)
+expected: (= carrier-root-reference (str root))
+  actual: (not (= "unrecorded" ":segment/blake3-3eaa6d2a6a66538adbe59324cbe5b9e9b5f05da946f7793187a559e7b4971bca"))
+
+FAIL in (gate4-repl-arithmetic-reboxed) (clojure_float_kind_test.cljc:437)
+the repaired default/catalog route computes in float kind
+source == is Clojure's cross-kind numeric equality
+expected: (true? (repl-session-result "(== 1.0 1)"))
+  actual: (not (true? false))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (clojure_float_kind_test.cljc:749)
+repaired Clojure manifest declares the new revision, profiles, and accurate host capability
+expected: (= "c1-3" (:yang.frontend/revision m))
+  actual: (not (= "c1-3" "c1-2"))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (clojure_float_kind_test.cljc:750)
+repaired Clojure manifest declares the new revision, profiles, and accurate host capability
+expected: (= :yang.clojure/constructed-collections-float-kind-v1 (:yang.frontend/lowering-profile m))
+  actual: (not (= :yang.clojure/constructed-collections-float-kind-v1 :yang.clojure/constructed-collections-v1))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (clojure_float_kind_test.cljc:752)
+repaired Clojure manifest declares the new revision, profiles, and accurate host capability
+expected: (= :yang.clojure/c1-float-kind (:yang.frontend/support-profile m))
+  actual: (not (= :yang.clojure/c1-float-kind :yang.clojure/c1))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (clojure_float_kind_test.cljc:753)
+repaired Clojure manifest declares the new revision, profiles, and accurate host capability
+expected: (= :source-text (get-in m [:yang.frontend/grammar :yang.grammar/capability]))
+  actual: (not (= :source-text nil))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (clojure_float_kind_test.cljc:761)
+other frontends' revisions in the standard catalog are untouched
+expected: (frontend/ok? (frontend/select catalog #:yang.frontend{:id :yang/clojure, :revision "c1-3"}))
+  actual: (not (frontend/ok? {:id :yang/clojure, :revision "c1-3", :status :refused, :reason :yang.frontend/unknown}))
+
+FAIL in (gate4-linked-library-arithmetic-reboxed) (clojure_float_kind_test.cljc:628)
+linked/library execution with the repaired Clojure profile primitives computes and reboxes floats
+expected: (= [:yin.k/ok true] (run-lib "(== 1.0 1)"))
+  actual: (not (= [:yin.k/ok true] [:yin.k/ok false]))
+
+Ran 21 tests containing 228 assertions.
+19 failures, 1 errors.
+JVM_FLOATKIND_RC=1
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.clojure-collection-order-test
+
+FAIL in (unmodified-source-integral-floats-test) (clojure_collection_order_test.cljc:1612)
+unmodified source string with integral floats matches the recorded common reference
+expected: (= expected snap)
+  actual: (not (= {:root :unrecorded, :applications 2, :keys-digest "unrecorded", :c1-digest "unrecorded", :instruction-provenance-digest "unrecorded"} {:root :segment/blake3-77ac71cec90eaba7887fabb9f28dabe94b52e80227709de3e83dc6f2309e0bd4, :applications 2, :keys-digest "2622d67b40b9c98529b2f245a1f1c9650d896843833a594dd01f889456a0fda3", :c1-digest "cd58c99c96985edcbafda1a12fb684970a4e69ad3d7d3e3b81182eba9f1d928a", :instruction-provenance-digest "78a888061880da6171d94e347aa1868a0dcccb1f81f8fa31625432851d0a42c4"}))
+
+FAIL in (corpus-cross-host-reference-test) (clojure_collection_order_test.cljc:1601)
+:integral-floats
+cross-host corpus divergence at :integral-floats
+expected: (= expected (assoc (get actual case) :case case))
+  actual: (not (= {:case :integral-floats, :root :unrecorded, :applications 2, :keys-digest "unrecorded", :c1-digest "unrecorded", :instruction-provenance-digest "unrecorded"} {:root :segment/blake3-77ac71cec90eaba7887fabb9f28dabe94b52e80227709de3e83dc6f2309e0bd4, :applications 2, :keys-digest "2622d67b40b9c98529b2f245a1f1c9650d896843833a594dd01f889456a0fda3", :c1-digest "cd58c99c96985edcbafda1a12fb684970a4e69ad3d7d3e3b81182eba9f1d928a", :instruction-provenance-digest "78a888061880da6171d94e347aa1868a0dcccb1f81f8fa31625432851d0a42c4", :case :integral-floats}))
+
+Ran 2 tests containing 22 assertions.
+2 failures, 0 errors.
+JVM_GATE3_RC=1

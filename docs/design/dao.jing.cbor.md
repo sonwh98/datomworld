@@ -391,7 +391,9 @@ three cases are independent of argument order and of which host runs them:
   JavaScript returns the carrier so re-encoding cannot lose its kind.
   Carrying float kind is the producer's obligation; the codec never infers
   it. The Python frontend's ruling on meeting it is `yang.antlr.md`
-  section 8.5.5.
+  section 8.5.5, and the Clojure source/forms producer contract and
+  shared numeric-token factory (`yang.core.numeric-token`) are specified
+  in `yang.antlr.md` section 8.8.
 - The JavaScript float64 carrier refuses numeric and default coercion: its
   `valueOf` throws the refusal `:carrier-coercion` (raised through the
   codec's refusal helper, so `refusal` reads it; it is not a corpus

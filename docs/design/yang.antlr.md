@@ -3481,10 +3481,87 @@ Node APIs are effect packages, not properties of the JavaScript grammar.
 The Clojure frontend already exists (`yang.clojure`) and lowers directly:
 forms become `:lambda`, `:application`, `:if`, `:literal`, and
 `:variable` nodes, and definitions become explicit `yin/def`
-applications. It implements the section 3 contract through its existing
-reader rather than through ANTLR. ClojureScript and ClojureDart are
-dialects of the same frontend distinguished by dialect options and
-runtime profile, not by separate core branches.
+applications. It implements the section 3 contract through its own
+frontend-owned source reader rather than through ANTLR. ClojureScript
+and ClojureDart are dialects of the same frontend distinguished by
+dialect options and runtime profile, not by separate core branches.
+
+#### 8.8.1 Numeric-kind preservation, revision `c1-3`, and capability matrix
+
+Per the integral-float portability ruling (2026-11-26, architect ruling
+`1795693415000`), loss of intended numeric kind between supported compiling
+hosts is a runtime correctness defect, not merely a digest or traceability
+difference: `data/equiv`, `content=`, `admit-key?`, and `clojure.core`
+dispatch (`inc`/`dec`) all observe the distinction between binary64 float
+content and exact-integer content.
+
+**Producer boundary and shared factory.** All four frontends (Clojure,
+Python, PHP, TypeScript) materialize numeric tokens through one shared
+factory (`yang.core.numeric-token`) parameterized by per-language lexeme
+dialect tables while preserving each language's numeric syntax and semantic
+profile. The Jing codec (`dao.jing.cbor.md`) and `Float64`'s
+`:carrier-coercion` refusal remain unchanged: carrying float kind is always
+the producer's obligation.
+
+**Frontend-owned token-aware reading (`yang.clojure.reader`).**
+`yang.clojure/read-forms` consumes original Clojure source text directly on
+JVM and Node and materializes numeric tokens through
+`yang.core.numeric-token/materialize :clojure` at token time, before any
+host map/set construction or downstream lowering can discard occurrences or
+coalesce distinct kinds (such as `1` vs `1.0`). Binary floating literals
+(`0.0`, `1.0`, `-1.0`, `1e0`, `1.5`, `-0.0`, `2.`, `+1.5`, `1E5`,
+integral floats at/beyond `2^53`, subnormals, and underflowing tokens) emit
+Jing `cbor/float64` content on every host (`Double` on JVM, `Float64`
+carrier on JS). Exact integers (decimal, hex, octal, `Nr...`, `N`-suffixed
+bigints), `M` decimals (`cbor/decimal`), and ratios (`cbor/ratio`, reduced
+to exact integer when denominator divides numerator) retain their categories
+without relabeling; reader conditionals (`#?`, `#?@`), eval (`#=`), unknown
+tags, and malformed tokens receive explicit refusals with no ambient
+mutable reader state.
+
+**Forms API and carrier admission.** `yang.clojure/literal?` and
+`constant-form?` admit Jing/host numeric carriers (`cbor/float64`,
+`cbor/decimal`, `cbor/ratio`, and exact big-integer carriers) directly, in
+nested collections, and in quoted positions. Through the forms API on
+JavaScript, a bare integral JS `Number` still denotes exact integer content;
+callers intending float64 content without source text must supply
+`dao.jing.cbor/float64` / `yin.vm.data/float64`. Host-quoted `.cljc`
+prelude tables must contain no bare integral `Double` constants (verified by
+the JVM-side producer audit).
+
+**Scoped carrier-aware execution (`yang.clojure.numeric`).** The repaired
+Clojure frontend profile binds scoped carrier-aware numeric primitives
+(`yang.clojure/primitives`, covering `+`, `-`, `*`, `/`, `<`, `<=`, `>`,
+`>=`, kind-strict `=`, cross-kind `==`, and `!=`) over the existing
+`yin.vm.float`, `yin.vm.integer`, and `yin.vm.data` kernels, reboxing every
+floating-point result (including non-integral-to-integral results such as
+`1.5 + 1.5 => 3.0`) before it becomes guest Data. Global `yin.vm/primitives`
+and `Float64`'s `:carrier-coercion` policy are left unchanged.
+
+**Revision, profiles, and migration.** The repaired `:yang/clojure`
+manifest publishes under:
+
+- `:yang.frontend/revision` `"c1-3"` (superseding `"c1-2"`)
+- `:yang.frontend/lowering-profile` `:yang.clojure/constructed-collections-float-kind-v1` (retaining the `constructed-collections-v1` canonical operand ordering contract alongside float-kind preservation)
+- `:yang.frontend/support-profile` `:yang.clojure/c1-float-kind`
+- Unchanged Jing encoding profile, UAST grammar, bytecode format, and C1 marker version (`:yang/call-site 1`).
+
+Pre-fix `c1-2` (and `c1-1`) artifacts retain their recorded bytes,
+addresses, and historical meanings when loaded and executed without
+recompilation. Recompilation from authoritative source under `c1-3`
+produces a corrected float64 artifact whose root differs from a pre-fix
+JS integer-collapsed artifact. Shared runtime modules (`clj`,
+`clojure.core.impl`, `clojure.core`) and Python's `py-v1` /
+`clojure-core-v1` pins are unchanged.
+
+**Four-host capability matrix:**
+
+| Host | `:yang.grammar/capability` | Source reading (`read-forms`) | Forms compilation (incl. carriers) | Artifact load & execute |
+| --- | --- | --- | --- | --- |
+| JVM | `:source-text` | Native (`yang.clojure.reader`) | Yes | Yes |
+| Node (JS) | `:source-text` | Native (`yang.clojure.reader`) | Yes | Yes |
+| Dart (CLJD) | `:forms-only` | Refused (`:unavailable-on-cljd`) | Yes (explicit carriers) | Yes |
+| Jolt | `:forms-only` | Refused (`:unavailable-on-jolt`) | Yes (explicit carriers) | Yes |
 
 ### 8.9 Systems: Go, Rust, C, and further extensions
 

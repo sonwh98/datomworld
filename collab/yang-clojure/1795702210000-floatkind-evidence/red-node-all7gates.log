@@ -1,0 +1,452 @@
+
+Testing yang.clojure-collection-order-test
+
+ERROR in (corpus-cross-host-reference-test) (Error:NaN:NaN)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Cannot compile unknown form type", :data {:form #dao.jing/float64 0, :type dao.host.number/Float64}}
+
+FAIL in (unmodified-source-integral-floats-test) (yang/clojure_collection_order_test.cljc:1623:12)
+unmodified source string with integral floats matches the recorded common reference
+expected: (= expected snap)
+  actual: (not (= {:root :unrecorded, :applications 2, :keys-digest "unrecorded", :c1-digest "unrecorded", :instruction-provenance-digest "unrecorded"} {:root :segment/blake3-978d6379ca349724cf376a27451753c4f7de131808d5b34cd06583c09adf17b8, :applications 2, :keys-digest "9db8cdac9e62d614fa9928a219771ba3b63df76b9f6312df0ae95f04d5b76da1", :c1-digest "b5a6f3884c17da73d906a79704987cae738d8fc71b750b86fd0897adc08f815f", :instruction-provenance-digest "594161508c724581490ce1e4b5a339ca6aa76a31814eaabf1a7ab86a1a3e8bfd"}))
+
+Testing yang.clojure-float-kind-test
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 0.0
+0.0 must be float64 content, read 0
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 0))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 1.0
+1.0 must be float64 content, read 1
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content -1.0
+-1.0 must be float64 content, read -1
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? -1))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 1e0
+1e0 must be float64 content, read 1
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 9007199254740992.0
+9007199254740992.0 must be float64 content, read 9007199254740992
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 9007199254740992))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 9007199254740994.0
+9007199254740994.0 must be float64 content, read 9007199254740994
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 9007199254740994))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 1e19
+1e19 must be float64 content, read 10000000000000000000
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 10000000000000000000))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 1e-400
+1e-400 must be float64 content, read 0
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 0))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 2.
+2. must be float64 content, read 2
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 2))
+
+FAIL in (gate1-float-tokens-are-float64-content) (yang/clojure_float_kind_test.cljc:188:15)
+every binary-floating token reads and compiles as float64 content 1E5
+1E5 must be float64 content, read 100000
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 100000))
+
+FAIL in (gate1-integer-tokens-stay-exact-integers) (yang/clojure_float_kind_test.cljc:206:11)
+big integers keep the exact big carrier
+an N-suffixed token is exact big-integer content, never a rounded number
+expected: (integer-host/big-carrier? value)
+  actual: (not (integer-host/big-carrier? 9.223372036854776e+21))
+
+FAIL in (gate1-integer-tokens-stay-exact-integers) (yang/clojure_float_kind_test.cljc:208:11)
+big integers keep the exact big carrier
+expected: (data-equiv expected value)
+  actual: false
+
+FAIL in (gate1-unsupported-categories-not-relabeled) (yang/clojure_float_kind_test.cljc:215:11)
+ratio tokens stay ratio content
+1/2 must stay ratio content, read 0.5
+expected: (cbor/ratio? value)
+  actual: (not (cbor/ratio? 0.5))
+
+FAIL in (gate1-unsupported-categories-not-relabeled) (yang/clojure_float_kind_test.cljc:217:11)
+ratio tokens stay ratio content
+expected: (not (cbor/float64? value))
+  actual: (not (not true))
+
+FAIL in (gate1-unsupported-categories-not-relabeled) (yang/clojure_float_kind_test.cljc:221:13)
+decimal M tokens stay decimal content
+1M must stay decimal content, read 1
+expected: (cbor/decimal? value)
+  actual: (not (cbor/decimal? 1))
+
+FAIL in (gate1-unsupported-categories-not-relabeled) (yang/clojure_float_kind_test.cljc:221:13)
+decimal M tokens stay decimal content
+10.03M must stay decimal content, read 10.03
+expected: (cbor/decimal? value)
+  actual: (not (cbor/decimal? 10.03))
+
+FAIL in (gate1-unsupported-categories-not-relabeled) (yang/clojure_float_kind_test.cljc:223:13)
+decimal M tokens stay decimal content
+expected: (not (cbor/float64? value))
+  actual: (not (not true))
+
+FAIL in (gate1-unsupported-categories-not-relabeled) (yang/clojure_float_kind_test.cljc:221:13)
+decimal M tokens stay decimal content
+-2.5M must stay decimal content, read -2.5
+expected: (cbor/decimal? value)
+  actual: (not (cbor/decimal? -2.5))
+
+FAIL in (gate1-unsupported-categories-not-relabeled) (yang/clojure_float_kind_test.cljc:223:13)
+decimal M tokens stay decimal content
+expected: (not (cbor/float64? value))
+  actual: (not (not true))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 0.0
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 0.0
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 1.0
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 1.0
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "48fc721fbbc172e0925fa27af1671de225ba927134802998b10a1568a188652b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 1
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 1
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "48fc721fbbc172e0925fa27af1671de225ba927134802998b10a1568a188652b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 1/2
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 1/2
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "d2f2da382b7c144b0696edc3488fbc95d53683fbc74024595c2c21924dfc37ef"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 1M
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 1M
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "48fc721fbbc172e0925fa27af1671de225ba927134802998b10a1568a188652b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:249:9)
+the float64 and integer tokens of one value mint distinct bytes
+expected: (not= (semantic-root "1") (semantic-root "1.0"))
+  actual: (not (not= :segment/blake3-41bd9ca0c6384847bc4e024a7ffeae8885c920648afb1b69d6226fbc1ac1699e :segment/blake3-41bd9ca0c6384847bc4e024a7ffeae8885c920648afb1b69d6226fbc1ac1699e))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:271:15)
+every structural position keeps the token's kind top level
+top level keeps float64 kind
+expected: (cbor/float64? form)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:271:15)
+every structural position keeps the token's kind let binding
+let binding keeps float64 kind
+expected: (cbor/float64? form)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:271:15)
+every structural position keeps the token's kind vector element
+vector element keeps float64 kind
+expected: (cbor/float64? form)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:271:15)
+every structural position keeps the token's kind quoted data
+quoted data keeps float64 kind
+expected: (cbor/float64? form)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:271:15)
+every structural position keeps the token's kind nested quoted
+nested quoted keeps float64 kind
+expected: (cbor/float64? form)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:271:15)
+every structural position keeps the token's kind map value
+map value keeps float64 kind
+expected: (cbor/float64? form)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:271:15)
+every structural position keeps the token's kind set element
+set element keeps float64 kind
+expected: (cbor/float64? form)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:271:15)
+every structural position keeps the token's kind call argument
+call argument keeps float64 kind
+expected: (cbor/float64? form)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:273:9)
+compiled literal payloads keep the carrier
+expected: (cbor/float64? (first (compiled-value "(quote [1.0 1])")))
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:274:9)
+compiled literal payloads keep the carrier
+expected: (cbor/float64? (first (compiled-value "[1.0]")))
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-floats-preserve-through-structure) (yang/clojure_float_kind_test.cljc:282:11)
+repeated equal-valued tokens keep one occurrence each
+expected: (every? cbor/float64? (map :value (:operands ast)))
+  actual: (not (every? #object[dao$jing$cbor$float64_QMARK_] (1 1 1)))
+
+FAIL in (gate2-lexical-contexts-are-not-floats) (yang/clojure_float_kind_test.cljc:293:11)
+numeric-looking text in non-numeric lexical contexts stays itself
+expected: (cbor/float64? (first forms))
+  actual: (not (cbor/float64? 1))
+
+ERROR in (gate2-equal-valued-occurrences-not-coalesced) (Error:NaN:1)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Map literal contains duplicate key: 1", :data {:type :reader-exception, :ex-kind :reader-error}}
+
+FAIL in (gate2-float-key-policy-parity) (yang/clojure_float_kind_test.cljc:323:11)
+constant float data is quoted data; library float keys refuse alike
+a constant map literal with a float key is quoted data
+expected: (cbor/float64? (first (keys (compiled-value "{1.0 :a}"))))
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate2-float-key-policy-parity) (yang/clojure_float_kind_test.cljc:328:13)
+constant float data is quoted data; library float keys refuse alike
+a dynamic float key hits the collection-key refusal on this host
+expected: (= :yin.k/error status)
+  actual: (not (= :yin.k/error :yin.k/ok))
+
+FAIL in (gate2-float-key-policy-parity) (yang/clojure_float_kind_test.cljc:330:13)
+constant float data is quoted data; library float keys refuse alike
+expected: (= :coll/unsupported-key (:clj/policy err))
+  actual: (not (= :coll/unsupported-key nil))
+
+FAIL in (gate2-float-key-policy-parity) (yang/clojure_float_kind_test.cljc:331:13)
+constant float data is quoted data; library float keys refuse alike
+a nested float key hits the collection-key refusal on this host
+expected: (= :yin.k/error nstatus)
+  actual: (not (= :yin.k/error :yin.k/ok))
+
+FAIL in (gate2-float-key-policy-parity) (yang/clojure_float_kind_test.cljc:333:13)
+constant float data is quoted data; library float keys refuse alike
+expected: (= :coll/unsupported-key (:clj/policy nerr))
+  actual: (not (= :coll/unsupported-key nil))
+
+FAIL in (gate2-macro-generated-numeric-data) (yang/clojure_float_kind_test.cljc:346:13)
+a macro returning a source float keeps its kind through expansion
+macro result must be float64, got 1
+expected: (cbor/float64? res)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate4-library-inc-dec-float-behavior) (yang/clojure_float_kind_test.cljc:403:11)
+inc/dec of floating input take the floating branch
+inc of 1.0 returns float kind
+expected: (cbor/float64? one-up)
+  actual: (not (cbor/float64? 2))
+
+FAIL in (gate4-library-inc-dec-float-behavior) (yang/clojure_float_kind_test.cljc:406:11)
+inc/dec of floating input take the floating branch
+expected: (cbor/float64? one-down)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate4-repl-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:427:19)
+the repaired default/catalog route computes in float kind (+ 1.5 1.5)
+(+ 1.5 1.5) must answer float kind, got 3
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 3))
+
+FAIL in (gate4-repl-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:427:19)
+the repaired default/catalog route computes in float kind (+ 1.0 2.0)
+(+ 1.0 2.0) must answer float kind, got 3
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 3))
+
+FAIL in (gate4-repl-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:427:19)
+the repaired default/catalog route computes in float kind (* 2.5 2.0)
+(* 2.5 2.0) must answer float kind, got 5
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? 5))
+
+FAIL in (gate4-repl-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:427:19)
+the repaired default/catalog route computes in float kind (- 1.0 4.0)
+(- 1.0 4.0) must answer float kind, got -3
+expected: (cbor/float64? value)
+  actual: (not (cbor/float64? -3))
+
+FAIL in (gate4-repl-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:434:11)
+the repaired default/catalog route computes in float kind
+source = stays kind-strict numeric equality
+expected: (false? (repl-session-result "(= 1.0 1)"))
+  actual: (not (false? true))
+
+FAIL in (gate4-repl-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:439:11)
+the repaired default/catalog route computes in float kind
+expected: (false? (repl-session-result "(= [1.0] [1])"))
+  actual: (not (false? true))
+
+FAIL in (gate4-repl-literal-kind-through-the-catalog) (yang/clojure_float_kind_test.cljc:445:9)
+expected: (cbor/float64? (repl-session-result "1.0"))
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate4-repl-literal-kind-through-the-catalog) (yang/clojure_float_kind_test.cljc:449:9)
+the shell renders the float as a float
+expected: (= "1.0" (repl-text "1.0"))
+  actual: (not (= "1.0" "1"))
+
+FAIL in (gate4-repl-literal-kind-through-the-catalog) (yang/clojure_float_kind_test.cljc:450:9)
+signed zero renders signed
+expected: (= "-0.0" (repl-text "-0.0"))
+  actual: (not (= "-0.0" "0"))
+
+FAIL in (gate4-unboxed-control-distinguishes) (yang/clojure_float_kind_test.cljc:465:14)
+the unboxed control
+the source path answers float kind
+expected: (cbor/float64? boxed)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate4-unboxed-control-distinguishes) (yang/clojure_float_kind_test.cljc:466:14)
+the unboxed control
+expected: (not (data-equiv unboxed boxed))
+  actual: (not (not true))
+
+FAIL in (gate4-unboxed-control-distinguishes) (yang/clojure_float_kind_test.cljc:467:14)
+the unboxed control
+the digest gate distinguishes them too
+expected: (not= (:root (vm/ast->semantic-bytecode (yang/compile 1))) (semantic-root "1.0"))
+  actual: (not (not= :segment/blake3-41bd9ca0c6384847bc4e024a7ffeae8885c920648afb1b69d6226fbc1ac1699e :segment/blake3-41bd9ca0c6384847bc4e024a7ffeae8885c920648afb1b69d6226fbc1ac1699e))
+
+ERROR in (gate5-explicit-carrier-forms-compile-and-run) (Error:NaN:NaN)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Cannot compile unknown form type", :data {:form #dao.jing/float64 1, :type dao.host.number/Float64}}
+
+ERROR in (gate5-carrier-forms-one-root-everywhere) (Error:NaN:NaN)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Cannot compile unknown form type", :data {:form #dao.jing/float64 1, :type dao.host.number/Float64}}
+
+ERROR in (gate5-parked-float-result-crosses-the-round) (Error:NaN:NaN)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method IDaoStreamReader.cursor defined for type cljs.core/PersistentArrayMap: {:dao.stream/outcome :dao.stream/ok, :dao.stream/handle #object[dao.stream.ringbuffer.RingHandle], :dao.stream/identity "056dd524-d9fb-4ddf-95c6-e2ad715bdb6c"}]
+
+FAIL in (gate4-linked-library-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:624:19)
+linked/library execution with the repaired Clojure profile primitives computes and reboxes floats (+ 1.5 1.5)
+(+ 1.5 1.5) must return float64, got 3
+expected: (cbor/float64? v)
+  actual: (not (cbor/float64? 3))
+
+FAIL in (gate4-linked-library-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:624:19)
+linked/library execution with the repaired Clojure profile primitives computes and reboxes floats (* 2.5 2.0)
+(* 2.5 2.0) must return float64, got 5
+expected: (cbor/float64? v)
+  actual: (not (cbor/float64? 5))
+
+FAIL in (gate4-linked-library-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:624:19)
+linked/library execution with the repaired Clojure profile primitives computes and reboxes floats (- 1.0 4.0)
+(- 1.0 4.0) must return float64, got -3
+expected: (cbor/float64? v)
+  actual: (not (cbor/float64? -3))
+
+FAIL in (gate4-linked-library-arithmetic-reboxed) (yang/clojure_float_kind_test.cljc:627:13)
+linked/library execution with the repaired Clojure profile primitives computes and reboxes floats
+expected: (= [:yin.k/ok false] (run-lib "(= 1.0 1)"))
+  actual: (not (= [:yin.k/ok false] [:yin.k/ok true]))
+
+FAIL in (gate6-legacy-custody-and-cross-host-artifacts) (yang/clojure_float_kind_test.cljc:732:17)
+pre-fix artifacts load and execute without recompilation, preserving historical meanings recompiling from authoritative source under the repaired frontend yields the float64 root on both JVM and Node
+repaired compilation matches the float64 root
+expected: (= (:root jvm-payload) (:root recompiled))
+  actual: (not (= :segment/blake3-7cdae9dfee7f1980ccdd9543f279d0d7d20e4a4a4a44dda14f88f54ba9002049 :segment/blake3-541ba2ffc6b74327f70008d2069a35279612c2e96c82cc198d7b0b6782501e4c))
+
+FAIL in (gate6-legacy-custody-and-cross-host-artifacts) (yang/clojure_float_kind_test.cljc:734:17)
+pre-fix artifacts load and execute without recompilation, preserving historical meanings recompiling from authoritative source under the repaired frontend yields the float64 root on both JVM and Node
+repaired compilation is distinct from the pre-fix Node integer artifact
+expected: (not= (:root node-payload) (:root recompiled))
+  actual: (not (not= :segment/blake3-541ba2ffc6b74327f70008d2069a35279612c2e96c82cc198d7b0b6782501e4c :segment/blake3-541ba2ffc6b74327f70008d2069a35279612c2e96c82cc198d7b0b6782501e4c))
+
+FAIL in (gate6-legacy-custody-and-cross-host-artifacts) (yang/clojure_float_kind_test.cljc:737:19)
+pre-fix artifacts load and execute without recompilation, preserving historical meanings recompiling from authoritative source under the repaired frontend yields the float64 root on both JVM and Node
+expected: (cbor/float64? v)
+  actual: (not (cbor/float64? 1))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (yang/clojure_float_kind_test.cljc:749:11)
+repaired Clojure manifest declares the new revision, profiles, and accurate host capability
+expected: (= "c1-3" (:yang.frontend/revision m))
+  actual: (not (= "c1-3" "c1-2"))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (yang/clojure_float_kind_test.cljc:750:11)
+repaired Clojure manifest declares the new revision, profiles, and accurate host capability
+expected: (= :yang.clojure/constructed-collections-float-kind-v1 (:yang.frontend/lowering-profile m))
+  actual: (not (= :yang.clojure/constructed-collections-float-kind-v1 :yang.clojure/constructed-collections-v1))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (yang/clojure_float_kind_test.cljc:752:11)
+repaired Clojure manifest declares the new revision, profiles, and accurate host capability
+expected: (= :yang.clojure/c1-float-kind (:yang.frontend/support-profile m))
+  actual: (not (= :yang.clojure/c1-float-kind :yang.clojure/c1))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (yang/clojure_float_kind_test.cljc:753:11)
+repaired Clojure manifest declares the new revision, profiles, and accurate host capability
+expected: (= :source-text (get-in m [:yang.frontend/grammar :yang.grammar/capability]))
+  actual: (not (= :source-text nil))
+
+FAIL in (gate7-repaired-manifest-revisions-and-capabilities) (yang/clojure_float_kind_test.cljc:761:11)
+other frontends' revisions in the standard catalog are untouched
+expected: (frontend/ok? (frontend/select catalog {:yang.frontend/id :yang/clojure, :yang.frontend/revision "c1-3"}))
+  actual: (not (frontend/ok? {:id :yang/clojure, :revision "c1-3", :status :refused, :reason :yang.frontend/unknown}))
+
+Ran 22 tests containing 214 assertions.
+75 failures, 5 errors.
+NODE_RC=1

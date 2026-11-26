@@ -40,6 +40,7 @@
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
     [yang.core.names :as names]
+    [yang.core.numeric-token :as numeric-token]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
     [yang.typescript.antlr.prelude :as prelude]
@@ -377,29 +378,6 @@
       {:js/str body})))
 
 
-(defn- host-double
-  [t]
-  #?(:cljd (double/parse t)
-     :clj (Double/parseDouble t)
-     :cljs (js/parseFloat t)))
-
-
-(defn- radix-double
-  [n digits radix]
-  (when-not (re-matches (case radix
-                          16 #"[0-9a-fA-F]+"
-                          8 #"[0-7]+"
-                          2 #"[01]+")
-                        digits)
-    (syntax! n "Invalid or unexpected token"))
-  (reduce (fn [acc ch]
-            (+ (* acc (double radix))
-               (double (str/index-of "0123456789abcdef"
-                                     (str/lower-case (str ch))))))
-          0.0
-          digits))
-
-
 (defn- radix-int
   [n digits radix]
   (when-not (re-matches (case radix
@@ -416,28 +394,16 @@
           digits))
 
 
-(defn- decimal-text
-  "Host-parseable decimal text: a digit on each side of the point."
-  [t]
-  (let [t (if (str/starts-with? t ".") (str "0" t) t)
-        t (str/replace t ".e" ".0e")
-        t (str/replace t ".E" ".0E")]
-    (if (str/ends-with? t ".") (str t "0") t)))
-
-
 (defn- number-literal
-  "The node of one numeric literal token: float64 content."
+  "The node of one numeric literal token: float64 content via the shared
+   numeric-token factory."
   [n text]
-  (let [t (str/replace text "_" "")
-        lower (str/lower-case t)
-        v (cond
-            (str/starts-with? lower "0x") (radix-double n (subs lower 2) 16)
-            (str/starts-with? lower "0o") (radix-double n (subs lower 2) 8)
-            (str/starts-with? lower "0b") (radix-double n (subs lower 2) 2)
-            (re-find #"^0[0-9]" lower)
-            (syntax! n "Legacy octal literals are not allowed in strict mode")
-            :else (host-double (decimal-text t)))]
-    (u/lit (cbor/float64 v))))
+  (let [classified (numeric-token/classify :typescript text)]
+    (case (:kind classified)
+      :float64 (u/lit (numeric-token/materialize-classified classified))
+      :invalid (syntax! n (if (= :legacy-octal (:reason classified))
+                            "Legacy octal literals are not allowed in strict mode"
+                            "Invalid or unexpected token")))))
 
 
 (def ^:private max-native-digits

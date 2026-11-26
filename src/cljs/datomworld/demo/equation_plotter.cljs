@@ -265,7 +265,10 @@
 
 
 (defn compile!
-  "Compile the source editor contents to the canonical v2 datom program."
+  "Compile the source editor contents to the canonical v2 datom program.
+   Legacy raw-forms browser demo boundary (architect ruling 1795693415000):
+   reads with `cljs.reader` because `math-primitives` binds host `js/Math.*`
+   directly and `make-plot-handler` feeds bare JS Numbers into SVG geometry."
   []
   (try (let [source (:source @app-state)
              forms (reader/read-string (str "[" source "]"))

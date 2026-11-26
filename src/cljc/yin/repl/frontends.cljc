@@ -46,18 +46,28 @@
    table, finalized over the post-expansion tree that executes and
    retained beside a published module's manifest — and that promise is
    a support claim, so the revision and the support profile name it.
-   Revision c1-2 additionally declares the constructed-collections
-   lowering profile: a dynamically constructed map or set literal now
-   orders its constructor operands by compiled content
-   (:yang.clojure/constructed-collections-v1), a one-time canonical
-   shift for affected newly compiled artifacts; the C1 support claim,
-   the C1 marker value and the execution grammar versions are
-   unchanged."
+   Revision c1-2 declared constructed-collections canonical operand ordering
+   (:yang.clojure/constructed-collections-v1).
+   Revision c1-3 (architect ruling 1795693415000) retains the
+   constructed-collections ordering contract and adds frontend-owned
+   token-aware source reading, carrier-literal admission, and carrier-aware
+   floating-point execution (`:yang.clojure/constructed-collections-float-kind-v1`,
+   support profile `:yang.clojure/c1-float-kind`), while exposing accurate
+   host capability (`:source-text` on JVM/Node, `:forms-only` on Dart/Jolt).
+   The C1 marker value and execution grammar versions are unchanged."
   []
   (assoc (manifest :yang/clojure :clojure)
-         :yang.frontend/revision "c1-2"
-         :yang.frontend/lowering-profile :yang.clojure/constructed-collections-v1
-         :yang.frontend/support-profile :yang.clojure/c1))
+         :yang.frontend/revision "c1-3"
+         :yang.frontend/grammar {:yang.grammar/package "yang.clojure.reader",
+                                 :yang.grammar/entries {:module "program"},
+                                 :yang.grammar/export-profile :yang.cst/v1,
+                                 :yang.grammar/capability #?(:jolt :forms-only
+                                                             :cljd :forms-only
+                                                             :clj :source-text
+                                                             :cljs :source-text
+                                                             :default :forms-only)}
+         :yang.frontend/lowering-profile :yang.clojure/constructed-collections-float-kind-v1
+         :yang.frontend/support-profile :yang.clojure/c1-float-kind))
 
 
 (defn- clojure-lower
@@ -65,6 +75,34 @@
   (if (= 1 (count forms))
     (yang.clojure/compile (first forms))
     (yang.clojure/compile-program forms)))
+
+
+(defn- clojure-binding
+  "The Clojure frontend binding for this host: original source text through
+   `yang.clojure/read-forms` on JVM/Node (`:source-text`), forms-only on
+   Dart/Jolt (`:forms-only`), and carrier-aware Clojure numeric primitives
+   scoped to this frontend."
+  []
+  #?(:jolt {:input :forms
+            :parse identity
+            :lower clojure-lower
+            :primitives yang.clojure/primitives}
+     :cljd {:input :forms
+            :parse identity
+            :lower clojure-lower
+            :primitives yang.clojure/primitives}
+     :clj {:parse yang.clojure/read-forms
+           :lower clojure-lower
+           :lower-forms clojure-lower
+           :primitives yang.clojure/primitives}
+     :cljs {:parse yang.clojure/read-forms
+            :lower clojure-lower
+            :lower-forms clojure-lower
+            :primitives yang.clojure/primitives}
+     :default {:input :forms
+               :parse identity
+               :lower clojure-lower
+               :primitives yang.clojure/primitives}))
 
 
 (defn- antlr-manifest
@@ -132,8 +170,7 @@
   "The standard immutable frontend catalog and the preferred Python revision."
   []
   (let [catalog (cond-> frontend/empty-catalog
-                  true (frontend/install (clojure-manifest)
-                                         {:input :forms :parse identity :lower clojure-lower})
+                  true (frontend/install (clojure-manifest) (clojure-binding))
                   #?@(:cljd []
                       :jolt []
                       :default [true (frontend/install

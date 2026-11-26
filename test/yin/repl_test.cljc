@@ -456,14 +456,12 @@
 
 
 (deftest regex-and-anonymous-fn-forms-read-as-on-the-jvm
-  ;; A `%` after a regex or an anonymous fn literal. Node reads input as
-  ;; EDN, which has neither form and refuses both; Dart must read them as
-  ;; the JVM does.
+  ;; A `%` after a regex or an anonymous fn literal. Under `:yang/clojure`
+  ;; c1-3 (frontend-owned Clojure source reader), Node reads both forms just
+  ;; as the JVM and Dart do.
   (doseq [line ["(quote [#_#\"%\" %])" "(quote [#_#(+ %1 1) %])"]]
     (let [result (answer line)]
-      #?(:cljd (is (= "['%]" result) line)
-         :cljs (is (str/starts-with? result "Error: ") line)
-         :clj (is (= "['%]" result) line)))))
+      (is (= "['%]" result) line))))
 
 
 (deftest duplicate-percent-keys-are-refused-where-the-reader-refuses-them
@@ -766,8 +764,8 @@
         (is (= "{:type :host-fn, :name 'dao.space.query/q}" q))
         (is (= "[{:type :host-fn, :name '+} {:f {:type :host-fn, :name '-}}]"
                nested))
-        (is (= "{:type :host-fn, :name '=}" alias)
-            "an alias renders under its canonical name")
+        (is (= "{:type :host-fn, :name '==}" alias)
+            "distinct numeric equality primitive renders under its own name")
         (is (str/starts-with? closure "{:type :closure")
             "a data closure keeps its own rendering")
         (is (not-any? #(str/includes? % "#object[")

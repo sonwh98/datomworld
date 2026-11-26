@@ -426,17 +426,22 @@
      [:inner-set #{(list '+ 'n 2) 3}]
      [:inner-vec [(list '+ 'n 3)]]
      [:deep {:a #{[(list '+ 'n 4)]}}]]]
-   ;; non-integral floats only: a bare INTEGRAL-valued double (0.0) is a
-   ;; documented host numeric-identity boundary -- the JVM's codec wraps
-   ;; every double in the float64 carrier while the JS host encodes a bare
-   ;; integral Number as an integer, so such a literal mints different
-   ;; content per host (first caught by the cross-host reference on its
-   ;; first Node run; divergent digests recorded in the r3 findings). That
-   ;; boundary is encoder/float-carrier territory and stays outside this
-   ;; round's bounds; float coverage here uses non-integral doubles, which
-   ;; travel as float64 on every host.
+   ;; Non-integral floats control (retained from c1-2; historical r3 failed
+   ;; comparison for bare integral floats is archived at
+   ;; collab/yang-clojure/1795104744000-fixorder-r3-evidence/
+   ;; fixorder-r3-node-order-floats-divergence.log; architectural ruling:
+   ;; collab/yang-clojure/1795693415000-architect-float-kind-portability-ruling.gpt-6-astra.findings.md).
    [:floats
     [[1.5 (list '+ 'n 1.5)] [2.25 -0.5] [3.75 2.5]]]
+   ;; Restored integral-float coverage (ruling 1795693415000, RULING 5 Gate 3):
+   ;; explicit float64 carriers for programmatic Data fixtures across all four
+   ;; hosts, paired with `unmodified-source-integral-floats-test` below which
+   ;; compiles the identical unmodified source string through the repaired
+   ;; frontend and asserts equality against this same recorded reference.
+   [:integral-floats
+    [[(data/float64 0.0) (list '+ 'n (data/float64 1.0))]
+     [(data/float64 2.0) (data/float64 (* -1.0 0.0))]
+     [1 (data/float64 1.5)]]]
    [:duplicate-subtrees
     [[:a (list 'first 'xs)] [:b (list 'first 'xs)] [:c (list 'first 'xs)]]]])
 
@@ -1479,6 +1484,12 @@
     :keys-digest "9da765476fa04769e575b16bb500be27065e05e0f62ee9d072c80f92e5210123",
     :c1-digest "49d4bc2b9f421a1a5193c34448e693a13dc48de7bbcc5e35296083cb70959f79",
     :instruction-provenance-digest "ae37530caa047b3d3baa8f6d3cda9331b050cfac9271895de0712aa1313980ab"}
+   {:case :integral-floats,
+    :root :segment/blake3-77ac71cec90eaba7887fabb9f28dabe94b52e80227709de3e83dc6f2309e0bd4,
+    :applications 2,
+    :keys-digest "2622d67b40b9c98529b2f245a1f1c9650d896843833a594dd01f889456a0fda3",
+    :c1-digest "cd58c99c96985edcbafda1a12fb684970a4e69ad3d7d3e3b81182eba9f1d928a",
+    :instruction-provenance-digest "78a888061880da6171d94e347aa1868a0dcccb1f81f8fa31625432851d0a42c4"}
    {:case :duplicate-subtrees,
     :root :segment/blake3-fcecdb781319f60805c548d7bac0c2932df58a73e914c4daae04e2c8d0e376c0,
     :applications 4,
@@ -1584,8 +1595,23 @@
                                    (compile-snapshot (build-set :vec-set
                                                                 (sized-set-elements n)))]])
                                map-corpus-sizes)))]
-    (is (= (count corpus-reference) (count actual) 18))
+    (is (= (count corpus-reference) (count actual) 19))
     (doseq [{:keys [case] :as expected} corpus-reference]
       (testing (str case)
         (is (= expected (assoc (get actual case) :case case))
             (str "cross-host corpus divergence at " case))))))
+
+
+(deftest unmodified-source-integral-floats-test
+  #?(:jolt nil
+     :cljd nil
+     :default
+     (let [expected (some #(when (= :integral-floats (:case %)) (dissoc % :case))
+                          corpus-reference)
+           form (first (yang/read-forms "{0.0 (+ n 1.0) 2e0 -0.0 1 1.5}"))
+           snap (compile-snapshot form)
+           int-control (compile-snapshot (first (yang/read-forms "{0 (+ n 1) 2 0 1 1.5}")))]
+       (is (= expected snap)
+           "unmodified source string with integral floats matches the recorded common reference")
+       (is (not= snap int-control)
+           "integer control produces distinct root, keys, C1 and provenance"))))

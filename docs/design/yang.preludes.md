@@ -609,7 +609,7 @@ def sum_even_squares(xs):
 ### 8.1 Multi-host portability (JVM, CLJS/Node, CLJD/Dart, Jolt/Scheme)
 
 - **ClojureDart AOT literal limits:** Consolidate `defquoted` into **`yang.core.defquoted`** (r8 M9 — the dedicated host macro namespace; NOT `yang.core.prelude`, keeping the emission namespace free of macro definitions).
-- **Zero bare integral float literals & zero raw host doubles in guest UAST:** All float operations pass boxed `data/float64` through `yin.vm.float`, avoiding raw host doubles across JVM, Node, Dart, and Jolt.
+- **Zero bare integral float literals & zero raw host doubles in guest UAST:** All float operations pass boxed `data/float64` through `yin.vm.float`, avoiding raw host doubles across JVM, Node, Dart, and Jolt. Shared prelude and runtime emitters (`yang.clojure.prelude`, `yang.clojure.core-impl`, `yang.python.antlr.clj-runtime`, and Track B language preludes) must never embed bare integral `Double` constants in host-quoted tables (audited on the JVM); every float literal is constructed explicitly as `dao.jing.cbor/float64` (via `yang.core.numeric-token` at frontend token time per [`docs/design/yang.antlr.md` §8.8](./yang.antlr.md#88-the-producer-owns-float-kind)) and float-returning primitives rebox their results via `yin.vm.float` before returning to VM execution or collection key positions.
 - **Canonical ordering (`b86bc0e8` invariant):** Recipes, profiles, descriptor maps, and emitted UAST operand sequences sort keys deterministically, guaranteeing byte-identical `dao.jing.cbor` hashes across all 4 hosts.
 - **No JVM-only reflection:** `yang.core.semantics` and `yang.core.prelude` use pure portable Clojure data transforms.
 

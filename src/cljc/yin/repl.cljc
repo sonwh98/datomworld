@@ -13,6 +13,9 @@
             #?(:cljd [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
             [clojure.string :as str]
+            #?@(:cljs [[dao.host.integer :as host-int]
+                       [dao.jing.cbor :as cbor]
+                       [yin.vm.float :as vm-float]])
             [dao.jing :as jing]
             [dao.pretty :as pretty]
             [dao.stream :as stream]
@@ -598,17 +601,35 @@
           :else (into {} entries))))
 
 
+#?(:cljs
+   (def ^:private float-format-fn (get vm-float/float-module 'format)))
+
+
+#?(:cljs
+   (defn- float-display-text
+     "Portable REPL display text for float64 content `x`, preserving `.0` and
+      signed zero `-0.0` across hosts."
+     [x]
+     (let [v (data/float-value x)]
+       (cond
+         (host-int/nan-float? v) "##NaN"
+         (host-int/infinite-float? v) (if (neg? v) "##-Inf" "##Inf")
+         :else (float-format-fn (cbor/float64 v))))))
+
+
 (defn- quote-symbols
   "`quoted?` is true inside a `(quote ...)` form: its symbols print as they
    are, but host functions at any depth still become the marker."
   [namer quoted? x]
   (cond (symbol? x) (if quoted? x (list 'quote x))
         (fn? x) (host-fn-marker namer x)
+        #?@(:cljs [(cbor/float64? x) (DisplayKey. (float-display-text x) 0)])
         ;; a closure or continuation is opaque: its kind, never its payload,
         ;; a captured value or its owner tag
         (values/host-typed? x)
         (typed-map [[:type (if (values/closure? x) :closure :continuation)]])
         (vector? x) (mapv #(quote-symbols namer quoted? %) x)
+        (set? x) (into #{} (map #(quote-symbols namer quoted? %)) x)
         (map? x)
         (render-map
           ;; not `contains?`: on a sorted map with non-keyword keys it throws
@@ -1332,6 +1353,10 @@
 
 (defn read-forms
   "The forms of one input line, as a vector, read by the host reader.
+   Used by the shell for command sniffing, datom-stream/AST-map detection,
+   and forms-only frontends (`:input :forms`); source-text frontends such
+   as `:yang/clojure` c1-3 on JVM/Node receive the original source string
+   through their own `:parse` stage (`yang.clojure/read-forms`).
    Public so the cross-host reader tests can compare the forms, metadata
    included, that each host reads."
   [input]
@@ -2463,10 +2488,13 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    session's first lowering, and the preview is of the submitted form, not
    of the runtime it would run on.  The session itself is not touched."
   [state arg]
-  (let [state (assoc state :frontend-session :primed)]
+  (let [state (assoc state :frontend-session :primed)
+        binding (frontend-binding state (:lang state))]
     (cond
       (string? arg) (compile-source state arg)
       (forms-input? state) (compile-input state nil [arg])
+      (:lower-forms binding)
+      (lower-parsed state (assoc binding :lower (:lower-forms binding)) [arg])
       :else (throw (ex-info "This compile command expects a source string"
                             {:lang (:lang state) :arg arg})))))
 

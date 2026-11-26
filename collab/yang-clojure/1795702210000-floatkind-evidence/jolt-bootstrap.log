@@ -1,0 +1,9 @@
+os-packages: all 6 required Debian packages installed: gcc git libncurses-dev libssl-dev libx11-dev make
+chez 10.4.1 threaded #t /home/sto/.local/share/mise/installs/chezscheme/10.4.1/bin/scheme
+gambit v4.9.8 /home/sto/.local/share/mise/installs/gambit/4.9.8/bin/gsi
+cmake version 4.4.4 /home/sto/.local/share/mise/installs/cmake/4.4.4/cmake-4.4.4-linux-x86_64/bin/cmake
+cloning https://github.com/sonwh98/jolt into /home/sto/ci/datomworld-floatkind/build/tools/jolt
+jolt f22df3c70dce4e7f725df580daa8991a41420660 with 7 submodules verified
+jolt-target: chez (child identity verified)
+jolt smoke (+ 1 2) => 3
+wrote /home/sto/ci/datomworld-floatkind/build/tools/jolt-env.sh

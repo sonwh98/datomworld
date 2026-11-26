@@ -38,7 +38,6 @@
             ["@codemirror/view" :refer [EditorView]]
             ["@nextjournal/lang-clojure" :refer [clojure]]
             ["codemirror" :refer [basicSetup]]
-            [cljs.reader :as reader]
             [clojure.string :as str]
             [dao.stream.ringbuffer :as ringbuffer]
             [datomworld.demo.responsive :as responsive]
@@ -84,7 +83,7 @@
 (defn- make-vm
   []
   (ast-walker/create-vm
-    {:primitives (merge vm/primitives py.repl/primitives),
+    {:primitives (merge vm/primitives yang/primitives py.repl/primitives),
      :modules (-> (module/default-registry)
                   module/register-stream-module
                   php.prelude/admit),
@@ -190,8 +189,7 @@
   (try (let [source (:source @app-state)
              lang (:source-lang @app-state)
              ast (case lang
-                   :clojure (yang/compile-program
-                              (reader/read-string (str "[" source "]")))
+                   :clojure (yang/compile-program (yang/read-forms source))
                    :python (py.repl/lower
                              (py.parser/parse-source (str source "\n")))
                    :php (php-ast source))

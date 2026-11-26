@@ -1,0 +1,8 @@
+Loading initial Timbre config from: :default
+src/cljc/yang/clojure.cljc:1134:8: warning: Unused private var yang.clojure/admit-call-descriptor
+src/cljc/yang/python/antlr/lower.cljc:344:7: warning: Redundant let expression.
+src/cljc/yang/python/antlr/lower.cljc:838:8: warning: unused binding n
+src/cljs/datomworld/demo/equation_plotter.cljs:398:24: warning: unused binding asm
+test/yang/clojure_float_kind_test.cljc:16:14: warning: namespace clojure.string is required but never used
+test/yin/repl_test.cljc:207:8: warning: redundant do
+linting took 5099ms, errors: 0, warnings: 6

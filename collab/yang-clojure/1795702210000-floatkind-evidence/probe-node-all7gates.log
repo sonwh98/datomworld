@@ -1,0 +1,87 @@
+
+Testing yang.clojure-collection-order-test
+
+FAIL in (corpus-cross-host-reference-test) (yang/clojure_collection_order_test.cljc:1601:13)
+:integral-floats
+cross-host corpus divergence at :integral-floats
+expected: (= expected (assoc (get actual case) :case case))
+  actual: (not (= {:case :integral-floats, :root :unrecorded, :applications 2, :keys-digest "unrecorded", :c1-digest "unrecorded", :instruction-provenance-digest "unrecorded"} {:root :segment/blake3-77ac71cec90eaba7887fabb9f28dabe94b52e80227709de3e83dc6f2309e0bd4, :applications 2, :keys-digest "2622d67b40b9c98529b2f245a1f1c9650d896843833a594dd01f889456a0fda3", :c1-digest "cd58c99c96985edcbafda1a12fb684970a4e69ad3d7d3e3b81182eba9f1d928a", :instruction-provenance-digest "78a888061880da6171d94e347aa1868a0dcccb1f81f8fa31625432851d0a42c4", :case :integral-floats}))
+
+FAIL in (unmodified-source-integral-floats-test) (yang/clojure_collection_order_test.cljc:1623:12)
+unmodified source string with integral floats matches the recorded common reference
+expected: (= expected snap)
+  actual: (not (= {:root :unrecorded, :applications 2, :keys-digest "unrecorded", :c1-digest "unrecorded", :instruction-provenance-digest "unrecorded"} {:root :segment/blake3-77ac71cec90eaba7887fabb9f28dabe94b52e80227709de3e83dc6f2309e0bd4, :applications 2, :keys-digest "2622d67b40b9c98529b2f245a1f1c9650d896843833a594dd01f889456a0fda3", :c1-digest "cd58c99c96985edcbafda1a12fb684970a4e69ad3d7d3e3b81182eba9f1d928a", :instruction-provenance-digest "78a888061880da6171d94e347aa1868a0dcccb1f81f8fa31625432851d0a42c4"}))
+
+Testing yang.clojure-float-kind-test
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 0.0
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 0.0
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "4f3fd1e3c562a4c8690929fb1fd3b8e607d7d604bffdd4d5a406c737b735e578"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 1.0
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 1.0
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "1962a94c09507f12a3de739a3f584ce18ffbca152f16ebfb82ea15f3a650e90b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 1
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 1
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "48fc721fbbc172e0925fa27af1671de225ba927134802998b10a1568a188652b"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 1/2
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 1/2
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "598aa35607a7350acc43a2ea659e1c94e8a8738705131d7670170d9a6a8b0b83"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:246:13)
+identical source mints identical canonical bytes on every host 1M
+reference recorded during the green round
+expected: (not= "unrecorded" expected)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate1-cross-host-canonical-identity) (yang/clojure_float_kind_test.cljc:247:13)
+identical source mints identical canonical bytes on every host 1M
+expected: (= expected (jing/content-hash (read-one token)))
+  actual: (not (= "unrecorded" "28d6a5ec777e7e798d4be8e68242b049bc8794be9c3f6577f0af4451b0e0d05f"))
+
+FAIL in (gate5-carrier-forms-one-root-everywhere) (yang/clojure_float_kind_test.cljc:516:9)
+expected: (not= "unrecorded" carrier-root-reference)
+  actual: (not (not= "unrecorded" "unrecorded"))
+
+FAIL in (gate5-carrier-forms-one-root-everywhere) (yang/clojure_float_kind_test.cljc:517:9)
+expected: (= carrier-root-reference (str root))
+  actual: (not (= "unrecorded" ":segment/blake3-3eaa6d2a6a66538adbe59324cbe5b9e9b5f05da946f7793187a559e7b4971bca"))
+
+ERROR in (gate5-parked-float-result-crosses-the-round) (Error:NaN:NaN)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "Forged resource reference", :data {:reason :forged-resource-reference, :effect :stream/next, :kind :cursor-ref, :id nil}}
+
+Ran 22 tests containing 248 assertions.
+14 failures, 1 errors.
+NODE_RC=1

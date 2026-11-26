@@ -1,0 +1,11 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yang.clojure-test
+FFI hello world
+
+Testing yin.repl-test
+
+Ran 157 tests containing 1264 assertions.
+0 failures, 0 errors.

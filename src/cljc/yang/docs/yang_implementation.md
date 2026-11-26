@@ -228,9 +228,16 @@ The Yang compiler is **fully functional** and **production-ready** for compiling
 
 The compiler demonstrates the power of the Yin/Yang dual system: **Yang generates continuations, Yin executes them**. Together they enable code to become data, data to become computation, and computation to migrate freely across platforms.
 
+## Portability and Numeric-Kind Contract
+
+`yin.vm` on JVM, Node (JS), Dart, and Jolt preserves the numeric kind carried by portable Data and canonically encoded Jing artifacts (`dao.jing.cbor.md`), subject to the selected runtime/profile's supported operations:
+
+- **Source-text compilation (`:yang/clojure` revision `c1-3`, `:source-text` capability on JVM and Node):** `yang.clojure/read-forms` (via `yang.clojure.reader` and the shared `yang.core.numeric-token` factory) preserves binary64 floating-point kind (including integral-valued floats such as `0.0`, `1.0`, `1e0`, `-0.0`, and floats at/beyond `2^53`), exact integers/bigints, decimals (`M`), and ratios before collection construction or lowering. The standard REPL/catalog route (`yin.repl.frontends/standard`) routes source text directly through `yang.clojure/read-forms` and installs scoped carrier-aware numeric primitives (`yang.clojure/primitives`) that rebox floating results.
+- **Forms-only boundary (all hosts, and `:forms-only` capability on Dart and Jolt):** `yang.clojure/compile` and `compile-program` admit Jing numeric carriers (`dao.jing.cbor/float64`, `decimal`, `ratio`, and exact big-integer carriers) directly, nested, and quoted. On JavaScript, a bare integral JS `Number` denotes exact integer content; callers intending floating Data through the forms API must supply `dao.jing.cbor/float64` / `yin.vm.data/float64`. See `docs/design/yang.antlr.md` §8.8 for the full contract, revision `c1-3` profiles, legacy custody rules, and four-host capability matrix.
+
 ---
 
-**Implementation Date**: 2025-11-13
+**Implementation Date**: 2025-11-13 (numeric-kind portability revision `c1-3` documented 2026-11-26)
 **Total Lines of Code**: ~600 (compiler + tests + docs)
 **Test Coverage**: 100% of implemented features
 **Platforms**: JVM, Node.js (browser-ready)

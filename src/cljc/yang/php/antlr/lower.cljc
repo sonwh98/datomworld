@@ -39,10 +39,10 @@
     [clojure.string :as str]
     [clojure.walk :as walk]
     [dao.host.text :as text]
-    [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
     [yang.core.module :as core-module]
+    [yang.core.numeric-token :as numeric-token]
     [yang.core.prelude :as core-prelude]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
@@ -309,10 +309,7 @@
 
 (defn- float-literal
   [text]
-  (let [t (str/replace text "_" "")]
-    (u/lit (cbor/float64 #?(:cljd (double/parse t)
-                            :clj (Double/parseDouble t)
-                            :cljs (js/parseFloat t))))))
+  (u/lit (numeric-token/float64-token :php text)))
 
 
 (declare leftmost-token-text line-of qname-parts)

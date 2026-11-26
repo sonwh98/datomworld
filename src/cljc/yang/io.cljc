@@ -3,29 +3,21 @@
 
   Provides functions to compile Clojure source files to Universal AST."
   (:require
-    #?@(:clj [[clojure.java.io :as io]
-              [clojure.tools.reader :as reader]
-              [clojure.tools.reader.reader-types :as reader-types]]
-        :cljs [["fs" :as fs]
-               [cljs.tools.reader :as reader]
-               [cljs.tools.reader.reader-types :as reader-types]])
+    #?@(:clj [[clojure.java.io :as io]]
+        :cljs [["fs" :as fs]])
     [yang.clojure :as yang]))
 
 
 (defn- read-forms
   [source file-name]
-  (let [r (reader-types/indexing-push-back-reader source 1 file-name)]
-    (loop [forms []]
-      (let [form (reader/read {:eof ::eof} r)]
-        (if (= form ::eof) forms (recur (conj forms form)))))))
+  (yang/read-forms source (when file-name {:file file-name})))
 
 
 (defn read-source
   "Read Clojure source code from a file.
   Returns a sequence of forms."
   [file-path]
-  #?(:clj (try (with-open [r (io/reader file-path)]
-                  (read-forms r file-path))
+  #?(:clj (try (read-forms (slurp (io/file file-path)) file-path)
                 (catch Exception e
                   (throw (ex-info "Failed to read source file"
                                   {:file file-path, :error (.getMessage e)}

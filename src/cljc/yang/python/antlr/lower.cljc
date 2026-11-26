@@ -66,9 +66,9 @@
     [clojure.string :as str]
     [clojure.walk :as walk]
     [dao.jing :as jing]
-    [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
+    [yang.core.numeric-token :as numeric-token]
     [yang.core.semantics :as semantics]
     [yang.python.antlr.clj-runtime :as clj-runtime]
     [yang.python.antlr.contract :as contract]
@@ -355,12 +355,8 @@
     (cond
       (str/ends-with? lower "j") (unsupported! n "imaginary literal")
       ;; Box while the grammar still distinguishes floats from integers.
-      (and (not (re-find #"^0[xob]" lower)) (re-find #"[.e]" lower))
-      (let [t (str/replace text "_" "")]
-        (literal ctx :float
-                 (cbor/float64 #?(:cljd (double/parse t)
-                                  :clj (Double/parseDouble t)
-                                  :cljs (js/parseFloat t)))))
+      (= :float64 (:kind (numeric-token/classify :python text)))
+      (literal ctx :float (numeric-token/float64-token :python text))
       :else (int-literal ctx n text))))
 
 

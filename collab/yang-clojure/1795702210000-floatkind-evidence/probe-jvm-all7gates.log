@@ -1,0 +1,18 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+Syntax error (IllegalStateException) compiling vm/primitive-entry at (yang/clojure/numeric.cljc:219:22).
+var: #'yin.vm/primitive-entry is not public
+
+Full report at:
+/tmp/clojure-2580861475554758613.edn
+JVM_FLOATKIND_RC=1
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+Syntax error (IllegalStateException) compiling vm/primitive-entry at (yang/clojure/numeric.cljc:219:22).
+var: #'yin.vm/primitive-entry is not public
+
+Full report at:
+/tmp/clojure-9586981943218287801.edn
+JVM_GATE3_RC=1
