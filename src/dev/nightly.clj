@@ -124,6 +124,84 @@
       :else (set (map (comp symbol str/trim) (str/split setting #","))))))
 
 
+;; JVM namespace wall seconds from Jupiter 20261123-0018-slow-runs.txt.
+;; PHP e2e uses the 29,887s observed lower bound at audit time (audit
+;; 1795470000000), rather than the later terminal row. Red rows are estimates:
+;; failures may have shortened the work. Unknown/new namespaces use 500s.
+;; Refresh from NDJSON once 10fccf2e nightly timing data exists; per-var
+;; durations and repeated JVM setup costs are not measured by this table.
+(def ^:private slow-weights
+  {"dao.test-slow" 8
+   "dao.star.driver-test" 15
+   "yang.clojure.stream-eval-test" 33
+   "dao.space.dht-test" 48
+   "yang.python.antlr.dht-import-test" 134
+   "yang.python.antlr.float-address-test" 40
+   "yang.python.antlr.float-text-test" 8
+   "yang.php.antlr.generators-test" 358
+   "yang.python.antlr.int-contract-test" 36
+   ;; Newly discovered metadata-style slow vars were absent from the receipt.
+   "yang.call.exception-contract-test" 500
+   "yang.python.antlr.exception-call-test" 500
+   "yang.call.exception-source-test" 746
+   "yang.python.antlr.e2e-c1-test" 768
+   "yang.python.antlr.int-heap-test" 60
+   "yang.python.antlr.int-literal-test" 27
+   "yang.call.python-exception-test" 931
+   "yang.python.antlr.c3-gate-test" 995
+   "yang.python.antlr.c3-gate-parser-test" 1005
+   "yang.python.antlr.prelude-parity-test" 136
+   "yang.python.antlr.linked-prelude-test" 316
+   "yang.python.antlr.int-conv-test" 908
+   "yang.python.antlr.publication-test" 176
+   "yang.python.antlr.import-test" 1187
+   "yang.python.antlr.linked-safepoint-test" 412
+   "yang.typescript.antlr.class-prelude-test" 112
+   "yang.python.antlr.int-ops-test" 703
+   "yang.python.antlr.int-ops-parser-test" 717
+   "yang.python.antlr.siteset-test" 349
+   "yang.typescript.antlr.linked-prelude-test" 298
+   "yang.typescript.antlr.prelude-parity-test" 85
+   "yang.typescript.antlr.prelude-test" 52
+   "yang.typescript.antlr.safepoint-test" 270
+   "yang.python.antlr.e2e-c2-test" 1995
+   "yang.typescript.antlr.string-forms-test" 49
+   "yin.repl.ast-query-e2e-test" 38
+   "yang.typescript.antlr.lower-test" 575
+   "yin.repl.dht-head-test" 56
+   "yang.python.antlr.safepoint-test" 904
+   "yin.repl.dht-test" 101
+   "yin.repl.main-test" 104
+   "yin.repl.query-test" 84
+   "yin.vm.linker.cross-host-transfer-test" 69
+   "yin.vm.linker.dht-end-to-end-test" 30
+   "yin.vm.linker-test" 83
+   "yang.call.php-exception-test" 2501
+   "yang.typescript.antlr.source-call-test" 761
+   "yin.vm.ucf.compose-rows-test" 13
+   "yin.vm.ucf.holder.driver-test" 20
+   "yin.vm.ucf.rows-test" 91
+   "yin.vm.semantic.derive-test" 362
+   "yin.vm.semantic.scan-test" 183
+   "yin.vm.ucf.stage-e-rows-test" 51
+   "yin.repl.dht-process-test" 738
+   "yang.python.antlr.e2e-test" 3109
+   "yin.vm.ucf.stage-e-process-test" 698
+   "yin.repl.python-antlr-test" 1457
+   "yang.typescript.antlr.object-e2e-test" 2271
+   "yang.typescript.antlr.e2e-test" 2754
+   "yin.vm.semantic.safepoint-harness-test" 5078
+   "yang.php.antlr.include-test" 9130
+   "yang.typescript.antlr.corpus-test" 8959
+   "yang.php.antlr.e2e-test" 29887})
+
+(defn- slow-weight
+  [manifest {:keys [ns vars]}]
+  (let [whole (get slow-weights ns 500)]
+    (if (seq vars)
+      (* whole (/ (count vars) (get manifest (symbol ns))))
+      whole)))
+
 (defn- slow-schedule
   [clone out manifest]
   (let [configured (disj (var-shard-namespaces) 'yang.call.exception-contract-test)
@@ -148,15 +226,18 @@
     (doseq [[n expected-count] eligible]
       (when-not (= expected-count (count (get vars n)))
         (throw (ex-info "JVM slow var inventory differs from manifest" {:namespace n}))))
-    (vec (mapcat (fn [[n _]]
+    (->> manifest
+         (mapcat (fn [[n _]]
                    (if-let [vs (seq (get vars n))]
                      (let [k (min 4 (count vs))]
                        (mapv (fn [i]
                                {:ns (str n) :shard (inc i)
                                 :vars (mapv str (take-nth k (drop i vs)))})
                              (range k)))
-                     [{:ns (str n)}]))
-                 manifest))))
+                     [{:ns (str n)}])))
+         (sort-by (fn [{:keys [ns shard] :as item}]
+                    [(- (slow-weight manifest item)) ns (or shard 0)]))
+         vec)))
 
 
 (defn- slow-command
