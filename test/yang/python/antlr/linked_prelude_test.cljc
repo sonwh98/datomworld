@@ -252,11 +252,12 @@
    The Python exception-track and provenance series (merged 8018005d)
    moved it again; re-minted with the same generator in two byte-identical
    runs. The assert series (60cda9b6, 392746bd, 906586c5,
-   d4a3fdef, 7692d347, 3051a5cb)
-   changed the prelude content and moved the address once more; re-minted
-   from the JVM publication in two fresh JVMs."
+   d4a3fdef, 7692d347, 3051a5cb) and :py/missing sentinel fix
+   (ruling 1795660000000) changed the prelude content and moved
+   the address once more; re-minted from the JVM publication in
+   two fresh JVMs."
   (keyword (str "segment/blake3-"
-                "6e60da0c73eb89861bcdc4c5c53f59bdf5e8ae6ba88b5b09c65eab543497259e")))
+                "8fc311fa78b335654c72608dd0d5dab3ff204eb1173eba8773335064b9635136")))
 
 
 (def ^:private vector-formats
