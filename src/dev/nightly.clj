@@ -329,7 +329,7 @@
                                         subset)]
                   (reduce + (vals results)))
                 (run-cmd! clone quick-log
-                          ["bb" "test:quick-sharded" "--workers" (str par)]))
+                          ["bb" "test:quick-sharded"]))
         record-lock (Object.)
         slow (run-pool par
                        (fn [worker item] (run-slow-job! clone out record-lock worker item))
