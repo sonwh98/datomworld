@@ -13,7 +13,6 @@
    test-private reader. The REPL-route gates run where the shell runs
    (JVM and Node); the artifact gates run on every host that can load this
    namespace."
-  (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.host.bytes :as bytes]
             [dao.host.integer :as integer-host]
