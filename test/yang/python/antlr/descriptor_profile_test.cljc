@@ -6,6 +6,7 @@
             [dao.jing.cbor :as cbor]
             [dao.jing.mem :as mem]
             [yang.clojure :as clojure]
+            [yang.clojure.prelude :as clj]
             [yang.core.semantics :as semantics]
             [yang.core.uast :as u]
             [yang.frontend :as frontend]
@@ -376,6 +377,50 @@
     (is (= (get-in @composition [:profiles contract/clojure-id :closure])
            (:yang.frontend/runtime-closure derivation)))))
 
+
+(deftest ambient-composition-swap-test
+  (let [{:keys [artifacts registry contract pins profiles]} @composition
+        {:keys [descriptor runtime] :as original} (get profiles contract/clojure-id)
+        alias "identity"
+        alternate {:module 'clj.py :export 'ex-info :kind :cell-accessor}
+        swapped (assoc-in descriptor [:yang.semantics/ambient-projections alias] alternate)
+        grant [(pins 'clj.py) 'clj.py/ex-info [:projection alias :cell-accessor]]
+        admitted-contract (update contract :roles conj grant)
+        admit #(profiles/admit swapped runtime % artifacts registry
+                               {:data {:max-items 1048576}
+                                :integer {:bits 100000 :digits 4300}})
+        profile (assoc original :descriptor (admit admitted-contract)
+                               :descriptor-address (jing/segment-key swapped))
+        source "identity('swapped', 17)"
+        pk (packet source)
+        compile-packet (fn [pk] (lower/lower-packet pk {:descriptor (:descriptor profile)}))
+        manifest (-> (frontend/select (frontends/standard)
+                                      {:yang.frontend/id :yang/python})
+                     :manifest
+                     (assoc :yang.frontend/lowering-profile (:descriptor-address profile)
+                            :yang.frontend/support-profile (:descriptor-address profile)))
+        catalog (frontend/install frontend/empty-catalog manifest
+                                  {:parse packet :lower compile-packet :admit clj/admit
+                                   :derive #(profiles/derivation manifest profile %1 %2)})
+        [state _] (repl/eval-input (repl/create-state {:frontends catalog :lang :yang/python}) source)
+        derivation (val (first (:frontend-derivations state)))
+        expected {:yin.k/message "swapped" :yin.k/data 17}]
+    (is (= swapped (:descriptor profile)))
+    (is (= {:defect :export-role :target 'clj.py/ex-info :address (pins 'clj.py)
+            :role [:projection alias :cell-accessor]}
+           (select-keys (refusal #(admit contract)) [:defect :target :address :role])))
+    (doseq [mode modes backend engines]
+      (is (= expected (run-program backend (lower/lower-packet pk {:descriptor swapped :prelude mode})
+                                  registry {}))
+          (str mode " " backend)))
+    (is (= expected (:last-value state)))
+    (is (= (:descriptor-address profile) (:yang.frontend/lowering-profile derivation)))
+    (is (= (pins 'clj.py) (get (into {} (:yang.frontend/runtime-closure derivation)) 'clj.py)))
+    (is (= (:yang.frontend/ambient-resolver (meta (compile-packet pk)))
+           (:yang.frontend/ambient-resolver derivation)))
+    (is (not= (:yang.frontend/ambient-resolver (meta (lower-test :bundled pk)))
+              (:yang.frontend/ambient-resolver derivation)))))
+
 (deftest default-repl-reports-guest-errors-and-keeps-the-session-test
   (let [state (frontends/create-state {:lang :yang/python})
         [primed missing] (repl/eval-input state
@@ -405,8 +450,10 @@
            [contract/clojure-id unwind-source
             [:segment/blake3-c993472e551d5da051ec6a2fccb373953906bf69b111bacca6ac7c9a9496ec40
              :segment/blake3-51459075501c128d95feef0356e1c9fa6f7a037a629eb42d587a4f1a72bd12a7]]
+           ;; py/assert thunk prelude + :py/missing sentinel (ruling 1795660000000):
+           ;; re-minted after verified ANTLR generation in two independent JVMs.
            [contract/legacy-id "print(1 + 2, 1 == 1.0)"
-            [:segment/blake3-e7c446de2caa4c73b2b7d7c82f1c025ac57885290c65585c13fd542e449a0517
+            [:segment/blake3-f63b272e99adfeeeb8a5b11e040f558a09d5e5651c32b760853731fbb241a1cb
              :segment/blake3-40df036d1e1f6d2681d451d9c632fa73924c1ff20a0ed46abdaef4f26ded0d59]]]
           :let [pk (packet source)
                 descriptor (:descriptor (profiles/verify-builtin! revision))]

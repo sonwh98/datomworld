@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1420" viewBox="0 0 1100 1420" role="img" aria-labelledby="title description">
+  <title id="title">Yin and Yang compilation pipeline centered on dao.stream</title>
+  <desc id="description">Yang language frontend interpreters parse source languages into Universal AST rows on a central append-only dao.stream. Interpreters hook into dao.stream with independent cursors: the macro-expansion interpreter reads syntax rows and appends expanded rows back onto the same dao.stream; an X interpreter can transform data and either append back onto the same dao.stream or create and pipe into a new derived dao.stream; a dashed pipeline interpreter shows design intent for communicating topology changes as stream data. Four independent Yin.vm execution interpreters and optional DaoSpace and DaoJing peer observers hook into the stream bus with no mandatory join.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#91a4bd"/>
+    </marker>
+    <marker id="teal-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#55c9cb"/>
+    </marker>
+    <marker id="purple-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#c2a3ff"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; }
+      .heading { font-size: 35px; font-weight: 700; fill: #f3f6ff; }
+      .label { font-size: 23px; font-weight: 650; fill: #f3f6ff; }
+      .body { font-size: 20px; fill: #c5d2e5; }
+      .small { font-size: 17.5px; fill: #a9bad2; }
+      .micro { font-size: 15.5px; font-weight: 600; fill: #67d8d5; }
+      .eyebrow { font-size: 16px; font-weight: 700; letter-spacing: 2px; }
+      .flow { fill: none; stroke: #91a4bd; stroke-width: 2.5; marker-end: url(#arrow); }
+      .stream-flow { fill: none; stroke: #55c9cb; stroke-width: 2.6; marker-end: url(#teal-arrow); }
+      .stream-rail { fill: none; stroke: #55c9cb; stroke-width: 2.6; }
+      .design { fill: none; stroke: #c2a3ff; stroke-width: 2.5; stroke-dasharray: 7 7; marker-end: url(#purple-arrow); }
+      .box { fill: #18263a; stroke: #425775; stroke-width: 1.5; }
+      .yang { fill: #292236; stroke: #a281cc; stroke-width: 1.6; }
+      .stream-bus { fill: #0d2e38; stroke: #55c9cb; stroke-width: 2.8; }
+      .stream-head { fill: #134452; }
+      .stream-row { fill: #123c48; stroke: #3b8e93; stroke-width: 1.2; }
+      .stream-row-design { fill: #1d223c; stroke: #c2a3ff; stroke-width: 1.3; stroke-dasharray: 6 5; }
+      .yin { fill: #182c3b; stroke: #70b8e1; stroke-width: 1.5; }
+      .cursor { fill: #67d8d5; stroke: #0d1727; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect width="1100" height="1420" rx="24" fill="#0d1727"/>
+  <text x="550" y="54" text-anchor="middle" class="heading">Yin / Yang</text>
+  <text x="550" y="88" text-anchor="middle" class="body">dao.stream is the compilation bus · interpreters hook in, transform, and append</text>
+
+  <!-- Yang Language Frontend Interpreters -->
+  <rect x="250" y="120" width="600" height="98" rx="16" class="yang"/>
+  <text x="550" y="149" text-anchor="middle" class="eyebrow" fill="#d8b9fa">YANG · LANGUAGE FRONTEND INTERPRETERS</text>
+  <text x="550" y="180" text-anchor="middle" class="label">Clojure · Python · other frontends</text>
+  <text x="550" y="205" text-anchor="middle" class="small">Parse source → Universal AST (lossless content-addressed rows)</text>
+  <path d="M550 218 V268" class="stream-flow"/>
+  <text x="566" y="249" class="micro">append AST rows</text>
+
+  <!-- Central Core: Primary dao.stream -->
+  <rect x="385" y="268" width="330" height="492" rx="18" class="stream-bus"/>
+  <path d="M403 268 H697 Q715 268 715 286 V354 H385 V286 Q385 268 403 268 Z" class="stream-head"/>
+  <line x1="385" y1="354" x2="715" y2="354" stroke="#55c9cb" stroke-width="1.5"/>
+  <text x="550" y="296" text-anchor="middle" class="eyebrow" fill="#67d8d5">DAO.STREAM</text>
+  <text x="550" y="325" text-anchor="middle" class="label">Primary program stream</text>
+  <text x="550" y="346" text-anchor="middle" class="small">Append-only causal log</text>
+
+  <rect x="405" y="374" width="290" height="46" rx="10" class="stream-row"/>
+  <text x="550" y="403" text-anchor="middle" class="small" fill="#e2f7f7">Universal AST syntax rows</text>
+
+  <rect x="405" y="438" width="290" height="46" rx="10" class="stream-row"/>
+  <text x="550" y="467" text-anchor="middle" class="small" fill="#e2f7f7">Macro-expanded rows</text>
+
+  <rect x="405" y="502" width="290" height="46" rx="10" class="stream-row"/>
+  <text x="550" y="531" text-anchor="middle" class="small" fill="#e2f7f7">Transformed / analyzed rows</text>
+
+  <rect x="405" y="566" width="290" height="46" rx="10" class="stream-row-design"/>
+  <text x="550" y="595" text-anchor="middle" class="small" fill="#d8b9fa">Descriptors &amp; topology facts</text>
+
+  <text x="550" y="658" text-anchor="middle" class="small">Values + boundaries only.</text>
+  <text x="550" y="686" text-anchor="middle" class="small">AST stays retrievable.</text>
+  <text x="550" y="714" text-anchor="middle" class="small">Observers own cursors &amp; meaning.</text>
+  <text x="550" y="742" text-anchor="middle" class="small">Non-destructive reads.</text>
+
+  <!-- Left Column: Macro-expansion interpreter (hooks into & appends back to same dao.stream) -->
+  <rect x="45" y="340" width="265" height="148" rx="16" class="yang"/>
+  <text x="177" y="368" text-anchor="middle" class="eyebrow" fill="#d8b9fa">YANG INTERPRETER</text>
+  <text x="177" y="399" text-anchor="middle" class="label">Macro-expansion</text>
+  <text x="177" y="427" text-anchor="middle" class="small">Reads syntax rows and</text>
+  <text x="177" y="451" text-anchor="middle" class="small">appends expanded rows</text>
+  <text x="177" y="475" text-anchor="middle" class="small">back to same dao.stream</text>
+  <path d="M385 388 H310" class="stream-flow"/>
+  <circle cx="385" cy="388" r="5" class="cursor"/>
+  <text x="348" y="378" text-anchor="middle" class="micro">read</text>
+  <path d="M310 456 H385" class="stream-flow"/>
+  <text x="348" y="446" text-anchor="middle" class="micro">append</text>
+
+  <!-- Left Column: Pipeline interpreter (Design Intent) -->
+  <rect x="45" y="532" width="265" height="150" rx="16" fill="#211c33" stroke="#c2a3ff" stroke-width="1.6" stroke-dasharray="7 7"/>
+  <text x="177" y="560" text-anchor="middle" class="eyebrow" fill="#d8b9fa">DESIGN INTENT</text>
+  <text x="177" y="591" text-anchor="middle" class="label">Pipeline interpreter</text>
+  <text x="177" y="619" text-anchor="middle" class="small">Reads &amp; appends topology</text>
+  <text x="177" y="643" text-anchor="middle" class="small">updates and descriptors</text>
+  <text x="177" y="667" text-anchor="middle" class="small">as stream data</text>
+  <path d="M385 582 H310" class="design"/>
+  <path d="M310 626 H385" class="design"/>
+
+  <!-- Right Column: X interpreter (can append back to same stream OR create & pipe to a new dao.stream) -->
+  <rect x="790" y="340" width="265" height="148" rx="16" class="yang"/>
+  <text x="922" y="368" text-anchor="middle" class="eyebrow" fill="#d8b9fa">YANG INTERPRETER</text>
+  <text x="922" y="399" text-anchor="middle" class="label">X interpreter</text>
+  <text x="922" y="427" text-anchor="middle" class="small">Optimize, analyze, lower,</text>
+  <text x="922" y="451" text-anchor="middle" class="small">or custom transform</text>
+  <text x="922" y="475" text-anchor="middle" class="small">(same or new stream)</text>
+  <path d="M715 388 H790" class="stream-flow"/>
+  <circle cx="715" cy="388" r="5" class="cursor"/>
+  <text x="752" y="378" text-anchor="middle" class="micro">read</text>
+  <path d="M790 456 H715" class="stream-flow"/>
+  <text x="752" y="446" text-anchor="middle" class="micro">or append</text>
+
+  <!-- Pipe from X interpreter into a new dao.stream -->
+  <path d="M922 488 V544" class="stream-flow"/>
+  <text x="936" y="522" class="micro">pipe to new</text>
+
+  <!-- Right Column: New derived dao.stream -->
+  <rect x="790" y="544" width="265" height="216" rx="18" class="stream-bus"/>
+  <path d="M808 544 H1037 Q1055 544 1055 562 V616 H790 V562 Q790 544 808 544 Z" class="stream-head"/>
+  <line x1="790" y1="616" x2="1055" y2="616" stroke="#55c9cb" stroke-width="1.5"/>
+  <text x="922" y="572" text-anchor="middle" class="eyebrow" fill="#67d8d5">NEW DAO.STREAM</text>
+  <text x="922" y="601" text-anchor="middle" class="label">Derived stream</text>
+
+  <rect x="808" y="632" width="229" height="44" rx="10" class="stream-row"/>
+  <text x="922" y="660" text-anchor="middle" class="small" fill="#e2f7f7">Transformed / lowered rows</text>
+
+  <rect x="808" y="692" width="229" height="44" rx="10" class="stream-row"/>
+  <text x="922" y="720" text-anchor="middle" class="small" fill="#e2f7f7">Independent cursors</text>
+
+  <!-- Stream distribution rail feeding Yin.vm & peer observers -->
+  <path d="M550 760 V820" class="stream-rail"/>
+  <path d="M922 760 V820" class="stream-rail"/>
+  <line x1="185" y1="820" x2="922" y2="820" class="stream-rail"/>
+
+  <path d="M185 820 V905" class="stream-flow"/>
+  <path d="M430 820 V905" class="stream-flow"/>
+  <path d="M675 820 V905" class="stream-flow"/>
+  <path d="M920 820 V905" class="stream-flow"/>
+  <circle cx="185" cy="820" r="5" class="cursor"/>
+  <circle cx="430" cy="820" r="5" class="cursor"/>
+  <circle cx="675" cy="820" r="5" class="cursor"/>
+  <circle cx="920" cy="820" r="5" class="cursor"/>
+
+  <rect x="210" y="846" width="680" height="34" rx="8" fill="#0d1727"/>
+  <text x="550" y="869" text-anchor="middle" class="eyebrow" fill="#8acaf0">YIN.VM · INDEPENDENT EXECUTION INTERPRETERS</text>
+
+  <rect x="80" y="905" width="210" height="150" rx="16" class="yin"/>
+  <text x="185" y="939" text-anchor="middle" class="body">Reconstruct maps</text>
+  <path d="M185 955 V981" class="flow"/>
+  <text x="185" y="1016" text-anchor="middle" class="label">AST walker</text>
+
+  <rect x="325" y="905" width="210" height="150" rx="16" class="yin"/>
+  <text x="430" y="939" text-anchor="middle" class="body">Semantic lowering</text>
+  <path d="M430 955 V981" class="flow"/>
+  <text x="430" y="1016" text-anchor="middle" class="label">Semantic VM</text>
+  <text x="430" y="1042" text-anchor="middle" class="small">Register-shaped</text>
+
+  <rect x="570" y="905" width="210" height="150" rx="16" class="yin"/>
+  <text x="675" y="939" text-anchor="middle" class="body">Stack lowering</text>
+  <path d="M675 955 V981" class="flow"/>
+  <text x="675" y="1016" text-anchor="middle" class="label">Stack VM</text>
+  <text x="675" y="1042" text-anchor="middle" class="small">de Bruijn</text>
+
+  <rect x="815" y="905" width="210" height="150" rx="16" class="yin"/>
+  <text x="920" y="939" text-anchor="middle" class="body">Register lowering</text>
+  <path d="M920 955 V981" class="flow"/>
+  <text x="920" y="1016" text-anchor="middle" class="label">Register VM</text>
+  <text x="920" y="1042" text-anchor="middle" class="small">de Bruijn</text>
+
+  <!-- Optional Peer Observers -->
+  <text x="550" y="1120" text-anchor="middle" class="eyebrow" fill="#a9bad2">OPTIONAL PEER OBSERVERS HOOKED TO DAO.STREAM</text>
+  <path d="M185 820 H28 V1210 H80" class="stream-flow"/>
+  <path d="M922 820 H1074 V1210 H1020" class="stream-flow"/>
+
+  <rect x="80" y="1155" width="440" height="110" rx="16" class="box"/>
+  <text x="300" y="1191" text-anchor="middle" class="label">DaoSpace index interpreter</text>
+  <text x="300" y="1222" text-anchor="middle" class="body">Program facts → Datalog queries</text>
+  <text x="300" y="1248" text-anchor="middle" class="small">Indexes code without executing it</text>
+
+  <rect x="580" y="1155" width="440" height="110" rx="16" class="box"/>
+  <text x="800" y="1191" text-anchor="middle" class="label">DaoJing storage observer</text>
+  <text x="800" y="1222" text-anchor="middle" class="body">Content addresses → storage / DHT</text>
+  <text x="800" y="1248" text-anchor="middle" class="small">Persists values without domain meaning</text>
+
+  <!-- Legend & Footer -->
+  <path d="M80 1322 H135" class="stream-flow"/>
+  <text x="152" y="1328" class="small">dao.stream read / append / pipe</text>
+  <path d="M580 1322 H635" class="design"/>
+  <text x="652" y="1328" class="small">Pipeline transformation (design intent)</text>
+  <text x="550" y="1376" text-anchor="middle" class="small">A possible composition: interpreters hook into dao.stream with independent cursors, with no mandatory linear order or join.</text>
+</svg>

@@ -407,7 +407,7 @@
   [p fd bs off]
   (let [wbuf (:wbuf @(st p))
         n (min chunk-bytes (- (alength bs) off))]
-    (ffi/write-array wbuf bs off n)
+    (ffi/write-array wbuf :byte bs 0 off n)
     (let [r (tcp/send-chunk! fd wbuf n)]
       (cond
         (= :would-block r) 0

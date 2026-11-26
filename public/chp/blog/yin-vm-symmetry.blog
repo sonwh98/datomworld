@@ -59,6 +59,10 @@
                    [:p [:strong "Related Reading:"]]
                    [:ul.bulleted
                     [:li
+                     [:a {:href "/blog/yin-yang.blog"}
+                      "Yin and Yang: Programs, Compilers, and Interpretation"]
+                     " explores how this invariance principle shapes Yang's stream transformations, transformable compilation pipelines, and Yin's multiple execution models."]
+                    [:li
                      [:a {:href "/blog/yin-vm-daospace-architecture.blog"}
                       "Yin.VM and DaoSpace: How Persistent ASTs Make Self-Modification Practical"]
                      ""]

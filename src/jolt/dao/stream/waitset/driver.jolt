@@ -114,7 +114,7 @@
       (text/utf8-decode bs 0 n)
       (catch Throwable _
         (let [p (ffi/alloc (max 1 n))]
-          (try (ffi/write-array p bs 0 n)
+          (try (ffi/write-array p :byte bs 0 0 n)
                (ffi/read-bytes p n)
                (finally (ffi/free p))))))))
 

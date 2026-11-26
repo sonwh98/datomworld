@@ -3,8 +3,8 @@
 {:lane :clj,
  :root yin.repl.main,
  :features #{:clj},
- :total 160,
- :shared 150,
+ :total 167,
+ :shared 157,
  :lane-specific 10,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
@@ -309,6 +309,10 @@
    :ns yang.core.prelude-admission,
    :shared true,
    :classes #{:none}}
+  {:file "src/cljc/yang/core/semantics.cljc",
+   :ns yang.core.semantics,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/yang/core/stage.cljc",
    :ns yang.core.stage,
    :shared true,
@@ -349,6 +353,14 @@
    :ns yang.php.antlr.scope,
    :shared false,
    :classes #{:deferred-stage}}
+  {:file "src/cljc/yang/python/antlr/clj_runtime.cljc",
+   :ns yang.python.antlr.clj-runtime,
+   :shared true,
+   :classes #{:deferred-stage}}
+  {:file "src/cljc/yang/python/antlr/contract.cljc",
+   :ns yang.python.antlr.contract,
+   :shared true,
+   :classes #{:deferred-stage}}
   {:file "src/cljc/yang/python/antlr/lower.cljc",
    :ns yang.python.antlr.lower,
    :shared true,
@@ -359,6 +371,10 @@
    :classes #{:deferred-stage}}
   {:file "src/cljc/yang/python/antlr/prelude.cljc",
    :ns yang.python.antlr.prelude,
+   :shared true,
+   :classes #{:deferred-stage}}
+  {:file "src/cljc/yang/python/antlr/profiles.cljc",
+   :ns yang.python.antlr.profiles,
    :shared true,
    :classes #{:deferred-stage}}
   {:file "src/cljc/yang/python/antlr/render.cljc",
@@ -533,8 +549,20 @@
    :ns yin.vm.linker.admission,
    :shared true,
    :classes #{:none}}
+  {:file "src/cljc/yin/vm/linker/closure.cljc",
+   :ns yin.vm.linker.closure,
+   :shared true,
+   :classes #{:profile-consumer}}
   {:file "src/cljc/yin/vm/linker/pair.cljc",
    :ns yin.vm.linker.pair,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yin/vm/linker/publish.cljc",
+   :ns yin.vm.linker.publish,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yin/vm/linker/requirements.cljc",
+   :ns yin.vm.linker.requirements,
    :shared true,
    :classes #{:none}}
   {:file "src/cljc/yin/vm/linker/sign.cljc",

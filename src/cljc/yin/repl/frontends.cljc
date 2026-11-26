@@ -1,7 +1,7 @@
 (ns yin.repl.frontends
   "The REPL's standard frontend catalog (docs/design/yang.antlr.md section
-   8.5.6, slice F2): the hand-written Clojure frontend and the ANTLR PHP and
-   Python frontends installed into a `yang.frontend` catalog. This is
+   8.5.6, slice F2): the Clojure and available ANTLR frontends installed
+   into a `yang.frontend` catalog. This is
    the only place the REPL composition names a language's namespace;
    `yin.repl` core steps whatever binding the catalog selects.
 
@@ -23,6 +23,10 @@
     [yang.python.antlr.repl :as python.repl]
     [yang.python.antlr.parser :as python.parser]
     [yang.python.antlr.repl-probe :as python.probe]
+    #?@(:cljd []
+        :jolt []
+        :clj [[yang.typescript.antlr.cst :as ts.cst]
+              [yang.typescript.antlr.frontend :as ts.frontend]])
     [yin.repl :as repl]))
 
 
@@ -160,14 +164,24 @@
                   #?@(:cljd []
                       :jolt []
                       :default [true (install-php php.contract/legacy-id)
-                                true (install-php php.contract/clojure-id)
-                                true (assoc-in [:yang.frontend/preferred :yang/php] "clojure-core-v1")]))]
-    (if #?(:jolt (python.parser/available?) :default true)
-      (-> catalog
-          (install-python python.contract/legacy-id)
+                                true (install-php php.contract/clojure-id)]))]
+    (cond-> catalog
+      #?(:jolt (python.parser/available?) :default true)
+      (-> (install-python python.contract/legacy-id)
           (install-python python.contract/clojure-id)
-          (assoc-in [:yang.frontend/preferred :yang/python] "clojure-core-v1"))
-      catalog)))
+          (assoc :yang.frontend/preferred [:yang/python "clojure-core-v1"]))
+      #?@(:cljd []
+          :jolt []
+          :clj [true (ts.frontend/install ts.cst/grammar-id ts.cst/parse-source)])
+      #?@(:cljd []
+          :jolt []
+          :default [true (update :yang.frontend/preferred
+                                 (fn [preference]
+                                   (assoc (cond
+                                            (map? preference) preference
+                                            (vector? preference) (apply hash-map preference)
+                                            :else {})
+                                          :yang/php (name php.contract/clojure-id))))]))))
 
 (defn create-state
   "`yin.repl/create-state` composed with the standard catalog unless the

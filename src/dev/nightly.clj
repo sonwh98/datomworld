@@ -25,6 +25,10 @@
    (clojure -P -M:test: ~/.m2 + ~/.gitlibs) runs in the primary before
    fan-out so the lanes never fetch into the shared caches concurrently.
    Per-lane summaries are appended serially after the futures join.
+     --list-slow [clone-dir]  discover and print slow commands without running them
+     NIGHTLY_SLOW_VAR_SHARDS=1 opts in to the measured namespace set; a
+                     comma-separated namespace list selects a custom set.
+                     Unset or blank keeps whole-namespace scheduling.
      --now       ignore the 04:00 Vietnam window (cron fires hourly)
      --pin-publish   resolve origin/master, publish {run-id, sha, ts} for the
                      other host (the pin authority; shiva)
@@ -42,8 +46,12 @@
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.java.io :as io]
+            [clojure.edn :as edn]
             [clojure.string :as str]))
 
+
+(load-file (str (fs/parent (fs/absolutize *file*)) "/lane_timing.clj"))
+(require '[lane-timing :as timing])
 
 (def home (System/getProperty "user.home"))
 (def results-dir (or (System/getenv "NIGHTLY_RESULTS") (str home "/ci/nightly-results")))
@@ -88,21 +96,154 @@
   (str/trim (:out (apply psh {:dir dir :out :string :err :string :continue true} "git" args))))
 
 
-(defn- slow-namespaces
-  "The ^:slow test namespaces, derived from the tree (never a static list)."
-  [clone]
-  (->> (apply psh {:dir clone :out :string :continue true}
-              ["grep" "-rl" "\\^:slow" "test" "--include=*.clj" "--include=*.cljc"])
-       :out
-       str/split-lines
-       (remove str/blank?)
-       (map (fn [path]
-              (-> path
-                  (str/replace #"^test/" "")
-                  (str/replace #"\.clj[cd]?$" "")
-                  (str/replace "/" ".")
-                  (str/replace "_" "-"))))
-       sort))
+(defn- slow-manifest
+  "Load JVM test vars and record slow counts; fail the lane if inventory fails."
+  [clone out]
+  (let [manifest (str out "/jvm-slow-manifest.edn")
+        rc (run-cmd! clone (str out "/jvm-slow-discovery.log")
+                     ["clojure" "-Sdeps"
+                      "{:aliases {:slow-inventory {:extra-paths [\"src/dev\"] :main-opts [\"-m\" \"slow-inventory\"]}}}"
+                      "-M:test:slow-inventory" manifest])]
+    (when-not (zero? rc)
+      (throw (ex-info "JVM slow discovery failed" {:rc rc})))
+    (edn/read-string (slurp manifest))))
+
+
+(def ^:private default-var-shards
+  '#{yang.php.antlr.e2e-test yang.typescript.antlr.corpus-test
+     yang.php.antlr.include-test yang.python.antlr.e2e-test
+     yin.vm.semantic.safepoint-harness-test})
+
+
+(defn- var-shard-namespaces
+  []
+  (let [setting (System/getenv "NIGHTLY_SLOW_VAR_SHARDS")]
+    (cond
+      (or (nil? setting) (str/blank? setting)) #{}
+      (= "1" setting) default-var-shards
+      :else (set (map (comp symbol str/trim) (str/split setting #","))))))
+
+
+;; JVM namespace wall seconds from Jupiter 20261123-0018-slow-runs.txt.
+;; PHP e2e uses the 29,887s observed lower bound at audit time (audit
+;; 1795470000000), rather than the later terminal row. Red rows are estimates:
+;; failures may have shortened the work. Unknown/new namespaces use 500s.
+;; Refresh from NDJSON once 10fccf2e nightly timing data exists; per-var
+;; durations and repeated JVM setup costs are not measured by this table.
+(def ^:private slow-weights
+  {"dao.test-slow" 8
+   "dao.star.driver-test" 15
+   "yang.clojure.stream-eval-test" 33
+   "dao.space.dht-test" 48
+   "yang.python.antlr.dht-import-test" 134
+   "yang.python.antlr.float-address-test" 40
+   "yang.python.antlr.float-text-test" 8
+   "yang.php.antlr.generators-test" 358
+   "yang.python.antlr.int-contract-test" 36
+   ;; Newly discovered metadata-style slow vars were absent from the receipt.
+   "yang.call.exception-contract-test" 500
+   "yang.python.antlr.exception-call-test" 500
+   "yang.call.exception-source-test" 746
+   "yang.python.antlr.e2e-c1-test" 768
+   "yang.python.antlr.int-heap-test" 60
+   "yang.python.antlr.int-literal-test" 27
+   "yang.call.python-exception-test" 931
+   "yang.python.antlr.c3-gate-test" 995
+   "yang.python.antlr.c3-gate-parser-test" 1005
+   "yang.python.antlr.prelude-parity-test" 136
+   "yang.python.antlr.linked-prelude-test" 316
+   "yang.python.antlr.int-conv-test" 908
+   "yang.python.antlr.publication-test" 176
+   "yang.python.antlr.import-test" 1187
+   "yang.python.antlr.linked-safepoint-test" 412
+   "yang.typescript.antlr.class-prelude-test" 112
+   "yang.python.antlr.int-ops-test" 703
+   "yang.python.antlr.int-ops-parser-test" 717
+   "yang.python.antlr.siteset-test" 349
+   "yang.typescript.antlr.linked-prelude-test" 298
+   "yang.typescript.antlr.prelude-parity-test" 85
+   "yang.typescript.antlr.prelude-test" 52
+   "yang.typescript.antlr.safepoint-test" 270
+   "yang.python.antlr.e2e-c2-test" 1995
+   "yang.typescript.antlr.string-forms-test" 49
+   "yin.repl.ast-query-e2e-test" 38
+   "yang.typescript.antlr.lower-test" 575
+   "yin.repl.dht-head-test" 56
+   "yang.python.antlr.safepoint-test" 904
+   "yin.repl.dht-test" 101
+   "yin.repl.main-test" 104
+   "yin.repl.query-test" 84
+   "yin.vm.linker.cross-host-transfer-test" 69
+   "yin.vm.linker.dht-end-to-end-test" 30
+   "yin.vm.linker-test" 83
+   "yang.call.php-exception-test" 2501
+   "yang.typescript.antlr.source-call-test" 761
+   "yin.vm.ucf.compose-rows-test" 13
+   "yin.vm.ucf.holder.driver-test" 20
+   "yin.vm.ucf.rows-test" 91
+   "yin.vm.semantic.derive-test" 362
+   "yin.vm.semantic.scan-test" 183
+   "yin.vm.ucf.stage-e-rows-test" 51
+   "yin.repl.dht-process-test" 738
+   "yang.python.antlr.e2e-test" 3109
+   "yin.vm.ucf.stage-e-process-test" 698
+   "yin.repl.python-antlr-test" 1457
+   "yang.typescript.antlr.object-e2e-test" 2271
+   "yang.typescript.antlr.e2e-test" 2754
+   "yin.vm.semantic.safepoint-harness-test" 5078
+   "yang.php.antlr.include-test" 9130
+   "yang.typescript.antlr.corpus-test" 8959
+   "yang.php.antlr.e2e-test" 29887})
+
+(defn- slow-weight
+  [manifest {:keys [ns vars]}]
+  (let [whole (get slow-weights ns 500)]
+    (if (seq vars)
+      (* whole (/ (count vars) (get manifest (symbol ns))))
+      whole)))
+
+(defn- slow-schedule
+  [clone out manifest]
+  (let [configured (disj (var-shard-namespaces) 'yang.call.exception-contract-test)
+        eligible (into (sorted-map) (filter (fn [[n c]] (and (configured n) (> c 1)))) manifest)
+        inventory (str out "/jvm-slow-vars.edn")
+        expression (str "(let [nses '" (pr-str (vec (keys eligible))) "] "
+                        "(doseq [n nses] (require n)) "
+                        "(spit " (pr-str inventory) " (pr-str (into {} (for [n nses] "
+                        "[n (sort (for [[s v] (ns-publics n) "
+                        ":when (and (:test (meta v)) (:slow (meta v)))] "
+                        "(symbol (str n) (str s))))])))))")
+        alias (pr-str {:aliases {:nightly-var-inventory {:main-opts ["-e" expression]}}})
+        rc (if (seq eligible)
+             (run-cmd! clone (str out "/jvm-slow-vars.log")
+                       ["clojure" "-Sdeps" alias "-M:test:nightly-var-inventory"])
+             0)
+        vars (if (seq eligible)
+               (do (when-not (zero? rc)
+                     (throw (ex-info "JVM slow var discovery failed" {:rc rc})))
+                   (edn/read-string (slurp inventory)))
+               {})]
+    (doseq [[n expected-count] eligible]
+      (when-not (= expected-count (count (get vars n)))
+        (throw (ex-info "JVM slow var inventory differs from manifest" {:namespace n}))))
+    (->> manifest
+         (mapcat (fn [[n _]]
+                   (if-let [vs (seq (get vars n))]
+                     (let [k (min 4 (count vs))]
+                       (mapv (fn [i]
+                               {:ns (str n) :shard (inc i)
+                                :vars (mapv str (take-nth k (drop i vs)))})
+                             (range k)))
+                     [{:ns (str n)}])))
+         (sort-by (fn [{:keys [ns shard] :as item}]
+                    [(- (slow-weight manifest item)) ns (or shard 0)]))
+         vec)))
+
+
+(defn- slow-command
+  [{:keys [ns vars]}]
+  (into ["clojure" "-M:test" "-i" :slow "-n" ns]
+        (mapcat (fn [v] ["-v" v]) vars)))
 
 
 (defn- run-pool
@@ -121,7 +262,7 @@
                  (future
                    (loop []
                      (if-let [x (take-one)]
-                       (do (swap! results assoc x (f x)) (recur))
+                       (do (swap! results assoc x (f i x)) (recur))
                        i)))))
          (mapv deref))
     @results))
@@ -198,49 +339,97 @@
           lanes)))
 
 
+(defn slow-reconciliation
+  "Check each slow child has a summary and the pool ran its manifest count."
+  [manifest rows]
+  (let [expected (reduce + (vals manifest))
+        missing (mapv :item (filter #(nil? (:tests %)) rows))
+        actual (reduce + (keep :tests rows))
+        deficit (max 0 (- expected actual))]
+    {:expected expected :actual actual :deficit deficit :missing missing
+     :pass? (and (empty? missing) (zero? deficit))}))
+
+
+(defn- slow-summary
+  [text]
+  (when-let [[_ tests] (last (re-seq #"(?m)^Ran (\d+) tests containing \d+ assertions\.\r?\n\d+ failures, \d+ errors\." text))]
+    (parse-long tests)))
+
+
+(defn run-slow-job!
+  [clone out record-lock worker {:keys [ns shard vars] :as item}]
+  (let [log (str out "/slow-" ns (when shard (str "-shard-" shard)) ".log")
+        start (timing/now)
+        exit (run-cmd! clone log (slow-command item))
+        end (timing/now)]
+    (timing/append! record-lock (str out "/runs-ndjson.txt")
+                    (timing/record {:job-id (str ns (when shard (str "-shard-" shard)))
+                                    :namespaces [ns] :vars (or vars [])
+                                    :worker-id (str "jvm-" worker) :timing-scope "job"}
+                                   start end exit))
+    {:item item :exit exit :tests (slow-summary (slurp log))}))
+
+
 (defn- lane-jvm
   [clone par out summary]
   (let [subset (assigned-subsystems)
         ;; prerequisites the bare-metal hosts got from prior rounds: the
-        ;; antlr-generated parser classes and the Node REPL. A fresh
-        ;; container has neither, and yang.*.antlr tests fail with
-        ;; ClassNotFoundException without the first. gen:antlr is cheap
-        ;; when its cache is warm.
+        ;; antlr-generated parser classes, the Node REPL, and the Jolt
+        ;; toolchain and native libraries for the DHT process tests. A fresh
+        ;; checkout has none.
+        ;; Fail here with the prerequisite's log rather than letting a child
+        ;; REPL exit before the test can communicate with it.
         _ (doseq [[nm cmd] [["gen:antlr" ["bb" "gen:antlr"]]
-                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]]
+                            ["build:yin-repl-node" ["bb" "build:yin-repl-node"]]
+                            ["bootstrap:jolt" ["bb" "bootstrap:jolt"]]
+                            ["build:jolt-native" ["bb" "build:jolt-native"]]]
                   :let [t0 (System/currentTimeMillis)
                         exit (run-cmd! clone (str out "/" nm ".log") cmd)]]
             (log-lane summary (str nm " rc=" exit
                                    " secs=" (quot (- (System/currentTimeMillis) t0) 1000)))
             (when-not (zero? exit) (throw (ex-info (str nm " failed") {}))))
-        slow-nss (cond->> (slow-namespaces clone)
-                   subset (filter #(in-subset? % subset)))
+        manifest (slow-manifest clone out)
+        selected (into (sorted-map)
+                       (filter (fn [[n _]]
+                                 (or (nil? subset)
+                                     (in-subset? (str n) subset))))
+                       manifest)
+        _ (log-lane summary (str "jvm-slow manifest " (pr-str selected)))
+        slow-nss (map str (keys selected))
+        schedule (slow-schedule clone out selected)
+        _ (log-lane summary (str "jvm-slow schedule " (pr-str schedule)))
         ;; quick tier: subsystem-sharded on the full set; per-subsystem
         ;; test:sub:clj runs pooled when a disjoint subset is assigned
         quick-log (str out "/jvm-quick.log")
         quick (if subset
                 (let [results (run-pool par
-                                        (fn [s]
+                                        (fn [_ s]
                                           (run-cmd! clone
                                                     (str out "/jvm-quick-" s ".log")
                                                     ["bb" "test:sub:clj" s]))
                                         subset)]
                   (reduce + (vals results)))
                 (run-cmd! clone quick-log
-                          ["bb" "test:quick-sharded" "--workers" (str par)]))
+                          ["bb" "test:quick-sharded"]))
+        record-lock (Object.)
         slow (run-pool par
-                       (fn [nss]
-                         (run-cmd! clone (str out "/slow-" nss ".log")
-                                   ["clojure" "-M:test" "-i" :slow "-n" nss]))
-                       slow-nss)
-        slow-red (count (remove zero? (vals slow)))]
+                       (fn [worker item] (run-slow-job! clone out record-lock worker item))
+                       schedule)
+        slow-red (count (remove #(zero? (:exit %)) (vals slow)))
+        reconciliation (slow-reconciliation selected (vals slow))
+        _ (when-not (:pass? reconciliation)
+            (log-lane summary (str "FAIL: jvm-slow test count reconciliation deficit="
+                                   (:deficit reconciliation) " expected=" (:expected reconciliation)
+                                   " executed=" (:actual reconciliation)
+                                   " missing summaries=" (pr-str (:missing reconciliation)))))]
     (spit summary (str "jvm-quick rc=" quick
                        (when subset (str " (subset: " (str/join "," (sort subset)) ")"))
                        "\njvm-slow namespaces=" (count slow-nss)
                        " red=" slow-red "\n")
           :append true)
     (when-not (zero? quick) (throw (ex-info "jvm quick tier red" {:rc quick})))
-    (when (pos? slow-red) (throw (ex-info "jvm slow tier red" {:red slow-red})))))
+    (when (or (pos? slow-red) (not (:pass? reconciliation)))
+      (throw (ex-info "jvm slow tier red" {:red slow-red :reconciliation reconciliation})))))
 
 
 (defn- lane-node
@@ -401,7 +590,7 @@
                       (mapv run-lane ordered-lanes))]
         ;; summary appends are serialized HERE, after the join — concurrent
         ;; spit :append from lane futures is not one atomic syscall
-        (doseq [{:keys [lane lane-rc secs fail]} results]
+        (doseq [{:keys [lane secs fail]} results]
           (let [ls (lane-summary lane)]
             (when (fs/exists? ls)
               (spit summary (slurp ls) :append true)))
@@ -414,4 +603,10 @@
 
 
 (when (= *file* (System/getProperty "babashka.file"))
-  (apply -main *command-line-args*))
+  (if (= "--list-slow" (first *command-line-args*))
+    (let [clone (or (second *command-line-args*) ".")
+          out (str (fs/create-temp-dir {:prefix "nightly-slow-list-"}))
+          manifest (slow-manifest clone out)]
+      (doseq [item (slow-schedule clone out manifest)]
+        (prn (slow-command item))))
+    (apply -main *command-line-args*)))

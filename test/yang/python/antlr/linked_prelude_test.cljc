@@ -183,12 +183,15 @@
                   prelude/module-exports)))
     (testing "the runtime keys are what the generated py/init! defines,
               the ready flag aside; 04e58031 added py.b/type through the
-              builtin-functions table, raising the count from 70 to 71"
+              builtin-functions table, raising the count from 70 to 71,
+              and 60cda9b6 added py.b/AssertionError,
+              raising the count from 71 to 72"
       (is (= (set prelude/runtime-keys)
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
                    'py.rt/state)))
-      (is (= 71 (count prelude/runtime-keys))))))
+      (is (= 72 (count prelude/runtime-keys)))
+      (is (contains? (set prelude/runtime-keys) 'py.b/AssertionError)))))
 
 
 ;; =============================================================================
@@ -248,9 +251,13 @@
    the JVM with dht-import-v1.generate.clj (two byte-identical runs).
    The Python exception-track and provenance series (merged 8018005d)
    moved it again; re-minted with the same generator in two byte-identical
-   runs."
+   runs. The assert series (60cda9b6, 392746bd, 906586c5,
+   d4a3fdef, 7692d347, 3051a5cb) and :py/missing sentinel fix
+   (ruling 1795660000000) changed the prelude content and moved
+   the address once more; re-minted from the JVM publication in
+   two fresh JVMs."
   (keyword (str "segment/blake3-"
-                "59efa8b3793d9737d09b74c7304c086405084d486c76b8dc986c88870357b744")))
+                "8fc311fa78b335654c72608dd0d5dab3ff204eb1173eba8773335064b9635136")))
 
 
 (def ^:private vector-formats

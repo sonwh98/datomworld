@@ -1,0 +1,98 @@
+#:blog{:title "Yin and Yang: Programs, Compilers, and Interpretation"
+       :date #inst "2026-11-23T00:00:00.000-00:00"
+       :abstract
+       [:p "Yin.vm gives programs a common structural representation and several execution strategies. Yang makes compilation a composition of interpreters over streams, including pipelines that can themselves be transformed. Together, they connect Lisp, reflective rewriting, mobile channels, and content-addressed computation."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p "Lisp made an enduring observation: a program can be data that another program understands. Datom.world carries that observation across more boundaries. Code, compiler transformations, communication descriptors, and suspended execution can all have explicit data representations. Different interpreters give those representations different meanings."]
+          [:p "Yin.vm and Yang explore that arrangement together. Yin.vm defines a common computational representation and a family of machines for executing its lowerings. Yang supplies language frontends and a model of compilation through communicating interpreters. In the broader design, those interpreters can transform the pipeline through which compilation proceeds."]
+          [:p "This article describes that architectural intent. Existing frontends, four VM engines, and the content-store observer provide concrete pieces of it; continuously self-transforming pipelines and fully portable, authorized continuation migration remain broader design goals."]
+          [:p "The philosophical foundation is developed in " [:a {:href "/blog/yin-vm-symmetry.blog"} "Yin.VM and Symmetry"] ": compilation changes a program's representation while preserving its semantic value. Here we follow that principle into the architecture of Yang's stream transformations and Yin.vm's multiple execution models."]
+
+          [:h2 "One representation, several ways to execute"]
+          [:p "The Universal AST separates a program's structure from the source syntax used to express it. A Clojure frontend and a Python frontend can both emit nodes for functions, applications, and conditionals. Each frontend still has to preserve its language's behavior. Sharing an AST does not by itself make every construct interchangeable or settle the calling convention between languages."]
+          [:p "There are several representations to distinguish. The canonical AST is a nested map. Flat, content-addressed tuple rows preserve its structure for storage and transport. Datoms provide facts and references through which code and its history can be queried. The AST is therefore available as durable, inspectable data without requiring every evaluator to traverse five-slot datoms at every instruction."]
+          [:p "Yin.vm has an AST walker, a semantic VM, and de Bruijn stack and register VMs. These machines share computational commitments while using different execution layouts (the current semantic VM is itself register-shaped, showing that semantic abstraction does not require tree-walking). The family illustrates a practical separation: a common representation can support several physical execution strategies."]
+          [:p "A lowering can replace recursive traversal with a compact instruction image while keeping the original AST retrievable and preserving its promised behavior. Queryability and efficient execution coexist because they are different interpretations of the same code, though each lowering still has to earn its own correctness and performance."]
+          [:p "See the " [:a {:href "/yin.chp"} "Yin overview"] " and the " [:a {:href "https://github.com/sonwh98/datomworld/blob/master/docs/design/yin.vm.code-as-tuples.md"} "code-as-tuples design"] " for the representation boundaries."]
+
+          [:h2 "Yang can transform the compilation pipeline"]
+          [:p "A conventional compiler is usually organized as a fixed sequence: parse source, expand syntax, analyze, optimize, emit. Each stage transforms a program, while the arrangement of stages is configured elsewhere. Yang's broader model makes that arrangement interpretable too. A Yang interpreter consumes a stream, retains its own context, and emits values describing syntax, lowerings, analyses, or new communication boundaries. When a transformation alters which interpreters observe subsequent input and how they connect, the responsible interpreter records that change and its causal relationship to later work explicitly. Appending new facts preserves earlier observations while still allowing downstream interpretations to revise their selected results."]
+          [:p "Statefulness alone is familiar. Monadic parser combinators can retain user state and let later parsing depend on earlier results, as described in the " [:a {:href "https://users.cecs.anu.edu.au/~Clem.Baker-Finch/parsec.pdf"} "Parsec paper"] ". Yang's distinction is extending composition across stream boundaries so the topology itself can be described and transformed as data."]
+          [:p "Macro expansion provides a concrete baseline for separating compiler stages over streams. An expander observes syntax upstream and emits expanded code downstream, while the evaluator executes the resulting stream. The topology gives expansion a clear place without making macro lookup a responsibility of every execution engine; communicated stream descriptors, discussed below, are what allow that topology to change dynamically."]
+
+          [:h2 "Parallel interpretations can keep going independently"]
+          [:p "A stream can have several independent observers. One interpreter might prepare code for a register VM, another derive a different lowering, and a " [:a {:href "/dao-space.chp"} "DaoSpace"] " interpreter index the program for Datalog queries. These activities need not compete to produce one winning answer."]
+          [:figure {:style "margin: 2rem auto; text-align: center;"}
+           [:a {:href "/assets/yin-yang-compilation-pipeline.svg"
+                :style "display: block;"
+                :aria-label "Open the Yin and Yang compilation pipeline diagram at full size"}
+            [:img {:src "/assets/yin-yang-compilation-pipeline.svg"
+                   :alt "Yang language frontend interpreters append Universal AST rows to a central dao.stream. Interpreters hook into dao.stream with independent cursors: macro expansion appends expanded rows back onto the same dao.stream, an X interpreter can append back or pipe to a new derived dao.stream, and a dashed pipeline interpreter communicates topology changes as stream data. Four independent Yin.vm execution paths plus optional DaoSpace and DaoJing observers hook into the stream bus."
+                   :width 1100
+                   :height 1420
+                   :loading "lazy"
+                   :style "display: block; width: 100%; max-width: 1100px; height: auto; margin: 0 auto;"}]]
+           [:figcaption "One possible Yin and Yang composition centered on dao.stream. Interpreters hook into a stream with independent cursors and either append transformed rows back onto the same dao.stream or pipe them into a new one; dashed arrows show the design intent for pipeline transformation through communicated data. Select the diagram to view it at full size."]]
+          [:p "There may be no reduction step at all. An analysis or indexing stream can remain useful throughout execution while multiple execution streams continue for different purposes. The evaluator does not ask DaoSpace how to run, and DaoSpace does not evaluate a form to index it; the stream couples them through shared data while each supplies its own semantics. If a composition needs a merge, selection rule, or synchronization point, an interpreter defines it explicitly."]
+          [:p "Yang's composition supplies branching and transformation behavior. " [:a {:href "/dao-stream.chp"} "DaoStream"] " supplies the communication boundary: values, non-destructive reads, and interpreter-owned cursors. It neither schedules these interpreters nor decides what their results mean. Its payloads can be ordinary values; there is no requirement that every element be a datom."]
+
+          [:h2 "Communication can change the communication topology"]
+          [:p "The π-calculus is an important inspiration here. Processes can communicate channel names, allowing the recipient to use a communication path it did not previously know. Communication changes the topology of future communication. Robin Milner's " [:a {:href "https://moodle.risc.jku.at/pluginfile.php/3419/mod_resource/content/1/milner91polyadic.pdf"} "tutorial on the polyadic π-calculus"] " develops this name-passing model."]
+          [:p "DaoStream offers a practical analogue through portable descriptors. An interpreter can send a descriptor over an existing stream. A recipient can use it to attach to the described logical stream through a new local handle. The descriptor is reachability data, the handle is local operational state, and the cursor belongs to the observing interpreter. These are separate things."]
+          [:p "This makes a changing compiler topology concrete. An interpreter can receive a descriptor for a newly available syntax stream and compose another transformation around it. The connection can be communicated as data instead of being fixed in a process's startup wiring."]
+          [:p "The analogy is practical rather than a formal equivalence with π-calculus. DaoStream has its own retention, cursor, attachment, and failure contracts, and a descriptor is not a suspended computation. Channel mobility and continuation mobility each require their own contract."]
+
+          [:h2 "Persistence and authority have their own interpreters"]
+          [:p "When streams span machines or outlive a process, stream data can be materialized through DaoJing's DHT backend. " [:a {:href "/dao-jing.chp"} "DaoJing"] " observes explicitly supplied intake streams, encodes their values, and stores them by content address. It preserves content without needing to know whether that content is code, an index node, or some other value."]
+          [:p "A recipient can then retrieve a referenced materialization without requiring the originating compiler process to send the whole dataset again. That depends on publication and storage availability. DaoStream alone promises neither durable persistence nor a complete history, and attaching to a live stream is a different operation from retrieving immutable content by hash."]
+          [:p "Authority is another independent concern. Knowing where a stream can be reached does not settle what a recipient may read, append, or execute. " [:a {:href "/shibi.chp"} "ShiBi"] " is intended to supply the authentication and authorization interpretation at the appropriate boundaries."]
+          [:p "In the current design, ShiBi authority emerges from interpreters over facts such as grants, restrictions, revocations, and budgets. A token object is not its canonical substance. A descriptor's reconstruction must not silently bypass the applicable authorization boundary. The repository still marks ShiBi as unspecified and unimplemented beyond its integration contracts, so this is an architectural responsibility rather than a claim of deployed enforcement."]
+
+          [:h2 "A continuation adds execution state to the picture"]
+          [:p "Moving code is only part of moving a computation. A suspended program also has an environment, reachable store values, a continuation describing what happens next, and dependencies on effects and host resources. Yin.vm's CESK lineage makes these concerns explicit: control, environment, store, and continuation are represented as machine state."]
+          [:p "The intended composition is then straightforward to describe. Suspend at a suitable boundary, encode the required state and dependencies, transport it, attach to the necessary streams, and resume on a compatible engine with the permitted authority. Stream descriptors reconstruct communication access; DaoJing supplies referenced content; ShiBi supplies the intended authorization interpretation."]
+          [:p "Describing that composition does not complete it. The proposed Universal Continuation Format must preserve aliases, primitive semantics, ownership, and the reachable state a receiver needs. A direct-I/O host function is explicitly local and non-migratable. A portable continuation cannot acquire that dependency merely by serializing its name. The " [:a {:href "https://github.com/sonwh98/datomworld/blob/master/docs/design/yin.vm.universal-continuation-format.md"} "continuation-format design"] " records the remaining acceptance obligations."]
+
+          [:h2 "How the pieces compare with related systems"]
+          [:p "The ingredients have substantial prior art. The comparisons below identify shared mechanisms and the choices Yin and Yang make around them; they do not imply that other systems cannot be extended in similar directions."]
+          [:div {:style {:overflow-x "auto"}}
+           [:table.comparison-table
+            [:thead
+             [:tr [:th "System or tradition"] [:th "Shared ground"] [:th "Yin and Yang's emphasis"]]]
+            [:tbody
+             [:tr
+              [:td [:a {:href "https://docs.racket-lang.org/guide/pattern-macros.html"} "Lisp and Racket"]]
+              [:td "Structured programs and syntax transformers make language extension programmable."]
+              [:td "A shared AST has persistent tuple representations and several execution engines; macro expansion occupies an explicit stream boundary."]]
+             [:tr
+              [:td [:a {:href "https://reference.wolfram.com/language/guide/RulesAndPatterns.html"} "Wolfram Language"] ", " [:a {:href "https://maude.lcc.uma.es/maude31-manual-html/maude-manualch17.html"} "Maude"] ", and " [:a {:href "https://spoofax.dev/references/stratego/modules/"} "Stratego"]]
+              [:td "Term rewriting, reflective rules, and programmable strategies treat programs as symbolic expressions subject to metalevel transformation."]
+              [:td "Rewriting and transformation strategies participate in a network of stream interpreters with relational projections, persistent content, independently continuing branches, and multiple execution lowerings."]]
+             [:tr
+              [:td [:a {:href "https://mlir.llvm.org/docs/Dialects/Transform/"} "MLIR"]]
+              [:td "Multiple representations support lowering, and Transform IR can control transformations of payload IR."]
+              [:td "Yang's wider design treats compilation as an evolving communication topology. Representing transformations as programs already has a clear precedent in MLIR."]]
+             [:tr
+              [:td [:a {:href "https://docs.datomic.com/datomic-overview.html"} "Datomic and Datalog"]]
+              [:td "Immutable facts and database values support declarative queries over accumulated information."]
+              [:td "Code structure becomes queryable data alongside other facts, while indexing stays decoupled from the VM's instruction loop."]]
+             [:tr
+              [:td [:a {:href "https://9p.io/sys/doc/9.html"} "Plan 9"]]
+              [:td "Uniform resource interfaces and composable namespaces make distributed resources usable through a common boundary."]
+              [:td "DaoStream makes that boundary a stream with explicit observation state. Portable descriptors communicate access paths, while interpreters determine domain meaning."]]
+             [:tr
+              [:td [:a {:href "https://www.unison-lang.org/docs/the-big-idea/"} "Unison"]]
+              [:td "Content-addressed code separates a definition's identity from the human name associated with it."]
+              [:td "The Universal AST is a target for several source languages and VM lowerings. A shared content address still leaves runtime compatibility, effects, and authority to explicit contracts."]]]]]
+          [:p "MLIR and Maude are especially useful comparisons because they prevent an easy overstatement: programmable compilation and reflection are established ideas. The proposition to examine in Yin and Yang is how those ideas fit together with passive streams, independently useful interpretations, content-addressed persistence, and explicit computational state."]
+
+          [:h2 "What the architecture must earn"]
+          [:p "The representation does not impose a single performance outcome. A VM can use an efficient loaded image, yet compilation, indexing, hashing, storage retrieval, and state reconstruction still cost time and memory. Each lowering needs measurements against the workload it serves, including the cost of entering and leaving it."]
+          [:p "Dynamic composition adds its own questions: which interpreters run, how much work may they produce, which version of a transformation governs an input, and what happens when a branch falls behind or a descriptor cannot attach? Immutability preserves evidence, but scheduling, provenance, retention, and resource control still require explicit interpretation."]
+          [:p "Yin and Yang give the same program several useful lives: source for a language frontend, structure for a query, input to a transformation, and code for an execution engine. Keeping those interpretations connected through explicit data is what lets the system change its machinery while preserving the program that the machinery exists to understand."]]]]}

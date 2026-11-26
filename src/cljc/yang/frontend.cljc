@@ -200,7 +200,7 @@
    candidates exist but none matches the pins, and
    `:yang.frontend/ambiguous` with the matching `:revisions` when more
    than one matches. An id-only request can use the composition’s
-   :yang.frontend/preferred as an id-to-revision map or an [id revision] pair."
+   :yang.frontend/preferred [id revision] or an id-to-revision map."
   [catalog request]
   (let [id (:yang.frontend/id request)
         revision (:yang.frontend/revision request)
