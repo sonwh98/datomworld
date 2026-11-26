@@ -33,12 +33,12 @@
                 :style "display: block;"
                 :aria-label "Open the Yin and Yang compilation pipeline diagram at full size"}
             [:img {:src "/assets/yin-yang-compilation-pipeline.svg"
-                   :alt "Yang frontends produce a Universal AST, syntax rows pass through a macro expander, and the program stream feeds four independent Yin.vm paths plus optional DaoSpace and DaoJing observers. A dashed design path shows an interpreter transforming the compilation pipeline."
+                   :alt "Yang language frontend interpreters append Universal AST rows to a central dao.stream. Interpreters hook into dao.stream with independent cursors: macro expansion appends expanded rows back onto the same dao.stream, an X interpreter can append back or pipe to a new derived dao.stream, and a dashed pipeline interpreter communicates topology changes as stream data. Four independent Yin.vm execution paths plus optional DaoSpace and DaoJing observers hook into the stream bus."
                    :width 1100
-                   :height 1390
+                   :height 1420
                    :loading "lazy"
                    :style "display: block; width: 100%; max-width: 1100px; height: auto; margin: 0 auto;"}]]
-           [:figcaption "One possible Yin and Yang composition. Solid arrows carry data; dashed arrows show the design intent for pipeline transformation through communicated data. Execution, indexing, and persistence can proceed independently, with no required join. Select the diagram to view it at full size."]]
+           [:figcaption "One possible Yin and Yang composition centered on dao.stream. Interpreters hook into a stream with independent cursors and either append transformed rows back onto the same dao.stream or pipe them into a new one; dashed arrows show the design intent for pipeline transformation through communicated data. Select the diagram to view it at full size."]]
           [:p "There may be no reduction step at all. An analysis or indexing stream can remain useful throughout execution while multiple execution streams continue for different purposes. The evaluator does not ask DaoSpace how to run, and DaoSpace does not evaluate a form to index it; the stream couples them through shared data while each supplies its own semantics. If a composition needs a merge, selection rule, or synchronization point, an interpreter defines it explicitly."]
           [:p "Yang's composition supplies branching and transformation behavior. " [:a {:href "/dao-stream.chp"} "DaoStream"] " supplies the communication boundary: values, non-destructive reads, and interpreter-owned cursors. It neither schedules these interpreters nor decides what their results mean. Its payloads can be ordinary values; there is no requirement that every element be a datom."]
 
