@@ -155,7 +155,7 @@
   [& args]
   (let [clone (or (first args) (System/getProperty "user.dir"))
         requested-par (or (some->> (second args) parse-long) 8)
-        par   (max 1 (min requested-par 8 (max 1 (quot (.availableProcessors (Runtime/getRuntime)) 3))))
+        par   (max 1 (min requested-par 12 (max 1 (quot (.availableProcessors (Runtime/getRuntime)) 2))))
         stamp (.format (java.time.format.DateTimeFormatter/ofPattern "yyyyMMdd-HHmm")
                        (java.time.LocalDateTime/now))
         out   (str clone "/target-ci/node-shards-" stamp)
