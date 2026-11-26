@@ -396,7 +396,8 @@
          :default
          (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
                       " is not in the frontend catalog; installed: :clojure :php"
-                      " :python (ids :yang/clojure :yang/php :yang/python)")]
+                      " :python :typescript (ids :yang/clojure :yang/php :yang/python"
+                      " :yang/typescript)")]
                 (get-in t [5 1]))))
       (is (= ["3"] (get-in t [6 1]))))
     #?(:cljd
