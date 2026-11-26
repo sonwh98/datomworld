@@ -6,15 +6,15 @@
 ;; (`qualify:jolt-upgrade`, §6.4), with the explicit exception recorded below.
 {:jolt
  {:origin "https://github.com/sonwh98/jolt"
-  :sha "f22df3c70dce4e7f725df580daa8991a41420660"
-  :committed "2026-11-20T05:00:00+07:00"
+  :sha "25c3a8b7fd4b833412bd708a664e57b6ad67153f"
+  :committed "2026-11-27T10:30:00+07:00"
   ;; owner decision 2026-10-22, pinned ahead of the first qualify:jolt-upgrade
   ;; run (section 6.4 ruling 4 exception); requalified by the manual section 6
   ;; checklist (collab review 1792692000000)
   :tag :none
   :nearest-release-tag {:tag "v0.8.23"
                         :sha "a0ac71c3f638fe55158bd01b4ecbb0dd3d7545e5"}
-  :describe "gambit-ffi-p1c-f22df3c7"
+  :describe "gambit-ffi-p1-store-swap-25c3a8b7"
   :dir "build/tools/jolt"
   ;; recursive submodule SHAs at :sha (git submodule status --recursive);
   ;; bootstrap refuses a checkout whose submodules differ
@@ -55,6 +55,23 @@
   ;; Linux compiled-boot heap issue resolved as a missing DATOMWORLD_ROOT
   ;; default, now fail-closed preflight). Cross-family review: glm-5.3-flash
   ;; ACCEPT (gate honesty verified by re-run; collab/jolt/1795135000000-*).
+  ;; Advanced 2026-11-27 (§6.4 manual upgrade gate, store-swap seat) to
+  ;; 25c3a8b7 on fork branch gambit-ffi-p1-store-swap = f22df3c7 + the
+  ;; p1-store-swap commit (use-store honest degradation on the Gambit
+  ;; target: dht-scheme plain data, parse-swap-command, open-gambit via
+  ;; dao.posix.file/realpath so durable targets hit the C4 blocking-FFI
+  ;; refusal before any java.io.File; mem swap preserves jolt.ffi and
+  ;; dao.jing.mem) + a docs-only collab artifacts commit. Gate matrix
+  ;; (clean worktrees, both platforms): submodules at the recorded SHAs
+  ;; (unchanged from f22df3c7); gambitseedcheck seed-current byte-fixpoint
+  ;; (macOS arm64 + Linux x86_64); gambitffi provenance recorded and
+  ;; digests verified (7 inputs, both); make gambityinrepl PASS on both
+  ;; (store swap + blocking refusal + clean quit in the transcript). J0b
+  ;; UDP / J0c parser/GC regressions scoped out: the candidate touches
+  ;; only the Gambit yin overlay and its session script, not jolt core —
+  ;; same scoping as the 2026-11-20 advances. Prior pin f22df3c7 (git
+  ;; history) is the rollback. Review: glm-5.3 slice gate APPROVED
+  ;; (collab/yin-repl/1795371200000-*, archived d3eceea0).
   :patches []}
 
  ;; Host OS packages (owner 2026-10-20: Linux = the Debian family with apt).
