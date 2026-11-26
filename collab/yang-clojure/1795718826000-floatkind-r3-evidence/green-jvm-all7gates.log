@@ -1,0 +1,21 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.clojure-float-kind-test
+
+Testing yang.php.antlr.float-address-test
+
+Ran 30 tests containing 726 assertions.
+0 failures, 0 errors.
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.clojure-collection-order-test
+
+Ran 2 tests containing 22 assertions.
+0 failures, 0 errors.
+RC=0

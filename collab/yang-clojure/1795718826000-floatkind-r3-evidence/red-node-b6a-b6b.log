@@ -1,0 +1,313 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+[:test] Build completed. (680 files, 12 compiled, 2 warnings, 12.45s)
+
+[1m------ WARNING #1 - :invalid-arithmetic ----------------------------------------[0m
+ File: /home/sto/ci/datomworld-floatkind/test/dao/host/conformance_test.cljc:442:43
+--------------------------------------------------------------------------------
+[2m 439 |        (is (= (hash (number/float64-of ##NaN)) (hash (number/float64-of (float/bits->float64 "7ff8000000000001")))))[0m
+[2m 440 |        (is (not= (number/float64-of 0.0) (number/float64-of -0.0)))[0m
+[2m 441 |        (is (= (number/float64-of 1) (number/float64-of 1.0)))[0m
+[1m 442 |        (is (= :carrier-coercion (refusal #(+ 1 (number/float64-of 1)))))[0m
+-------------------------------------------------^------------------------------
+ [33;1mcljs.core/+, all arguments must be numbers, got [number dao.host.number/Float64] instead[0m
+--------------------------------------------------------------------------------
+[2m 443 |        (is (= "#dao.jing/float64 1.5" (pr-str (number/float64-of 1.5))))[0m
+[2m 444 |        (is (= "#dao.jing/ratio [1 2]" (pr-str (number/ratio-of 1 2))))[0m
+[2m 445 |        (is (= "#dao.jing/decimal [-1 15]" (pr-str (number/decimal-of -1 15))))))[0m
+[2m 446 |   #?(:cljd nil[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #2 - :redef -----------------------------------------------------[0m
+ File: /home/sto/ci/datomworld-floatkind/test/yang/typescript_callsite_test.cljc:962:1
+--------------------------------------------------------------------------------
+[2m 959 |   :yang.ts/derived)[0m
+[2m 960 | [0m
+[2m 961 | [0m
+[1m 962 | (defn- derive[0m
+-------^------------------------------------------------------------------------
+ [33;1mderive already refers to: cljs.core/derive being replaced by: yang.typescript-callsite-test/derive[0m
+--------------------------------------------------------------------------------
+[2m 963 |   "The safepoint-derived envelope of `ast` under `profile`, admitted on this[0m
+[2m 964 |    test's medium and derived onto `derived-medium` — `derive-envelope` at its[0m
+[2m 965 |    3-arity, exactly as every ts caller invokes it: `safepoint/transform`[0m
+[2m 966 |    (`yang/safepoint.cljc:455`), `e2e-test`'s `derive-program` (`:71-86`),[0m
+--------------------------------------------------------------------------------
+
+Testing yang.clojure-float-kind-test
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `+
+`+ should read as (quote clojure.core/+)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core/+) (quote +)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `-
+`- should read as (quote clojure.core/-)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core/-) (quote -)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `/
+`/ should read as (quote clojure.core//)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core//) (quote /)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `let
+`let should read as (quote clojure.core/let)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core/let) (quote let)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `fn
+`fn should read as (quote clojure.core/fn)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core/fn) (quote fn)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `defn
+`defn should read as (quote clojure.core/defn)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core/defn) (quote defn)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `defmacro
+`defmacro should read as (quote clojure.core/defmacro)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core/defmacro) (quote defmacro)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `loop
+`loop should read as (quote clojure.core/loop)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core/loop) (quote loop)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `map
+`map should read as (quote clojure.core/map)
+expected: (= expected (read-one src))
+  actual: (not (= (quote clojure.core/map) (quote map)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `x
+`x should read as (quote user/x)
+expected: (= expected (read-one src))
+  actual: (not (= (quote user/x) (quote x)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1104:18)
+default portable context: core, special, user, qualified, and interop symbols `x'
+`x' should read as (quote user/x')
+expected: (= expected (read-one src))
+  actual: (not (= (quote user/x') (quote x')))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1108:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote my.app/x)) (first (yang/read-forms "`x" {:ns (quote my.app)})))
+  actual: (not (= (quote my.app/x) (quote x)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1110:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote clojure.core/+)) (first (yang/read-forms "`+" {:ns (quote my.app)})))
+  actual: (not (= (quote clojure.core/+) (quote +)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1114:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote clojure.string/join)) (first (yang/read-forms "`str/join" {:ns (quote my.app), :aliases {(quote str) (quote clojure.string)}})))
+  actual: (not (= (quote clojure.string/join) (quote str/join)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1120:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote clojure.string/join)) (first (yang/read-forms "`join" {:ns (quote my.app), :refers {(quote join) (quote clojure.string)}})))
+  actual: (not (= (quote clojure.string/join) (quote join)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1123:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote my.lib/helper)) (first (yang/read-forms "`helper" {:ns (quote my.app), :refers {(quote helper) (quote my.lib/helper)}})))
+  actual: (not (= (quote my.lib/helper) (quote helper)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1126:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote my.app/+)) (first (yang/read-forms "`+" {:ns (quote my.app), :exclude #{(quote +)}})))
+  actual: (not (= (quote my.app/+) (quote +)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1129:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote clojure.core/-)) (first (yang/read-forms "`-" {:ns (quote my.app), :exclude #{(quote +)}})))
+  actual: (not (= (quote clojure.core/-) (quote -)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1132:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote my.app/+)) (first (yang/read-forms "`+" {:ns (quote my.app), :refer-clojure? false})))
+  actual: (not (= (quote my.app/+) (quote +)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1136:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote user/x)) (read-one "`x"))
+  actual: (not (= (quote user/x) (quote x)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1138:14)
+explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation
+expected: (= (quote (quote clojure.core/+)) (read-one "`+"))
+  actual: (not (= (quote clojure.core/+) (quote +)))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1156:18)
+actual execution of syntax-quoted symbols through Yin REPL/VM REPL eval `+
+executing `+ must return clojure.core/+
+expected: (= expected-sym (repl-session-result src))
+  actual: (not (= clojure.core/+ +))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1156:18)
+actual execution of syntax-quoted symbols through Yin REPL/VM REPL eval `/
+executing `/ must return clojure.core//
+expected: (= expected-sym (repl-session-result src))
+  actual: (not (= clojure.core// /))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1156:18)
+actual execution of syntax-quoted symbols through Yin REPL/VM REPL eval `let
+executing `let must return clojure.core/let
+expected: (= expected-sym (repl-session-result src))
+  actual: (not (= clojure.core/let let))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1156:18)
+actual execution of syntax-quoted symbols through Yin REPL/VM REPL eval `fn
+executing `fn must return clojure.core/fn
+expected: (= expected-sym (repl-session-result src))
+  actual: (not (= clojure.core/fn fn))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1156:18)
+actual execution of syntax-quoted symbols through Yin REPL/VM REPL eval `x
+executing `x must return user/x
+expected: (= expected-sym (repl-session-result src))
+  actual: (not (= user/x x))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1156:18)
+actual execution of syntax-quoted symbols through Yin REPL/VM REPL eval `x'
+executing `x' must return user/x'
+expected: (= expected-sym (repl-session-result src))
+  actual: (not (= user/x' x'))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1160:18)
+actual execution of syntax-quoted symbols through Yin REPL/VM compound syntax-quote evaluates with qualified symbols and preserved float64
+expected: (= (quote clojure.core/+) (first form))
+  actual: (not (= clojure.core/+ +))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1163:18)
+actual execution of syntax-quoted symbols through Yin REPL/VM compound syntax-quote evaluates with qualified symbols and preserved float64
+expected: (= (quote user/x) (nth form 2))
+  actual: (not (= user/x x))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1165:16)
+actual execution of syntax-quoted symbols through Yin REPL/VM cross-host canonical root of syntax-quoted symbols differs from bare symbols
+expected: (not= (semantic-root "`+") (semantic-root "'+"))
+  actual: (not (not= :segment/blake3-7c444c4484222cfd99b5d36b150abfa80ee86bb598c3fe55a83572622fd77d5f :segment/blake3-7c444c4484222cfd99b5d36b150abfa80ee86bb598c3fe55a83572622fd77d5f))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1166:16)
+actual execution of syntax-quoted symbols through Yin REPL/VM cross-host canonical root of syntax-quoted symbols differs from bare symbols
+expected: (not= (semantic-root "`x") (semantic-root "'x"))
+  actual: (not (not= :segment/blake3-5fd45b1346ccaf022b332d7fc18d0d8d30863a2a73673fbe890bb41a9d336296 :segment/blake3-5fd45b1346ccaf022b332d7fc18d0d8d30863a2a73673fbe890bb41a9d336296))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1167:16)
+actual execution of syntax-quoted symbols through Yin REPL/VM cross-host canonical root of syntax-quoted symbols differs from bare symbols
+expected: (= (semantic-root "`+") (semantic-root "'clojure.core/+"))
+  actual: (not (= :segment/blake3-7c444c4484222cfd99b5d36b150abfa80ee86bb598c3fe55a83572622fd77d5f :segment/blake3-61c1a4d56fb11af777c67d3a86d461f5ee9f8baabc04908973afc3a31ee42d5b))
+
+FAIL in (b6a-syntax-quote-symbol-qualification) (yang/clojure_float_kind_test.cljc:1168:16)
+actual execution of syntax-quoted symbols through Yin REPL/VM cross-host canonical root of syntax-quoted symbols differs from bare symbols
+expected: (= (semantic-root "`x") (semantic-root "'user/x"))
+  actual: (not (= :segment/blake3-5fd45b1346ccaf022b332d7fc18d0d8d30863a2a73673fbe890bb41a9d336296 :segment/blake3-96555b6e33957cb958a6e7c0fed9a415a995ae8555429b2ec63b55e8787bdece))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1254:16)
+sign-off reproducer: x# must not collide with ~'x__1__auto__ (12 vs 4)
+auto-gensym must not collide with user x__1__auto__
+expected: (not= binding-sym user-ref)
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1256:16)
+sign-off reproducer: x# must not collide with ~'x__1__auto__ (12 vs 4)
+semantic result must be 12, never 4
+expected: (= 12 (run-ast (yang/compile (list (quote let) [(quote x__1__auto__) 10] expanded))))
+  actual: (not (= 12 4))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1270:18)
+sign-off reproducer: x# must not collide with ~'x__1__auto__ (12 vs 4)
+expected: (= 12 (data/float-value fv))
+  actual: (not (= 12 4))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1283:16)
+[x# x__1__auto__] and reversed order never collide
+expected: (not= g1 u1)
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1284:16)
+[x# x__1__auto__] and reversed order never collide
+x# must avoid base name x__1__auto__ even when qualified
+expected: (not= (name g1) (name u1))
+  actual: (not (not= "x__1__auto__" "x__1__auto__"))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1285:16)
+[x# x__1__auto__] and reversed order never collide
+expected: (not= g2 u2)
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1287:16)
+[x# x__1__auto__] and reversed order never collide
+expected: (not= g3 u3)
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1294:16)
+multi-collision avoidance across x__1__auto__, x__2__auto__, x__3__auto__
+expected: (not (contains? #{(quote x__1__auto__) (quote x__2__auto__) (quote x__3__auto__)} gs))
+  actual: (not (not true))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1295:16)
+multi-collision avoidance across x__1__auto__, x__2__auto__, x__3__auto__
+expected: (= 62 (run-ast (yang/compile (list (quote let) [(quote x__1__auto__) 10 (quote x__2__auto__) 20 (quote x__3__auto__) 30] expanded))))
+  actual: (not (= 62 54))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1305:16)
+nested syntax-quote scopes via unquote do not reuse counters
+outer and inner syntax-quote scopes must get distinct gensyms
+expected: (not= outer-sym inner-sym)
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1306:16)
+nested syntax-quote scopes via unquote do not reuse counters
+expected: (not= outer-sym (quote x__1__auto__))
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1307:16)
+nested syntax-quote scopes via unquote do not reuse counters
+expected: (not= inner-sym (quote x__1__auto__))
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1308:16)
+nested syntax-quote scopes via unquote do not reuse counters
+expected: (= 112 (run-ast (yang/compile (list (quote let) [(quote x__1__auto__) 100] expanded))))
+  actual: (not (= 112 14))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1329:16)
+sibling syntax-quote scopes in one read-forms call do not reset counters
+sibling syntax-quotes must not reuse the same gensym
+expected: (not= t1 t2)
+  actual: (not (not= t__1__auto__ t__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1332:18)
+sibling syntax-quote scopes in one read-forms call do not reset counters
+expected: (= 12 (run-ast (yang/compile combined)))
+  actual: (not (= 12 4))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1341:16)
+collision avoidance sees symbols in surrounding forms of the same read-forms call
+expected: (not= (quote x__1__auto__) g1)
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+FAIL in (b6b-syntax-quote-auto-gensym-hygiene-and-scopes) (yang/clojure_float_kind_test.cljc:1342:16)
+collision avoidance sees symbols in surrounding forms of the same read-forms call
+expected: (not= (quote x__1__auto__) g2)
+  actual: (not (not= x__1__auto__ x__1__auto__))
+
+Ran 29 tests containing 637 assertions.
+50 failures, 0 errors.
+RC=1

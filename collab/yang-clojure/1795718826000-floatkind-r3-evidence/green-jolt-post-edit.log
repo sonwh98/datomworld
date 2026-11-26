@@ -1,0 +1,40 @@
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+ok    yang.clojure-float-kind-test/gate1-float-tokens-are-float64-content {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate1-integer-tokens-stay-exact-integers {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate1-unsupported-categories-not-relabeled {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate1-cross-host-canonical-identity {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-floats-preserve-through-structure {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-lexical-contexts-are-not-floats {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-equal-valued-occurrences-not-coalesced {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-float-key-policy-parity {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate2-macro-generated-numeric-data {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-data-oracle {:pass 10, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior {:pass 10, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-repl-arithmetic-reboxed {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-repl-literal-kind-through-the-catalog {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-unboxed-control-distinguishes {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-explicit-carrier-forms-compile-and-run {:pass 9, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-carrier-forms-one-root-everywhere {:pass 3, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-parked-float-result-crosses-the-round {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-pre-pause-integral-float-across-continuation-and-snapshot {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b2-set-and-map-false-nil-elements-and-duplicates {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b3-variadic-equality-and-inequality-truthiness {:pass 20, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b4-discard-sentinel-cannot-collide-with-guest-values {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b5-anon-fn-capture-avoiding-and-deterministic {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b6-lexical-compatibility-and-syntax-quote {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b6a-syntax-quote-symbol-qualification {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/b6b-syntax-quote-auto-gensym-hygiene-and-scopes {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate5-quoted-prelude-audit-no-integral-doubles {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate4-linked-library-arithmetic-reboxed {:pass 0, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate6-legacy-custody-and-cross-host-artifacts {:pass 12, :fail 0, :error 0}
+ok    yang.clojure-float-kind-test/gate7-repaired-manifest-revisions-and-capabilities {:pass 11, :fail 0, :error 0}
+NS yang.clojure-float-kind-test tests 29 assertions 75 pass 75 fail 0 error 0
+ok    yang.php.antlr.float-address-test/php-real-tokens-lower-to-canonical-float64-test {:pass 45, :fail 0, :error 0}
+NS yang.php.antlr.float-address-test tests 1 assertions 45 pass 45 fail 0 error 0
+ok    yin.vm.float-test/boxed-arithmetic {:pass 9, :fail 0, :error 0}
+ok    yin.vm.float-test/division-and-powers {:pass 8, :fail 0, :error 0}
+ok    yin.vm.float-test/float-format-and-profile {:pass 9, :fail 0, :error 0}
+ok    yin.vm.float-test/composition-registration {:pass 82, :fail 0, :error 0}
+NS yin.vm.float-test tests 4 assertions 108 pass 108 fail 0 error 0
+SUMMARY {:namespaces 3, :load-failures 0, :tests 34, :assertions 228, :pass 228, :fail 0, :error 0}
+RC=0

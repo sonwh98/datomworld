@@ -1024,6 +1024,334 @@
 
 #?(:jolt nil
    :cljd nil
+   :default
+   (defn- eval-syntax-quote-form
+     "Portable test evaluator for standard syntax-quote expansion output
+      (clojure.core/{sequence,seq,concat,list,vec,apply,hash-map,array-map,
+      hash-set,with-meta} + quote), returning the constructed guest form on
+      both JVM and Node."
+     [form]
+     (cond
+       (and (seq? form) (= 'quote (first form)))
+       (second form)
+
+       (seq? form)
+       (let [[op & args] form
+             ev-args (mapv eval-syntax-quote-form args)]
+         (case op
+           clojure.core/sequence (sequence (first ev-args))
+           clojure.core/seq (seq (first ev-args))
+           clojure.core/concat (apply concat ev-args)
+           clojure.core/list (apply list ev-args)
+           clojure.core/vec (vec (first ev-args))
+           clojure.core/apply (let [[f coll] ev-args]
+                                (case f
+                                  clojure.core/hash-map (apply hash-map coll)
+                                  clojure.core/array-map (apply array-map coll)
+                                  clojure.core/hash-set (apply hash-set coll)
+                                  (throw (ex-info "Unsupported apply fn in syntax-quote test eval" {:fn f}))))
+           clojure.core/with-meta (with-meta (first ev-args) (second ev-args))
+           (throw (ex-info "Unsupported op in syntax-quote test eval" {:op op :form form}))))
+
+       :else form)))
+
+
+(deftest b6a-syntax-quote-symbol-qualification
+  "B-6a: syntax-quote must qualify symbols through an explicit portable
+   reader context (core symbols -> clojure.core/*, special symbols bare,
+   unqualified symbols -> <ns>/*, alias expansion, refer/exclude overrides)
+   with zero global mutation, verified differentially against tools.reader
+   and via actual execution."
+  #?(:jolt nil
+     :cljd nil
+     :default
+     (do
+       (testing "default portable context: core, special, user, qualified, and interop symbols"
+         (doseq [[src expected]
+                 [["`+" '(quote clojure.core/+)]
+                  ["`-" '(quote clojure.core/-)]
+                  ["`/" '(quote clojure.core//)]
+                  ["`let" '(quote clojure.core/let)]
+                  ["`fn" '(quote clojure.core/fn)]
+                  ["`defn" '(quote clojure.core/defn)]
+                  ["`defmacro" '(quote clojure.core/defmacro)]
+                  ["`loop" '(quote clojure.core/loop)]
+                  ["`map" '(quote clojure.core/map)]
+                  ["`if" '(quote if)]
+                  ["`do" '(quote do)]
+                  ["`def" '(quote def)]
+                  ["`fn*" '(quote fn*)]
+                  ["`let*" '(quote let*)]
+                  ["`loop*" '(quote loop*)]
+                  ["`quote" '(quote quote)]
+                  ["`var" '(quote var)]
+                  ["`recur" '(quote recur)]
+                  ["`&" '(quote &)]
+                  ["`try" '(quote try)]
+                  ["`catch" '(quote catch)]
+                  ["`finally" '(quote finally)]
+                  ["`throw" '(quote throw)]
+                  ["`new" '(quote new)]
+                  ["`." '(quote .)]
+                  ["`x" '(quote user/x)]
+                  ["`x'" '(quote user/x')]
+                  ["`foo/bar" '(quote foo/bar)]
+                  ["`clojure.core/+" '(quote clojure.core/+)]
+                  ["`clojure.core//" '(quote clojure.core//)]
+                  ["`foo/x#" '(quote foo/x#)]
+                  ["`.foo" '(quote .foo)]
+                  ["`.." '(quote ..)]
+                  ["`Foo." '(quote Foo.)]
+                  ["`java.lang.String" '(quote java.lang.String)]]]
+           (testing src
+             (is (= expected (read-one src))
+                 (str src " should read as " (pr-str expected))))))
+
+       (testing "explicit portable reader context (:ns, :aliases, :refers, :exclude, :refer-clojure?) without global mutation"
+         (is (= '(quote my.app/x)
+                (first (yang/read-forms "`x" {:ns 'my.app}))))
+         (is (= '(quote clojure.core/+)
+                (first (yang/read-forms "`+" {:ns 'my.app}))))
+         (is (= '(quote if)
+                (first (yang/read-forms "`if" {:ns 'my.app}))))
+         (is (= '(quote clojure.string/join)
+                (first (yang/read-forms "`str/join" {:ns 'my.app
+                                                     :aliases {'str 'clojure.string}}))))
+         (is (= '(quote other/fn)
+                (first (yang/read-forms "`other/fn" {:ns 'my.app
+                                                     :aliases {'str 'clojure.string}}))))
+         (is (= '(quote clojure.string/join)
+                (first (yang/read-forms "`join" {:ns 'my.app
+                                                 :refers {'join 'clojure.string}}))))
+         (is (= '(quote my.lib/helper)
+                (first (yang/read-forms "`helper" {:ns 'my.app
+                                                   :refers {'helper 'my.lib/helper}}))))
+         (is (= '(quote my.app/+)
+                (first (yang/read-forms "`+" {:ns 'my.app
+                                              :exclude #{'+}}))))
+         (is (= '(quote clojure.core/-)
+                (first (yang/read-forms "`-" {:ns 'my.app
+                                              :exclude #{'+}}))))
+         (is (= '(quote my.app/+)
+                (first (yang/read-forms "`+" {:ns 'my.app
+                                              :refer-clojure? false}))))
+         ;; Confirm no global state leaked from custom context
+         (is (= '(quote user/x) (read-one "`x")))
+         (is (= '(quote str/join) (read-one "`str/join")))
+         (is (= '(quote clojure.core/+) (read-one "`+"))))
+
+       (testing "actual execution of syntax-quoted symbols through Yin REPL/VM"
+         (doseq [[src expected-sym]
+                 [["`+" 'clojure.core/+]
+                  ["`/" 'clojure.core//]
+                  ["`let" 'clojure.core/let]
+                  ["`fn" 'clojure.core/fn]
+                  ["`if" 'if]
+                  ["`fn*" 'fn*]
+                  ["`do" 'do]
+                  ["`&" '&]
+                  ["`x" 'user/x]
+                  ["`x'" 'user/x']
+                  ["`foo/bar" 'foo/bar]
+                  ["`.toString" '.toString]
+                  ["`Foo." 'Foo.]]]
+           (testing (str "REPL eval " src)
+             (is (= expected-sym (repl-session-result src))
+                 (str "executing " src " must return " (pr-str expected-sym)))))
+         (testing "compound syntax-quote evaluates with qualified symbols and preserved float64"
+           (let [form (eval-syntax-quote-form (read-one "`(+ 1.0 x)"))]
+             (is (= 'clojure.core/+ (first form)))
+             (is (cbor/float64? (second form)))
+             (is (= 1.0 (data/float-value (second form))))
+             (is (= 'user/x (nth form 2)))))
+         (testing "cross-host canonical root of syntax-quoted symbols differs from bare symbols"
+           (is (not= (semantic-root "`+") (semantic-root "'+")))
+           (is (not= (semantic-root "`x") (semantic-root "'x")))
+           (is (= (semantic-root "`+") (semantic-root "'clojure.core/+")))
+           (is (= (semantic-root "`x") (semantic-root "'user/x")))
+           (is (= (semantic-root "`if") (semantic-root "'if")))))
+
+       #?(:clj
+          (testing "JVM differential parity against clojure.tools.reader for quoted symbols & compound forms"
+            (let [old-read-user (fn [src]
+                                  (binding [*ns* (the-ns 'user)]
+                                    (let [rd (tools-rt/string-push-back-reader src)]
+                                      (loop [acc []]
+                                        (let [f (tools-reader/read rd false ::eof)]
+                                          (if (= f ::eof)
+                                            acc
+                                            (recur (conj acc f))))))))
+                  sym-corpus ["`+"
+                              "`-"
+                              "`/"
+                              "`let"
+                              "`fn"
+                              "`defn"
+                              "`defmacro"
+                              "`if"
+                              "`do"
+                              "`def"
+                              "`fn*"
+                              "`let*"
+                              "`loop*"
+                              "`quote"
+                              "`var"
+                              "`recur"
+                              "`&"
+                              "`x"
+                              "`x'"
+                              "`foo/bar"
+                              "`clojure.core/+"
+                              "`clojure.core//"
+                              "`foo/x#"
+                              "`.foo"
+                              "`.."
+                              "`Foo."
+                              "`java.lang.String"
+                              "`(+ 1 2)"
+                              "`(let [x 1] (+ x y))"
+                              "`[+ x if foo/bar]"
+                              "`{:op + :sym x}"
+                              "`#{+ x}"
+                              "`^:m x"
+                              "`(+ ~a ~@bs)"]]
+              (doseq [src sym-corpus]
+                (testing src
+                  (is (= (old-read-user src) (yang/read-forms src))
+                      (str "tools.reader differential mismatch for " (pr-str src)))))
+              (testing "alias expansion matches tools.reader with ns alias"
+                (let [tmp-ns (create-ns 'yang.clojure.reader-test-alias-ns)]
+                  (try
+                    (binding [*ns* tmp-ns]
+                      (clojure.core/refer-clojure)
+                      (clojure.core/alias 'str 'clojure.string)
+                      (is (= (tools-reader/read-string "`(str/join x + if)")
+                             (first (yang/read-forms "`(str/join x + if)"
+                                                     {:ns 'yang.clojure.reader-test-alias-ns
+                                                      :aliases {'str 'clojure.string}})))))
+                    (finally
+                      (remove-ns 'yang.clojure.reader-test-alias-ns)))))))))))
+
+
+(deftest b6b-syntax-quote-auto-gensym-hygiene-and-scopes
+  "B-6b: auto-gensym in syntax-quote must be deterministic AND hygienic
+   across user references, unquoted forms, nested syntax-quote scopes, and
+   sibling scopes (no capture of x__1__auto__, no per-quote counter reset)."
+  #?(:jolt nil
+     :cljd nil
+     :default
+     (do
+       (testing "sign-off reproducer: x# must not collide with ~'x__1__auto__ (12 vs 4)"
+         (let [src "`(~'let [x# 2] (~'+ x# ~'x__1__auto__))"
+               expanded (eval-syntax-quote-form (read-one src))
+               binding-sym (first (second expanded))
+               body (nth expanded 2)
+               bound-ref (second body)
+               user-ref (nth body 2)]
+           (is (= 'let (first expanded)))
+           (is (symbol? binding-sym))
+           (is (nil? (namespace binding-sym)))
+           (is (re-matches #"^x__\d+__auto__$" (name binding-sym)))
+           (is (= binding-sym bound-ref) "both x# occurrences resolve to the same gensym")
+           (is (= 'x__1__auto__ user-ref) "user reference stays untouched")
+           (is (not= binding-sym user-ref) "auto-gensym must not collide with user x__1__auto__")
+           ;; Semantic execution in Yin VM on BOTH JVM and Node
+           (is (= 12 (run-ast (yang/compile (list 'let ['x__1__auto__ 10] expanded))))
+               "semantic result must be 12, never 4")
+           ;; Float64 semantic variant
+           (let [f-src "`(~'let [x# 2.0] (~'+ x# ~'x__1__auto__))"
+                 f-expanded (eval-syntax-quote-form (read-one f-src))
+                 catalog (frontends/standard)
+                 selected (frontend/select catalog {:yang.frontend/id :yang/clojure})
+                 prims (merge vm/primitives (or (:primitives (:binding selected)) {}))
+                 fv (-> (tu/create-vm {:primitives prims
+                                       :make-stream tu/make-stream
+                                       :capability-secret tu/secret})
+                        (vm/eval (yang/compile (list 'let ['x__1__auto__ (data/float64 10.0)] f-expanded)))
+                        vm/value)]
+             (is (cbor/float64? fv))
+             (is (= 12.0 (data/float-value fv))))
+           #?(:clj
+              (let [jvm-val (eval (list 'let ['x__1__auto__ 10] (eval (read-one src))))
+                    upstream-val (eval (list 'let ['x__1__auto__ 10]
+                                             (eval (binding [*ns* (the-ns 'user)]
+                                                     (tools-reader/read-string src)))))]
+                (is (= 12 jvm-val))
+                (is (= upstream-val jvm-val))))))
+
+       (testing "[x# x__1__auto__] and reversed order never collide"
+         (let [[g1 u1] (eval-syntax-quote-form (read-one "`[x# x__1__auto__]"))
+               [g2 u2] (eval-syntax-quote-form (read-one "`[x# ~'x__1__auto__]"))
+               [u3 g3] (eval-syntax-quote-form (read-one "`[~'x__1__auto__ x#]"))]
+           (is (not= g1 u1))
+           (is (not= (name g1) (name u1)) "x# must avoid base name x__1__auto__ even when qualified")
+           (is (not= g2 u2))
+           (is (= 'x__1__auto__ u2))
+           (is (not= g3 u3))
+           (is (= 'x__1__auto__ u3))))
+
+       (testing "multi-collision avoidance across x__1__auto__, x__2__auto__, x__3__auto__"
+         (let [src "`(~'let [x# 2] (~'+ x# (~'+ ~'x__1__auto__ (~'+ ~'x__2__auto__ ~'x__3__auto__))))"
+               expanded (eval-syntax-quote-form (read-one src))
+               gs (first (second expanded))]
+           (is (not (contains? #{'x__1__auto__ 'x__2__auto__ 'x__3__auto__} gs)))
+           (is (= 62 (run-ast (yang/compile
+                                (list 'let ['x__1__auto__ 10 'x__2__auto__ 20 'x__3__auto__ 30]
+                                      expanded)))))))
+
+       (testing "nested syntax-quote scopes via unquote do not reuse counters"
+         (let [src "`(~'let [x# 10] (~'+ x# ~`(~'let [x# 2] (~'+ x# ~'x__1__auto__))))"
+               expanded (eval-syntax-quote-form (read-one src))
+               outer-sym (first (second expanded))
+               inner-let (nth (nth expanded 2) 2)
+               inner-sym (first (second inner-let))]
+           (is (not= outer-sym inner-sym) "outer and inner syntax-quote scopes must get distinct gensyms")
+           (is (not= outer-sym 'x__1__auto__))
+           (is (not= inner-sym 'x__1__auto__))
+           (is (= 112 (run-ast (yang/compile (list 'let ['x__1__auto__ 100] expanded)))))
+           #?(:clj
+              (is (= 112 (eval (list 'let ['x__1__auto__ 100] (eval (read-one src)))))))))
+
+       (testing "double-nested syntax-quote (macro generating macro) preserves distinct scopes"
+         (let [src "`(~'let [x# 10] `(~'let [x# 2] [x# ~x#]))"
+               outer-form (eval-syntax-quote-form (read-one src))
+               outer-sym (first (second outer-form))]
+           (is (symbol? outer-sym))
+           #?(:clj
+              (let [inner-form (eval outer-form)
+                    inner-sym (first (second inner-form))]
+                (is (not= outer-sym inner-sym))
+                (is (= [2 10] (eval inner-form)))))))
+
+       (testing "sibling syntax-quote scopes in one read-forms call do not reset counters"
+         (let [forms (yang/read-forms "`(~'let [t# 10] t#) `(~'let [t# 2] (~'+ t# ~'y))")
+               f1 (eval-syntax-quote-form (first forms))
+               f2 (eval-syntax-quote-form (second forms))
+               t1 (first (second f1))
+               t2 (first (second f2))]
+           (is (not= t1 t2) "sibling syntax-quotes must not reuse the same gensym")
+           ;; Simulate collaborating macros: outer binds t1=10 and passes t1 to inner which binds t2=2
+           (let [combined (list 'let [t1 10] (list 'let [t2 2] (list '+ t2 t1)))]
+             (is (= 12 (run-ast (yang/compile combined)))))))
+
+       (testing "collision avoidance sees symbols in surrounding forms of the same read-forms call"
+         (let [forms1 (yang/read-forms "(let [x__1__auto__ 10] `(~'let [x# 2] (~'+ x# ~'y)))")
+               sq1 (eval-syntax-quote-form (nth (first forms1) 2))
+               g1 (first (second sq1))
+               forms2 (yang/read-forms "`(~'let [x# 2] (~'+ x# ~'y)) (let [x__1__auto__ 10] x__1__auto__)")
+               sq2 (eval-syntax-quote-form (first forms2))
+               g2 (first (second sq2))]
+           (is (not= 'x__1__auto__ g1))
+           (is (not= 'x__1__auto__ g2))))
+
+       (testing "determinism across repeated reads"
+         (let [src "`(~'let [x# 2] (~'+ x# ~'x__1__auto__))"]
+           (is (= (read-one src) (read-one src)))
+           (is (= (semantic-root src) (semantic-root src))))))))
+
+
+#?(:jolt nil
+   :cljd nil
    :clj
    (defn- integral-double-leaves
      "Every integral Double constant in host-quoted `form` data (the JVM is

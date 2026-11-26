@@ -1,0 +1,170 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/home/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (111.0.0 available)
++ analyzer 6.4.1 (14.7.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.8
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @14:07:35
+  yang.clojure-float-kind-test
+  yang.php.antlr.float-address-test
+  yin.repl.frontend-catalog-test
+  yin.vm.data-test
+  yin.vm.float-test
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 53, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 89, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member osError on target type dynamic of library dart:core  at line: 269, column: 38, file: yin/repl/state.cljc
+DYNAMIC WARNING: can't resolve member errorCode on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 558, column: 48, file: yin/repl.cljc
+DYNAMIC WARNING: can't resolve member toList on target type dynamic of library dart:core  at line: 34, column: 13, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member decisionToState on target type dynamic of library dart:core  at line: 35, column: 16, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member interpreter on target type dynamic of library dart:core  at line: 64, column: 3, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member interpreter on target type dynamic of library dart:core  at line: 70, column: 3, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member toLowerCase on target type dynamic of library dart:core  at line: 121, column: 5, file: yang/php/antlr/scope.cljc
+Compilation succeeded - I like when a plan comes together! 👨‍🦳 @14:07:54
+Running 5 test files in 5 shards
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 99.0.0 (111.0.0 available)
+  analyzer 12.1.0 (14.7.0 available)
+  bluez 0.8.3 (0.9.0 available)
+  cbor 6.5.1 (6.5.3 available)
+  clock 1.1.2 (1.1.3 available)
+  coverage 1.15.1 (1.16.2 available)
+  crypto 3.0.7 (3.0.8 available)
+  dbus 0.7.15 (0.8.1 available)
+  flutter_ble_peripheral 3.1.0 (3.2.0 available)
+  flutter_blue_plus 1.36.8 (2.3.15 available)
+  flutter_blue_plus_android 7.0.4 (9.0.5 available)
+  flutter_blue_plus_darwin 7.0.3 (9.0.5 available)
+  flutter_blue_plus_linux 7.0.3 (9.0.5 available)
+  flutter_blue_plus_platform_interface 7.0.0 (9.0.4 available)
+  flutter_blue_plus_web 7.0.2 (9.0.4 available)
+  frontend_server_client 4.0.0 (4.2.0 available)
+  glob 2.1.3 (2.2.0 available)
+  http_multi_server 3.2.2 (3.2.3 available)
+  io 1.0.5 (1.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  mime 2.0.0 (2.1.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  pool 1.5.2 (1.5.3 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  shelf 1.4.2 (1.4.3 available)
+  shelf_static 1.1.3 (1.2.0 available)
+  source_maps 0.10.13 (0.10.14 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test 1.31.1 (1.33.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  test_core 0.6.18 (0.6.21 available)
+  unorm_dart 0.3.1+1 (0.3.3 available)
+  vector_math 2.4.2 (2.4.4 available)
+  vm_service 15.2.0 (15.4.0 available)
+  web 1.1.1 (1.1.2 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+36 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart
+00:00 +0: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/dissoc-disj-test
+00:00 +1: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/subvec-test
+00:00 +2: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/peek-pop-test
+00:00 +3: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/content=-test
+00:00 +4: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/count-test
+00:00 +5: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/every-export-is-pure-test
+00:00 +6: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/collection-operations-normalize-integer-keys
+00:00 +7: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/non-bmp-code-points-test
+00:00 +8: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/float-seam-test
+00:00 +9: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/number?-callable?-test
+00:00 +10: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/str-index-of-test
+00:00 +11: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/code-points-str-compare-test
+00:00 +12: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/str-concat-length-test
+00:00 +13: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/max-items-on-every-vm-test
+00:00 +14: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/max-items-on-every-vm-test
+00:00 +15: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_0_test.dart: null yin.vm.data-test/max-items-on-every-vm-test
+00:00 +16: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:00 +17: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:00 +18: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:00 +19: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:00 +20: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:00 +21: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:00 +22: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +23: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +24: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +25: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +26: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +27: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +28: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +29: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +30: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:01 +31: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:02 +32: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:02 +33: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:02 +34: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:02 +35: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:02 +36: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-library-inc-dec-float-behavior
+00:02 +37: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_3_test.dart: null yin.vm.float-test/composition-registration
+00:02 +38: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/an-explicit-parser-service-makes-an-id-available-test
+00:02 +39: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate5-parked-float-result-crosses-the-round
+00:02 +40: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-antlr-id-is-installed-on-every-host-test
+00:02 +41: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-antlr-id-is-installed-on-every-host-test
+00:02 +42: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-antlr-id-is-installed-on-every-host-test
+00:02 +43: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_1_test.dart: null yang.clojure-float-kind-test/gate4-data-oracle
+00:02 +44: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +45: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +46: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +47: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +48: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +49: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +50: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +51: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +52: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +53: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +54: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:02 +55: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +56: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +57: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +58: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +59: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +60: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +61: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +62: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +63: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +64: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +65: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +66: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+00:03 +67: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/the-standard-languages-select-by-id-test
+03:39 +68: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/an-unavailable-frontend-answers-without-fallback-test
+03:39 +69: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/a-core-session-with-no-catalog-has-no-frontend-test
+03:39 +70: /home/sto/ci/datomworld-floatkind/build/cljd-agg/shard_2_test.dart: null yin.repl.frontend-catalog-test/a-revision-is-pinned-by-id-and-revision-test
+03:39 +71: All tests passed!
+RC=0

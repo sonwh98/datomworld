@@ -499,13 +499,45 @@
       (FnArgRef. fn-id arg-idx nil))))
 
 
+#?(:cljs
+   (deftype SyntaxGensymRef [scope-id base-name meta-map]
+     IEquiv
+     (-equiv [_ other]
+       (if (instance? SyntaxGensymRef other)
+         (let [^SyntaxGensymRef o other]
+           (and (= scope-id (.-scope-id o))
+                (= base-name (.-base-name o))))
+         false))
+     IHash
+     (-hash [_]
+       (hash [scope-id base-name]))
+     IMeta
+     (-meta [_] meta-map)
+     IWithMeta
+     (-with-meta [_ m] (SyntaxGensymRef. scope-id base-name m)))
+   :default
+   (deftype SyntaxGensymRef [scope-id base-name meta-map]
+     Object
+     (equals [_ other]
+       (and (instance? SyntaxGensymRef other)
+            (= scope-id (.-scope-id ^SyntaxGensymRef other))
+            (= base-name (.-base-name ^SyntaxGensymRef other))))
+     (hashCode [_]
+       (int (hash [scope-id base-name])))
+     clojure.lang.IObj
+     (meta [_] meta-map)
+     (withMeta [_ m] (SyntaxGensymRef. scope-id base-name m))))
+
+
 (defn- collect-used-syms
   [form acc]
   (let [acc (if (and (supports-meta? form) (seq (meta form)))
               (collect-used-syms (meta form) acc)
               acc)]
     (cond
-      (instance? FnArgRef form) acc
+      (or (instance? FnArgRef form)
+          (instance? SyntaxGensymRef form))
+      acc
       (symbol? form)
       (cond-> (conj acc form)
         (some? (namespace form)) (conj (symbol (name form))))
@@ -618,61 +650,254 @@
   (and (seq? x) (= 'clojure.core/unquote-splicing (first x))))
 
 
-(defn- register-syntax-gensym!
-  [gensym-env sym]
-  (let [existing (get (:map @gensym-env) sym)]
-    (or existing
-        (let [s (name sym)
-              base (subs s 0 (dec (count s)))
-              n (:next @gensym-env)
-              gs (symbol (str base "__" n "__auto__"))]
-          (swap! gensym-env (fn [st]
-                              (-> st
-                                  (update :next inc)
-                                  (assoc-in [:map sym] gs))))
-          gs))))
+(def ^:private special-symbols
+  "Clojure compiler special symbols left unqualified by syntax-quote."
+  '#{& . case* catch def deftype* do finally fn* if
+     let* letfn* loop* monitor-enter monitor-exit new
+     quote recur reify* set! throw try var clojure.core/import*})
+
+
+(def clojure-core-symbols
+  "Portable immutable set of standard Clojure 1.12 `clojure.core` public
+   symbols used by syntax-quote symbol resolution across hosts (no ambient
+   host `*ns*` lookup or global reader mutation)."
+  '#{* *' *1 *2 *3 *agent* *allow-unresolved-vars* *assert* *clojure-version*
+     *command-line-args* *compile-files* *compile-path* *compiler-options*
+     *data-readers* *default-data-reader-fn* *e *err* *file* *flush-on-newline*
+     *fn-loader* *in* *math-context* *ns* *out* *print-dup* *print-length*
+     *print-level* *print-meta* *print-namespace-maps* *print-readably*
+     *read-eval* *reader-resolver* *repl* *source-path* *suppress-read*
+     *unchecked-math* *use-context-classloader* *verbose-defrecords*
+     *warn-on-reflection* + +' - -' -> ->> ->ArrayChunk ->Eduction ->Vec
+     ->VecNode ->VecSeq -cache-protocol-fn -reset-methods .. / < <= = == > >=
+     EMPTY-NODE Inst NaN? PrintWriter-on StackTraceElement->vec Throwable->map
+     abs accessor aclone add-classpath add-tap add-watch agent agent-error
+     agent-errors aget alength alias all-ns alter alter-meta! alter-var-root
+     amap ancestors and any? apply areduce array-map as-> aset aset-boolean
+     aset-byte aset-char aset-double aset-float aset-int aset-long aset-short
+     assert assoc assoc! assoc-in associative? atom await await-for await1
+     bases bean bigdec bigint biginteger binding bit-and bit-and-not bit-clear
+     bit-flip bit-not bit-or bit-set bit-shift-left bit-shift-right bit-test
+     bit-xor boolean boolean-array boolean? booleans bound-fn bound-fn* bound?
+     bounded-count butlast byte byte-array bytes bytes? case cast cat char
+     char-array char-escape-string char-name-string char? chars chunk
+     chunk-append chunk-buffer chunk-cons chunk-first chunk-next chunk-rest
+     chunked-seq? class class? clear-agent-errors clojure-version coll? comment
+     commute comp comparator compare compare-and-set! compile complement
+     completing concat cond cond-> cond->> condp conj conj! cons constantly
+     construct-proxy contains? count counted? create-ns create-struct cycle dec
+     dec' decimal? declare dedupe default-data-readers definline definterface
+     defmacro defmethod defmulti defn defn- defonce defprotocol defrecord
+     defstruct deftype delay delay? deliver denominator deref derive
+     descendants destructure disj disj! dissoc dissoc! distinct distinct? doall
+     dorun doseq dosync dotimes doto double double-array double? doubles drop
+     drop-last drop-while eduction empty empty? ensure ensure-reduced
+     enumeration-seq error-handler error-mode eval even? every-pred every?
+     ex-cause ex-data ex-info ex-message extend extend-protocol extend-type
+     extenders extends? false? ffirst file-seq filter filterv find find-keyword
+     find-ns find-protocol-impl find-protocol-method find-var first flatten
+     float float-array float? floats flush fn fn? fnext fnil for force format
+     frequencies future future-call future-cancel future-cancelled?
+     future-done? future? gen-class gen-interface gensym get get-in get-method
+     get-proxy-class get-thread-bindings get-validator group-by halt-when hash
+     hash-combine hash-map hash-ordered-coll hash-set hash-unordered-coll
+     ident? identical? identity if-let if-not if-some ifn? import in-ns inc
+     inc' indexed? infinite? init-proxy inst-ms inst-ms* inst? instance? int
+     int-array int? integer? interleave intern interpose into into-array ints
+     io! isa? iterate iteration iterator-seq juxt keep keep-indexed key keys
+     keyword keyword? last lazy-cat lazy-seq let letfn line-seq list list*
+     list? load load-file load-reader load-string loaded-libs locking long
+     long-array longs loop macroexpand macroexpand-1 make-array make-hierarchy
+     map map-entry? map-indexed map? mapcat mapv max max-key memfn memoize
+     merge merge-with meta method-sig methods min min-key mix-collection-hash
+     mod munge name namespace namespace-munge nat-int? neg-int? neg? newline
+     next nfirst nil? nnext not not-any? not-empty not-every? not= ns
+     ns-aliases ns-imports ns-interns ns-map ns-name ns-publics ns-refers
+     ns-resolve ns-unalias ns-unmap nth nthnext nthrest num number? numerator
+     object-array odd? or parents parse-boolean parse-double parse-long
+     parse-uuid partial partition partition-all partition-by partitionv
+     partitionv-all pcalls peek persistent! pmap pop pop! pop-thread-bindings
+     pos-int? pos? pr pr-str prefer-method prefers primitives-classnames print
+     print-ctor print-dup print-method print-simple print-str printf println
+     println-str prn prn-str promise proxy proxy-call-with-super proxy-mappings
+     proxy-name proxy-super push-thread-bindings pvalues qualified-ident?
+     qualified-keyword? qualified-symbol? quot rand rand-int rand-nth
+     random-sample random-uuid range ratio? rational? rationalize re-find
+     re-groups re-matcher re-matches re-pattern re-seq read read+string
+     read-line read-string reader-conditional reader-conditional? realized?
+     record? reduce reduce-kv reduced reduced? reductions ref ref-history-count
+     ref-max-history ref-min-history ref-set refer refer-clojure reify
+     release-pending-sends rem remove remove-all-methods remove-method
+     remove-ns remove-tap remove-watch repeat repeatedly replace replicate
+     require requiring-resolve reset! reset-meta! reset-vals! resolve rest
+     restart-agent resultset-seq reverse reversible? rseq rsubseq run!
+     satisfies? second select-keys send send-off send-via seq
+     seq-to-map-for-destructuring seq? seqable? seque sequence sequential? set
+     set-agent-send-executor! set-agent-send-off-executor! set-error-handler!
+     set-error-mode! set-validator! set? short short-array shorts shuffle
+     shutdown-agents simple-ident? simple-keyword? simple-symbol? slurp some
+     some-> some->> some-fn some? sort sort-by sorted-map sorted-map-by
+     sorted-set sorted-set-by sorted? special-symbol? spit split-at split-with
+     splitv-at str stream-into! stream-reduce! stream-seq! stream-transduce!
+     string? struct struct-map subs subseq subvec supers swap! swap-vals!
+     symbol symbol? sync tagged-literal tagged-literal? take take-last take-nth
+     take-while tap> test the-ns thread-bound? time to-array to-array-2d
+     trampoline transduce transient tree-seq true? type unchecked-add
+     unchecked-add-int unchecked-byte unchecked-char unchecked-dec
+     unchecked-dec-int unchecked-divide-int unchecked-double unchecked-float
+     unchecked-inc unchecked-inc-int unchecked-int unchecked-long
+     unchecked-multiply unchecked-multiply-int unchecked-negate
+     unchecked-negate-int unchecked-remainder-int unchecked-short
+     unchecked-subtract unchecked-subtract-int underive unquote
+     unquote-splicing unreduced unsigned-bit-shift-right update update-in
+     update-keys update-proxy update-vals uri? use uuid? val vals var-get
+     var-set var? vary-meta vec vector vector-of vector? volatile! volatile?
+     vreset! vswap! when when-first when-let when-not when-some while
+     with-bindings with-bindings* with-in-str with-loading-context
+     with-local-vars with-meta with-open with-out-str with-precision
+     with-redefs with-redefs-fn xml-seq zero? zipmap})
+
+
+(def default-syntax-quote-context
+  "Default portable syntax-quote resolution context: `user` namespace,
+   standard `clojure.core` refers, no aliases, no exclusions."
+  {:ns "user"
+   :aliases {}
+   :refers {}
+   :exclude #{}
+   :core-syms clojure-core-symbols
+   :refer-clojure? true})
+
+
+(defn- context-name-str
+  [x]
+  (cond
+    (string? x) x
+    (symbol? x) (if (namespace x)
+                  (str (namespace x) "/" (name x))
+                  (name x))
+    (keyword? x) (if (namespace x)
+                   (str (namespace x) "/" (name x))
+                   (name x))
+    :else (reader-error! (str "Expected symbol or string in reader context, got: " (pr-str x))
+                         {:value x})))
+
+
+(defn- build-syntax-quote-context
+  [opts]
+  (if (and (nil? (:ns opts))
+           (nil? (:aliases opts))
+           (nil? (:refers opts))
+           (nil? (:exclude opts))
+           (nil? (:core-syms opts))
+           (not (contains? opts :refer-clojure?)))
+    default-syntax-quote-context
+    (let [ns-val (if (some? (:ns opts)) (context-name-str (:ns opts)) "user")
+          aliases (reduce-kv (fn [m k v]
+                               (assoc m (context-name-str k) (context-name-str v)))
+                             {}
+                             (or (:aliases opts) {}))
+          refers (reduce-kv (fn [m k v]
+                              (let [ksym (if (symbol? k) k (symbol (context-name-str k)))]
+                                (assoc m ksym
+                                       (if (and (symbol? v) (some? (namespace v)))
+                                         v
+                                         (symbol (context-name-str v) (name ksym))))))
+                            {}
+                            (or (:refers opts) {}))
+          exclude (into #{}
+                        (map (fn [x] (if (symbol? x) x (symbol (context-name-str x)))))
+                        (or (:exclude opts) #{}))
+          core-syms (or (:core-syms opts) clojure-core-symbols)
+          refer-clojure? (if (contains? opts :refer-clojure?)
+                           (boolean (:refer-clojure? opts))
+                           true)]
+      {:ns ns-val
+       :aliases aliases
+       :refers refers
+       :exclude exclude
+       :core-syms core-syms
+       :refer-clojure? refer-clojure?})))
+
+
+(defn- resolve-syntax-symbol
+  "Resolve symbol `sym` for syntax-quote using explicit portable context `sq-ctx`."
+  [sym {:keys [ns aliases refers exclude core-syms refer-clojure?] :as sq-ctx}]
+  (let [sym-ns (namespace sym)
+        sym-name (name sym)]
+    (cond
+      (contains? special-symbols sym)
+      sym
+
+      (some? sym-ns)
+      (if-let [target-ns (get aliases sym-ns)]
+        (symbol target-ns sym-name)
+        sym)
+
+      (str/starts-with? sym-name ".")
+      sym
+
+      (str/includes? sym-name ".")
+      (if (str/ends-with? sym-name ".")
+        (let [base (subs sym-name 0 (dec (count sym-name)))]
+          (if (empty? base)
+            sym
+            (let [resolved (resolve-syntax-symbol (symbol base) sq-ctx)]
+              (symbol (str (name resolved) ".")))))
+        sym)
+
+      (contains? refers sym)
+      (get refers sym)
+
+      (and refer-clojure?
+           (contains? core-syms sym)
+           (not (contains? exclude sym)))
+      (symbol "clojure.core" sym-name)
+
+      :else
+      (symbol ns sym-name))))
 
 
 (declare syntax-quote*)
 
 
 (defn- expand-syntax-list
-  [coll gensym-env i]
-  (map (fn [item]
-         (cond
-           (unquote-form? item)
-           (list 'clojure.core/list (second item))
+  [coll scope-id ctx i]
+  (mapv (fn [item]
+          (cond
+            (unquote-form? item)
+            (list 'clojure.core/list (second item))
 
-           (unquote-splicing-form? item)
-           (second item)
+            (unquote-splicing-form? item)
+            (second item)
 
-           :else
-           (list 'clojure.core/list (syntax-quote* item gensym-env i))))
-       coll))
+            :else
+            (list 'clojure.core/list (syntax-quote* item scope-id ctx i))))
+        coll))
 
 
 (defn- syntax-quote-coll
-  [ctor coll gensym-env i]
+  [ctor coll scope-id ctx i]
   (let [res (list 'clojure.core/sequence
                   (list 'clojure.core/seq
-                        (cons 'clojure.core/concat
-                              (expand-syntax-list coll gensym-env i))))]
+                        (apply list 'clojure.core/concat
+                               (expand-syntax-list coll scope-id ctx i))))]
     (if ctor
       (list 'clojure.core/apply ctor res)
       res)))
 
 
 (defn- add-syntax-meta
-  [form ret gensym-env i]
+  [form ret scope-id ctx i]
   (let [user-meta (when (supports-meta? form)
                     (dissoc (meta form) :line :column :end-line :end-column :file :source))]
     (if (seq user-meta)
-      (list 'clojure.core/with-meta ret (syntax-quote* user-meta gensym-env i))
+      (list 'clojure.core/with-meta ret (syntax-quote* user-meta scope-id ctx i))
       ret)))
 
 
 (defn- syntax-quote*
-  [form gensym-env i]
+  [form scope-id ctx i]
   (add-syntax-meta
     form
     (cond
@@ -682,45 +907,113 @@
       (unquote-splicing-form? form)
       (reader-error! "unquote-splice not in list" {:index i})
 
+      (instance? SyntaxGensymRef form)
+      (list 'quote form)
+
       (symbol? form)
       (list 'quote
             (if (and (nil? (namespace form))
                      (str/ends-with? (name form) "#"))
-              (register-syntax-gensym! gensym-env form)
-              form))
+              (let [s (name form)
+                    base (subs s 0 (dec (count s)))]
+                (when-let [flag (:has-gensym? ctx)]
+                  (reset! flag true))
+                (SyntaxGensymRef. scope-id base nil))
+              (resolve-syntax-symbol form (:sq-ctx ctx))))
 
       (self-evaluating-scalar? form)
       form
 
       (map? form)
-      (syntax-quote-coll (if (>= (count form) 8)
+      (syntax-quote-coll (if (>= (count form) 16)
                            'clojure.core/hash-map
                            'clojure.core/array-map)
                          (apply concat form)
-                         gensym-env i)
+                         scope-id ctx i)
 
       (vector? form)
-      (list 'clojure.core/vec (syntax-quote-coll nil form gensym-env i))
+      (list 'clojure.core/vec (syntax-quote-coll nil form scope-id ctx i))
 
       (set? form)
-      (syntax-quote-coll 'clojure.core/hash-set form gensym-env i)
+      (syntax-quote-coll 'clojure.core/hash-set form scope-id ctx i)
 
       (seq? form)
       (if (seq form)
-        (syntax-quote-coll nil form gensym-env i)
+        (syntax-quote-coll nil form scope-id ctx i)
         '(clojure.core/list))
 
       :else
       (list 'quote form))
-    gensym-env i))
+    scope-id ctx i))
 
 
 (defn- read-syntax-quote
   [s n i ctx]
   ;; s[i] is `
   (let [[form end-i] (read-next-required s n (inc i) ctx "syntax-quote")
-        gensym-env (atom {:next 1 :map {}})]
-    [(syntax-quote* form gensym-env i) end-i]))
+        scope-id (swap! (:scope-seq ctx) inc)]
+    [(syntax-quote* form scope-id ctx i) end-i]))
+
+
+(defn- fresh-auto-gensym
+  [base next-k used]
+  (loop [k next-k]
+    (let [cand (symbol (str base "__" k "__auto__"))]
+      (if (contains? used cand)
+        (recur (inc k))
+        [cand (inc k)]))))
+
+
+(defn- allocate-syntax-gensym!
+  [state ^SyntaxGensymRef ref]
+  (let [scope-id (.-scope-id ref)
+        base (.-base-name ref)
+        k [scope-id base]
+        st @state]
+    (if-let [existing (get (:mapping st) k)]
+      existing
+      (let [[sym next-k] (fresh-auto-gensym base (:next st) (:used st))]
+        (reset! state {:next next-k
+                       :mapping (assoc (:mapping st) k sym)
+                       :used (conj (:used st) sym)})
+        sym))))
+
+
+(defn- resolve-syntax-gensyms
+  [form state]
+  (let [m (when (supports-meta? form) (meta form))
+        resolved
+        (cond
+          (instance? SyntaxGensymRef form)
+          (allocate-syntax-gensym! state form)
+
+          (vector? form)
+          (mapv #(resolve-syntax-gensyms % state) form)
+
+          (map? form)
+          (into (empty form)
+                (mapv (fn [[k v]]
+                        [(resolve-syntax-gensyms k state)
+                         (resolve-syntax-gensyms v state)])
+                      form))
+
+          (set? form)
+          (into #{} (mapv #(resolve-syntax-gensyms % state) form))
+
+          (seq? form)
+          (apply list (mapv #(resolve-syntax-gensyms % state) form))
+
+          :else form)]
+    (if (and (seq m) (supports-meta? resolved))
+      (with-meta resolved (resolve-syntax-gensyms m state))
+      resolved)))
+
+
+(defn- resolve-all-syntax-gensyms
+  [forms]
+  (let [used0 (collect-used-syms forms #{})
+        state (atom {:next 1 :mapping {} :used used0})]
+    (mapv #(resolve-syntax-gensyms % state) forms)))
 
 
 (defn- read-dispatch
@@ -929,23 +1222,41 @@
    token kind through `yang.core.numeric-token/materialize :clojure` at
    token time. Returns a vector of forms.
 
-   Optional `opts` map supports `:file` to attach `:file` alongside
-   `:line`/`:column`/`:end-line`/`:end-column` metadata on read IObj forms."
+   Optional `opts` map supports:
+   - `:file` / `:source-positions?` — attach `:line`/`:column`/`:end-line`/
+     `:end-column` (and `:file`) metadata on read IObj forms.
+   - `:ns` — explicit current namespace (symbol or string, default `\"user\"`)
+     for syntax-quote symbol resolution.
+   - `:aliases` — explicit map of namespace alias -> target namespace
+     (symbols or strings) for syntax-quote qualified symbol resolution.
+   - `:refers` — explicit map of unqualified symbol -> target namespace or
+     qualified symbol for syntax-quote resolution.
+   - `:exclude` — set of `clojure.core` symbols excluded from default refers.
+   - `:refer-clojure?` — whether default `clojure.core` refers apply
+     (default `true`).
+   - `:core-syms` — override set of core symbols (default `clojure-core-symbols`)."
   ([source] (read-forms source nil))
   ([source opts]
    (when-not (string? source)
      (reader-error! "Clojure source reader expects a string" {:source source}))
    (let [n (count source)
          track-pos? (boolean (or (:file opts) (:source-positions? opts)))
-         ctx (cond-> {}
+         has-gensym? (atom false)
+         ctx (cond-> {:sq-ctx (build-syntax-quote-context opts)
+                      :scope-seq (atom 0)
+                      :has-gensym? has-gensym?}
                track-pos? (assoc :line-starts (compute-line-starts source n))
-               (:file opts) (assoc :file (:file opts)))]
-     (loop [i 0
-            forms []]
-       (let [i (skip-ws-and-comments source n i)]
-         (if (>= i n)
-           forms
-           (let [[status val next-i] (read-form* source n i ctx)]
-             (if (= :discard status)
-               (recur next-i forms)
-               (recur next-i (conj forms val))))))))))
+               (:file opts) (assoc :file (:file opts)))
+         raw-forms
+         (loop [i 0
+                forms []]
+           (let [i (skip-ws-and-comments source n i)]
+             (if (>= i n)
+               forms
+               (let [[status val next-i] (read-form* source n i ctx)]
+                 (if (= :discard status)
+                   (recur next-i forms)
+                   (recur next-i (conj forms val)))))))]
+     (if @has-gensym?
+       (resolve-all-syntax-gensyms raw-forms)
+       raw-forms))))
