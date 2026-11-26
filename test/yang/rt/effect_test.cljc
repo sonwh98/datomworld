@@ -1,5 +1,6 @@
 (ns yang.rt.effect-test
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing.cbor :as cbor]
             [dao.jing.mem :as mem]
             [yang.clojure :as clj]
             [yang.clojure.core-impl :as core-impl]
@@ -232,7 +233,7 @@
                     (seq? f) (sequential? f) (list? f) (reduced? f) (str f)])]]
         expected [:coll/unsupported-key :coll/unsupported-key :coll/unsupported-key
                   :math/div-zero :int/bit-limit
-                  2.5 "{:a [\"😀\"], :z 1}" [true false false false false false false false false "#<fn>"]]
+                  (cbor/float64 2.5) "{:a [\"😀\"], :z 1}" [true false false false false false false false false "#<fn>"]]
         modules (integer/register-integer-module registry {::integer/max-bits 53
                                                             ::integer/max-digits 4300})
         bundled (clj/compile-program forms true (dissoc clj/unit-opts :linked-runtime))

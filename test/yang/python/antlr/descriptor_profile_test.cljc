@@ -450,8 +450,10 @@
            [contract/clojure-id unwind-source
             [:segment/blake3-c993472e551d5da051ec6a2fccb373953906bf69b111bacca6ac7c9a9496ec40
              :segment/blake3-51459075501c128d95feef0356e1c9fa6f7a037a629eb42d587a4f1a72bd12a7]]
+           ;; py/assert thunk prelude + :py/missing sentinel (ruling 1795660000000):
+           ;; re-minted after verified ANTLR generation in two independent JVMs.
            [contract/legacy-id "print(1 + 2, 1 == 1.0)"
-            [:segment/blake3-e7c446de2caa4c73b2b7d7c82f1c025ac57885290c65585c13fd542e449a0517
+            [:segment/blake3-f63b272e99adfeeeb8a5b11e040f558a09d5e5651c32b760853731fbb241a1cb
              :segment/blake3-40df036d1e1f6d2681d451d9c632fa73924c1ff20a0ed46abdaef4f26ded0d59]]]
           :let [pk (packet source)
                 descriptor (:descriptor (profiles/verify-builtin! revision))]

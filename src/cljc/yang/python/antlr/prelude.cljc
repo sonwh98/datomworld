@@ -739,13 +739,13 @@
        (cell/new (assoc (assoc (assoc {} :py/type :instance) :class cls)
                         :attrs {})))]
     [py/make-exc
-     ;; a nil message is an exception with no args, the bare `assert`'s;
-     ;; every other caller passes a real message (which may itself be the
-     ;; guest's None — `assert x, None` carries (None,), as CPython does)
+     ;; a :py/missing message is an exception with no args, the bare `assert`'s;
+     ;; every other caller passes a single argument (which may itself be the
+     ;; guest's None or a raw malformed nil condition)
      (fn [cls msg]
        (let [e (py/make-instance cls)]
          (do (py/setattr e "args"
-                         (if (= msg nil)
+                         (if (= msg :py/missing)
                            (py/tuple [])
                            (py/tuple (py/vconj [] msg))))
              e)))]
@@ -754,16 +754,17 @@
     [py/assert
      ;; `assert test` and `assert test, msg`: a falsey test raises
      ;; AssertionError; the bare form passes :py/None as the message and
-     ;; raises with no args, the message form passes a zero-arg thunk (a
-     ;; closure lowering the message, lower-assert) that is forced only
-     ;; on failure, so the message evaluates lazily as CPython's does —
-     ;; `assert x, f()` never calls f() while x is truthy; a forced None
-     ;; keeps CPython's (None,) args through py/make-exc
+     ;; raises with no args (passing :py/missing to py/make-exc), the
+     ;; message form passes a zero-arg thunk (a closure lowering the
+     ;; message, lower-assert) that is forced only on failure, so the
+     ;; message evaluates lazily as CPython's does — `assert x, f()`
+     ;; never calls f() while x is truthy; a forced None keeps CPython's
+     ;; (None,) args through py/make-exc
      (fn [test msg]
        (if (py/truthy test)
          :py/None
          (py/raise (py/make-exc py.b/AssertionError
-                                (if (= msg :py/None) nil (msg))))))]
+                                (if (= msg :py/None) :py/missing (msg))))))]
     [py/as-exception
      ;; `raise X`: a BaseException subclass is instantiated, an instance of
      ;; one is raised as is, anything else is a TypeError

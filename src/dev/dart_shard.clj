@@ -24,6 +24,9 @@
             [clojure.string :as str]))
 
 
+(load-file (str (fs/parent (fs/absolutize *file*)) "/lane_timing.clj"))
+(require '[lane-timing :as timing])
+
 (def all-subs
   ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
    "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
@@ -37,7 +40,7 @@
   (not= "1" (System/getenv "NIGHTLY_SKIP_UNCOVERED")))
 
 
-(def subs
+(def subsystems
   "This host's assigned subsystems (NIGHTLY_SUBSYSTEMS overrides for a
    disjoint two-host split)."
   (or (some->> (str/split (or (System/getenv "NIGHTLY_SUBSYSTEMS") "") #",")
@@ -79,6 +82,24 @@
     (vec section)))
 
 
+(defn ordered-shard-files
+  "Pass files explicitly to Flutter: directory traversal order is not a
+   scheduling contract. Priorities are from the 20261123-2121 shiva run;
+   refresh them from all.log after a nightly. The corpus-containing file is
+   identified by its import, since file-size balancing can change its index."
+  [dirs]
+  (let [priority {"yin.vm" 3 "yang.python" 2 "yin.repl" 1}
+        files (for [[group dir] dirs
+                    file (fs/list-dir dir "*_test.dart")]
+                {:group group :file (str file)
+                 :corpus? (str/includes? (slurp (str file))
+                                        "/yang/typescript/antlr/corpus-test_test.dart")})]
+    (->> files
+         (sort-by (juxt #(if (:corpus? %) 0 1)
+                        #(- (get priority (:group %) 0)) :file))
+         (mapv :file))))
+
+
 (defn -main
   [& args]
   (let [clone (or (first args) (System/getProperty "user.dir"))
@@ -109,7 +130,7 @@
       (log (str "build-yin-repl-peer rc=" exit))
       (when-not (zero? exit) (fail! "build:yin-repl-peer failed")))
     ;; per-subsystem cljd namespaces; the per-run files are the evidence
-    (let [lists (into {} (map (fn [s] [s (cljd-namespaces clone s)]) subs))
+    (let [lists (into {} (map (fn [s] [s (cljd-namespaces clone s)]) subsystems))
           test-root (str (fs/canonicalize (str clone "/test")))
           all (->> (file-seq (fs/file test-root))
                    (filter #(re-find #"_test\.clj[cd]$" (str %)))
@@ -135,7 +156,7 @@
                                         slurp
                                         str/split-lines
                                         (remove str/blank?)))
-                             subs)
+                             subsystems)
                      ;; mapcat already flattened the subsystem lists. apply
                      ;; concat would split each namespace string into chars.
                      (concat (when (fs/exists? (str out "/ns-uncovered.txt"))
@@ -156,9 +177,8 @@
         (fail! "cljd compile failed")
         (System/exit @rc)))
     ;; emit one shard dir per subsystem (residual included; failures fatal)
-    (let [dirs (atom [])
-          {:keys [continue]} nil]
-      (doseq [s (conj (vec subs) "uncovered")]
+    (let [dirs (atom [])]
+      (doseq [s (conj (vec subsystems) "uncovered")]
         (let [f (str out "/ns-" s ".txt")]
           (when (.exists (fs/file f))
             (let [nss (str/join "," (remove str/blank? (str/split-lines (slurp f))))
@@ -171,25 +191,38 @@
                        "bb" "src/dev/cljd_agg.clj" "--only" nss
                        "--shard-dir" d "--no-compile" "--no-run")]
               (if (zero? exit)
-                (swap! dirs conj d)
+                (swap! dirs conj [s d])
                 (fail! (str "shard " s " emission failed (rc=" exit ")")))))))
       (if (empty? @dirs)
         (fail! "no shards emitted")
         ;; R3: ONE flutter invocation over every emitted directory — the
         ;; project-wide build/test_cache kernel is touched by one process.
-        (let [t0 (System/currentTimeMillis)
+        (let [files (ordered-shard-files @dirs)
+              _ (spit (str out "/schedule.txt") (str/join "\n" files))
+              t0 (System/currentTimeMillis)
+              start (timing/now)
               {:keys [exit]}
               (apply psh {:dir clone
                           :out (io/file (str out "/all.log"))
                           :err :out
                           :extra-env {"DATOM_SLOW_TESTS" "1"}
                           :continue true}
-                     "flutter" "test" "--reporter" "expanded" "--concurrency" (str conc) @dirs)
+                     "flutter" "test" "--reporter" "expanded" "--concurrency" (str conc) files)
+              end (timing/now)
               wall (quot (- (System/currentTimeMillis) t0) 1000)
               verdict (some->> (slurp (str out "/all.log"))
                                str/split-lines
                                (filter #(re-find #"All tests passed|Some tests failed" %))
                                last)]
+          (doseq [[position file] (map-indexed vector files)]
+            (let [nss (->> (re-seq #"import '[^']*test/cljd-out/([^']+)_test\.dart'" (slurp file))
+                           (mapv (fn [[_ path]] (-> path (str/replace "/" ".") (str/replace "_" "-")))))]
+              (timing/append! dirs (str out "/runs-ndjson.txt")
+                              (timing/record {:job-id file :namespaces nss :vars []
+                                              :worker-id "flutter-process" :emitted-file file
+                                              :queue-position (inc position)
+                                              :timing-scope "flutter-process"}
+                                             start end exit))))
           (log (str "flutter rc=" exit " wall=" wall "s " (or verdict "")))
           (when-not (zero? exit) (fail! (str "flutter test rc=" exit))))))
     (log (str "done rc=" @rc))

@@ -124,6 +124,11 @@
                                      a/load-subsystems-config (constantly {:subsystems []})
                                      a/lane-tests (fn [& _] nses)
                                      a/prerequisites (fn [& _] #{})
+                                     ;; The inventory shells out to a real JVM
+                                     ;; classpath run; the harness stubs it with the
+                                     ;; count the stubbed shards will report.
+                                     quick/quick-inventory! (fn [& _]
+                                                              (if (empty? nses) 0 1))
                                      quick/check-coverage! (let [check quick/check-coverage!]
                                                              (fn [selected shards dir]
                                                                (reset! out dir)

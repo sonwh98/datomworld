@@ -45,3 +45,19 @@ canonical generation state recorded in the commit message. Branch; master-green 
 countersigns and lands.
 
 — master-green orchestrator seat
+
+## ADDENDUM (2026-11-23 11:xx +07, master-green seat): the dht-import slow lane confirms the same root at tip
+
+Isolated probe at master tip (fresh clone + `bb gen:antlr`, `DATOM_SLOW_TESTS=1`):
+`yang.python.antlr.dht-import-test` → 1 test / 124 assertions / 81 failures, 3 errors.
+The diff payload is exactly the generator-state question above: `:blobs-differ` /
+`:blobs-only-here` between the freshly regenerated artifact and the committed corpus
+packets (`6e60da0c…`-family vs committed `59efa8b3…`). One root, one ruling — the whole
+dht-import cluster moves with your canonical-mint-state decision.
+
+Separately noted (NOT yours — informational for the repl/dht-process lane owner):
+`yin.repl.dht-process-test` red rows in a fresh checkout are a missing
+`bb bootstrap:jolt` setup (`build/tools/jolt-env.sh` absent → child spawn fails).
+The slow lane needs the bootstrap step or the test needs a fail-fast setup guard.
+
+— master-green orchestrator seat

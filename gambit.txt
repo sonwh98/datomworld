@@ -1,0 +1,674 @@
+sto@darkstar datomworld % bb yin-repl --backend jolt-gambit
+bb yin-repl --backend jolt-gambit
+jolt-gambit: Verifying pinned FFI sources and toolchain
+gambitffi: platform=darwin-arm64 manifest=/Users/sto/workspace/datomworld/build/gambit-ffi/build-17035404858063640806/build/gambit-ffi/provenance/TOOLCHAIN.darwin-arm64.json
+gambitffi: recorded local toolchain provenance (7 inputs); source digests unchanged
+host/gambit/ffi/joltffi-bridge.scm: OK
+host/gambit/ffi/generated-shims.scm: OK
+host/gambit/ffi/shapes.json: OK
+host/gambit/ffi/generate-shims.py: OK
+host/gambit/ffi/joltffi-fixture.c: OK
+host/gambit/ffi/joltffi-fixture2.c: OK
+host/gambit/ffi/joltffi-dep.c: OK
+host/gambit/ffi/joltffi-unloadable.c: OK
+host/gambit/ffi/toolchain.py: OK
+host/gambit/ffi/record-toolchain.sh: OK
+host/gambit/ffi/verify-toolchain.sh: OK
+host/gambit/ffi/verify-digests.sh: OK
+host/gambit/ffi/make-digests.sh: OK
+gambitffi: platform=darwin-arm64 manifest=/Users/sto/workspace/datomworld/build/gambit-ffi/build-17035404858063640806/build/gambit-ffi/provenance/TOOLCHAIN.darwin-arm64.json
+gambitffi: local toolchain provenance verified (7 inputs)
+jolt-gambit: Translating the FFI bridge from Scheme to C (can take minutes) [600 s watchdog]
+jolt-gambit: Compiling the FFI bridge C object (can take minutes) [600 s watchdog]
+jolt-gambit: Linking the FFI bridge module (usually seconds) [600 s watchdog]
+jolt-gambit: Building libjoltffi-fixture.dylib (usually seconds) [600 s watchdog]
+jolt-gambit: Building libjoltffi-fixture2.dylib (usually seconds) [600 s watchdog]
+jolt-gambit: Building libjoltffi-dep.dylib (usually seconds) [600 s watchdog]
+jolt-gambit: Building libjoltffi-unloadable.dylib (usually seconds) [600 s watchdog]
+jolt-gambit: Checking compiled Yin boot (a cold build can take several minutes)
+jolt-gambit: Staged digest-verified FFI artifacts for this boot
+jolt-gambit  Local --index-store mem session; no :yang/python frontend or WebSocket serving.
+Blocking FFI refuses inline: blocking ffi is unsupported on the gambit target.
+First launch builds the boot and bridge (~16 min to yin> on macOS). Cache hits reach native Gambit in ~0.6 s.
+The pinned loader interprets Yin namespaces from source (~11 min to yin> with caches).
+jolt-target: gambit
+*** WARNING -- Variable "##bytes-allocated" used in module "kernel" is undefined
+*** WARNING -- Variable "##version-string" used in module "kernel" is undefined
+*** WARNING -- Variable "%make-jolt-ref" used in module "kernel" is undefined
+*** WARNING -- Variable "%mk-pmap" used in module "kernel" is undefined
+*** WARNING -- Variable "%mk-pset" used in module "kernel" is undefined
+*** WARNING -- Variable "%mk-pvec" used in module "kernel" is undefined
+*** WARNING -- Variable "char-array->string" used in module "kernel" is undefined
+*** WARNING -- Variable "char-array-chunk" used in module "kernel" is undefined
+*** WARNING -- Variable "chez-actx-cns" used in module "kernel" is undefined
+*** WARNING -- Variable "chez-edn-read" used in module "kernel" is undefined
+*** WARNING -- Variable "chez-line-seq" used in module "kernel" is undefined
+*** WARNING -- Variable "cseq-head" used in module "kernel" is undefined
+*** WARNING -- Variable "cseq-kind" used in module "kernel" is undefined
+*** WARNING -- Variable "cseq-meta" used in module "kernel" is undefined
+*** WARNING -- Variable "cseq-meta-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "cseq-tail" used in module "kernel" is undefined
+*** WARNING -- Variable "cseq-tail-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "cseq?" used in module "kernel" is undefined
+*** WARNING -- Variable "cseqn-cnt" used in module "kernel" is undefined
+*** WARNING -- Variable "cseqn?" used in module "kernel" is undefined
+*** WARNING -- Variable "cseqv-ci" used in module "kernel" is undefined
+*** WARNING -- Variable "cseqv-crest" used in module "kernel" is undefined
+*** WARNING -- Variable "cseqv-cvec" used in module "kernel" is undefined
+*** WARNING -- Variable "cseqv?" used in module "kernel" is undefined
+*** WARNING -- Variable "empty-list-t-meta" used in module "kernel" is undefined
+*** WARNING -- Variable "empty-list-t-meta-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "empty-list-t?" used in module "kernel" is undefined
+*** WARNING -- Variable "enode-arr" used in module "kernel" is undefined
+*** WARNING -- Variable "enode-bm" used in module "kernel" is undefined
+*** WARNING -- Variable "enode-bm-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "enode?" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-default" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-default-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-fallback" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-fields" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-fields-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-hint" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-id" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-key-kind" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-parent" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-providers" used in module "kernel" is undefined
+*** WARNING -- Variable "ext-point-root" used in module "kernel" is undefined
+*** WARNING -- Variable "get-datum/annotations" used in module "kernel" is undefined
+*** WARNING -- Variable "hcoll-alist" used in module "kernel" is undefined
+*** WARNING -- Variable "hcoll-hash" used in module "kernel" is undefined
+*** WARNING -- Variable "hcoll?" used in module "kernel" is undefined
+*** WARNING -- Variable "hnode-arr" used in module "kernel" is undefined
+*** WARNING -- Variable "hnode-bm" used in module "kernel" is undefined
+*** WARNING -- Variable "hnode?" used in module "kernel" is undefined
+*** WARNING -- Variable "host-reader-read" used in module "kernel" is undefined
+*** WARNING -- Variable "htable-h" used in module "kernel" is undefined
+*** WARNING -- Variable "htable-hc" used in module "kernel" is undefined
+*** WARNING -- Variable "htable-hc-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "htable?" used in module "kernel" is undefined
+*** WARNING -- Variable "inst-rfc3339" used in module "kernel" is undefined
+*** WARNING -- Variable "ja-len" used in module "kernel" is undefined
+*** WARNING -- Variable "ja-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "java-pattern-error-desc" used in module "kernel" is undefined
+*** WARNING -- Variable "java-pattern-error-index" used in module "kernel" is undefined
+*** WARNING -- Variable "java-pattern-error?" used in module "kernel" is undefined
+*** WARNING -- Variable "jbigdec->string" used in module "kernel" is undefined
+*** WARNING -- Variable "jbigdec-scale" used in module "kernel" is undefined
+*** WARNING -- Variable "jbigdec-unscaled" used in module "kernel" is undefined
+*** WARNING -- Variable "jfloat-fl" used in module "kernel" is undefined
+*** WARNING -- Variable "jfloat?" used in module "kernel" is undefined
+*** WARNING -- Variable "jhost-state" used in module "kernel" is undefined
+*** WARNING -- Variable "jhost-tag" used in module "kernel" is undefined
+*** WARNING -- Variable "jhost?" used in module "kernel" is undefined
+*** WARNING -- Variable "jiterator-cur" used in module "kernel" is undefined
+*** WARNING -- Variable "jiterator-cur-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jiterator?" used in module "kernel" is undefined
+*** WARNING -- Variable "jns-name" used in module "kernel" is undefined
+*** WARNING -- Variable "jns?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-array-vec" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-atom-val" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-atom-val-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-atom-validator" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-atom-validator-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-atom-watches" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-atom?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-bigdec-from-string" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-chunkbuf-cnt" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-chunkbuf-cnt-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-chunkbuf-vec" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-chunkbuf-vec-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-chunkbuf?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-delay-state" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-delay-state-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-delay?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ex-info-record-cause" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ex-info-record-class-name" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ex-info-record-data" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ex-info-record-error-offset" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ex-info-record-error-offset-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ex-info-record-message" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ex-info-record?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-error-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-k" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-k-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-next" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-next-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-result-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-state" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-state-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber-thunk" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-fiber?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-inst-from-string" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-lazyseq-lock" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-lazyseq-meta" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-lazyseq-meta-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-lazyseq-thunk" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-lazyseq-thunk-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-lazyseq-val" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-lazyseq-val-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-lazyseq?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-cache" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-cache-epoch" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-cache-epoch-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-cache-hier" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-cache-hier-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-default" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-dispatch-fn" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-hierarchy" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-methods" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-name" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn-prefers" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-multifn?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-nil-t?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-obj-array-vec" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-obj-array?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-reader-conditional-record-form" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-reader-conditional-record-splicing?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-reader-conditional-record?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-reduced-val" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-reduced?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-faults" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-faults-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-max-hist" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-max-hist-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-min-hist" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-min-hist-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-owner" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-tvals" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref-tvals-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-ref?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-register-eval-marker-table!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-active" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-active-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-buf" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-buf-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-kind" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-n" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-n-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-ord" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient-ord-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-transient?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-age" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-claims" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-claims-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-commutes" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-commutes-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-ensures" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-ensures-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-latch" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-pending-sends" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-read-point" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-status" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-status-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-vals" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-wait-on" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-txn-wait-on-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-var-tbox?" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-var-unbound-name" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-var-unbound-ns" used in module "kernel" is undefined
+*** WARNING -- Variable "jolt-var-unbound?" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-bytes-from-bv!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-bytes-to-bv!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-dlerror" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-dlopen" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-dlsym" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-dlsym-global" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-free" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-malloc" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-platform-key" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-read-i32" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-f32" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-f64" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-i16" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-i32" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-i64" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-i8" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-u16" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-u32" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-u64" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-ref-u8" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-f32!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-f64!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-i16!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-i32!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-i64!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-i8!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-u16!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-u32!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-u64!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-set-u8!" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-shim-lookup" used in module "kernel" is undefined
+*** WARNING -- Variable "joltffi-zero" used in module "kernel" is undefined
+*** WARNING -- Variable "jrdesc-fkeys" used in module "kernel" is undefined
+*** WARNING -- Variable "jrdesc-index" used in module "kernel" is undefined
+*** WARNING -- Variable "jrdesc-ptable" used in module "kernel" is undefined
+*** WARNING -- Variable "jrdesc-ptable-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrdesc-tag" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec*-vals" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec*?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec-desc" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec-ext" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec-hasheq" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec-hasheq-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec1-f0" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec1-f0-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec1?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec2-f0" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec2-f0-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec2-f1" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec2-f1-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec2?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec3-f0" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec3-f0-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec3-f1" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec3-f1-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec3-f2" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec3-f2-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec3?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4-f0" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4-f0-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4-f1" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4-f1-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4-f2" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4-f2-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4-f3" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4-f3-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec4?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f0" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f0-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f1" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f1-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f2" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f2-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f3" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f3-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f4" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5-f4-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec5?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f0" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f0-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f1" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f1-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f2" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f2-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f3" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f3-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f4" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f4-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f5" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6-f5-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec6?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f0" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f0-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f1" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f1-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f2" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f2-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f3" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f3-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f4" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f4-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f5" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f5-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f6" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7-f6-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec7?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f0" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f0-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f1" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f1-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f2" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f2-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f3" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f3-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f4" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f4-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f5" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f5-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f6" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f6-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f7" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8-f7-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec8?" used in module "kernel" is undefined
+*** WARNING -- Variable "jrec?" used in module "kernel" is undefined
+*** WARNING -- Variable "jreify-cname" used in module "kernel" is undefined
+*** WARNING -- Variable "jreify-delegate" used in module "kernel" is undefined
+*** WARNING -- Variable "jreify-methods" used in module "kernel" is undefined
+*** WARNING -- Variable "jreify-protos" used in module "kernel" is undefined
+*** WARNING -- Variable "jreify?" used in module "kernel" is undefined
+*** WARNING -- Variable "jsurr-unit" used in module "kernel" is undefined
+*** WARNING -- Variable "jsurr?" used in module "kernel" is undefined
+*** WARNING -- Variable "jtagged-form" used in module "kernel" is undefined
+*** WARNING -- Variable "jtagged-tag" used in module "kernel" is undefined
+*** WARNING -- Variable "jtagged?" used in module "kernel" is undefined
+*** WARNING -- Variable "juuid-s" used in module "kernel" is undefined
+*** WARNING -- Variable "juuid?" used in module "kernel" is undefined
+*** WARNING -- Variable "jvol-v" used in module "kernel" is undefined
+*** WARNING -- Variable "jvol-v-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "jvol?" used in module "kernel" is undefined
+*** WARNING -- Variable "keyword-t-khash" used in module "kernel" is undefined
+*** WARNING -- Variable "keyword-t-name" used in module "kernel" is undefined
+*** WARNING -- Variable "keyword-t-ns" used in module "kernel" is undefined
+*** WARNING -- Variable "keyword-t?" used in module "kernel" is undefined
+*** WARNING -- Variable "lazy-rest-seq" used in module "kernel" is undefined
+*** WARNING -- Variable "lazy-rest?" used in module "kernel" is undefined
+*** WARNING -- Variable "lazy-src-a" used in module "kernel" is undefined
+*** WARNING -- Variable "lazy-src-b" used in module "kernel" is undefined
+*** WARNING -- Variable "lazy-src-fn" used in module "kernel" is undefined
+*** WARNING -- Variable "lazy-src?" used in module "kernel" is undefined
+*** WARNING -- Variable "lazyseq-fail-condition" used in module "kernel" is undefined
+*** WARNING -- Variable "lazyseq-fail?" used in module "kernel" is undefined
+*** WARNING -- Variable "ldr-apply-readers" used in module "kernel" is undefined
+*** WARNING -- Variable "make-chez-actx" used in module "kernel" is undefined
+*** WARNING -- Variable "make-cseq" used in module "kernel" is undefined
+*** WARNING -- Variable "make-cseqn" used in module "kernel" is undefined
+*** WARNING -- Variable "make-cseqv" used in module "kernel" is undefined
+*** WARNING -- Variable "make-empty-list-t" used in module "kernel" is undefined
+*** WARNING -- Variable "make-enode" used in module "kernel" is undefined
+*** WARNING -- Variable "make-ext-point" used in module "kernel" is undefined
+*** WARNING -- Variable "make-hcoll" used in module "kernel" is undefined
+*** WARNING -- Variable "make-hnode" used in module "kernel" is undefined
+*** WARNING -- Variable "make-htable*" used in module "kernel" is undefined
+*** WARNING -- Variable "make-java-pattern-error" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jfloat" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jhost" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jiterator" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jns" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-atom" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-chunkbuf" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-delay" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-ex-info-record" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-fiber" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-lazyseq" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-multifn" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-nil-t" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-obj-array" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-reader-conditional-record" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-reduced" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-transient" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-txn" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-var-tbox" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jolt-var-unbound" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrdesc-rec" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec*" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec0" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec1" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec2" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec3" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec4" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec5" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec6" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec7" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jrec8" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jreify" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jsurr" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jtagged" used in module "kernel" is undefined
+*** WARNING -- Variable "make-juuid" used in module "kernel" is undefined
+*** WARNING -- Variable "make-jvol" used in module "kernel" is undefined
+*** WARNING -- Variable "make-keyword-t" used in module "kernel" is undefined
+*** WARNING -- Variable "make-lazy-rest" used in module "kernel" is undefined
+*** WARNING -- Variable "make-lazy-src" used in module "kernel" is undefined
+*** WARNING -- Variable "make-matcher-t" used in module "kernel" is undefined
+*** WARNING -- Variable "make-outer-site" used in module "kernel" is undefined
+*** WARNING -- Variable "make-rdr-splice-t" used in module "kernel" is undefined
+*** WARNING -- Variable "make-regex-t" used in module "kernel" is undefined
+*** WARNING -- Variable "make-rrbnode" used in module "kernel" is undefined
+*** WARNING -- Variable "make-scoll*" used in module "kernel" is undefined
+*** WARNING -- Variable "make-source-file-descriptor" used in module "kernel" is undefined
+*** WARNING -- Variable "make-symbol-t" used in module "kernel" is undefined
+*** WARNING -- Variable "make-tail-claim" used in module "kernel" is undefined
+*** WARNING -- Variable "make-var-cell" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-irx" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-last" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-last-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-matches" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-matches-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-pos" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-pos-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-rend" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-rend-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-rstart" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-rstart-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-src" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-src-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t-str" used in module "kernel" is undefined
+*** WARNING -- Variable "matcher-t?" used in module "kernel" is undefined
+*** WARNING -- Variable "native-transcoder" used in module "kernel" is undefined
+*** WARNING -- Variable "open-bytevector-input-port" used in module "kernel" is undefined
+*** WARNING -- Variable "outer-site?" used in module "kernel" is undefined
+*** WARNING -- Variable "pmap-cnt" used in module "kernel" is undefined
+*** WARNING -- Variable "pmap-hasheq" used in module "kernel" is undefined
+*** WARNING -- Variable "pmap-hasheq-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "pmap-meta" used in module "kernel" is undefined
+*** WARNING -- Variable "pmap-meta-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "pmap-root" used in module "kernel" is undefined
+*** WARNING -- Variable "pmap?" used in module "kernel" is undefined
+*** WARNING -- Variable "pset-hasheq" used in module "kernel" is undefined
+*** WARNING -- Variable "pset-hasheq-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "pset-m" used in module "kernel" is undefined
+*** WARNING -- Variable "pset-meta" used in module "kernel" is undefined
+*** WARNING -- Variable "pset-meta-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "pset?" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-cnt" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-ent" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-hasheq" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-hasheq-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-meta" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-meta-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-root" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-shift" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec-tail" used in module "kernel" is undefined
+*** WARNING -- Variable "pvec?" used in module "kernel" is undefined
+*** WARNING -- Variable "rdr-splice-t-items" used in module "kernel" is undefined
+*** WARNING -- Variable "rdr-splice-t?" used in module "kernel" is undefined
+*** WARNING -- Variable "regex-t-irx-cell" used in module "kernel" is undefined
+*** WARNING -- Variable "regex-t-irx-cell-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "regex-t-source" used in module "kernel" is undefined
+*** WARNING -- Variable "regex-t?" used in module "kernel" is undefined
+*** WARNING -- Variable "repl-environment" used in module "kernel" is undefined
+*** WARNING -- Variable "rrbnode-children" used in module "kernel" is undefined
+*** WARNING -- Variable "rrbnode-sizes" used in module "kernel" is undefined
+*** WARNING -- Variable "rrbnode?" used in module "kernel" is undefined
+*** WARNING -- Variable "scoll-cmp" used in module "kernel" is undefined
+*** WARNING -- Variable "scoll-cmp-fn" used in module "kernel" is undefined
+*** WARNING -- Variable "scoll-cnt" used in module "kernel" is undefined
+*** WARNING -- Variable "scoll-kind" used in module "kernel" is undefined
+*** WARNING -- Variable "scoll-ops" used in module "kernel" is undefined
+*** WARNING -- Variable "scoll-tag" used in module "kernel" is undefined
+*** WARNING -- Variable "scoll-tree" used in module "kernel" is undefined
+*** WARNING -- Variable "scoll?" used in module "kernel" is undefined
+*** WARNING -- Variable "symbol-t-khash" used in module "kernel" is undefined
+*** WARNING -- Variable "symbol-t-meta" used in module "kernel" is undefined
+*** WARNING -- Variable "symbol-t-name" used in module "kernel" is undefined
+*** WARNING -- Variable "symbol-t-ncell" used in module "kernel" is undefined
+*** WARNING -- Variable "symbol-t-ns" used in module "kernel" is undefined
+*** WARNING -- Variable "symbol-t?" used in module "kernel" is undefined
+*** WARNING -- Variable "tail-claim-owner" used in module "kernel" is undefined
+*** WARNING -- Variable "tail-claim-tail" used in module "kernel" is undefined
+*** WARNING -- Variable "tail-claim-token" used in module "kernel" is undefined
+*** WARNING -- Variable "tail-claim?" used in module "kernel" is undefined
+*** WARNING -- Variable "transcoded-port" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-defined?" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-defined?-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-dyn-bound?" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-dyn-bound?-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-dynamic?" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-dynamic?-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-macro?" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-macro?-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-meta" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-meta-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-name" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-ns" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-root" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell-root-set!" used in module "kernel" is undefined
+*** WARNING -- Variable "var-cell?" used in module "kernel" is undefined
+boot: backend target -> :gambit
+yin-load [0] jolt.gambit.yin loading
+yin-load [1] clojure.string ready (1.6s)
+yin-load [2] dao.host.bytes ready (1.3s)
+yin-load [3] jolt.scheme ready (0.7s)
+yin-load [4] dao.host.hash ready (1.0s)
+yin-load [5] dao.host.text ready (2.3s)
+yin-load [6] dao.stream ready (2.1s)
+yin-load [7] dao.stream.base64 ready (1.0s)
+yin-load [8] dao.stream.observe ready (0.6s)
+yin-load [9] dao.host.integer ready (2.2s)
+yin-load [10] dao.host.float ready (5.6s)
+yin-load [11] dao.host.number ready (1.6s)
+yin-load [12] dao.jing.cbor ready (17.7s)
+yin-load [13] dao.jing ready (31.4s)
+yin-load [14] yang.antlr.cst ready (0.5s)
+yin-load [15] yang.stage ready (0.6s)
+yin-load [16] yang.python.antlr.parser ready (1.9s)
+yin-load [17] yin.repl.host.common ready (0.3s)
+yin-load [18] dao.stream.waitset.cadence ready (0.7s)
+yin-load [19] dao.stream.waitset.driver ready (0.3s)
+yin-load [20] dao.pretty ready (1.0s)
+yin-load [21] dao.stream.ringbuffer ready (1.9s)
+yin-load [22] yang.frontend ready (1.7s)
+yin-load [23] yang.php.antlr.prelude ready (0.1s)
+yin-load [24] dao.stream.observer ready (1.6s)
+yin-load [25] dao.datom ready (0.5s)
+yin-load [26] dao.data.btree.cursor ready (2.9s)
+yin-load [27] dao.data.arrays ready (0.9s)
+yin-load [27] dao.data.btree loading (16.0s elapsed)
+yin-load [28] dao.data.btree ready (23.6s)
+yin-load [29] dao.data.btree.storage ready (28.0s)
+yin-load [30] dao.jing.content.step ready (4.2s)
+yin-load [31] dao.posix.file ready (0.8s)
+yin-load [32] dao.jing.file ready (3.5s)
+yin-load [33] dao.jing.content.driver ready (1.8s)
+yin-load [34] dao.jing.coordinate ready (10.4s)
+yin-load [35] dao.space.index ready (12.0s)
+yin-load [36] dao.space.query.execution ready (1.8s)
+yin-load [36] dao.space.query loading (70.2s elapsed)
+yin-load [36] dao.space.query loading (85.2s elapsed)
+yin-load [37] dao.space.query ready (86.6s)
+yin-load [38] yin.vm.effect ready (0.5s)
+yin-load [39] yin.vm.key ready (0.2s)
+yin-load [40] yin.vm.values ready (1.6s)
+yin-load [40] yin.vm loading (104.6s elapsed)
+yin-load [41] yin.vm ready (113.5s)
+yin-load [42] yin.repl.ast-index ready (116.9s)
+yin-load [43] dao.space.transactor ready (2.2s)
+yin-load [44] dao.stream.memory-log ready (1.4s)
+yin-load [45] yin.repl.publication ready (0.9s)
+yin-load [46] dao.stream.apply ready (2.2s)
+yin-load [47] clojure.set ready (1.3s)
+yin-load [48] dao.stream.waitset ready (1.4s)
+yin-load [49] dao.stream.codec ready (1.3s)
+yin-load [50] dao.data ready (2.3s)
+yin-load [51] yin.vm.telemetry ready (2.3s)
+yin-load [52] yin.vm.ffi ready (7.2s)
+yin-load [53] dao.jing.content ready (1.0s)
+yin-load [54] yin.vm.semantic.code ready (11.6s)
+yin-load [54] yin.vm.debruijn loading (14.9s elapsed)
+yin-load [55] yin.vm.debruijn ready (27.6s)
+yin-load [56] yin.vm.ucf ready (0.1s)
+yin-load [57] yin.vm.semantic.scan ready (29.0s)
+yin-load [58] yin.vm.debruijn-code ready (13.3s)
+yin-load [59] yin.vm.semantic.linearize ready (4.8s)
+yin-load [59] yin.vm.debruijn-register-code loading (15.0s elapsed)
+yin-load [60] yin.vm.debruijn-register-code ready (25.0s)
+yin-load [61] yin.vm.semantic.analysis ready (1.5s)
+yin-load [62] yin.vm.semantic.derive ready (6.5s)
+yin-load [63] dao.space.transact ready (6.6s)
+yin-load [64] yin.vm.ledger ready (8.8s)
+yin-load [65] yin.vm.module ready (9.0s)
+yin-load [65] yin.vm.linker loading (124.0s elapsed)
+yin-load [66] yin.vm.linker ready (132.5s)
+yin-load [67] yin.vm.provenance-scope ready (2.2s)
+yin-load [67] yin.vm.engine loading (159.7s elapsed)
+yin-load [68] yin.vm.engine ready (171.5s)
+yin-load [69] yin.vm.ast-walker ready (185.6s)
+yin-load [69] yin.vm.macro loading (200.7s elapsed)
+yin-load [70] yin.vm.macro ready (211.8s)
+yin-load [71] yin.repl.index ready (224.4s)
+yin-load [72] yin.repl.query ready (7.5s)
+yin-load [73] dao.jing.mem ready (1.9s)
+yin-load [74] clojure.edn ready (4.9s)
+yin-load [75] dao.space.store.fs ready (2.6s)
+yin-load [76] dao.space.store ready (10.4s)
+yin-load [77] yin.repl.store ready (13.6s)
+yin-load [78] dao.host.sign ready (0.2s)
+yin-load [79] dao.posix.random ready (0.1s)
+yin-load [80] yin.vm.linker.random ready (0.2s)
+yin-load [81] yin.vm.linker.sign ready (2.9s)
+yin-load [82] yin.repl.state ready (7.0s)
+yin-load [83] yin.vm.data ready (14.4s)
+yin-load [84] yin.vm.debruijn-register-effects ready (5.7s)
+yin-load [85] yin.vm.debruijn.register ready (15.7s)
+yin-load [86] yin.vm.debruijn.stack ready (9.7s)
+yin-load [87] yin.vm.encoder ready (5.5s)
+yin-load [88] yin.vm.integer ready (11.9s)
+yin-load [89] yin.vm.linker.admission ready (3.4s)
+yin-load [90] yin.vm.linker.pair ready (9.0s)
+yin-load [91] yin.vm.semantic ready (7.5s)
+yin-load [91] yin.repl loading (463.1s elapsed)
+yin-load [92] yin.repl ready (472.2s)
+yin-load [93] dao.stream.cbor.boring ready (7.5s)
+yin-load [94] dao.stream.cbor ready (8.0s)
+yin-load [95] dao.stream.middleware ready (4.3s)
+yin-load [95] dao.stream.remote loading (19.5s elapsed)
+yin-load [96] dao.stream.remote ready (25.6s)
+yin-load [96] dao.lease loading (14.9s elapsed)
+yin-load [97] dao.lease ready (18.5s)
+yin-load [98] dao.stream.remote-pair ready (3.5s)
+yin-load [99] dao.stream.remote-route ready (31.0s)
+yin-load [100] dao.stream.ws ready (9.9s)
+yin-load [101] dao.stream.ws-project ready (7.1s)
+yin-load [102] dao.stream.remote-channel ready (83.0s)
+yin-load [103] dao.stream.rpc ready (4.6s)
+yin-load [104] dao.stream.ws.upgrade ready (5.2s)
+yin-load [105] yin.repl.connect ready (104.5s)
+yin-load [106] clojure.walk ready (1.2s)
+yin-load [107] yang.tails ready (0.6s)
+yin-load [108] yang.core.uast ready (1.7s)
+yin-load [109] yang.core.prelude ready (3.7s)
+yin-load [110] yang.core.prelude-admission ready (4.6s)
+yin-load [111] yang.core.call ready (9.5s)
+yin-load [112] yang.rt.effect ready (1.7s)
+yin-load [113] yin.vm.float ready (8.0s)
+yin-load [114] yang.clojure.prelude ready (23.4s)
+yin-load [115] yang.rt.int ready (1.1s)
+yin-load [116] yang.clojure.core-impl ready (35.0s)
+yin-load [117] yang.clojure.core-module ready (38.6s)
+yin-load [117] yang.clojure loading (53.8s elapsed)
+yin-load [118] yang.clojure ready (63.2s)
+yin-load [119] yin.repl.frontends ready (63.7s)
+yin-load [120] yin.repl.adapter ready (1.8s)
+yin-load [121] yin.repl.host ready (0.2s)
+yin-load [122] yin.repl.driver ready (6.9s)
+yin-load [123] yin.repl.serve ready (5.6s)
+yin-load [124] dao.stream.chunks ready (1.2s)
+yin-load [125] dao.stream.journal ready (8.4s)
+yin-load [126] dao.stream.journal.file ready (1.2s)
+yin-load [127] yin.vm.ucf.custody ready (2.3s)
+yin-load [128] yin.vm.ucf.ledger ready (9.2s)
+yin-load [129] yin.vm.ucf.authority ready (12.7s)
+yin-load [130] yin.vm.semantic.frame ready (3.9s)
+yin-load [131] yin.vm.ucf.remote ready (5.7s)
+yin-load [131] yin.vm.ucf.rows loading (24.8s elapsed)
+yin-load [131] yin.vm.ucf.rows loading (39.8s elapsed)
+yin-load [131] yin.vm.ucf.rows loading (54.8s elapsed)
+yin-load [132] yin.vm.ucf.rows ready (63.0s)
+yin-load [133] yin.vm.ucf.rows.checkpoint ready (63.8s)
+yin-load [134] yin.vm.ucf.authority.admission ready (68.0s)
+yin-load [135] yin.vm.ucf.authority.completion ready (1.9s)
+yin-load [136] yin.vm.ucf.authority.grant ready (3.9s)
+yin-load [137] yin.vm.ucf.authority.input ready (2.3s)
+yin-load [138] yin.vm.ucf.authority.front ready (10.8s)
+yin-load [139] yin.vm.ucf.holder.evidence ready (1.0s)
+yin-load [140] yin.vm.ucf.holder.export ready (5.7s)
+yin-load [141] yin.vm.ucf.holder.inbox ready (1.7s)
+yin-load [142] yin.vm.ucf.holder.reader ready (8.0s)
+yin-load [143] yin.vm.ucf.holder.writer ready (4.8s)
+yin-load [143] yin.vm.ucf.holder.driver loading (36.8s elapsed)
+yin-load [143] yin.vm.ucf.holder.driver loading (51.8s elapsed)
+yin-load [144] yin.vm.ucf.holder.driver ready (56.6s)
+yin-load [145] yin.vm.ucf.compose ready (166.1s)
+yin-load [146] yin.repl.main ready (832.8s)
+yin-load [147] jolt.gambit.yin ready (864.7s)
+yin-load complete: 147 namespaces in 864.7s
+state file /Users/sto/.yin/node/state.edn: it cannot be read (blocking ffi is unsupported on the gambit target — GC-safe blocking is unqualified on Gambit 4.9.8 (no verified release/claim transition)); --reset replaces it

@@ -74,14 +74,17 @@
      :index
      {:yin.debruijn.code :segment/blake3-7ac80cac0e6580202d2d2e4315fdde76d7199c08caeadb01d458daf037751175
       :yin.debruijn.register :segment/blake3-2de114e4481e3f440a534251ce6b006500690645d2a724c0732cca466ecffb6a}}
-    py {:address :segment/blake3-d7568c166dbcbf8ac0373bc2f1c38925c9a4f3e7c2a494a5103e164e3f9cd93a
+    ;; py/assert thunk series + :py/missing sentinel (ruling 1795660000000):
+    ;; re-minted from JVM publication after verified ANTLR generation, in two
+    ;; independent JVMs.
+    py {:address :segment/blake3-8fc311fa78b335654c72608dd0d5dab3ff204eb1173eba8773335064b9635136
      :derivations
-     {:yin.semantic/code :segment/blake3-5256943e20b328ad84bc908d263408e44afd3435ce62bf9801926622b45304d7
-      :yin.debruijn.code :segment/blake3-f883df02f6ff6cc05b20b0c47546a5230b465df717cf1038902b7ee1f7abbdae
-      :yin.debruijn.register :segment/blake3-1f507d8313433c2e0a5ba5f7a21bf317b915e82aeda25dbe9dd02636c1a3e68e}
+     {:yin.semantic/code :segment/blake3-08550d48a7aea251d5164f0bb62ce67d7da17e65aaa4c34aff7d9e6f1375403c
+      :yin.debruijn.code :segment/blake3-e74c15948d205273d87e401d8b1c6d078a5cc85cdf719137b205f0780d2f366b
+      :yin.debruijn.register :segment/blake3-6ceec8d9e0add173e3261b2902bfae7c39b41bf77c1fd4d5d06211a46c13d130}
      :index
-     {:yin.debruijn.code :segment/blake3-e4c7343714f2a534c3f3f990abc10e648c971754148707fa5804554c4597c5e1
-      :yin.debruijn.register :segment/blake3-c41f179c40fce29559ae6bf5db985025e6510f56459877d07443a1f36b88e4a0}}
+     {:yin.debruijn.code :segment/blake3-81610a024d4f4dc05f6205205f8c93ba828c826755c6411465b10234e143d428
+      :yin.debruijn.register :segment/blake3-a5845f215f47c1184b7e350f6376b98f649de7be0054f7ebf45352f087eb528e}}
     yang.call {:address :segment/blake3-ef21320944b651140c11dedebd8b443fb91d32f99678f9c274568fbe4d07eea4
      :derivations
      {:yin.semantic/code :segment/blake3-59a19ffd0e95d51e34664cf1c7f9b9c24ad606f9881ab38cfdf0d1614c8a6b09
@@ -109,9 +112,12 @@
     })
 
 
+;; py-v1 descriptor and runtime re-minted from the updated module closure
+;; (py/assert thunk series + :py/missing sentinel, ruling 1795660000000)
+;; after verified ANTLR generation, in two independent JVMs.
 (def ^:private revision-locks
-  {:yang.python/py-v1 {:descriptor-address :segment/blake3-b5a8e78e8a3ce1adcabe96f08481cd936cf5911b6d4de22176f3a98f690aad49
-     :runtime-address :segment/blake3-9f64a4ea1eac5d48a9ba97d5e6a20b5b4458909ce5cfb57b3d515e3bd635f990}
+  {:yang.python/py-v1 {:descriptor-address :segment/blake3-b553f906b68916f350c70d1f78821a053c3e806254a79ed7a8cdc04622bb2102
+     :runtime-address :segment/blake3-97a043efc6fcdad337099a4c49d6f3ea25d6cc44a85bee0d79c53ef4ef056fc8}
     :yang.python/clojure-core-v1 {:descriptor-address :segment/blake3-40e7c28f50d14baafc3dd73269d92023f3c664b743d5b7eb510859c98ecbdea4
      :runtime-address :segment/blake3-a2cb190a9c0f659dcf8a7c48023cfb49d3c87a5d883948fd815bfc0e55205b50}})
 

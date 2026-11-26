@@ -105,11 +105,18 @@ The main checkout is shared by multiple seats. Work happens in dedicated
 worktrees; re-check branch state at each gate, landing, and push rather than
 assuming it stayed unchanged since session start.
 
-1. **The main checkout stays on `master`.** Use `git worktree add` for branch
-   work. If another session left the main checkout on a different branch,
-   restore it before working: `git checkout master && git merge --ff-only origin/master`.
-2. **Verify the branch per operation.** Run `git branch --show-current` before
-   any gate, landing, or push.
+1. **The main checkout stays on `master`, always.** All work — code, test,
+   and collab artifacts — happens in dedicated worktrees (`git worktree
+   add`), never by switching the main checkout to another branch. If another
+   session left the main checkout on a different branch, restore it before
+   working: `git checkout master && git merge --ff-only origin/master`.
+2. **Verify the branch per operation — it is a hard gate.** Run
+   `git branch --show-current` before any gate, landing, or push, and treat
+   anything other than `master` as an abort: restore the checkout first,
+   re-apply the intended change, and only then proceed. A landing that
+   discovers the wrong branch after committing must still be reconciled and
+   pushed to `master` — never left silently on the wrong branch while the
+   push reports success.
 3. **Keep local `master` synced with `origin/master`.** Fetch and fast-forward
    in the worktree holding `master`. Use `git fetch origin master:master` only
    when `master` is not checked out anywhere. Divergence requires a resolved
@@ -123,11 +130,17 @@ assuming it stayed unchanged since session start.
    `git merge-base --is-ancestor` first to avoid double-landing.
 6. **Use an explicit push target.** From the verified master checkout, use
    `git push origin HEAD:master`; a bare `git push origin master` can publish
-   a stale local ref.
+   a stale local ref — and when the checkout is silently on another branch,
+   a bare push publishes nothing at all while reporting success.
 
 Provenance: the 2026-11-14/15 branch-drift incidents included landing
 `a48343ed`, which omitted the eval-bridge lineage, and a gate run against the
-wrong branch. These checks apply independently of commit authorization.
+wrong branch. Recurred 2026-11-26: the shared checkout had been switched to
+branch `s0` mid-session; several landings (the quick work-stealing code and
+findings, ledger addendum 3) went to `s0` while bare `git push origin master`
+kept publishing a stale ref without error — discovered only when the user
+asked about the branch, and reconciled by merging `s0` and `origin/master`
+into `master`. These checks apply independently of commit authorization.
 
 ### Concurrent work and worktree removal
 

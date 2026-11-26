@@ -225,11 +225,14 @@
             on I6 over landed I5, with value-display (06065e42:
             py/result!, py.rt/value), and with the s3 tracing slice,
             which moved only the hook prelude, and with the Python exception-track
-            and provenance series (merged 8018005d); re-minted from source)"
+            and provenance series (merged 8018005d); re-minted from source.
+            The assert series (60cda9b6, 392746bd, 906586c5, 7692d347)
+            and :py/missing sentinel fix (ruling 1795660000000) moved it
+            again; re-minted after verified ANTLR generation in two JVMs)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "2af56b0e17cc8e1a94fcde9fb260b013"
-                  "0822f25781af09e79db35736005d9553"))
+                  "6e435c42a59c6de1aff93723436df5e4"
+                  "67c92d3fbe7f1c4f6640102183df69b5"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-fda451811f1d578884c70ec1a6992e508dd301f7fc49cccbe547eb128683a62e
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -254,28 +257,31 @@
               I5, and with value-display (06065e42; re-minted from the
               source packet); the s3 slice did not move them. The Python
               exception-track and provenance series (merged 8018005d)
-              moved them again; re-minted from source)"
+              moved them again; re-minted from source. The assert series
+              (60cda9b6, 392746bd, 906586c5, 7692d347) and :py/missing
+              sentinel fix (ruling 1795660000000) moved them again;
+              re-minted after verified ANTLR generation in two JVMs)"
       (is (= (keyword
                (str "segment/blake3-"
-                    "20cbbfee8cbf2a080267e2e86943756c"
-                    "b1c9bae6e7975cc6567ce1b4dedb7f79"))
+                    "663d9a0ec79fb79dbd4ae3c77dd65b39"
+                    "1bbcdac7a2099cfe839d9f2b58000501"))
              (:root a)))
       (is (= (keyword
                (str "segment/blake3-"
-                    "b4fe46fe6799d22b59aa4112dc09e78a"
-                    "d7ccae3204245e7d1752634ff607e161"))
+                    "596ef9a558f51e1f1dabcd13bb71a02e"
+                    "c05714033d68b881e952f843bf33ff28"))
              (:root a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "7b8f1414bcbc782f72bb11252746a10"
-                    "63063b691133cf2a9512dfa496fb7f765"))
+                    "885834579e0a64b809c218a18529e687"
+                    "c81b37f4ec92650b610bb199873b0246"))
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "32ab99425d0a4664c25e04273066f487"
-                    "4f9e4a84a0243913943069c03f22e4a6"))
+                    "eb6f18503487b4b85c7fa8aa990133c3"
+                    "5c65f22197f557f199e6c591c9465653"))
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]

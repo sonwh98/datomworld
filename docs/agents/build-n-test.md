@@ -304,7 +304,7 @@ selected namespaces and run automatically when needed.
    only reproduces under the full suite's concurrency is diagnosed with the suite's own
    logs (its per-shard/per-test output), not by re-running the suite repeatedly.
 2. **G1 Checkpoint**: Run the three-lane subsystem test (`bb test:sub <own>`). Proves the home suite across all three hosts before reporting ready.
-3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change (for foundation subsystems like `dao.stream` or `dao.jing`, this correctly runs nearly the full suite).
+3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change (for foundation subsystems like `dao.stream` or `dao.jing`, this correctly runs nearly the full suite). Gate claims name the tier (see the citation rule above): a fast-lane "0 failures" never asserts the slow tier ran.
 4. **G3 Master (merged in place by the 2026-11-01 owner ruling)**: The landing gate
    for a change is the **tests that cover the feature being built** — `bb test:changed`
    (G2) already includes the reverse-require closure of the changed files, and a wide

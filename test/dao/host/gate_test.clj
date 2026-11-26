@@ -1017,12 +1017,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after the prelude landings (160 / 158 / 156 files, 150 shared)"
+  (testing "§3.1 after the P3-prime closure re-record (167 / 165 / 163 files, 157 shared)"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 160 (count (files :clj))))
-      (is (= 158 (count (files :cljs))))
-      (is (= 156 (count (files :cljd))))
-      (is (= 150 (count (apply set/intersection (vals files)))))
+      (is (= 167 (count (files :clj))))
+      (is (= 165 (count (files :cljs))))
+      (is (= 163 (count (files :cljd))))
+      (is (= 157 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
@@ -1039,8 +1039,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 170 (count (closure-files))) "the union of the three lanes")
-    (is (= 170 (count (gate-files))) "no profile addition outside the closure after H3")
+    (is (= 177 (count (closure-files))) "the union of the three lanes")
+    (is (= 177 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))
