@@ -50,6 +50,9 @@
             [clojure.string :as str]))
 
 
+(load-file (str (fs/parent (fs/absolutize *file*)) "/lane_timing.clj"))
+(require '[lane-timing :as timing])
+
 (def home (System/getProperty "user.home"))
 (def results-dir (or (System/getenv "NIGHTLY_RESULTS") (str home "/ci/nightly-results")))
 (def pin-file (str home "/ci/nightly-pin.txt"))
@@ -178,7 +181,7 @@
                  (future
                    (loop []
                      (if-let [x (take-one)]
-                       (do (swap! results assoc x (f x)) (recur))
+                       (do (swap! results assoc x (f i x)) (recur))
                        i)))))
          (mapv deref))
     @results))
@@ -272,6 +275,20 @@
     (parse-long tests)))
 
 
+(defn run-slow-job!
+  [clone out record-lock worker {:keys [ns shard vars] :as item}]
+  (let [log (str out "/slow-" ns (when shard (str "-shard-" shard)) ".log")
+        start (timing/now)
+        exit (run-cmd! clone log (slow-command item))
+        end (timing/now)]
+    (timing/append! record-lock (str out "/runs-ndjson.txt")
+                    (timing/record {:job-id (str ns (when shard (str "-shard-" shard)))
+                                    :namespaces [ns] :vars (or vars [])
+                                    :worker-id (str "jvm-" worker) :timing-scope "job"}
+                                   start end exit))
+    {:item item :exit exit :tests (slow-summary (slurp log))}))
+
+
 (defn- lane-jvm
   [clone par out summary]
   (let [subset (assigned-subsystems)
@@ -305,7 +322,7 @@
         quick-log (str out "/jvm-quick.log")
         quick (if subset
                 (let [results (run-pool par
-                                        (fn [s]
+                                        (fn [_ s]
                                           (run-cmd! clone
                                                     (str out "/jvm-quick-" s ".log")
                                                     ["bb" "test:sub:clj" s]))
@@ -313,12 +330,9 @@
                   (reduce + (vals results)))
                 (run-cmd! clone quick-log
                           ["bb" "test:quick-sharded" "--workers" (str par)]))
+        record-lock (Object.)
         slow (run-pool par
-                       (fn [{:keys [ns shard] :as item}]
-                         (let [log (str out "/slow-" ns
-                                        (when shard (str "-shard-" shard)) ".log")
-                               exit (run-cmd! clone log (slow-command item))]
-                           {:item item :exit exit :tests (slow-summary (slurp log))}))
+                       (fn [worker item] (run-slow-job! clone out record-lock worker item))
                        schedule)
         slow-red (count (remove #(zero? (:exit %)) (vals slow)))
         reconciliation (slow-reconciliation selected (vals slow))

@@ -24,6 +24,9 @@
             [clojure.string :as str]))
 
 
+(load-file (str (fs/parent (fs/absolutize *file*)) "/lane_timing.clj"))
+(require '[lane-timing :as timing])
+
 (def all-subs
   ["yang.python" "yin.repl" "yin.vm" "yin.vm.ucf" "dao.stream"
    "dao.jing" "dao.gui" "dao.space" "demo" "dao.data"
@@ -197,6 +200,7 @@
         (let [files (ordered-shard-files @dirs)
               _ (spit (str out "/schedule.txt") (str/join "\n" files))
               t0 (System/currentTimeMillis)
+              start (timing/now)
               {:keys [exit]}
               (apply psh {:dir clone
                           :out (io/file (str out "/all.log"))
@@ -204,11 +208,21 @@
                           :extra-env {"DATOM_SLOW_TESTS" "1"}
                           :continue true}
                      "flutter" "test" "--reporter" "expanded" "--concurrency" (str conc) files)
+              end (timing/now)
               wall (quot (- (System/currentTimeMillis) t0) 1000)
               verdict (some->> (slurp (str out "/all.log"))
                                str/split-lines
                                (filter #(re-find #"All tests passed|Some tests failed" %))
                                last)]
+          (doseq [[position file] (map-indexed vector files)]
+            (let [nss (->> (re-seq #"import '[^']*test/cljd-out/([^']+)_test\.dart'" (slurp file))
+                           (mapv (fn [[_ path]] (-> path (str/replace "/" ".") (str/replace "_" "-")))))]
+              (timing/append! dirs (str out "/runs-ndjson.txt")
+                              (timing/record {:job-id file :namespaces nss :vars []
+                                              :worker-id "flutter-process" :emitted-file file
+                                              :queue-position (inc position)
+                                              :timing-scope "flutter-process"}
+                                             start end exit))))
           (log (str "flutter rc=" exit " wall=" wall "s " (or verdict "")))
           (when-not (zero? exit) (fail! (str "flutter test rc=" exit))))))
     (log (str "done rc=" @rc))
