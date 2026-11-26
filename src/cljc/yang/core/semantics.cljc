@@ -191,7 +191,14 @@
                        (module/host-export-profile registry target))
         [address node] (if host-address [host-address nil] (export! modules target))
         shapes (or call-shapes #{arity})]
-    (when (and operands (not (contains? shapes (count operands))))
+    (cond
+      (map? operands)
+      (when-not (and (= shapes (set (keys operands)))
+                     (every? (fn [[argc slots]] (and (vector? slots) (= argc (count slots))))
+                             operands))
+        (refuse! :arity {:target target :call-shapes shapes}))
+
+      (and operands (not (contains? shapes (count operands))))
       (refuse! :arity {:target target :call-shape (count operands)}))
     (if host-address
       (let [profile (get store host-address)]

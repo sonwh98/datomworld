@@ -200,7 +200,7 @@
    candidates exist but none matches the pins, and
    `:yang.frontend/ambiguous` with the matching `:revisions` when more
    than one matches. An id-only request can use the composition’s
-   :yang.frontend/preferred [id revision] when it matches."
+   :yang.frontend/preferred as an id-to-revision map or an [id revision] pair."
   [catalog request]
   (let [id (:yang.frontend/id request)
         revision (:yang.frontend/revision request)
@@ -213,8 +213,11 @@
                                             :manifest])]
                              (= pins (select-keys m (keys pins)))))
                          candidates)
-        [preferred-id preferred-revision] (:yang.frontend/preferred catalog)
-        preferred (when (and (nil? revision) (empty? pins) (= id preferred-id)
+        preference (:yang.frontend/preferred catalog)
+        preferred-revision (if (map? preference)
+                             (get preference id)
+                             (when (= id (first preference)) (second preference)))
+        preferred (when (and (nil? revision) (empty? pins)
                              (some #{preferred-revision} matching))
                     preferred-revision)]
     (cond (empty? candidates)
