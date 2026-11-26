@@ -113,15 +113,18 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
 
 ### Host availability and quota distribution
 
-**Orchestrator dispatch PATH recipe (2026-11-26, proven over the cc4/floatkind rounds):**
-non-interactive dispatch shells do NOT load your profile, so mise's activate hook is absent.
-Every dispatch should export this exact line first (all three parts needed):
+**Orchestrator dispatch shell recipe (2026-11-26, corrected per owner):** non-interactive dispatch shells
+do NOT load `~/.zshrc`, where `mise activate` and nvm live — so `codex`/`node`/`bb` resolve only in the
+user's interactive environment. The deterministic dispatch form is an interactive subshell:
 ```sh
-export PATH="$HOME/.local/share/mise/shims:/Users/sto/.nvm/versions/node/v26.1.0/bin:$HOME/.local/bin:$PATH"
+zsh -ic 'mise trust && <dispatch command>'   # .zshrc loads mise activate + nvm; all CLIs resolve
 ```
-- mise shims: bb/clojure/clj (repo mise.toml selects versions; run `mise trust` in any fresh worktree or the config errors)
-- nvm v26.1.0 bin: `codex` (the shim path is version-fragile: codex is installed under mise node 22.21.1, but repo mise.toml selects 25.6.1, so the shim errors with "No version is set" inside worktrees; a durable fix is `mise use -g npm:codex` or `mise use -g node@22.21.1` — owner call, not yet applied)
-- ~/.local/bin: `glm`/`deepseek`/`agy` wrapper scripts (they need *some* node on PATH to launch; with no node they fail `env: node: No such file or directory`)
+Verified resolution under `zsh -ic`: codex + node (nvm v26.1.0), bb (mise babashka), glm/agy/deepseek (~/.local/bin).
+A fresh worktree still needs `mise trust` before any bb/clojure use. Fallback (if -ic is unusable) is the
+hand-built line, but it is version-fragile (codex under nvm; mise shim for codex breaks inside repos whose
+mise.toml selects a node version without a codex install):
+`export PATH="$HOME/.local/share/mise/shims:/Users/sto/.nvm/versions/node/v26.1.0/bin:$HOME/.local/bin:$PATH"`
+
 **Host availability matrix (verified live 2026-11-11):** claude, codex,
 muse, agy, deepseek, glm, qwen on ALL THREE hosts (laptop darkstar, shiva,
 jupiter). kimi: laptop only, DECOMMISSIONED until further notice (owner relay
