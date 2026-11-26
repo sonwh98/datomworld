@@ -1,7 +1,7 @@
 (ns yin.repl.frontends
   "The REPL's standard frontend catalog (docs/design/yang.antlr.md section
-   8.5.6, slice F2): the hand-written Clojure frontend and the ANTLR PHP and
-   Python frontends installed into a `yang.frontend` catalog. This is
+   8.5.6, slice F2): the Clojure and available ANTLR frontends installed
+   into a `yang.frontend` catalog. This is
    the only place the REPL composition names a language's namespace;
    `yin.repl` core steps whatever binding the catalog selects.
 
@@ -21,6 +21,10 @@
     [yang.python.antlr.repl :as python.repl]
     [yang.python.antlr.parser :as python.parser]
     [yang.python.antlr.repl-probe :as python.probe]
+    #?@(:cljd []
+        :jolt []
+        :clj [[yang.typescript.antlr.cst :as ts.cst]
+              [yang.typescript.antlr.frontend :as ts.frontend]])
     [yin.repl :as repl]))
 
 
@@ -133,7 +137,8 @@
          :yang.frontend/support-profile :yang.php/antlr))
 
 
-(defn- parse-python [source]
+(defn- parse-python
+  [source]
   #?(:jolt
      (try (python.parser/parse-source (str source "\n"))
           (catch Exception e
@@ -143,7 +148,8 @@
      :default (python.parser/parse-source (str source "\n"))))
 
 
-(defn- install-python [catalog id]
+(defn- install-python
+  [catalog id]
   (let [profile (python.profiles/builtin id)
         manifest (antlr-manifest id profile)
         legacy? (= id python.contract/legacy-id)
@@ -152,22 +158,22 @@
                         (python.profiles/verify-builtin! id)
                         (lower packet session (:descriptor profile)))]
     (frontend/install catalog manifest
-      (cond-> {:parse (fn [source]
-                         (python.profiles/verify-builtin! id)
-                         (parse-python source))
-               :lower (fn [packet] (first (lower-session packet nil)))
-               :lower-session lower-session
-               :derive (fn [packet ast] (python.profiles/derivation manifest profile packet ast))
-               :probe (fn [source]
-                        (python.profiles/verify-builtin! id)
-                        (python.probe/probe source))
-               :render (if legacy? python.repl/display-value python.repl/display-clojure-value)}
-        legacy? (assoc :primitives python.repl/primitives)
-        (not legacy?) (assoc :admit clj-runtime/admit)))))
+                      (cond-> {:parse (fn [source]
+                                        (python.profiles/verify-builtin! id)
+                                        (parse-python source))
+                               :lower (fn [packet] (first (lower-session packet nil)))
+                               :lower-session lower-session
+                               :derive (fn [packet ast] (python.profiles/derivation manifest profile packet ast))
+                               :probe (fn [source]
+                                        (python.profiles/verify-builtin! id)
+                                        (python.probe/probe source))
+                               :render (if legacy? python.repl/display-value python.repl/display-clojure-value)}
+                        legacy? (assoc :primitives python.repl/primitives)
+                        (not legacy?) (assoc :admit clj-runtime/admit)))))
 
 
 (defn standard
-  "The standard immutable frontend catalog and the preferred Python revision."
+  "The standard immutable frontend catalog and its preferred revisions."
   []
   (let [catalog (cond-> frontend/empty-catalog
                   true (frontend/install (clojure-manifest) (clojure-binding))
@@ -178,12 +184,15 @@
                                        {:parse php.antlr.cst/parse-source
                                         :lower php.antlr.lower/lower-packet
                                         :render :php/out})]))]
-    (if #?(:jolt (python.parser/available?) :default true)
-      (-> catalog
-          (install-python python.contract/legacy-id)
+    (cond-> catalog
+      #?(:jolt (python.parser/available?) :default true)
+      (-> (install-python python.contract/legacy-id)
           (install-python python.contract/clojure-id)
           (assoc :yang.frontend/preferred [:yang/python "clojure-core-v1"]))
-      catalog)))
+      #?@(:cljd []
+          :jolt []
+          :clj [true (ts.frontend/install ts.cst/grammar-id ts.cst/parse-source)]))))
+
 
 (defn create-state
   "`yin.repl/create-state` composed with the standard catalog unless the
