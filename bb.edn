@@ -360,7 +360,7 @@
         :depends [build:yin-repl-peer build:yin-repl-node test:clj test:cljs test:cljd]}
 
   test:quick-sharded
-  {:doc "Quick JVM lane in subsystem JVMs, 4 workers; --changed FILE... / --base REF selects G2; --list plans only"
+  {:doc "Quick JVM lane in subsystem JVMs, 16 workers by default (QUICK_WORKERS overrides); --changed FILE... / --base REF selects G2; --list plans only"
    :task (System/exit
            (:exit (apply shell {:continue true} "bb" "-cp" "src/dev"
                          "-m" "quick-sharded" *command-line-args*)))}

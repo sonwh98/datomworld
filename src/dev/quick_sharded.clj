@@ -194,37 +194,66 @@
     row))
 
 
+;; Wall seconds from nightly-results/20261125-2114/jvm-quick.log. Unknown
+;; shards sort last; ties use the shard name for a reproducible plan.
+(def quick-weights
+  {"dao.base" 8.319 "dao.data" 10.273 "dao.gui" 6.713
+   "dao.host" 29.773 "dao.jing" 12.110 "dao.postgraphics" 4.129
+   "dao.space" 114.139 "dao.stream" 27.862 "demo" 8.942
+   "unmapped" 3748.143 "yang.base" 738.468 "yang.php" 4626.262
+   "yang.php-e2e-aggregate" 1892.194 "yang.php-e2e-phpt" 843.901
+   "yang.php-e2e-rest" 1054.150 "yang.python" 1543.029
+   "yang.typescript" 469.322 "yin.repl" 1035.740 "yin.vm" 614.653
+   "yin.vm.ucf" 122.386})
+
+
+(defn ordered-shards
+  [shards]
+  (sort-by (fn [[shard _]] [(- (get quick-weights shard 0)) (str shard)]) shards))
+
+
 (defn run-shards!
   [out shards workers]
-  ;; Each worker owns a disjoint sequence; no more than N child JVMs.
-  (let [ordered (sort-by (fn [[_ entry]]
-                           (if (map? entry) -1000 (- (count entry)))) shards)
-        jobs (mapv (fn [worker]
+  (let [queue (atom (vec (ordered-shards shards)))
+        take-one (fn []
+                   (locking queue
+                     (let [items @queue]
+                       (when (seq items)
+                         (reset! queue (subvec items 1))
+                         (first items)))))
+        jobs (mapv (fn [_]
                      (future
-                       (mapv #(run-shard! out %)
-                             (take-nth workers (drop worker ordered)))))
+                       (loop [rows []]
+                         (if-let [item (take-one)]
+                           (recur (conj rows (run-shard! out item)))
+                           rows))))
                    (range (min workers (count shards))))]
     (vec (mapcat deref jobs))))
 
-
+;; 16 JVMs at ~2.5 GB peak reserve ~40 GB of 62 GB, leaving GC and OS
+;; headroom; ~1.3 cores per compiler uses ~21 of the host's 48 cores.
 (defn parse-args
   [args]
-  (loop [opts {:workers 4 :list? false} [arg & more] args]
-    (case arg
-      nil opts
-      ("--list" "--dry-run") (recur (assoc opts :list? true) more)
-      "--workers" (let [n (parse-long (or (first more) ""))]
-                    (when-not (and n (pos? n))
-                      (throw (ex-info "--workers needs a positive integer" {})))
-                    (recur (assoc opts :workers n) (rest more)))
-      "--base" (do (when (or (empty? more) (str/starts-with? (first more) "--"))
-                     (throw (ex-info "--base needs a ref" {})))
-                   (recur (assoc opts :base (first more)) (rest more)))
-      "--changed" (let [[files flags] (split-with #(not (str/starts-with? % "--")) more)]
-                    (when (empty? files)
-                      (throw (ex-info "--changed needs at least one file" {})))
-                    (recur (assoc opts :changed (vec files)) flags))
-      (throw (ex-info (str "unknown option: " arg) {})))))
+  (let [setting (System/getenv "QUICK_WORKERS")
+        default-workers (if (nil? setting) 16 (parse-long setting))]
+    (when-not (and default-workers (pos? default-workers))
+      (throw (ex-info "QUICK_WORKERS needs a positive integer" {:value setting})))
+    (loop [opts {:workers default-workers :list? false} [arg & more] args]
+      (case arg
+        nil opts
+        ("--list" "--dry-run") (recur (assoc opts :list? true) more)
+        "--workers" (let [n (parse-long (or (first more) ""))]
+                      (when-not (and n (pos? n))
+                        (throw (ex-info "--workers needs a positive integer" {})))
+                      (recur (assoc opts :workers n) (rest more)))
+        "--base" (do (when (or (empty? more) (str/starts-with? (first more) "--"))
+                       (throw (ex-info "--base needs a ref" {})))
+                     (recur (assoc opts :base (first more)) (rest more)))
+        "--changed" (let [[files flags] (split-with #(not (str/starts-with? % "--")) more)]
+                      (when (empty? files)
+                        (throw (ex-info "--changed needs at least one file" {})))
+                      (recur (assoc opts :changed (vec files)) flags))
+        (throw (ex-info (str "unknown option: " arg) {}))))))
 
 
 (defn verification-scope
@@ -275,7 +304,7 @@
     (println "Quick JVM only; workers=" workers "; logs:" out)
     (when (seq (:wide selection))
       (println "Wide selection: this runs the full JVM quick lane; G3 still requires bb test."))
-    (doseq [[shard entry] schedule]
+    (doseq [[shard entry] (ordered-shards schedule)]
       (let [nses (if (map? entry) (:nses entry) entry)]
         (println (str "Shard " shard " : " (count nses) " namespaces"
                       (when (map? entry) (str " " (count (:vars entry)) " vars")))))
