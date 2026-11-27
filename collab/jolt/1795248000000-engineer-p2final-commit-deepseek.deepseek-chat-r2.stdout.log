@@ -1,0 +1,54 @@
+[claude-code:unrecognized_model] {"model":"deepseek-chat","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"agent:builtin:general-purpose"}
+## Status: BLOCKED — nothing executed, nothing committed
+
+I could not complete the brief. This session's permission mode refuses every executing or writing tool call before it runs; only read-only inspection (`git`, `ls`, `cat`, `grep`) is permitted. No gate was run, no file was changed, and there is **no commit sha**.
+
+### Exact refusals (verbatim)
+
+| Call | Result |
+|---|---|
+| `make gambitffi` | `This command requires approval` |
+| `make -n gambitcheck` | `This command requires approval` |
+| `sh -c true` / `python3 -c "print(1)"` | `This command requires approval` |
+| `shasum -a 256 host/gambit/ffi/joltffi-bridge.scm` | `This command requires approval` |
+| `git commit --dry-run` | `This command requires approval` |
+| `touch build/p2final/perm-probe.txt` | `... needs approval. The path is inside the working directories for this session ... Claude Code asks before a shell command creates, changes or removes files there.` |
+| Write `build/p2final/findings-deepseek.md` | `Claude requested permissions to write to ... but you haven't granted it yet.` |
+
+A general-purpose subagent was probed and hit the same wall (`This command requires approval`), so this is the session mode, not one tool. **To proceed, grant Bash execution and file writes in the worktree, then re-run the brief.**
+
+### Gate battery — NOT RUN
+
+```
+GAMBIT_PREFIX=/Users/sto/.local/share/mise/installs/gambit/4.9.8 \
+DATOMWORLD_ROOT=$PWD/build/p2final/datomworld-bab7640f \
+make gambitffi gambitcheck gambitkernel gambiteval gambityinrepl gambitdht \
+     gambitdht-durable gambitsourceload gambitseedcheck gambitgencheck \
+     emittedheads deadhost
+```
+
+All targets untested this round; I will not fabricate results.
+
+### Static review of the staged diff (16 files)
+
+The resolution is coherent and matches the brief's intent: no conflict markers, `git diff --cached --check` clean, working tree equals index. C4 is intact (public blocking FFI untouched; the probe still asserts the refusal). The new file worker is a detached pthread that copies the path at submit, runs no Scheme, and is polled by the VM — no blocking FFI. Compiled-boot machinery is preserved, and `build-yin-session.py` now keys the session on `yin/*.ss` so `file.ss` invalidates it. The RNG split (`random-integer` for exact integers, `random-real` for reals) is correct.
+
+### Leads that must be resolved before committing
+
+1. **The brief's verification claims don't match the receipts.** In `build/gambit-dht-durable/run.va6i1psr` (newest), the writer logged the witness (`p2 durable witness :segment/blake3-8825…`, line 482) but `peer-store/content.jing` is **0 bytes** and `dht-store` has no `HEAD`. No retained durable run shows a clean dht `Bye` or a `PASS` line — only file sessions quit. `build/p2final/durable-idle.stderr` shows the current script failing with `file-restart: missing '^yin> '` against `run._yge217t`, whose restart stderr stops at `ready yin.shell.store`. The witness-triggered replication (which waits with no REPL input) is the prime suspect versus the earlier `run._yge217t`, where a direct probe `put` did replicate 21 KB to the peer.
+2. `gambit-yin-write-new` uses `create: #t`, not `O_CREAT|O_EXCL`, so `write-new-private!` cannot answer `:exists`; `--dht-keygen`'s "never overwrite" contract is unimplemented on Gambit (dormant for this gate).
+3. `gambit-yin-realpath` uses lexical `path-normalize` and does not resolve symlinks, contrary to its comment and `fs.cljc`'s `canonical-dir`; cross-process lock refusal still works, but the in-process `held` guard won't unify alias spellings.
+4. `gambit-yin-read-file`'s unbounded branch follows symlinks after separate classification (small TOCTOU).
+5. `DIGESTS.txt`'s new bridge digest was not re-verified (source mtime 23:35 < `o1` 23:45 < stage-1 digest check 23:50, so it is probably correct).
+
+### When permissions are granted
+
+Run the battery above; if green, conclude the in-progress merge with:
+
+```
+git commit -m "p2final: durable Yin stores consolidation — native-I/O file ops, DHT durable profile, gate battery green"
+```
+
+(HEAD `4edb3460` + `MERGE_HEAD` `5c302a30`; never push.) My findings text is ready to drop at `build/p2final/findings-deepseek.md` once writes are permitted.
+deepseek-exit=0
