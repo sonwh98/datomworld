@@ -1,0 +1,14 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+r3 union confirmation complete. What I verified at merge 79fac5ff:
+
+**Union topology.** `git diff 464ee737 79fac5ff -- src/cljc/yang/php/ test/yang/php/` is **empty** — the entire php slice (lower, contract, profiles, clj_runtime, descriptor test, with all three r2 fixes) is byte-identical to the commit I reviewed and confirmed. The merge's semantic deltas vs the master parent are exactly two: the `callable!` map-operands branch in `semantics.cljc` (verified hunk-for-hunk as mine) and the `frontends.cljc` catalog union. Notably `frontend.cljc`'s `select` needed no semantic resolution — the ts slice and my php slice had independently made the *same* map-or-pair generalization, so both parents carried identical code.
+
+**(1) Three dual-revision frontends, clojure-core-v1 defaults — confirmed.** python installs both revisions with the pair preferred step (master form); `ts.frontend/install` installs both ts revisions and assocs `:yang/typescript "clojure-core-v1"` (:clj-gated, matching the java-only ts targets); php installs both revisions and the final update assocs `:yang/php "clojure-core-v1"` (:default-gated, matching the java+javascript php targets). On :clj the terminal preferred map carries all three keys at `"clojure-core-v1"`; on :cljd/:jolt the python pair remains, which is correct there since php/ts aren't installed on those hosts.
+
+**(2) Canonical preferred shape — confirmed.** My r1 `assoc-in` construction was replaced by master's idiom: the python step leaves a pair, and both the ts install and the php step use the *same* normalize-then-assoc `update` (map kept / pair via `apply hash-map` / nil → `{}`). `select` consumes exactly these shapes on every host, and the two update sites are textually identical — the canonical form is now shared, not per-branch.
+
+**(3) r1/r2 conclusions hold — confirmed.** Byte-identical php files carry every verification verbatim; the `callable!` union is additive (ts's scalar `:operands` vectors take the pre-existing scalar branch, php's map form the new branch), corroborated by the union gates: ts descriptor+frontend+python-repl+main-test 81/875/0 alongside php 7/370/0 and 44/1662/0, deps clean. The wide e2e run remains the one open pre-merge obligation, unchanged from r1/r2.
+
+The r3 section is appended to `collab/yang-clojure/1795455124699-reviewer-p4-php-clojure-core.glm.findings.md`.
+
+VERDICT: CONFIRMED-CLOSED

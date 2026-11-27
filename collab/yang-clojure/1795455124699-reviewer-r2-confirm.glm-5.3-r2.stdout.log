@@ -1,0 +1,14 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+r2 confirmation complete. I re-read exactly the three updated hunks and the new fixtures, and confirmed the delta is scoped (lower.cljc grew 3 lines vs the r1 tree — the three fix hunks, nothing else; the test file gained two program rows and one deftest):
+
+**F1 — CLOSED.** `lower.cljc:3423` now passes `(dissoc ctx :captures)` into `persistent-function` for declared functions, while `persistent-lambda` still assocs its own captures for closures. The fixture (`descriptor_profile_test.cljc:148`) proves the exact r1 divergence scenario end-to-end: the closure's `echo $x` prints `'captured'` while `is_null(inner())` returns `true` — under the r1 defect that assertion would have printed `captured|false`.
+
+**F2 — CLOSED.** `isset-loc` (`lower.cljc:1089-1093`) routes the bare-variable case to `isset-var` only under `legacy?`; the persistent profile uses the null-compare. Worth noting the composite answer is actually PHP-faithful for bare variables — PHP's isset ≡ set-and-not-null, and an unbound read is null in this profile — so the fixture's `false|false|true` (missing, null, falsy-but-assigned) matches PHP exactly, top-level and in-function. The legacy guard preserves the native emission, consistent with the 1,325-fixture zero-mismatch rerun.
+
+**LOW — CLOSED.** `lower.cljc:1993-1994` follows the capability check with `(unsupported! n :unset)`, and the regression test drives the admitted-descriptor case (`:mutation/delete :supported`) asserting the named `:yang.php/unsupported` refusal.
+
+One residual observation ledgered as a non-blocking NOTE in the r2 section: the `"eval"` arm at `lower.cljc:1995` still returns `require-capability!`'s nil if a descriptor ever admitted `:modules/eval` — the same latent shape the unset arm had, unreachable under both shipped descriptors; fold it into the same treatment if a persistent eval profile is ever built.
+
+The r2 section is appended to `collab/yang-clojure/1795455124699-reviewer-p4-php-clojure-core.glm.findings.md`, with the orchestrator gate evidence (descriptor 7/370/0, portable+prelude+request 44/1662/0, parity 1,325 zero, deps clean, scoped e2e 4/86/0) recorded and the wide e2e run still flagged as the pre-merge obligation from r1.
+
+VERDICT: CONFIRMED-CLOSED
