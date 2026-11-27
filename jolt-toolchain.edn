@@ -103,7 +103,18 @@
     "git" "bootstrap:jolt clone and verification"
     ;; J1b: native/jolt-crypto compiles against the libcrypto headers
     ;; (openssl/evp.h) and links the declared :native :libcrypto path
-    "libssl-dev" "J1b native build (libcrypto headers and link, native/jolt-crypto)"}
+    "libssl-dev" "J1b native build (libcrypto headers and link, native/jolt-crypto)"
+    ;; the mise-guile plugin builds guile 3.0.11 from source (mise.toml guile
+    ;; pin); configure hard-requires these where the macOS analogues come
+    ;; from Homebrew (probe 1794971000000). Linux needs no [env] overrides:
+    ;; configure finds these via its own probes/pkg-config and the kernel's
+    ;; pipe2 is real. Verified on shiva 2026-11-27 (see docs/agents/
+    ;; build-n-test.md Guile notes).
+    "libgmp-dev" "mise Guile source build (bignums)"
+    "libunistring-dev" "mise Guile source build (Unicode strings)"
+    "libgc-dev" "mise Guile source build (Boehm GC, pkg-config bdw-gc)"
+    "libffi-dev" "mise Guile source build (foreign function interface)"
+    "pkg-config" "mise Guile source build (bdw-gc and libffi detection)"}
    ;; J1b runtime: the package owning the declared libcrypto.so.3 differs per
    ;; release, so any ONE of these satisfies it (dpkg -S on shiva, Ubuntu
    ;; 24.04: libssl3t64; Debian bookworm and Ubuntu 22.04: libssl3). Checked
@@ -117,11 +128,25 @@
     ;; ANTLR4 C++ runtime and wrapper and unzips the runtime source; shown on
     ;; macOS only, not yet on a Debian host
     "g++" "J0c native build (C++ compiler)"
-    "unzip" "J0c native build (runtime source archive)"}}
+    "unzip" "J0c native build (runtime source archive)"
+    ;; guile's readline extension is optional: configure probes readline and
+    ;; builds guile-readline when found (macOS passes
+    ;; --with-libreadline-prefix via mise.toml [env]); not yet shown needed
+    ;; on a Debian host
+    "libreadline-dev" "mise Guile source build (readline extension)"}}
   ;; Homebrew is assumed on macOS and not enforced; the libcrypto it provides
   ;; is checked by path and version instead (:native :libcrypto, J1b).
   :macos {:manager :homebrew :enforced false
-          :packages {"openssl@3" "libcrypto for dao.host.hash/sign (J1b)"}}}
+          :packages {"openssl@3" "libcrypto for dao.host.hash/sign (J1b)"
+                     ;; the mise-guile source build (Phase 1, engineer
+                     ;; findings 2026-11-27); the mise.toml [env] overrides
+                     ;; point configure at these prefixes — libffi comes from
+                     ;; the SDK, not brew
+                     "pkg-config" "mise Guile source build (dependency probes)"
+                     "gmp" "mise Guile source build (bignums)"
+                     "libunistring" "mise Guile source build (Unicode strings)"
+                     "bdw-gc" "mise Guile source build (Boehm GC)"
+                     "readline" "mise Guile source build (readline extension)"}}}
 
  ;; Provisioned by mise from the exact pins in mise.toml. JOLT_CHEZ is always
  ;; set explicitly (build/tools/jolt-env.sh), never left to jolt's PATH search.
@@ -140,6 +165,24 @@
           :provider :mise
           :mise-tool "gambit"
           :binary "bin/gsi"}
+ ;; Guile host (jolt Guile-port phases; Phase 1 landed 2026-11-27): built
+ ;; from source by mise via the mise-plugins/mise-guile asdf plugin
+ ;; (mise.toml) at the exact pin — GPG-verified 3.0.11 tarball from
+ ;; ftp.gnu.org. darwin-arm64 needs the mise.toml [env] overrides: the macOS
+ ;; 26 SDK declares pipe2 a macOS 27 symbol, so without ac_cv_func_pipe2=no
+ ;; the freshly built guile calls it through a NULL weak import and
+ ;; segfaults at scm_i_init_guile (engineer findings 2026-11-27, the
+ ;; 1794971000000-probe crash finally root-caused). JOLT_GUILE is set by
+ ;; `bb bootstrap:jolt`, warning-only while :warning-only is true:
+ ;; check-guile never installs anything and only prints a warning when the
+ ;; tool is missing or mismatched, so Chez/Gambit hosts bootstrap without
+ ;; the 15-25 min guile build. The Guile-port Phase 2 gates flip this to a
+ ;; required check by removing :warning-only.
+ :guile {:version "3.0.11"
+         :provider :mise
+         :mise-tool "guile"
+         :binary "bin/guile"
+         :warning-only true}
  :cmake {:version "4.4.4"
          :provider :mise
          :mise-tool "cmake"}

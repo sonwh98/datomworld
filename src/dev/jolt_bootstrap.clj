@@ -14,7 +14,10 @@
      Advancing the pin is the upgrade gate's job.
    * build/tools/jolt-env.sh is written with JOLT_CHEZ and JOLT_GAMBIT set
      explicitly, so jolt never searches PATH for a Chez or a gsi (bare gsc on
-     PATH is Ghostscript).
+     PATH is Ghostscript). JOLT_GUILE is written when mise has the pinned
+     guile; while jolt-toolchain.edn :guile :warning-only is true (Guile port
+     Phase 1) a missing or mismatched guile only warns and leaves JOLT_GUILE
+     unset, so hosts without the 15-25 min from-source build bootstrap fine.
    * First of all, on a Debian-family host, the :os-packages :debian
      :required packages are checked with dpkg-query; a missing one fails the
      task before mise is asked for anything, naming the exact
@@ -88,6 +91,49 @@
     (when-not (= "3" t) (fail! "Gambit at " gsi " failed the interpreter smoke"))
     (println "gambit" v gsi)
     gsi))
+
+
+(defn- check-guile
+  "Guile port Phase 1 (owner ruling 2026-11-27): warning-only. When mise has
+   guile at the exact pin, require `guile --version` to report it (first
+   line, e.g. \"guile (GNU Guile) 3.0.11\") and smoke the interpreter,
+   answering the binary for JOLT_GUILE. Missing or mismatched: print a
+   warning and answer nil — JOLT_GUILE stays unset and the Chez/Gambit lanes
+   are unaffected. Never installs anything (that is `mise install`'s job).
+   Removing :warning-only from jolt-toolchain.edn (the Phase 2 gates) turns
+   the same checks into bootstrap failures."
+  [{:keys [version binary warning-only]}]
+  (let [bail! (fn [& msg]
+                (if warning-only
+                  (binding [*out* *err*]
+                    (println "bootstrap:jolt WARNING:" (apply str msg)))
+                  (apply fail! msg)))
+        r (p/shell {:out :string :err :string :continue true}
+                   "mise" "exec" (str "guile@" version) "--"
+                   "which" (str (fs/file-name binary)))]
+    (if-not (zero? (:exit r))
+      (do (bail! "guile@" version " is not installed; JOLT_GUILE left unset"
+                 (when warning-only
+                   (str " (warning-only, Guile port Phase 1; provisioning it is"
+                        " a 15-25 min from-source `mise install guile@" version "`)")))
+          nil)
+      (let [guile (str/trim (:out r))
+            v (p/shell {:out :string :err :string :continue true}
+                       guile "--version")
+            ;; first line: "guile (GNU Guile) 3.0.11"
+            reported (last (str/split (first (str/split-lines
+                                               (str/trim (:out v))))
+                                      #"\s+"))
+            t (p/shell {:out :string :err :string :continue true}
+                       guile "-c" "(display (+ 1 2))")
+            smoke (str/trim (:out t))]
+        (if (and (zero? (:exit v)) (= version reported)
+                 (zero? (:exit t)) (= "3" smoke))
+          (do (println "guile" reported guile) guile)
+          (do (bail! "guile at " guile " reported " (pr-str reported)
+                     " / smoke " (pr-str smoke) ", pinned " version
+                     "; JOLT_GUILE left unset")
+              nil))))))
 
 
 (defn- check-cmake
@@ -354,10 +400,11 @@
 
 (defn -main
   [& _]
-  (let [{:keys [jolt chez gambit cmake os-packages]} (edn/read-string (slurp "jolt-toolchain.edn"))
+  (let [{:keys [jolt chez gambit guile cmake os-packages]} (edn/read-string (slurp "jolt-toolchain.edn"))
         _ (check-os-packages os-packages)
         scheme (check-chez chez)
         gsi (check-gambit gambit)
+        guile-bin (check-guile guile)
         _ (check-cmake cmake)
         dir (str (fs/absolutize (or (System/getenv "JOLT_BOOTSTRAP_TEST_DIR") (:dir jolt))))
         jolt (assoc jolt :dir dir)
@@ -369,6 +416,10 @@
             (str "# written by bb bootstrap:jolt from jolt-toolchain.edn; do not edit\n"
                  "export JOLT_CHEZ='" scheme "'\n"
                  "export JOLT_GAMBIT='" gsi "'\n"
+                 (if guile-bin
+                   (str "export JOLT_GUILE='" guile-bin "'\n")
+                   (str "# JOLT_GUILE unset: guile missing or mismatched"
+                        " (warning-only, Guile port Phase 1)\n"))
                  "export JOLT_HOME='" dir "'\n"
                  "export JOLT_PATCHES='" record "'\n"))
       (println "wrote" env-file))))
