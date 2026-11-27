@@ -108,8 +108,11 @@
     ;; pin); configure hard-requires these where the macOS analogues come
     ;; from Homebrew (probe 1794971000000). Linux needs no [env] overrides:
     ;; configure finds these via its own probes/pkg-config and the kernel's
-    ;; pipe2 is real. Verified on shiva 2026-11-27 (see docs/agents/
-    ;; build-n-test.md Guile notes).
+    ;; pipe2 is real. Verified on shiva 2026-11-27 ONLY as the dpkg-query
+    ;; fail-closed preflight (bb bootstrap:jolt failing with exactly the
+    ;; missing set above); the mise install/build and bootstrap pass are
+    ;; still pending there on `sudo apt-get install -y libgc-dev libgmp-dev
+    ;; libunistring-dev` (see docs/agents/build-n-test.md Guile notes).
     "libgmp-dev" "mise Guile source build (bignums)"
     "libunistring-dev" "mise Guile source build (Unicode strings)"
     "libgc-dev" "mise Guile source build (Boehm GC, pkg-config bdw-gc)"
