@@ -7,6 +7,9 @@ Session-ID: 519cc353-4ebf-4ee9-a727-f6a51287dd1a
 
 Role: Compiler Engineer (numeric semantics)
 
+Implementers:
+- Status-Event: 2026-11-26 12:58 GMT | Model: glm-5.3 (session 519cc353, darkstar) | Status: superseded | Rationale: owner-directed migration to a remote host (laptop load); in-flight state committed 09401506 before stop
+
 ## TDD IS THE REQUIRED METHOD (owner instruction, binding)
 
 Write the FAILING tests first — RULING 5's seven acceptance gates in test form — run them RED, record the red evidence, THEN implement. Every acceptance gate lands as a test before the code that makes it pass. The red run is itself deliverable evidence (attach logs). Do not implement first and backfill tests.
