@@ -212,16 +212,30 @@ file changed: `unit gate: 2828/2828 passed` (175 s), `sorted-test.ss`
 `gambitcheck`, `gambitkernel`, `gambiteval` all green, and a third seed mint
 reproducing the same bytes.
 
-FIX COMMIT: see the Gambit seat's session log for the commit SHA on fork
-`main` and the fork CI result:
-`orchestrator-logs/1795015483992-zcode-glm-5.3-flash-gambit-ffi-orchestration.md`.
+FIX COMMIT: `00cb20b9` on fork branch
+`fix/sync-restore-tree-sorted-dispatch`, parent `e457adc9` (the pre-fix
+`main`). Its cross-family review ended ACCEPT-WITH-NOTES (glm subagent;
+report at
+`collab/jolt/1795765315502-reviewer-fork-sorted-fix-glm.findings.md`). The
+review leaves one narrower hang open: a type that has a `seqFrom` method but
+does not declare `Sorted`, asked through a registered arm whose predicate
+calls `sorted?`. No such type exists in the repo or the local library
+sources. Whether `00cb20b9` is on fork `main` is recorded in the seat
+handoff, `collab/jolt/1795768000502-orchestrator-seat-handoff.prompt.md`,
+section 2. Check the remote yourself:
+
+    git -C /Users/sto/workspace/jolt fetch origin
+    git -C /Users/sto/workspace/jolt rev-parse --short origin/main   # 00cb20b9 = landed
+
 Check fork `main` is green on CI before relying on it.
 
 What this means for you. Your base lineage (section 6.2) descends from
 pre-sync fork `main`: it has the fork's old `sorted?` and it does NOT have
 upstream `2573c180`, so it does not hang today. Two consequences:
 - When that lineage is ever merged with upstream `2573c180` or later, the
-  hang appears. Carry the fix, and expect a conflict in `25-sorted.clj`
+  hang appears. Carry the fix (`00cb20b9`). Expect its seed hunks to
+  conflict on a pre-sync base: take the change to `25-sorted.clj` and
+  `22-coll.clj` and re-mint. Expect a conflict in `25-sorted.clj`
   when merging anything that touches it.
 - A lesson for the Guile adapter: jolt lets library code register class
   arms whose predicates are arbitrary Clojure. A core predicate that calls
