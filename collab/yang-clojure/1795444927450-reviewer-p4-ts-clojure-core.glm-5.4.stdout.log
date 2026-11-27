@@ -1,0 +1,2 @@
+[claude-code:unrecognized_model] {"model":"glm-5.4","query_source":"sdk"}
+API Error: 529 [1305][该模型当前访问量过大，请您稍后再试][202611232246119cd9f56ed0c8402c]. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (open.bigmodel.cn).

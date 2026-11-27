@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+r2 confirmation complete. Findings file now carries the r2 section ending `VERDICT r2: CONFIRMED-CLOSED`; memory updated.
+
+## r2 verification summary
+
+**F1 — CONFIRMED-CLOSED** (`ambient-imports`, lower.cljc collision guard + regression fixture at descriptor_profile_test.cljc:184)
+- Guard now consults all four collision sources: prior imports, module-scope `:lexical` (incl. classes), `:vars`, and `:functions`. The duplicate-param lambda / import-wins shadowing from r1 is unreachable.
+- Rejection uses `scope/early-error!` → `:yang.ts/early-error` with `:rule`/`:span`/`:name` evidence — the lowerer's established early-error channel, correct vocabulary for a redeclaration.
+- Order-independence verified structurally: `scope/analyze` collects whole-module function declarations before `ambient-imports` reads the scope, so the collision is caught regardless of whether the function precedes or follows the import; block-scoped nested functions correctly don't collide.
+- The fixture drives the exact r1 scenario through the real parser on the **default** profile selection (not a hand-built packet), asserting `:yang.cst/ok` then the early-error refusal — fail-closed during lowering, before emission.
+- Legacy untouched: `ambient-imports` is legacy-skipped; legacy imports still refuse as `:T7` — consistent with parity 736/736 unchanged.
+
+**F2 — CONFIRMED-CLOSED** (lower.cljc:91)
+- `#{:supported :cell :single-assignment}` now exactly matches the validator's own enabled set (`semantics.cljc:240`); `:refused`/`:ambient-only` still refuse at gates, as required (ambient-only imports must not blanket-pass). No builtin profile uses `:single-assignment`, so builtin behavior is byte-unchanged.
+
+**Delta discipline**: exactly two hunks + one fixture (lower.cljc 926→927, ts test 249→266); orchestrator counts 9→10 tests / 255→257 assertions (+1 test, +2 `is` — arithmetic matches the fixture), parity and deps unchanged. The r1 NOTEs (F3–F6) were ledger items, not fixes — correctly left alone.
+
+VERDICT r2: CONFIRMED-CLOSED

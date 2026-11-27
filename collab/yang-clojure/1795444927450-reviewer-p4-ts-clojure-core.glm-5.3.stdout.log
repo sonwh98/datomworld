@@ -1,0 +1,23 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Review complete. Findings written to `collab/yang-clojure/1795444927450-reviewer-p4-ts-clojure-core.glm.findings.md` (225 lines, glm-5.3 recorded as reviewing model), working tree otherwise untouched.
+
+## Review summary — P4′-a (ts descriptor + frontend contract + swap fixture)
+
+**Verified clean (all six focus areas):**
+
+1. **§6.4 authority** — `yang.core.semantics` untouched (validation reused, not forked); ts contract carries arities + per-hook role grants as address-bound `[address, export, exact-role]` triples; same-arity wrong-role (`clj.ts/sub` for `:op/add`, and the py swap negative path without the grant) both fail closed with `:export-role` and are test-exercised.
+2. **Legacy `ts-v1`** — I read every `lower.cljc` hunk: all changes are pure descriptor reads. All 58 hardcoded `js/*` symbols map 1:1 onto `legacy-hooks` (zero remain); the `bigint-literal` rewrite provably preserves the native cutoff (≤cutoff ⇒ ≤52 bits ⇒ raw; over-cutoff forces `bits=54` ⇒ overflow operand, even for small magnitudes); `js/run-main [body]` frozen with `:call-shapes #{1}` asserted by test.
+3. **`clojure-core-v1`** — 2-arg `clj.ts/run-main [body-fn ambient-resolver]`; adapter grep-clean of provenance doors; boxed float64 / exact BigInt literals; refusals fail closed pre-emission (whole-tree pre-scan + site gates, 18 capability keys × both modes tested).
+4. **Default flip** — three layers verified: catalog (map-form preferred, backward-compatible), REPL (`1n == 1` → `"false"` default, `"true"` under ts-v1 pin, in-flight snapshot retained), and the oracle path — bare `lower-packet`/`lower-module-body` hardcode the legacy descriptor, so the selector cannot capture it.
+5. **Swap fixture** — executes end-to-end (REPL + both prelude modes × 3 engines), provenance names the swapped descriptor address and `clj.py` pin, negative path fails closed, zero frontend changes needed.
+6. **Fences/portability** — no `yang/php/` or python-src changes; pure cljc, no interop, `data/nth` discipline, canonical ordering, correct host gating.
+
+**Findings:**
+- **F1 (MEDIUM)** — `ambient-imports`' duplicate-binding guard misses `:functions`: `import {inc} …; function inc(x) {}` on the default profile silently yields a duplicate-param lambda with import-wins shadowing instead of the early error JS mandates (lower.cljc:2331-2336; one-line fix suggested).
+- **F2 (LOW)** — `require-capability!` whitelist omits `:single-assignment`, diverging from the schema/validator and py's predicate (latent; no builtin profile uses it).
+- **F3–F6 (NOTE)** — null/undefined collapse to nil; deliberate Clojure numeric departures (floor-mod, zero-division policy errors) all golden-pinned and fail-closed; for-in narrows to maps at runtime only; minor template divergences (no `:render`, `:modules/export` path untested, cosmetic indentation).
+
+Nothing blocks the slice's acceptance gates; F1 is the only user-reachable defect and sits on source real JS rejects.
+
+VERDICT: APPROVED-WITH-FIXES
+SESSION=fb63bd81-aa25-4add-8672-9b1e1891cdaf
