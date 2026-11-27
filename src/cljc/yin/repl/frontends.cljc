@@ -14,7 +14,9 @@
     #?@(:cljd []
         :jolt []
         :default [[yang.php.antlr.cst :as php.antlr.cst]
-                  [yang.php.antlr.lower :as php.antlr.lower]])
+                  [yang.php.antlr.lower :as php.antlr.lower]
+                  [yang.php.antlr.contract :as php.contract]
+                  [yang.php.antlr.profiles :as php.profiles]])
     [yang.clojure.prelude :as clj-runtime]
     [yang.python.antlr.contract :as python.contract]
     [yang.python.antlr.profiles :as python.profiles]
@@ -124,17 +126,40 @@
 
 
 (defn php-manifest
-  []
+  [id {:keys [descriptor-address runtime-address]}]
   (assoc (manifest :yang/php :php)
-         :yang.frontend/revision "antlr-p8"
+         :yang.frontend/revision (name id)
          :yang.frontend/grammar
          {:yang.grammar/package "php",
           :yang.grammar/entries {:module "htmlDocument"},
           :yang.grammar/export-profile :yang.cst/v1,
           :yang.grammar/targets #{:java :javascript}}
-         :yang.frontend/lowering-profile :yang.php/antlr
-         :yang.frontend/runtime-profile :yang.php/antlr
-         :yang.frontend/support-profile :yang.php/antlr))
+         :yang.frontend/lowering-profile descriptor-address
+         :yang.frontend/runtime-profile runtime-address
+         :yang.frontend/support-profile descriptor-address))
+
+
+#?(:cljd nil
+   :jolt nil
+   :default
+   (defn- install-php
+     [catalog id]
+     (let [{:keys [descriptor] :as profile} (php.profiles/builtin id)
+           manifest (php-manifest id profile)
+           legacy? (= id php.contract/legacy-id)]
+       (frontend/install catalog manifest
+                         (cond-> {:parse (fn [source]
+                                           (php.profiles/verify-builtin! id)
+                                           (php.antlr.cst/parse-source source))
+                                  :lower (fn [packet]
+                                           (php.profiles/verify-builtin! id)
+                                           (php.antlr.lower/lower-packet packet {:descriptor descriptor}))
+                                  :derive (fn [packet ast] (php.profiles/derivation manifest profile packet ast))
+                                  :render (if legacy?
+                                            :php/out
+                                            (fn [{:php/keys [out uncaught]}]
+                                              (if uncaught (str out "Error: " (pr-str uncaught)) out)))}
+                           (not legacy?) (assoc :admit clj-runtime/admit))))))
 
 
 (defn- parse-python
@@ -179,11 +204,8 @@
                   true (frontend/install (clojure-manifest) (clojure-binding))
                   #?@(:cljd []
                       :jolt []
-                      :default [true (frontend/install
-                                       (php-manifest)
-                                       {:parse php.antlr.cst/parse-source
-                                        :lower php.antlr.lower/lower-packet
-                                        :render :php/out})]))]
+                      :default [true (install-php php.contract/legacy-id)
+                                true (install-php php.contract/clojure-id)]))]
     (cond-> catalog
       #?(:jolt (python.parser/available?) :default true)
       (-> (install-python python.contract/legacy-id)
@@ -191,7 +213,16 @@
           (assoc :yang.frontend/preferred [:yang/python "clojure-core-v1"]))
       #?@(:cljd []
           :jolt []
-          :clj [true (ts.frontend/install ts.cst/grammar-id ts.cst/parse-source)]))))
+          :clj [true (ts.frontend/install ts.cst/grammar-id ts.cst/parse-source)])
+      #?@(:cljd []
+          :jolt []
+          :default [true (update :yang.frontend/preferred
+                                 (fn [preference]
+                                   (assoc (cond
+                                            (map? preference) preference
+                                            (vector? preference) (apply hash-map preference)
+                                            :else {})
+                                          :yang/php (name php.contract/clojure-id))))]))))
 
 
 (defn create-state

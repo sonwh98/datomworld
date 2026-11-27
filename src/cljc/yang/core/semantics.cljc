@@ -9,18 +9,21 @@
             [yin.vm.module :as module]))
 
 
-(defn- refuse! [defect evidence]
+(defn- refuse!
+  [defect evidence]
   (throw (ex-info "Semantics descriptor refused"
                   (frontend/refused :yang.semantics/invalid-descriptor
                                     (assoc evidence :defect defect)))))
 
 
-(defn- address-matches? [address value]
+(defn- address-matches?
+  [address value]
   (and (jing/segment-address? address)
        (jing/segment-bytes-match? address (jing/canonical-bytes value))))
 
 
-(defn capability [descriptor key]
+(defn capability
+  [descriptor key]
   (get-in descriptor [:yang.semantics/capabilities key] :refused))
 
 
@@ -40,7 +43,8 @@
                       (u/app (u/v (:overflow-op strategy)) (u/lit overflow-operand)))))))
 
 
-(defn- literal-strategy? [[_ strategy]]
+(defn- literal-strategy?
+  [[_ strategy]]
   (and (map? strategy)
        (case (:kind strategy)
          :raw (every? #{:kind :value} (keys strategy))
@@ -53,12 +57,15 @@
          false)))
 
 
-(defn- module-symbol? [x] (and (symbol? x) (nil? (namespace x))))
+(defn- module-symbol?
+  [x]
+  (and (symbol? x) (nil? (namespace x))))
 
 
-(defn- validate-schema! [descriptor]
+(defn- validate-schema!
+  [descriptor]
   (let [{:yang.semantics/keys [schema id syntax prelude-module ambient-modules capabilities
-                              literals hooks ambient-projections]} descriptor]
+                               literals hooks ambient-projections]} descriptor]
     (when-not (and (= #{:yang.semantics/schema :yang.semantics/id :yang.semantics/syntax
                         :yang.semantics/prelude-module :yang.semantics/ambient-modules
                         :yang.semantics/capabilities :yang.semantics/literals
@@ -89,13 +96,15 @@
       (refuse! :schema {}))))
 
 
-(defn- qualified-hook! [target]
+(defn- qualified-hook!
+  [target]
   (when-not (qualified-symbol? target)
     (throw (ex-info "Semantics hooks must be namespace-qualified"
                     (frontend/refused :yang.semantics/unqualified-hook {:target target})))))
 
 
-(defn- reserved? [target]
+(defn- reserved?
+  [target]
   (let [ns-name (namespace target)]
     (or (= target 'yin/def)
         (str/starts-with? (name target) "dsg__")
@@ -103,7 +112,8 @@
         (some #(str/ends-with? ns-name %) [".rt" ".b" ".impl"]))))
 
 
-(defn- definitions [tree]
+(defn- definitions
+  [tree]
   (when-not (and (= :application (:type tree))
                  (= :lambda (get-in tree [:operator :type])))
     (refuse! :module-shape {}))
@@ -118,7 +128,8 @@
           {} (:operands tree)))
 
 
-(defn- verified-definitions [store address manifest]
+(defn- verified-definitions
+  [store address manifest]
   (let [root (:yin.module/tree manifest)
         tree (get store root)
         rows (try
@@ -132,13 +143,15 @@
     (definitions (vm/semantic-bytecode->ast rows))))
 
 
-(defn- closure [descriptor store]
+(defn- closure
+  [descriptor store]
   (let [pins (:yang.semantics/ambient-modules descriptor)
         addresses (into {} (map (juxt :module :address)) pins)
         root (:yang.semantics/prelude-module descriptor)]
     (when (or (not= (count pins) (count addresses)) (not (contains? addresses root)))
       (refuse! :module-pins {}))
-    (letfn [(visit [modules active sym address]
+    (letfn [(visit
+              [modules active sym address]
               (when (or (not= address (get addresses sym)) (contains? active sym))
                 (refuse! :module-pins {:module sym :address address}))
               (if (contains? modules sym)
@@ -162,7 +175,8 @@
         modules))))
 
 
-(defn- export! [modules target]
+(defn- export!
+  [modules target]
   (let [entry (get modules (symbol (namespace target)))
         exported (symbol (name target))]
     (when-not (and (contains? (:exports entry) exported)
@@ -171,12 +185,14 @@
     [(:address entry) (get-in entry [:definitions exported])]))
 
 
-(defn- authorize! [roles address target role]
+(defn- authorize!
+  [roles address target role]
   (when-not (contains? roles [address target role])
     (refuse! :export-role {:address address :target target :role role})))
 
 
-(defn- host-arity? [arities n]
+(defn- host-arity?
+  [arities n]
   (let [fixed (filter int? arities)]
     (or (some #{n} fixed)
         (and (some #{:variadic} arities)
@@ -184,14 +200,22 @@
              (<= (apply max fixed) n)))))
 
 
-(defn- callable! [modules store registry roles target role {:keys [arity params call-shapes operands]}]
+(defn- callable!
+  [modules store registry roles target role {:keys [arity params call-shapes operands]}]
   (qualified-hook! target)
   (when (reserved? target) (refuse! :reserved-door {:target target}))
   (let [host-address (when-not (contains? modules (symbol (namespace target)))
                        (module/host-export-profile registry target))
         [address node] (if host-address [host-address nil] (export! modules target))
         shapes (or call-shapes #{arity})]
-    (when (and operands (not (contains? shapes (count operands))))
+    (cond
+      (map? operands)
+      (when-not (and (= shapes (set (keys operands)))
+                     (every? (fn [[argc slots]] (and (vector? slots) (= argc (count slots))))
+                             operands))
+        (refuse! :arity {:target target :call-shapes shapes}))
+
+      (and operands (not (contains? shapes (count operands))))
       (refuse! :arity {:target target :call-shape (count operands)}))
     (if host-address
       (let [profile (get store host-address)]
