@@ -116,16 +116,62 @@ parent `e457adc9`. Landing it on `main` is a fast-forward. Local worktree:
   defrecord false; the two-row reproduction returns `true` with no hang; an
   arm whose predicate calls `sorted?` followed by `instance?` on a defrecord
   returns normally.
-- All of this on darwin-arm64 only. Linux and Android are unverified until CI
-  runs.
+- The cross-family reviewer re-ran `make unit` twice on the same bytes:
+  `2828/2828` (152 s and 161 s). It did not run `sorted-test.ss`.
+- All of this on darwin-arm64 only. The fix branch's own CI run
+  (`45965692509`, started 2026-11-27 08:26 GMT, all shards) had not finished
+  when this was written. Read it before you trust Linux, Android or Windows:
+
+      gh run view 45965692509 --repo sonwh98/jolt --json jobs --jq '.jobs[] | "\(.conclusion)\t\(.name)"'
+
+### The cross-family review: done, ACCEPT-WITH-NOTES
+
+Report, verbatim:
+`collab/jolt/1795765315502-reviewer-fork-sorted-fix-glm.findings.md`
+(glm-5.3-flash subagent, 2026-11-27 08:30 GMT, on the bytes of `00cb20b9`).
+Its conclusion is to land the commit and close these four notes by
+follow-up. Only note 2 changes what the fork answered before the fix.
+
+1. A hang of the same kind remains for one type shape: a deftype, defrecord
+   or reify that has a `seqFrom` method but does not declare
+   `clojure.lang.Sorted`, asked through a registered arm whose predicate or
+   check calls `sorted?`. The reviewer reproduced it six ways, and found no
+   such type in the repo or in the local library sources. In its probes,
+   values without `seqFrom`, types that declare `Sorted` and have
+   `seqFrom`, and proxies did not hang. Suggested close: keep `sorted?` out
+   of the arm walk with a host predicate that asks whether the type
+   declares `Sorted` (what `own-type-declares?` computes,
+   `host/chez/java/records-interop.ss` lines 116 to 130, plus a proxy's
+   declared supers), or at minimum a re-entrancy flag. The declaration-based
+   check would also close note 2. It is a new host primitive on two hosts:
+   one engineer round and one cross-family review.
+2. The JVM gap described below is wider than the outgoing seat told the
+   owner. The comment at `jolt-core/clojure/core/25-sorted.clj` lines 219
+   to 224 still says "Any deftype/reify declaring Sorted qualifies", which
+   the guard made untrue. Correct it in the same round. Keep the line count
+   if you want the seeds to stay byte-identical.
+3. `reversible?` is `(or (vector? x) (sorted? x))` since the fork's own
+   `46d4090b`. The JVM answers `instance? Reversible`. For a user type that
+   is `Sorted` but not `Reversible`, jolt says true and the JVM says false,
+   and `(rseq x)` then throws `ClassCastException`. Older than this fix.
+4. The isolated-row probe script in the agy brief (its section 5) has a
+   watchdog that never fires. The reviewer measured that `(sleep 25)`
+   raises on this Chez, because `sleep` wants a time record, and that
+   `(exit 3)` from a non-primordial thread is ignored while the main
+   thread is busy. The script's "returns normally" results stand, because
+   those processes did return. Do not reuse it for a hang. Copy the gate's
+   watchdog, `host/chez/run-unit.ss` lines 71 to 84.
 
 ### What is NOT done
 
-- The cross-family review. A glm subagent was reviewing the change when the
-  seat ran out of credits. Its result was never captured. Either re-run a
-  short independent review, or accept the evidence above and say in your log
-  that you skipped the review.
-- The push to `main`.
+- The push to `main`, unless the outgoing seat finished it after this was
+  written. Check first:
+
+      git -C /Users/sto/workspace/jolt fetch origin
+      git -C /Users/sto/workspace/jolt rev-parse --short origin/main
+
+  `00cb20b9` means it landed: do step 4 of the steps below. `e457adc9`
+  means it did not: do steps 1 to 4.
 - The CI result on `main`.
 
 ### Steps
@@ -166,12 +212,17 @@ parent `e457adc9`. Landing it on `main` is a fast-forward. Local worktree:
 
 ### Known difference from the JVM, deliberate
 
-A `defrecord` that declares `clojure.lang.Sorted` and implements none of its
-methods gives `(sorted? r)` false, where the JVM says true. Before the fix the
-fork answered true there (when it did not hang). Closing it would need a new
-host primitive in upstream-owned code on two hosts. jolt's own `ifn?` makes
-the same tradeoff for `IFn`, so the outgoing seat judged it not worth a wider
-change. Tell the owner; it is their call if they want it closed.
+A type that declares `clojure.lang.Sorted` and implements none of its
+methods gives `(sorted? x)` false, where the JVM says true. The reviewer ran
+both sides for defrecord, deftype and reify; a proxy follows from the JVM
+definition of `sorted?` and was not run. Before the fix the fork answered
+true there (when it did not hang). On the JVM such a type throws
+`AbstractMethodError` on its first `Sorted` call, so it is a broken type
+either way, and no library instance was found: data.priority-map 1.1.0 and
+1.2.0 implement `seqFrom`. jolt's own `ifn?` makes the same tradeoff for
+`IFn`. The outgoing seat told the owner about the defrecord case only. Tell
+them the full shape. It is their call if they want it closed; review note 1
+says how.
 
 --------------------------------------------------------------------------------
 ## 3. Second job: the Guile port
@@ -203,25 +254,35 @@ says so.
    accepted. The Guile brief makes this its phase 0.4. The gates the outgoing
    seat ran on it: `gambitdht-durable` PASS, `gambityinrepl` PASS, and the
    stage-1 matrix green, on darwin-arm64 only.
-2. The datomworld pin is behind the work. `jolt-toolchain.edn` points at
+2. Fork `main` follow-up from the cross-family review. Its four notes are in
+   section 2 under the review: the residual hang for a type with `seqFrom`
+   but no declared `Sorted`; the untrue comment and the JVM gap in
+   `sorted?`; `reversible?` differing from the JVM; the probe watchdog.
+   None blocks the landing. One engineer round on a branch off the landed
+   `main`, then a cross-family review. The owner's constraint still holds:
+   no file under `test/`, so the gap cannot be written into
+   `test/conformance/known-divergences.edn` without the owner's word.
+3. The datomworld pin is behind the work. `jolt-toolchain.edn` points at
    `25c3a8b7` (branch `gambit-ffi-p1-store-swap`), which has yin.repl on
    Gambit but not DHT sessions, durable stores or the compiled boot. The
    owner asked for the pin to be advanced and said "go"; the consolidation
    had to come first and was never finished. The Guile brief's section 6.10
    says when and how to advance it. Do not advance it before item 1 is
    reviewed.
-3. Fork `main` is 86 or more commits behind upstream again. The owner asked
+4. Fork `main` is 86 or more commits behind upstream again. The owner asked
    once for a sync. Re-syncing is not authorized by this handoff; the Guile
    brief's section 6.2 explains why the host lineages are not based on
    `main`. If you do sync again: never resolve a whole file with `--ours` or
    `--theirs`, and run `make unit` yourself before pushing.
-4. The two fork-only fixes are not upstream. The owner asked whether they are
+5. The two fork-only fixes are not upstream. The owner asked whether they are
    still needed: yes. Upstream's `sorted?` does not honor `clojure.lang.Sorted`
    for user types, and upstream lacks the fork's assoc-on-deftype fix
    (`dd605630` on the FFI lineage). Upstreaming them is the owner's decision.
-5. Leftover worktrees from this seat, to remove once their branches are on
+6. Leftover worktrees from this seat, to remove once their branches are on
    origin and their trees are clean: `jolt-syncfix` (remove after section 2
-   lands), `jolt-bisect` and `jolt-upstream-ref` (experiment trees, detached,
+   lands and `main`'s CI is green; then delete the remote branch with
+   `git -C /Users/sto/workspace/jolt push origin --delete fix/sync-restore-tree-sorted-dispatch`),
+   then `jolt-bisect` and `jolt-upstream-ref` (experiment trees, detached,
    safe to remove now). Others (`jolt-ffi-p1c`, `-p1e`, `-p1f`, `-p2`,
    `-p2b`, `-p2final`, `-allowfix`) belong to the FFI lineage; keep `-p2final`
    until the Guile brief's phase 0 is done. Check `git status` in each before
@@ -237,8 +298,8 @@ the ones that bit this seat hardest.
 - Follow `docs/agents/roles/orchestrator.md`. Create your own session log at
   `orchestrator-logs/<unix-ms>-<agent>-<model>-<description>.md` and keep it
   current. The outgoing seat let its log fall eight days behind; its last
-  entry catches up, but reading the log alone is not enough to reconstruct
-  that week.
+  two entries catch up, but reading the log alone is not enough to
+  reconstruct that week.
 - Evidence over inference. The outgoing seat told the owner twice that the
   red CI was a pre-existing upstream divergence. It was not. It had compared
   no run on upstream, and it had misread the certify oracle's informational
@@ -249,7 +310,10 @@ the ones that bit this seat hardest.
   prefix of rows, then narrow. The driver is gone from `/tmp`, but its shape
   is simple: load what `host/chez/run-unit.ss` loads, evaluate rows 0..N with
   `jolt-compile-eval` and `zj-reset!` after each, then the target row under a
-  watchdog thread started at the beginning, as the gate does.
+  watchdog thread started at the beginning, as the gate does. In a probe
+  script, give that thread `(sleep (make-time 'time-duration 0 25))`: the
+  reviewer measured that a bare `(sleep 25)` raises on this Chez, and the
+  watchdog dies before it can fire.
 - After any edit under `jolt-core/`, re-mint (`sh host/chez/remint.sh` with
   `JOLT_CHEZ` set) before trusting a gate.
 - Background shells start without the node tree. Prefix delegate commands:
@@ -270,8 +334,8 @@ the ones that bit this seat hardest.
 
 - The outgoing seat's log (start at its last entry):
   `orchestrator-logs/1795015483992-zcode-glm-5.3-flash-gambit-ffi-orchestration.md`
-- The hang: the agy brief and findings and the glm review brief:
-  `collab/jolt/1795763090696-*`, `collab/jolt/1795765315502-*`
+- The hang: the agy brief and findings (`collab/jolt/1795763090696-*`), and
+  the glm review brief and its report (`collab/jolt/1795765315502-*`)
 - The Gambit lane's whole record is indexed in section 10 of the Guile brief.
 
 --------------------------------------------------------------------------------
