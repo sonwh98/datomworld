@@ -30,7 +30,6 @@
             ["@codemirror/view" :refer [EditorView]]
             ["@nextjournal/lang-clojure" :refer [clojure]]
             ["codemirror" :refer [basicSetup]]
-            [cljs.reader :as reader]
             [clojure.string :as str]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ringbuffer]
@@ -78,7 +77,7 @@
    the transport, and a VM built without one cannot create streams."
   [_vm-key]
   (semantic/create-vm
-    {:primitives vm/primitives,
+    {:primitives (merge vm/primitives yang/primitives),
      :modules (module/register-stream-module (module/default-registry)),
      :make-stream make-stream,
      :capability-secret (str (random-uuid))}))
@@ -270,7 +269,7 @@
 (defn compile-source
   [state]
   (try
-    (let [forms (reader/read-string (str "[" (:source-code state) "]"))
+    (let [forms (yang/read-forms (:source-code state))
           ast (yang/compile-program forms)
           datoms (vm/ast->datoms ast)]
       (assoc (fresh-run state)

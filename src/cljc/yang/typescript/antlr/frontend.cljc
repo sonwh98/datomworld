@@ -12,7 +12,8 @@
 (def id :yang/typescript)
 
 
-(defn- manifest [revision grammar {:keys [descriptor-address runtime-address]}]
+(defn- manifest
+  [revision grammar {:keys [descriptor-address runtime-address]}]
   {:yang.frontend/id id
    :yang.frontend/spi 1
    :yang.frontend/revision (name revision)
@@ -27,12 +28,14 @@
    :yang.frontend/support-profile descriptor-address})
 
 
-(defn- render-js [value]
+(defn- render-js
+  [value]
   (let [{:js/keys [out uncaught]} (render/output value)]
     (str/join "\n" (cond-> out uncaught (conj (str "Uncaught " uncaught))))))
 
 
-(defn- install-revision [catalog revision grammar parse-source]
+(defn- install-revision
+  [catalog revision grammar parse-source]
   (let [profile (profiles/builtin revision)
         manifest (manifest revision grammar profile)]
     (frontend/install

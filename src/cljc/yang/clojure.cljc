@@ -30,12 +30,13 @@
   (:refer-clojure :exclude [compile])
   (:require #?@(:jolt []
                 :cljd []
-                :clj [[clojure.tools.reader :as treader]
-                      [clojure.tools.reader.reader-types :as rt]]
-                :cljs [[cljs.tools.reader :as treader]
-                       [cljs.tools.reader.reader-types :as rt]])
+                :clj [[yang.clojure.reader :as clj-reader]]
+                :cljs [[yang.clojure.reader :as clj-reader]])
+            [dao.host.integer :as host-int]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [yang.clojure.core-module :as core-module]
+            [yang.clojure.numeric :as numeric]
             [yang.clojure.prelude :as prelude]
             [yang.core.prelude :as core]
             [yang.core.uast :as u]
@@ -267,10 +268,21 @@
                                   {:declared? true})))
 
 
+(defn- numeric-carrier?
+  "True when `form` is a Jing/host numeric carrier that is not a host
+   `number?` on every host (JS Float64, Decimal, Rational, or BigInt)."
+  [form]
+  (or (cbor/float64? form)
+      (cbor/decimal? form)
+      (cbor/ratio? form)
+      (host-int/big-carrier? form)))
+
+
 (defn literal?
   "Check if a value is a literal (self-evaluating)."
   [form]
   (or (number? form)
+      (numeric-carrier? form)
       (string? form)
       (true? form)
       (false? form)
@@ -283,15 +295,15 @@
 
 (defn constant-form?
   "True when compiling `form` yields a fixed value independent of the
-   environment: scalars, quoted forms, and collections built entirely from
-   constants. A symbol is never constant (it is a variable reference). A
-   `quote` counts as constant only at the top level: nested inside a
-   collection it must reach compile-form so the quote is stripped and the
-   inner form evaluated as data."
+   environment: scalars (including Jing/host numeric carriers), quoted forms,
+   and collections built entirely from constants. A symbol is never constant
+   (it is a variable reference). A `quote` counts as constant only at the top
+   level: nested inside a collection it must reach compile-form so the quote
+   is stripped and the inner form evaluated as data."
   ([form] (constant-form? form true))
   ([form top-level?]
    (cond
-     (or (nil? form) (number? form) (string? form)
+     (or (nil? form) (number? form) (numeric-carrier? form) (string? form)
          (true? form) (false? form) (keyword? form)) true
      (and (seq? form) (empty? form)) true
      (seq? form) (and top-level? (= 2 (count form)) (= 'quote (first form)))
@@ -865,7 +877,8 @@
   8)
 
 
-(defn- core-source-name [env sym]
+(defn- core-source-name
+  [env sym]
   (when (and (::outcomes env)
              (symbol? sym)
              (not (contains? (locals env) sym))
@@ -1875,12 +1888,12 @@
   (when-not (or (seq macros)
                 (some #(and (seq? %) (= 'defmacro (first %))) forms))
     (let [values (into #{} (keep (fn [form]
-                                  (when (and (seq? form) (= 'def (first form)))
-                                    (second form))))
+                                   (when (and (seq? form) (= 'def (first form)))
+                                     (second form))))
                        forms)]
       (into #{}
             (comp (filter #(and (seq? %) (#{'defn 'defn-} (first %))
-                               (symbol? (second %))))
+                                (symbol? (second %))))
                   (map (comp strip-symbol-meta second))
                   (remove values))
             forms))))
@@ -1974,7 +1987,7 @@
   [ast linked?]
   (let [core-names (core-module/referenced-exports (core/free-names ast))
         body (u/let1 'dsg__ex_message (u/sexp->uast ex-message-form)
-               (u/let1 'dsg__ex_data (u/sexp->uast ex-data-form) ast))
+                     (u/let1 'dsg__ex_data (u/sexp->uast ex-data-form) ast))
         unit (u/app (u/v 'clj/run-source-unit) (u/lam [] body))]
     (cond
       (and linked? (seq core-names))
@@ -2067,10 +2080,24 @@
 (def kind-arities prelude/kind-arities)
 
 
+(def primitives
+  "Carrier-aware numeric primitives scoped to the repaired Clojure frontend
+   profile (`c1-3`), routing floating-point arithmetic, comparisons, and
+   kind-strict `=` / cross-kind `==` through the portable `yin.vm.float`,
+   `yin.vm.integer`, and `yin.vm.data` kernels with results reboxed as Jing
+   `float64` content. Does not mutate `yin.vm/primitives`."
+  numeric/primitives)
+
+
 (defn compile
   "Main compiler entry point.
 
-  Compiles a Clojure form into Yin VM Universal AST.
+  Compiles a Clojure form into Yin VM Universal AST. Admits Jing numeric
+  carriers (`cbor/float64`, `cbor/decimal`, `cbor/ratio`, and exact big
+  integers) directly, nested, and quoted. On JavaScript, a bare integral
+  Number denotes exact integer content; callers intending float64 content
+  through the forms API must supply `dao.jing.cbor/float64` (or read from
+  source text via `read-forms`).
 
   Examples:
     (compile 42)
@@ -2133,26 +2160,26 @@
 
 
 (defn read-forms
-  "Every form `source` text reads. The reader is the parser: a malformed
-   source throws, as any frontend's refused parse does.
+  "Read every form of Clojure `source` text through the frontend-owned,
+   token-aware reader (`yang.clojure.reader`), preserving binary64 float
+   literal kind (including integral floats such as `0.0`, `1.0`, `1e0`,
+   `-0.0`, and floats at/beyond 2^53), exact integers/bigints, decimals,
+   and ratios before collection construction or lowering. Malformed source
+   throws an explicit reader refusal.
 
-   Source-string compilation is a JVM/Node capability (tools.reader is
-   an mvn dependency, absent from the jolt host's source-root classpath
-   — the jolt lane loads compiled output and ships source strings to
-   remote evaluators, so this is unreachable there; the honest error
-   says so if ever reached)."
-  [source]
-  #?(:cljd (throw (ex-info "Source-string compilation requires the JVM/Node reader; ClojureDart compiles from forms"
-                           {:yang.clojure/reader :unavailable-on-cljd}))
-     :jolt (throw (ex-info "Source-string compilation requires the JVM/Node reader; the jolt host compiles from forms or delegates source reading to its remote evaluators"
-                           {:yang.clojure/reader :unavailable-on-jolt}))
-     :default
-     (let [rd (rt/string-push-back-reader source)]
-       (loop [forms []]
-         (let [form (treader/read rd false ::eof)]
-           (if (= form ::eof)
-             forms
-             (recur (conj forms form))))))))
+   Source-string reading is a JVM/Node capability (`:source-text`);
+   ClojureDart and Jolt operate in `:forms-only` mode (compiling explicit
+   carrier forms or loading precompiled artifacts, and delegating source
+   parsing to remote evaluators), throwing an honest capability refusal if
+   called directly."
+  ([source] (read-forms source nil))
+  ([source opts]
+   #?(:cljd (throw (ex-info "Source-string compilation requires the JVM/Node reader; ClojureDart compiles from forms"
+                            {:yang.clojure/reader :unavailable-on-cljd}))
+      :jolt (throw (ex-info "Source-string compilation requires the JVM/Node reader; the jolt host compiles from forms or delegates source reading to its remote evaluators"
+                            {:yang.clojure/reader :unavailable-on-jolt}))
+      :default
+      (clj-reader/read-forms source opts))))
 
 
 (defn top-level-names

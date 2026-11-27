@@ -13,6 +13,9 @@
             #?(:cljd [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
             [clojure.string :as str]
+            #?@(:cljs [[dao.host.integer :as host-int]
+                       [dao.jing.cbor :as cbor]
+                       [yin.vm.float :as vm-float]])
             [dao.jing :as jing]
             [dao.pretty :as pretty]
             [dao.stream :as stream]
@@ -325,8 +328,6 @@
   (:call-provenance-failures state))
 
 
-
-
 (defn- retention-notice
   "The round's Warning line for its retention `failures`, or nil."
   [failures]
@@ -598,17 +599,35 @@
           :else (into {} entries))))
 
 
+#?(:cljs
+   (def ^:private float-format-fn (get vm-float/float-module 'format)))
+
+
+#?(:cljs
+   (defn- float-display-text
+     "Portable REPL display text for float64 content `x`, preserving `.0` and
+      signed zero `-0.0` across hosts."
+     [x]
+     (let [v (data/float-value x)]
+       (cond
+         (host-int/nan-float? v) "##NaN"
+         (host-int/infinite-float? v) (if (neg? v) "##-Inf" "##Inf")
+         :else (float-format-fn (cbor/float64 v))))))
+
+
 (defn- quote-symbols
   "`quoted?` is true inside a `(quote ...)` form: its symbols print as they
    are, but host functions at any depth still become the marker."
   [namer quoted? x]
   (cond (symbol? x) (if quoted? x (list 'quote x))
         (fn? x) (host-fn-marker namer x)
+        #?@(:cljs [(cbor/float64? x) (DisplayKey. (float-display-text x) 0)])
         ;; a closure or continuation is opaque: its kind, never its payload,
         ;; a captured value or its owner tag
         (values/host-typed? x)
         (typed-map [[:type (if (values/closure? x) :closure :continuation)]])
         (vector? x) (mapv #(quote-symbols namer quoted? %) x)
+        (set? x) (into #{} (map #(quote-symbols namer quoted? %)) x)
         (map? x)
         (render-map
           ;; not `contains?`: on a sorted map with non-keyword keys it throws
@@ -1332,6 +1351,10 @@
 
 (defn read-forms
   "The forms of one input line, as a vector, read by the host reader.
+   Used by the shell for command sniffing, datom-stream/AST-map detection,
+   and forms-only frontends (`:input :forms`); source-text frontends such
+   as `:yang/clojure` c1-3 on JVM/Node receive the original source string
+   through their own `:parse` stage (`yang.clojure/read-forms`).
    Public so the cross-host reader tests can compare the forms, metadata
    included, that each host reads."
   [input]
@@ -2154,81 +2177,81 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   ;; evaluator stage already completed retention.
   (let [latest (volatile! expanded)]
     (try
-    (let [gaps-before (ingress-gaps expanded)
-          evaluated (do (vreset! latest (run-evaluator-stage expanded latest))
-                        @latest)
-          vm (:vm evaluated)]
-      (cond
-        (> (ingress-gaps evaluated) gaps-before)
-        [(assoc evaluated :ingress-loss? true)
-         (str "Error: " ingress-loss-text)]
+      (let [gaps-before (ingress-gaps expanded)
+            evaluated (do (vreset! latest (run-evaluator-stage expanded latest))
+                          @latest)
+            vm (:vm evaluated)]
+        (cond
+          (> (ingress-gaps evaluated) gaps-before)
+          [(assoc evaluated :ingress-loss? true)
+           (str "Error: " ingress-loss-text)]
 
-        (vm/halted? vm)
-        (finalize-eval state evaluated
-                       (engine/restore-initial-env (:env (:vm expanded)) vm))
+          (vm/halted? vm)
+          (finalize-eval state evaluated
+                         (engine/restore-initial-env (:env (:vm expanded)) vm))
 
-        (or (link-waiting? vm) (query/waiting? vm))
-        (let [[state' vm' pending] (drive-links evaluated vm false)
-              _ (vreset! latest state')]
-          (cond
-            (vm/halted? vm')
-            (finalize-eval state
-                           (assoc state' :vm vm')
-                           (tokenize state'
-                                     (engine/restore-initial-env
-                                       (:env (:vm expanded)) vm')))
+          (or (link-waiting? vm) (query/waiting? vm))
+          (let [[state' vm' pending] (drive-links evaluated vm false)
+                _ (vreset! latest state')]
+            (cond
+              (vm/halted? vm')
+              (finalize-eval state
+                             (assoc state' :vm vm')
+                             (tokenize state'
+                                       (engine/restore-initial-env
+                                         (:env (:vm expanded)) vm')))
 
-            (or (link-waiting? vm') (query/waiting? vm'))
-            (pending-eval state state' vm' pending)
+              (or (link-waiting? vm') (query/waiting? vm'))
+              (pending-eval state state' vm' pending)
 
-            :else (throw (wedged-program state))))
+              :else (throw (wedged-program state))))
 
-        :else (throw (wedged-program state))))
-    (catch #?(:cljd Object :clj Exception :cljs js/Error) error
-      ;; a link raise rolls the shell back to the round's base; the
-      ;; identity the interrupted VM had minted rides on it, so nothing
-      ;; is minted twice on the surviving pair.  Retention evidence
-      ;; is read EXCLUSIVELY from @latest (r11) -- the shell-owned
-      ;; accumulator this evaluation's stages merged, the evaluator
-      ;; stage recording what its loaders completed before rethrowing
-      ;; -- and never from the exception payload: no throw a program,
-      ;; its renderer or its result formatting produces can fabricate
-      ;; handles, diagnostics or a Warning
-      (let [d (ex-data error)
-            base (query/discard-answers
-                   (if (or (::link-counter d) (::link-origins d))
-                     (carry-link-identity
-                       (:vm state)
-                       {:id-counter (::link-counter d)
-                        :origins (::link-origins d)})
-                     (:vm state))
-                   (:query-pair expanded))]
-        (consume-failed-round (carry-served
-                                (cond-> (assoc expanded :vm base)
-                                  ;; r3+r4 F4: handles completed
-                                  ;; before the throw ride the recovered
-                                  ;; session: @latest is the latest known
-                                  ;; state of this evaluation, never only
-                                  ;; the pre-evaluator `expanded`
-                                  (seq (:call-provenance-handles @latest))
-                                  (update :call-provenance-handles
-                                          merge
-                                          (:call-provenance-handles @latest))
-                                  ;; r8 F1: failures the stages recorded
-                                  ;; before the throw ride recovery the
-                                  ;; same way, so the diagnostic -- and
-                                  ;; its round Warning -- survives exactly
-                                  ;; once
-                                  (seq (:call-provenance-failures @latest))
-                                  (assoc :call-provenance-failures
-                                         (:call-provenance-failures @latest))
-                                  (seq (:call-provenance-round-failures
-                                        @latest))
-                                  (assoc :call-provenance-round-failures
-                                         (:call-provenance-round-failures
-                                           @latest)))
-                                d)
-                              error))))))
+          :else (throw (wedged-program state))))
+      (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+        ;; a link raise rolls the shell back to the round's base; the
+        ;; identity the interrupted VM had minted rides on it, so nothing
+        ;; is minted twice on the surviving pair.  Retention evidence
+        ;; is read EXCLUSIVELY from @latest (r11) -- the shell-owned
+        ;; accumulator this evaluation's stages merged, the evaluator
+        ;; stage recording what its loaders completed before rethrowing
+        ;; -- and never from the exception payload: no throw a program,
+        ;; its renderer or its result formatting produces can fabricate
+        ;; handles, diagnostics or a Warning
+        (let [d (ex-data error)
+              base (query/discard-answers
+                     (if (or (::link-counter d) (::link-origins d))
+                       (carry-link-identity
+                         (:vm state)
+                         {:id-counter (::link-counter d)
+                          :origins (::link-origins d)})
+                       (:vm state))
+                     (:query-pair expanded))]
+          (consume-failed-round (carry-served
+                                  (cond-> (assoc expanded :vm base)
+                                    ;; r3+r4 F4: handles completed
+                                    ;; before the throw ride the recovered
+                                    ;; session: @latest is the latest known
+                                    ;; state of this evaluation, never only
+                                    ;; the pre-evaluator `expanded`
+                                    (seq (:call-provenance-handles @latest))
+                                    (update :call-provenance-handles
+                                            merge
+                                            (:call-provenance-handles @latest))
+                                    ;; r8 F1: failures the stages recorded
+                                    ;; before the throw ride recovery the
+                                    ;; same way, so the diagnostic -- and
+                                    ;; its round Warning -- survives exactly
+                                    ;; once
+                                    (seq (:call-provenance-failures @latest))
+                                    (assoc :call-provenance-failures
+                                           (:call-provenance-failures @latest))
+                                    (seq (:call-provenance-round-failures
+                                           @latest))
+                                    (assoc :call-provenance-round-failures
+                                           (:call-provenance-round-failures
+                                             @latest)))
+                                  d)
+                                error))))))
 
 
 (defn- eval-program-round
@@ -2372,7 +2395,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   (or (:primitives (:binding (select-frontend catalog lang))) {}))
 
 
-(defn- admit-frontend [vm catalog lang]
+(defn- admit-frontend
+  [vm catalog lang]
   (if-let [admit (:admit (:binding (select-frontend catalog lang)))]
     (update vm :modules admit)
     vm))
@@ -2463,10 +2487,13 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    session's first lowering, and the preview is of the submitted form, not
    of the runtime it would run on.  The session itself is not touched."
   [state arg]
-  (let [state (assoc state :frontend-session :primed)]
+  (let [state (assoc state :frontend-session :primed)
+        binding (frontend-binding state (:lang state))]
     (cond
       (string? arg) (compile-source state arg)
       (forms-input? state) (compile-input state nil [arg])
+      (:lower-forms binding)
+      (lower-parsed state (assoc binding :lower (:lower-forms binding)) [arg])
       :else (throw (ex-info "This compile command expects a source string"
                             {:lang (:lang state) :arg arg})))))
 

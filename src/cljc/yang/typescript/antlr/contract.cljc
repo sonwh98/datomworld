@@ -198,7 +198,8 @@
           ["isSet" set?]]))
 
 
-(defn descriptor [id pins]
+(defn descriptor
+  [id pins]
   (let [legacy? (= id legacy-id)]
     {:yang.semantics/schema 1
      :yang.semantics/id id
@@ -211,7 +212,8 @@
      :yang.semantics/ambient-projections (if legacy? {} clojure-projections)}))
 
 
-(defn frontend-contract [legacy-pins clojure-pins]
+(defn frontend-contract
+  [legacy-pins clojure-pins]
   (let [grants (fn [pins descriptor]
                  (let [literal (get-in descriptor [:yang.semantics/literals :int :overflow-op])
                        grant (fn [target role]
@@ -226,7 +228,7 @@
     {:syntax :typescript
      :hooks hook-abi
      :required-hooks (into #{} (comp (filter (fn [[role _ legacy clojure cap]]
-                                                (and legacy clojure (nil? cap))))
+                                               (and legacy clojure (nil? cap))))
                                      (map first))
                            hooks)
      :literals {:int {:arity 1}}

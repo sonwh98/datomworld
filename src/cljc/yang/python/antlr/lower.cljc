@@ -66,9 +66,9 @@
     [clojure.string :as str]
     [clojure.walk :as walk]
     [dao.jing :as jing]
-    [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
+    [yang.core.numeric-token :as numeric-token]
     [yang.core.semantics :as semantics]
     [yang.python.antlr.clj-runtime :as clj-runtime]
     [yang.python.antlr.contract :as contract]
@@ -236,31 +236,35 @@
 (def ^:private app* core/app*)
 
 
-(defn- legacy? [ctx]
+(defn- legacy?
+  [ctx]
   (= contract/legacy-id (get-in ctx [:descriptor :yang.semantics/id])))
 
 
-(defn- hook [ctx role]
+(defn- hook
+  [ctx role]
   (or (get-in ctx [:descriptor :yang.semantics/hooks role])
       (unsupported! (:node ctx) (str (name role) " under " (get-in ctx [:descriptor :yang.semantics/id])))))
 
 
-(defn- hook-app [ctx role & args]
+(defn- hook-app
+  [ctx role & args]
   (apply app* (hook ctx role) args))
 
 
-(defn- literal [ctx key value]
+(defn- literal
+  [ctx key value]
   (semantics/literal (:descriptor ctx) key value))
 
 
-(defn- require-capability! [ctx cap node construct]
+(defn- require-capability!
+  [ctx cap node construct]
   (when (= :refused (semantics/capability (:descriptor ctx) cap))
     (throw (ex-info (str "Unsupported Python capability: " construct)
                     {:status :refused :reason :yang.semantics/unsupported-capability
                      :yang.python.antlr/diagnostic :yang.semantics/unsupported-capability
                      :capability cap :semantics-id (get-in ctx [:descriptor :yang.semantics/id])
                      :construct construct :node (:id node)}))))
-
 
 
 (defn- build-vector
@@ -273,7 +277,9 @@
   (hook-app ctx :op/truthy x))
 
 
-(defn- none [ctx] (literal ctx :nil nil))
+(defn- none
+  [ctx]
+  (literal ctx :nil nil))
 
 
 (def ^:private contains-rule? core/contains-rule?)
@@ -355,12 +361,8 @@
     (cond
       (str/ends-with? lower "j") (unsupported! n "imaginary literal")
       ;; Box while the grammar still distinguishes floats from integers.
-      (and (not (re-find #"^0[xob]" lower)) (re-find #"[.e]" lower))
-      (let [t (str/replace text "_" "")]
-        (literal ctx :float
-                 (cbor/float64 #?(:cljd (double/parse t)
-                                  :clj (Double/parseDouble t)
-                                  :cljs (js/parseFloat t)))))
+      (= :float64 (:kind (numeric-token/classify :python text)))
+      (literal ctx :float (numeric-token/float64-token :python text))
       :else (int-literal ctx n text))))
 
 
@@ -785,19 +787,19 @@
                         (if (= :lit (first p))
                           {:text (second p)}
                           {:node (hook-app ctx :legacy/format
-                                       (fstring-expr ctx n (second p) (nth p 2))
-                                       (literal ctx :str (nth p 3)))}))
+                                           (fstring-expr ctx n (second p) (nth p 2))
+                                           (literal ctx :str (nth p 3)))}))
                       parts)
           built (remove (fn [b] (and (contains? b :text) (= "" (:text b)))) built)]
       (case (count built)
         0 (literal ctx :str "")
         1 (or (:node (first built)) (literal ctx :str (:text (first built))))
         (hook-app ctx :legacy/str
-              (apply app* 'data/str-concat
-                     (mapv #(if (contains? % :text)
-                              (u/lit (:text %))
-                              (app* 'get (:node %) (u/lit :py/str)))
-                           built)))))))
+                  (apply app* 'data/str-concat
+                         (mapv #(if (contains? % :text)
+                                  (u/lit (:text %))
+                                  (app* 'get (:node %) (u/lit :py/str)))
+                               built)))))))
 
 
 ;; =============================================================================
@@ -846,15 +848,17 @@
       ;; a name the class body assigns: the class namespace at run time,
       ;; then globals and builtins, as Python's class-body lookup does
       :class-attr (hook-app ctx :legacy/class-ns-get (u/v (:class ctx)) (u/lit name)
-                        (u/lam [] (read-global ctx name)))
+                            (u/lam [] (read-global ctx name)))
       :global (read-global ctx name))))
 
 
-(defn- bound [ctx value]
+(defn- bound
+  [ctx value]
   (if (legacy? ctx) value (app* 'assoc (u/lit {}) (u/lit :value) value)))
 
 
-(defn- unbound [ctx]
+(defn- unbound
+  [ctx]
   (let [value (literal ctx :unbound nil)]
     (if (legacy? ctx) value (app* 'assoc (u/lit {}) (u/lit :unbound) value))))
 
@@ -1171,28 +1175,32 @@
                       call (if (zero? i)
                              (hook-app ctx :legacy/import (literal ctx :str full) delivery)
                              (hook-app ctx :legacy/import-sub (literal ctx :str full) delivery
-                                   (u/v (nth tmps (dec i)))
-                                   (literal ctx :str (last (str/split full #"\.")))))]
+                                       (u/v (nth tmps (dec i)))
+                                       (literal ctx :str (last (str/split full #"\.")))))]
                   (u/let1 (nth tmps i) call (step (inc i))))))]
       (step 0))))
 
 
-(defn- projection-value [{:keys [module export kind] :or {kind :cell-accessor}}]
+(defn- projection-value
+  [{:keys [module export kind] :or {kind :cell-accessor}}]
   (let [target (symbol (str module) (name export))]
     (if (= :cell-accessor kind) (app* target) (u/v target))))
 
 
-(defn- module-projections [ctx module]
+(defn- module-projections
+  [ctx module]
   (filter (fn [[_ projection]] (= (str (:module projection)) module))
           (sort-by key jing/canonical-compare
                    (get-in ctx [:descriptor :yang.semantics/ambient-projections]))))
 
 
-(defn- ambient-only? [ctx]
+(defn- ambient-only?
+  [ctx]
   (= :ambient-only (semantics/capability (:descriptor ctx) :modules/import)))
 
 
-(defn- ambient-import! [ctx n construct]
+(defn- ambient-import!
+  [ctx n construct]
   (throw (ex-info (str "Only projected Python imports are supported: " construct)
                   {:status :refused :reason :yang.semantics/unsupported-capability
                    :yang.python.antlr/diagnostic :yang.semantics/unsupported-capability
@@ -1200,7 +1208,8 @@
                    :construct construct :node (:id n)})))
 
 
-(defn- ambient-module [ctx node target]
+(defn- ambient-module
+  [ctx node target]
   (let [projections (module-projections ctx target)]
     (when (empty? projections) (ambient-import! ctx node target))
     (reduce (fn [m [alias projection]]
@@ -1233,18 +1242,18 @@
                                              (app* 'assoc (u/lit {}) (u/lit part) value))
                                            module (reverse (rest parts))))))
                   (import-chain ctx t nm
-                              (fn [tmps]
-                                (if as-node
-                                  ;; CPython's IMPORT_FROM per component:
-                                  ;; a rebound a.b is what x binds
-                                  (assign-name
-                                    ctx (name-of ctx as-node)
-                                    (reduce #(hook-app ctx :legacy/import-from %1
-                                                   (literal ctx :str %2))
-                                            (u/v (first tmps))
-                                            (rest (str/split nm #"\."))))
-                                  (assign-name ctx (first (name-chain nm))
-                                               (u/v (first tmps)))))))))
+                                (fn [tmps]
+                                  (if as-node
+                                    ;; CPython's IMPORT_FROM per component:
+                                    ;; a rebound a.b is what x binds
+                                    (assign-name
+                                      ctx (name-of ctx as-node)
+                                      (reduce #(hook-app ctx :legacy/import-from %1
+                                                         (literal ctx :str %2))
+                                              (u/v (first tmps))
+                                              (rest (str/split nm #"\."))))
+                                    (assign-name ctx (first (name-chain nm))
+                                                 (u/v (first tmps)))))))))
             (rules ctx das "dotted_as_name")))))
 
 
@@ -1282,19 +1291,19 @@
       (keyword? target)
       (hook-app ctx :legacy/import-fail (literal ctx :str (relative-import-texts target)))
       :else (import-chain
-        ctx n target
-        (fn [tmps]
-          (let [m (u/v (peek tmps))]
-            (if star?
-              (hook-app ctx :legacy/import-star m (u/v globals-sym))
-              (u/seq-nodes
-                (mapv (fn [ian]
-                        (let [[nm-node as-node] (rules ctx ian "name")
-                              nm (name-of ctx nm-node)]
-                          (assign-name ctx (name-of ctx (or as-node nm-node))
-                                       (hook-app ctx :legacy/import-from m
-                                             (literal ctx :str nm)))))
-                      names)))))))))
+              ctx n target
+              (fn [tmps]
+                (let [m (u/v (peek tmps))]
+                  (if star?
+                    (hook-app ctx :legacy/import-star m (u/v globals-sym))
+                    (u/seq-nodes
+                      (mapv (fn [ian]
+                              (let [[nm-node as-node] (rules ctx ian "name")
+                                    nm (name-of ctx nm-node)]
+                                (assign-name ctx (name-of ctx (or as-node nm-node))
+                                             (hook-app ctx :legacy/import-from m
+                                                       (literal ctx :str nm)))))
+                            names)))))))))
 
 
 (defn- lower-del-target
@@ -1341,7 +1350,8 @@
 (declare lower-block lower-call lower-comprehension)
 
 
-(defn- extend-vector [ctx n prefix values]
+(defn- extend-vector
+  [ctx n prefix values]
   (if (legacy? ctx)
     (hook-app ctx :legacy/extend prefix values)
     (let [acc (gen "extend" n) item (gen "item" n)]
@@ -1414,10 +1424,10 @@
         (lower-comprehension ctx inner (if (p/token? (second parts) ":") :dict :set))
         (p/token? (second parts) ":")
         (hook-app ctx :coll/dict
-              (build-vector ctx
-                (map (fn [[k v]]
-                       (build-vector ctx [((:lower ctx) ctx k) ((:lower ctx) ctx v)]))
-                     (partition 2 (filter p/rule? parts)))))
+                  (build-vector ctx
+                                (map (fn [[k v]]
+                                       (build-vector ctx [((:lower ctx) ctx k) ((:lower ctx) ctx v)]))
+                                     (partition 2 (filter p/rule? parts)))))
         :else (hook-app ctx :coll/set (elements ctx (filter p/rule? parts)))))))
 
 
@@ -1471,9 +1481,9 @@
   [ctx s]
   (if-let [[a b c] (slice-parts ctx s)]
     (hook-app ctx :legacy/slice
-          (if a ((:lower ctx) ctx a) (none ctx))
-          (if b ((:lower ctx) ctx b) (none ctx))
-          (if c ((:lower ctx) ctx c) (none ctx)))
+              (if a ((:lower ctx) ctx a) (none ctx))
+              (if b ((:lower ctx) ctx b) (none ctx))
+              (if c ((:lower ctx) ctx c) (none ctx)))
     ((:lower ctx) ctx (first (kids ctx s)))))
 
 
@@ -1537,7 +1547,7 @@
               (when (contains? seen nm) (syntax! a (str "keyword argument repeated: " nm)))
               (recur (rest as) pos
                      (hook-app ctx :coll/vconj (or kw (u/lit []))
-                           (build-vector ctx [(u/lit nm) (lower ctx (nth ak 2))]))
+                               (build-vector ctx [(u/lit nm) (lower ctx (nth ak 2))]))
                      (conj seen nm)
                      dstar?))
             :else
@@ -1647,7 +1657,7 @@
             lower (:lower ctx)]
         (if (= 1 (count ops))
           (hook-app ctx (first ops) (lower ctx (first operands))
-                (lower ctx (second operands)))
+                    (lower ctx (second operands)))
           ;; a < b < c: each operand once, left to right, stop at false
           (letfn [(step
                     [k prev]
@@ -1813,7 +1823,7 @@
             (require-capability! ctx :mutation/attribute last-t "attribute mutation")
             (u/let1 o receiver
                     (hook-app ctx :legacy/setattr (u/v o) attr
-                          (hook-app ctx op (hook-app ctx :legacy/getattr (u/v o) attr) rhs))))
+                              (hook-app ctx op (hook-app ctx :legacy/getattr (u/v o) attr) rhs))))
           :else (unsupported! target "augmented assignment to a call"))))))
 
 
@@ -1983,20 +1993,20 @@
                       (map (fn [_] (app* 'cell/new (unbound ctx)))
                            others))]
     (hook-app ctx :fn/make
-          (u/lit fname)
-          (u/lit (cond-> {:params params}
-                   star? (assoc :star? true)
-                   (seq kwonly) (assoc :kwonly kwonly)
-                   kwstar? (assoc :kwstar? true)))
-          (build-vector ctx (map #((:lower ctx) ctx %) defaults))
-          (build-vector ctx (map (fn [[nm d]]
-                               (build-vector ctx [(u/lit nm) ((:lower ctx) ctx d)]))
-                             kwdefaults))
-          (site [:call fname (line-of ctx scope-node)]
-                (u/lam [args]
-                       (if (seq (:locals s))
-                         (apply u/app (u/lam (map symbol (:locals s)) body) cells)
-                         body))))))
+              (u/lit fname)
+              (u/lit (cond-> {:params params}
+                       star? (assoc :star? true)
+                       (seq kwonly) (assoc :kwonly kwonly)
+                       kwstar? (assoc :kwstar? true)))
+              (build-vector ctx (map #((:lower ctx) ctx %) defaults))
+              (build-vector ctx (map (fn [[nm d]]
+                                       (build-vector ctx [(u/lit nm) ((:lower ctx) ctx d)]))
+                                     kwdefaults))
+              (site [:call fname (line-of ctx scope-node)]
+                    (u/lam [args]
+                           (if (seq (:locals s))
+                             (apply u/app (u/lam (map symbol (:locals s)) body) cells)
+                             body))))))
 
 
 (defn- lower-funcdef
@@ -2015,10 +2025,10 @@
             (if (contains-rule? ctx block "return_stmt" scope-rules)
               (let [ret (gen "ret" n)]
                 (hook-app ctx :ctrl/call-ec
-                      (u/lam [ret]
-                             (u/seq-nodes
-                               (conj (lower-block (assoc fctx :ret ret) block)
-                                     (none ctx))))))
+                          (u/lam [ret]
+                                 (u/seq-nodes
+                                   (conj (lower-block (assoc fctx :ret ret) block)
+                                         (none ctx))))))
               (u/seq-nodes (conj (lower-block (assoc fctx :ret nil) block)
                                  (none ctx))))))))))
 
@@ -2174,7 +2184,7 @@
               (site :loop
                     (u/lam [w]
                            (u/if-node (truthy ctx ((:lower ctx) ctx
-                                                            (first (rules ctx n "test"))))
+                                                                (first (rules ctx n "test"))))
                                       (u/then body (u/app (u/v w) (u/v w)))
                                       orelse)))
               (u/app (u/v w) (u/v w))))))
@@ -2194,21 +2204,21 @@
     (with-break ctx body-block brk
       (if (legacy? ctx)
         (u/let1 it
-              (hook-app ctx :legacy/iterable (display ctx (first (rules ctx n "testlist"))))
-              (u/let1 w
-                      (site :loop
-                            (u/lam [w i]
-                                   (u/let1 x
-                                           (hook-app ctx :legacy/iter-at (u/v it) (u/v i))
-                                           (u/if-node
-                                             (app* '= (u/v x) (u/lit :py/stop))
-                                             orelse
-                                             (u/then (assign-target ctx target (u/v x))
-                                                     (u/then body
-                                                             (u/app (u/v w) (u/v w)
-                                                                    (app* '+ (u/v i)
-                                                                          (u/lit 1)))))))))
-                      (u/app (u/v w) (u/v w) (u/lit 0))))
+                (hook-app ctx :legacy/iterable (display ctx (first (rules ctx n "testlist"))))
+                (u/let1 w
+                        (site :loop
+                              (u/lam [w i]
+                                     (u/let1 x
+                                             (hook-app ctx :legacy/iter-at (u/v it) (u/v i))
+                                             (u/if-node
+                                               (app* '= (u/v x) (u/lit :py/stop))
+                                               orelse
+                                               (u/then (assign-target ctx target (u/v x))
+                                                       (u/then body
+                                                               (u/app (u/v w) (u/v w)
+                                                                      (app* '+ (u/v i)
+                                                                            (u/lit 1)))))))))
+                        (u/app (u/v w) (u/v w) (u/lit 0))))
         (u/then (hook-app ctx :ctrl/for-each
                           (display ctx (first (rules ctx n "testlist")))
                           (site :loop (u/lam [x] (u/then (assign-target ctx target (u/v x)) body))))
@@ -2227,10 +2237,10 @@
         blocks (rules ctx n "block")]
     (if (some #(p/token? % "finally") ks)
       (hook-app ctx :ctrl/try-finally
-            (u/lam [] (if (seq (rules ctx n "except_clause"))
-                        (lower-try-except ctx n (pop blocks))
-                        (u/seq-nodes (lower-block ctx (first blocks)))))
-            (u/lam [(gen "fx" n)] (u/seq-nodes (lower-block ctx (peek blocks)))))
+                (u/lam [] (if (seq (rules ctx n "except_clause"))
+                            (lower-try-except ctx n (pop blocks))
+                            (u/seq-nodes (lower-block ctx (first blocks)))))
+                (u/lam [(gen "fx" n)] (u/seq-nodes (lower-block ctx (peek blocks)))))
       (lower-try-except ctx n blocks))))
 
 
@@ -2244,11 +2254,11 @@
               (let [ik (kids ctx item)
                     v (gen "wv" item)]
                 (hook-app ctx :legacy/with
-                      ((:lower ctx) ctx (first ik))
-                      (u/lam [v]
-                             (if (p/has-token? (:pk ctx) item "as")
-                               (u/then (assign-target ctx (last ik) (u/v v)) inner)
-                               inner)))))
+                          ((:lower ctx) ctx (first ik))
+                          (u/lam [v]
+                                 (if (p/has-token? (:pk ctx) item "as")
+                                   (u/then (assign-target ctx (last ik) (u/v v)) inner)
+                                   inner)))))
             body
             (reverse items))))
 
@@ -2278,27 +2288,27 @@
                             ;; finally would
                             (let [nm (name-of ctx as-name)]
                               (hook-app ctx :ctrl/try-finally
-                                    (u/lam [] (u/seq-nodes
-                                                (cons (assign-name ctx nm (u/v exc))
-                                                      (lower-block hctx block))))
-                                    (u/lam [(gen "ux" clause)] (unbind-name ctx nm))))
+                                        (u/lam [] (u/seq-nodes
+                                                    (cons (assign-name ctx nm (u/v exc))
+                                                          (lower-block hctx block))))
+                                        (u/lam [(gen "ux" clause)] (unbind-name ctx nm))))
                             (u/seq-nodes (lower-block hctx block)))]
               (when (and (nil? cls-node) (> (count ck) 1))
                 (unsupported! clause "except clause"))
               (if cls-node
                 (u/if-node (hook-app ctx :legacy/exc-matches (u/v exc)
-                                 ((:lower ctx) ctx cls-node))
+                                     ((:lower ctx) ctx cls-node))
                            handler
                            fallthrough)
                 handler)))
           (hook-app ctx :ctrl/raise (u/v exc))
           (reverse (map vector clauses handler-blocks)))]
     (hook-app ctx :ctrl/try
-          (u/lam [] body)
-          (u/lam [exc] dispatch)
-          (u/lam [] (if else-block
-                      (u/seq-nodes (lower-block ctx else-block))
-                      (none ctx))))))
+              (u/lam [] body)
+              (u/lam [exc] dispatch)
+              (u/lam [] (if else-block
+                          (u/seq-nodes (lower-block ctx else-block))
+                          (none ctx))))))
 
 
 (defn- lower-flow
@@ -2369,10 +2379,10 @@
                                   (get comprehension-names (:comp ctx))))
       (nil? (:gen ctx)) (syntax! n "'yield' outside function")
       :else (hook-app ctx (if (and arg (p/has-token? (:pk ctx) arg "from"))
-                    :legacy/yield-from
-                    :legacy/yield)
-                  (u/v (:gen ctx))
-                  (if arg ((:lower ctx) ctx (first (rule-kids ctx arg))) (none ctx))))))
+                            :legacy/yield-from
+                            :legacy/yield)
+                      (u/v (:gen ctx))
+                      (if arg ((:lower ctx) ctx (first (rule-kids ctx arg))) (none ctx))))))
 
 
 ;; -----------------------------------------------------------------------------
@@ -2434,15 +2444,15 @@
                :list (hook-app ctx :comp/list-append (u/v acc) (lower cctx (first elems)))
                :set (hook-app ctx :comp/set-add (u/v acc) (lower cctx (first elems)))
                :dict (hook-app ctx :comp/dict-set (u/v acc) (lower cctx (first elems))
-                           (lower cctx (second elems)))
+                               (lower cctx (second elems)))
                :genexp (hook-app ctx :legacy/yield (u/v g) (lower cctx (first elems))))
         body (reduce (fn [inner [i [tag a b]]]
                        (if (= tag :for)
                          (let [x (gen "x" a)]
                            (hook-app ctx :ctrl/for-each
-                                 (if (zero? i) (u/v fst) (lower cctx b))
-                                 (u/lam [x] (u/then (assign-target cctx a (u/v x))
-                                                    inner))))
+                                     (if (zero? i) (u/v fst) (lower cctx b))
+                                     (u/lam [x] (u/then (assign-target cctx a (u/v x))
+                                                        inner))))
                          (u/if-node (truthy ctx (lower cctx a)) inner (none ctx))))
                      emit
                      (reverse (map-indexed vector clauses)))
@@ -2458,7 +2468,7 @@
       (u/let1 fst
               (hook-app ctx :legacy/iter outer)
               (hook-app ctx :legacy/make-generator (u/lit "<genexpr>")
-                    (u/lam [g] (with-locals body))))
+                        (u/lam [g] (with-locals body))))
       (u/let1 fst
               outer
               (with-locals
@@ -2487,73 +2497,73 @@
     (require-capability! ctx cap n (:rule n)))
   (let [ctx (assoc ctx :node n)]
     (case (:rule n)
-    ;; ---- statements
-    "file_input" (let [nodes (mapv #(lower ctx %) (rules ctx n "stmt"))]
-                   (if-let [result (:display-cell ctx)]
-                     (u/let1 result (app* 'cell/new (none ctx))
-                             (u/seq-nodes (conj nodes (app* 'cell/get (u/v result)))))
-                     (u/seq-nodes (conj nodes (none ctx)))))
-    "stmt" (lower ctx (first (kids ctx n)))
-    "simple_stmts" (u/seq-nodes (mapv #(lower ctx %)
-                                      (rules ctx n "simple_stmt")))
-    "simple_stmt" (statement ctx n (lower ctx (first (kids ctx n))))
-    "compound_stmt" (statement ctx n (lower ctx (first (kids ctx n))))
-    "flow_stmt" (lower ctx (first (kids ctx n)))
-    "expr_stmt" (let [v (lower-expr-stmt ctx n)]
-                  (if (= (:id n) (:display-id ctx))
-                    (if-let [result (:display-cell ctx)]
-                      (app* 'cell/set! (u/v result) v)
-                      (hook-app ctx :legacy/result! v))
-                    v))
-    "pass_stmt" (none ctx)
-    "break_stmt" (lower-flow ctx n)
-    "continue_stmt" (lower-flow ctx n)
-    "return_stmt" (lower-flow ctx n)
-    "raise_stmt" (lower-flow ctx n)
-    "assert_stmt" (lower-assert ctx n)
-    "yield_stmt" (lower ctx (first (kids ctx n)))
-    "yield_expr" (lower-yield ctx n)
-    ;; declarations were consumed by scope analysis
-    "global_stmt" (none ctx)
-    "nonlocal_stmt" (none ctx)
-    "if_stmt" (lower-if ctx n)
-    "while_stmt" (lower-while ctx n)
-    "for_stmt" (lower-for ctx n)
-    "try_stmt" (lower-try ctx n)
-    "with_stmt" (lower-with ctx n)
-    "funcdef" (lower-funcdef ctx n)
-    "classdef" (lower-classdef ctx n)
-    "decorated" (lower-decorated ctx n)
-    "del_stmt" (lower-del ctx n)
-    "import_stmt" ((:lower ctx) ctx (first (kids ctx n)))
-    "import_name" (lower-import ctx n)
-    "import_from" (lower-import-from ctx n)
-    ;; ---- expressions
-    "testlist_star_expr" (display ctx n)
-    "testlist" (display ctx n)
-    "exprlist" (display ctx n)
-    "star_expr" (syntax! n "can't use starred expression here")
-    "test_nocond" (lower ctx (first (kids ctx n)))
-    "lambdef_nocond" (lower-lambdef ctx n)
-    "test" (let [ks (kids ctx n)]
-             (if (= 1 (count ks))
-               (lower ctx (first ks))
-               (u/if-node (truthy ctx (lower ctx (nth ks 2)))
-                          (lower ctx (nth ks 0))
-                          (lower ctx (nth ks 4)))))
-    "lambdef" (lower-lambdef ctx n)
-    "or_test" (fold-bool ctx n true)
-    "and_test" (fold-bool ctx n false)
-    "not_test" (let [ks (kids ctx n)]
-                 (if (= 1 (count ks))
-                   (lower ctx (first ks))
-                   (hook-app ctx :op/lnot (lower ctx (second ks)))))
-    "comparison" (lower-comparison ctx n)
-    "expr" (lower-expr ctx n)
-    "atom_expr" (lower-atom-expr ctx n)
-    "atom" (lower-atom ctx n)
-    "name" (read-name ctx n (name-of ctx n))
-    (default-arm n))))
+      ;; ---- statements
+      "file_input" (let [nodes (mapv #(lower ctx %) (rules ctx n "stmt"))]
+                     (if-let [result (:display-cell ctx)]
+                       (u/let1 result (app* 'cell/new (none ctx))
+                               (u/seq-nodes (conj nodes (app* 'cell/get (u/v result)))))
+                       (u/seq-nodes (conj nodes (none ctx)))))
+      "stmt" (lower ctx (first (kids ctx n)))
+      "simple_stmts" (u/seq-nodes (mapv #(lower ctx %)
+                                        (rules ctx n "simple_stmt")))
+      "simple_stmt" (statement ctx n (lower ctx (first (kids ctx n))))
+      "compound_stmt" (statement ctx n (lower ctx (first (kids ctx n))))
+      "flow_stmt" (lower ctx (first (kids ctx n)))
+      "expr_stmt" (let [v (lower-expr-stmt ctx n)]
+                    (if (= (:id n) (:display-id ctx))
+                      (if-let [result (:display-cell ctx)]
+                        (app* 'cell/set! (u/v result) v)
+                        (hook-app ctx :legacy/result! v))
+                      v))
+      "pass_stmt" (none ctx)
+      "break_stmt" (lower-flow ctx n)
+      "continue_stmt" (lower-flow ctx n)
+      "return_stmt" (lower-flow ctx n)
+      "raise_stmt" (lower-flow ctx n)
+      "assert_stmt" (lower-assert ctx n)
+      "yield_stmt" (lower ctx (first (kids ctx n)))
+      "yield_expr" (lower-yield ctx n)
+      ;; declarations were consumed by scope analysis
+      "global_stmt" (none ctx)
+      "nonlocal_stmt" (none ctx)
+      "if_stmt" (lower-if ctx n)
+      "while_stmt" (lower-while ctx n)
+      "for_stmt" (lower-for ctx n)
+      "try_stmt" (lower-try ctx n)
+      "with_stmt" (lower-with ctx n)
+      "funcdef" (lower-funcdef ctx n)
+      "classdef" (lower-classdef ctx n)
+      "decorated" (lower-decorated ctx n)
+      "del_stmt" (lower-del ctx n)
+      "import_stmt" ((:lower ctx) ctx (first (kids ctx n)))
+      "import_name" (lower-import ctx n)
+      "import_from" (lower-import-from ctx n)
+      ;; ---- expressions
+      "testlist_star_expr" (display ctx n)
+      "testlist" (display ctx n)
+      "exprlist" (display ctx n)
+      "star_expr" (syntax! n "can't use starred expression here")
+      "test_nocond" (lower ctx (first (kids ctx n)))
+      "lambdef_nocond" (lower-lambdef ctx n)
+      "test" (let [ks (kids ctx n)]
+               (if (= 1 (count ks))
+                 (lower ctx (first ks))
+                 (u/if-node (truthy ctx (lower ctx (nth ks 2)))
+                            (lower ctx (nth ks 0))
+                            (lower ctx (nth ks 4)))))
+      "lambdef" (lower-lambdef ctx n)
+      "or_test" (fold-bool ctx n true)
+      "and_test" (fold-bool ctx n false)
+      "not_test" (let [ks (kids ctx n)]
+                   (if (= 1 (count ks))
+                     (lower ctx (first ks))
+                     (hook-app ctx :op/lnot (lower ctx (second ks)))))
+      "comparison" (lower-comparison ctx n)
+      "expr" (lower-expr ctx n)
+      "atom_expr" (lower-atom-expr ctx n)
+      "atom" (lower-atom ctx n)
+      "name" (read-name ctx n (name-of ctx n))
+      (default-arm n))))
 
 
 (defn- lower-block
@@ -2646,7 +2656,8 @@
      (lower ctx (p/root (:pk ctx))))))
 
 
-(defn- ambient-resolver [descriptor]
+(defn- ambient-resolver
+  [descriptor]
   (let [name (u/v '%ambient-name)]
     (u/lam ['%ambient-name]
            (reduce (fn [fallback [alias projection]]
@@ -2658,7 +2669,8 @@
                                      (:yang.semantics/ambient-projections descriptor)))))))
 
 
-(defn- entry-program [descriptor body resolver entry-symbol]
+(defn- entry-program
+  [descriptor body resolver entry-symbol]
   (let [{:keys [operands call-shapes hook]} (get contract/entry-lowering (:yang.semantics/id descriptor))
         argc (count operands)]
     (when-not (contains? call-shapes argc)

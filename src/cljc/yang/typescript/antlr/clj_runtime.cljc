@@ -24,16 +24,17 @@
          (clj.ts/_int-result
            (integer/parse (if (= radix 10) s (data/substring s 2 (data/str-length s))) radix))))]
     [clj.ts/_float
-     (fn [x] (if (integer/integer? x)
-               (clj.ts/_int-result (integer/to-float-boxed x))
-               x))]
+     (fn [x]
+       (if (integer/integer? x)
+         (clj.ts/_int-result (integer/to-float-boxed x))
+         x))]
     [clj.ts/_math-error
      (fn [tag a b] (clj/perform-policy tag (assoc {} :a a :b b)))]
     [clj.ts/_float-result
      (fn [x a b]
        (if (= x :yin.vm.float/div-zero) (clj.ts/_math-error :math/div-zero a b)
-         (if (= x :yin.vm.float/underflow) (clj.ts/_math-error :math/underflow a b)
-           x)))]
+           (if (= x :yin.vm.float/underflow) (clj.ts/_math-error :math/underflow a b)
+               x)))]
     [clj.ts/_arithmetic
      (fn [iop fop a b]
        (let [ak (clj.ts/num-kind a) bk (clj.ts/num-kind b)]
@@ -87,27 +88,29 @@
                (clj.ts/_float-pow (clj.ts/_float a) exponent))
              (clj.ts/_math-error :math/unsupported-exponent a b)))))]
     [clj.ts/to-numeric
-     (fn [x] (if (= :other (clj.ts/num-kind x))
-               (clj.ts/_error :type-error (assoc {} :value x))
-               x))]
+     (fn [x]
+       (if (= :other (clj.ts/num-kind x))
+         (clj.ts/_error :type-error (assoc {} :value x))
+         x))]
     [clj.ts/neg
-     (fn [x] (if (integer/integer? (clj.ts/to-numeric x))
-               (clj.ts/_int-result (integer/neg x))
-               (float/neg x)))]
+     (fn [x]
+       (if (integer/integer? (clj.ts/to-numeric x))
+         (clj.ts/_int-result (integer/neg x))
+         (float/neg x)))]
     [clj.ts/equiv (fn [a b] (data/equiv a b))]
     [clj.ts/_compare
      (fn [a b]
        (let [ak (clj.ts/num-kind a) bk (clj.ts/num-kind b)]
          (if (= ak :bigint)
            (if (= bk :bigint) (integer/compare a b)
-             (if (= bk :float) (integer/compare-float-boxed a b)
-               (clj.ts/_error :type-error (assoc {} :a a :b b))))
+               (if (= bk :float) (integer/compare-float-boxed a b)
+                   (clj.ts/_error :type-error (assoc {} :a a :b b))))
            (if (= ak :float)
              (if (= bk :float) (float/compare a b)
-               (if (= bk :bigint)
-                 (let [order (integer/compare-float-boxed b a)]
-                   (if (integer/integer? order) (- 0 order) order))
-                 (clj.ts/_error :type-error (assoc {} :a a :b b))))
+                 (if (= bk :bigint)
+                   (let [order (integer/compare-float-boxed b a)]
+                     (if (integer/integer? order) (- 0 order) order))
+                   (clj.ts/_error :type-error (assoc {} :a a :b b))))
              (if (if (data/string? a) (data/string? b) false)
                (data/str-compare a b)
                (clj.ts/_error :type-error (assoc {} :a a :b b)))))))]
@@ -126,7 +129,7 @@
     [clj.ts/spread
      (fn [acc xs]
        (if (data/vector? xs) (data/into acc xs)
-         (clj.ts/_error :spread-type (assoc {} :value xs))))]
+           (clj.ts/_error :spread-type (assoc {} :value xs))))]
     [clj.ts/map-put (fn [m k v] (assoc m (clj/collection-key k) v))]
     [clj.ts/property-key (fn [k] k)]
     [clj.ts/get-item
@@ -161,14 +164,14 @@
      (fn [globals name]
        (let [g (cell/get globals) vars (get g :vars)]
          (if (data/contains? vars name) (get vars name)
-           (let [binding ((get g :ambient) name)]
-             (if (data/contains? binding :value) (get binding :value)
-               (clj.ts/_error :name-error (assoc {} :name name)))))))]
+             (let [binding ((get g :ambient) name)]
+               (if (data/contains? binding :value) (get binding :value)
+                   (clj.ts/_error :name-error (assoc {} :name name)))))))]
     [clj.ts/arg (fn [args i] (get args i nil))]
     [clj.ts/make-fn
      (fn [name arity this-mode kind code]
        (clj/make-callable (assoc {} :clj.ts/type :function :name name :arity arity)
-         (fn [args] (code nil args))))]
+                          (fn [args] (code nil args))))]
     [clj.ts/call (fn [callee receiver args] (clj/invoke-callable callee args []))]])
 
 
@@ -183,12 +186,12 @@
        (if (= clj.ts.rt/exports :clj.ts/uninitialized)
          (yin/def (quote clj.ts.rt/exports)
            (assoc {} (quote ex-info)
-             (clj/make-callable {:clj.ts/type :function :name "exInfo"}
-               (fn [args]
-                 (if (= 2 (data/count args))
-                   (assoc {} :yin.k/message (data/nth args 0) :yin.k/data (data/nth args 1))
-                   (clj.ts/_error :arity (assoc {} :name "exInfo" :expected 2
-                                                :actual (data/count args))))))))
+                  (clj/make-callable {:clj.ts/type :function :name "exInfo"}
+                                     (fn [args]
+                                       (if (= 2 (data/count args))
+                                         (assoc {} :yin.k/message (data/nth args 0) :yin.k/data (data/nth args 1))
+                                         (clj.ts/_error :arity (assoc {} :name "exInfo" :expected 2
+                                                                      :actual (data/count args))))))))
          nil))]
     [clj.ts/export (fn [name] (get clj.ts.rt/exports name))]
     [clj.ts/ex-info (fn [] (clj.ts/export (quote ex-info)))]
@@ -202,8 +205,8 @@
                           :int/bit-limit :bit-limit
                           :int/digit-limit :digit-limit} tag :unhandled-policy)]
          (clj.ts/_error reason
-           (if (= tag :coll/unsupported-key) (assoc {} :key payload)
-             (assoc {} :policy tag :detail payload)))))]
+                        (if (= tag :coll/unsupported-key) (assoc {} :key payload)
+                            (assoc {} :policy tag :detail payload)))))]
     [clj.ts/run-main
      (fn [body-fn ambient-resolver]
        (do (clj/init!) (clojure.core/init!) (clj.ts/init!)
@@ -211,12 +214,13 @@
                  globals (cell/new (assoc {} :vars {} :ambient ambient-resolver))]
              (do (cell/set! ctx (assoc saved :on-unhandled-policy clj.ts/_policy))
                  (clj.ts/try-finally (fn [] (body-fn globals))
-                                    (fn [e] (yrt.effect/restore! ctx saved)))))))]])
+                                     (fn [e] (yrt.effect/restore! ctx saved)))))))]])
 
 
 (def ^:private definitions (into [] cat [numeric collections bindings entry]))
 
 (def ^:private dependency-names '[clj yrt.effect yrt.int clojure.core.impl clojure.core])
+
 
 (def ^:private public-names
   (into #{}
@@ -224,7 +228,8 @@
         (core/exports (str module-name) definitions)))
 
 
-(defn bundled [main]
+(defn bundled
+  [main]
   (clj/with-bundled-runtime
     int-rt/uast
     (library/bundled-uast library/module-exports)
@@ -240,7 +245,8 @@
 (def ^:private free-names (core/free-name-vec module-uast))
 
 
-(defn module-spec [registry addresses]
+(defn module-spec
+  [registry addresses]
   (let [requires (select-keys addresses dependency-names)]
     (admission/module-spec
       {:module-name module-name :ast module-uast :exports public-names

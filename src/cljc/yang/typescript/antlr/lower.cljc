@@ -40,6 +40,7 @@
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
     [yang.core.names :as names]
+    [yang.core.numeric-token :as numeric-token]
     [yang.core.semantics :as semantics]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
@@ -75,11 +76,13 @@
   (core/syntax! diagnostic-ns n message))
 
 
-(defn- legacy? [ctx]
+(defn- legacy?
+  [ctx]
   (= contract/legacy-id (get-in ctx [:descriptor :yang.semantics/id])))
 
 
-(defn- capability-refusal! [ctx cap node construct]
+(defn- capability-refusal!
+  [ctx cap node construct]
   (throw (ex-info (str "Unsupported TypeScript capability: " construct)
                   {:status :refused :reason :yang.semantics/unsupported-capability
                    :yang.ts/diagnostic :yang.ts/unsupported
@@ -87,7 +90,8 @@
                    :construct construct :node (:id node)})))
 
 
-(defn- require-capability! [ctx cap node construct]
+(defn- require-capability!
+  [ctx cap node construct]
   (when-not (#{:supported :cell :single-assignment} (semantics/capability (:descriptor ctx) cap))
     (if (legacy? ctx)
       (refuse! node construct :T4)
@@ -198,14 +202,16 @@
 (def ^:private app* core/app*)
 
 
-(defn- hook [ctx role]
+(defn- hook
+  [ctx role]
   (or (get-in ctx [:descriptor :yang.semantics/hooks role])
       (throw (ex-info "TypeScript profile lacks a lowering hook"
                       {:status :refused :reason :yang.semantics/invalid-descriptor
                        :defect :missing-hook :role role}))))
 
 
-(defn- emit [ctx role & operands]
+(defn- emit
+  [ctx role & operands]
   (apply app* (hook ctx role) operands))
 
 
@@ -432,29 +438,6 @@
       (jstr ctx body))))
 
 
-(defn- host-double
-  [t]
-  #?(:cljd (double/parse t)
-     :clj (Double/parseDouble t)
-     :cljs (js/parseFloat t)))
-
-
-(defn- radix-double
-  [n digits radix]
-  (when-not (re-matches (case radix
-                          16 #"[0-9a-fA-F]+"
-                          8 #"[0-7]+"
-                          2 #"[01]+")
-                        digits)
-    (syntax! n "Invalid or unexpected token"))
-  (reduce (fn [acc ch]
-            (+ (* acc (double radix))
-               (double (str/index-of "0123456789abcdef"
-                                     (str/lower-case (str ch))))))
-          0.0
-          digits))
-
-
 (defn- radix-int
   [n digits radix]
   (when-not (re-matches (case radix
@@ -471,28 +454,22 @@
           digits))
 
 
-(defn- decimal-text
-  "Host-parseable decimal text: a digit on each side of the point."
-  [t]
-  (let [t (if (str/starts-with? t ".") (str "0" t) t)
-        t (str/replace t ".e" ".0e")
-        t (str/replace t ".E" ".0E")]
-    (if (str/ends-with? t ".") (str t "0") t)))
-
-
 (defn- number-literal
-  "The node of one numeric literal token: float64 content."
+  "The node of one numeric literal token: float64 content via the shared
+   numeric-token factory (kind classification, separator stripping, radix
+   floats, legacy-octal refusal); the parsed value lowers through the
+   descriptor-aware literal path."
   [ctx n text]
-  (let [t (str/replace text "_" "")
-        lower (str/lower-case t)
-        v (cond
-            (str/starts-with? lower "0x") (radix-double n (subs lower 2) 16)
-            (str/starts-with? lower "0o") (radix-double n (subs lower 2) 8)
-            (str/starts-with? lower "0b") (radix-double n (subs lower 2) 2)
-            (re-find #"^0[0-9]" lower)
-            (syntax! n "Legacy octal literals are not allowed in strict mode")
-            :else (host-double (decimal-text t)))]
-    (literal ctx :float v)))
+  (let [classified (numeric-token/classify :typescript text)]
+    (case (:kind classified)
+      :float64 (literal ctx :float
+                        (if-let [radix (:radix classified)]
+                          (numeric-token/parse-radix-float64 (:digits classified) radix)
+                          (numeric-token/parse-float64 (:text classified))))
+      :symbolic-float (literal ctx :float (:value classified))
+      :invalid (syntax! n (if (= :legacy-octal (:reason classified))
+                            "Legacy octal literals are not allowed in strict mode"
+                            "Invalid or unexpected token")))))
 
 
 (def ^:private max-native-digits
@@ -523,8 +500,8 @@
     (let [v (when (<= (count digits) (get max-native-digits radix))
               (radix-int n digits radix))
           bits (if (nil? v) 54
-                 (loop [n v bits 0]
-                   (if (zero? n) bits (recur (quot n 2) (inc bits)))))]
+                   (loop [n v bits 0]
+                     (if (zero? n) bits (recur (quot n 2) (inc bits)))))]
       (semantics/literal (:descriptor ctx) :int v bits (jstr ctx lower)))))
 
 
@@ -694,7 +671,7 @@
                   (do (check-consumed! ctx m)
                       (when (p/has-token? (:pk ctx) m "=")
                         (do (require-capability! ctx :calls/defaults m "default parameter")
-                        (refuse! m "default parameter" :T4)))
+                            (refuse! m "default parameter" :T4)))
                       (when (p/has-token? (:pk ctx) m "?")
                         (refuse! m "type syntax" :T8))
                       (doseq [k (rule-kids ctx m)]
@@ -705,11 +682,11 @@
                                            (contains? #{"identifierName" "identifier"}
                                                       (:rule inner)))
                               (do (require-capability! ctx :destructuring/unpack k "destructuring")
-                        (refuse! k "destructuring" :T4))))
+                                  (refuse! k "destructuring" :T4))))
                           nil)))
                   ("restParameter" "lastFormalParameterArg")
                   (do (require-capability! ctx :calls/varargs m "rest parameter")
-                        (refuse! m "rest parameter" :T4))
+                      (refuse! m "rest parameter" :T4))
                   "optionalParameter"
                   (if (p/has-token? (:pk ctx) m "?")
                     (refuse! m "type syntax" :T8)
@@ -717,7 +694,7 @@
                         (refuse! m "default parameter" :T4)))
                   ("arrayLiteral" "objectLiteral")
                   (do (require-capability! ctx :destructuring/unpack m "destructuring")
-                        (refuse! m "destructuring" :T4))
+                      (refuse! m "destructuring" :T4))
                   (run! go (rule-kids ctx m)))))]
       (go plist))))
 
@@ -1063,7 +1040,8 @@
                                             (u/v (if prefix? nv old)))))))))
 
 
-(defn- check-member-write! [ctx target]
+(defn- check-member-write!
+  [ctx target]
   (let [cap (if (token-kid ctx target "[") :mutation/subscript :mutation/attribute)]
     (require-capability! ctx cap target "member assignment")))
 
@@ -1189,7 +1167,7 @@
                   (do (require-capability! ctx :calls/spread a "spread argument")
                       (emit ctx :coll/spread out (lower-expr ctx e)))
                   (emit ctx :coll/vconj out (if e (lower-expr ctx e)
-                                          (read-name ctx (text-of ctx a)))))))
+                                                (read-name ctx (text-of ctx a)))))))
             (u/lit []) args)))
 
 
@@ -1903,18 +1881,18 @@
   (let [[kind decls] (scope/declarations (:pk ctx) n)]
     (when-not decls (default-arm ctx n))
     (seq-of ctx
-      (mapv (fn [d]
-              (check-consumed! ctx d)
-              (let [nm (scope/declaration-name (:pk ctx) d)]
-                (when-not nm
-                  (require-capability! ctx :destructuring/unpack d "destructuring")
-                  (refuse! d "destructuring" :T4))
-                (if-let [init (scope/declaration-initializer (:pk ctx) d)]
-                  (init-name nm (lower-named ctx init nm))
-                  (if (= :var kind)
-                    (literal ctx :undefined)
-                    (init-name nm (literal ctx :undefined))))))
-            decls))))
+            (mapv (fn [d]
+                    (check-consumed! ctx d)
+                    (let [nm (scope/declaration-name (:pk ctx) d)]
+                      (when-not nm
+                        (require-capability! ctx :destructuring/unpack d "destructuring")
+                        (refuse! d "destructuring" :T4))
+                      (if-let [init (scope/declaration-initializer (:pk ctx) d)]
+                        (init-name nm (lower-named ctx init nm))
+                        (if (= :var kind)
+                          (literal ctx :undefined)
+                          (init-name nm (literal ctx :undefined))))))
+                  decls))))
 
 
 (defn- lower-enum
@@ -2073,34 +2051,34 @@
         {:keys [brk? brk] b :body} (loop-parts ctx n labels sctx body)
         update-node (if update (lower-seq sctx update) (literal ctx :undefined))]
     (wrap-escape ctx
-      brk?
-      brk
-      (if lexical?
-        (let [names (mapv symbol (sort (keys (:lexical (scope-of ctx n)))))
-              next-iteration (apply u/app
-                                    (u/lam names
-                                           (u/then update-node
-                                                   (apply u/app (u/v w) (u/v w) (map u/v names))))
-                                    (map (fn [nm]
-                                           (app* 'cell/new (app* 'cell/get (u/v nm))))
-                                         names))]
-          (bind-cells (block-pairs ctx (scope-of ctx n))
-                      (u/then init-node
-                              (spin w
-                                    names
-                                    (u/if-node test-node
-                                               (u/then b next-iteration)
-                                               (literal ctx :undefined))
-                                    (map (fn [nm]
-                                           (app* 'cell/new (app* 'cell/get (u/v nm))))
-                                         names)))))
-        (u/then init-node
-                (spin w
-                      []
-                      (u/if-node test-node
-                                 (u/then b (u/then update-node (u/app (u/v w) (u/v w))))
-                                 (literal ctx :undefined))
-                      []))))))
+                 brk?
+                 brk
+                 (if lexical?
+                   (let [names (mapv symbol (sort (keys (:lexical (scope-of ctx n)))))
+                         next-iteration (apply u/app
+                                               (u/lam names
+                                                      (u/then update-node
+                                                              (apply u/app (u/v w) (u/v w) (map u/v names))))
+                                               (map (fn [nm]
+                                                      (app* 'cell/new (app* 'cell/get (u/v nm))))
+                                                    names))]
+                     (bind-cells (block-pairs ctx (scope-of ctx n))
+                                 (u/then init-node
+                                         (spin w
+                                               names
+                                               (u/if-node test-node
+                                                          (u/then b next-iteration)
+                                                          (literal ctx :undefined))
+                                               (map (fn [nm]
+                                                      (app* 'cell/new (app* 'cell/get (u/v nm))))
+                                                    names)))))
+                   (u/then init-node
+                           (spin w
+                                 []
+                                 (u/if-node test-node
+                                            (u/then b (u/then update-node (u/app (u/v w) (u/v w))))
+                                            (literal ctx :undefined))
+                                 []))))))
 
 
 (defn- lower-for-in
@@ -2149,18 +2127,18 @@
                (bind-cells (block-pairs ctx (scope-of ctx n)) turn)
                turn)]
     (wrap-escape ctx
-      brk?
-      brk
-      (u/let1 it
-              (emit ctx :ctrl/for-in-start (lower-seq ctx subject))
-              (spin w
-                    []
-                    (u/let1 k
-                            (emit ctx :ctrl/for-in-next (u/v it))
-                            (u/if-node (app* '= (u/v k) (literal ctx :done))
-                                       (literal ctx :undefined)
-                                       (u/then turn (u/app (u/v w) (u/v w)))))
-                    [])))))
+                 brk?
+                 brk
+                 (u/let1 it
+                         (emit ctx :ctrl/for-in-start (lower-seq ctx subject))
+                         (spin w
+                               []
+                               (u/let1 k
+                                       (emit ctx :ctrl/for-in-next (u/v it))
+                                       (u/if-node (app* '= (u/v k) (literal ctx :done))
+                                                  (literal ctx :undefined)
+                                                  (u/then turn (u/app (u/v w) (u/v w)))))
+                               [])))))
 
 
 (defn- lower-iteration
@@ -2279,9 +2257,9 @@
                         (u/seq-nodes
                           (concat hoisted
                                   [(wrap-escape ctx
-                                     (targets? ctx cb "breakStatement" #{} true true)
-                                     brk
-                                     run)]))))))
+                                                (targets? ctx cb "breakStatement" #{} true true)
+                                                brk
+                                                run)]))))))
 
 
 (defn- lower-try
@@ -2355,7 +2333,8 @@
 ;; Packets
 ;; =============================================================================
 
-(defn- ambient-imports [ctx statements]
+(defn- ambient-imports
+  [ctx statements]
   (let [projections (get-in ctx [:descriptor :yang.semantics/ambient-projections])
         module-scope (scope-of ctx (p/root (:pk ctx)))]
     (reduce
@@ -2402,7 +2381,7 @@
         (when-let [cap (or (when-not (= "importStatement" (:rule n))
                              (rule-capabilities (:rule n)))
                            (when (and (#{"functionDeclaration" "anonymousFunction" "generatorMethod"}
-                                         (:rule n))
+                                       (:rule n))
                                       (token-kid ctx n "*"))
                              :control/generators))]
           (require-capability! ctx cap n (:rule n)))))
@@ -2438,7 +2417,7 @@
         stmts (statements-of ctx root)
         imports (:imports ctx)
         stmts (if (legacy? ctx) stmts
-                (remove #(seq (rules ctx % "importStatement")) stmts))
+                  (remove #(seq (rules ctx % "importStatement")) stmts))
         body (lower-stmts ctx stmts)]
     (bind-cells (let [{:keys [vars tdz-names]} (binding-names s)]
                   (vec (concat (map (fn [nm] [nm (literal ctx :undefined)]) vars)
@@ -2482,7 +2461,8 @@
 (def ^:private legacy-descriptor (:descriptor (profiles/builtin contract/legacy-id)))
 
 
-(defn- selected-descriptor [descriptor]
+(defn- selected-descriptor
+  [descriptor]
   (if (some? descriptor) (profiles/verify-descriptor! descriptor) legacy-descriptor))
 
 
@@ -2504,7 +2484,8 @@
   (u/annotate-call-sites (lower-unit* packet legacy-descriptor)))
 
 
-(defn- ambient-resolver [ctx]
+(defn- ambient-resolver
+  [ctx]
   (let [name (u/v '$ambient-name)
         binding (fn [value] (app* 'assoc (u/lit {}) (u/lit :value) value))
         projection-node (fn [{:keys [module export kind] :or {kind :cell-accessor}}]
@@ -2522,13 +2503,15 @@
                                      (get-in ctx [:descriptor :yang.semantics/ambient-projections])))))))
 
 
-(defn- entry-program [ctx body resolver]
+(defn- entry-program
+  [ctx body resolver]
   (let [id (get-in ctx [:descriptor :yang.semantics/id])
         {:keys [hook operands]} (contract/entry-lowering id)]
     (apply emit ctx hook (map {:body-fn body :ambient-resolver resolver} operands))))
 
 
-(defn- with-runtime [ctx mode main]
+(defn- with-runtime
+  [ctx mode main]
   (let [{:yang.semantics/keys [prelude-module ambient-modules]} (:descriptor ctx)]
     (u/mark-tails
       (case mode

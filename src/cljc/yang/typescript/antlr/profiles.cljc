@@ -24,7 +24,8 @@
 (def ^:private max-items 1048576)
 
 
-(defn registry []
+(defn registry
+  []
   (-> (module/default-registry)
       module/register-cell-module
       (data/register-data-module {::data/max-items max-items})
@@ -57,11 +58,13 @@
     :runtime-address :segment/blake3-c27bd3dbde6cfa683c610e2437541ae1ff1e0fd5328ec33649d80030db199c45}})
 
 
-(defn- trusted-registry []
+(defn- trusted-registry
+  []
   (assoc (registry) :trusted-prelude-modules (select-keys module-pins '[js clj])))
 
 
-(defn- module-spec [name registry pins]
+(defn- module-spec
+  [name registry pins]
   (case name
     yang.call (call/module-spec registry)
     yrt.effect (effect/module-spec registry)
@@ -73,14 +76,16 @@
     js (js-prelude/module-spec registry (pins 'yang.call))))
 
 
-(defn- verify-address! [expected actual]
+(defn- verify-address!
+  [expected actual]
   (when-not (= expected actual)
     (throw (ex-info "TypeScript profile artifact differs from its revision pin"
                     {:status :refused :reason :yang.semantics/invalid-descriptor
                      :defect :address-mismatch :address expected :actual actual}))))
 
 
-(defn- runtime-artifacts! [store registry modules]
+(defn- runtime-artifacts!
+  [store registry modules]
   (reduce (fn [{:keys [pins] :as state} name]
             (let [spec (module-spec name registry pins)
                   {:keys [manifest address] :as result} (publish/publish-module! store spec)
@@ -94,7 +99,8 @@
           {:pins {} :artifacts {}} modules))
 
 
-(defn- runtime-profile [id module address manifest]
+(defn- runtime-profile
+  [id module address manifest]
   {:yang.prelude/schema 1
    :yang.prelude/id id
    :yang.prelude/revision (name id)
@@ -129,12 +135,14 @@
     descriptor))
 
 
-(defn builtin [id]
+(defn builtin
+  [id]
   (let [closure (mapv (fn [module] [module (module-pins module)]) (profile-modules id))]
     (assoc (revision-locks id) :descriptor (contract/descriptor id closure) :closure closure)))
 
 
-(defn- admitted-profile [store id pins artifacts registry frontend-contract]
+(defn- admitted-profile
+  [store id pins artifacts registry frontend-contract]
   (let [modules (profile-modules id)
         closure (mapv (fn [module] [module (pins module)]) modules)
         descriptor (contract/descriptor id closure)
@@ -173,7 +181,8 @@
    contract/clojure-id (delay (prepare! (mem/create-content-mem) [contract/clojure-id]))})
 
 
-(defn verify-builtin! [id]
+(defn verify-builtin!
+  [id]
   (get-in @(get checked-profiles id) [:profiles id]))
 
 
@@ -193,7 +202,8 @@
                        :defect :entry-contract :semantics-id id})))))
 
 
-(defn derivation [manifest {:keys [descriptor-address runtime-address closure]} packet ast]
+(defn derivation
+  [manifest {:keys [descriptor-address runtime-address closure]} packet ast]
   (let [resolver (:yang.frontend/ambient-resolver (meta ast))]
     (cond-> {:yang.frontend/id (:yang.frontend/id manifest)
              :yang.frontend/revision (:yang.frontend/revision manifest)

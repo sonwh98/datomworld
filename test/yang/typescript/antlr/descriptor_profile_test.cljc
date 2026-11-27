@@ -32,7 +32,8 @@
                 :clj (slurp path))))))
 
 
-(defn- packet [id]
+(defn- packet
+  [id]
   (portable/packet (get-in @fixtures [id :form])))
 
 
@@ -44,17 +45,20 @@
              (link/composition {:content-store store :name-env pins :derivation :trusted})))))
 
 
-(defn- descriptor []
+(defn- descriptor
+  []
   (get-in @composition [:profiles contract/clojure-id :descriptor]))
 
 
-(defn- refusal [f]
+(defn- refusal
+  [f]
   (try (f) nil
        (catch #?(:cljd Object :clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
          (ex-data e))))
 
 
-(defn- run-program [backend ast]
+(defn- run-program
+  [backend ast]
   (let [{:keys [registry link-source]} @composition]
     (vm/value (harness/run-linked backend ast {:modules registry :link-source link-source}))))
 
@@ -120,9 +124,9 @@
            (:reason (refusal #(validate (replace-add 'add))))))
     (is (= :non-lambda
            (:defect (refusal #(semantics/validate-descriptor
-                               changed changed-contract
-                               (assoc artifacts changed-address manifest tree-address changed-tree)
-                               registry)))))
+                                changed changed-contract
+                                (assoc artifacts changed-address manifest tree-address changed-tree)
+                                registry)))))
     (is (= :runtime-profile-pins
            (:defect (refusal #(lower/lower-packet nil {:descriptor changed})))))
     (is (= :export-role
@@ -185,8 +189,8 @@
      (let [catalog (ts-frontend/install frontend/empty-catalog "fixture" cst/parse-source)
            {:keys [binding]} (frontend/select catalog {:yang.frontend/id ts-frontend/id})
            pk ((:parse binding) (str "import {inc} from 'clojure.core';\n"
-                                    "function inc(x) { return x + 100n; }\n"
-                                    "inc(1n);"))]
+                                     "function inc(x) { return x + 100n; }\n"
+                                     "inc(1n);"))]
        (is (= :yang.cst/ok (:yang.cst/outcome pk)))
        (is (= {:yang.ts/diagnostic :yang.ts/early-error
                :rule "importAliasName"

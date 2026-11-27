@@ -33,20 +33,25 @@
                                      :derivation :trusted})))))
 
 
-(defn- descriptor []
+(defn- descriptor
+  []
   (get-in @composition [:profiles contract/clojure-id :descriptor]))
 
 
-(defn- packet [source] (parser/parse-source (str source "\n")))
+(defn- packet
+  [source]
+  (parser/parse-source (str source "\n")))
 
 
-(defn- refusal [f]
+(defn- refusal
+  [f]
   (try (f) nil
        (catch #?(:cljd Object :clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e
          (ex-data e))))
 
 
-(defn- run-program [backend ast registry extra-primitives]
+(defn- run-program
+  [backend ast registry extra-primitives]
   (let [pair (link/make-pair)
         task ((get harness/backends backend)
               ast
@@ -58,11 +63,13 @@
 (def ^:private modes [:bundled :linked])
 
 
-(defn- lower-test [mode pk]
+(defn- lower-test
+  [mode pk]
   (lower/lower-packet pk {:descriptor (descriptor) :prelude mode}))
 
 
-(defn- entry [mode body resolver]
+(defn- entry
+  [mode body resolver]
   (let [main (u/app (u/v 'clj.py/run-main) body resolver)]
     (if (= :bundled mode)
       (runtime/bundled main)
@@ -74,7 +81,8 @@
                   main)))))))
 
 
-(defn- module-body [pk]
+(defn- module-body
+  [pk]
   (u/lam [lower/globals-sym lower/globals-fn-sym]
          (lower/lower-module-body pk nil true (descriptor))))
 
@@ -110,8 +118,8 @@
                                                   {:module 'clj.py :export 'neg}))))))
     (is (= :arity
            (:defect (refusal #(semantics/validate-descriptor
-                               d (assoc-in contract [:entry-lowering contract/clojure-id :call-shapes] #{3})
-                               artifacts registry)))))
+                                d (assoc-in contract [:entry-lowering contract/clojure-id :call-shapes] #{3})
+                                artifacts registry)))))
     (let [root (get-in @composition [:pins 'clj.py])
           manifest (artifacts root)
           tree (update runtime/module-uast :operands
@@ -125,32 +133,34 @@
           manifest (assoc manifest :yin.module/tree tree-address)
           address (jing/segment-key manifest)
           pinned (update d :yang.semantics/ambient-modules
-                         #(mapv (fn [pin] (if (= 'clj.py (:module pin))
-                                            (assoc pin :address address) pin)) %))]
+                         #(mapv (fn [pin]
+                                  (if (= 'clj.py (:module pin))
+                                    (assoc pin :address address) pin)) %))]
       (is (= :tree-address
              (:defect (refusal #(semantics/validate-descriptor
-                                 d contract (assoc artifacts (:yin.module/tree (artifacts root)) tree)
-                                 registry)))))
+                                  d contract (assoc artifacts (:yin.module/tree (artifacts root)) tree)
+                                  registry)))))
       (is (= :non-lambda
              (:defect (refusal #(semantics/validate-descriptor
-                                 pinned (update contract :roles
-                                                (fn [roles] (into roles (map (fn [[a target role]]
-                                                                              [(if (= a root) address a)
-                                                                               target role])) roles)))
-                                 (assoc artifacts address manifest tree-address tree) registry)))))
+                                  pinned (update contract :roles
+                                                 (fn [roles]
+                                                   (into roles (map (fn [[a target role]]
+                                                                      [(if (= a root) address a)
+                                                                       target role])) roles)))
+                                  (assoc artifacts address manifest tree-address tree) registry)))))
       (is (= :manifest-address
              (:defect (refusal #(semantics/validate-descriptor
-                                 pinned contract (assoc artifacts address (artifacts root)) registry)))))
+                                  pinned contract (assoc artifacts address (artifacts root)) registry)))))
       (is (= :runtime-profile-pins
              (:defect (refusal #(profiles/admit
-                                 pinned (get-in @composition [:profiles contract/clojure-id :runtime])
-                                 contract artifacts registry {}))))))))
+                                  pinned (get-in @composition [:profiles contract/clojure-id :runtime])
+                                  contract artifacts registry {}))))))))
 
 
 (deftest immutable-projection-export-presence-test
   (let [registry (module/assoc-module nil 'test.values
-                                     {:manifest {:yin.module/name 'test.values}
-                                      :bindings {'empty nil 'off false 'sentinel :clj/unbound}})]
+                                      {:manifest {:yin.module/name 'test.values}
+                                       :bindings {'empty nil 'off false 'sentinel :clj/unbound}})]
     (is (nil? (engine/resolve-var {} {} {} registry 'test.values/empty)))
     (is (false? (engine/resolve-var {} {} {} registry 'test.values/off)))
     (is (= :clj/unbound (engine/resolve-var {} {} {} registry 'test.values/sentinel)))
@@ -186,6 +196,7 @@
        "[None, 1] == [None, 1], {'a': 1} != {'a': 1.0}, "
        "not 0, not None, [] or 99, 'a' + 'b']"))
 
+
 (def ^:private numeric-result
   [3 3 -6 (cbor/float64 3.5) -4 1 16 (cbor/float64 0.125)
    (cbor/float64 3.5) (cbor/float64 3.0) (cbor/float64 -0.0) true true
@@ -206,6 +217,7 @@
        "[sum_even_squares([1,2,3,4]), [p for p in m], render(m), {x for x in [2,1,2]}, "
        "{x: x*2 for x in [1,2]}, varargs(*[7,8,9]), core.inc(4), "
        "get_in(update_in(deep, ['x', 'y'], inc), ['x', 'y']), is_empty([]), is_nil(None)]"))
+
 
 (def ^:private collections-result
   [20 [[0 "zero"] [nil "nil"]] "{0 \"zero\", nil \"nil\"}" #{1 2}
@@ -268,10 +280,10 @@
         resolver (u/sexp->uast
                    '(fn [name]
                       (if (= name "sentinel") {:value :clj/unbound}
-                        (if (= name "key") {:value :k}
-                          (if (= name "boxed")
-                            (assoc {} :value (clj/make-callable {} (fn [args] (boxed-key))))
-                            {})))))
+                          (if (= name "key") {:value :k}
+                              (if (= name "boxed")
+                                (assoc {} :value (clj/make-callable {} (fn [args] (boxed-key))))
+                                {})))))
         expected [9 "boxed second" "boxed second" true :clj/unbound :clj/unbound true true]
         registry (:registry @composition)]
     (doseq [mode modes :let [ast (entry mode body resolver)] backend engines]
@@ -291,40 +303,42 @@
 (deftest clojure-python-clojure-unwind-test
   (let [python (module-body (packet unwind-source))
         clj (clojure/lower-unit
-              '[(defn boom []
+              '[(defn boom
+                  []
                   (try (throw "escape")
                        (finally (record "clojure-inner"))))
-                (defn outer []
+                (defn outer
+                  []
                   (try (bridge boom record)
                        (finally (record "clojure-outer"))))
                 outer]
               '[record bridge])
         driver (fn [make-python]
                  (u/let1 '%make-python make-python
-                   (u/let1 '%make-clojure clj
-                     (u/sexp->uast
-                       '(let [trace (cell/new [])
-                              record (clj/make-callable
-                                       {} (fn [args] (cell/set! trace (conj (cell/get trace) (data/nth args 0)))))
-                              bridge (%make-python)
-                              ctx (clj/rt-ctx)]
-                          (do (clj/define-global! "record" record)
-                              (clj/define-global! "bridge" bridge)
-                              (cell/set! ctx (yrt.effect/ctx nil 4 9 nil))
-                              (let [outer (clj/run-main %make-clojure)
-                                    before (cell/get ctx)
-                                    call (fn []
-                                           (clj/try
-                                             (fn []
-                                               (yrt.effect/handle ctx :unrelated
-                                                 (fn [payload k] (record "unexpected"))
-                                                 (fn [] (clj/invoke-callable outer [] []))))
-                                             (fn [e] e)))
-                                    a (call)
-                                    first-restored (data/content= before (cell/get ctx))
-                                    b (call)]
-                                (conj [] a b first-restored
-                                      (data/content= before (cell/get ctx)) (cell/get trace)))))))))]
+                         (u/let1 '%make-clojure clj
+                                 (u/sexp->uast
+                                   '(let [trace (cell/new [])
+                                          record (clj/make-callable
+                                                   {} (fn [args] (cell/set! trace (conj (cell/get trace) (data/nth args 0)))))
+                                          bridge (%make-python)
+                                          ctx (clj/rt-ctx)]
+                                      (do (clj/define-global! "record" record)
+                                          (clj/define-global! "bridge" bridge)
+                                          (cell/set! ctx (yrt.effect/ctx nil 4 9 nil))
+                                          (let [outer (clj/run-main %make-clojure)
+                                                before (cell/get ctx)
+                                                call (fn []
+                                                       (clj/try
+                                                         (fn []
+                                                           (yrt.effect/handle ctx :unrelated
+                                                                              (fn [payload k] (record "unexpected"))
+                                                                              (fn [] (clj/invoke-callable outer [] []))))
+                                                         (fn [e] e)))
+                                                a (call)
+                                                first-restored (data/content= before (cell/get ctx))
+                                                b (call)]
+                                            (conj [] a b first-restored
+                                                  (data/content= before (cell/get ctx)) (cell/get trace)))))))))]
     (doseq [mode modes
             :let [program (driver (u/lam [] (u/app (u/v 'clj.py/run-main) python
                                                    (u/lam ['name] (u/lit {})))))
@@ -390,7 +404,7 @@
                                {:data {:max-items 1048576}
                                 :integer {:bits 100000 :digits 4300}})
         profile (assoc original :descriptor (admit admitted-contract)
-                               :descriptor-address (jing/segment-key swapped))
+                       :descriptor-address (jing/segment-key swapped))
         source "identity('swapped', 17)"
         pk (packet source)
         compile-packet (fn [pk] (lower/lower-packet pk {:descriptor (:descriptor profile)}))
@@ -411,7 +425,7 @@
            (select-keys (refusal #(admit contract)) [:defect :target :address :role])))
     (doseq [mode modes backend engines]
       (is (= expected (run-program backend (lower/lower-packet pk {:descriptor swapped :prelude mode})
-                                  registry {}))
+                                   registry {}))
           (str mode " " backend)))
     (is (= expected (:last-value state)))
     (is (= (:descriptor-address profile) (:yang.frontend/lowering-profile derivation)))
@@ -421,12 +435,13 @@
     (is (not= (:yang.frontend/ambient-resolver (meta (lower-test :bundled pk)))
               (:yang.frontend/ambient-resolver derivation)))))
 
+
 (deftest default-repl-reports-guest-errors-and-keeps-the-session-test
   (let [state (frontends/create-state {:lang :yang/python})
         [primed missing] (repl/eval-input state
-                           "even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]")
+                                          "even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]")
         [assigned quiet] (repl/eval-input primed
-                           "even_squares = [x**2 for x in [1,2,3,4,5,6,7,8,9,10] if x % 2 == 0]")
+                                          "even_squares = [x**2 for x in [1,2,3,4,5,6,7,8,9,10] if x % 2 == 0]")
         [failed zero] (repl/eval-input assigned "1/0")
         [done displayed] (repl/eval-input failed "even_squares")]
     (is (str/starts-with? missing "Error: "))
@@ -438,6 +453,7 @@
     (is (str/includes? zero ":zero-division"))
     (is (= "[4 16 36 64 100]" displayed))
     (is (= [4 16 36 64 100] (:last-value done)))))
+
 
 (deftest profile-program-root-goldens-test
   (doseq [[revision source roots]

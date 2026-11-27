@@ -39,10 +39,10 @@
     [clojure.string :as str]
     [clojure.walk :as walk]
     [dao.host.text :as text]
-    [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
     [yang.core.module :as core-module]
+    [yang.core.numeric-token :as numeric-token]
     [yang.core.prelude :as core-prelude]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
@@ -309,10 +309,7 @@
 
 (defn- float-literal
   [text]
-  (let [t (str/replace text "_" "")]
-    (u/lit (cbor/float64 #?(:cljd (double/parse t)
-                            :clj (Double/parseDouble t)
-                            :cljs (js/parseFloat t))))))
+  (u/lit (numeric-token/float64-token :php text)))
 
 
 (declare leftmost-token-text line-of qname-parts)
@@ -1281,14 +1278,14 @@
     (app* 'php/eval-run
           (app* 'eval.compiler/compile (app* 'php/to-string (lower ctx operand)))
           (u/lam [answer]
-            (u/then (app* 'require (app* 'get (u/v answer) (u/lit :yang.compile/module)))
-                    (u/app (app* 'code/entry
-                                 (app* 'get (u/v answer) (u/lit :yang.compile/module))
-                                 (app* 'get (u/v answer) (u/lit :yang.compile/active-address))
-                                 (u/lit 'entry))
-                           (u/v (if (:eval-unit? ctx) '%runtime '%eval-runtime))
-                           (dynamic-scope-node ctx) frame
-                           (u/v (if (:eval-unit? ctx) '%hooks '%eval-hooks))))))))
+                 (u/then (app* 'require (app* 'get (u/v answer) (u/lit :yang.compile/module)))
+                         (u/app (app* 'code/entry
+                                      (app* 'get (u/v answer) (u/lit :yang.compile/module))
+                                      (app* 'get (u/v answer) (u/lit :yang.compile/active-address))
+                                      (u/lit 'entry))
+                                (u/v (if (:eval-unit? ctx) '%runtime '%eval-runtime))
+                                (dynamic-scope-node ctx) frame
+                                (u/v (if (:eval-unit? ctx) '%hooks '%eval-hooks))))))))
 
 
 (defn- lower-prefix

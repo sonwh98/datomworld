@@ -50,18 +50,28 @@
    table, finalized over the post-expansion tree that executes and
    retained beside a published module's manifest — and that promise is
    a support claim, so the revision and the support profile name it.
-   Revision c1-2 additionally declares the constructed-collections
-   lowering profile: a dynamically constructed map or set literal now
-   orders its constructor operands by compiled content
-   (:yang.clojure/constructed-collections-v1), a one-time canonical
-   shift for affected newly compiled artifacts; the C1 support claim,
-   the C1 marker value and the execution grammar versions are
-   unchanged."
+   Revision c1-2 declared constructed-collections canonical operand ordering
+   (:yang.clojure/constructed-collections-v1).
+   Revision c1-3 (architect ruling 1795693415000) retains the
+   constructed-collections ordering contract and adds frontend-owned
+   token-aware source reading, carrier-literal admission, and carrier-aware
+   floating-point execution (`:yang.clojure/constructed-collections-float-kind-v1`,
+   support profile `:yang.clojure/c1-float-kind`), while exposing accurate
+   host capability (`:source-text` on JVM/Node, `:forms-only` on Dart/Jolt).
+   The C1 marker value and execution grammar versions are unchanged."
   []
   (assoc (manifest :yang/clojure :clojure)
-         :yang.frontend/revision "c1-2"
-         :yang.frontend/lowering-profile :yang.clojure/constructed-collections-v1
-         :yang.frontend/support-profile :yang.clojure/c1))
+         :yang.frontend/revision "c1-3"
+         :yang.frontend/grammar {:yang.grammar/package "yang.clojure.reader",
+                                 :yang.grammar/entries {:module "program"},
+                                 :yang.grammar/export-profile :yang.cst/v1,
+                                 :yang.grammar/capability #?(:jolt :forms-only
+                                                             :cljd :forms-only
+                                                             :clj :source-text
+                                                             :cljs :source-text
+                                                             :default :forms-only)}
+         :yang.frontend/lowering-profile :yang.clojure/constructed-collections-float-kind-v1
+         :yang.frontend/support-profile :yang.clojure/c1-float-kind))
 
 
 (defn- clojure-lower
@@ -69,6 +79,34 @@
   (if (= 1 (count forms))
     (yang.clojure/compile (first forms))
     (yang.clojure/compile-program forms)))
+
+
+(defn- clojure-binding
+  "The Clojure frontend binding for this host: original source text through
+   `yang.clojure/read-forms` on JVM/Node (`:source-text`), forms-only on
+   Dart/Jolt (`:forms-only`), and carrier-aware Clojure numeric primitives
+   scoped to this frontend."
+  []
+  #?(:jolt {:input :forms
+            :parse identity
+            :lower clojure-lower
+            :primitives yang.clojure/primitives}
+     :cljd {:input :forms
+            :parse identity
+            :lower clojure-lower
+            :primitives yang.clojure/primitives}
+     :clj {:parse yang.clojure/read-forms
+           :lower clojure-lower
+           :lower-forms clojure-lower
+           :primitives yang.clojure/primitives}
+     :cljs {:parse yang.clojure/read-forms
+            :lower clojure-lower
+            :lower-forms clojure-lower
+            :primitives yang.clojure/primitives}
+     :default {:input :forms
+               :parse identity
+               :lower clojure-lower
+               :primitives yang.clojure/primitives}))
 
 
 (defn- antlr-manifest
@@ -99,7 +137,8 @@
          :yang.frontend/support-profile :yang.php/antlr))
 
 
-(defn- parse-python [source]
+(defn- parse-python
+  [source]
   #?(:jolt
      (try (python.parser/parse-source (str source "\n"))
           (catch Exception e
@@ -109,7 +148,8 @@
      :default (python.parser/parse-source (str source "\n"))))
 
 
-(defn- install-python [catalog id]
+(defn- install-python
+  [catalog id]
   (let [profile (python.profiles/builtin id)
         manifest (antlr-manifest id profile)
         legacy? (= id python.contract/legacy-id)
@@ -118,26 +158,25 @@
                         (python.profiles/verify-builtin! id)
                         (lower packet session (:descriptor profile)))]
     (frontend/install catalog manifest
-      (cond-> {:parse (fn [source]
-                         (python.profiles/verify-builtin! id)
-                         (parse-python source))
-               :lower (fn [packet] (first (lower-session packet nil)))
-               :lower-session lower-session
-               :derive (fn [packet ast] (python.profiles/derivation manifest profile packet ast))
-               :probe (fn [source]
-                        (python.profiles/verify-builtin! id)
-                        (python.probe/probe source))
-               :render (if legacy? python.repl/display-value python.repl/display-clojure-value)}
-        legacy? (assoc :primitives python.repl/primitives)
-        (not legacy?) (assoc :admit clj-runtime/admit)))))
+                      (cond-> {:parse (fn [source]
+                                        (python.profiles/verify-builtin! id)
+                                        (parse-python source))
+                               :lower (fn [packet] (first (lower-session packet nil)))
+                               :lower-session lower-session
+                               :derive (fn [packet ast] (python.profiles/derivation manifest profile packet ast))
+                               :probe (fn [source]
+                                        (python.profiles/verify-builtin! id)
+                                        (python.probe/probe source))
+                               :render (if legacy? python.repl/display-value python.repl/display-clojure-value)}
+                        legacy? (assoc :primitives python.repl/primitives)
+                        (not legacy?) (assoc :admit clj-runtime/admit)))))
 
 
 (defn standard
   "The standard immutable frontend catalog and its preferred revisions."
   []
   (let [catalog (cond-> frontend/empty-catalog
-                  true (frontend/install (clojure-manifest)
-                                         {:input :forms :parse identity :lower clojure-lower})
+                  true (frontend/install (clojure-manifest) (clojure-binding))
                   #?@(:cljd []
                       :jolt []
                       :default [true (frontend/install
@@ -153,6 +192,7 @@
       #?@(:cljd []
           :jolt []
           :clj [true (ts.frontend/install ts.cst/grammar-id ts.cst/parse-source)]))))
+
 
 (defn create-state
   "`yin.repl/create-state` composed with the standard catalog unless the
