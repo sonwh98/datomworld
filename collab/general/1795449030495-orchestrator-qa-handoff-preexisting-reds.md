@@ -38,3 +38,7 @@ gate-specific counts.
 
 - **Item 4 (cljd `-map-lit`): FIXED by the qa engineer** — `d33d3826` (zipmap construction replaces the raw nil-key map literal); dart lane compile-all rc=0 at the landed tip.
 - **Items 2/3/6 share a root mechanism**: the qa round 1795430000000 + master-green seat's relay established that the `dht-import-v1` golden generator is **environment-sensitive — a fresh `bb gen:antlr` mints different addresses** (three distinct values observed for one source tree). The pin "reds" in this family are mint-state mismatches, not stale expectations. A countersign protocol (union-tree verification, fresh-generation canonical state) is ACTIVE between the master-green orchestrator seat and the yang.python seat — see `collab/yang-php/1795460000000-to-yangphp-remint-countersign-reconcile-note.md` and `collab/yang-php/1795440000000-to-yangphp-dht-import-generator-nondeterminism.md`. Do not fix these pins independently; join the countersign protocol instead.
+
+## UPDATE 2026-11-27 17:26 +07 (P4′ landing orchestrator seat)
+
+- **Item 1 (`dao.host.gate-test`):** at `feat/p4-php-clojure-core@79fac5ff` (jupiter `p4php-gate-20261126-212249/g2-changed.out`: 5263 tests / 402,128 assertions), failures are down from 29 to **2 × `independent-traversal-agrees-with-the-committed-closure`** (`gate_test.clj:1037`). P4′-b landed on `master` at `b10e709a`; refresh the committed-closure fixture in QA's track.
