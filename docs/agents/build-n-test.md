@@ -662,21 +662,25 @@ Gambit pin but with prerequisites that actually bite (the mise.toml `[env]`
 comments are the normative record; root cause + evidence: engineer round
 2026-11-27, guile/toolchain Phase 1):
 
-- **macOS (arm64):** `brew install pkg-config gmp libunistring libffi bdw-gc
-  readline`, then `mise install guile` (a 15-25 min serial build; run it with a
+- **macOS (arm64):** `brew install pkg-config gmp libunistring bdw-gc
+  readline` (libffi comes from the SDK via Homebrew pkg-config's built-in
+  .pc), then `mise install guile` (a 15-25 min serial build; run it with a
   timeout, never in the foreground of an interactive session). The mise.toml
-  `[env]` table feeds configure the brew prefixes, the SDK's system libffi
-  (`FFI_CFLAGS` resolves via `xcrun --show-sdk-path` at template render time),
-  and `ac_cv_func_pipe2=no`: the macOS 26 SDK declares `pipe2` a macOS 27
-  symbol, so the detected-and-called system `pipe2` resolves through a NULL
-  weak import on a macOS 26 runtime and the freshly built guile segfaults at
-  `scm_i_init_guile` inside gnulib's `rpl_pipe2` — the override selects
-  gnulib's `pipe()`+`fcntl` fallback. Homebrew's own guile bottle never sees
-  this because it was built where SDK availability matched its runtime. The
-  plugin GPG-verifies the tarball; the 3.0.11 signer key (Ludovic Courtès)
-  auto-retrieves from keys.openpgp.org (3.0.10's Andy Wingo key did not; one
-  reason the pin is 3.0.11, never 3.0.9 which does not build against
-  libgc 8.2.x).
+  `[env]` sets exactly one variable, `GUILE_CONFIG_OPTIONS`: the brew
+  prefixes plus `ac_cv_func_pipe2=no` — the macOS 26 SDK declares `pipe2` a
+  macOS 27 symbol, so the detected-and-called system `pipe2` resolves
+  through a NULL weak import on a macOS 26 runtime and the freshly built
+  guile segfaults at `scm_i_init_guile` inside gnulib's `rpl_pipe2`; the
+  override selects gnulib's `pipe()`+`fcntl` fallback. Nothing else is
+  passed (review 1795792000000 P2): Homebrew's pkg-config resolves libffi
+  and bdw-gc on its own, and no LDFLAGS is needed — every brew dependency
+  links by absolute install name, so a repo-wide `LDFLAGS` would only leak
+  into other tools' builds (gambit/chez plugins, CMake's jolt-native link).
+  Homebrew's own guile bottle never sees the crash because it was built
+  where SDK availability matched its runtime. The plugin GPG-verifies the
+  tarball; the 3.0.11 signer key (Ludovic Courtès) auto-retrieves from
+  keys.openpgp.org (3.0.10's Andy Wingo key did not; one reason the pin is
+  3.0.11, never 3.0.9 which does not build against libgc 8.2.x).
 - **Linux (Debian family):** the `:os-packages :debian :required` entries in
   jolt-toolchain.edn cover the build — `libgmp-dev libunistring-dev libgc-dev
   libffi-dev pkg-config` (readline optional, `:unverified`) — and `mise install
@@ -684,11 +688,13 @@ comments are the normative record; root cause + evidence: engineer round
   the kernel `pipe2` is real.
 - `bb bootstrap:jolt` treats guile as **warning-only in Phase 1**
   (`:warning-only` on the `:guile` entry in jolt-toolchain.edn): with the tool
-  installed it resolves the pin, checks `guile --version` and an interpreter
-  smoke, and exports `JOLT_GUILE` in build/tools/jolt-env.sh; missing or
-  mismatched guile prints a warning and leaves `JOLT_GUILE` unset so the Chez
-  and Gambit lanes are unaffected. The Guile-port Phase 2 gates remove the
-  flag and the same checks become bootstrap failures.
+  installed it resolves the install directory with `mise where guile@<pin>`
+  (a query that never auto-installs and never consults PATH), checks the
+  declared binary, `guile --version` and an interpreter smoke, and exports
+  `JOLT_GUILE` in build/tools/jolt-env.sh; missing or mismatched guile prints
+  a warning and leaves `JOLT_GUILE` unset so the Chez and Gambit lanes are
+  unaffected. The Guile-port Phase 2 gates remove the flag and the same
+  checks become bootstrap failures.
 
 ### Which lanes may overlap (reconciling the one-lane-set rule)
 

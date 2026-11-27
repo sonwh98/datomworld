@@ -27,15 +27,16 @@ gambit = "4.9.8"
 # verified 3.0.11 tarball from ftp.gnu.org from source, pinned to its full
 # HEAD SHA. Never "latest"; 3.0.9 does not build against libgc 8.2.x (probe
 # 1794971000000). Fresh installs are a 15-25 min serial build.
-# darwin-arm64 needs the [env] overrides below: the macOS 26 SDK declares
+# darwin-arm64 needs the [env] override below: the macOS 26 SDK declares
 # pipe2 a macOS 27 symbol, configure detects it, and libguile's gnulib
 # rpl_pipe2 calls it through a weak import that is NULL on a macOS 26
 # runtime — segfault at scm_i_init_guile (the 2026-11-27 mise probe crash,
 # crash report guile-2026-11-27-172143.ips). ac_cv_func_pipe2=no selects
 # gnulib's pipe()+fcntl fallback and is the fix. macOS brew prerequisites:
-# pkg-config gmp libunistring libffi bdw-gc readline (docs/agents/
-# build-n-test.md). Linux renders the [env] overrides empty and needs none
-# of them (real pipe2; Debian packages in jolt-toolchain.edn :os-packages).
+# pkg-config gmp libunistring bdw-gc readline, with libffi coming from the
+# SDK through Homebrew pkg-config's built-in .pc (docs/agents/
+# build-n-test.md). Linux renders the [env] override empty and needs none
+# of it (real pipe2; Debian packages in jolt-toolchain.edn :os-packages).
 guile = "3.0.11"
 cmake = "4.4.4"
 android-sdk = "latest"
@@ -62,22 +63,22 @@ path = [
 [env]
 #FLUTTER_STORAGE_BASE_URL = "https://storage.flutter-io.cn"
 #PUB_HOSTED_URL = "https://pub.flutter-io.cn"
-# Guile source-build variables, consumed by the mise-guile plugin's
-# ./configure (verified 2026-11-27: [env] reaches plugin install scripts,
-# plain values and tera templates both). macOS-only; on Linux every value
-# renders to the empty string and configure uses pkg-config plus the real
-# pipe2. ac_cv_func_pipe2=no is the darwin-arm64 crash fix described at the
-# guile pin above. FFI_* point at the SDK's system libffi (the same
-# /usr/lib/libffi.dylib Homebrew's own guile links), configure's pkg-config
-# probe does not find Homebrew's keg-only bdw-gc so BDW_GC_* supply its
-# paths, and the rpath covers the brew lib dir for build-tree binaries
-# during the stage0 bootstrap.
+# Guile source-build configure arguments, consumed only by the mise-guile
+# plugin's ./configure (verified 2026-11-27: [env] reaches plugin install
+# scripts). macOS-only; Linux renders empty and configure uses its own
+# probes plus the real pipe2. This is the ONE variable the repo sets for
+# guile (review 1795792000000 P2): libffi and bdw-gc are deliberately NOT
+# passed — Homebrew's pkg-config resolves both on its own (its built-in
+# SDK libffi .pc for the system /usr/lib/libffi.dylib, and
+# /opt/homebrew/lib/pkgconfig/bdw-gc.pc; note configure reads
+# LIBFFI_CFLAGS/LIBFFI_LIBS, not FFI_*) — and no LDFLAGS is passed either:
+# every Homebrew dependency links by absolute install name, not @rpath, so
+# neither the stage0 build-tree binaries nor the installed tree needs an
+# rpath (verified by the 2026-11-28 fresh install; a top-level [env] LDFLAGS
+# leaked into the gambit/chez plugin builds and CMake's jolt-native link,
+# which must gain no extra rpath, and exported "" on Linux, clobbering an
+# outer value).
 GUILE_CONFIG_OPTIONS = '{% if os() == "macos" %}--disable-nls --with-libgmp-prefix=/opt/homebrew/opt/gmp --with-libunistring-prefix=/opt/homebrew/opt/libunistring --with-libreadline-prefix=/opt/homebrew/opt/readline ac_cv_func_pipe2=no{% endif %}'
-FFI_CFLAGS = '{% if os() == "macos" %}-I{{ exec(command="xcrun --show-sdk-path") }}/usr/include/ffi{% endif %}'
-FFI_LIBS = '{% if os() == "macos" %}-lffi{% endif %}'
-BDW_GC_CFLAGS = '{% if os() == "macos" %}-I/opt/homebrew/opt/bdw-gc/include{% endif %}'
-BDW_GC_LIBS = '{% if os() == "macos" %}-L/opt/homebrew/opt/bdw-gc/lib -lgc{% endif %}'
-LDFLAGS = '{% if os() == "macos" %}-Wl,-rpath,/opt/homebrew/lib{% endif %}'
 
 [plugins]
 gambit = "https://github.com/joeljuca/asdf-gambit#b8a901e7af845c8b0a0ee1adc5b67687ba4c582b"
