@@ -127,6 +127,14 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 |                             | **Best for:** System architecture, design/code review, complex     | headless tasks requiring in-session JVM test execution.             |
 |                             | debugging, and multi-step implementation.                          |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gemini-4-carbon`           | Strongest Gemini 4 frontier reasoning model (extends Argon with   | Slowest and most verbose Gemini 4 tier (heavy thinking-token burn; |
+|                             | deeper verification loops); 1M unified context, long decode up to | higher latency/cost: $2/$10 per 1M intro, $4/$20 from 2026-12-01). |
+|                             | 1M tokens, multimodal input (text/image/video/audio/PDF), and     | No xhigh effort, explicit caching (implicit only), or Live API;    |
+|                             | configurable effort (low/medium/high). Excels at cybersecurity,   | strict JSON needs explicit schemas. **Avoid for:** Routine edits,  |
+|                             | formal/invariant verification, and long-horizon coding. **Best    | high-volume/latency-sensitive TDD or QA loops (use Hydrogen/Neon), |
+|                             | for:** Hardest architecture, security sign-offs, cross-subsystem  | tasks where Argon or Neon already suffice, and same-family Gemini  |
+|                             | root-cause debugging, and complex multi-step engineering.         | review of Gemini-authored work.                                    |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gemini-4-hydrogen`         | Fast, low-latency Gemini 4 workhorse (~2x cheaper per token than   | Defaults to high effort (adds reasoning token overhead if untuned); |
 |                             | Neon); 1M unified context, multimodal support, and configurable    | shallower reasoning than Neon and sits below Argon on high-order    |
 |                             | effort (low/medium/high/xhigh). **Best for:** High-throughput      | axiomatic proofs. **Avoid for:** Complex multi-file coding/debugging|
