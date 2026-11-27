@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Review complete. The findings are at `collab/yang-clojure/1795455124699-reviewer-p4-php-clojure-core.glm.findings.md`.
+
+## Summary
+
+I reviewed the uncommitted P4′-b diff read-only: the 5 new files whole (php `contract`/`profiles`/`clj_runtime`, the descriptor-profile test) and the 3 modified namespaces hunk-by-hunk, against design r8 §6.3/§6.4 item 6/§9, the engineer brief, the landed P3′ python template, and the frozen native `php/run-main`.
+
+**What verifies clean:**
+- **Dual-shape entry contract (focus 1)** — `entry-lowering` records the frozen 4-param `php/run-main` with `:call-shapes #{2 4}` and an operands map (request stream in slot two); I confirmed the recorded `:params` match the actual lambda at `prelude.cljc:5863`. The `yang.core.semantics` generalization is the map-operands branch in `callable!` (contract-recorded, prelude untouched); `entry-operands` rejects a 3-operand call and the test exercises 2-pass/4-pass/3-fail plus role-substitution refusals.
+- **Legacy preservation (focus 2)** — every legacy hunk is an `app* 'php/x` → identical-symbol hook swap; I verified node-identity for the changed literal defaults (`u/sexp->uast` ≡ `u/lit`) and the `2^53` boundary equivalence, so no golden churn by construction.
+- **clj.php adapter (focus 3)** — zero provenance doors; policy handler installed in a save/restore `try-finally` exactly like python's `_run`; stream gating condition matches native.
+- **DEFAULT flip (focus 4)**, **descriptor honesty (focus 5)**, and **fences (focus 6)** all check out, including the correctly `:cljs`-scoped float-restore postwalk.
+
+**Findings owed:**
+1. **MEDIUM** `lower.cljc:3382/3413` — closure `:captures` leak into a `functionDeclaration` nested inside a closure: `inner()`'s `$x` reads the captured value where PHP reads inner's own scope. Silent wrong value; one-line `dissoc` fix.
+2. **MEDIUM** `lower.cljc:813-824` — bare `isset($x)` under the new profile refuses through native hooks blaming `:runtime/native`, while offset-isset and `empty()` work — undeclared, untested, misleading diagnostic.
+3. **LOW** `lower.cljc:1987` — non-legacy `"unset"` arm would silently lower to nil if the capability were ever admitted.
+4. Three NOTEs (`==`/`===` collapse undocumented in the php design table; the two OPEN items judged non-blocking evidence gaps — recommend completing the wide e2e run pre-merge; host `pr-str` in the render).
+
+VERDICT: APPROVED-WITH-FIXES
