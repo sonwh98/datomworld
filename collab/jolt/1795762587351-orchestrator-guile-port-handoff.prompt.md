@@ -220,14 +220,15 @@ report at
 review leaves one narrower hang open: a type that has a `seqFrom` method but
 does not declare `Sorted`, asked through a registered arm whose predicate
 calls `sorted?`. No such type exists in the repo or the local library
-sources. Whether `00cb20b9` is on fork `main` is recorded in the seat
-handoff, `collab/jolt/1795768000502-orchestrator-seat-handoff.prompt.md`,
-section 2. Check the remote yourself:
+sources. It is on fork `main` since 2026-11-27 09:08 GMT (`origin/main` is
+`00cb20b9`). The same commit passed the fix branch's CI run `45965692509`
+(all four `test` shards, all three Android shards). `main`'s own run is
+`45971171442`; the outgoing seat had not read it. Read it before relying on
+it, and check the remote yourself:
 
     git -C /Users/sto/workspace/jolt fetch origin
-    git -C /Users/sto/workspace/jolt rev-parse --short origin/main   # 00cb20b9 = landed
-
-Check fork `main` is green on CI before relying on it.
+    git -C /Users/sto/workspace/jolt rev-parse --short origin/main   # expect 00cb20b9
+    gh run view 45971171442 --repo sonwh98/jolt --json status,conclusion
 
 What this means for you. Your base lineage (section 6.2) descends from
 pre-sync fork `main`: it has the fork's old `sorted?` and it does NOT have

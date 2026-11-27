@@ -57,10 +57,18 @@ Consequences:
   how tests are run.
 
 --------------------------------------------------------------------------------
-## 2. First job: land the fix for the red CI on fork `main`
+## 2. First job: the fix for the red CI on fork `main` (landed)
 --------------------------------------------------------------------------------
 
-This is the owner's live problem. Do it before starting the Guile track.
+STATUS, 2026-11-27 09:08 GMT: landed. `origin/main` is `00cb20b9`, a
+fast-forward from `e457adc9`, pushed by the outgoing seat at 09:08:09 GMT.
+The fix branch's CI run on the same commit (`45965692509`) passed all four
+`test` shards and all three Android shards, plus clj-kondo, the macOS build
+and the Windows dependency job. `main`'s own run is `45971171442`; its
+result is under "What is NOT done" below. What is left of this job is step 4
+(read `main`'s CI) and step 5 (record it).
+
+This was the owner's live problem. Close it before starting the Guile track.
 
 ### What is wrong
 
@@ -118,9 +126,12 @@ parent `e457adc9`. Landing it on `main` is a fast-forward. Local worktree:
   returns normally.
 - The cross-family reviewer re-ran `make unit` twice on the same bytes:
   `2828/2828` (152 s and 161 s). It did not run `sorted-test.ss`.
-- All of this on darwin-arm64 only. The fix branch's own CI run
-  (`45965692509`, started 2026-11-27 08:26 GMT, all shards) had not finished
-  when this was written. Read it before you trust Linux, Android or Windows:
+- Beyond darwin-arm64: the fix branch's CI run `45965692509` passed on Linux
+  (all four `test` shards; `test (4/4)` took 40 minutes, where the unfixed
+  `main` was shut down at 94) and on Android (all three shards;
+  `Android (bionic 2/3)`, killed on the unfixed `main`, took 15 minutes).
+  clj-kondo, the macOS build and the Windows dependency job passed too.
+  Every job in that run:
 
       gh run view 45965692509 --repo sonwh98/jolt --json jobs --jq '.jobs[] | "\(.conclusion)\t\(.name)"'
 
@@ -164,17 +175,19 @@ follow-up. Only note 2 changes what the fork answered before the fix.
 
 ### What is NOT done
 
-- The push to `main`, unless the outgoing seat finished it after this was
-  written. Check first:
+- The CI result on `main`. Run `45971171442` on `00cb20b9` was queued at
+  2026-11-27 09:08 GMT and had not been read when this was written. Read it
+  (step 4). It is the same commit as the green branch run `45965692509`. If
+  it is red, suspect a flake or an infrastructure job first, and read the
+  log before concluding anything.
 
-      git -C /Users/sto/workspace/jolt fetch origin
-      git -C /Users/sto/workspace/jolt rev-parse --short origin/main
-
-  `00cb20b9` means it landed: do step 4 of the steps below. `e457adc9`
-  means it did not: do steps 1 to 4.
-- The CI result on `main`.
+Nothing else. The landing is done: `origin/main` moved from `e457adc9` to
+`00cb20b9` at 2026-11-27 09:08:09 GMT, after the branch's CI had passed its
+`test` and Android shards.
 
 ### Steps
+
+Steps 1 to 3 are done; they stay as the record of how. Do steps 4 and 5.
 
 1. Re-verify, about 5 minutes:
 
