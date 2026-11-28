@@ -75,10 +75,11 @@
   :patches []}
 
  ;; Host OS packages (owner 2026-10-20: Linux = the Debian family with apt).
- ;; `bb bootstrap:jolt` checks :required with dpkg-query on hosts whose
- ;; /etc/os-release ID or ID_LIKE names debian, BEFORE anything mise builds,
- ;; and fails naming the missing packages and the exact
- ;; `sudo apt-get install -y ...` command. It never runs sudo or apt.
+ ;; `bb bootstrap:jolt` checks :required (plus :guile-required once :guile
+ ;; :warning-only is false) with dpkg-query on hosts whose /etc/os-release
+ ;; ID or ID_LIKE names debian, BEFORE anything mise builds, and fails naming
+ ;; the missing packages and the exact `sudo apt-get install -y ...` command.
+ ;; It never runs sudo or apt.
  ;; :unverified entries are candidates with no step shown to need them yet;
  ;; they are listed, not checked. Chez and CMake stay mise-provided.
  :os-packages
@@ -103,17 +104,20 @@
     "git" "bootstrap:jolt clone and verification"
     ;; J1b: native/jolt-crypto compiles against the libcrypto headers
     ;; (openssl/evp.h) and links the declared :native :libcrypto path
-    "libssl-dev" "J1b native build (libcrypto headers and link, native/jolt-crypto)"
-    ;; the mise-guile plugin builds guile 3.0.11 from source (mise.toml guile
-    ;; pin); configure hard-requires these where the macOS analogues come
-    ;; from Homebrew (probe 1794971000000). Linux needs no [env] overrides:
-    ;; configure finds these via its own probes/pkg-config and the kernel's
-    ;; pipe2 is real. Verified on shiva 2026-11-27 ONLY as the dpkg-query
-    ;; fail-closed preflight (bb bootstrap:jolt failing with exactly the
-    ;; missing set above); the mise install/build and bootstrap pass are
-    ;; still pending there on `sudo apt-get install -y libgc-dev libgmp-dev
-    ;; libunistring-dev` (see docs/agents/build-n-test.md Guile notes).
-    "libgmp-dev" "mise Guile source build (bignums)"
+    "libssl-dev" "J1b native build (libcrypto headers and link, native/jolt-crypto)"}
+   ;; the mise-guile plugin builds guile 3.0.11 from source (mise.toml guile
+   ;; pin); configure hard-requires these where the macOS analogues come
+   ;; from Homebrew (probe 1794971000000). Linux needs no [env] overrides:
+   ;; configure finds these via its own probes/pkg-config and the kernel's
+   ;; pipe2 is real. Enforced by `bb bootstrap:jolt` only when :guile
+   ;; :warning-only is false (Phase 4+), so existing Debian users running
+   ;; Chez/Gambit without Guile dev headers are not blocked in Phase 1.
+   ;; On shiva (linux-x86_64, Ubuntu 24.04.5): the dpkg-query preflight ran
+   ;; 2026-11-27, and after installing the missing dev packages both
+   ;; `mise install guile@3.0.11` and `bb bootstrap:jolt` passed on
+   ;; 2026-11-28 (see docs/agents/build-n-test.md Guile notes).
+   :guile-required
+   {"libgmp-dev" "mise Guile source build (bignums)"
     "libunistring-dev" "mise Guile source build (Unicode strings)"
     "libgc-dev" "mise Guile source build (Boehm GC, pkg-config bdw-gc)"
     "libffi-dev" "mise Guile source build (foreign function interface)"

@@ -19,9 +19,10 @@
      Phase 1) a missing or mismatched guile only warns and leaves JOLT_GUILE
      unset, so hosts without the 15-25 min from-source build bootstrap fine.
    * First of all, on a Debian-family host, the :os-packages :debian
-     :required packages are checked with dpkg-query; a missing one fails the
-     task before mise is asked for anything, naming the exact
-     `sudo apt-get install -y ...` command. Nothing here runs sudo or apt.
+     :required packages (plus :guile-required once :guile :warning-only is
+     false) are checked with dpkg-query; a missing one fails the task before
+     mise is asked for anything, naming the exact `sudo apt-get install -y ...`
+     command. Nothing here runs sudo or apt.
      Test seam: JOLT_BOOTSTRAP_TEST_DEBIAN_INSTALLED=pkg,pkg,... treats the
      host as Debian and those packages as the installed set (no dpkg-query).
 
@@ -112,8 +113,15 @@
                   (binding [*out* *err*]
                     (println "bootstrap:jolt WARNING:" (apply str msg)))
                   (apply fail! msg)))
-        r (p/shell {:out :string :err :string :continue true}
-                   "mise" "where" (str "guile@" version))
+        run-safe (fn [& args]
+                   (try
+                     (apply p/shell {:out :string :err :string :continue true} args)
+                     (catch Exception e
+                       {:exit -1
+                        :out ""
+                        :err (or (.getMessage e) (str e))
+                        :exception e})))
+        r (run-safe "mise" "where" (str "guile@" version))
         dir (when (zero? (:exit r)) (str/trim (:out r)))
         guile (when (and (not (str/blank? dir))
                          (fs/exists? dir)
@@ -125,29 +133,33 @@
                 guile)]
     (if-not guile
       (do (bail! "guile@" version " is not installed (or its declared binary "
-                 (pr-str binary) " is missing/not executable); JOLT_GUILE left"
-                 " unset"
+                 (pr-str binary) " is missing/not executable"
+                 (when (:exception r) (str "; " (:err r)))
+                 "); JOLT_GUILE left unset"
                  (when warning-only
                    (str " (warning-only, Guile port Phase 1; provisioning it is"
                         " a 15-25 min from-source `mise install guile@" version
                         "`)")))
           nil)
-      (let [v (p/shell {:out :string :err :string :continue true}
-                       guile "--version")
-            ;; first line: "guile (GNU Guile) 3.0.11"
-            reported (last (str/split (first (str/split-lines
-                                               (str/trim (:out v))))
-                                      #"\s+"))
-            t (p/shell {:out :string :err :string :continue true}
-                       guile "-c" "(display (+ 1 2))")
-            smoke (str/trim (:out t))]
-        (if (and (zero? (:exit v)) (= version reported)
-                 (zero? (:exit t)) (= "3" smoke))
-          (do (println "guile" reported guile) guile)
-          (do (bail! "guile at " guile " reported " (pr-str reported)
-                     " / smoke " (pr-str smoke) ", pinned " version
-                     "; JOLT_GUILE left unset")
-              nil))))))
+      (let [v (run-safe guile "--version")
+            t (when-not (:exception v)
+                (run-safe guile "-c" "(display (+ 1 2))"))]
+        (if (or (:exception v) (:exception t))
+          (do (bail! "guile at " guile " failed to launch ("
+                     (or (:err v) (:err t)) "); JOLT_GUILE left unset")
+              nil)
+          (let [;; first line: "guile (GNU Guile) 3.0.11"
+                reported (last (str/split (first (str/split-lines
+                                                   (str/trim (:out v))))
+                                          #"\s+"))
+                smoke (str/trim (:out t))]
+            (if (and (zero? (:exit v)) (= version reported)
+                     (zero? (:exit t)) (= "3" smoke))
+              (do (println "guile" reported guile) guile)
+              (do (bail! "guile at " guile " reported " (pr-str reported)
+                         " / smoke " (pr-str smoke) ", pinned " version
+                         "; JOLT_GUILE left unset")
+                  nil))))))))
 
 
 (defn- check-cmake
@@ -389,10 +401,13 @@
 
 
 (defn- check-os-packages
-  "Fail, before any mise build, when a declared Debian package is missing."
-  [{:keys [debian]}]
+  "Fail, before any mise build, when a declared Debian package is missing.
+   :guile-required packages are enforced only when (:warning-only guile) is false."
+  [{:keys [debian]} {:keys [warning-only]}]
   (let [seam (System/getenv "JOLT_BOOTSTRAP_TEST_DEBIAN_INSTALLED")
-        required (sort (keys (:required debian)))
+        pkgs-map (cond-> (:required debian)
+                   (not warning-only) (merge (:guile-required debian)))
+        required (sort (keys pkgs-map))
         installed? (cond
                      seam (let [pkgs (set (remove str/blank? (str/split seam #",")))]
                             (println "os-packages: [test seam] Debian path forced; installed ="
@@ -406,7 +421,7 @@
         (when (seq missing)
           (fail! "missing Debian packages: " (str/join " " missing)
                  "\n  needed by: "
-                 (str/join "; " (map #(str % " (" (get-in debian [:required %]) ")") missing))
+                 (str/join "; " (map #(str % " (" (get pkgs-map %) ")") missing))
                  "\n  install them with:\n    sudo apt-get install -y " (str/join " " missing)))
         (println "os-packages: all" (count required) "required Debian packages installed:"
                  (str/join " " required))))))
@@ -415,7 +430,7 @@
 (defn -main
   [& _]
   (let [{:keys [jolt chez gambit guile cmake os-packages]} (edn/read-string (slurp "jolt-toolchain.edn"))
-        _ (check-os-packages os-packages)
+        _ (check-os-packages os-packages guile)
         scheme (check-chez chez)
         gsi (check-gambit gambit)
         guile-bin (check-guile guile)
@@ -433,7 +448,8 @@
                  (if guile-bin
                    (str "export JOLT_GUILE='" guile-bin "'\n")
                    (str "# JOLT_GUILE unset: guile missing or mismatched"
-                        " (warning-only, Guile port Phase 1)\n"))
+                        " (warning-only, Guile port Phase 1)\n"
+                        "unset JOLT_GUILE\n"))
                  "export JOLT_HOME='" dir "'\n"
                  "export JOLT_PATCHES='" record "'\n"))
       (println "wrote" env-file))))
@@ -494,13 +510,19 @@
 
 
 (defn- test-guile-absent!
-  "Negative gate for the warning-only guile check (review 1795792000000 P1):
-   run a real bootstrap against a toolchain whose :guile pin no mise install
-   can satisfy (9.9.9) and assert it (a) still exits 0 with the warning,
-   (b) leaves JOLT_GUILE unset, and (c) never asked mise to install anything
-   and never resolved guile through `mise exec`/PATH. (c) is asserted from a
-   mise call log: the child runs with a shim `mise` first on PATH that
-   records every invocation and forwards to the real one."
+  "Negative gate for the warning-only guile check (reviews 1795792000000 P1
+   and guile-toolchain-r4):
+   1. Absent pin (9.9.9) with :warning-only true and ONLY the 6 base Debian
+      packages installed: exits 0 with warning, passes check-os-packages
+      without :guile-required packages, emits `unset JOLT_GUILE` in
+      jolt-env.sh (verified by sourcing with JOLT_GUILE pre-set), and never
+      runs mise install/network/exec against guile.
+   2. :warning-only false with only the 6 base Debian packages installed:
+      fails preflight naming the 5 missing :guile-required packages before
+      mise runs.
+   3. Unlaunchable binary (bad shebang -> IOException in p/shell) under
+      :warning-only true: caught cleanly, routes through bail! warning, exits
+      0 with `unset JOLT_GUILE`."
   []
   (let [toolchain (edn/read-string (slurp "jolt-toolchain.edn"))
         script (str (fs/absolutize "src/dev/jolt_bootstrap.clj"))
@@ -511,59 +533,103 @@
         clone (str (fs/absolutize (fs/path root "jolt")))
         shim-dir (str (fs/path root "mise-shim"))
         log (str (fs/path root "mise-calls.log"))
-        _ (fs/create-dirs shim-dir)
-        _ (spit (str (fs/path shim-dir "mise"))
-                (str "#!/bin/sh\n"
-                     "echo \"$@\" >> " log "\n"
-                     "exec " (str/trim (:out (p/shell {:out :string} "which" "mise")))
-                     " \"$@\"\n"))
-        _ (p/shell {:continue true} "chmod" "+x" (str (fs/path shim-dir "mise")))
+        fake-guile-dir (str (fs/path root "fake-guile"))
+        fake-guile-bin (str (fs/path fake-guile-dir "bin" "guile"))
+        real-mise (str/trim (:out (p/shell {:out :string} "which" "mise")))
+        base-debian "libncurses-dev,libx11-dev,gcc,make,git,libssl-dev"
+        guile-pkgs ["libffi-dev" "libgc-dev" "libgmp-dev" "libunistring-dev" "pkg-config"]
         installs (fs/path (System/getenv "HOME")
                           ".local" "share" "mise" "installs" "guile" "9.9.9")]
     (println "guile-absent gate temporary directory (retained on failure):" (str root))
+    (fs/create-dirs shim-dir)
+    (fs/create-dirs (fs/parent fake-guile-bin))
+    (spit fake-guile-bin "#!/nonexistent/guile-test-interp\n")
+    (p/shell {:continue true} "chmod" "+x" fake-guile-bin)
+    (spit (str (fs/path shim-dir "mise"))
+          (str "#!/bin/sh\n"
+               "echo \"$@\" >> " log "\n"
+               "if [ \"$1\" = \"where\" ] && [ \"$2\" = \"guile@9.9.8\" ]; then\n"
+               "  echo " fake-guile-dir "\n"
+               "  exit 0\n"
+               "fi\n"
+               "exec " real-mise " \"$@\"\n"))
+    (p/shell {:continue true} "chmod" "+x" (str (fs/path shim-dir "mise")))
     (fs/copy-tree source clone)
-    (let [test-toolchain (-> toolchain
-                             (assoc-in [:guile :version] "9.9.9")
-                             (assoc-in [:jolt :dir] clone))]
-      (spit (str (fs/path root "jolt-toolchain.edn")) (pr-str test-toolchain))
-      (when (fs/exists? (str installs))
-        (fail! "guile-absent gate: " (str installs) " already exists; refusing to run"))
-      (let [r (p/shell {:dir (str root) :out :string :err :string :continue true
-                        :extra-env {"PATH" (str shim-dir fs/path-separator
-                                                (System/getenv "PATH"))}}
-                       "bb" script)
-            output (str (:out r) (:err r))
-            env-file (str (fs/path root "jolt-env.sh"))
-            env-text (slurp env-file)
-            calls (if (fs/exists? log)
-                    (remove str/blank? (str/split-lines (slurp log)))
-                    [])]
-        (println "mise calls during the run:" (pr-str calls))
-        (let [checks
-              [["exit 0 with warning-only" (and (zero? (:exit r))
-                                                (str/includes? output
-                                                               "WARNING: guile@9.9.9"))]
-               ["JOLT_GUILE unset in jolt-env.sh"
-                (and (str/includes? env-text "# JOLT_GUILE unset")
-                     (not (re-find #"(?m)^export JOLT_GUILE=" env-text)))]
-               ["mise where called for guile@9.9.9"
-                (some #(= "where guile@9.9.9" %) calls)]
-               ["no mise install or network command attempted"
-                (not (some #(re-matches #"(install|ls-remote|sync|upgrade|up)\b.*" %)
-                           calls))]
-               ["no mise exec against guile"
-                (not (some #(str/includes? % "guile@9.9.9")
-                           (filter #(str/starts-with? % "exec") calls)))]
-               ["guile@9.9.9 not materialized" (not (fs/exists? (str installs)))]]
-              failed (remove second checks)]
-          (doseq [[label _] checks]
-            (println (if (some #(= label (first %)) failed) "FAIL" "PASS") label))
-          (when (seq failed)
-            (fail! "guile-absent negative gate failed: " (pr-str (map first failed))
-                   "\n" output)))
-        (fs/delete-tree root)
-        (println "guile-absent negative gate passed; deleted temporary directory:"
-                 (str root))))))
+    (when (fs/exists? (str installs))
+      (fail! "guile-absent gate: " (str installs) " already exists; refusing to run"))
+    (let [run-case (fn [tc extra-env]
+                     (spit log "")
+                     (spit (str (fs/path root "jolt-toolchain.edn")) (pr-str tc))
+                     (let [r (p/shell {:dir (str root) :out :string :err :string :continue true
+                                       :extra-env (merge {"PATH" (str shim-dir fs/path-separator
+                                                                      (System/getenv "PATH"))}
+                                                         extra-env)}
+                                      "bb" script)
+                           calls (if (fs/exists? log)
+                                   (remove str/blank? (str/split-lines (slurp log)))
+                                   [])]
+                       {:exit (:exit r)
+                        :output (str (:out r) (:err r))
+                        :calls calls}))
+          tc-absent (-> toolchain
+                        (assoc-in [:guile :version] "9.9.9")
+                        (assoc-in [:jolt :dir] clone))
+          r1 (run-case tc-absent {"JOLT_BOOTSTRAP_TEST_DEBIAN_INSTALLED" base-debian})
+          env-file (str (fs/path root "jolt-env.sh"))
+          env-text (slurp env-file)
+          src-check (p/shell {:out :string :err :string :continue true}
+                             "sh" "-c"
+                             "export JOLT_GUILE=/stale/guile; . \"$1\"; test -z \"${JOLT_GUILE+x}\""
+                             "sh" env-file)
+          r2 (run-case (assoc-in tc-absent [:guile :warning-only] false)
+                       {"JOLT_BOOTSTRAP_TEST_DEBIAN_INSTALLED" base-debian})
+          tc-launch (-> toolchain
+                        (assoc-in [:guile :version] "9.9.8")
+                        (assoc-in [:jolt :dir] clone))
+          r3 (run-case tc-launch {})
+          env-text3 (slurp env-file)
+          checks
+          [["absent: exit 0 with warning-only and 6 base Debian pkgs"
+            (and (zero? (:exit r1))
+                 (str/includes? (:output r1) "WARNING: guile@9.9.9")
+                 (str/includes? (:output r1) "all 6 required Debian packages installed"))]
+           ["absent: jolt-env.sh emits unset JOLT_GUILE"
+            (and (str/includes? env-text "unset JOLT_GUILE\n")
+                 (not (re-find #"(?m)^export JOLT_GUILE=" env-text)))]
+           ["absent: sourcing jolt-env.sh clears pre-set JOLT_GUILE"
+            (zero? (:exit src-check))]
+           ["absent: mise where called for guile@9.9.9"
+            (some #(= "where guile@9.9.9" %) (:calls r1))]
+           ["absent: no mise install or network command attempted"
+            (not (some #(re-matches #"(install|ls-remote|sync|upgrade|up)\b.*" %)
+                       (:calls r1)))]
+           ["absent: no mise exec against guile"
+            (not (some #(str/includes? % "guile@9.9.9")
+                       (filter #(str/starts-with? % "exec") (:calls r1))))]
+           ["absent: guile@9.9.9 not materialized" (not (fs/exists? (str installs)))]
+           ["required: warning-only false fails preflight on missing guile-required pkgs"
+            (and (= 1 (:exit r2))
+                 (empty? (:calls r2))
+                 (every? #(str/includes? (:output r2) %) guile-pkgs))]
+           ["launch-error: IOException caught and routed via warning-only bail!"
+            (and (zero? (:exit r3))
+                 (str/includes? (:output r3) "WARNING: guile at ")
+                 (str/includes? (:output r3) "failed to launch")
+                 (str/includes? env-text3 "unset JOLT_GUILE\n"))]]
+          failed (remove second checks)]
+      (println "mise calls (absent case):" (pr-str (:calls r1)))
+      (println "mise calls (warning-only=false Debian preflight):" (pr-str (:calls r2)))
+      (println "mise calls (launch-error case):" (pr-str (:calls r3)))
+      (doseq [[label _] checks]
+        (println (if (some #(= label (first %)) failed) "FAIL" "PASS") label))
+      (when (seq failed)
+        (fail! "guile-absent negative gate failed: " (pr-str (map first failed))
+               "\n--- r1 ---\n" (:output r1)
+               "\n--- r2 ---\n" (:output r2)
+               "\n--- r3 ---\n" (:output r3)))
+      (fs/delete-tree root)
+      (println "guile-absent negative gate passed; deleted temporary directory:"
+               (str root)))))
 
 
 (if (= ["--test-negative"] (vec *command-line-args*))

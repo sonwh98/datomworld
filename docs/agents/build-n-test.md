@@ -681,11 +681,12 @@ comments are the normative record; root cause + evidence: engineer round
   tarball; the 3.0.11 signer key (Ludovic Courtès) auto-retrieves from
   keys.openpgp.org (3.0.10's Andy Wingo key did not; one reason the pin is
   3.0.11, never 3.0.9 which does not build against libgc 8.2.x).
-- **Linux (Debian family):** the `:os-packages :debian :required` entries in
-  jolt-toolchain.edn cover the build — `libgmp-dev libunistring-dev libgc-dev
-  libffi-dev pkg-config` (readline optional, `:unverified`) — and `mise install
-  guile` needs no `[env]` overrides: configure's own probes find the libs and
-  the kernel `pipe2` is real.
+- **Linux (Debian family):** the `:os-packages :debian :guile-required` entries
+  in jolt-toolchain.edn cover the build — `libgmp-dev libunistring-dev
+  libgc-dev libffi-dev pkg-config` (enforced once `:guile :warning-only` is
+  false; readline optional, `:unverified`) — and `mise install guile` needs
+  no `[env]` overrides: configure's own probes find the libs and the kernel
+  `pipe2` is real.
 - `bb bootstrap:jolt` treats guile as **warning-only in Phase 1**
   (`:warning-only` on the `:guile` entry in jolt-toolchain.edn): with the tool
   installed it resolves the install directory with `mise where guile@<pin>`
