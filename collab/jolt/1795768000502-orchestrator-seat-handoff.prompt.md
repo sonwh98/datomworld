@@ -64,9 +64,10 @@ STATUS, 2026-11-27 09:08 GMT: landed. `origin/main` is `00cb20b9`, a
 fast-forward from `e457adc9`, pushed by the outgoing seat at 09:08:09 GMT.
 The fix branch's CI run on the same commit (`45965692509`) passed all four
 `test` shards and all three Android shards, plus clj-kondo, the macOS build
-and the Windows dependency job. `main`'s own run is `45971171442`; its
-result is under "What is NOT done" below. What is left of this job is step 4
-(read `main`'s CI) and step 5 (record it).
+and the Windows dependency job. `main`'s own run `45971171442` completed
+GREEN at 09:42:18 GMT: every job success, including all four `test` shards
+and all three Android shards. Nothing of this job remains; step 5 (record
+it) is done in the outgoing seat's log.
 
 This was the owner's live problem. Close it before starting the Guile track.
 
@@ -175,19 +176,19 @@ follow-up. Only note 2 changes what the fork answered before the fix.
 
 ### What is NOT done
 
-- The CI result on `main`. Run `45971171442` on `00cb20b9` was queued at
-  2026-11-27 09:08 GMT and had not been read when this was written. Read it
-  (step 4). It is the same commit as the green branch run `45965692509`. If
-  it is red, suspect a flake or an infrastructure job first, and read the
-  log before concluding anything.
+### What is NOT done
 
-Nothing else. The landing is done: `origin/main` moved from `e457adc9` to
-`00cb20b9` at 2026-11-27 09:08:09 GMT, after the branch's CI had passed its
-`test` and Android shards.
+Nothing in section 2. Both CI runs on `00cb20b9` are green: the branch run
+`45965692509` (all four `test` shards, all three Android shards, clj-kondo,
+macOS, Windows dependency, attribution) and `main`'s run `45971171442`
+(completed 2026-11-27 09:42:18 GMT, every job success, same job list).
+Fork `main` is fixed.
 
 ### Steps
 
-Steps 1 to 3 are done; they stay as the record of how. Do steps 4 and 5.
+Steps 1 to 3 are done and stay as the record of how. Step 4 was done: run
+`45971171442` is green (every job, completed 09:42:18 GMT). Step 5 is done
+in the outgoing seat's log. Nothing below is left to do.
 
 1. Re-verify, about 5 minutes:
 

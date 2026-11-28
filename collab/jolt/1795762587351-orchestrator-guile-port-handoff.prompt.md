@@ -222,9 +222,8 @@ does not declare `Sorted`, asked through a registered arm whose predicate
 calls `sorted?`. No such type exists in the repo or the local library
 sources. It is on fork `main` since 2026-11-27 09:08 GMT (`origin/main` is
 `00cb20b9`). The same commit passed the fix branch's CI run `45965692509`
-(all four `test` shards, all three Android shards). `main`'s own run is
-`45971171442`; the outgoing seat had not read it. Read it before relying on
-it, and check the remote yourself:
+(all four `test` shards, all three Android shards). `main`'s own run `45971171442` completed green at 09:42:18 GMT on
+2026-11-27 (every job success). Verify the remote yourself:
 
     git -C /Users/sto/workspace/jolt fetch origin
     git -C /Users/sto/workspace/jolt rev-parse --short origin/main   # expect 00cb20b9
